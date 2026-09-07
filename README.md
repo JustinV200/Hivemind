@@ -37,7 +37,8 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Cell** | A unit of compute a Worker runs in or on: either a Virtual Cell or a Real Cell |
 | **Virtual Cell** | A fresh VM/container the Hive provisions on demand and tears down when the task ends |
 | **Real Cell** | An existing real device (the Hive Stand, or a device already in the Swarm) borrowed for a task and left exactly as it was found |
-| **Nuc** | A Real Cell with its own Warden and its own model server; keeps working when cut off from the Hive Stand |
+| **Colonized** | A pollinated Real Cell the Hive has fully moved into: its Warden (and sub-bees) live on the device itself, not just their hands reaching in over a session, and it carries its own scaffolded tools and Honey. The threshold is Level 1 of the runtime ladder; colonization outlives any one lease |
+| **Nuc** | A colonized Real Cell that has also gained its own model server; keeps working when cut off from the Hive Stand |
 | **Warden** | The always-on supervisor of one Cell: spawns and watches sub-bees, handles their Alarms, escalates what it can't resolve, never provisions Cells |
 | **Worker** (Worker Bee) | A subagent bound to one Cell, spawned and supervised by that Cell's Warden |
 | **Forager** | A Worker specialized in outbound data gathering (scraping, search, monitoring) |
@@ -82,6 +83,7 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Requeening** | Recovering from a Queen failure / restoring orchestrator state |
 | **Pheromone Trail** | The audit/log trail left by every action in the system |
 | **Observation Hive** | The live UI: every bee's thoughts, every Cell, the Forage split, the Attendant views, a chatbox to the Queen, and a browsable Honey tree. Read-only except the chat |
+| **Three Bees in a Trenchcoat mode**| uses my custom keystroke synthesis model (see keystroke-synthesizer repo), and emulates human like mouse movements, assigned to bees for tasks that require getting through ai detectors.
 | **Hive Manifest** | A config/spec file |
 | **Propolis** | External plugin/extension packages |
 | **Brood** | A release/version (Brood 1.0, Brood 2.0, ...) |
@@ -205,9 +207,11 @@ The packet runs anywhere its small Python runtime does: any Linux distro on x86-
 
 What runs on a device climbs a ladder, and the Queen moves a device up it when the device can bear it and the Hive Stand needs the relief, or when the work has to survive an outage:
 
-- **Level 0**: the gateway only. The Warden and its sub-bees' brains stay on the Hive Stand; only their hands reach the device. If the link drops, the dead-man switch stops the work.
-- **Level 1**: the Warden moves onto the device, by Handoff, and its sub-bees follow, since a Warden and its sub-bees always live together. Models still come from the Hive Stand or a hosted provider. If the link drops, the Warden keeps its sub-bees warm, clusters them because nothing can think, and keeps trying to reconnect.
-- **Level 2**: a model server starts on the device as well, within ceilings the Queen set. This is a **Nuc**. It keeps working through disconnections on its own local pool, queues results, Alarms and any request for shared Forage, and syncs back when the link returns. A device never skips a level: the Warden always arrives before the models.
+- **Level 0**: the gateway only. The Warden and its sub-bees' brains stay on the Hive Stand; only their hands reach the device. If the link drops, the dead-man switch stops the work. The device is pollinated but not yet colonized.
+- **Level 1**: the Warden moves onto the device, by Handoff, and its sub-bees follow, since a Warden and its sub-bees always live together. Models still come from the Hive Stand or a hosted provider. If the link drops, the Warden keeps its sub-bees warm, clusters them because nothing can think, and keeps trying to reconnect. From here the device is **colonized**: the Hive's brain lives on it, and the tools scaffolded for it and the Honey it accumulates stay resident even after any one lease ends and the Warden settles back into Watch mode.
+- **Level 2**: a model server starts on the device as well, within ceilings the Queen set. This is a **Nuc**: a colonized Cell that has also gained its own model server. It keeps working through disconnections on its own local pool, queues results, Alarms and any request for shared Forage, and syncs back when the link returns. A device never skips a level: the Warden always arrives before the models, and a Cell is never a Nuc without first being colonized.
+
+Retrying with backoff is the floor, not the ceiling: wherever a model is actually reachable to do the thinking, the Warden spends a bounded budget on more than waiting. A Nuc spawns a Drone from its own local pool, no permission needed, to diagnose and try to repair the link itself before ever falling back to Clustering. The Hive Stand does the same in reverse for a device it can no longer reach: its own Warden, or that device's Warden if it's still Level 0, spawns a Drone to check reachability from this end. A Level 1 device with no local model has nothing to think with, so it goes straight to clustering and retrying, same as always.
 
 ### 12. Resilience
 - **Clustering**: when a model provider goes away and no fallback fits within Forage, the Queen does not try to limp on. She checkpoints every affected bee, pauses their tasks, keeps every lease and Cell alive, keeps heartbeats and watchdogs running, and resumes everyone from their Handoffs when the provider returns. Bees on other providers carry on.
@@ -304,7 +308,7 @@ flowchart TB
 - **Self-extension is sandboxed**: the Royal Jelly Lab never promotes a tool without a Quarantine Comb pass in an isolated Cell first.
 - **Nothing lands uncapped**: every side effect is proposed with its expected outcome, checked in layers from cheap deterministic rules up to an independent judge, verified by someone other than the bee that did it, and rolled back if wrong.
 - **Idle hardware is watched, not touched**: a Real Cell with no active bees is observed read-only within its access level, reviewed on a schedule, and never written to.
-- **Cut off, a Nuc keeps working**: a device with its own Warden and model continues within its grant during a disconnection and syncs back when the link returns; a device without one stops safely.
+- **Cut off, a Nuc keeps working — and tries to fix it**: a device with its own Warden and model continues within its grant during a disconnection, spends a bounded budget diagnosing and repairing the link itself before falling back to Clustering, and syncs back when the link returns; a device without a model stops safely and waits.
 - **Pause, don't limp**: when a model provider is unavailable, Clustering preserves every bee's context and resumes later rather than running the Hive half-blind.
 
 ---
@@ -328,10 +332,7 @@ Decisions so far, recorded in detail in [`.claude/codingrules.md`](.claude/codin
 HiveMind is capable of remote device control, GUI automation that drives real desktop sessions, and autonomous tool creation, all of which are dual-use. This project is intended for:
 - Automating your **own** infrastructure and accounts.
 - Authorized testing, research, and personal productivity.
-
-It is explicitly **not** intended for unauthorized access to systems you don't own or operate, evading detection or anti-bot measures on services where that violates terms of use, or mass or unattended action against third parties. The Exoskeleton exists so GUI applications can be driven at all; features whose purpose is to defeat a service's controls are out of scope by design. Build and run responsibly.
-
----
+- Please use responsibly
 
 ## Roadmap
 

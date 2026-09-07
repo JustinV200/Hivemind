@@ -41,9 +41,10 @@
   with fallback chains, local first where local exists. A Real Cell with its own Warden and model
   server is a **Nuc** and keeps working when disconnected.
 - **What runs on a device climbs a ladder** (coding rules 8.7): Level 0, gateway only; Level 1,
-  the Warden and its sub-bees on the device; Level 2, a model server as well, which is a Nuc. A
-  Warden and its sub-bees are always co-located, and the Warden is the first bee to move onto a
-  device. Every supervisor, Queen or Warden, has an Attendant ordering its inbox.
+  the Warden and its sub-bees on the device, at which point the Cell is **colonized**; Level 2, a
+  model server as well, which makes a colonized Cell a Nuc. A Warden and its sub-bees are always
+  co-located, and the Warden is the first bee to move onto a device. Every supervisor, Queen or
+  Warden, has an Attendant ordering its inbox.
 - **Supported hosts are Windows 11, Ubuntu LTS and Arch Linux.** The Hive Stand and the whole
   framework run on all three; CI covers Windows and Ubuntu natively and Arch in a container.
   macOS is best-effort. **Virtual Cell images are Ubuntu LTS (24.04)**: reliable, open, widely
@@ -798,6 +799,11 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 - [ ] **6.12 Placement integration.** `TaskNeeds.exoskeleton` drives placement: a Real Cell
   qualifies if it has or can start a display, or the task is browser-only; otherwise a
   `desktop-ubuntu` Virtual Cell.
+- [ ] **6.13 Three Bees in a Trenchcoat mode (policy-gated input profile).**
+  `exoskeleton/antennae/trenchcoat.py`: an optional Antennae profile that varies key timing,
+  pointer speed and pause cadence inside bounded jitter windows, while preserving deterministic
+  replay metadata in the flight recorder. Guarded by explicit capability and policy opt-in only;
+  disabled by default in all manifests. The mode is for compatibility with fragile UI flows.
 
 ### Exit criteria
 
@@ -813,8 +819,6 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 ### ADRs to write
 
 - `exoskeleton-on-x11-with-playwright-fast-path.md`.
-- `exoskeleton-scope-excludes-detection-evasion.md`.
-
 ---
 
 ## Phase 7: Honey Store (knowledge base, the cold tier)
@@ -1023,7 +1027,8 @@ driven remotely and by the dashboard.
 
 - [ ] **10.1 Capability model.** `Capability` families: `tool:<name>`, `tool:scope:cell`,
   `net:<scope>`, `cell:virtual`, `cell:hive_stand`, `cell:real:<node>`, `cell:outside_scratch:<path>`,
-  `exoskeleton`, `exoskeleton:real_display`, `honey:read:<scope>`, `honey:write`,
+  `exoskeleton`, `exoskeleton:real_display`, `exoskeleton:trenchcoat`,
+  `honey:read:<scope>`, `honey:write`,
   `tool:request`, `llm:<slot>`, `warden:spawn`, `forage:request`, `question:human`,
   `observe`, `observe:thoughts`, `observe:honey:<scope>`. `CapabilitySet` with `allows()` and
   `attenuate(subset)`; pure.
@@ -1031,8 +1036,9 @@ driven remotely and by the dashboard.
   escalation rules), pure `evaluate` with a reason; denials are `guard.*` events.
 - [ ] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
   invocation, session calls outside scratch, Exoskeleton attach on a real display, Honey access,
-  slot binding and rebinding, question routing to the human, Nuc promotion, device commands. A
-  test enumerates them and fails if a new state-changing action lacks one.
+  slot binding and rebinding, question routing to the human, Nuc promotion, device commands,
+  and Trenchcoat mode enablement. A test enumerates them and fails if a new state-changing action
+  lacks one.
 - [ ] **10.4 Principals and keys.** Human operator, Queen, Warden, Worker, device; API keys and
   Ed25519 keypairs; secrets hashed.
 - [ ] **10.5 Hive Entrance.** `entrance/app.py`, one route file per resource (`goals`, `tasks`,
@@ -1107,7 +1113,8 @@ promotion, `hive swarm` CLI.
   Warden on the Hive Stand; only their hands are on the device). Placement sees the device; the
   Undertaker releases its leases. Documented limit: remote exec latency; no autonomy when the
   link drops.
-- [ ] **11.6a Level 1: the Warden moves onto the device.** `swarm/level.py` + `pollen/bootstrap/`:
+- [ ] **11.6a Level 1: the Warden moves onto the device (colonization).** `swarm/level.py` +
+  `pollen/bootstrap/`:
   when the Queen decides the device should carry its own Warden (its Forage suffices and the Hive
   Stand needs relief, or the task needs to survive short outages), the packet installs the
   `hivemind` runtime, the Hive Stand Warden checkpoints and hands off, a Warden starts on the
@@ -1142,7 +1149,28 @@ promotion, `hive swarm` CLI.
   shared Forage, human-bound questions), and run full Clustering past the offline limit. On
   reconnection: outbox replay, `TrailSegmentSync`, grant and ceiling reconciliation, local pool
   report, `warden.reconnected`. The Queen's side: mark unreachable, hold the node's tasks for a
-  grace period, then decide.
+  grace period, spawn the diagnostic Drone below, then decide.
+- [ ] **11.9a Active reconnection: a diagnostic Drone on both ends.** Retry-with-backoff (11.9) is
+  the floor for every offline Cell, but wherever a model is actually reachable to do the thinking,
+  the Warden does not just wait on it. A Nuc's Warden (it has its own model server) spawns a
+  short-lived **Drone** from its own local pool — no Cell, Forage or permission needed from the
+  Queen, since a local pool is already owned outright, 8.10 — with the objective "diagnose and, if
+  possible, restore the link." On the Hive Stand side the same thing happens in reverse: for a
+  still-Level-0 device its Warden is still resident on the Hive Stand and notices the drop itself;
+  for a colonized device whose own Warden has migrated away, the Hive Stand's own Warden (`W0`)
+  picks it up on the Queen's behalf and spawns a Drone on the Hive Stand's local pool to check
+  reachability from this end (DNS/route to the device, whether other Swarm nodes are affected too,
+  ruling out "my network" versus "that device"). A Level 1 Warden with no local model skips this
+  entirely and clusters at once exactly as 11.9 already says, because it has nothing to think with.
+  The Drone runs ordinary Capping-gated scratch work through its `CellSession` (`run_command`
+  diagnostics, one-off scripts written to scratch) and never touches the Royal Jelly Lab or the
+  Quarantine Comb, since nothing here is being promoted as a reusable tool for other bees. It is
+  bounded by a `[supervision] reconnect_budget` (attempts and wall-clock) carved out of, not added
+  to, the existing offline limit, so Clustering always still has the same deadline as a backstop.
+  Whatever it tries is still capped by the Cell's access level; being cut off never grants more
+  access than being connected would. It reports back to its Warden — fixed, diagnosed but can't
+  fix, or no cause found — and deposits its findings as Nectar either way, then 11.9's existing
+  timeline resumes untouched.
 - [ ] **11.10 Watch mode and the hourly Patrol.** Real Cells stay enrolled between sessions, so
   their Wardens are long-lived. `wardens/watch/`: when a Real Cell has no active bees its Warden
   enters `WATCH`, a read-only autopilot state that observes within the Cell's access level
@@ -1176,6 +1204,13 @@ promotion, `hive swarm` CLI.
   from HiveMind, the Patrol runs on schedule, and a planted anomaly (a new process eating CPU)
   surfaces as an Alarm at the next Patrol while an uneventful hour records "nothing notable".
 - A replayed or tampered session message is rejected; `pollen` installs on a clean Raspberry Pi OS.
+- Cut a Nuc's link with a planted, reversible problem (e.g. a wrong resolver entry) within reach of
+  its access level: its diagnostic Drone finds and fixes it inside the `reconnect_budget`, and the
+  task completes with no Queen or human involvement. Cut it with an unfixable problem (egress
+  genuinely gone): the Drone gives up inside budget and falls through to 11.9's existing Clustering
+  path unchanged. Symmetrically, unplug a colonized device: `W0` on the Hive Stand spawns its own
+  diagnostic Drone and deposits a Nectar finding before the grace period's existing "then decide"
+  fires.
 
 ### ADRs to write
 
@@ -1185,6 +1220,9 @@ promotion, `hive swarm` CLI.
 - `nucs-warden-migration-and-offline-operation.md`.
 - `access-levels-watch-mode-and-the-patrol.md` (what watch mode may observe per level; never
   screen or input; Patrol cadence; retention).
+- `active-reconnection-diagnostic-drones.md` (why a Drone, not a new role; the reconnect budget
+  is carved out of the offline limit, never added to it; why this never touches the Royal Jelly
+  Lab; who investigates on the Hive Stand side once a device's own Warden has migrated away).
 
 ---
 
@@ -1298,6 +1336,10 @@ down cleanly, releasing every borrowed device and revoking every grant.
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
 - [ ] **13.4 Absconding.** `hive abscond`: Virtual Cells, dormant Cells, every lease on the Hive
   Stand and on devices, every grant, Worker processes, temp dirs; from labels and the trail alone.
+- [ ] **13.4a Sting Cut (per-Cell emergency disconnect).** `hive cells sting-cut <lease|cell>`:
+  immediate lease revocation for one Cell, session key/token invalidation, termination of
+  Hive-started processes for that lease, and idempotent scratch cleanup. Records `cell.sting_cut`
+  with reason and actor in the trail and leaves central audit state intact.
 - [ ] **13.5 Overwintering at scale.** QEMU snapshots and cloud stop; disk accounting; eviction.
 - [ ] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
   refusals, malformed JSON and rate limits from the fake, take a provider down mid-run and assert

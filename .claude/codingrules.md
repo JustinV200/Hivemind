@@ -312,7 +312,8 @@ logs, and the code agree.
 | Forage | `forage` | `HostCapacity`, `Seat`, `RoleFootprint`, `ForageCapacity`, `ForageGrant`, `ForageRequest`, `RoyalReserve`, `LocalPool`, `Ceilings`, `HostingPlan` | Capacity in several dimensions. The Queen divides the shared pool by grant; a Warden divides its local pool under ceilings; grants are leases. |
 | Forage map | `forage/map.py` | `ForageMap`, `ModelSource` | Every source that can serve a model: grade, distance, abundance, cost. |
 | Fanner | `llm/fanner.py` | `Fanner` | The seat meter every model call passes through; enforces grants, measures speed. |
-| Nuc | `swarm` | `NucPromotion` | A Real Cell with its own Warden and model server; keeps working when disconnected. |
+| Colonized | `swarm` | (a `SwarmNode`/`NodeStatus` state, phase 11.2) | A pollinated Real Cell whose Warden and sub-bees have moved onto it (Level 1+); it carries device-scoped tools and Honey that outlive any one lease. |
+| Nuc | `swarm` | `NucPromotion` | A colonized Real Cell that has also gained its own model server; keeps working when disconnected. |
 | Clustering | `queen/cluster/` | `ClusterProtocol` | Pause and preserve while a provider is unavailable; resume from Handoffs. |
 | Observation Hive | `observation` | `FleetView`, `CellView`, `ForageView`, `AttendantView`, `ThoughtsView`, `CappingView`, `HoneyBrowser` | Read-only views; the chat is the only write, and it goes into the Queen's inbox. |
 | Capping | `supervision/capping/` | `Proposal`, `Postcondition`, `RiskTier`, `Verdict`, `CappingGate` | The QA gate: nothing with a side effect outside scratch lands uncapped. |
@@ -589,8 +590,10 @@ this distinction central; the code makes it invisible to Workers.
   inside a Virtual Cell, so isolation covers the model's actions. For a Real Cell, what runs on
   the device climbs a fixed ladder: **Level 0**, gateway only, Warden and sub-bee brains on the
   Hive Stand reaching the device through `CellSession`; **Level 1**, the Warden and its sub-bees
-  on the device, models still elsewhere; **Level 2**, a model server on the device as well, which
-  is a Nuc (8.10). Two invariants: a Warden and its sub-bees are always co-located (sub-bees run
+  on the device, models still elsewhere — the Cell is **colonized** from this point on, and stays
+  that way (tools scoped to it, Honey it has accumulated) across leases, even back in `WATCH`;
+  **Level 2**, a model server on the device as well, which makes a colonized Cell a Nuc (8.10).
+  Two invariants: a Warden and its sub-bees are always co-located (sub-bees run
   where their Warden runs, never the other way round), and **the Warden is the first bee to move
   onto a device**, because it is the supervisor and the reconnecting agent and needs no model to
   keep the lights on. Where the runtime runs is a Warden spawn decision in `wardens/spawn/`, never
@@ -668,6 +671,13 @@ human → Queen → Wardens → sub-bees, and one `Supervisor` protocol is used 
   offline duration (8.13). A device with no local Warden, only a Pollen Packet gateway, runs a
   dead-man switch instead: when its link is lost for longer than the manifest allows, it kills what
   the lease started and releases.
+- **Where a model is reachable, reconnection is investigated, not just retried** (roadmap 11.9a).
+  A Nuc's Warden, and the Hive Stand's own Warden for any device it can no longer reach, each spend
+  a bounded `reconnect_budget` spawning a Drone from their own local pool — never a request to the
+  Queen — to run ordinary Capping-gated scratch diagnostics (`run_command`, one-off scripts) and
+  attempt a fix. This never touches the Royal Jelly Lab or the Quarantine Comb; nothing here is
+  promoted, only tried once and reported. The budget is carved out of, not added to, the offline
+  duration in 8.13, so Clustering keeps the same deadline as a backstop regardless of outcome.
 
 ### 8.9 Memory: tiers, budgets, handoffs
 
@@ -1069,9 +1079,6 @@ rule here exists because a bug in this system has a large blast radius.
 - **LLM output is untrusted input.** Tool calls proposed by a model are validated against the
   tool's schema and the Worker's capabilities before execution. Text from a model is never used as
   a file path, URL, or command without validation.
-- **No detection-evasion features.** The Exoskeleton exists so GUI applications work; it does not
-  spoof fingerprints, rotate identities, or defeat anti-bot systems. Features whose purpose is to
-  evade a service's controls are out of scope and are declined in review.
 - **Blast radius defaults.** New Virtual Cells get no inbound ports and outbound network only to
   what the task's capability set lists. Absconding (tear everything down) must always work even if
   the Brood Chamber is corrupt, and it releases every Real Cell lease as well as destroying every
