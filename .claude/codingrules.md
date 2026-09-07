@@ -319,8 +319,10 @@ write the module docstring's first sentence without "and", split the file.
 
 ### 5.4 `__init__.py` contract
 
-- Contains a docstring describing the subsystem in one paragraph and listing its public entry
-  points with one line each.
+- Contains a docstring in the 7.2 shape (summary, one-paragraph explanation, "Fits into the
+  Hive", "Key invariants", "See Also") plus a `Public API:` section listing its public entry
+  points with one line each; a package with nothing public yet says so and names the phase that
+  first populates it.
 - Contains only re-exports and `__all__`. Never logic, never side effects.
 - Whatever is not in `__all__` is private. Other subsystems importing a non-exported name is a CI
   failure (`import-linter` "forbidden" contract on `hivemind.*._*` and non-`__init__` modules
@@ -443,7 +445,7 @@ Fits into the Hive:
 Key invariants:
     - Bullet list of things that must always be true, or "None." if there really are none.
 
-See also:
+See Also:
     - docs/adr/NNNN-xxx.md for the decision that shaped this module (if any)
     - hivemind.<sibling> for the counterpart module
 """
@@ -1503,7 +1505,7 @@ Key invariants:
     - destroy() is idempotent: destroying an already-destroyed Cell is a no-op, not an error.
     - Every Cell returned has kind == CellKind.VIRTUAL; Real Cells never pass through here.
 
-See also:
+See Also:
     - docs/adr/0018-cell-backends-docker-first-qemu-second.md
     - hivemind.cell for the Cell abstraction both kinds share
     - hivemind.hive.backends.docker for the reference implementation
@@ -1605,6 +1607,17 @@ def choose_cells_to_overwinter(
 """The Hive: on-demand Virtual Cell (VM/container) provisioning and lifecycle.
 
 Real Cells (borrowed devices) are not produced here; see hivemind.cell.local and hivemind.swarm.
+
+Fits into the Hive:
+    Layer 3 (sources of Cells). Called by hivemind.queen.placement to provision and by the
+    Undertaker (the cleanup Worker) to destroy; calls into hivemind.cell and hivemind.pheromone.
+
+Key invariants:
+    - Every Cell produced here has kind == CellKind.VIRTUAL; Real Cells never pass through.
+
+See Also:
+    - docs/adr/0018-cell-backends-docker-first-qemu-second.md
+    - hivemind.cell.local and hivemind.swarm for the Real Cell sources
 
 Public API:
     - CellBackend: protocol every provisioning backend implements.
