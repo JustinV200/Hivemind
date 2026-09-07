@@ -684,6 +684,10 @@ human → Queen → Wardens → sub-bees, and one `Supervisor` protocol is used 
   Handoff), cancel. Wardens have the same levers over their sub-bees, minus takeover with the
   Queen's slot and minus anything outside their `ForageGrant`; a rebind that needs Forage the
   Warden does not hold becomes a `ForageRequest`.
+- **Pheromone Mask overrides are supervisory controls.** A Warden may invoke mask tactics for a
+  bounded task segment when policy allows. The Queen may force a mask override at Cell scope with
+  explicit reason and expiry; while active, the Warden enforces it for the Cell's sub-bees until
+  expiry or explicit clear.
 - **Wardens never provision.** A Warden spawns sub-bees within its grant and requests Cells, more
   Forage, or tools from the Queen with a reason. Sub-bees inherit a subset of the Warden's
   capabilities and grant, never more.
@@ -819,10 +823,18 @@ The UI is a window, not a control panel. Its rules:
   other mutating route is among them.
 - **Everything else is a live read.** Fleet (with a Real / Virtual / All filter), Cell pages
   (diagram of bees and what each is doing, current tasks and goals, the Warden's Forage and Honey,
-  `CombShieldLevel`, access level and mode, Capping activity), Forage, Attendant views for the Queen and every
+  `CombShieldLevel`, Pheromone Mask state, access level and mode, Capping activity), Forage, Attendant views for the Queen and every
   Warden, thoughts, the Capping queue, the Honey browser and the trail are all views over the
   streams and read API in `entrance/streams/` and `observation/api.py`. Views never poll; they
   subscribe.
+- **Tier must be obvious at a glance.** `CombShieldLevel` is rendered as a persistent, high-contrast
+  badge on every Cell page header and every Fleet row, with a fixed legend (`MEADOW`, `PROPOLIS`,
+  `NIGHT_VEIL`) that is always visible in the Fleet view. Tier is never hidden behind a tooltip,
+  drill-down or hover-only affordance.
+- **Mask state must be obvious at a glance.** Pheromone Mask state is rendered as a persistent,
+  high-contrast badge on every Cell page header and every Fleet row, including source (`WARDEN`
+  or `QUEEN_FORCED`). Mask state is never hidden behind a tooltip, drill-down or hover-only
+  affordance.
 - **Thoughts are episode records** (section 12), scoped by `observe:thoughts`. "Full read access
   to any bee" means every episode record and every telemetry sample, not the trail.
 - **The Honey browser is a view over provenance.** Folders are derived from scope (`/hive`,

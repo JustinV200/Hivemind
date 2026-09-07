@@ -85,7 +85,7 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Requeening** | Recovering from a Queen failure / restoring orchestrator state |
 | **Pheromone Trail** | The audit/log trail left by system actions, except Night Veil execution records which are not retained |
 | **Observation Hive** | The live UI: every bee's thoughts, every Cell, the Forage split, the Attendant views, a chatbox to the Queen, and a browsable Honey tree. Read-only except the chat |
-| **Pheromone Mask tactics** | Optional, short-lived behavior overlays a Warden can invoke per task segment: **Write-Like-Human** (tone and pacing) and **Mouse-Like-Human** (input cadence). These are compatibility tactics for fragile UX flows, not a global mode |
+| **Pheromone Mask tactics** | Optional, short-lived behavior overlays normally invoked by a Warden per task segment, or force-applied by the Queen at Cell scope: **Write-Like-Human** (tone and pacing) and **Mouse-Like-Human** (input cadence). These are compatibility tactics for fragile UX flows, not a global mode |
 | **Comb Shield level** | A Cell security tier: **Meadow (Tier 0)** default any-machine baseline, **Propolis (Tier 1)** OpenVPN-only hardened baseline (no Tor), **Night Veil (Tier 2)** human-requested virtual-only profile with all web traffic through OpenVPN + Tor, direct egress blocked, Tor Browser available, and local-model-only execution |
 | **Honey clearance** | Data sensitivity labels on Nectar/Honey: **Wildflower (C0)** public/non-sensitive, **Apiary (C1)** internal non-personal, **Royal (C2)** personal/sensitive; policy controls what each Cell tier may read or write. Any user personal detail at all, including first name or habits, is Royal |
 | **Hive Manifest** | A config/spec file |
@@ -160,10 +160,12 @@ For tasks that need a real desktop session rather than a raw terminal or HTTP cl
 The Exoskeleton is attached only when a task asks for it and, on a Real Cell, everything it started is stopped when the lease is released. It exists so GUI applications work; it is not a stealth layer, and features whose purpose is to evade a service's controls are out of scope.
 
 Human-like behavior is not a persistent global mode. It is exposed as two **situational Pheromone Mask tactics** a Warden may invoke for a bounded segment, with explicit reason, budget, and cleanup:
-- **Write-Like-Human**: improves natural phrasing, pacing, and tone on user-facing prose.
+- **Write-Like-Human**: improves natural phrasing, pacing, and tone on user-facing prose, with style rules that ban em dashes and prioritize human cadence.
 - **Mouse-Like-Human**: adds bounded input cadence variation for fragile UI flows that break under rigid timing.
 
 Both tactics are opt-in, policy-gated, and auto-expire once the segment ends.
+The Queen may also force a Pheromone Mask override at Cell scope for a bounded segment; when set, the Warden must enforce it for the Cell's active sub-bees until expiry or explicit clear.
+When `Write-Like-Human` is active, writing follows a strict profile: no em dash character (`—`), varied sentence length, concrete wording over generic filler, natural contractions where appropriate, and avoidance of repetitive boilerplate transitions.
 
 ### 7. Memory: from hot state to the Honey Store
 Context is treated like a cache hierarchy. What any bee's model sees is assembled fresh for each awake episode from the tiers below; nothing accumulates, and nothing that leaves a tier is lost.
@@ -247,9 +249,11 @@ Retrying with backoff is the floor, not the ceiling: wherever a model is actuall
 One live page to watch and talk to the Hive. It is read-only with a single exception, the chat, and every write in the system still goes through the Queen.
 
 - **Thoughts**: the Queen's thinking as it happens, including how the Attendant ordered her inbox, which autopilot rule fired, and what each awake episode saw and decided. The same view opens for any bee, with full read access to its episodes and telemetry.
-- **Cell pages**: one per Cell, with a live diagram of its Warden and where it runs, each sub-bee with its role, what it is doing right now and its context gauge, the session and any Exoskeleton; alongside it the Cell's current tasks and goals, the Forage its Warden holds, the Honey its Warden can see, its **Comb Shield level**, its access level and mode (active or watching, with the last Patrol's report), and its Capping activity with flight-recorder playback.
+- **Cell pages**: one per Cell, with a live diagram of its Warden and where it runs, each sub-bee with its role, what it is doing right now and its context gauge, the session and any Exoskeleton; alongside it the Cell's current tasks and goals, the Forage its Warden holds, the Honey its Warden can see, its **Comb Shield level**, its Pheromone Mask state (off, local, or Queen-forced), its access level and mode (active or watching, with the last Patrol's report), and its Capping activity with flight-recorder playback.
 - **Forage**: a live diagram of total capacity and how it is divided, from the Queen's pool to each Warden's grant to each bee, with pending requests and their outcomes.
-- **Fleet list**: every Cell, filterable to Real only, Virtual only, or all, with what each is doing, its **Comb Shield level**, its access level and mode, and where its models are hosted, on the Hive Stand, a hosted API, or on the machine itself.
+- **Fleet list**: every Cell, filterable to Real only, Virtual only, or all, with what each is doing, its **Comb Shield level**, its Pheromone Mask state, its access level and mode, and where its models are hosted, on the Hive Stand, a hosted API, or on the machine itself.
+- **Tier visibility rule**: the Observation Hive renders **Comb Shield level** as a persistent, high-contrast badge in both the Cell page header and Fleet list rows, with a fixed legend for Meadow, Propolis, and Night Veil so operators can read tier at a glance.
+- **Mask visibility rule**: the Observation Hive renders Pheromone Mask state as a persistent, high-contrast badge in both the Cell page header and Fleet list rows, including whether it is Queen-forced.
 - **Capping queue**: proposals by tier and state, verdicts with reasons, rollbacks, and sampled-audit findings.
 - **Attendant views**: the task graph the Queen is concerned with, what just finished and what is next, and the same view for every Warden over its own sub-bees.
 - **Chat**: the human's way to request tasks, ask, and answer. Messages go into the Queen's inbox; her replies, questions and escalated Alarms come back on the same channel.

@@ -839,8 +839,11 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   Invocation is per task segment with explicit reason, max-step or time budget, and auto-expiry.
   `mouse_like_human` varies key timing, pointer speed and pause cadence inside bounded windows,
   while preserving replay metadata in the flight recorder. `write_like_human` tunes prose rhythm
-  and tone for user-facing output. Both are disabled by default and require explicit capability and
-  policy opt-in.
+  and tone for user-facing output. `write_like_human` enforces a writing profile: ban em dashes,
+  vary sentence length, prefer concrete wording over filler, allow natural contractions where
+  appropriate, and avoid repetitive boilerplate transitions. Both are disabled by default and
+  require explicit capability and policy opt-in. Add a Queen-controlled Cell-scope override path (`QUEEN_FORCED`) with explicit
+  reason, expiry and clear semantics that the Warden must enforce while active.
 
 ### Exit criteria
 
@@ -1330,10 +1333,11 @@ in this phase adds a new write path.
   Virtual Cell status, the model hosting for its bees. Alongside the diagram: the Cell's current
   tasks and goals, the Forage the Warden holds (grant used against issued, pending requests), the
   Honey the Warden can see (a scoped entry point into the Honey browser), the Cell's
-  `CombShieldLevel`, the Cell's access level and current mode (`ACTIVE` or `WATCH`, with the last
+  `CombShieldLevel`, Pheromone Mask state (`OFF`, `WARDEN`, `QUEEN_FORCED`), the Cell's access level and current mode (`ACTIVE` or `WATCH`, with the last
   Patrol's report), open Alarms, and Capping activity (proposals in flight, verdicts, rollbacks)
   with flight-recorder playback for
   Exoskeleton actions. Redrawn from telemetry and Cell status deltas.
+  `CombShieldLevel` is shown in the page header as a persistent, high-contrast badge.
 - [ ] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
   (Hive Stand, each Nuc, each Virtual Cell backend) the cores, memory, GPU and model seats in use
   versus available, the Royal Reserve held back, and a flow from the Queen's shared pool to each
@@ -1344,10 +1348,11 @@ in this phase adds a new write path.
   The Fanner's queues per binding with waiting requests and their tempo. Pending `ForageRequest`s
   with their reasons and the Queen's decision when it lands, and grants nearing expiry.
 - [ ] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
-  source, status and mode, `CombShieldLevel`, access level, two badges (where the Warden runs: Hive Stand or on the
+  source, status and mode, `CombShieldLevel`, Pheromone Mask state, access level, two badges (where the Warden runs: Hive Stand or on the
   Cell; where its models come from: local, Hive Stand, hosted, or hybrid per its hosting plan),
   current task and role, open Alarms, lease age, and links into its page, its Warden's Attendant
-  view and its bees' thoughts.
+  view and its bees' thoughts. `CombShieldLevel` appears as a persistent, high-contrast badge in
+  every row, and the view includes a fixed legend for Meadow, Propolis, and Night Veil.
 - [ ] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own
@@ -1375,6 +1380,12 @@ in this phase adds a new write path.
   fleet list and diagrams, grants flowing in the Forage view, the Queen's and a Forager's thoughts
   streaming, the task graph moving in the Queen's and the Cell's Attendant views, and the trail
   scrolling, with no manual refresh.
+- In both scenarios, every visible Cell shows `CombShieldLevel` as a clear badge in Fleet and Cell
+  page header, and operators can distinguish Meadow, Propolis, and Night Veil without opening a
+  detail panel.
+- In both scenarios, every visible Cell shows Pheromone Mask state as a clear badge in Fleet and
+  Cell page header, and operators can tell `OFF`, `WARDEN`, and `QUEEN_FORCED` without opening a
+  detail panel.
 - A task requested from the chatbox runs end to end, its question comes back in the same chatbox,
   and the answer resumes it.
 - The Honey browser shows the shared store and a per-Cell view that differ exactly as the
