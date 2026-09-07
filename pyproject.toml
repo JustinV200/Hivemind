@@ -1,0 +1,49 @@
+# Workspace root for HiveMind. This file is a virtual project (see [tool.uv] below): it builds
+# nothing itself and exists only to declare the uv workspace, the shared dev toolchain, and
+# (from roadmap step 0.2 onward) the tool configuration every member inherits.
+[project]
+name = "hivemind-workspace"  # Not a real distribution; a name for the workspace as a whole.
+version = "0.1.0.dev0"  # Pre-release marker: no phase has shipped yet.
+requires-python = ">=3.12"  # codingrules section 2: match, TaskGroup and PEP 695 generics are fair game.
+# The root ships no code of its own, but it depends on every member so that a plain `uv sync`
+# (no --all-packages needed) resolves and installs all three into the shared .venv.
+dependencies = [
+    "waggle",    # Shared protocol + primitives; resolved locally via [tool.uv.sources] below.
+    "hivemind",  # The Queen and every control-plane subsystem.
+    "pollen",    # Device-side connector; depends only on waggle.
+]
+
+[tool.uv]
+package = false  # Virtual root: uv manages the workspace but never tries to build/install this project itself.
+
+[tool.uv.workspace]
+# Every package uv resolves and locks together, so the whole Hive shares one lockfile and one venv.
+members = [
+    "packages/waggle",    # Shared protocol + primitives; no hivemind imports (codingrules section 4).
+    "packages/hivemind",  # The Queen and every control-plane subsystem.
+    "packages/pollen",    # Device-side connector; depends only on waggle.
+]
+
+[tool.uv.sources]
+# Workspace members resolve each other locally instead of from an index, so a change to waggle is
+# picked up by hivemind and pollen immediately without a publish step.
+waggle = { workspace = true }
+hivemind = { workspace = true }
+pollen = { workspace = true }
+
+# The dev toolchain from codingrules section 2. Installed once at the workspace root and shared by
+# every member; a member's own pyproject.toml never repeats these.
+[dependency-groups]
+dev = [
+    "ruff",           # Formats and lints every .py file (size limits are checked by scripts/check_sizes.py, step 0.3).
+    "mypy",           # Static type checking; CI requires zero errors under --strict on main.
+    "import-linter",  # Enforces the layer contracts in codingrules section 4 (no upward imports).
+    "pytest",             # Test runner for every workspace member.
+    "pytest-asyncio",     # Lets tests await the async code the Hive is built from (section 11).
+    "pytest-cov",         # Coverage reporting against the targets in codingrules section 14.
+    "hypothesis",         # Property-based testing for the pure-core decision functions (section 8.3).
+    "pre-commit",         # Runs ruff, mypy and import-linter locally before a commit lands.
+    "pip-audit",          # Scans locked dependencies for known vulnerabilities.
+]
+
+# Tool configuration (ruff, mypy, pytest, coverage, import-linter) is added in roadmap step 0.2.

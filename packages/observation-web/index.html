@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  Entry HTML for the Observation Hive front end.
+
+  Vite serves this file directly in dev and uses it as the build's single entry point; the script
+  tag below pulls in src/main.tsx, which mounts the React app (see that file's header for the
+  composition-root explanation). There is nothing else in this file on purpose: every real concept
+  belongs in a .tsx module, not in markup.
+
+  Fits into the Hive:
+    Layer 7 (observation-web). Read by `vite` and `vite build`. Loads src/main.tsx, which renders
+    src/app.tsx into the #root element below.
+
+  Key invariants:
+    - The #root element's id must match the one src/main.tsx looks up with getElementById.
+
+  See Also:
+    - src/main.tsx for the mount logic.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HiveMind Observation Hive</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
