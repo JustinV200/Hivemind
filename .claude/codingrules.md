@@ -147,7 +147,7 @@ HiveMind/
 │   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence
 │   │   │   ├── honey_store/      # Cold tier: nectar/ intake, ripening/ pipeline, honey/ retrieval, schema/
-│   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread
+│   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread, cell_wax.py (Queen-written per-Cell cautions)
 │   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state)
 │   │   │   ├── guard/            # Policy engine, capabilities.py (CapabilitySet, built in phase 3), access.py (what each AccessLevel allows), permission checks. The security enums live in cell/tiers.py.
 │   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, needs.py (TaskNeeds), tiers.py (AccessLevel, CombShieldLevel, HoneyClearance), snapshot.py (Snapshotter protocol), local/ (the Hive Stand)
@@ -352,6 +352,7 @@ logs, and the code agree.
 | Attendant | `supervision/attendant.py`, used by `queen/inbox/` and `wardens/inbox/` | `Attendant`, `InboxItem`, `Priority` | Every supervisor's inbox triage; deterministic first, a cheap slot for ties only where the grant allows. |
 | Supervision | `supervision` | `Supervisor`, `Alarm`, `AlarmKind`, `ContextTelemetry`, `Intervention`, `EscalationPolicy` | Same protocol at every level: human → Queen → Wardens → sub-bees. |
 | Memory tiers | `memory` | `HotState`, `Handoff`, `Pin`, `RelevanceScore`, `BeeBread` | Working, hot, warm (Bee Bread), cold (Honey). |
+| Cell Wax | `memory/cell_wax.py` | `CellWax`, `WaxSeverity` (`NOTE`, `CAUTION`, `BLOCK`) | Queen-written cautions about one Cell; proposed by anyone, written and cleared only by the Queen; in hot state only while that Cell is a candidate. Marks the cell, is not the honey inside. |
 | Forage | `forage` | `HostCapacity`, `Seat`, `RoleFootprint`, `ForageCapacity`, `ForageGrant`, `ForageRequest`, `RoyalReserve`, `LocalPool`, `Ceilings`, `HostingPlan` | Capacity in several dimensions. The Queen divides the shared pool by grant; a Warden divides its local pool under ceilings; grants are leases. |
 | Forage map | `forage/map.py` | `ForageMap`, `ModelSource` | Every source that can serve a model: grade, distance, abundance, cost. |
 | Fanner | `llm/fanner.py` | `Fanner` | The seat meter every model call passes through; enforces grants, measures speed. |
@@ -680,7 +681,8 @@ this distinction central; the code makes it invisible to Workers.
   both `destroy` and `release`.
 - **Placement is a pure decision.** `queen/placement/decide.py` maps `TaskNeeds` (isolation
   `required | preferred | none`, exoskeleton, os, network scopes, disposability) plus the current
-  Cell inventory and the `[placement]` manifest section to a `Placement`: reuse this Real Cell, or
+  Cell inventory, each candidate's Cell Wax (a `BLOCK` excludes the Cell, a `CAUTION` counts
+  against it) and the `[placement]` manifest section to a `Placement`: reuse this Real Cell, or
   provision a Virtual Cell from this spec. The reason is recorded on the trail.
 - **Comb Shield is a Cell property.** Tier is bound to the Cell, not the task. A task inherits the
   `CombShieldLevel` of the Cell where it executes; moving a task to another Cell re-evaluates and
@@ -733,7 +735,8 @@ this distinction central; the code makes it invisible to Workers.
   `WATCH`: a read-only autopilot state that observes what its access level allows (process list,
   resource use, logs and file changes in allowed roots, network counters), writes observations to
   Bee Bread with a retention window, and on the Patrol interval runs one awake episode to raise an
-  Alarm, deposit a Nectar summary, or record "nothing notable". Watch mode never writes to the
+  Alarm, deposit a Nectar summary, propose Cell Wax for the device, or record "nothing notable".
+  Watch mode never writes to the
   device and never captures screen or input; those need a separate, explicit capability and are
   never part of watching.
 
@@ -808,7 +811,7 @@ tiers below; nothing accumulates.
 | Tier | Holds | Lives in | Reached by |
 |---|---|---|---|
 | Working context | One episode's prompt | Assembled by `memory.assemble` | Built to a budget |
-| Hot state | Active goals, open tasks and Alarms, pending questions, recent decisions with reasons, fleet and Forage summary, pins, short notes | Derived from Brood Chamber and trail; notes and pins in `memory` tables | Always loaded, bounded |
+| Hot state | Active goals, open tasks and Alarms, pending questions, recent decisions with reasons, fleet and Forage summary, pins, short notes, Cell Wax for Cells in play | Derived from Brood Chamber and trail; notes, pins and Cell Wax in `memory` tables | Always loaded, bounded |
 | Bee Bread (warm) | Recent episodes, task results, recent Nectar, Handoffs | Brood Chamber history, Pheromone Trail | Lookup by id, time, task; no search |
 | Honey (cold) | Everything ripened | Honey Store | Full-text and semantic search |
 
@@ -826,6 +829,17 @@ tiers below; nothing accumulates.
   an active task from hot state to Bee Bread, and ripens Bee Bread into Honey on the ripener slot.
   Compaction summarises from source records, never from a previous summary, and copies pins
   verbatim.
+- **Cell Wax is a caution, not knowledge.** `memory/cell_wax.py` holds Queen-written notes about
+  one Cell (a known limit, a risk, a quirk) with a `WaxSeverity` (`NOTE`, `CAUTION`, `BLOCK`),
+  proposer, reason, clearance, optional expiry, and text capped by the manifest. Anyone may
+  propose wax (a bee or Warden over Waggle, the Patrol, the human from the chat or a Cell's
+  folder); only the Queen writes, rejects or clears it, by autopilot for a Warden's `NOTE` or
+  `CAUTION` about its own Cell within the per-Cell cap and by awake decision for everything else,
+  every `BLOCK` included. Wax enters hot state only while its Cell is a candidate for placement or
+  assignment, so it costs nothing until it matters; placement treats `BLOCK` as exclusion and
+  `CAUTION` as a penalty. A Real Cell's wax outlives its leases; a Virtual Cell's is retired when
+  the Cell is destroyed. Cleared and expired wax is ripened into Honey at `cell:<id>` scope, so
+  the history compounds without living in hot state. Every edge is a `memory.wax_*` event.
 - **Handoffs are schema'd.** `memory/handoff.py` is a pydantic model with mandatory fields: goal,
   progress, decisions with reasons, tried and failed, constraints discovered, open threads, next
   steps, do-not-redo, pinned facts verbatim, bounded notes. Freeform text is capped.
@@ -920,7 +934,7 @@ The UI is a window, not a control panel. Its rules:
   other mutating route is among them.
 - **Everything else is a live read.** Fleet (with a Real / Virtual / All filter), Cell pages
   (diagram of bees and what each is doing, current tasks and goals, the Warden's Forage and Honey,
-  `CombShieldLevel`, Pheromone Mask state, access level and mode, Capping activity), Forage, Attendant views for the Queen and every
+  `CombShieldLevel`, Pheromone Mask state, access level and mode, Cell Wax, Capping activity), Forage, Attendant views for the Queen and every
   Warden, thoughts, the Capping queue, the Honey browser and the trail are all views over the
   streams and read API in `entrance/streams/` and `observation/api.py`. Views never poll; they
   subscribe.
@@ -1700,6 +1714,7 @@ transaction as the state change.
 | Provider health | LLM, `llm/health.py` | `HEALTHY ↔ DEGRADED ↔ DOWN` | In memory, re-probed on start; `DOWN` with no fallback triggers Clustering. |
 | Queen mode | Queen, `queen/state.py` | `REQUEENING → RUNNING`; `RUNNING ↔ CLUSTERED` (per provider set); `CLUSTERED → SUPERSEDING → SUPERSEDED` (the old Queen, 8.16); `SUPERSEDING → CLUSTERED` (rollback) | Per event, `RUNNING` is autopilot then awake; mode is not a transcript. A new Queen starts in `REQUEENING` from the copied stores. |
 | Knowledge tier | Memory and Honey Store | `HOT → BEE_BREAD → HONEY`; `NECTAR → HONEY` | A pipeline, not a strict machine; demotion is a House Bee duty. |
+| Cell Wax note | Memory, `memory/cell_wax.py` | `PROPOSED → WRITTEN → CLEARED / EXPIRED`; `PROPOSED → REJECTED` | Only the Queen writes, rejects or clears; every edge is a `memory.wax_*` event; cleared and expired notes are ripened into Honey at `cell:<id>` scope. |
 | Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
 | Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → REVOKED` | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance.*` event pushed to every other device. |
 | Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up. |
@@ -1711,7 +1726,7 @@ Where state lives, and what survives a Queen crash:
 | Tasks, questions, acceptance results | Brood Chamber (SQLite) | Yes | Requeening reads it back. |
 | Every transition, every decision | Pheromone Trail (SQLite, per-node segments) | Yes; a Night Veil Cell keeps only the lifecycle skeleton from section 12 | Source of truth for reconciliation and audit; offline segments merge. |
 | Hot state | Nowhere; derived per episode | Not applicable | Rebuilt by `memory.assemble` from the stores below. |
-| Notes, pins, episode records, Handoffs, Bee Bread index, watch observations | Memory tables (SQLite) | Yes | Read directly; retention windows apply. |
+| Notes, pins, Cell Wax, episode records, Handoffs, Bee Bread index, watch observations | Memory tables (SQLite) | Yes | Read directly; retention windows apply; wax expires on its own clock. |
 | Honey and Nectar | Honey Store (SQLite, FTS5, `sqlite-vec`) | Yes | Read directly; re-embed on embedder change. |
 | Capacity, grants, hosting decisions, snapshots | Forage ledger (SQLite) | Yes | Reconciled against fresh capacity reports on Requeening. |
 | Leases | Lease table plus trail | Yes | Orphan sweep on Queen and Warden start. |

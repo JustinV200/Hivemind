@@ -244,7 +244,8 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
   - `forage.py`: `CapacityReport`, `GrantIssued`, `GrantRevoked`, `ForageRequest`, `ForageReply`,
     `HostingDecided`, `CeilingsSet`, `PlanWritten`.
   - `cell.py`: `CellReady`, `CellHeartbeat`, `CellTeardownRequest`, `CellRequest` (Warden → Queen),
-    `LeaseOpened`, `LeaseReleased`.
+    `LeaseOpened`, `LeaseReleased`, `CellWaxProposed` (any bee → the Queen), `CellWaxWritten`,
+    `CellWaxCleared` (the Queen → the Cell's Warden).
   - `session.py`: `SessionOpen`, `SessionExec`, `SessionStdin`, `SessionOutput`, `SessionExit`,
     `SessionPutFile`, `SessionGetFile`, `SessionClose`. The terminal-over-Waggle family that lets a
     Warden on the Hive Stand drive a remote Real Cell (phase 11).
@@ -311,7 +312,8 @@ commands.
   node_id, at, actor, kind, subject id, payload) plus one subclass per event family: `cell.*`
   (including `leased`, `released`, `touched_outside_scratch`), `task.*`, `alarm.*` (`raised`,
   `handled`, `escalated`, `resolved`), `forage.*` (`capacity_reported`, `granted`, `requested`,
-  `denied`, `hosting_decided`), `memory.*` (`checkpoint`, `handoff`, `reset`, `compacted`),
+  `denied`, `hosting_decided`), `memory.*` (`checkpoint`, `handoff`, `reset`, `compacted`,
+  `wax_proposed`, `wax_written`, `wax_rejected`, `wax_cleared`, `wax_expired`),
   `queen.*` (`placed`, `woke`, `clustered`, `resumed`), `warden.*` (`spawned`, `offline`,
   `reconnected`, `migrated`), `tool.*`, `swarm.*`, `llm.*` (`call` with normalised `Usage`, slot
   and provider; `rebound`; `fallback`). The `kind` string is the stable audit vocabulary; document
@@ -392,7 +394,8 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `[forage.reserve]` (the Royal Reserve: seats and memory held back for the Queen, the Attendant
   and the House Bees, plus a headroom margin), `[supervision]`
   (escalation policy file path, heartbeat interval, offline limits), `[memory]` (budget fraction,
-  handoff threshold, per-item cap), `[security]` (`default_comb_shield`, per-tier egress profiles,
+  handoff threshold, per-item cap, Cell Wax cap per Cell and default expiry), `[security]`
+  (`default_comb_shield`, per-tier egress profiles,
   OpenVPN profile settings, Tor proxy settings, and per-tier route and DNS leak checks where
   Propolis validates VPN-only egress and Night Veil validates VPN plus Tor egress for task traffic
   and VPN-only binding for its Waggle control channel), `[honey.clearance]`
@@ -681,6 +684,20 @@ failing.
   no search; every entry carries its `HoneyClearance` and lookups filter by the reader's
   allowance. `memory/demote.py`: pure rules for what leaves hot state (task closed, Alarm resolved,
   age past a manifest window).
+- [ ] **4.2a Cell Wax (cell notes).** `memory/cell_wax.py`: `CellWax` (id, Cell id, `WaxSeverity`
+  `NOTE | CAUTION | BLOCK`, text capped by the manifest, proposer, reason, `HoneyClearance`,
+  optional `expires_at`) with its own table and the transition table `PROPOSED → WRITTEN →
+  CLEARED | EXPIRED`, `PROPOSED → REJECTED` (Appendix C). Any bee, Warden or the human may
+  propose one, over Waggle (`CellWaxProposed`, 1.3) or from the chat; a proposal is an inbox item
+  the Attendant scores low. Only the Queen writes, rejects or clears: autopilot accepts a Warden's
+  `NOTE` or `CAUTION` about its own Cell within the per-Cell cap, and every `BLOCK`, every
+  proposal from a Worker or about another Cell, and every clear is an awake decision. Wax enters
+  hot state only when its Cell is a candidate for placement or assignment, a relevance rule in 4.1
+  bounded by the cap, so a caution about a flaky device costs nothing until the device is in
+  play. The House Bee sweep (4.3) expires wax past `expires_at` and hands cleared and expired wax
+  to ripening once phase 7 lands, so the history compounds as Honey at `cell:<id>` scope.
+  `memory.wax_*` events. Named for the wax bees use to cap and mend a cell: it marks the cell, it
+  is not the honey inside.
 - [ ] **4.3 Compaction.** `memory/compact.py`: summarise from source records on `ModelSlot.RIPENER`,
   never from a previous summary; pins verbatim; one level of summary; records `memory.compacted`.
   A House Bee **sweep** duty (`workers/roles/house_bee.py`, first version) runs demotion and
@@ -738,7 +755,7 @@ failing.
   tempo may shorten or lengthen the ladder only above the tier's floor (an urgent `scratch_write`
   may skip the judge; `irreversible` never skips anything).
 - [ ] **4.11 CLI.** `cli/memory.py` (`hive memory show <bee>`, `hive memory pins add|list|remove`,
-  `hive memory compact <bee>`), `cli/forage.py` (`hive forage status|grants|grant <warden> ...`),
+  `hive memory compact <bee>`, `hive memory wax <cell> list|propose|clear`), `cli/forage.py` (`hive forage status|grants|grant <warden> ...`),
   `cli/cluster.py` (`hive cluster [provider]`, `hive wake`), `hive capping audit --sample`.
 
 ### Exit criteria
@@ -754,10 +771,15 @@ failing.
   flight at any moment, the Fanner's queue orders them by tempo, and the Forage view (phase 12)
   would show seats at 2 of 2 throughout. A Warden whose heartbeat stops has its grant back in the
   pool after expiry.
+- A Warden's `CAUTION` about its own Cell is written by autopilot with no awake episode and
+  appears in the planner's prompt only when that Cell is a candidate, never in any other episode;
+  a `BLOCK` proposed by a Drone reaches the Queen's awake mode; an expired note leaves hot state
+  on the next sweep.
 
 ### ADRs to write
 
-- `memory-tiers-relevance-and-compaction.md`.
+- `memory-tiers-relevance-and-compaction.md` (including Cell Wax as a hot-state item with its own
+  relevance rule and cap, and why only the Queen writes it).
 - `forage-ledger-and-model-hosting-decisions.md`.
 - `clustering-protocol.md`.
 
@@ -808,7 +830,8 @@ role, `hive cells` CLI.
   headroom, honouring `[placement]` (`prefer = "real" | "virtual"`, `allow_hive_stand`, per-role
   overrides). Rules, each with a test: `isolation = "required"` always Virtual; Exoskeleton needs a
   display or the ability to start one; OS and network scopes must match; Forage must cover the
-  grant; otherwise honour `prefer`. Records `queen.placed` with the reason.
+  grant; a `BLOCK` Cell Wax (4.2a) excludes the Cell and a `CAUTION` counts against it; otherwise
+  honour `prefer`. Records `queen.placed` with the reason, the wax that weighed on it included.
 - [ ] **5.7a Night Veil placement and routing constraints.** `queen/placement/policy.py` and
   `queen/forage/hosting.py`: if `TaskNeeds.comb_shield = NIGHT_VEIL`, placement is Virtual-only,
   request must be explicitly human-originated, network profile must be OpenVPN + Tor with direct
@@ -830,7 +853,9 @@ role, `hive cells` CLI.
   denied, metadata endpoints unreachable, timezone pinned to UTC, locale pinned to profile, and
   WebRTC local-IP leak test blocked. Fail placement if any check is red.
 - [ ] **5.8 Undertaker role.** `workers/roles/undertaker.py`: destroys Virtual Cells idempotently,
-  releases Real Cell leases idempotently, revokes their grants, retries with backoff. On Queen
+  releases Real Cell leases idempotently, revokes their grants, retires a destroyed Virtual Cell's
+  Cell Wax (handed to ripening once phase 7 lands; a Real Cell's wax outlives its leases), retries
+  with backoff. On Queen
   startup sweeps orphans of both kinds from backend labels and the trail.
 - [ ] **5.9 Overwintering pool.** `hive/overwinter/policy.py` (pure, Virtual only),
   `hive/overwinter/pool.py`. Placement prefers a dormant Cell with the right image. Clustering uses
@@ -862,6 +887,8 @@ role, `hive cells` CLI.
   Night Veil runs always provision fresh Cells and always teardown at completion.
 - `hive cells abscond` leaves zero containers, zero open leases, zero live grants, and the
   left-as-found snapshot holds.
+- A `BLOCK` Cell Wax on the Hive Stand makes `prefer = "real"` place on a Virtual Cell with the
+  wax named in the `queen.placed` reason; clearing it restores the first result.
 
 ### ADRs to write
 
@@ -1011,10 +1038,11 @@ duty, `hive honey` CLI.
   labelled untrusted content.
 - [ ] **7.9 Queen pre-check.** The planner queries Honey for the goal's targets and for the chosen
   Cell's known quirks, attaching hits to `TaskAssign`; `queen.honey_consulted`.
-- [ ] **7.9a Cell Wax (cell notes).** Add Queen-managed per-Cell operational notes (`CellWax`) for
-  cautions like risky cells or known limits. Notes are stored with `cell:<id>` scope and severity,
-  proposed by bees/wardens through Waggle, written only by the Queen, and injected only when that
-  Cell is selected for planning or assignment.
+- [ ] **7.9a Cell Wax ripens and is consulted.** Cleared and expired Cell Wax (4.2a) is ripened
+  into Honey at `cell:<id>` scope with the note's provenance and severity, so a Cell's history of
+  cautions compounds without living in hot state. The pre-check in 7.9 attaches that history for
+  the chosen Cell alongside its live wax, and the browser (7.10) lists a Cell's live wax under its
+  folder. Live wax stays a memory-table item, never a Honey row.
 - [ ] **7.10 Honey scoping and browser.** `honey_store/scope.py`: every Honey row carries a
   scope derived from provenance (`hive`, `cell:<id>`, `bee:<id>`, `task:<id>`) and a visibility
   rule; a bee's `honey:read:<scope>` capabilities decide what its queries can return. Query
@@ -1203,7 +1231,7 @@ keys` CLI.
   `cell:comb_shield:<tier>`, `exoskeleton`, `exoskeleton:real_display`,
   `tactic:write_like_human`, `tactic:mouse_like_human`,
   `honey:read:<scope>`, `honey:write`,
-  `honey:clearance:<c0|c1|c2>`,
+  `honey:clearance:<c0|c1|c2>`, `wax:propose`,
   `tool:request`, `llm:<slot>`, `warden:spawn`, `forage:request`, `question:human`,
   `observe`, `observe:thoughts`, `observe:honey:<scope>`, `entrance:submit`, `entrance:answer`,
   `entrance:push`, `entrance:steward`, `supersede`, `sting_cut`. `CapabilitySet` with `allows()`
@@ -1479,8 +1507,9 @@ promotion, `hive swarm` CLI.
   (process list, resource use, logs and file-change events in allowed roots, network counters)
   and writes observations to Bee Bread with a retention window. On the manifest's Patrol interval
   (initially hourly) the Warden runs one awake episode over the observations since the last
-  Patrol, and either raises an Alarm or deposits a Nectar summary, or records `warden.patrol`
-  with "nothing notable" and discards. Watch mode never writes to the device, never captures
+  Patrol, and either raises an Alarm, deposits a Nectar summary, proposes Cell Wax for the device
+  (a disk nearly full, a service that keeps restarting), or records `warden.patrol` with "nothing
+  notable" and discards. Watch mode never writes to the device, never captures
   screen or input, and is visible in the UI as the Cell's mode. Applies to the Hive Stand as well.
   A bee assignment moves the Warden back to `ACTIVE`.
 - [ ] **11.11 Exoskeleton on devices.** Through `PollenSession` the X11 backends from phase 6 work
@@ -1592,7 +1621,8 @@ in this phase adds a new write path.
   tasks and goals, the Forage the Warden holds (grant used against issued, pending requests), the
   Honey the Warden can see (a scoped entry point into the Honey browser), the Cell's
   `CombShieldLevel`, Pheromone Mask state (`OFF`, `WARDEN`, `QUEEN_FORCED`), the Cell's access level and current mode (`ACTIVE` or `WATCH`, with the last
-  Patrol's report), open Alarms, and Capping activity (proposals in flight, verdicts, rollbacks)
+  Patrol's report), its Cell Wax with severity, proposer and expiry, open Alarms, and Capping
+  activity (proposals in flight, verdicts, rollbacks)
   with flight-recorder playback for
   Exoskeleton actions. Redrawn from telemetry and Cell status deltas.
   `CombShieldLevel` is shown in the page header as a persistent, high-contrast badge.
@@ -1608,8 +1638,8 @@ in this phase adds a new write path.
 - [ ] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
   source, status and mode, `CombShieldLevel`, Pheromone Mask state, access level, two badges (where the Warden runs: Hive Stand or on the
   Cell; where its models come from: local, Hive Stand, hosted, or hybrid per its hosting plan),
-  current task and role, open Alarms, lease age, and links into its page, its Warden's Attendant
-  view and its bees' thoughts. `CombShieldLevel` appears as a persistent, high-contrast badge in
+  current task and role, open Alarms, a Cell Wax indicator showing the highest live severity, lease
+  age, and links into its page, its Warden's Attendant view and its bees' thoughts. `CombShieldLevel` appears as a persistent, high-contrast badge in
   every row, and the view includes a fixed legend for Meadow, Propolis, and Night Veil.
 - [ ] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
@@ -1632,9 +1662,10 @@ in this phase adds a new write path.
   renders the loopback-only screens, and the route test proves it could not use them anyway.
 - [ ] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
   (7.10): the main store under `/hive`, then what each Cell and each bee can see under `/cells`
-  and `/bees`, task folders, and Bee Bread. Read-only navigation, reading and search per folder,
-  provenance and `HoneyClearance` on every item, and a "propose a note" action that sends a
-  message to the Queen rather than writing. Scope and clearance filtering match the viewer's
+  and `/bees` (each Cell's folder includes its live Cell Wax), task folders, and Bee Bread.
+  Read-only navigation, reading and search per folder, provenance and `HoneyClearance` on every
+  item, and a "propose a note" action that sends a message to the Queen rather than writing (a
+  Honey note, or Cell Wax when made from a Cell's folder). Scope and clearance filtering match the viewer's
   capabilities.
 - [ ] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
   save, from normalised `Usage` on the trail.
