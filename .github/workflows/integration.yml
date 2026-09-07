@@ -1,0 +1,57 @@
+# HiveMind integration tests (roadmap step 0.4).
+#
+# What: runs the Docker-dependent test suite (@pytest.mark.integration -- codingrules 14.2:
+# "needs a real SQLite file, Docker, or network access") on demand and on a nightly schedule.
+# Ubuntu only: integration tests exercise Docker Cell backends and similar, and only ubuntu-latest
+# ships a usable Docker daemon among GitHub-hosted runners.
+#
+# Why: ci.yml's `tests` job deliberately excludes `-m "integration"` (codingrules 14.2's fast
+# unit-test loop stays under 30 seconds); those tests still need to run somewhere before a change
+# that touches a real backend ships, without slowing down every push and PR the way ci.yml does.
+#
+# How it fits: roadmap step 0.4, the workflow named alongside ci.yml. No integration test exists
+# until phase 2 (see the pytest step below for how that's handled); this workflow is wired up now
+# so nothing else needs to touch CI again when the first one lands.
+name: Integration
+
+on:
+  # Manual: a contributor can run the suite against a branch without waiting for the nightly cron.
+  workflow_dispatch:
+  # Nightly rather than per-push: these tests are slower and Docker-dependent, so they run on a
+  # cadence instead of gating every change. 03:17 UTC avoids the top-of-hour rush other repos'
+  # scheduled workflows pile onto.
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      # Docker Cell backends (codingrules section 4: hive/backends/) need a live daemon; fail
+      # fast with a clear message instead of letting the first integration test's own error stand
+      # in for "the runner had no Docker".
+      - name: Verify Docker is available
+        run: docker info
+      # No integration test exists until phase 2 adds the first Docker Cell backend, and pytest
+      # exits 5 ("no tests collected") when a marker selects nothing. Treat that one exit code as
+      # success explicitly, rather than with `continue-on-error` (which would also swallow a real
+      # collection error), so this step still fails loudly on anything else.
+      - name: pytest -m integration
+        run: |
+          uv run --frozen pytest -m "integration"
+          status=$?
+          if [ "$status" -eq 5 ]; then
+            echo "No integration tests collected yet (expected until phase 2's first Docker Cell backend); treating as success."
+            exit 0
+          fi
+          exit "$status"

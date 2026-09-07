@@ -1,0 +1,238 @@
+# HiveMind CI (roadmap step 0.4).
+#
+# What: the required-status-check workflow for every push to main and every pull request. It
+# gates the whole Python toolchain (ruff, mypy, import-linter, the four hygiene scripts, pytest
+# with coverage) on Ubuntu and Windows, adds a single Arch Linux job proving the same gates pass
+# on the OS the Hive Stand itself runs on, audits the locked Python dependencies, and
+# lints/type-checks/tests the observation-web front end.
+#
+# Why: codingrules section 16 ("main is always green: lint, types, import-linter, unit tests,
+# coverage floor") and section 2's host table ("Windows 11, Ubuntu LTS, Arch Linux... nothing may
+# assume one of them") both need a machine-enforced gate, not a review checklist. Splitting the
+# Python gates into their own jobs, instead of one long job, gives each gate its own pass/fail
+# badge in the PR checks list, so a contributor sees exactly which rule broke without opening logs.
+#
+# How it fits: roadmap step 0.4. `uv run --frozen` everywhere -- CI must fail loudly on a stale
+# uv.lock (codingrules section 2: "never pip install by hand") rather than silently re-resolving a
+# different dependency set than a contributor tested locally. Absorbs the standalone hygiene.yml
+# from step 0.3 into the `hygiene` job below; see .github/workflows/README.md for the retirement
+# note and what each gate protects.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch/PR supersedes the in-flight run for it -- no point burning runner
+# minutes finishing a check against a diff that already changed.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege (codingrules section 15): every job only reads the repo, nothing writes back.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint (${{ matrix.os }})
+    strategy:
+      fail-fast: false # One OS failing a gate shouldn't hide the other OS's result.
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      # Format check before lint, mirroring .pre-commit-config.yaml's own ordering comment: a
+      # lint rule (e.g. line length) can depend on formatting having already normalised the file.
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen ruff check .
+
+  # codingrules section 2 ("the framework runs on all three hosts") demands the type checker
+  # itself run on both OSes, not just lint -- a Windows-only path-handling bug or an Ubuntu-only
+  # optional-import branch can each make mypy pass on one platform and fail on the other.
+  types:
+    name: types (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - run: uv run --frozen mypy
+
+  # codingrules section 4's layer table ("imports flow down the layer table only... no vendor LLM
+  # SDK outside hivemind/llm/providers/") is only real if something machine-checks it on every
+  # push; import-linter is that check, and it runs on both OSes for the same reason `types` does.
+  imports:
+    name: imports (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - run: uv run --frozen lint-imports
+
+  # Roadmap step 0.3's four commit-time hygiene scripts, absorbed here from the now-deleted
+  # hygiene.yml (see .github/workflows/README.md) so there is exactly one CI workflow plus
+  # integration.yml.
+  hygiene:
+    name: hygiene (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - name: check_sizes.py (codingrules 5.1 size limits)
+        run: uv run --frozen python scripts/check_sizes.py
+      - name: check_no_model_ids.py (codingrules 8.6 model slots, not model names)
+        run: uv run --frozen python scripts/check_no_model_ids.py
+      - name: check_no_kind_branches.py (codingrules 8.7 capabilities, not kind)
+        run: uv run --frozen python scripts/check_no_kind_branches.py
+      - name: check_no_transcripts.py (codingrules 8.8 stateless awake episodes)
+        run: uv run --frozen python scripts/check_no_transcripts.py
+
+  tests:
+    name: tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - run: >
+          uv run --frozen pytest -m "not integration and not e2e and not live_llm and not local_llm"
+          --cov --cov-report=term-missing --cov-report=json --cov-report=xml
+      # codingrules 14.1's per-layer floors; pytest-cov's own fail_under only enforces one
+      # repository-wide number (see [tool.coverage.report] in pyproject.toml).
+      - run: uv run --frozen python scripts/check_coverage_floors.py
+      # Named per OS so a Windows-leg coverage report is never overwritten by Ubuntu's artifact of
+      # the same name; `if: always()` keeps the report available even when the floor check above
+      # just failed the job, which is exactly when a contributor most wants to see it.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.os }}
+          path: |
+            coverage.xml
+            coverage.json
+
+  # codingrules section 2: "Hosts: Windows 11, Ubuntu LTS, Arch Linux... the Hive Stand and the
+  # framework run on all three." The matrix above covers two of the three; this job proves the
+  # same Python gates pass on the third by running them inside a fresh Arch Linux container on
+  # the ubuntu-latest runner, rather than requiring a self-hosted Arch runner.
+  arch:
+    name: arch (container)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      # Arch's base image ships neither git nor curl; install only what this job needs to check
+      # out the repo and fetch uv's installer, not the full base-devel group.
+      - name: Install git and curl
+        run: pacman -Sy --noconfirm git curl
+      - uses: actions/checkout@v4
+      # astral-sh/setup-uv ships prebuilt binaries for the runner images it targets; inside an
+      # arbitrary container the documented path is uv's own install script instead.
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # uv provisions its own managed CPython build matching .python-version, so this job needs
+      # no system Python package from pacman at all.
+      - run: uv python install "$(cat .python-version)"
+      - run: uv sync --frozen --all-groups
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen mypy
+      - run: uv run --frozen lint-imports
+      - run: uv run --frozen python scripts/check_sizes.py
+      - run: uv run --frozen python scripts/check_no_model_ids.py
+      - run: uv run --frozen python scripts/check_no_kind_branches.py
+      - run: uv run --frozen python scripts/check_no_transcripts.py
+      - run: >
+          uv run --frozen pytest -m "not integration and not e2e and not live_llm and not local_llm"
+          --cov --cov-report=term-missing --cov-report=json --cov-report=xml
+      - run: uv run --frozen python scripts/check_coverage_floors.py
+
+  # codingrules section 15: "Dependencies are audited in CI (pip-audit for Python...); a
+  # known-vulnerable pin blocks merge." uv-managed environments ship no pip, so pip-audit can't
+  # scan the venv directly; export the locked, non-workspace dependencies to a plain requirements
+  # file and audit that instead. --no-emit-workspace drops the three local packages (they aren't
+  # on PyPI, so pip-audit can't look them up) while keeping every third-party pin.
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - run: >
+          uv export --frozen --no-hashes --no-emit-workspace --format requirements-txt
+          -o requirements-audit.txt
+      # --no-deps: the export already resolved the full closure, so pip-audit doesn't need a
+      # second resolution pass. --strict turns a package pip-audit couldn't look up into a
+      # failure instead of a silently skipped warning.
+      - run: uv run --frozen pip-audit --requirement requirements-audit.txt --no-deps --strict
+
+  # codingrules section 2's front-end toolchain (eslint/prettier, tsc --noEmit, vitest) plus
+  # section 15's "pnpm audit for the front end", for packages/observation-web/.
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/observation-web
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm before Node, per pnpm/action-setup's documented order, so actions/setup-node's own
+      # pnpm cache step below can find the pnpm executable it needs to compute the cache key.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12 # package.json has no "packageManager" field to read the version from.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: packages/observation-web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm audit --audit-level=high
