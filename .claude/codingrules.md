@@ -10,7 +10,8 @@ every script under `scripts/`, every Virtual Cell image under `images/`, and eve
 **Python 3.12+** because every subsystem the README describes (LLM orchestration, SQLite +
 `sqlite-vec`, hypervisor bindings, Docker SDK, X11/uinput automation) has mature Python support.
 If that choice changes, sections 2, 9, 11 and Appendix A are the only language-specific parts;
-everything else is language-neutral.
+everything else is language-neutral. The Observation Hive front end is **TypeScript + React**;
+section 2 lists its toolchain, and sections 5 and 7 apply to it unchanged.
 
 ---
 
@@ -36,6 +37,7 @@ everything else is language-neutral.
 17. [Definition of done](#17-definition-of-done)
 - [Appendix A: File templates](#appendix-a-file-templates)
 - [Appendix B: Pre-commit checklist](#appendix-b-pre-commit-checklist)
+- [Appendix C: State machines and where state lives](#appendix-c-state-machines-and-where-state-lives)
 
 ---
 
@@ -78,7 +80,7 @@ Everything below is a consequence of these six rules.
 | Concern | Choice | Notes |
 |---|---|---|
 | Language | Python 3.12+ | `match`, `TaskGroup`, PEP 695 generics are all fair game. |
-| Hosts | Windows 11, Ubuntu LTS, Arch Linux | The Hive Stand and the framework run on all three; macOS is best-effort. Nothing may assume one of them; platform shims live in `cell/local.py` and `pollen/platform/`. |
+| Hosts | Windows 11, Ubuntu LTS, Arch Linux | The Hive Stand and the framework run on all three; macOS is best-effort. Nothing may assume one of them; platform shims live in `cell/local/` and `pollen/platform/`. |
 | Virtual Cell images | Ubuntu LTS (24.04) | Every image under `images/` is Ubuntu-based, for containers and for QEMU cloud images alike. |
 | Package/venv manager | `uv` | Workspace at the repo root; one lockfile. Never `pip install` by hand. |
 | Lint + format | `ruff` | Format **and** lint. Rule set in root `pyproject.toml`. Line length 100. |
@@ -89,9 +91,12 @@ Everything below is a consequence of these six rules.
 | Async | `asyncio` | Structured concurrency only (section 11). No threads unless wrapping blocking I/O. |
 | Structured logging | `structlog` | JSON in production, pretty in dev. See section 12. |
 | CLI | `typer` | Thin layer; commands call into subsystem APIs, never contain logic. |
+| API | FastAPI or Starlette (ADR, phase 10) | The Hive Entrance. Two listeners, loopback and remote; routes are thin; OpenAPI is generated from the pydantic route models and committed. |
+| Front end | TypeScript (strict) + React, Vite | `packages/observation-web/`. `eslint` + `prettier`, `tsc --noEmit`, `vitest`. No `any`. Sections 5 and 7 apply to `.ts`/`.tsx` unchanged. TS types for every Landing Board model are generated from `docs/entrance/openapi.json`, never hand-written. |
+| Android | Capacitor over the same React app | `packages/observation-web/android/`. Native push and the credential manager (passkeys) through plugins; the APK is a release artifact. Push delivery (FCM or UnifiedPush) is decided in the Android ADR. |
 | Config format | TOML | Hive Manifests are TOML validated by pydantic (section 13). |
 | Storage | SQLite (`aiosqlite`, FTS5, `sqlite-vec`) | One file per Hive. Migrations are numbered SQL files. |
-| LLM | `LLMProvider` protocol in `hivemind/llm/` | Provider-agnostic. Adapters under `hivemind/llm/providers/<name>/` are the only modules that import a vendor SDK or model-server client (`anthropic`; `httpx` for OpenAI-compatible local servers such as Ollama, vLLM, llama.cpp). Enforced by `import-linter`. See 8.6. |
+| LLM | `LLMProvider`, `EmbeddingProvider` and `TranscriptionProvider` protocols in `hivemind/llm/` | Provider-agnostic. Adapters under `hivemind/llm/providers/<name>/` are the only modules that import a vendor SDK, model-server client or in-process model library (`anthropic`; `httpx` for OpenAI-compatible local servers such as Ollama, vLLM, llama.cpp; `faster_whisper` and `sentence_transformers` for in-process models). Enforced by `import-linter`. See 8.6. |
 | Pre-commit | `pre-commit` | ruff, mypy, import-linter, trailing-whitespace, end-of-file. |
 
 Pin every dependency in `uv.lock`. Add a dependency only with a one-line justification in the PR
@@ -111,63 +116,83 @@ HiveMind/
 ├── docs/
 │   ├── adr/                      # Architecture Decision Records: NNNN-short-title.md
 │   ├── waggle/                   # Waggle protocol spec: message catalogue, transports, versioning
+│   ├── entrance/                 # Landing Board: the committed OpenAPI document, client guide, push and enrolment contracts
 │   ├── manifests/                # Annotated example Hive Manifests
-│   └── runbooks/                 # Operational how-tos (requeening, absconding, backups)
+│   ├── supervision/              # Data the supervisors load: default-policy.toml, capping-tiers.toml
+│   ├── observation/              # Design notes the Observation Hive follows
+│   ├── evals/                    # Reports written by `hive llm eval`
+│   ├── runbooks/                 # Operational how-tos (requeening, supersedure, remote access, absconding, backups)
+│   └── security.md               # The security review (phase 14)
 ├── packages/
-│   ├── waggle/                   # SHARED PROTOCOL. Tiny deps (pydantic, websockets). No hivemind imports.
+│   ├── waggle/                   # SHARED PROTOCOL + shared primitives. Deps: pydantic, websockets, cryptography. No hivemind imports.
 │   │   ├── src/waggle/
-│   │   │   ├── messages/         # One file per message family (task.py, cell.py, honey.py, ...)
+│   │   │   ├── messages/         # One file per message family (task.py, cell.py, honey.py, capping.py, ...)
 │   │   │   ├── transport/        # Transport protocol + implementations (memory.py, websocket.py)
 │   │   │   ├── envelope.py       # The outer wrapper every message travels in
 │   │   │   ├── codec.py          # Serialise / deserialise + version negotiation
+│   │   │   ├── signing.py        # Ed25519 over canonical envelope bytes
+│   │   │   ├── outbox.py         # Durable queue for nodes that are offline
+│   │   │   ├── ids.py            # Prefixed-ULID NewType ids. Here, not in hivemind, because envelopes and pollen need them
+│   │   │   ├── clock.py          # Clock protocol, SystemClock, FakeClock. Here because pollen needs the fake too
+│   │   │   ├── loop.py           # The standard long-running loop shape (section 11), shared by every bee and the gateway
 │   │   │   └── errors.py
 │   │   ├── tests/
 │   │   └── pyproject.toml
 │   ├── hivemind/                 # THE QUEEN and every control-plane + Hive subsystem
 │   │   ├── src/hivemind/
-│   │   │   ├── common/           # Layer 0. ids, clock, errors, result, logging setup. Imports nothing internal.
+│   │   │   ├── common/           # Layer 0. errors, result, logging setup, migrations. Imports nothing internal except waggle (ids, clock, loop).
 │   │   │   ├── manifest/         # Hive Manifest loading, schema, validation
 │   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync
-│   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slots, ladders, fanner.py (seat meter), prompts/, providers/
-│   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation
+│   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders, routing, fanner.py (seat meter), prompts/, providers/. Imports forage; forage never imports llm.
+│   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence
 │   │   │   ├── honey_store/      # Cold tier: nectar/ intake, ripening/ pipeline, honey/ retrieval, schema/
 │   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread
-│   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/
-│   │   │   ├── guard/            # Policy engine, capabilities, permission checks (used by entrance + Guard Bees)
-│   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, Hive Stand
-│   │   │   ├── hive/             # VIRTUAL Cells: lifecycle + backends/ (docker.py, qemu.py, cloud/...) + overwintering + snapshot.py
+│   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state)
+│   │   │   ├── guard/            # Policy engine, capabilities.py (CapabilitySet, built in phase 3), access.py (what each AccessLevel allows), permission checks. The security enums live in cell/tiers.py.
+│   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, needs.py (TaskNeeds), tiers.py (AccessLevel, CombShieldLevel, HoneyClearance), snapshot.py (Snapshotter protocol), local/ (the Hive Stand)
+│   │   │   ├── hive/             # VIRTUAL Cells: lifecycle.py + night_veil.py (attestation) + backends/ (docker.py, qemu.py, cloud/...) + overwinter/ + snapshot.py (Snapshotter backends)
 │   │   │   ├── swarm/            # REAL Cells from enrolled devices: registry, enrolment, heartbeat, PollenSession, Nuc promotion
-│   │   │   ├── exoskeleton/      # compound_eye/, antennae/, buzz/, browser/, attach.py, recorder.py (flight recorder)
+│   │   │   ├── exoskeleton/      # compound_eye/, antennae/, buzz/, browser/, attach.py, recorder.py (flight recorder), tactics/ (mouse_like_human)
 │   │   │   ├── royal_jelly/      # Royal Jelly Lab + Comb Registry: spec/, scaffold/, quarantine_comb/, registry/ (hive + cell scopes), promotion/
-│   │   │   ├── workers/          # Worker runtime + roles/ (forager.py, scout.py, ...) + tools/
-│   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/, requests, offline/, watch/
-│   │   │   ├── queen/            # inbox/, autopilot/, awake/, planner/, placement/, forage/ (shared pool, ceilings, hosting plans), dispatcher, cluster/, requeening/
-│   │   │   ├── entrance/         # Hive Entrance: HTTP/WebSocket gateway, auth middleware, human inbox
-│   │   │   ├── observation/      # Observation Hive: metrics, dashboard API
+│   │   │   ├── workers/          # Worker runtime + roles/ (forager.py, scout.py, ...) + tools/ + tactics/ (write_like_human)
+│   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/ (allocation and hosting.py: model servers on the Warden's Cell), requests, offline/, watch/
+│   │   │   ├── queen/            # inbox/, autopilot/, awake/, planner/, placement/, forage/ (shared pool, ceilings, hosting plans), dispatcher, cluster/, requeening/, supersedure/ (moving the Hive Stand)
+│   │   │   ├── entrance/         # Hive Entrance: two listeners (loopback, remote), routes/ (versioned), enrol/ (device invites; approval on loopback only), auth/ (device key + password, sessions, step-up), push/ (webhooks, web push), expose.py (vpn, lan, tunnel), reducer.py (Entrance Reducer), landing_board.py (OpenAPI contract), human inbox
+│   │   │   ├── observation/      # Observation Hive read side: views/ (pydantic read models), api.py, metrics. The front end is packages/observation-web/.
 │   │   │   └── cli/              # `hive` CLI. One file per command group.
 │   │   ├── tests/
 │   │   │   ├── unit/             # Mirrors src/hivemind/ one-to-one
 │   │   │   ├── integration/      # Real SQLite / real Docker; marked, skippable
 │   │   │   ├── e2e/              # Whole-Hive scenarios
 │   │   │   ├── contracts/        # Protocol contract suites, parametrised over every implementation
-│   │   │   ├── fakes/            # Hand-written fakes for every Protocol (see 14.4)
 │   │   │   ├── builders/         # Test-data builders (make_task, make_cell_spec, ...)
+│   │   │   ├── evals/            # Handoff and model evaluation harnesses (phases 4 and 8)
 │   │   │   └── conftest.py
 │   │   └── pyproject.toml
-│   └── pollen/                   # POLLEN PACKET device connector. Depends ONLY on waggle.
-│       ├── src/pollen/
-│       │   ├── agent/            # The gateway loop: connect out, heartbeat, hand a session to the Warden on the Hive Stand
-│       │   ├── enrol/            # First-run registration with the Queen: capability + Forage report
-│       │   ├── executors/        # What the device can do: session.py (persistent shell), files.py, info.py
-│       │   ├── lease/            # Device-side lease: scratch dir, started PIDs, restore on release, dead-man switch
-│       │   ├── bootstrap/        # Install the full hivemind runtime when the Queen promotes the device to a Nuc
-│       │   └── platform/         # OS-specific shims (linux.py, windows.py, macos.py)
+│   ├── pollen/                   # POLLEN PACKET device connector. Depends ONLY on waggle.
+│   │   ├── src/pollen/
+│   │   │   ├── agent/            # The gateway loop: connect out, heartbeat, hand a session to the Warden on the Hive Stand; persists the Queen's address and honours a signed QueenMoved
+│   │   │   ├── enrol/            # First-run registration with the Queen: capability + Forage report
+│   │   │   ├── executors/        # What the device can do: session.py (persistent shell), files.py, info.py
+│   │   │   ├── lease/            # Device-side lease: scratch dir, started PIDs, restore on release, dead-man switch
+│   │   │   ├── bootstrap/        # Install the full hivemind runtime when the Queen promotes the device to a Nuc
+│   │   │   └── platform/         # OS-specific shims (linux.py, windows.py, macos.py)
+│   │   ├── tests/
+│   │   └── pyproject.toml
+│   └── observation-web/          # OBSERVATION HIVE front end: TypeScript (strict) + React, Vite. Served by the Entrance as static files.
+│       ├── src/
+│       │   ├── landing_board/    # Generated TS types from docs/entrance/openapi.json + the one client module (auth, streams, push)
+│       │   ├── views/            # One directory per view (fleet, cell, forage, thoughts, attendant, capping, honey, chat, enrol)
+│       │   ├── components/       # Shared components: badges, gauges, the live SVG diagrams, the summary strip
+│       │   └── app.tsx           # Composition root: routes, stream subscriptions, PWA registration
+│       ├── android/              # Capacitor project: the same app as an APK with native push and passkeys
 │       ├── tests/
-│       └── pyproject.toml
+│       └── package.json
 ├── images/                       # Virtual Cell images (Ubuntu LTS): one directory per image, Dockerfile/VM spec + README
 │   ├── base-ubuntu/              # Terminal-first: shell, Python, Warden entry point, Waggle client
-│   └── desktop-ubuntu/           # Exoskeleton-ready: base + Xvfb, xdotool, PulseAudio, browser
+│   ├── desktop-ubuntu/           # Exoskeleton-ready: base + Xvfb, xdotool, PulseAudio, browser
+│   └── night-veil-ubuntu/        # Night Veil: desktop + OpenVPN client, Tor, Tor Browser, kill-switch rules; attested before READY
 ├── scripts/                      # Dev/ops helpers. One job each. Header comment says what and how.
 ├── pyproject.toml                # Workspace root: uv workspace members, ruff, mypy, pytest, import-linter
 ├── uv.lock
@@ -187,6 +212,14 @@ HiveMind/
 - `common/` is the only place for cross-cutting primitives. It never grows domain logic. If you are
   tempted to put a "helper" there, it belongs in the subsystem that uses it.
 - No `utils.py`, `helpers.py`, `misc.py`, or `core.py` anywhere. Name the file for what it contains.
+- Fakes live beside the Protocol they implement, as `fake.py` in the same package (`llm/fake.py`,
+  `cell/fake.py`, `hive/backends/fake.py`; `FakeClock` in `waggle/clock.py`), never under
+  `tests/`. They are shipped code: `pollen`, `hive doctor` and demo paths use them, and a fake in
+  `src/` is held to the same standard as everything else.
+- `packages/observation-web/` follows the same rules with TypeScript names: one concept per file,
+  the size limits of 5.1, the comment density of 7.4, a header comment in the shape of 7.2. Its
+  `landing_board/types.ts` is generated, never edited; CI regenerates it from the committed
+  OpenAPI document and fails on a diff.
 
 ---
 
@@ -210,15 +243,18 @@ Layer 0  common                                                       (primitive
 
 **Corollaries**
 
-- `common` and `waggle` know nothing about bees. They provide ids, time, errors, envelopes.
+- `common` and `waggle` know nothing about bees. `waggle` provides envelopes, ids, the clock and
+  the loop shape, because `pollen` needs those too and may import nothing from `hivemind`;
+  `common` provides errors, results, logging and migrations.
 - `cell` defines what a Cell is and how a terminal session on it works; it does not know how
   Cells are made. `hive` (Virtual Cells) and `swarm` (Real Cells on remote devices) produce Cells
-  and import `cell`, never the reverse. The Hive Stand Real Cell lives in `cell/local.py` because it
+  and import `cell`, never the reverse. The Hive Stand Real Cell lives in `cell/local/` because it
   needs nothing beyond the standard library.
 - Process execution is a `CellSession` concern. `subprocess`, `os.system` and friends are
-  importable only from `hivemind.cell.local`, `hivemind.hive.backends.*`,
-  `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess` and `pollen.*`. A Worker or tool that
-  wants to run a command asks its session; `lint-imports` rejects anything else.
+  importable only from `hivemind.cell.*` (the local and in-cell sessions),
+  `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`,
+  `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its session;
+  `lint-imports` rejects anything else.
 - Autopilot never awaits a model. Any module under a directory named `autopilot/` may not import
   `hivemind.llm`, directly or transitively; `lint-imports` enforces it. This is what keeps the
   Hive alive when every provider is down (section 8.8).
@@ -236,6 +272,13 @@ Layer 0  common                                                       (primitive
   `hivemind.llm.providers.<name>`. An `import anthropic` or `import openai` anywhere else fails
   `lint-imports`. Everything above `llm/` sees only our own request, response and capability
   models (section 8.6).
+- Within Layer 1, `llm` imports `forage` and `forage` never imports `llm`. `ModelSlot` and
+  `Tempo` live in `forage` so that grants, routing inputs and autopilot rules can name a slot or
+  read a tempo without touching `hivemind.llm`.
+- `cell` is the home of everything a task or a policy needs to say about a Cell: `TaskNeeds`, the
+  three security enums (`AccessLevel`, `CombShieldLevel`, `HoneyClearance`) and the `Snapshotter`
+  protocol. `guard`, `hive`, `honey_store` and `supervision` import them from there; nothing at
+  Layer 2 or below imports `guard` for an enum.
 
 ---
 
@@ -300,10 +343,10 @@ logs, and the code agree.
 | Concept | Module / package | Class | Notes |
 |---|---|---|---|
 | Queen | `queen` | `Queen` | Only one instance per Hive. |
-| Cell (either kind) | `cell` | `Cell`, `CellKind`, `CellHandle`, `CellCapabilities`, `CellSession`, `RealCellLease` | `CellKind.REAL` or `CellKind.VIRTUAL`. A Worker only ever sees `Cell` + `CellSession`. |
+| Cell (either kind) | `cell` | `Cell`, `CellKind`, `CellHandle`, `CellCapabilities`, `CellSession`, `RealCellLease`, `TaskNeeds`, `Snapshotter` | `CellKind.REAL` or `CellKind.VIRTUAL`. A Worker only ever sees `Cell` + `CellSession`. |
 | Virtual Cell | `hive` | `VirtualCellSpec`, `CellBackend`, `CellLifecycle` | Owned: provisioned, then destroyed or Overwintered, except `NIGHT_VEIL` which is always teardown-only. |
-| Real Cell | `cell/local.py`, `swarm` | `HiveStand`, `SwarmNode`, `RealCellSource` | Borrowed: leased, then released and left as found. Never destroyed. |
-| Hive Stand | `cell/local.py` | `HiveStand`, `HiveStandSource` | The machine the Queen runs on. Also the first Real Cell and the default home of every Warden. |
+| Real Cell | `cell/local/`, `swarm` | `HiveStand`, `SwarmNode`, `RealCellSource` | Borrowed: leased, then released and left as found. Never destroyed. |
+| Hive Stand | `cell/local/` | `HiveStand`, `HiveStandSource` | The machine the Queen runs on. Also the first Real Cell and the default home of every Warden. |
 | Placement | `queen/placement/` | `TaskNeeds`, `Placement` | Pure decision: reuse a Real Cell or provision a Virtual one. |
 | Warden | `wardens` | `Warden`, `WardenAutopilot`, `WardenAwake`, `WardenOffline` | One per Cell. Supervises sub-bees; never provisions Cells. |
 | Attendant | `supervision/attendant.py`, used by `queen/inbox/` and `wardens/inbox/` | `Attendant`, `InboxItem`, `Priority` | Every supervisor's inbox triage; deterministic first, a cheap slot for ties only where the grant allows. |
@@ -317,22 +360,28 @@ logs, and the code agree.
 | Clustering | `queen/cluster/` | `ClusterProtocol` | Pause and preserve while a provider is unavailable; resume from Handoffs. |
 | Observation Hive | `observation` | `FleetView`, `CellView`, `ForageView`, `AttendantView`, `ThoughtsView`, `CappingView`, `HoneyBrowser` | Read-only views; the chat is the only write, and it goes into the Queen's inbox. |
 | Capping | `supervision/capping/` | `Proposal`, `Postcondition`, `RiskTier`, `Verdict`, `CappingGate` | The QA gate: nothing with a side effect outside scratch lands uncapped. |
-| Access level | `guard/access.py` | `AccessLevel` (`READ_ONLY`, `SCRATCH`, `FULL`) | Per Real Cell; Virtual Cells are always `FULL`; caps every capability set for that Cell. |
-| Comb Shield level | `guard/access.py` | `CombShieldLevel` (`MEADOW`, `PROPOLIS`, `NIGHT_VEIL`) | Per Cell security tier. Runtime controls are enforced from the Cell's tier; tasks inherit from their placed Cell. |
-| Honey clearance | `honey_store` | `HoneyClearance` (`C0`, `C1`, `C2`) | Data sensitivity labels. Any user personal detail (including first name or habits) is `C2`. |
+| Access level | `cell/tiers.py` | `AccessLevel` (`READ_ONLY`, `SCRATCH`, `FULL`) | Per Real Cell; Virtual Cells are always `FULL`; caps every capability set for that Cell. What each level permits is data in `guard/access.py`. |
+| Comb Shield level | `cell/tiers.py` | `CombShieldLevel` (`MEADOW`, `PROPOLIS`, `NIGHT_VEIL`) | Per Cell security tier. Runtime controls are enforced from the Cell's tier; tasks inherit from their placed Cell. Operator-set for Real Cells, Queen-chosen for Virtual ones. |
+| Honey clearance | `cell/tiers.py` | `HoneyClearance` (`C0`, `C1`, `C2`) | Data sensitivity labels carried by every memory tier, not only Honey. Any user personal detail (including first name or habits) is `C2`. |
 | Watch mode, Patrol | `wardens/watch/` | `WatchObserver`, `Patrol` | A Real Cell's Warden with no active bees observes read-only and reviews on a schedule. |
-| Tempo | `cell/needs.py` | `Tempo` (latency budget, accuracy bar) | Read by the Attendant, routing, Forage allocation and Capping; never overrides safety. |
+| Tempo | `forage/tempo.py` | `Tempo` (latency budget, accuracy bar) | Read by the Attendant, routing, Forage allocation and Capping; never overrides safety. Lives at Layer 1 because Layer 1 reads it. |
 | Worker roles | `workers/roles/` | `Forager`, `Scout`, `GuardBee`, `Undertaker`, `Drone`, `HouseBee` | All implement `Worker`. |
 | Exoskeleton | `exoskeleton` | `CompoundEye`, `Antennae`, `Buzz` | Each is a Protocol with backends. |
 | Royal Jelly Lab + Comb Registry | `royal_jelly` | `ToolSpec`, `QuarantineComb`, `CombRegistry` | |
 | Task store | `brood_chamber` | `BroodChamber`, `Task`, `TaskGraph` | |
 | Knowledge | `honey_store` | `Nectar`, `Honey`, `Ripener`, `HoneyStore` | |
 | Protocol | `waggle` | `Envelope`, `Waggle*Message` | |
-| Gateway | `entrance` | `HiveEntrance` | |
+| Gateway | `entrance` | `HiveEntrance` | Two listeners: loopback (always) and remote (when exposed). |
+| Landing Board | `entrance` | `LandingBoard`, `EnrolledDevice`, `DeviceInvite`, `StepUp`, `PushChannel` | The versioned public contract; only devices enrolled and approved on the loopback listener may use it. |
+| Entrance Reducer | `entrance/reducer.py` | `EntranceReducer`, `EntranceMode` | Drops the Entrance to loopback only and kills remote sessions; only loopback reopens it. |
+| Pheromone Mask | `supervision/mask.py`, `workers/tactics/`, `exoskeleton/tactics/` | `MaskState` (`OFF`, `WARDEN`, `QUEEN_FORCED`), `MaskTactic` | State with reason and expiry in supervision; the prose tactic acts in workers, the input tactic in the exoskeleton. |
+| Supersedure | `queen/supersedure/` | `Supersedure`, `SupersedurePlan`, `QueenMoved` | Moving the Hive Stand: freeze, copy, hand over, never two Queens. |
+| Sting Cut | `queen/sting_cut.py` | `StingCut` | Human-initiated per-Cell disconnect; revokes the lease and keys, kills lease processes; the Undertaker performs the cleanup. |
 | Devices | `swarm`, `pollen` | `SwarmNode`, `PollenPacket`, `PollenSession` | A Swarm node is a Real Cell; `PollenSession` is its `CellSession` carried over Waggle. |
 | Audit | `pheromone` | `PheromoneTrail`, `PheromoneEvent` | |
 | Config | `manifest` | `HiveManifest` | |
-| LLM access | `llm` | `LLMProvider`, `EmbeddingProvider`, `ModelSlot`, `ProviderCapabilities` | Vendor-neutral; adapters in `llm/providers/`. |
+| LLM access | `llm` | `LLMProvider`, `EmbeddingProvider`, `ProviderCapabilities`, `BoundModel` | Vendor-neutral; adapters in `llm/providers/`. The `ModelSlot` enum is in `forage/slots.py`. |
+| Transcription | `llm/transcription.py` | `TranscriptionProvider`, `Transcript`, `TranscriptSegment` | One slot, `TRANSCRIBER`, for the human's voice at the Entrance and a Worker's ears through Buzz. Whisper by default, local first. |
 
 Each bee term appears **with its plain-English meaning in parentheses the first time it is used in
 every module docstring**, e.g. "Provisions a Cell (an isolated VM or container)". New readers
@@ -464,6 +513,10 @@ Use exactly these, uppercase, followed by `(owner)` and a colon. CI greps for th
   Alternatives considered. Numbered, never edited after acceptance (write a superseding ADR).
 - **Protocol spec** (`docs/waggle/`) is the source of truth for message shapes. The pydantic models
   in `packages/waggle/` are generated from or checked against it in CI.
+- **API spec** (`docs/entrance/openapi.json`) is the Landing Board's contract, generated from the
+  route models by `entrance/landing_board.py` and committed; CI fails if the generated document
+  differs from the committed one, so a route change is always a visible contract change. The
+  front end's TypeScript types are generated from it in turn.
 - Each subsystem has a `README.md` in its package directory: purpose, public API summary, a diagram
   if the flow is not linear, and a "How to test this" section.
 - The root `README.md` links to `.claude/roadmap.md` and `.claude/codingrules.md`.
@@ -491,9 +544,13 @@ Mandatory protocols (each gets its own ADR when first implemented):
 | `CompoundEye` / `Antennae` / `Buzz` | `hivemind/exoskeleton/*/base.py` | X11/Xvfb backends, Playwright fast-path |
 | `Sandbox` | `hivemind/royal_jelly/quarantine_comb/sandbox.py` | Container sandbox, subprocess sandbox (dev only) |
 | `EmbeddingProvider` | `hivemind/llm/embedding.py` | `OpenAICompatEmbedding` (Ollama, vLLM, hosted), `SentenceTransformersEmbedding` (in-process), `FakeEmbedding` |
+| `TranscriptionProvider` | `hivemind/llm/transcription.py` | `WhisperLocalTranscription` (faster-whisper in-process, optional extra, GPU when present), `OpenAICompatTranscription` (any server or hosted API speaking `/v1/audio/transcriptions`), `FakeTranscription` |
 | `TaskStore` | `hivemind/brood_chamber/store.py` | SQLite, in-memory (tests) |
 | `Worker` | `hivemind/workers/base.py` | one per role |
 | `DeviceExecutor` | `pollen/executors/base.py` | shell, files, per-OS |
+| `PheromoneTrail` | `hivemind/pheromone/trail.py` | SQLite, in-memory (tests) |
+| `Snapshotter` | `hivemind/cell/snapshot.py` | `DockerSnapshotter`, `QemuSnapshotter` (in `hive/snapshot.py`), `NoopSnapshotter` (Real Cells, warns) |
+| `PushChannel` | `hivemind/entrance/push/base.py` | `WebSocketPush`, `WebhookPush`, `WebPush`, `FakePush` |
 
 ### 8.2 Dependency injection, no globals
 
@@ -539,7 +596,10 @@ refactor.
 
 - **One door.** `LLMProvider` (`llm/provider.py`) and `EmbeddingProvider` (`llm/embedding.py`)
   are the only way any code talks to a model. Vendor SDKs and model-server HTTP clients are
-  imported only inside `llm/providers/<name>/` (enforced by `import-linter`, section 4).
+  imported only inside `llm/providers/<name>/` (enforced by `import-linter`, section 4). `httpx`
+  itself is not banned elsewhere (the Entrance and the http tool use it); what is banned outside
+  the adapters is a model-server client, meaning any request to a provider base URL, and the
+  model-id grep below catches URLs.
 - **Our types at the boundary.** Requests and responses are HiveMind models in `llm/models.py`
   (`LLMRequest`, `Message`, `ContentPart`, `ToolDefinition`, `ToolCall`, `LLMResponse`, `Usage`).
   SDK types never leave the adapter. Each adapter has a `mapping.py` that converts in both
@@ -554,10 +614,16 @@ refactor.
   native tool-call protocol → a prompted tool protocol that we parse and validate. Subsystems call
   the ladder, never the provider directly, so a weaker local model gets the same interface with
   more retries and the retry counts are commented constants.
-- **Model slots, not model names.** Code asks for a `ModelSlot` (`QUEEN`, `WORKER`, `RIPENER`,
-  `SCAFFOLDER`, `EMBEDDER`, `JUDGE`). The manifest's `[llm.slots]` table maps each slot to a
-  provider and model id with an optional fallback slot. A model id or provider URL in code is a
-  lint failure (a CI grep for `claude-`, `gpt-`, `llama` outside `docs/` and `manifest/`).
+- **Model slots, not model names.** Code asks for a `ModelSlot` (`QUEEN`, `ATTENDANT`, `WARDEN`,
+  `WORKER`, `RIPENER`, `SCAFFOLDER`, `EMBEDDER`, `JUDGE`, `TRANSCRIBER`), an enum that lives in
+  `forage/slots.py` so autopilot and Forage can name a slot without importing `hivemind.llm`.
+  `TRANSCRIBER` is audio in, text out; like `EMBEDDER` it is a non-chat slot with its own protocol
+  (`llm/transcription.py`), metered by the Fanner and listed on the Forage map like any source.
+  The manifest's `[llm.slots]` table maps each slot to a provider and model id with an optional
+  fallback; a fallback may name a slot or a named binding that appears only in that table
+  (`local_worker` in section 13). A model id or provider URL in code is a lint failure (a CI grep
+  for `claude-`, `gpt-`, `llama` outside `docs/` and `manifest/`, skipping comments and
+  docstrings so an adapter may say which servers it speaks to).
 - **Prompts are portable.** Prompt assets under `llm/prompts/` are plain markdown with no
   vendor-specific tags, tokens or formatting tricks. If a provider needs a tweak, it lives in that
   adapter's `mapping.py` or a per-provider overlay file under `llm/prompts/overlays/<provider>/`,
@@ -588,7 +654,7 @@ this distinction central; the code makes it invisible to Workers.
 
 - **One abstraction, two sources.** `cell/` defines `Cell`, `CellKind`, `CellCapabilities`
   (os, arch, has_display, has_audio, has_browser, network scopes) and the `CellSession`
-  protocol. `hive/` is the only producer of Virtual Cells; `cell/local.py` and `swarm/` are the
+  protocol. `hive/` is the only producer of Virtual Cells; `cell/local/` and `swarm/` are the
   producers of Real Cells, both behind `RealCellSource`.
 - **A session is a terminal.** `CellSession` offers `exec` with streaming output, `put_file`,
   `get_file`, a `scratch_dir`, and `close`. Every Cell has one. It is the only way a Worker or a
@@ -619,13 +685,29 @@ this distinction central; the code makes it invisible to Workers.
 - **Comb Shield is a Cell property.** Tier is bound to the Cell, not the task. A task inherits the
   `CombShieldLevel` of the Cell where it executes; moving a task to another Cell re-evaluates and
   re-binds controls before resume.
-- **Tier defaults and authority.** New Cells default to `MEADOW`. The Queen may promote a task's
-  placement target to `PROPOLIS` by policy. `NIGHT_VEIL` placement requires explicit human request
-  and may not be autonomously escalated by the Queen or a Warden.
+- **Tier defaults and authority.** New Virtual Cells default to `MEADOW`, and the Queen may
+  provision one at `PROPOLIS` by policy. A Real Cell's tier is set by the operator at enrolment,
+  like its access level, and describes a VPN the device already runs: HiveMind verifies the
+  tunnel before placing Propolis work on it and never installs, starts or reroutes one on a
+  borrowed machine, because that would touch the whole device and not the lease. `NIGHT_VEIL`
+  requires explicit human request, is Virtual-only, and may not be autonomously escalated by the
+  Queen or a Warden.
 - **Night Veil is deterministic and strict.** A `NIGHT_VEIL` Cell is Virtual-only and may be marked
   `READY` only after attestation of: VPN tunnel up, Tor up, Tor Browser presence, default route via
-  the tunnel, DNS leak checks green, and direct egress blocked by kill-switch rules. Night Veil
+  the tunnel, the Waggle client reaching the Hive Stand's hidden-service address through Tor, DNS
+  leak checks green, and direct egress blocked by kill-switch rules. Night Veil
   model bindings are local-only and may not spill to hosted or Hive-Stand sources.
+- **Night Veil's control channel has no clearnet destination.** The Warden's Waggle link to the
+  Hive Stand goes over Tor to a `.onion` hidden service rather than the VPN tunnel or any clearnet
+  address. Sharing the VPN tunnel with task egress would let anyone watching that tunnel's exit see
+  one IP both feeding a Tor circuit and talking to a known Hive Stand address, linking the
+  anonymized work back to the operator; a hidden service removes the fixed destination those
+  observers would correlate against. This does not defend against an adversary who can see the
+  Cell's own host (the hypervisor or cloud provider), who can still observe that a VPN tunnel and a
+  Tor process are both active on the same machine — no tunnel topology fixes that, and it is the
+  same limit Tor's own threat model excludes (a global passive adversary). The trade is latency and
+  connection reliability for Waggle traffic, which Clustering (8.13) and the disconnected-Warden
+  backoff and outbox replay (8.8) already absorb.
 - **Night Veil is location-blind by policy.** A `NIGHT_VEIL` Cell exposes no geolocation path:
   no GPS or host location-service access, no Wi-Fi scan capability, metadata endpoints blocked,
   UTC timezone, fixed locale profile, and randomized hostname per boot.
@@ -633,7 +715,11 @@ this distinction central; the code makes it invisible to Workers.
   geolocation APIs are denied, metadata endpoints are unreachable, timezone equals UTC, locale
   matches policy, and WebRTC local-IP leak probes are blocked.
 - **Night Veil lifecycle is teardown-only.** A `NIGHT_VEIL` Cell is created just in time, never
-  Overwintered, and must be destroyed immediately when its task completes.
+  Overwintered, and must be destroyed immediately when its task completes. It boots from
+  `images/night-veil-ubuntu`, which carries the OpenVPN client, Tor, Tor Browser and the
+  kill-switch rules, so attestation checks an image rather than configuring a Cell at runtime.
+- **Night Veil keeps a skeleton, not a story.** Section 12 defines exactly which events survive a
+  Night Veil teardown; nothing else does.
 - **Branch on capabilities, never on kind.** Worker, role and tool code may read
   `cell.capabilities` but never `cell.kind`. `CellKind` matters to exactly two callers: placement
   (choose) and the Undertaker (destroy versus release). An `if cell.kind == CellKind.REAL` anywhere
@@ -687,7 +773,10 @@ human → Queen → Wardens → sub-bees, and one `Supervisor` protocol is used 
 - **Pheromone Mask overrides are supervisory controls.** A Warden may invoke mask tactics for a
   bounded task segment when policy allows. The Queen may force a mask override at Cell scope with
   explicit reason and expiry; while active, the Warden enforces it for the Cell's sub-bees until
-  expiry or explicit clear.
+  expiry or explicit clear. `supervision/mask.py` holds the per-Cell state (`OFF`, `WARDEN`,
+  `QUEEN_FORCED`) with its reason and expiry (Appendix C); the tactics live where they act,
+  `workers/tactics/write_like_human.py` for prose and `exoskeleton/tactics/mouse_like_human.py`
+  for input cadence, because prose is shaped on terminal-only Cells too.
 - **Wardens never provision.** A Warden spawns sub-bees within its grant and requests Cells, more
   Forage, or tools from the Queen with a reason. Sub-bees inherit a subset of the Warden's
   capabilities and grant, never more.
@@ -747,6 +836,12 @@ tiers below; nothing accumulates.
   of its window) checkpoints and resets itself; its supervisor may order it earlier.
 - **Stable prefix first.** Assembled prompts are ordered system prompt, tools, pins, hot state,
   then the event, so provider prompt caching keeps working.
+- **Every tier carries a clearance.** Episode records, notes, pins, Handoffs, watch observations
+  and Bee Bread entries carry a `HoneyClearance` exactly as Nectar and Honey do, and
+  `memory.assemble` filters by the principal's clearance allowance, so a Night Veil bee never sees
+  Royal data in hot state and never resumes from a Royal Handoff. Labels come from provenance at
+  intake: anything from a Real Cell, a human message or watch mode is `C2`; a model may raise a
+  label; only a judge verdict or a human may lower one.
 
 ### 8.10 Forage: capacity, and where models run
 
@@ -809,8 +904,10 @@ ceilings the Queen set once.**
 - A Real Cell whose Warden and model server both run on it is a **Nuc**. It keeps working when
   disconnected because everything it needs is in its local pool. Promoting a device to a Nuc is a
   Queen decision based on the device's Forage and the Hive Stand's pressure: the Warden moves
-  first by Handoff and resume, `pollen/bootstrap/` installs the runtime, then a model server
-  starts within the ceilings.
+  first by Handoff and resume, `pollen/bootstrap/` installs the runtime, then the Warden starts a
+  model server through `wardens/local_pool/hosting.py` within the ceilings. Starting a server
+  needs the Cell's `CellSession`, which is why that code lives with the Warden and not in
+  `forage`.
 
 ### 8.11 Observation Hive: read everything, write through the Queen
 
@@ -827,6 +924,10 @@ The UI is a window, not a control panel. Its rules:
   Warden, thoughts, the Capping queue, the Honey browser and the trail are all views over the
   streams and read API in `entrance/streams/` and `observation/api.py`. Views never poll; they
   subscribe.
+- **Core counters are always visible.** The Observation Hive shell includes a persistent summary
+  strip with total active bees, active versus inactive Cells, Real versus Virtual Cell counts, and
+  live LLM versus autopilot activity (bees in awake episodes versus deterministic autopilot
+  handling). These counters update from streams, not polling, and remain visible while navigating.
 - **Tier must be obvious at a glance.** `CombShieldLevel` is rendered as a persistent, high-contrast
   badge on every Cell page header and every Fleet row, with a fixed legend (`MEADOW`, `PROPOLIS`,
   `NIGHT_VEIL`) that is always visible in the Fleet view. Tier is never hidden behind a tooltip,
@@ -843,7 +944,14 @@ The UI is a window, not a control panel. Its rules:
   Every listed item includes its `HoneyClearance` label.
 - **Views are data-shaped, not code-shaped.** Every view has one pydantic read model in
   `observation/views/`; the web app renders those models and nothing else, so a view can be
-  regenerated from the models alone.
+  regenerated from the models alone. The React components take those models through TypeScript
+  types generated from the committed OpenAPI document, never through hand-written shapes.
+- **Reachable from any enrolled device.** The front end (`packages/observation-web/`) is a
+  TypeScript + React app served by the Entrance as static files, responsive from phone width up,
+  installable as a PWA, and packaged for Android with Capacitor. It is a Landing Board client
+  like any other (section 8.15): it runs on an enrolled device, logs in with that device's key
+  plus the operator's password, and has no privileged path. Wherever the Entrance is exposed, the
+  Observation Hive is.
 
 ### 8.12 Capping: nothing lands unchecked
 
@@ -868,6 +976,9 @@ is capped, and uncapped work never leaves scratch.
   do not correlate. Verdicts are structured: approve, request changes, reject, with reasons.
 - **Snapshots make rollback whole-machine.** On Virtual Cells the gate snapshots before
   `irreversible` and `device_command` proposals and rolls the Cell back when postconditions fail.
+  The gate calls the `Snapshotter` protocol from `cell/snapshot.py`, which the Warden injects;
+  `hive/snapshot.py` implements it for Docker and QEMU and Real Cells get a documented no-op, so
+  Capping at Layer 2 never imports `hive` at Layer 3.
 - **GUI work is recorded, not trusted.** While an Exoskeleton is attached the flight recorder
   keeps every action with before-and-after frames and structural snapshots as Nectar, referenced
   from the episode record, never on the trail or in logs. Structural assertions (URL, accessibility
@@ -912,6 +1023,114 @@ allocation decision reads it.
   autopilot rule, not a model choice.
 - Tempo never overrides safety: access levels, capability attenuation and the left-as-found rule
   are unaffected by how urgent a task is.
+
+### 8.15 The Hive Entrance and the Landing Board: one door, one keeper
+
+The Hive Entrance (`entrance/`) is the only way anything outside the process talks to the Hive:
+the Observation Hive, the `hive` CLI, a phone, a pair of glasses, another program. The **Landing
+Board** is its public contract, named for the platform at a real hive's entrance where every bee
+lands before going in. Guard bees admit only bees that carry the colony's scent; the Landing
+Board admits only devices the operator enrolled at the Hive Stand. The rules:
+
+- **One operator, no sign-up.** Brood 1.0 has exactly one operator principal. There is no user
+  table to register into; `hive entrance operator add` is a loopback-only command and refuses
+  unless `[entrance] operators` is raised above one.
+- **Devices are enrolled, then approved at the Hive Stand.** `entrance/enrol/` mirrors Swarm
+  enrolment (roadmap 11.1): a short-lived, single-use invite minted on loopback, a keypair the
+  device generates and keeps (a WebAuthn passkey in a browser, an Ed25519 key in a program's
+  secure storage), a pending record, and an approval that binds name, `CapabilitySet`, spend cap
+  and expiry. Approval, capability widening, unlock and reopening exist **only on the loopback
+  listener**; the remote listener does not serve those routes at all (a 404, not a 403), and the
+  route test from 8.11 asserts it. A steward device (`[entrance] steward_devices = true`, off by
+  default) may approve after full step-up; nothing else can. Glasses are their companion phone;
+  they never enrol on their own.
+- **Two factors, one of them the device.** Login is the device key (a passkey assertion with
+  user verification, or a signed challenge) plus the operator's password (Argon2id). Sessions
+  are short (`session_ttl_hours`), bound to the device key so a stolen token is useless without
+  it, idle out, and are revoked instantly with the device. Step-up (`step_up_window_minutes`)
+  re-runs both factors and is required for spend above `step_up_spend`, key and capability
+  changes, Supersedure, Sting Cut, Absconding and reopening after a reduction; break-glass actions
+  additionally need the typed confirmation from section 15 on every path, the API included.
+- **Never on the open internet.** `entrance/expose.py` reads `[entrance] expose`: `loopback`
+  (always on), `vpn` (recommended for remote access: a WireGuard or Tailscale overlay, the remote
+  listener bound to the overlay interface only, so unauthenticated packets never reach the
+  Entrance), `lan` and `tunnel` (both require TLS and mutual TLS with the device certificate on
+  top of login). There is no `public` value, and the Entrance refuses to start exposed without
+  TLS.
+- **Guard Bees watch the door; the Entrance Reducer narrows it.** `entrance/reducer.py` drops
+  the Entrance to loopback only and kills every remote session, on `hive entrance reduce` or on a
+  Guard Bee autopilot rule (failure bursts, lockouts across devices, an unknown client hammering
+  the invite route); only loopback reopens it, with step-up. Narrowing access is always safe, so
+  autopilot may do it without judgement. Lockout after `lockout_attempts` failures per device,
+  rate limits per device and per address, and every enrolment, approval, denial, revocation,
+  lockout, step-up and reduction is a `guard.entrance.*` trail event pushed to every other
+  enrolled device. The optional travel lock (`travel_lock = true`) forces step-up and a
+  notification when a known device appears from a new network; it never approves anything.
+- **Versioned and described.** Routes live under `/v1/`. `entrance/landing_board.py` generates
+  the OpenAPI document from the pydantic route models and it is committed as
+  `docs/entrance/openapi.json`; CI fails when the generated document differs from the committed
+  one. Additive changes stay within `/v1/`; a breaking change is `/v2/` with `/v1/` kept for one
+  Brood. Loopback-only routes are marked as such in the document.
+- **Push, not polling.** `entrance/push/` defines a `PushChannel` protocol with three
+  implementations: WebSocket for live clients, signed webhooks for programs (signed with the Hive
+  key, retried with backoff, idempotent by event id), and web push for phones (native push on
+  Android through the Capacitor build). Subscriptions are per device, filtered by capability, and
+  persisted (Appendix C). What is pushed: a question for the human, an Alarm that reached the
+  human, a reply from the Queen, the completion of a goal the device submitted, and every
+  Entrance security event. Push payloads say only that something is waiting, never the content,
+  because they transit third-party push services. A question answered on any device is withdrawn
+  from every other.
+- **Programs get narrow keys and spend caps.** A program is a device with a small
+  `CapabilitySet` (usually `entrance:submit`, `entrance:answer`, `observe`) and a daily spend cap
+  set at approval. It can never hold more than the operator granted on loopback.
+- **Voice is transcribed at the door.** An enrolled device may send audio instead of text: a
+  clip on `/v1/chat/audio`, or audio frames on the chat WebSocket for push-to-talk. `entrance/voice.py`
+  transcribes it on `ModelSlot.TRANSCRIBER` (8.6), Whisper by default and local first, and the
+  transcript enters the Queen's inbox as a `HumanMessage`. A spoken goal is echoed back for
+  confirmation before it is submitted (`[entrance.voice] confirm_goals`, on by default), so a
+  misheard sentence never spends anything; answers and chat go straight through. Audio and
+  transcript are `C2`; the audio is discarded after transcription unless `keep_audio` is set, in
+  which case it is Nectar with a retention window. Clips are capped by `max_clip_seconds`.
+  Replies are text; speech synthesis is post-1.0. Images a client sends are deposited as Nectar
+  with clearance `C2`, since they come from the human. On a Night Veil Cell the same slot resolves
+  to a local Whisper, because every slot there is local.
+- **The Observation Hive is a client.** The React app, as a web page, a PWA or the Android APK,
+  holds no privilege the Landing Board does not grant to the device it runs on.
+
+### 8.16 Supersedure: moving the Hive Stand
+
+The Hive Stand is a role, not a machine. It is identified by the Hive keypair and by the Queen's
+address, which lives in `[hive_stand] address` and in every device's enrolment record. Supersedure
+(`queen/supersedure/`), named for a colony raising a new queen while the old one still lays, moves
+the role to another machine without losing a task.
+
+- **The candidate is a colonized Real Cell.** Level 1 or a Nuc, `FULL` access, the same runtime
+  version, disk for the stores plus headroom, Forage that covers the Royal Reserve, reachable from
+  every Swarm node and from every Virtual Cell backend (they all connect out), the Hive's secrets
+  present in its secret store, clock skew within bound. `hive doctor --supersedure <node>` checks
+  all of it before anything starts.
+- **Freeze, then copy.** The Queen clusters every provider (8.13): every bee checkpoints, every
+  lease and Cell stays alive, every grant is frozen. `queen.supersedure_started` is written before
+  the first byte is copied. The stores move with `hive backup` over the candidate's `CellSession`
+  and `hive restore` on the far side, checksummed. The Hive keypair moves only through the secret
+  store, never over Waggle.
+- **Handover.** The old Queen signs a `QueenMoved` (new address, effective at, grace until) to
+  every Warden and Pollen Packet; each persists the new address and reconnects. Both addresses
+  are honoured during the grace window. The new Queen starts in `REQUEENING` from the copy,
+  reconciles with every Cell and Warden, and resumes every paused bee from its Handoff. The old
+  Queen moves to `SUPERSEDED` and stops. Its machine keeps its Warden and joins the Swarm as an
+  ordinary Real Cell (a Nuc if it had a model server), in `WATCH` until it is given work. The
+  Entrance, both listeners, and every enrolled device record move with the stores; devices learn
+  the new address from the same signed notice.
+- **Never two Queens.** The old Queen never leaves `CLUSTERED` once the copy starts; on any
+  restart it finds the unfinished `queen.supersedure_started` in its own trail and stays put until
+  it sees the outcome. The new Queen leaves `REQUEENING` only when the old one has acknowledged
+  `SUPERSEDED` or the grace window has expired with the old Queen unreachable.
+- **Rollback.** If the new Queen fails readiness before the grace window ends, the old Queen
+  wakes, sends a `QueenMoved` pointing back at itself, records `queen.supersedure_aborted`, and
+  resumes. Nothing is lost either way, because nothing ran while the copy was in flight.
+- **Human-initiated, on loopback, with step-up.** `hive supersede <node>` with confirmation;
+  never an autopilot rule or an awake decision. Every step is a `queen.supersedure_*` event.
 
 ---
 
@@ -968,7 +1187,7 @@ allocation decision reads it.
   whose purpose is documented at the declaration.
 - Long-running loops (`Queen.run`, `Worker.run`, `PollenPacket.run`) follow the same shape:
   `while not self._stop.is_set():` → one iteration in a named method → catch typed errors → record
-  to Pheromone Trail → back off. The shape is documented once in `common/loop.py` and reused.
+  to Pheromone Trail → back off. The shape is documented once in `waggle/loop.py` and reused.
 
 ---
 
@@ -984,14 +1203,26 @@ Two distinct things:
   Cell provisioned, Real Cell leased or released, task assigned, tool promoted, device enrolled,
   command sent to a device, path touched outside a lease's scratch directory) writes a
   `PheromoneEvent` **before** the action is considered complete. Events are append-only, typed,
-  and stored durably. The dashboard reads them; humans audit them. Exception: retained Night Veil
-  execution records are not persisted after teardown.
+  and stored durably. The dashboard reads them; humans audit them. The one exception is the Night
+  Veil boundary defined below.
 
 Rules:
 
 - **NEVER** `print()` outside `cli/` output formatting.
 - **NEVER** log secrets, tokens, full page contents, or screenshots. Log identifiers and sizes.
-- **NEVER** retain Night Veil execution logs or per-cell audit records after teardown.
+- **NEVER** retain a Night Veil Cell's execution records after teardown. **The Night Veil
+  boundary:** a Night Veil Cell's execution records live in an ephemeral segment keyed to the
+  Cell and purged at teardown: session commands and their output, episode records and assembled
+  prompts, Nectar, Handoffs, flight recordings, `llm.call` events, the VPN gateway's and Tor
+  daemons' own per-Cell connection and circuit logs (including the Hive Stand's hidden-service
+  logs for that Cell), the Cell's local trail detail and its logs. What survives, on the Queen's
+  trail, is the lifecycle skeleton: `cell.provisioned`,
+  `cell.attested` (pass or fail, per check), `queen.placed` with the id of the human request that
+  asked for Night Veil, `forage.granted`, `forage.plan_written`, `cell.sting_cut`, task state
+  transitions carrying nothing beyond the task id, one `capping.summary` per tier with counts of
+  approved, rejected and rolled back, and `cell.destroyed`. Honey the work ripened on the Cell's
+  own local slots at `C0` or `C1` is deposited on purpose and kept, labelled
+  `origin_tier = NIGHT_VEIL`. Nothing else crosses the boundary.
 - Log messages are lowercase event names with fields, not prose: `log.info("cell.ready", cell_id=..., took_s=...)`.
 - Every subsystem gets its logger from `common.logging.get_logger(__name__)`; no logger
   configuration outside the composition root.
@@ -1030,12 +1261,48 @@ Rules:
   kind = "openai_compat"                 # Ollama, vLLM, llama.cpp server, LM Studio
   base_url = "http://127.0.0.1:11434/v1"
 
+  [llm.providers.whisper]
+  kind = "whisper_local"                 # faster-whisper in process; GPU when present
+
   [llm.slots]
   queen    = { provider = "anthropic", model = "claude-opus-5" }
   worker   = { provider = "anthropic", model = "claude-sonnet-5", fallback = "local_worker" }
   local_worker = { provider = "local", model = "llama3.1:8b" }
   ripener  = { provider = "local", model = "llama3.1:8b" }
   embedder = { provider = "local", model = "nomic-embed-text" }
+  transcriber = { provider = "whisper", model = "large-v3-turbo" }
+  ```
+- The `[hive_stand]` section names the Queen's address (`address`, the URL Wardens and Pollen
+  Packets connect out to) as well as `enabled` and `scratch_root`. The address is the one value
+  Supersedure (8.16) rewrites on every node.
+- The `[entrance]` section controls the door (8.15). Example shape:
+  ```toml
+  [entrance]
+  bind = "127.0.0.1:8710"                # the loopback listener; always on
+  expose = "loopback"                    # loopback | vpn | lan | tunnel; there is no public mode
+  remote_bind = ""                       # the remote listener; set when expose is not loopback
+  public_url = ""                        # used for CORS, webhooks and the PWA manifest
+  tls = { cert = "", key = "" }          # required for lan and tunnel; vpn may rely on the overlay
+  mutual_tls = true                      # lan and tunnel refuse to start with this false
+  operators = 1                          # Brood 1.0 is single-operator
+  steward_devices = false                # let one enrolled device approve others after step-up
+  travel_lock = false                    # step-up and notify when a known device changes network
+  session_ttl_hours = 12
+  idle_timeout_minutes = 30
+  step_up_window_minutes = 5
+  step_up_spend = 5.00                   # spend per goal above which step-up is required
+  lockout_attempts = 5
+  rate_limit_per_device = 60             # requests per minute
+
+  [entrance.push]
+  webhooks = true
+  web_push = true                        # VAPID keys come from HIVEMIND_ENTRANCE_VAPID_*
+
+  [entrance.voice]
+  enabled = true                         # audio in on the chat route, transcribed on the transcriber slot
+  confirm_goals = true                   # echo a spoken goal back before it becomes a task
+  keep_audio = false                     # discard audio after transcription; true keeps it as C2 Nectar
+  max_clip_seconds = 120
   ```
 - **Secrets** (API keys, device enrolment tokens, cloud credentials) are never in the manifest
   file, never in code, never in logs, never in the Pheromone Trail. They come from environment
@@ -1077,15 +1344,18 @@ Coverage is a floor, not a goal. A test that asserts nothing meaningful does not
   rejection test for at least one malformed input.
 - Every LLM-facing prompt has a snapshot test on the rendered prompt and a test with a
   `FakeLLMProvider` returning a canned response.
-- Every `LLMProvider` and `EmbeddingProvider` implementation passes the provider contract suite
-  against recorded HTTP cassettes (no network in CI). The suite exercises each capability level so
-  the degradation ladders are proven for weak models, not just for the strongest one.
+- Every `LLMProvider`, `EmbeddingProvider` and `TranscriptionProvider` implementation passes its
+  provider contract suite against recorded HTTP cassettes or fixture clips (no network in CI).
+  The suite exercises each capability level so the degradation ladders are proven for weak
+  models, not just for the strongest one.
 - Property-based tests (`hypothesis`) for codecs, id generation, and the Ripening chunker.
 
 ### 14.4 Fakes over mocks
 
-- Prefer hand-written fakes in `tests/fakes/` (`FakeCellBackend`, `FakeTransport`,
-  `FakeLLMProvider`) that implement the Protocol honestly, over `unittest.mock`.
+- Prefer hand-written fakes that implement the Protocol honestly (`FakeCellBackend`,
+  `FakeTransport`, `FakeLLMProvider`) over `unittest.mock`. Fakes live in `src/` beside their
+  Protocol as `fake.py` (section 3), never under `tests/`, because `pollen`, `hive doctor` and
+  demo paths use them too.
 - `mock.patch` is allowed only to isolate a third-party SDK at the very edge, and the patched
   path must be a name in our own adapter module, never deep inside the library.
 - Fakes are production-quality code: documented, typed, size-limited like everything else.
@@ -1094,7 +1364,7 @@ Coverage is a floor, not a goal. A test that asserts nothing meaningful does not
 
 - Builders, not fixtures with 20 fields: `make_task(status=TaskStatus.RUNNING)` with sensible
   defaults in `tests/builders/`.
-- No sleeping in tests. Use fake clocks (`common.clock.Clock` Protocol with `FakeClock`).
+- No sleeping in tests. Use fake clocks (`waggle.clock.Clock` Protocol with `FakeClock`).
 - Integration tests create their own temp directory / SQLite file and clean up.
 
 ---
@@ -1125,7 +1395,9 @@ rule here exists because a bug in this system has a large blast radius.
 - **Blast radius defaults.** New Virtual Cells get no inbound ports and outbound network only to
   what the task's capability set lists. Absconding (tear everything down) must always work even if
   the Brood Chamber is corrupt, and it releases every Real Cell lease as well as destroying every
-  Virtual Cell.
+  Virtual Cell. Absconding is human-only and break-glass: it requires password re-auth and an
+  explicit typed confirmation phrase, and it is never callable by Queen, Wardens, Workers,
+  autopilot, or tools.
 - **Capabilities and Forage only attenuate down the tree.** A sub-bee's capability set and grant
   are subsets of its Warden's, which are subsets of what the Queen issued. Nothing below the Queen
   can widen either; escalation is the only way up.
@@ -1135,7 +1407,8 @@ rule here exists because a bug in this system has a large blast radius.
 - **Watching is bounded by the access level.** Watch mode observes only what `READ_ONLY` allows
   on that device, never writes, never captures screen or input, keeps observations under a
   retention window, and is visible in the UI as the Cell's mode. Screen or input capture on a Real
-  Cell is a separate capability that is never issued implicitly.
+  Cell is a separate capability that is never issued implicitly. Watch observations are `C2` by
+  construction, because they describe the operator's own machine.
 - **Nothing lands uncapped.** Every side effect outside scratch goes through the Capping gate
   (8.12) with declared postconditions, and the bee that proposed it never verifies it.
 - **Real Cells are borrowed.** A Worker on a Real Cell works inside its lease's scratch directory.
@@ -1144,7 +1417,17 @@ rule here exists because a bug in this system has a large blast radius.
   the lease can do so. `release()` kills every process the lease started and removes the scratch
   directory. The Hive Stand is a Real Cell only when the manifest enables it, and a task with
   `isolation = "required"` never lands on a Real Cell.
-- Dependencies are audited in CI (`pip-audit`); a known-vulnerable pin blocks merge.
+- **The Entrance is the only door, and only enrolled devices get through it.** Two listeners;
+  approval, unlock, capability widening and reopening exist only on loopback; every login is the
+  device key plus the operator's password; sessions are bound to the device key; step-up for
+  anything sensitive; no public mode; VPN overlay by default and mutual TLS for LAN and tunnel;
+  lockout, rate limits and the Entrance Reducer; every security event trailed and pushed to every
+  other device (8.15). A program's key never exceeds what the operator granted on loopback.
+- **Supersedure is human-initiated and never leaves two Queens running.** The old Queen stays
+  clustered from the moment the copy starts until the new Queen is acknowledged or the move is
+  rolled back, and the Hive keypair moves only through the secret store (8.16).
+- Dependencies are audited in CI (`pip-audit` for Python, `pnpm audit` for the front end); a
+  known-vulnerable pin blocks merge.
 
 ---
 
@@ -1240,8 +1523,9 @@ class CellBackend(Protocol):
 
         Returns:
             A Cell of kind VIRTUAL whose capabilities reflect the image (a desktop image reports
-            has_display and has_audio). The Cell is running and its Waggle endpoint is accepting
-            connections when this returns.
+            has_display and has_audio). The Cell is running, its Warden has connected out to the
+            Queen (Virtual Cells expose no inbound ports) and its first Heartbeat has arrived
+            when this returns.
 
         Raises:
             CellProvisionError: The backend could not create the Cell, or it did not become
@@ -1380,6 +1664,17 @@ Run through this before every commit. Every line is a yes/no.
       and any new resource a bee can consume is accounted for in `ForageCapacity` and `ForageGrant`.
 - [ ] Any new side-effecting tool or action declares a risk tier, accepts a postcondition, and
       goes through the Capping gate; any new state machine has a row in Appendix C.
+- [ ] Any new row in a memory table, Nectar or Honey carries a `HoneyClearance`; any new event
+      kind says whether it survives a Night Veil teardown.
+- [ ] Any new Entrance route is versioned, appears in the committed OpenAPI document, is
+      capability-scoped, and is loopback-only if it approves, widens, unlocks or reopens anything.
+- [ ] New Protocol implementation passes the contract suite; new state transitions are tested.
+- [ ] No secrets, screenshots, page bodies or tokens in logs or the Pheromone Trail.
+- [ ] Night Veil runs left nothing beyond the lifecycle skeleton of section 12.
+- [ ] `ruff format`, `ruff check`, `mypy --strict`, `pytest -m "not integration"` all pass locally;
+      for the front end, `pnpm lint`, `tsc --noEmit` and `vitest` pass.
+- [ ] Commit message is `type(scope): summary` and the body says why.
+- [ ] `.claude/roadmap.md` step is checked off or amended.
 
 ---
 
@@ -1403,15 +1698,18 @@ transaction as the state change.
 | Forage grant | Queen, `forage/grant_state.py` | `ISSUED → ACTIVE → REVOKED`; `ACTIVE → EXHAUSTED → ACTIVE` (top-up) | Growing or shrinking keeps it `ACTIVE`; each change is an event. |
 | Tool | Royal Jelly, `royal_jelly/tool_state.py` | `REQUESTED → SCAFFOLDED → QUARANTINING → PROMOTED / REJECTED`; `PROMOTED → RETIRED` | Scope (`hive` or `cell`) is an attribute set at promotion. |
 | Provider health | LLM, `llm/health.py` | `HEALTHY ↔ DEGRADED ↔ DOWN` | In memory, re-probed on start; `DOWN` with no fallback triggers Clustering. |
-| Queen mode | Queen, `queen/state.py` | `REQUEENING → RUNNING`; `RUNNING ↔ CLUSTERED` (per provider set) | Per event, `RUNNING` is autopilot then awake; mode is not a transcript. |
+| Queen mode | Queen, `queen/state.py` | `REQUEENING → RUNNING`; `RUNNING ↔ CLUSTERED` (per provider set); `CLUSTERED → SUPERSEDING → SUPERSEDED` (the old Queen, 8.16); `SUPERSEDING → CLUSTERED` (rollback) | Per event, `RUNNING` is autopilot then awake; mode is not a transcript. A new Queen starts in `REQUEENING` from the copied stores. |
 | Knowledge tier | Memory and Honey Store | `HOT → BEE_BREAD → HONEY`; `NECTAR → HONEY` | A pipeline, not a strict machine; demotion is a House Bee duty. |
+| Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
+| Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → REVOKED` | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance.*` event pushed to every other device. |
+| Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up. |
 
 Where state lives, and what survives a Queen crash:
 
 | State | Store | Survives | Recovery |
 |---|---|---|---|
 | Tasks, questions, acceptance results | Brood Chamber (SQLite) | Yes | Requeening reads it back. |
-| Every transition, every decision | Pheromone Trail (SQLite, per-node segments) | Yes (except Night Veil execution records) | Source of truth for reconciliation and audit; offline segments merge. Night Veil execution records are ephemeral and purged at teardown. |
+| Every transition, every decision | Pheromone Trail (SQLite, per-node segments) | Yes; a Night Veil Cell keeps only the lifecycle skeleton from section 12 | Source of truth for reconciliation and audit; offline segments merge. |
 | Hot state | Nowhere; derived per episode | Not applicable | Rebuilt by `memory.assemble` from the stores below. |
 | Notes, pins, episode records, Handoffs, Bee Bread index, watch observations | Memory tables (SQLite) | Yes | Read directly; retention windows apply. |
 | Honey and Nectar | Honey Store (SQLite, FTS5, `sqlite-vec`) | Yes | Read directly; re-embed on embedder change. |
@@ -1423,20 +1721,17 @@ Where state lives, and what survives a Queen crash:
 | Proposals and verdicts | Capping table plus trail | Yes | In-flight proposals are re-checked, never auto-applied, after a restart. |
 | Provider health | In memory | No | Re-probed on start. |
 | A bee's in-flight reasoning | Its process, and its last Handoff | Via the Handoff | Resume from the Handoff on the same or another slot or host. |
+| Hive identity and the Queen's address | Secret store (keypair); manifest `[hive_stand] address`; every device's enrolment record | Yes | Supersedure (8.16) rewrites the address on every node with a signed `QueenMoved`. |
+| Operator credential, enrolled devices, sessions, push subscriptions | Entrance tables (SQLite) | Yes | Password hash and device public keys only; sessions are re-validated against device state on start; move with the stores on Supersedure. |
 
 Five rules follow from the tables:
 
 1. A process holds no state that a store does not, except in-flight work, and in-flight work is
    covered by a Handoff at every threshold and on every intervention.
 2. One transition table per machine, exhaustively tested; forbidden edges raise.
-3. Every transition is a trail event in the same transaction as the state change, except Night Veil execution records which are intentionally non-retained and purged at teardown.
+3. Every transition is a trail event in the same transaction as the state change, except on a
+   Night Veil Cell, where only the lifecycle skeleton from section 12 survives teardown.
 4. Derived views (hot state, Attendant ordering, Forage headroom, Honey folders) are never
    stored; they are rebuilt from the tables above.
 5. Offline nodes write to their own segments and outboxes; merging on reconnection is
    idempotent and ordered by timestamp and node id.
-- [ ] New Protocol implementation passes the contract suite; new state transitions are tested.
-- [ ] No secrets, screenshots, page bodies or tokens in logs or the Pheromone Trail.
-- [ ] Night Veil runs left no retained logs or persisted trail records after teardown.
-- [ ] `ruff format`, `ruff check`, `mypy --strict`, `pytest -m "not integration"` all pass locally.
-- [ ] Commit message is `type(scope): summary` and the body says why.
-- [ ] `.claude/roadmap.md` step is checked off or amended.

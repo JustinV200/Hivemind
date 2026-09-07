@@ -20,3 +20,10 @@ The rules that get broken most often:
 - Model access goes through a `ModelSlot`. Cell access goes through a `CellSession`. Never branch
   on `cell.kind` or `provider.name`; branch on capabilities.
 - Real Cells are borrowed and left exactly as found. Wardens never provision Cells.
+- `hivemind.llm` imports `hivemind.forage`, never the reverse: `ModelSlot` and `Tempo` live in
+  `forage`. Ids, the clock and the loop shape live in `waggle`, because `pollen` needs them and
+  may import nothing from `hivemind`.
+- Every client, the Observation Hive included, is a device enrolled and approved on the Hive
+  Stand's loopback listener; it logs in with its device key plus the operator's password and enters
+  through the Landing Board. Approval routes never exist on the remote listener, and there is no
+  public exposure mode.

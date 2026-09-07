@@ -32,7 +32,7 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | Term | Meaning |
 |---|---|
 | **Queen** | The central orchestrator, the only component with a global view of the system. Delegates everything; may change which model runs any bee |
-| **Hive Stand** | The machine HiveMind itself runs on: home of the Queen, the first Real Cell, and where every Warden lives by default |
+| **Hive Stand** | The machine HiveMind itself runs on: home of the Queen, the first Real Cell, and where every Warden lives by default. A role rather than a fixed machine: Supersedure moves it |
 | **The Hive** | The on-demand Virtual Cell fleet |
 | **Cell** | A unit of compute a Worker runs in or on: either a Virtual Cell or a Real Cell |
 | **Virtual Cell** | A fresh VM/container the Hive provisions on demand and tears down when the task ends |
@@ -74,22 +74,24 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Ripening** | The process of turning Nectar into Honey (chunking, summarizing, embedding, indexing) |
 | **Handoff** | The structured document a bee writes before its context is reset, rebound, migrated or paused; the next bee resumes from it |
 | **Waggle** (Waggle Protocol) | The Queen ↔ Warden ↔ Worker ↔ Swarm communication protocol. Carries messages between bees; model calls travel separately to whichever provider serves the model |
-| **Hive Entrance** | The system's API gateway and the human's inbox: goals in, questions and Alarms out, answers back |
+| **Hive Entrance** | The one door into the Hive: an authenticated HTTP and WebSocket gateway that is the human's inbox (goals in, questions and Alarms out, answers back) and the only path any client, UI or program, uses. Two listeners: loopback, always on, and remote, only when exposed |
+| **Landing Board** | The Hive Entrance's public, versioned API contract, named for the platform at a real hive's entrance where every bee lands before going in. Only devices enrolled and approved at the Hive Stand may land on it: the Observation Hive, the CLI, a phone, a pair of glasses or another program. Anything that needs the human is pushed to whichever of them they are on |
+| **Entrance Reducer** | Emergency narrowing of the Hive Entrance, named for the strip beekeepers fit so the guards can defend a small opening: drops the Entrance to loopback only, kills every remote session, and only the Hive Stand reopens it |
 | **The Swarm** | The Real Cell / Device Mesh, external devices registered with the Queen |
 | **Pollen Packet** | The thin gateway installed on an external device: enrols it and opens a terminal session for its Warden. No brain of its own |
 | **Swarming** | Scaling up, spinning up more Cells/Workers |
-| **Absconding** | Mass teardown/shutdown of the Hive |
+| **Absconding** | Human-only break-glass mass teardown/shutdown of the Hive, gated by password re-auth and explicit confirmation |
 | **Sting Cut** | Per-Cell emergency disconnect: revoke lease, kill Hive-started processes for that lease, and scrub lease-local traces while preserving central audit |
 | **Overwintering** | An idle/paused pool of Virtual Cells kept dormant rather than destroyed |
 | **Clustering** | The pause-and-preserve protocol when a model provider is unavailable: checkpoint everyone, hold, resume when it returns |
 | **Requeening** | Recovering from a Queen failure / restoring orchestrator state |
-| **Pheromone Trail** | The audit/log trail left by system actions, except Night Veil execution records which are not retained |
+| **Supersedure** | Moving the Hive Stand to another machine, named for a colony raising a new queen while the old one still lays: a new Queen is raised on a colonized Real Cell from a copy of the stores, takes over every Warden and device, and the old machine steps down into the Swarm as an ordinary Real Cell. Human-initiated; never two Queens |
+| **Pheromone Trail** | The audit/log trail left by system actions. A Night Veil Cell's execution records are purged at teardown, leaving only a lifecycle skeleton |
 | **Observation Hive** | The live UI: every bee's thoughts, every Cell, the Forage split, the Attendant views, a chatbox to the Queen, and a browsable Honey tree. Read-only except the chat |
 | **Pheromone Mask tactics** | Optional, short-lived behavior overlays normally invoked by a Warden per task segment, or force-applied by the Queen at Cell scope: **Write-Like-Human** (tone and pacing) and **Mouse-Like-Human** (input cadence). These are compatibility tactics for fragile UX flows, not a global mode |
-| **Comb Shield level** | A Cell security tier: **Meadow (Tier 0)** default any-machine baseline, **Propolis (Tier 1)** OpenVPN-only hardened baseline (no Tor), **Night Veil (Tier 2)** human-requested virtual-only profile with all web traffic through OpenVPN + Tor, direct egress blocked, Tor Browser available, and local-model-only execution |
-| **Honey clearance** | Data sensitivity labels on Nectar/Honey: **Wildflower (C0)** public/non-sensitive, **Apiary (C1)** internal non-personal, **Royal (C2)** personal/sensitive; policy controls what each Cell tier may read or write. Any user personal detail at all, including first name or habits, is Royal |
+| **Comb Shield level** | A Cell security tier: **Meadow (Tier 0)** default any-machine baseline, **Propolis (Tier 1)** OpenVPN-only hardened baseline (no Tor), **Night Veil (Tier 2)** human-requested virtual-only profile with all web traffic through OpenVPN + Tor, direct egress blocked, Tor Browser available, local-model-only execution, and its Waggle link to the Hive Stand carried over Tor to a hidden-service endpoint rather than any clearnet or direct route. A Real Cell's tier is set by the operator at enrolment and is never Night Veil; the Queen chooses tier only for Virtual Cells |
+| **Honey clearance** | Data sensitivity labels carried by every memory tier, hot state, Bee Bread, Handoffs and watch observations included, not only Honey: **Wildflower (C0)** public/non-sensitive, **Apiary (C1)** internal non-personal, **Royal (C2)** personal/sensitive; policy controls what each Cell tier may read or write. Any user personal detail at all, including first name or habits, is Royal. Labels are assigned from provenance at intake; a model may raise one and only a judge or a human may lower one |
 | **Hive Manifest** | A config/spec file |
-| **Propolis** | External plugin/extension packages |
 | **Brood** | A release/version (Brood 1.0, Brood 2.0, ...) |
 
 ---
@@ -133,11 +135,12 @@ Not every task justifies spinning up a fresh machine. Before provisioning, the Q
 
 - **Virtual Cell**: provisioned on demand from the Hive, isolated, disposable, torn down (or Overwintered) when the task ends.
 - **Real Cell**: already exists and keeps existing after the task; the Queen borrows it rather than owning it, and leaves it as it found it. Work happens inside a lease with its own scratch directory; anything outside that directory needs an explicit permission and is recorded. Every Real Cell has an **access level** set when it joins: read-only, scratch, or full. The Pollen Packet asks for full; the operator may grant less, and nothing can be issued to that Cell beyond it.
-- **Comb Shield level**: every Cell has a security posture tier, separate from access level. **Meadow (Tier 0)** is the default baseline for broad compatibility. **Propolis (Tier 1)** is the moderate hardening tier for normal production work (OpenVPN required, Tor disabled) and may be selected by the Queen when policy says it is needed. **Night Veil (Tier 2)** is restricted to Virtual Cells only, requires explicit human request, forces OpenVPN + Tor egress, blocks direct outbound routes, permits only local models, and runs in a location-blind profile.
+- **Comb Shield level**: every Cell has a security posture tier, separate from access level. **Meadow (Tier 0)** is the default baseline for broad compatibility. **Propolis (Tier 1)** is the moderate hardening tier for normal production work (OpenVPN required, Tor disabled). On a Virtual Cell the Queen may select it by policy. On a Real Cell the tier is set by the operator at enrolment, like the access level, because it describes a VPN the device already runs: HiveMind verifies the tunnel before placing work and never installs, starts or reroutes one on a borrowed machine, since that would touch the whole device rather than the lease. **Night Veil (Tier 2)** is restricted to Virtual Cells only, requires explicit human request, forces OpenVPN + Tor egress, blocks direct outbound routes (including its own Waggle traffic to the Hive Stand, which reaches it over Tor as a hidden service rather than a carved-out clearnet exception), permits only local models, and runs in a location-blind profile.
 - **Real Cell constraint**: Real Cells can run Meadow or Propolis, but never Night Veil.
 - **Tier inheritance**: tier is a property of the Cell, not the task. Any task executed on a Night Veil Cell is Night Veil work and is bound by Night Veil controls.
 - **Night Veil lifecycle**: Night Veil Cells are created on demand for the requested task, never Overwintered, and destroyed immediately when that task completes.
 - **Night Veil location-blind profile**: no GPS or host location service access, no Wi-Fi scan capability, UTC timezone, fixed generic locale, randomized hostname per boot, and metadata endpoints blocked.
+- **Night Veil control-channel tunneling**: a Night Veil Cell's Waggle traffic to the Hive Stand (grants, Alarms, telemetry, results) reaches it over Tor, addressed to a hidden-service (`.onion`) endpoint rather than the Hive Stand's clearnet address. Routing it through the same OpenVPN tunnel as task traffic would still let anyone watching that tunnel's egress see one exit IP both feeding a Tor circuit and talking to a known Hive Stand address, linking the anonymized activity back to the operator; a second, independent VPN tunnel narrows that to whoever watches a single VPN's egress, but both tunnels still leave the same underlying host, so a hypervisor- or cloud-level observer can still correlate them by timing. A hidden service removes the fixed destination entirely: there is no clearnet Hive Stand address in the path for anything short of a global passive adversary to correlate against. The trade is latency and connection reliability, which the existing Clustering, backoff and outbox replay already absorb. A Cell whose Waggle client is not connecting through Tor to the hidden service is not schedulable.
 - Both default to a plain terminal/shell session, since that's the lightest-weight and least invasive way to work; a full Exoskeleton is equipped only when the task actually needs a desktop or browser.
 
 Which path the Queen takes is a per-task decision made from the task's needs (isolation, a display, a particular OS, network reach), the Forage each Cell can bear, and the operator's preference: reuse a Real Cell already at hand when one fits, or provision a Virtual Cell when isolation, a clean image, or disposability matters more.
@@ -155,7 +158,7 @@ A Worker is an agent bound to one Cell, Real or Virtual, spawned and supervised 
 For tasks that need a real desktop session rather than a raw terminal or HTTP client (GUI automation of applications with no API, multi-step visual workflows, sites that only work with a real display), any Cell, Real or Virtual, can equip a Worker with:
 - **Compound Eye**: a real framebuffer the Worker's browser/apps render into, so it can take screenshots and reason visually.
 - **Antennae**: synthetic keyboard & mouse input so the Worker can drive any application the way a person at the keyboard would.
-- **Buzz**: virtual speaker/mic devices for tasks involving audio playback, capture, or voice-driven applications.
+- **Buzz**: virtual speaker/mic devices for tasks involving audio playback, capture, or voice-driven applications. What a Worker hears is transcribed on the same Whisper-backed transcriber slot the Hive Entrance uses for the human's voice, unless the Worker's model hears audio natively.
 
 The Exoskeleton is attached only when a task asks for it and, on a Real Cell, everything it started is stopped when the lease is released. It exists so GUI applications work; it is not a stealth layer, and features whose purpose is to evade a service's controls are out of scope.
 
@@ -174,7 +177,7 @@ Context is treated like a cache hierarchy. What any bee's model sees is assemble
 - **Hot state**: active goals, open tasks and Alarms, pending questions, recent decisions with their reasons, a summary of the fleet and Forage, pinned facts, short notes. Derived from the Brood Chamber and the Pheromone Trail; always loaded; bounded by construction, because it is packed by relevance until the budget fills.
 - **Bee Bread**: the warm tier. Recent results, episodes and Handoffs, looked up by id, time or task rather than searched.
 - **Honey**: the cold tier. Everything a House Bee has **ripened** from raw **Nectar**: chunked, summarized, embedded, deduped, indexed, and retrieved on demand by search.
-- **Honey clearances**: every Nectar/Honey item carries a sensitivity label: **Wildflower (C0)**, **Apiary (C1)**, or **Royal (C2)**. Any user personal detail at all, including first name or habits, is Royal by policy. Tier-2 **Night Veil** Cells may access C0 and C1 but cannot read or write Royal data.
+- **Honey clearances**: every item in every tier carries a sensitivity label: **Wildflower (C0)**, **Apiary (C1)**, or **Royal (C2)**. Any user personal detail at all, including first name or habits, is Royal by policy. Tier-2 **Night Veil** Cells may access C0 and C1 but cannot read or write Royal data. Labels ride on hot state, Bee Bread, Handoffs, episode records and watch observations as well as Nectar and Honey, and the assembler filters by the reader's allowance, so a Night Veil bee is never shown Royal data and never resumes from a Royal Handoff. Labels are assigned deterministically from provenance at intake (anything from a Real Cell, a human message or watch mode is Royal); a model may raise a label, and only a judge verdict or a human may lower one.
 
 A Worker doesn't get handed the whole Honey Store; it queries it over Waggle and gets back just the Honey relevant to its current task, the same way retrieval-augmented generation pulls only the relevant chunks instead of stuffing everything into the prompt. Knowledge compounds across every task the Hive has ever run, but any one bee's context stays small.
 
@@ -242,22 +245,41 @@ Retrying with backoff is the floor, not the ceiling: wherever a model is actuall
 ### 12. Resilience
 - **Clustering**: when a model provider goes away and no fallback fits within Forage, the Queen does not try to limp on. She checkpoints every affected bee, pauses their tasks, keeps every lease and Cell alive, keeps heartbeats and watchdogs running, and resumes everyone from their Handoffs when the provider returns. Bees on other providers carry on.
 - **Requeening**: a crashed Queen rebuilds from the Brood Chamber and the Pheromone Trail, the same state a reset Queen resumes from, reconciles with what every Cell and Warden actually reports, and picks up where she left off.
+- **Supersedure**: moving the Hive Stand to another machine, named for a colony raising a new queen while the old one still lays. The candidate must be a colonized Real Cell with full access, the runtime installed, room for the stores and the Royal Reserve, and reachable by every device in the Swarm. The Queen clusters the Hive so every bee checkpoints and every lease stays alive, the stores are copied and verified, a relocation notice signed with the Hive's key tells every Warden and Pollen Packet the new address, a new Queen requeens from the copy and reconciles with every Cell, and the old Queen steps down. The old machine keeps its Warden and stays in the Swarm as an ordinary Real Cell. Both addresses are honoured for a grace window, so a move that fails rolls back to the old Queen, and there are never two Queens running. Human-initiated, never autonomous.
 - **Sting Cut**: a per-Cell emergency disconnect revokes the lease immediately, invalidates session keys, terminates Hive-started processes for that lease, and scrubs lease-local traces. For non-Night-Veil Cells, the central Pheromone Trail remains intact for forensics and accountability.
-- **Overwintering** keeps warm Virtual Cells for reuse, except Night Veil Cells which are never Overwintered; **Swarming** scales the fleet up within Forage; **Absconding** tears everything down and releases every borrowed device, and works even if the Brood Chamber is corrupt.
+- **Overwintering** keeps warm Virtual Cells for reuse, except Night Veil Cells which are never Overwintered; **Swarming** scales the fleet up within Forage; **Absconding** tears everything down and releases every borrowed device, and works even if the Brood Chamber is corrupt. Absconding is human-only, requires password re-auth and an explicit typed confirmation phrase, and does not wipe persistent stores by default.
 
 ### 13. Observation Hive (what you see)
-One live page to watch and talk to the Hive. It is read-only with a single exception, the chat, and every write in the system still goes through the Queen.
+One live page to watch and talk to the Hive. It is read-only with a single exception, the chat, and every write in the system still goes through the Queen. It is served by the Hive Entrance and uses the Landing Board like any other client, with no privileged path of its own, so it is reachable from any enrolled device that can reach the Entrance: a laptop on the LAN, a phone on the VPN, installed as a web app.
 
 - **Thoughts**: the Queen's thinking as it happens, including how the Attendant ordered her inbox, which autopilot rule fired, and what each awake episode saw and decided. The same view opens for any bee, with full read access to its episodes and telemetry.
 - **Cell pages**: one per Cell, with a live diagram of its Warden and where it runs, each sub-bee with its role, what it is doing right now and its context gauge, the session and any Exoskeleton; alongside it the Cell's current tasks and goals, the Forage its Warden holds, the Honey its Warden can see, its **Comb Shield level**, its Pheromone Mask state (off, local, or Queen-forced), its access level and mode (active or watching, with the last Patrol's report), and its Capping activity with flight-recorder playback.
 - **Forage**: a live diagram of total capacity and how it is divided, from the Queen's pool to each Warden's grant to each bee, with pending requests and their outcomes.
+- **Live hive counters**: a persistent summary strip shows total active bees, active versus inactive Cells, Real versus Virtual Cell counts, and current LLM versus autopilot activity (bees currently in awake episodes versus deterministic autopilot handling).
 - **Fleet list**: every Cell, filterable to Real only, Virtual only, or all, with what each is doing, its **Comb Shield level**, its Pheromone Mask state, its access level and mode, and where its models are hosted, on the Hive Stand, a hosted API, or on the machine itself.
 - **Tier visibility rule**: the Observation Hive renders **Comb Shield level** as a persistent, high-contrast badge in both the Cell page header and Fleet list rows, with a fixed legend for Meadow, Propolis, and Night Veil so operators can read tier at a glance.
 - **Mask visibility rule**: the Observation Hive renders Pheromone Mask state as a persistent, high-contrast badge in both the Cell page header and Fleet list rows, including whether it is Queen-forced.
 - **Capping queue**: proposals by tier and state, verdicts with reasons, rollbacks, and sampled-audit findings.
 - **Attendant views**: the task graph the Queen is concerned with, what just finished and what is next, and the same view for every Warden over its own sub-bees.
-- **Chat**: the human's way to request tasks, ask, and answer. Messages go into the Queen's inbox; her replies, questions and escalated Alarms come back on the same channel.
+- **Chat**: the human's way to request tasks, ask, and answer, typed or spoken. Messages go into the Queen's inbox; her replies, questions and escalated Alarms come back on the same channel as text.
+- **Destructive action guardrail**: no one-click control may trigger Absconding. Any UI path must require a clearly marked break-glass flow with password re-auth, a typed confirmation phrase, and a final review screen showing teardown scope before execution.
 - **Honey browser**: the Hive's knowledge as a folder tree, the shared store plus what each Cell and bee can see, read-only, with clearance labels visible on every item and "propose a note" going to the Queen rather than writing.
+
+### 14. Hive Entrance and the Landing Board (remote access and integrations)
+The Hive has one door, and one keeper. The Hive Entrance is an authenticated HTTP and WebSocket gateway on the Hive Stand, and everything that talks to the Hive from outside comes through it: the Observation Hive, the `hive` CLI, a phone, a pair of smart glasses, a home automation hub, another agent framework. The **Landing Board** is its public contract, named for the platform at a real hive's entrance where every bee lands before going in. Guard bees at a real entrance admit only bees that carry the colony's scent; the Landing Board admits only devices the operator has enrolled at the Hive Stand.
+
+- **One operator.** There is no sign-up and no user list. Brood 1.0 has exactly one operator principal: you. Adding a second is a Hive Stand action that is off by default.
+- **Devices are enrolled like Swarm nodes.** A phone, laptop or program cannot even attempt to log in until it is enrolled: you mint a short-lived, single-use invite at the Hive Stand, the device generates its own keypair and presents it, and the request sits pending until you approve it with a name, a capability set, a spend cap and an expiry. Glasses count as their companion phone, because they do not run third-party code directly.
+- **Approval exists only at the Hive Stand.** The Entrance runs two listeners, one on loopback and one for remote access. The routes that approve a device, widen its capabilities, unlock it, or reopen a reduced Entrance exist only on the loopback listener, so even a fully compromised remote session cannot admit a new device. When Supersedure moves the Hive Stand, the loopback listener moves with it. A manifest switch, off by default, lets one enrolled device act as a steward that may approve others after full step-up.
+- **Every login is two factors, and one is the device.** An enrolled device authenticates with its key, a passkey with biometric or PIN in a browser or a signed challenge for a program, plus the operator's password. Sessions are short, bound to the device key so a stolen token is useless without the device, and idle out. Sensitive actions need fresh step-up within the last few minutes: spend above a cap, key or capability changes, Supersedure, Sting Cut, Absconding.
+- **Never on the open internet.** Loopback always exists. The recommended remote path is a VPN overlay such as WireGuard or Tailscale, so unauthenticated packets never reach the Entrance and a phone simply joins the VPN. LAN and tunnel modes exist but require mutual TLS on top of everything above. There is no public mode.
+- **Guard Bees watch the door, and there is an Entrance Reducer.** Beekeepers narrow a hive entrance with a wooden strip so the guards can defend it. The Entrance Reducer drops the Entrance to loopback only and kills every remote session, on one command or on a Guard Bee's rule when failures burst, and only the Hive Stand reopens it. Lockout after a few failed attempts per device, rate limits per device and per address, and every enrolment, approval, revocation and step-up is on the Pheromone Trail and pushed to every other enrolled device, so you notice anything you did not do. An optional travel lock forces step-up and a notification when a known device appears from a new network.
+- **Versioned and described.** Every route lives under a version prefix and is described by an OpenAPI document generated from the same models the routes use and committed to the repo, so a client can be written from the document alone and a route change is always a visible contract change.
+- **Push, not polling.** Anything that needs the human is pushed to whichever enrolled device they are on: a WebSocket subscription for live clients, signed webhooks for programs, web push for a phone in a pocket. What gets pushed is a question for the human, an Alarm that reached the top, a reply from the Queen, and the completion of a goal that device submitted. Notifications say only that something is waiting, never the content, because they transit third-party push services. A question answered on one device is withdrawn from every other.
+- **Programs get narrow keys and spend caps.** A glasses app or another program enrols the same way and is approved with a small capability set, typically submit, answer and observe, plus its own daily spend cap. It can never hold more than you granted at the Hive Stand.
+- **The Observation Hive is a client.** It is a static, responsive web app served by the Entrance, installable on a phone as a web app, and it uses the Landing Board like anything else. Wherever the Entrance is reachable, the Observation Hive is.
+- **Voice is transcribed at the door.** An enrolled device can send audio instead of text: push-to-talk in the Android app or the web app, a clip shared from a glasses companion app, a chunked stream over the chat WebSocket. The Entrance transcribes it on the **transcriber slot**, Whisper by default and local first, and the transcript enters the Queen's inbox as a human message. A spoken goal is shown back for confirmation before it becomes a task, so a misheard sentence never spends anything; answers and chat go straight through. Audio and transcript are Royal, and the audio itself is discarded after transcription unless the manifest says to keep it. Replies come back as text; speech synthesis is post-1.0.
+- **Images from a client** arrive as Nectar labelled Royal, because they came from the human.
 
 ---
 
@@ -266,9 +288,11 @@ One live page to watch and talk to the Hive. It is read-only with a single excep
 ```mermaid
 flowchart TB
     H(("Human"))
+    C(("Phone, glasses,<br/>other programs<br/>enrolled at the Hive Stand"))
 
     subgraph Stand["Hive Stand: the machine HiveMind runs on"]
         direction TB
+        LB["Hive Entrance<br/>Landing Board: one door, enrolled devices only, push"]
         Q["Queen<br/>Attendant orders the inbox<br/>autopilot first, awake when needed"]
         BC[("Brood Chamber<br/>tasks and questions")]
         MEM[("Memory<br/>hot state, Bee Bread")]
@@ -290,7 +314,9 @@ flowchart TB
         D2["Home server: Nuc<br/>own Warden + model server"]
     end
 
-    H <-->|"Hive Entrance: goals in, questions and Alarms out"| Q
+    H <-->|"Observation Hive, CLI"| LB
+    C <-->|"device key + password, webhooks, web push"| LB
+    LB <-->|"goals in, questions and Alarms out"| Q
     Q <--> BC
     Q <--> MEM
     MEM -.->|"demote, ripen"| HS
@@ -316,7 +342,7 @@ flowchart TB
 3. She checks whether any Real Cell with a display is free and fits; finding none idle, she provisions 5 Virtual Cells with the desktop image. Each boots its own Warden, receives a Forage grant, and spawns a Forager with the relevant Honey attached.
 4. One Forager hits a site that needs a capability the Hive doesn't have. It raises an Alarm; its Warden's playbook says "request a tool", so the Warden files a tool request with the Queen.
 5. The Queen grants a sandbox Cell; the Royal Jelly Lab scaffolds the tool, runs it through the Quarantine Comb, and the Queen promotes it at hive scope. Every Worker can now use it.
-6. Another Forager is unsure whether a page change counts as "X changing". It asks. Its Warden can't answer, the question climbs to the Queen, and the Queen decides it's worth the human's attention: the task blocks, the question appears in the human's inbox, the answer flows back down and the task resumes.
+6. Another Forager is unsure whether a page change counts as "X changing". It asks. Its Warden can't answer, the question climbs to the Queen, and the Queen decides it's worth the human's attention: the task blocks, the question appears in the human's inbox and is pushed to whichever enrolled device the human is on, the Observation Hive, the CLI or a phone, the answer flows back down and the task resumes.
 7. Results stream back up through the Wardens over Waggle and land in the Brood Chamber; raw Nectar from each Forager goes to a House Bee, which ripens it into Honey for next time; a Forager nearing its context limit writes a Handoff and resets; every step is written to the Pheromone Trail except Night Veil execution traces, which are not retained.
 8. The hosted model provider has an outage. Bees on local models carry on; the rest are checkpointed and paused by Clustering, and resume from their Handoffs when the provider is back.
 9. The Queen sends Undertakers to tear down finished Cells (or Overwinter ones likely to be reused), revokes their grants, and reports back.
@@ -334,11 +360,13 @@ flowchart TB
 - **Speed is a need, not an accident**: every task carries a tempo, and models, effort, parallelism and the depth of checking are chosen to match it, above safety floors that urgency can never lower.
 - **Least privilege, attenuated downward**: a Worker gets only the network/tool/device access its task requires, a sub-bee never gets more than its Warden, and Guard Bees enforce it at the Hive Entrance and on every dispatch.
 - **Security is layered per Cell and per datum**: access level controls what a Cell may do, Comb Shield level controls how it must do it, and Honey clearance controls what data it may touch.
-- **Night Veil is strict by construction**: it is virtual-only, local-model-only, and egress-constrained through OpenVPN + Tor.
-- **Night Veil bootstrap is deterministic**: a Night Veil Cell is not schedulable until VPN, Tor, Tor Browser presence, egress kill-switch, and leak-check attestations all pass.
+- **Night Veil is strict by construction**: it is virtual-only, local-model-only, and egress-constrained through OpenVPN + Tor for task traffic, with its Waggle link to the Hive Stand carried over Tor to a hidden-service endpoint so no clearnet Hive Stand address ever appears in the path.
+- **Night Veil bootstrap is deterministic**: a Night Veil Cell is not schedulable until VPN, Tor, Tor Browser presence, egress kill-switch, Waggle-over-Tor-hidden-service connectivity, and leak-check attestations all pass.
 - **Night Veil location checks are deterministic**: the same bootstrap attestation must verify geolocation APIs are denied, metadata endpoints are unreachable, timezone is UTC, locale matches the profile, and WebRTC local-IP leak tests fail closed.
-- **Night Veil leaves no retained records**: Night Veil execution traces are not kept in retained logs or persisted trail history and are destroyed at teardown.
-- **Everything is observable**: every Cell spin-up, lease, grant, Alarm, tool creation, and Swarm command is written to the Pheromone Trail and visible in the Observation Hive, except retained Night Veil execution traces.
+- **Night Veil leaves a skeleton, not a story**: a Night Veil Cell's execution records (session commands and output, episode records, Nectar, Handoffs, flight recordings, model-call events, and the VPN gateway's and Tor daemons' own per-Cell connection and circuit logs) live in an ephemeral segment purged at teardown; what survives is the lifecycle skeleton (provisioned, attested, placed with the human request that asked for it, granted, capping counts per tier, destroyed) and any Wildflower or Apiary Honey the work ripened on its own local slots, labelled with its origin tier.
+- **Everything is observable**: every Cell spin-up, lease, grant, Alarm, tool creation, and Swarm command is written to the Pheromone Trail and visible in the Observation Hive, except a Night Veil Cell's execution records.
+- **One door, one keeper**: every client, the Observation Hive included, is a device enrolled and approved at the Hive Stand, logs in with its device key plus the operator's password, and enters through the Landing Board; there is no sign-up, no privileged side path, and no mode that puts the Entrance on the open internet.
+- **The Hive Stand is a role, not a machine**: Supersedure moves the Queen and her stores to another colonized Real Cell, and the old machine stays in the Swarm as an ordinary Cell.
 - **Self-extension is sandboxed**: the Royal Jelly Lab never promotes a tool without a Quarantine Comb pass in an isolated Cell first.
 - **Nothing lands uncapped**: every side effect is proposed with its expected outcome, checked in layers from cheap deterministic rules up to an independent judge, verified by someone other than the bee that did it, and rolled back if wrong.
 - **Idle hardware is watched, not touched**: a Real Cell with no active bees is observed read-only within its access level, reviewed on a schedule, and never written to.
@@ -353,11 +381,13 @@ Decisions so far, recorded in detail in [`.claude/codingrules.md`](.claude/codin
 
 - **Python 3.12+** in a `uv` workspace of three packages: `waggle` (the protocol), `hivemind` (the Queen and every subsystem), and `pollen` (the device gateway, which depends only on `waggle`).
 - **Provider-agnostic LLM layer.** Anthropic Claude is the first adapter; an OpenAI-compatible adapter covers locally served models (Ollama, vLLM, llama.cpp, LM Studio). Slots are mapped to providers in the manifest, so moving a bee to a local model is a config change.
+- **Whisper for transcription, in 1.0.** The transcriber slot is served by faster-whisper in-process on the Hive Stand, GPU when there is one, or by any server that speaks the OpenAI-compatible audio endpoint, hosted or local. One slot serves the human's voice at the Hive Entrance and a Worker's ears through Buzz.
 - **SQLite** for the Brood Chamber, the Pheromone Trail, and the Honey Store (with FTS5 and `sqlite-vec`), one file per Hive.
 - **Windows 11, Ubuntu LTS and Arch Linux** as supported hosts for the Hive Stand and the framework, with macOS best-effort.
 - **Ubuntu LTS (24.04) Virtual Cell images**, for containers and QEMU alike: reliable, open, well documented, with cloud images and cloud-init ready-made.
 - **Docker Desktop (WSL2) first, QEMU second** for Virtual Cells; cloud providers later. The development host is Windows 11 Home, which has no Hyper-V, and the Hive Stand is a Real Cell from the first milestone so nothing blocks on a hypervisor.
 - **Linux Cells** for the Exoskeleton's native peripherals (Xvfb, xdotool, PulseAudio) with a Playwright fast path for browser work that also serves Windows and macOS Real Cells.
+- **One HTTP door.** The Hive Entrance on FastAPI or Starlette (ADR pending), OpenAPI generated from the route models, loopback always, remote access over a VPN overlay by default with LAN and tunnel modes behind mutual TLS. Devices are enrolled at the Hive Stand and log in with passkeys or signed challenges plus the operator's password; the Observation Hive is a static app the Entrance serves, and every other client uses the same routes.
 
 ---
 
@@ -379,8 +409,8 @@ The full build order, with steps, exit criteria and the decisions each phase mus
 | 4 | Memory tiers, Forage grants, Clustering |
 | 5–6 | Virtual Cells with placement, then the Exoskeleton |
 | 7–8 | The Honey Store, then local models and provider routing |
-| 9–10 | The Royal Jelly Lab, then Guard Bees and the Hive Entrance |
-| 11–13 | The Swarm with Nucs, the Observation Hive, resilience under chaos |
+| 9–10 | The Royal Jelly Lab, then Guard Bees and the Hive Entrance with its Landing Board: device enrolment, two-factor login, push, remote exposure |
+| 11–13 | The Swarm with Nucs, the Observation Hive from any enrolled device, resilience under chaos and Supersedure |
 | 14 | Brood 1.0 |
 
 ---
