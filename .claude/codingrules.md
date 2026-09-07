@@ -139,7 +139,7 @@ HiveMind/
 │   │   │   ├── hive/             # VIRTUAL Cells: lifecycle + backends/ (docker.py, qemu.py, cloud/...) + overwintering + snapshot.py
 │   │   │   ├── swarm/            # REAL Cells from enrolled devices: registry, enrolment, heartbeat, PollenSession, Nuc promotion
 │   │   │   ├── exoskeleton/      # compound_eye/, antennae/, buzz/, browser/, attach.py, recorder.py (flight recorder)
-│   │   │   ├── royal_jelly/      # Tool forge: spec/, scaffold/, quarantine_comb/, registry/ (hive + cell scopes), promotion/
+│   │   │   ├── royal_jelly/      # Royal Jelly Lab + Comb Registry: spec/, scaffold/, quarantine_comb/, registry/ (hive + cell scopes), promotion/
 │   │   │   ├── workers/          # Worker runtime + roles/ (forager.py, scout.py, ...) + tools/
 │   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/, requests, offline/, watch/
 │   │   │   ├── queen/            # inbox/, autopilot/, awake/, planner/, placement/, forage/ (shared pool, ceilings, hosting plans), dispatcher, cluster/, requeening/
@@ -324,7 +324,7 @@ logs, and the code agree.
 | Tempo | `cell/needs.py` | `Tempo` (latency budget, accuracy bar) | Read by the Attendant, routing, Forage allocation and Capping; never overrides safety. |
 | Worker roles | `workers/roles/` | `Forager`, `Scout`, `GuardBee`, `Undertaker`, `Drone`, `HouseBee` | All implement `Worker`. |
 | Exoskeleton | `exoskeleton` | `CompoundEye`, `Antennae`, `Buzz` | Each is a Protocol with backends. |
-| Tool forge | `royal_jelly` | `ToolSpec`, `QuarantineComb`, `ToolRegistry` | |
+| Royal Jelly Lab + Comb Registry | `royal_jelly` | `ToolSpec`, `QuarantineComb`, `CombRegistry` | |
 | Task store | `brood_chamber` | `BroodChamber`, `Task`, `TaskGraph` | |
 | Knowledge | `honey_store` | `Nectar`, `Honey`, `Ripener`, `HoneyStore` | |
 | Protocol | `waggle` | `Envelope`, `Waggle*Message` | |
@@ -670,7 +670,7 @@ human → Queen → Wardens → sub-bees, and one `Supervisor` protocol is used 
   rebind, takeover or escalate. A Warden never addresses the human; the chain is sub-bee →
   Warden → Queen → human. Every hop is a trail event carrying the same alarm id so no level
   handles it twice.
-- **The Queen delegates and rebinds.** She never holds a session or a tool registry, and a test
+- **The Queen delegates and rebinds.** She never holds a session or a Comb Registry, and a test
   asserts it. Her levers are `Supervisor.intervene`: compact, checkpoint, handoff, rebind to
   another slot, takeover (spawn a bee on that Cell with the Queen's slot and the stuck bee's
   Handoff), cancel. Wardens have the same levers over their sub-bees, minus takeover with the
@@ -1087,7 +1087,7 @@ rule here exists because a bug in this system has a large blast radius.
 - **Least privilege is code, not policy.** A Worker receives a `Capabilities` object listing the
   tools, network scopes and devices it may use. The `guard` module checks it on every dispatch. A
   Worker cannot escalate by asking.
-- **Tools never skip the Quarantine Comb.** `ToolRegistry.promote()` refuses a tool without a
+- **Tools never skip the Quarantine Comb.** `CombRegistry.promote()` refuses a tool without a
   passing `QuarantineReport`. There is no `force=True`. Ever.
 - **The sandbox is the boundary.** Tool code under quarantine runs in a container (or VM) with no
   network by default, CPU/memory/time limits, and a read-only view of the repository. The
@@ -1399,7 +1399,7 @@ Where state lives, and what survives a Queen crash:
 | Leases | Lease table plus trail | Yes | Orphan sweep on Queen and Warden start. |
 | Virtual Cell status | Backend labels plus a Hive table | Backend is truth | Reconciled from the backend on start. |
 | Swarm nodes, access levels | Swarm registry (SQLite) | Yes | Heartbeats re-establish reachability. |
-| Tools and reports | Tool registry (SQLite plus package dir) | Yes | Read directly. |
+| Tools and reports | Comb Registry (SQLite plus package dir) | Yes | Read directly. |
 | Proposals and verdicts | Capping table plus trail | Yes | In-flight proposals are re-checked, never auto-applied, after a restart. |
 | Provider health | In memory | No | Re-probed on start. |
 | A bee's in-flight reasoning | Its process, and its last Handoff | Via the Handoff | Resume from the Handoff on the same or another slot or host. |

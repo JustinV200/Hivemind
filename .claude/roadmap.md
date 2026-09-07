@@ -530,7 +530,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `queen/questions.py` (decide whether a `Question` goes to the human; put the task in `BLOCKED`;
   route the `Answer` back), `queen/queen.py` (one tick = Attendant orders the inbox → autopilot
   handles → awake for `NEEDS_JUDGEMENT` → write back). The Queen implements `Supervisor` over
-  Wardens. A test asserts she holds no session and no tool registry.
+  Wardens. A test asserts she holds no session and no Comb Registry.
 - [ ] **3.21 CLI.** `cli/run.py` (`hive run "goal" --manifest hive.toml`, streams progress),
   `cli/llm.py` (`hive llm providers|slots|test <slot>`), `cli/cells.py` (`hive cells list`),
   `cli/inbox.py` (`hive inbox` lists pending questions and Alarms at the human; `hive inbox answer
@@ -989,7 +989,7 @@ prompt overlays, `hive llm eval`.
 
 ---
 
-## Phase 9: Royal Jelly Lab (tool forge)
+## Phase 9: Royal Jelly Lab + Comb Registry
 
 **Goal.** The system extends itself safely: a Worker or Warden requests a capability, the Lab
 scaffolds a tool, the Quarantine Comb proves it in a sandbox Cell, and only then is it promoted, at
@@ -1005,7 +1005,7 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   schema with `additionalProperties: false`, required capabilities, entry point, dependencies,
   supported OSes, `scope = "hive" | "cell"`). `validate.py` rejects specs requesting capabilities
   beyond the requester's own.
-- [ ] **9.2 Tool registry.** SQLite table + package dir; `ToolRegistry` with `list`, `get`,
+- [ ] **9.2 Comb Registry.** SQLite table + package dir; `CombRegistry` with `list`, `get`,
   `promote(spec, report, scope)`, `retire`. `promote` refuses without a passing `QuarantineReport`;
   hive scope requires the Queen principal; cell scope requires the owning Warden. A test asserts
   there is no bypass.
@@ -1048,7 +1048,7 @@ hive scope by the Queen or at cell scope by the requesting Warden.
 
 ### ADRs to write
 
-- `tool-spec-registry-and-scopes.md`.
+- `tool-spec-comb-registry-and-scopes.md`.
 - `quarantine-comb-gates-and-sandbox.md`.
 
 ---

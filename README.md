@@ -16,7 +16,7 @@ Most agent frameworks run a single model in a single process against a fixed too
 - Drive any Cell, Real or Virtual, the way the task actually needs: a terminal session by default, stepping up to a full **Exoskeleton** (a virtual monitor, keyboard, mouse, and speakers) when the job needs a real desktop or browser session, invisibly and in parallel.
 - Put a **Warden** on every Cell: an always-on supervisor that spawns sub-bees, watches them, handles what it can, and escalates what it can't, so the Queen only ever deals with what actually needs her.
 - Run as a **kernel**, not a chatbot: a thin always-on loop with an inbox, deterministic **autopilot** for everything routine, and an **awake** LLM episode only for what needs judgement.
-- **Write, test, and register new tools for itself** via the Royal Jelly Lab instead of being limited to a fixed toolbelt.
+- **Write, test, and register new tools for itself** via the Royal Jelly Lab and the Comb Registry instead of being limited to a fixed toolbelt.
 - **Connect out to arbitrary devices** (servers, laptops, phones, IoT endpoints) through the Swarm, turning them into Real Cells it can dispatch Workers to, and promoting capable ones to self-sufficient **Nucs**.
 - **Remember without bloating**: knowledge lives in tiers, from the hot state a bee needs right now down to a searchable long-term Honey Store, and every bee hands off and resets before its context overflows.
 - Coordinate all of the above as one coherent system rather than a pile of scripts.
@@ -63,7 +63,8 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Compound Eye** | Virtual display / framebuffer |
 | **Antennae** | Virtual keyboard & mouse (synthetic HID input) |
 | **Buzz** | Virtual audio (speaker/mic) |
-| **Royal Jelly Lab** | The Tool Forge, where new tools are authored, tested, and promoted |
+| **Royal Jelly Lab** | The tool-authoring and validation pipeline that feeds the Comb Registry |
+| **Comb Registry** | The canonical catalog where promoted tools are versioned, scoped, and discoverable |
 | **Quarantine Comb** | The sandbox a new tool must pass through before promotion |
 | **Brood Chamber** | The central task/state store |
 | **Honey Store** | The persistent, indefinitely-growing knowledge base the Queen shares with Workers: the cold tier of memory |
@@ -212,8 +213,8 @@ No bee's work is trusted on its own say-so. Beekeepers cap a honey cell only onc
 - **Snapshots make mistakes cheap.** On Virtual Cells the gate snapshots the whole machine before a risky sequence and rolls it back on failure.
 - **What can't be gated is sampled.** Low-risk work is audited after the fact at a sampling rate per tier; findings become Honey and Alarms, and Guard Bees raise the rate when failures climb.
 
-### 10. Royal Jelly Lab (Tool Forge)
-The mechanism by which the Queen, a Warden, or a Worker can **author a new tool, run it through the Quarantine Comb, and promote it** into the shared toolset other Workers can call, the same way royal jelly transforms an ordinary larva into something with new capabilities. The Comb always runs in a sandboxed Virtual Cell, which a Warden requests from the Queen. Tools are promoted at hive scope by the Queen, or at cell scope by the Warden of the machine they are for. This is what makes the system self-extending instead of capped at whatever tools it shipped with.
+### 10. Royal Jelly Lab + Comb Registry
+The mechanism by which the Queen, a Warden, or a Worker can **author a new tool, run it through the Quarantine Comb, and promote it** into the Comb Registry so other Workers can call it, the same way royal jelly transforms an ordinary larva into something with new capabilities. The Comb always runs in a sandboxed Virtual Cell, which a Warden requests from the Queen. Tools are promoted at hive scope by the Queen, or at cell scope by the Warden of the machine they are for. This is what makes the system self-extending instead of capped at whatever tools it shipped with.
 
 ### 11. The Swarm (Real Cell / Device Mesh)
 A **Pollen Packet** is a thin gateway installed on an external device (a home server, a laptop, a phone, an IoT box). It enrols the device with the Queen, reports what it is and what it can bear (operating system, distro, architecture, package manager, shell, resources), and opens a signed terminal session. It has no brain of its own: the device's Warden lives on the Hive Stand and drives it over that session. From that report the Hive builds out whatever the device needs: tools are scaffolded for that platform, declared for it, and only ever offered to bees on Cells that match. A device that loses its link with no Warden on it stops what it was doing and releases its lease.
