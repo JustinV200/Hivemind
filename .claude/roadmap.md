@@ -895,6 +895,10 @@ duty, `hive honey` CLI.
   labelled untrusted content.
 - [ ] **7.9 Queen pre-check.** The planner queries Honey for the goal's targets and for the chosen
   Cell's known quirks, attaching hits to `TaskAssign`; `queen.honey_consulted`.
+- [ ] **7.9a Cell Wax (cell notes).** Add Queen-managed per-Cell operational notes (`CellWax`) for
+  cautions like risky cells or known limits. Notes are stored with `cell:<id>` scope and severity,
+  proposed by bees/wardens through Waggle, written only by the Queen, and injected only when that
+  Cell is selected for planning or assignment.
 - [ ] **7.10 Honey scoping and browser.** `honey_store/scope.py`: every Honey row carries a
   scope derived from provenance (`hive`, `cell:<id>`, `bee:<id>`, `task:<id>`) and a visibility
   rule; a bee's `honey:read:<scope>` capabilities decide what its queries can return. Query
