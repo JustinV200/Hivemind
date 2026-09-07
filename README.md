@@ -85,7 +85,7 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Requeening** | Recovering from a Queen failure / restoring orchestrator state |
 | **Pheromone Trail** | The audit/log trail left by system actions, except Night Veil execution records which are not retained |
 | **Observation Hive** | The live UI: every bee's thoughts, every Cell, the Forage split, the Attendant views, a chatbox to the Queen, and a browsable Honey tree. Read-only except the chat |
-| **Trenchcoat tactics** | Optional, short-lived behavior overlays a Warden can invoke per task segment: **Write-Like-Human** (tone and pacing) and **Mouse-Like-Human** (input cadence). These are compatibility tactics for fragile UX flows, not a global mode |
+| **Pheromone Mask tactics** | Optional, short-lived behavior overlays a Warden can invoke per task segment: **Write-Like-Human** (tone and pacing) and **Mouse-Like-Human** (input cadence). These are compatibility tactics for fragile UX flows, not a global mode |
 | **Comb Shield level** | A Cell security tier: **Meadow (Tier 0)** default any-machine baseline, **Propolis (Tier 1)** OpenVPN-only hardened baseline (no Tor), **Night Veil (Tier 2)** human-requested virtual-only profile with all web traffic through OpenVPN + Tor, direct egress blocked, Tor Browser available, and local-model-only execution |
 | **Honey clearance** | Data sensitivity labels on Nectar/Honey: **Wildflower (C0)** public/non-sensitive, **Apiary (C1)** internal non-personal, **Royal (C2)** personal/sensitive; policy controls what each Cell tier may read or write. Any user personal detail at all, including first name or habits, is Royal |
 | **Hive Manifest** | A config/spec file |
@@ -159,7 +159,7 @@ For tasks that need a real desktop session rather than a raw terminal or HTTP cl
 
 The Exoskeleton is attached only when a task asks for it and, on a Real Cell, everything it started is stopped when the lease is released. It exists so GUI applications work; it is not a stealth layer, and features whose purpose is to evade a service's controls are out of scope.
 
-Human-like behavior is not a persistent global mode. It is exposed as two **situational trenchcoat tactics** a Warden may invoke for a bounded segment, with explicit reason, budget, and cleanup:
+Human-like behavior is not a persistent global mode. It is exposed as two **situational Pheromone Mask tactics** a Warden may invoke for a bounded segment, with explicit reason, budget, and cleanup:
 - **Write-Like-Human**: improves natural phrasing, pacing, and tone on user-facing prose.
 - **Mouse-Like-Human**: adds bounded input cadence variation for fragile UI flows that break under rigid timing.
 

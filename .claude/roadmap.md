@@ -92,7 +92,7 @@
 | 3 | Queen kernel + Warden + Drone on the Hive Stand | `hive run "goal"`: the Queen decomposes, the Hive Stand's Warden spawns Drones, Alarms escalate, a question blocks until answered, the host is left as found; on Claude or a local model | 1, 2 |
 | 4 | Memory, Forage, Clustering | Hot state stays inside its budget under load; handoffs resume; grants and requests flow; a provider outage pauses and preserves, then resumes | 3 |
 | 5 | The Hive (Virtual Cells) + placement | The Queen chooses Real or Virtual per task; each Virtual Cell gets a Warden; Undertakers destroy or release; Overwintering pool (never for Night Veil) | 3, 4 |
-| 6 | Exoskeleton | A Forager sees a screen, clicks, types, hears audio, on either Cell kind, only when asked; human-like behavior is callable tactics, not a persistent mode | 5 |
+| 6 | Exoskeleton | A Forager sees a screen, clicks, types, hears audio, on either Cell kind, only when asked; Pheromone Mask behavior is callable tactics, not a persistent mode | 5 |
 | 7 | Honey Store | Nectar ripens into Honey with clearance labels; the cold tier of memory is live; Workers query it before acting | 3, 4 |
 | 8 | Local models + provider routing | Every slot can run local; the Hive runs fully offline; routing weighs Forage and model location | 4, 7 |
 | 9 | Royal Jelly Lab | A Worker or Warden requests a tool; it is scaffolded, quarantined, promoted at hive or cell scope, used | 5, 7 |
@@ -833,9 +833,9 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 - [ ] **6.12 Placement integration.** `TaskNeeds.exoskeleton` drives placement: a Real Cell
   qualifies if it has or can start a display, or the task is browser-only; otherwise a
   `desktop-ubuntu` Virtual Cell.
-- [ ] **6.13 Trenchcoat tactics (policy-gated, callable overlays).**
+- [ ] **6.13 Pheromone Mask tactics (policy-gated, callable overlays).**
   Replace persistent mode semantics with two callable tactics under
-  `exoskeleton/tactics/trenchcoat/`: `write_like_human.py` and `mouse_like_human.py`.
+  `exoskeleton/tactics/pheromone_mask/`: `write_like_human.py` and `mouse_like_human.py`.
   Invocation is per task segment with explicit reason, max-step or time budget, and auto-expiry.
   `mouse_like_human` varies key timing, pointer speed and pause cadence inside bounded windows,
   while preserving replay metadata in the flight recorder. `write_like_human` tunes prose rhythm
