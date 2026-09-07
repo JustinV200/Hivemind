@@ -516,6 +516,14 @@ Backends, worker roles, tools and executors are discovered through an explicit r
 (`register("docker", DockerCellBackend)`), populated in the composition root, keyed by the name
 used in the Hive Manifest. Adding a backend never edits an `if backend == "docker"` chain.
 
+Tool selection follows an explicit retrieval and authority chain:
+
+- The Queen uses Honey for discovery and ranking only.
+- The Comb Registry is the source of truth for executable tool definitions, versions and scope.
+- The Queen resolves candidates from the Comb Registry, then issues a scoped capability grant to a Warden.
+- A Warden attenuates that grant per Worker and never hands a sub-bee the full catalog.
+- Workers execute only granted tools and never enumerate the full Comb Registry.
+
 ### 8.5 Data flows as immutable values
 
 - Internal values are `@dataclass(frozen=True, slots=True)`.

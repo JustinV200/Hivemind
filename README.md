@@ -216,6 +216,14 @@ No bee's work is trusted on its own say-so. Beekeepers cap a honey cell only onc
 ### 10. Royal Jelly Lab + Comb Registry
 The mechanism by which the Queen, a Warden, or a Worker can **author a new tool, run it through the Quarantine Comb, and promote it** into the Comb Registry so other Workers can call it, the same way royal jelly transforms an ordinary larva into something with new capabilities. The Comb always runs in a sandboxed Virtual Cell, which a Warden requests from the Queen. Tools are promoted at hive scope by the Queen, or at cell scope by the Warden of the machine they are for. This is what makes the system self-extending instead of capped at whatever tools it shipped with.
 
+Tool selection flow is retrieval-first and least-privilege by default:
+
+- The Queen queries Honey for relevant tool knowledge (what solved similar work, constraints, and likely candidates).
+- The Queen fetches canonical tool definitions, versions, and policy from the Comb Registry for only those candidates.
+- The Queen grants a scoped capability bundle to the target Warden, never the full catalog.
+- The Warden attenuates again per Worker, handing each sub-bee only the minimum tools needed for its current step.
+- Workers call only granted tools; they never browse or load the entire Comb Registry.
+
 ### 11. The Swarm (Real Cell / Device Mesh)
 A **Pollen Packet** is a thin gateway installed on an external device (a home server, a laptop, a phone, an IoT box). It enrols the device with the Queen, reports what it is and what it can bear (operating system, distro, architecture, package manager, shell, resources), and opens a signed terminal session. It has no brain of its own: the device's Warden lives on the Hive Stand and drives it over that session. From that report the Hive builds out whatever the device needs: tools are scaffolded for that platform, declared for it, and only ever offered to bees on Cells that match. A device that loses its link with no Warden on it stops what it was doing and releases its lease.
 
