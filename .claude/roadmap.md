@@ -45,6 +45,18 @@
   model server as well, which makes a colonized Cell a Nuc. A Warden and its sub-bees are always
   co-located, and the Warden is the first bee to move onto a device. Every supervisor, Queen or
   Warden, has an Attendant ordering its inbox.
+- **Cells carry a Comb Shield level** in addition to access level: **Meadow (Tier 0)** for broad
+  compatibility, **Propolis (Tier 1)** as an OpenVPN-only hardened baseline (no Tor), and
+  **Night Veil (Tier 2)** as a virtual-only profile where all web traffic is forced through
+  OpenVPN + Tor, direct egress is blocked, and all model slots are local-only.
+- **Tier defaults and escalation.** New Cells default to Meadow. The Queen may escalate to
+  Propolis by policy when needed. Night Veil may be used only on explicit human request.
+- **Tier is per Cell, not per task.** A task inherits the controls of the Cell it runs on;
+  execution on a Night Veil Cell is Night Veil work by definition.
+- **Honey and Nectar carry clearance labels**: **Wildflower (C0)** public/non-sensitive,
+  **Apiary (C1)** internal non-personal, **Royal (C2)** personal/sensitive. Any user personal detail
+  at all, including first name or habits, is Royal (C2). Night Veil Cells may access C0 and C1 but
+  cannot read or write C2.
 - **Supported hosts are Windows 11, Ubuntu LTS and Arch Linux.** The Hive Stand and the whole
   framework run on all three; CI covers Windows and Ubuntu natively and Arch in a container.
   macOS is best-effort. **Virtual Cell images are Ubuntu LTS (24.04)**: reliable, open, widely
@@ -76,16 +88,16 @@
 |---|---|---|---|
 | 0 | Foundation | `hive --version`, green CI, empty-but-structured workspace | nothing |
 | 1 | Waggle protocol | Two processes exchange typed, versioned, signed messages over WebSocket | 0 |
-| 2 | Brood Chamber + Pheromone Trail | Tasks persist in SQLite; every mutation leaves an audit event | 0 |
+| 2 | Brood Chamber + Pheromone Trail | Tasks persist in SQLite; mutations leave audit events with Night Veil retention exceptions | 0 |
 | 3 | Queen kernel + Warden + Drone on the Hive Stand | `hive run "goal"`: the Queen decomposes, the Hive Stand's Warden spawns Drones, Alarms escalate, a question blocks until answered, the host is left as found; on Claude or a local model | 1, 2 |
 | 4 | Memory, Forage, Clustering | Hot state stays inside its budget under load; handoffs resume; grants and requests flow; a provider outage pauses and preserves, then resumes | 3 |
-| 5 | The Hive (Virtual Cells) + placement | The Queen chooses Real or Virtual per task; each Virtual Cell gets a Warden; Undertakers destroy or release; Overwintering pool | 3, 4 |
-| 6 | Exoskeleton | A Forager sees a screen, clicks, types, hears audio, on either Cell kind, only when asked | 5 |
-| 7 | Honey Store | Nectar ripens into Honey; the cold tier of memory is live; Workers query it before acting | 3, 4 |
+| 5 | The Hive (Virtual Cells) + placement | The Queen chooses Real or Virtual per task; each Virtual Cell gets a Warden; Undertakers destroy or release; Overwintering pool (never for Night Veil) | 3, 4 |
+| 6 | Exoskeleton | A Forager sees a screen, clicks, types, hears audio, on either Cell kind, only when asked; human-like behavior is callable tactics, not a persistent mode | 5 |
+| 7 | Honey Store | Nectar ripens into Honey with clearance labels; the cold tier of memory is live; Workers query it before acting | 3, 4 |
 | 8 | Local models + provider routing | Every slot can run local; the Hive runs fully offline; routing weighs Forage and model location | 4, 7 |
 | 9 | Royal Jelly Lab | A Worker or Warden requests a tool; it is scaffolded, quarantined, promoted at hive or cell scope, used | 5, 7 |
-| 10 | Guard Bees + Hive Entrance | Every dispatch, lease and grant is authorised; the Hive has an authenticated API and a human inbox | 3 |
-| 11 | The Swarm (Pollen Packet, Nucs) | A device enrols through a gateway, gets a Warden on the Hive Stand, can be promoted to a Nuc, and keeps working when cut off | 1, 8, 10 |
+| 10 | Guard Bees + Hive Entrance | Every dispatch, lease and grant is authorised, including tactic invocation and clearance enforcement; the Hive has an authenticated API and a human inbox | 3 |
+| 11 | The Swarm (Pollen Packet, Nucs) | A device enrols through a gateway, gets a Warden on the Hive Stand, can be promoted to a Nuc, enforces Meadow/Propolis on Real Cells, and keeps working when cut off | 1, 8, 10 |
 | 12 | Observation Hive | One live UI: the Queen's and any bee's thoughts, Cell diagrams, the Forage split, the fleet list with model hosting, Attendant views for the Queen and every Warden, a chatbox, and a browsable Honey tree | 2, 7, 10 |
 | 13 | Resilience | Requeening restores a crashed Queen and her leases and grants; Swarming and Absconding work under load | 5, 10 |
 | 14 | Brood 1.0 | Packaged release with docs, runbooks, Getting Started | all |
@@ -237,7 +249,8 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
 ## Phase 2: Brood Chamber and Pheromone Trail
 
 **Goal.** Durable task state and an append-only audit trail, so the Queen can crash and come back,
-and every action is accounted for.
+and every action is accounted for, with a Night Veil exception where execution records are not
+retained after teardown.
 
 **Depends on.** Phase 0. (Independent of phase 1; can be built in parallel.)
 
@@ -259,6 +272,8 @@ and `hive trail` CLI commands.
   `query`, `export_segment`, `merge_segment`), `pheromone/sqlite.py` (append-only table, no
   UPDATE/DELETE statements exist in the file; segments keyed by node id), `pheromone/memory.py`
   (tests). Contract suite over both, including a merge of two segments with interleaved timestamps.
+  Add an explicit retention path for Night Veil execution records: ephemeral segmenting and
+  teardown-time purge.
 - [ ] **2.3 Migrations.** `hivemind/common/migrations.py`: applies numbered `.sql` files from a
   package directory, records applied versions. Used by every SQLite-backed subsystem. First
   migration creates the pheromone table.
@@ -320,7 +335,10 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `[forage.reserve]` (the Royal Reserve: seats and memory held back for the Queen, the Attendant
   and the House Bees, plus a headroom margin), `[supervision]`
   (escalation policy file path, heartbeat interval, offline limits), `[memory]` (budget fraction,
-  handoff threshold, per-item cap), `[brood_chamber]`, `[pheromone]`, and per-phase sections added
+  handoff threshold, per-item cap), `[security]` (`default_comb_shield`, per-tier egress profiles,
+  OpenVPN profile settings, Tor proxy settings, and per-tier route and DNS leak checks where
+  Propolis validates VPN-only egress and Night Veil validates VPN plus Tor egress), `[honey.clearance]`
+  (default labels, allowed flows, per-tier read and write matrix), `[brood_chamber]`, `[pheromone]`, and per-phase sections added
   later), `manifest/loader.py` (TOML → model), `manifest/env.py` (the one place `HIVEMIND_*` env
   vars are read; provider secrets are `HIVEMIND_<PROVIDER>_API_KEY`). `docs/manifests/minimal.toml`
   (Claude only) and `docs/manifests/local.toml` (local only) are both loaded in tests.
@@ -376,7 +394,8 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `cell/session.py` (`CellSession` protocol: streaming `exec`, `put_file`, `get_file`,
   `scratch_dir`, `close`), `cell/lease.py` (`RealCellLease` with scratch root, started process
   ids, allowed paths, idempotent `release()`), `cell/source.py` (`RealCellSource`), `cell/fake.py`,
-  `cell/errors.py`. Records `cell.leased` / `cell.released`.
+  `cell/errors.py`. Add `CombShieldLevel` (`MEADOW`, `PROPOLIS`, `NIGHT_VEIL`) and persist it with
+  every Real Cell and lease. Records `cell.leased` / `cell.released`.
 - [ ] **3.11 The Hive Stand as a Real Cell.** `cell/local.py`: `HiveStandSource` (one Cell whose
   capabilities and `ForageCapacity` are probed from the running machine: platform, arch, cores,
   memory, GPU, display, browser) and `LocalProcessSession` (asyncio subprocess, standard library
@@ -671,7 +690,8 @@ failing.
 
 **Goal.** The Queen can choose, per task, between borrowing a Real Cell and provisioning an
 isolated, disposable Virtual Cell. Every Virtual Cell gets its own Warden. Undertakers destroy
-Virtual Cells and release Real ones. An Overwintering pool keeps warm Virtual Cells for reuse.
+Virtual Cells and release Real ones. An Overwintering pool keeps warm Virtual Cells for reuse,
+except Night Veil Cells which are always just-in-time and teardown-only.
 
 **Depends on.** Phases 3 and 4.
 
@@ -698,19 +718,32 @@ role, `hive cells` CLI.
   when the Warden and its sub-bees run inside the Virtual Cell. `wardens/spawn/` gains the
   `in_cell` strategy. `CellSession` contract suite runs over local, in-cell and fake.
 - [ ] **5.6 Virtual Cell lifecycle.** `hive/lifecycle.py`: `provision → Warden ready → grant →
-  release → (overwinter | teardown)`, each transition a `cell.*` event.
+  release → (overwinter | teardown)`, each transition a `cell.*` event. Night Veil path is always
+  `provision → Warden ready → grant → teardown` (no Overwinter branch).
 - [ ] **5.7 Placement policy.** `queen/placement/decide.py`: pure `decide(needs, inventory,
   forage, policy) -> Placement` over Real Cells with free capacity and Virtual backends with
   headroom, honouring `[placement]` (`prefer = "real" | "virtual"`, `allow_hive_stand`, per-role
   overrides). Rules, each with a test: `isolation = "required"` always Virtual; Exoskeleton needs a
   display or the ability to start one; OS and network scopes must match; Forage must cover the
   grant; otherwise honour `prefer`. Records `queen.placed` with the reason.
+- [ ] **5.7a Night Veil placement and routing constraints.** `queen/placement/policy.py` and
+  `queen/forage/hosting.py`: if `TaskNeeds.comb_shield = NIGHT_VEIL`, placement is Virtual-only,
+  request must be explicitly human-originated, network profile must be OpenVPN + Tor with direct
+  egress blocked, and every model slot in the hosting plan must resolve to local providers only
+  (no Hive Stand or hosted fallback). The profile also enforces location-blind defaults
+  (UTC timezone, fixed locale, randomized hostname, blocked metadata endpoints).
+- [ ] **5.7b Night Veil deterministic bootstrap attestation.** `hive/lifecycle/night_veil.py`:
+  before `CellReady`, apply and attest the profile deterministically: firewall kill-switch active,
+  default route via VPN tunnel, Tor daemon healthy, Tor Browser installed and launchable, DNS leak
+  checks passing, and direct egress blocked. Location-blind checks must also pass: geolocation APIs
+  denied, metadata endpoints unreachable, timezone pinned to UTC, locale pinned to profile, and
+  WebRTC local-IP leak test blocked. Fail placement if any check is red.
 - [ ] **5.8 Undertaker role.** `workers/roles/undertaker.py`: destroys Virtual Cells idempotently,
   releases Real Cell leases idempotently, revokes their grants, retries with backoff. On Queen
   startup sweeps orphans of both kinds from backend labels and the trail.
 - [ ] **5.9 Overwintering pool.** `hive/overwinter/policy.py` (pure, Virtual only),
   `hive/overwinter/pool.py`. Placement prefers a dormant Cell with the right image. Clustering uses
-  the pool for long outages.
+  the pool for long outages. Night Veil Cells are excluded.
 - [ ] **5.10 Snapshots for Capping.** `hive/snapshot.py`: `snapshot(cell) -> SnapshotId` and
   `rollback(cell, snapshot)` on the `CellBackend` protocol (Docker commit, QEMU snapshot; a
   documented no-op with a warning for backends that cannot). The Capping gate takes a snapshot
@@ -732,7 +765,8 @@ role, `hive cells` CLI.
 - The haiku run completes three ways: `prefer = "real"` uses the Hive Stand and zero containers;
   `prefer = "virtual"` uses three containers, each with its own Warden visible in `hive wardens
   list`; a task with `isolation = "required"` uses a Virtual Cell regardless.
-- A second run with `prefer = "virtual"` reuses Overwintered Cells and is measurably faster.
+- A second run with `prefer = "virtual"` reuses Overwintered Cells and is measurably faster, while
+  Night Veil runs always provision fresh Cells and always teardown at completion.
 - `hive cells abscond` leaves zero containers, zero open leases, zero live grants, and the
   left-as-found snapshot holds.
 
@@ -799,11 +833,14 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 - [ ] **6.12 Placement integration.** `TaskNeeds.exoskeleton` drives placement: a Real Cell
   qualifies if it has or can start a display, or the task is browser-only; otherwise a
   `desktop-ubuntu` Virtual Cell.
-- [ ] **6.13 Three Bees in a Trenchcoat mode (policy-gated input profile).**
-  `exoskeleton/antennae/trenchcoat.py`: an optional Antennae profile that varies key timing,
-  pointer speed and pause cadence inside bounded jitter windows, while preserving deterministic
-  replay metadata in the flight recorder. Guarded by explicit capability and policy opt-in only;
-  disabled by default in all manifests. The mode is for compatibility with fragile UI flows.
+- [ ] **6.13 Trenchcoat tactics (policy-gated, callable overlays).**
+  Replace persistent mode semantics with two callable tactics under
+  `exoskeleton/tactics/trenchcoat/`: `write_like_human.py` and `mouse_like_human.py`.
+  Invocation is per task segment with explicit reason, max-step or time budget, and auto-expiry.
+  `mouse_like_human` varies key timing, pointer speed and pause cadence inside bounded windows,
+  while preserving replay metadata in the flight recorder. `write_like_human` tunes prose rhythm
+  and tone for user-facing output. Both are disabled by default and require explicit capability and
+  policy opt-in.
 
 ### Exit criteria
 
@@ -838,9 +875,10 @@ duty, `hive honey` CLI.
   (in-process, optional extra), `FakeEmbedding`. Bound through `ModelSlot.EMBEDDER`. Contract
   suite over all three.
 - [ ] **7.2 Schema.** Migrations for `nectar`, `honey` (with embedding model id and provenance),
-  FTS5 and `sqlite-vec` virtual tables. Changing the embedder slot triggers `hive honey reembed`.
+  `clearance` column (`C0`, `C1`, `C2`) on both tables, FTS5 and `sqlite-vec` virtual tables.
+  Changing the embedder slot triggers `hive honey reembed`.
 - [ ] **7.3 Models.** `Nectar`, `Honey`, `HoneyQuery`, `HoneyHit`; provenance mandatory (task,
-  Worker, Cell, time).
+  Worker, Cell, time) and clearance mandatory.
 - [ ] **7.4 Nectar intake.** `honey_store/nectar/intake.py` over Waggle; hash, dedupe, store,
   size cap. Deposited transcripts from checkpoints arrive here.
 - [ ] **7.5 Ripening pipeline.** `chunk.py`, `summarise.py` (via `llm/structured.py` on
@@ -856,7 +894,9 @@ duty, `hive honey` CLI.
   Cell's known quirks, attaching hits to `TaskAssign`; `queen.honey_consulted`.
 - [ ] **7.10 Honey scoping and browser.** `honey_store/scope.py`: every Honey row carries a
   scope derived from provenance (`hive`, `cell:<id>`, `bee:<id>`, `task:<id>`) and a visibility
-  rule; a bee's `honey:read:<scope>` capabilities decide what its queries can return.
+  rule; a bee's `honey:read:<scope>` capabilities decide what its queries can return. Query
+  filtering applies both scope and clearance, with Comb Shield policy denying Royal data on
+  Night Veil Cells.
   `honey_store/browse.py`: a read-only virtual folder tree over the store (`/hive/...`,
   `/cells/<cell>/...`, `/bees/<bee>/...`, `/tasks/<task>/...`, `/bee-bread/...`) with listing,
   reading and search per folder, so the Observation Hive and the CLI can walk the Hive's knowledge
@@ -1027,8 +1067,10 @@ driven remotely and by the dashboard.
 
 - [ ] **10.1 Capability model.** `Capability` families: `tool:<name>`, `tool:scope:cell`,
   `net:<scope>`, `cell:virtual`, `cell:hive_stand`, `cell:real:<node>`, `cell:outside_scratch:<path>`,
-  `exoskeleton`, `exoskeleton:real_display`, `exoskeleton:trenchcoat`,
+  `cell:comb_shield:<tier>`, `exoskeleton`, `exoskeleton:real_display`,
+  `tactic:write_like_human`, `tactic:mouse_like_human`,
   `honey:read:<scope>`, `honey:write`,
+  `honey:clearance:<c0|c1|c2>`,
   `tool:request`, `llm:<slot>`, `warden:spawn`, `forage:request`, `question:human`,
   `observe`, `observe:thoughts`, `observe:honey:<scope>`. `CapabilitySet` with `allows()` and
   `attenuate(subset)`; pure.
@@ -1037,8 +1079,20 @@ driven remotely and by the dashboard.
 - [ ] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
   invocation, session calls outside scratch, Exoskeleton attach on a real display, Honey access,
   slot binding and rebinding, question routing to the human, Nuc promotion, device commands,
-  and Trenchcoat mode enablement. A test enumerates them and fails if a new state-changing action
+  tactic invocation, and Comb Shield egress policy activation. A test enumerates them and fails if a new state-changing action
   lacks one.
+- [ ] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
+  `CombShieldLevel`; no runtime path may weaken controls after placement. A task moved between
+  Cells is re-evaluated and re-bound to the new Cell's tier before resume.
+- [ ] **10.3a Night Veil guardrails.** Enforce at policy level that `cell:comb_shield:night_veil`
+  implies `cell:virtual` and forbids `cell:real:*`; enforce that Night Veil model slot bindings are
+  local-only; and enforce that Night Veil capability sets allow `honey:clearance:c0` and
+  `honey:clearance:c1` while denying any attempt to read or write `c2` Honey.
+- [ ] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
+  capabilities on Night Veil Cells (`geo:*`, Wi-Fi scan, host metadata access), and reject task
+  tool plans that request them.
+- [ ] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
+  initiated by explicit human request through the inbox or API, never by autonomous escalation.
 - [ ] **10.4 Principals and keys.** Human operator, Queen, Warden, Worker, device; API keys and
   Ed25519 keypairs; secrets hashed.
 - [ ] **10.5 Hive Entrance.** `entrance/app.py`, one route file per resource (`goals`, `tasks`,
@@ -1141,6 +1195,9 @@ promotion, `hive swarm` CLI.
   ceilings, and reports the new sources; from then on its local pool includes seats. Demotion is
   the reverse. Guard-gated. A device cannot go straight from Level 0 to Level 2; the Warden moves
   first.
+- [ ] **11.8a Real Cell Comb Shield limits.** `swarm/enrolment.py` and placement policy enforce
+  that Real Cells may be assigned only Meadow or Propolis; Night Veil requests are denied and
+  redirected to Virtual placement.
 - [ ] **11.9 Offline Wardens.** `wardens/offline/`: on link loss a device Warden keeps working
   with what it owns. A Nuc keeps its sub-bees running on its local pool, and shared grants are
   frozen; a Level 1 Warden clusters its sub-bees at once, since it has no models to think with, and
@@ -1198,6 +1255,17 @@ promotion, `hive swarm` CLI.
   rather than failing, the trail segment and results arrive after reconnection, and nothing is
   duplicated. The Nuc's Warden loads an allowlisted model within its ceiling with no request on
   the trail, and is refused when it tries one outside the allowlist.
+- A Night Veil task is always placed on a Virtual Cell; any attempt to place it on a Real Cell is
+  denied. On that Virtual Cell, placement is blocked until OpenVPN and Tor are both
+  healthy, Tor Browser is present, direct egress is blocked, and leak checks pass. The task may
+  read Wildflower (C0) and Apiary (C1) Honey but cannot read or write Royal (C2); any attempt is
+  denied.
+- A Night Veil Cell is location-blind by attestation: geolocation APIs denied, metadata endpoints
+  unreachable, UTC timezone enforced, fixed locale enforced, randomized hostname confirmed, and
+  WebRTC local-IP leak tests blocked before scheduling.
+- A Propolis task may run on a Real or Virtual Cell, but placement is blocked until OpenVPN is
+  healthy, Tor is disabled for that tier, VPN-only egress checks pass, and direct non-VPN egress is
+  denied and trailed.
 - Cut the network to a non-Nuc device: the dead-man switch releases the lease and the Queen's
   Warden raises an Alarm.
 - Leave an enrolled device idle overnight: its Warden sits in `WATCH`, the device shows no writes
@@ -1261,9 +1329,10 @@ in this phase adds a new write path.
   right now and a context gauge, the session, whether an Exoskeleton is attached, the lease or
   Virtual Cell status, the model hosting for its bees. Alongside the diagram: the Cell's current
   tasks and goals, the Forage the Warden holds (grant used against issued, pending requests), the
-  Honey the Warden can see (a scoped entry point into the Honey browser), the Cell's access level
-  and current mode (`ACTIVE` or `WATCH`, with the last Patrol's report), open Alarms, and Capping
-  activity (proposals in flight, verdicts, rollbacks) with flight-recorder playback for
+  Honey the Warden can see (a scoped entry point into the Honey browser), the Cell's
+  `CombShieldLevel`, the Cell's access level and current mode (`ACTIVE` or `WATCH`, with the last
+  Patrol's report), open Alarms, and Capping activity (proposals in flight, verdicts, rollbacks)
+  with flight-recorder playback for
   Exoskeleton actions. Redrawn from telemetry and Cell status deltas.
 - [ ] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
   (Hive Stand, each Nuc, each Virtual Cell backend) the cores, memory, GPU and model seats in use
@@ -1275,7 +1344,7 @@ in this phase adds a new write path.
   The Fanner's queues per binding with waiting requests and their tempo. Pending `ForageRequest`s
   with their reasons and the Queen's decision when it lands, and grants nearing expiry.
 - [ ] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
-  source, status and mode, access level, two badges (where the Warden runs: Hive Stand or on the
+  source, status and mode, `CombShieldLevel`, access level, two badges (where the Warden runs: Hive Stand or on the
   Cell; where its models come from: local, Hive Stand, hosted, or hybrid per its hosting plan),
   current task and role, open Alarms, lease age, and links into its page, its Warden's Attendant
   view and its bees' thoughts.
@@ -1291,8 +1360,9 @@ in this phase adds a new write path.
 - [ ] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
   (7.10): the main store under `/hive`, then what each Cell and each bee can see under `/cells`
   and `/bees`, task folders, and Bee Bread. Read-only navigation, reading and search per folder,
-  provenance on every item, and a "propose a note" action that sends a message to the Queen rather
-  than writing. Scope filtering matches the viewer's `observe:honey:<scope>` capabilities.
+  provenance and `HoneyClearance` on every item, and a "propose a note" action that sends a
+  message to the Queen rather than writing. Scope and clearance filtering match the viewer's
+  capabilities.
 - [ ] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
   save, from normalised `Usage` on the trail.
 - [ ] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
@@ -1338,8 +1408,11 @@ down cleanly, releasing every borrowed device and revoking every grant.
   Stand and on devices, every grant, Worker processes, temp dirs; from labels and the trail alone.
 - [ ] **13.4a Sting Cut (per-Cell emergency disconnect).** `hive cells sting-cut <lease|cell>`:
   immediate lease revocation for one Cell, session key/token invalidation, termination of
-  Hive-started processes for that lease, and idempotent scratch cleanup. Records `cell.sting_cut`
-  with reason and actor in the trail and leaves central audit state intact.
+  Hive-started processes for that lease, idempotent scratch cleanup, and deletion of lease-local
+  volatile traces (ephemeral caches, temp artifacts, transient credentials) per policy. Records
+  `cell.sting_cut` with reason and actor in the trail and leaves central audit state intact for
+  Meadow and Propolis. For Night Veil, retained logs and persisted records are destroyed at
+  teardown.
 - [ ] **13.5 Overwintering at scale.** QEMU snapshots and cloud stop; disk accounting; eviction.
 - [ ] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
   refusals, malformed JSON and rate limits from the fake, take a provider down mid-run and assert

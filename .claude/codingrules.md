@@ -301,7 +301,7 @@ logs, and the code agree.
 |---|---|---|---|
 | Queen | `queen` | `Queen` | Only one instance per Hive. |
 | Cell (either kind) | `cell` | `Cell`, `CellKind`, `CellHandle`, `CellCapabilities`, `CellSession`, `RealCellLease` | `CellKind.REAL` or `CellKind.VIRTUAL`. A Worker only ever sees `Cell` + `CellSession`. |
-| Virtual Cell | `hive` | `VirtualCellSpec`, `CellBackend`, `CellLifecycle` | Owned: provisioned, then destroyed or Overwintered. |
+| Virtual Cell | `hive` | `VirtualCellSpec`, `CellBackend`, `CellLifecycle` | Owned: provisioned, then destroyed or Overwintered, except `NIGHT_VEIL` which is always teardown-only. |
 | Real Cell | `cell/local.py`, `swarm` | `HiveStand`, `SwarmNode`, `RealCellSource` | Borrowed: leased, then released and left as found. Never destroyed. |
 | Hive Stand | `cell/local.py` | `HiveStand`, `HiveStandSource` | The machine the Queen runs on. Also the first Real Cell and the default home of every Warden. |
 | Placement | `queen/placement/` | `TaskNeeds`, `Placement` | Pure decision: reuse a Real Cell or provision a Virtual one. |
@@ -318,6 +318,8 @@ logs, and the code agree.
 | Observation Hive | `observation` | `FleetView`, `CellView`, `ForageView`, `AttendantView`, `ThoughtsView`, `CappingView`, `HoneyBrowser` | Read-only views; the chat is the only write, and it goes into the Queen's inbox. |
 | Capping | `supervision/capping/` | `Proposal`, `Postcondition`, `RiskTier`, `Verdict`, `CappingGate` | The QA gate: nothing with a side effect outside scratch lands uncapped. |
 | Access level | `guard/access.py` | `AccessLevel` (`READ_ONLY`, `SCRATCH`, `FULL`) | Per Real Cell; Virtual Cells are always `FULL`; caps every capability set for that Cell. |
+| Comb Shield level | `guard/access.py` | `CombShieldLevel` (`MEADOW`, `PROPOLIS`, `NIGHT_VEIL`) | Per Cell security tier. Runtime controls are enforced from the Cell's tier; tasks inherit from their placed Cell. |
+| Honey clearance | `honey_store` | `HoneyClearance` (`C0`, `C1`, `C2`) | Data sensitivity labels. Any user personal detail (including first name or habits) is `C2`. |
 | Watch mode, Patrol | `wardens/watch/` | `WatchObserver`, `Patrol` | A Real Cell's Warden with no active bees observes read-only and reviews on a schedule. |
 | Tempo | `cell/needs.py` | `Tempo` (latency budget, accuracy bar) | Read by the Attendant, routing, Forage allocation and Capping; never overrides safety. |
 | Worker roles | `workers/roles/` | `Forager`, `Scout`, `GuardBee`, `Undertaker`, `Drone`, `HouseBee` | All implement `Worker`. |
@@ -606,6 +608,24 @@ this distinction central; the code makes it invisible to Workers.
   `required | preferred | none`, exoskeleton, os, network scopes, disposability) plus the current
   Cell inventory and the `[placement]` manifest section to a `Placement`: reuse this Real Cell, or
   provision a Virtual Cell from this spec. The reason is recorded on the trail.
+- **Comb Shield is a Cell property.** Tier is bound to the Cell, not the task. A task inherits the
+  `CombShieldLevel` of the Cell where it executes; moving a task to another Cell re-evaluates and
+  re-binds controls before resume.
+- **Tier defaults and authority.** New Cells default to `MEADOW`. The Queen may promote a task's
+  placement target to `PROPOLIS` by policy. `NIGHT_VEIL` placement requires explicit human request
+  and may not be autonomously escalated by the Queen or a Warden.
+- **Night Veil is deterministic and strict.** A `NIGHT_VEIL` Cell is Virtual-only and may be marked
+  `READY` only after attestation of: VPN tunnel up, Tor up, Tor Browser presence, default route via
+  the tunnel, DNS leak checks green, and direct egress blocked by kill-switch rules. Night Veil
+  model bindings are local-only and may not spill to hosted or Hive-Stand sources.
+- **Night Veil is location-blind by policy.** A `NIGHT_VEIL` Cell exposes no geolocation path:
+  no GPS or host location-service access, no Wi-Fi scan capability, metadata endpoints blocked,
+  UTC timezone, fixed locale profile, and randomized hostname per boot.
+- **Location-blind checks are part of readiness.** `NIGHT_VEIL` attestation fails closed unless
+  geolocation APIs are denied, metadata endpoints are unreachable, timezone equals UTC, locale
+  matches policy, and WebRTC local-IP leak probes are blocked.
+- **Night Veil lifecycle is teardown-only.** A `NIGHT_VEIL` Cell is created just in time, never
+  Overwintered, and must be destroyed immediately when its task completes.
 - **Branch on capabilities, never on kind.** Worker, role and tool code may read
   `cell.capabilities` but never `cell.kind`. `CellKind` matters to exactly two callers: placement
   (choose) and the Undertaker (destroy versus release). An `if cell.kind == CellKind.REAL` anywhere
@@ -791,7 +811,7 @@ The UI is a window, not a control panel. Its rules:
   other mutating route is among them.
 - **Everything else is a live read.** Fleet (with a Real / Virtual / All filter), Cell pages
   (diagram of bees and what each is doing, current tasks and goals, the Warden's Forage and Honey,
-  access level and mode, Capping activity), Forage, Attendant views for the Queen and every
+  `CombShieldLevel`, access level and mode, Capping activity), Forage, Attendant views for the Queen and every
   Warden, thoughts, the Capping queue, the Honey browser and the trail are all views over the
   streams and read API in `entrance/streams/` and `observation/api.py`. Views never poll; they
   subscribe.
@@ -799,7 +819,8 @@ The UI is a window, not a control panel. Its rules:
   to any bee" means every episode record and every telemetry sample, not the trail.
 - **The Honey browser is a view over provenance.** Folders are derived from scope (`/hive`,
   `/cells/<id>`, `/bees/<id>`, `/tasks/<id>`, `/bee-bread`), never stored as a second structure,
-  and filtered by the viewer's `observe:honey:<scope>` capabilities.
+  and filtered by the viewer's `observe:honey:<scope>` capabilities and clearance allowances.
+  Every listed item includes its `HoneyClearance` label.
 - **Views are data-shaped, not code-shaped.** Every view has one pydantic read model in
   `observation/views/`; the web app renders those models and nothing else, so a view can be
   regenerated from the models alone.
@@ -943,12 +964,14 @@ Two distinct things:
   Cell provisioned, Real Cell leased or released, task assigned, tool promoted, device enrolled,
   command sent to a device, path touched outside a lease's scratch directory) writes a
   `PheromoneEvent` **before** the action is considered complete. Events are append-only, typed,
-  and stored durably. The dashboard reads them; humans audit them.
+  and stored durably. The dashboard reads them; humans audit them. Exception: retained Night Veil
+  execution records are not persisted after teardown.
 
 Rules:
 
 - **NEVER** `print()` outside `cli/` output formatting.
 - **NEVER** log secrets, tokens, full page contents, or screenshots. Log identifiers and sizes.
+- **NEVER** retain Night Veil execution logs or per-cell audit records after teardown.
 - Log messages are lowercase event names with fields, not prose: `log.info("cell.ready", cell_id=..., took_s=...)`.
 - Every subsystem gets its logger from `common.logging.get_logger(__name__)`; no logger
   configuration outside the composition root.
@@ -1368,7 +1391,7 @@ Where state lives, and what survives a Queen crash:
 | State | Store | Survives | Recovery |
 |---|---|---|---|
 | Tasks, questions, acceptance results | Brood Chamber (SQLite) | Yes | Requeening reads it back. |
-| Every transition, every decision | Pheromone Trail (SQLite, per-node segments) | Yes | Source of truth for reconciliation and audit; offline segments merge. |
+| Every transition, every decision | Pheromone Trail (SQLite, per-node segments) | Yes (except Night Veil execution records) | Source of truth for reconciliation and audit; offline segments merge. Night Veil execution records are ephemeral and purged at teardown. |
 | Hot state | Nowhere; derived per episode | Not applicable | Rebuilt by `memory.assemble` from the stores below. |
 | Notes, pins, episode records, Handoffs, Bee Bread index, watch observations | Memory tables (SQLite) | Yes | Read directly; retention windows apply. |
 | Honey and Nectar | Honey Store (SQLite, FTS5, `sqlite-vec`) | Yes | Read directly; re-embed on embedder change. |
@@ -1386,13 +1409,14 @@ Five rules follow from the tables:
 1. A process holds no state that a store does not, except in-flight work, and in-flight work is
    covered by a Handoff at every threshold and on every intervention.
 2. One transition table per machine, exhaustively tested; forbidden edges raise.
-3. Every transition is a trail event in the same transaction as the state change.
+3. Every transition is a trail event in the same transaction as the state change, except Night Veil execution records which are intentionally non-retained and purged at teardown.
 4. Derived views (hot state, Attendant ordering, Forage headroom, Honey folders) are never
    stored; they are rebuilt from the tables above.
 5. Offline nodes write to their own segments and outboxes; merging on reconnection is
    idempotent and ordered by timestamp and node id.
 - [ ] New Protocol implementation passes the contract suite; new state transitions are tested.
 - [ ] No secrets, screenshots, page bodies or tokens in logs or the Pheromone Trail.
+- [ ] Night Veil runs left no retained logs or persisted trail records after teardown.
 - [ ] `ruff format`, `ruff check`, `mypy --strict`, `pytest -m "not integration"` all pass locally.
 - [ ] Commit message is `type(scope): summary` and the body says why.
 - [ ] `.claude/roadmap.md` step is checked off or amended.

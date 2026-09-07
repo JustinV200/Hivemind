@@ -78,12 +78,15 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | **Pollen Packet** | The thin gateway installed on an external device: enrols it and opens a terminal session for its Warden. No brain of its own |
 | **Swarming** | Scaling up, spinning up more Cells/Workers |
 | **Absconding** | Mass teardown/shutdown of the Hive |
+| **Sting Cut** | Per-Cell emergency disconnect: revoke lease, kill Hive-started processes for that lease, and scrub lease-local traces while preserving central audit |
 | **Overwintering** | An idle/paused pool of Virtual Cells kept dormant rather than destroyed |
 | **Clustering** | The pause-and-preserve protocol when a model provider is unavailable: checkpoint everyone, hold, resume when it returns |
 | **Requeening** | Recovering from a Queen failure / restoring orchestrator state |
-| **Pheromone Trail** | The audit/log trail left by every action in the system |
+| **Pheromone Trail** | The audit/log trail left by system actions, except Night Veil execution records which are not retained |
 | **Observation Hive** | The live UI: every bee's thoughts, every Cell, the Forage split, the Attendant views, a chatbox to the Queen, and a browsable Honey tree. Read-only except the chat |
-| **Three Bees in a Trenchcoat mode**| uses my custom keystroke synthesis model (see keystroke-synthesizer repo), and emulates human like mouse movements, assigned to bees for tasks that require getting through ai detectors.
+| **Trenchcoat tactics** | Optional, short-lived behavior overlays a Warden can invoke per task segment: **Write-Like-Human** (tone and pacing) and **Mouse-Like-Human** (input cadence). These are compatibility tactics for fragile UX flows, not a global mode |
+| **Comb Shield level** | A Cell security tier: **Meadow (Tier 0)** default any-machine baseline, **Propolis (Tier 1)** OpenVPN-only hardened baseline (no Tor), **Night Veil (Tier 2)** human-requested virtual-only profile with all web traffic through OpenVPN + Tor, direct egress blocked, Tor Browser available, and local-model-only execution |
+| **Honey clearance** | Data sensitivity labels on Nectar/Honey: **Wildflower (C0)** public/non-sensitive, **Apiary (C1)** internal non-personal, **Royal (C2)** personal/sensitive; policy controls what each Cell tier may read or write. Any user personal detail at all, including first name or habits, is Royal |
 | **Hive Manifest** | A config/spec file |
 | **Propolis** | External plugin/extension packages |
 | **Brood** | A release/version (Brood 1.0, Brood 2.0, ...) |
@@ -129,6 +132,11 @@ Not every task justifies spinning up a fresh machine. Before provisioning, the Q
 
 - **Virtual Cell**: provisioned on demand from the Hive, isolated, disposable, torn down (or Overwintered) when the task ends.
 - **Real Cell**: already exists and keeps existing after the task; the Queen borrows it rather than owning it, and leaves it as it found it. Work happens inside a lease with its own scratch directory; anything outside that directory needs an explicit permission and is recorded. Every Real Cell has an **access level** set when it joins: read-only, scratch, or full. The Pollen Packet asks for full; the operator may grant less, and nothing can be issued to that Cell beyond it.
+- **Comb Shield level**: every Cell has a security posture tier, separate from access level. **Meadow (Tier 0)** is the default baseline for broad compatibility. **Propolis (Tier 1)** is the moderate hardening tier for normal production work (OpenVPN required, Tor disabled) and may be selected by the Queen when policy says it is needed. **Night Veil (Tier 2)** is restricted to Virtual Cells only, requires explicit human request, forces OpenVPN + Tor egress, blocks direct outbound routes, permits only local models, and runs in a location-blind profile.
+- **Real Cell constraint**: Real Cells can run Meadow or Propolis, but never Night Veil.
+- **Tier inheritance**: tier is a property of the Cell, not the task. Any task executed on a Night Veil Cell is Night Veil work and is bound by Night Veil controls.
+- **Night Veil lifecycle**: Night Veil Cells are created on demand for the requested task, never Overwintered, and destroyed immediately when that task completes.
+- **Night Veil location-blind profile**: no GPS or host location service access, no Wi-Fi scan capability, UTC timezone, fixed generic locale, randomized hostname per boot, and metadata endpoints blocked.
 - Both default to a plain terminal/shell session, since that's the lightest-weight and least invasive way to work; a full Exoskeleton is equipped only when the task actually needs a desktop or browser.
 
 Which path the Queen takes is a per-task decision made from the task's needs (isolation, a display, a particular OS, network reach), the Forage each Cell can bear, and the operator's preference: reuse a Real Cell already at hand when one fits, or provision a Virtual Cell when isolation, a clean image, or disposability matters more.
@@ -150,6 +158,12 @@ For tasks that need a real desktop session rather than a raw terminal or HTTP cl
 
 The Exoskeleton is attached only when a task asks for it and, on a Real Cell, everything it started is stopped when the lease is released. It exists so GUI applications work; it is not a stealth layer, and features whose purpose is to evade a service's controls are out of scope.
 
+Human-like behavior is not a persistent global mode. It is exposed as two **situational trenchcoat tactics** a Warden may invoke for a bounded segment, with explicit reason, budget, and cleanup:
+- **Write-Like-Human**: improves natural phrasing, pacing, and tone on user-facing prose.
+- **Mouse-Like-Human**: adds bounded input cadence variation for fragile UI flows that break under rigid timing.
+
+Both tactics are opt-in, policy-gated, and auto-expire once the segment ends.
+
 ### 7. Memory: from hot state to the Honey Store
 Context is treated like a cache hierarchy. What any bee's model sees is assembled fresh for each awake episode from the tiers below; nothing accumulates, and nothing that leaves a tier is lost.
 
@@ -157,6 +171,7 @@ Context is treated like a cache hierarchy. What any bee's model sees is assemble
 - **Hot state**: active goals, open tasks and Alarms, pending questions, recent decisions with their reasons, a summary of the fleet and Forage, pinned facts, short notes. Derived from the Brood Chamber and the Pheromone Trail; always loaded; bounded by construction, because it is packed by relevance until the budget fills.
 - **Bee Bread**: the warm tier. Recent results, episodes and Handoffs, looked up by id, time or task rather than searched.
 - **Honey**: the cold tier. Everything a House Bee has **ripened** from raw **Nectar**: chunked, summarized, embedded, deduped, indexed, and retrieved on demand by search.
+- **Honey clearances**: every Nectar/Honey item carries a sensitivity label: **Wildflower (C0)**, **Apiary (C1)**, or **Royal (C2)**. Any user personal detail at all, including first name or habits, is Royal by policy. Tier-2 **Night Veil** Cells may access C0 and C1 but cannot read or write Royal data.
 
 A Worker doesn't get handed the whole Honey Store; it queries it over Waggle and gets back just the Honey relevant to its current task, the same way retrieval-augmented generation pulls only the relevant chunks instead of stuffing everything into the prompt. Knowledge compounds across every task the Hive has ever run, but any one bee's context stays small.
 
@@ -183,7 +198,7 @@ Forage lives in two kinds of pool, and the rule is simple: **the Queen divides w
 
 Three things keep grants honest. Every model call from any bee passes through the **Fanner**, which enforces the seat count, queues overflow by tempo, measures speed and latency, and reports usage, so a grant is a fact rather than a suggestion. Grants are leases, renewed on the Warden's heartbeat and returned to the pool when a Warden dies or drops offline. And capacity is measured before it is divided: the ledger keeps rolling measurements per host and per source, grants are recomputed when they drift, and a Warden over its grant gets an Alarm rather than a crash.
 
-Part of that division is where models run. HiveMind is provider-agnostic: every bee asks for a model *slot* (queen, warden, worker, ripener, and so on), and a manifest maps each slot to a provider, whether a hosted API or a locally served model. Each Cell carries a **hosting plan** the Queen writes: for every slot, a first choice and a fallback chain, drawn from the same map and ledger, reading whether the Cell's free VRAM covers a model, how much seat pressure the Hive Stand is under, how far the Cell is from each source against the task's tempo, whether the task must survive a disconnection, and what it costs. A Cell with its own models is **local first, shared when needed**: the Fanner sends a call down the chain only when the local model's grade is below what the task demands, the model needed is not loaded locally, or the local queue has waited too long for the task's latency budget. Every such spill is on the trail, so you can see how much a device leans on the Hive Stand. A Real Cell with its own Warden and its own model server is a **Nuc**, and it keeps working when the link to the Hive Stand is lost. Where a model runs never changes how bees talk to each other: Waggle carries bee-to-bee messages, and model calls are a separate channel to whichever server holds the model.
+Part of that division is where models run. HiveMind is provider-agnostic: every bee asks for a model *slot* (queen, warden, worker, ripener, and so on), and a manifest maps each slot to a provider, whether a hosted API or a locally served model. Each Cell carries a **hosting plan** the Queen writes: for every slot, a first choice and a fallback chain, drawn from the same map and ledger, reading whether the Cell's free VRAM covers a model, how much seat pressure the Hive Stand is under, how far the Cell is from each source against the task's tempo, whether the task must survive a disconnection, and what it costs. A Cell with its own models is **local first, shared when needed**: the Fanner sends a call down the chain only when the local model's grade is below what the task demands, the model needed is not loaded locally, or the local queue has waited too long for the task's latency budget. Every such spill is on the trail, so you can see how much a device leans on the Hive Stand. A Real Cell with its own Warden and its own model server is a **Nuc**, and it keeps working when the link to the Hive Stand is lost. For **Night Veil** Virtual Cells, the hosting plan is stricter: all slots resolve to local providers only and hosted/Hive-Stand spillover is forbidden. The Cell is not considered ready until deterministic bootstrap checks pass: VPN up, Tor up, Tor Browser available, direct egress blocked, and DNS leak checks green. Where a model runs never changes how bees talk to each other: Waggle carries bee-to-bee messages, and model calls are a separate channel to whichever server holds the model.
 
 The other input to every one of these decisions is **tempo**: how fast a task must finish and how right it must be. The waggle dance encodes how far and how good a source is; tempo is the Hive's version of that signal. An urgent, low-stakes task gets a fast model at low effort, more parallelism, and the shortest checking ladder its risk allows. A critical one gets the strongest model at high effort and a second judge. Tempo can shorten checks only above each risk tier's floor; the irreversible always gets the full ladder, and nothing about access, permissions or leaving hardware as found ever bends to urgency.
 
@@ -216,19 +231,20 @@ Retrying with backoff is the floor, not the ceiling: wherever a model is actuall
 ### 12. Resilience
 - **Clustering**: when a model provider goes away and no fallback fits within Forage, the Queen does not try to limp on. She checkpoints every affected bee, pauses their tasks, keeps every lease and Cell alive, keeps heartbeats and watchdogs running, and resumes everyone from their Handoffs when the provider returns. Bees on other providers carry on.
 - **Requeening**: a crashed Queen rebuilds from the Brood Chamber and the Pheromone Trail, the same state a reset Queen resumes from, reconciles with what every Cell and Warden actually reports, and picks up where she left off.
-- **Overwintering** keeps warm Virtual Cells for reuse; **Swarming** scales the fleet up within Forage; **Absconding** tears everything down and releases every borrowed device, and works even if the Brood Chamber is corrupt.
+- **Sting Cut**: a per-Cell emergency disconnect revokes the lease immediately, invalidates session keys, terminates Hive-started processes for that lease, and scrubs lease-local traces. For non-Night-Veil Cells, the central Pheromone Trail remains intact for forensics and accountability.
+- **Overwintering** keeps warm Virtual Cells for reuse, except Night Veil Cells which are never Overwintered; **Swarming** scales the fleet up within Forage; **Absconding** tears everything down and releases every borrowed device, and works even if the Brood Chamber is corrupt.
 
 ### 13. Observation Hive (what you see)
 One live page to watch and talk to the Hive. It is read-only with a single exception, the chat, and every write in the system still goes through the Queen.
 
 - **Thoughts**: the Queen's thinking as it happens, including how the Attendant ordered her inbox, which autopilot rule fired, and what each awake episode saw and decided. The same view opens for any bee, with full read access to its episodes and telemetry.
-- **Cell pages**: one per Cell, with a live diagram of its Warden and where it runs, each sub-bee with its role, what it is doing right now and its context gauge, the session and any Exoskeleton; alongside it the Cell's current tasks and goals, the Forage its Warden holds, the Honey its Warden can see, its access level and mode (active or watching, with the last Patrol's report), and its Capping activity with flight-recorder playback.
+- **Cell pages**: one per Cell, with a live diagram of its Warden and where it runs, each sub-bee with its role, what it is doing right now and its context gauge, the session and any Exoskeleton; alongside it the Cell's current tasks and goals, the Forage its Warden holds, the Honey its Warden can see, its **Comb Shield level**, its access level and mode (active or watching, with the last Patrol's report), and its Capping activity with flight-recorder playback.
 - **Forage**: a live diagram of total capacity and how it is divided, from the Queen's pool to each Warden's grant to each bee, with pending requests and their outcomes.
-- **Fleet list**: every Cell, filterable to Real only, Virtual only, or all, with what each is doing, its access level and mode, and where its models are hosted, on the Hive Stand, a hosted API, or on the machine itself.
+- **Fleet list**: every Cell, filterable to Real only, Virtual only, or all, with what each is doing, its **Comb Shield level**, its access level and mode, and where its models are hosted, on the Hive Stand, a hosted API, or on the machine itself.
 - **Capping queue**: proposals by tier and state, verdicts with reasons, rollbacks, and sampled-audit findings.
 - **Attendant views**: the task graph the Queen is concerned with, what just finished and what is next, and the same view for every Warden over its own sub-bees.
 - **Chat**: the human's way to request tasks, ask, and answer. Messages go into the Queen's inbox; her replies, questions and escalated Alarms come back on the same channel.
-- **Honey browser**: the Hive's knowledge as a folder tree, the shared store plus what each Cell and bee can see, read-only, with "propose a note" going to the Queen rather than writing.
+- **Honey browser**: the Hive's knowledge as a folder tree, the shared store plus what each Cell and bee can see, read-only, with clearance labels visible on every item and "propose a note" going to the Queen rather than writing.
 
 ---
 
@@ -288,7 +304,7 @@ flowchart TB
 4. One Forager hits a site that needs a capability the Hive doesn't have. It raises an Alarm; its Warden's playbook says "request a tool", so the Warden files a tool request with the Queen.
 5. The Queen grants a sandbox Cell; the Royal Jelly Lab scaffolds the tool, runs it through the Quarantine Comb, and the Queen promotes it at hive scope. Every Worker can now use it.
 6. Another Forager is unsure whether a page change counts as "X changing". It asks. Its Warden can't answer, the question climbs to the Queen, and the Queen decides it's worth the human's attention: the task blocks, the question appears in the human's inbox, the answer flows back down and the task resumes.
-7. Results stream back up through the Wardens over Waggle and land in the Brood Chamber; raw Nectar from each Forager goes to a House Bee, which ripens it into Honey for next time; a Forager nearing its context limit writes a Handoff and resets; every step is written to the Pheromone Trail.
+7. Results stream back up through the Wardens over Waggle and land in the Brood Chamber; raw Nectar from each Forager goes to a House Bee, which ripens it into Honey for next time; a Forager nearing its context limit writes a Handoff and resets; every step is written to the Pheromone Trail except Night Veil execution traces, which are not retained.
 8. The hosted model provider has an outage. Bees on local models carry on; the rest are checkpointed and paused by Clustering, and resume from their Handoffs when the provider is back.
 9. The Queen sends Undertakers to tear down finished Cells (or Overwinter ones likely to be reused), revokes their grants, and reports back.
 
@@ -304,7 +320,12 @@ flowchart TB
 - **Capacity is measured, then divided, never assumed**: every Cell reports its Forage, every model call is metered by the Fanner, and grants expire. The Queen divides what is shared; a Warden divides what is on its own Cell under ceilings set once, and never asks for what it already has.
 - **Speed is a need, not an accident**: every task carries a tempo, and models, effort, parallelism and the depth of checking are chosen to match it, above safety floors that urgency can never lower.
 - **Least privilege, attenuated downward**: a Worker gets only the network/tool/device access its task requires, a sub-bee never gets more than its Warden, and Guard Bees enforce it at the Hive Entrance and on every dispatch.
-- **Everything is observable**: every Cell spin-up, lease, grant, Alarm, tool creation, and Swarm command is written to the Pheromone Trail and visible in the Observation Hive.
+- **Security is layered per Cell and per datum**: access level controls what a Cell may do, Comb Shield level controls how it must do it, and Honey clearance controls what data it may touch.
+- **Night Veil is strict by construction**: it is virtual-only, local-model-only, and egress-constrained through OpenVPN + Tor.
+- **Night Veil bootstrap is deterministic**: a Night Veil Cell is not schedulable until VPN, Tor, Tor Browser presence, egress kill-switch, and leak-check attestations all pass.
+- **Night Veil location checks are deterministic**: the same bootstrap attestation must verify geolocation APIs are denied, metadata endpoints are unreachable, timezone is UTC, locale matches the profile, and WebRTC local-IP leak tests fail closed.
+- **Night Veil leaves no retained records**: Night Veil execution traces are not kept in retained logs or persisted trail history and are destroyed at teardown.
+- **Everything is observable**: every Cell spin-up, lease, grant, Alarm, tool creation, and Swarm command is written to the Pheromone Trail and visible in the Observation Hive, except retained Night Veil execution traces.
 - **Self-extension is sandboxed**: the Royal Jelly Lab never promotes a tool without a Quarantine Comb pass in an isolated Cell first.
 - **Nothing lands uncapped**: every side effect is proposed with its expected outcome, checked in layers from cheap deterministic rules up to an independent judge, verified by someone other than the bee that did it, and rolled back if wrong.
 - **Idle hardware is watched, not touched**: a Real Cell with no active bees is observed read-only within its access level, reviewed on a schedule, and never written to.
