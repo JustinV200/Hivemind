@@ -4,7 +4,7 @@ Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle d
 node's link is down, a Warden (the always-on supervisor of one Cell, a unit of compute) keeps
 working within what it owns and a Pollen Packet (the thin gateway on an enrolled device) keeps
 reporting; what they cannot send waits here, on disk, until the link is back and
-``waggle.outbox_replay.replay_outbox`` sends it in order. ``append`` encodes the envelope (the
+``waggle.outbox.replay.replay_outbox`` sends it in order. ``append`` encodes the envelope (the
 outer wrapper every message travels in) to its UNSIGNED wire text through a signer-less,
 verifier-less view of the caller's codec and writes one ``put`` record, flushed and ``fsync``ed
 before it returns; ``ack`` writes one ``ack`` record once the envelope is sent, expired or found
@@ -14,13 +14,13 @@ so signing always happens at send time with the node's current key, a key rotate
 crash and its replay still yields valid signatures, and a stolen outbox file carries nothing a
 peer would accept. It is the node's own durable memory, never a trust boundary, which is why it
 verifies nothing on the way back in. The log file itself (record shapes, the torn-line rule,
-compaction) is ``waggle.outbox_log``'s.
+compaction) is ``waggle.outbox.log``'s.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Written by every bee loop that fails a send and
-    read by waggle.outbox_replay on reconnection; calls into waggle.codec for the wire text and
-    waggle.outbox_log for the file. Latency class: one fsync per append or ack (milliseconds;
+    read by waggle.outbox.replay on reconnection; calls into waggle.codec for the wire text and
+    waggle.outbox.log for the file. Latency class: one fsync per append or ack (milliseconds;
     tens of milliseconds on an SD card), a full read and rewrite on open.
 
 Key invariants:
@@ -34,8 +34,8 @@ Key invariants:
     - The file on disk after open holds exactly the pending put records (compaction).
 
 See Also:
-    - waggle.outbox_log for the JSONL log this queue is kept in.
-    - waggle.outbox_replay for replay_outbox, ReplayReport and expire_older_than.
+    - waggle.outbox.log for the JSONL log this queue is kept in.
+    - waggle.outbox.replay for replay_outbox, ReplayReport and expire_older_than.
     - docs/waggle/spec.md section 10 and docs/adr/0005-waggle-envelope-signing-and-offline-outbox.md
       for the decision that shaped this module.
 """
@@ -48,7 +48,7 @@ from waggle.codec import SIGNATURE_OVERHEAD_BYTES, Codec
 from waggle.envelope import Envelope
 from waggle.errors import FrameTooLargeError
 from waggle.ids import MessageId
-from waggle.outbox_log import (
+from waggle.outbox.log import (
     append_record,
     encode_ack,
     encode_put,

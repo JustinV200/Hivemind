@@ -44,7 +44,7 @@ from waggle.clock import Clock
 from waggle.errors import CodecError, TransportError
 from waggle.ids import MessageId
 from waggle.messages.base import MAX_MESSAGE_AGE_S
-from waggle.outbox import Outbox
+from waggle.outbox.queue import Outbox
 from waggle.transport.base import Transport
 
 __all__ = ["ReplayReport", "expire_older_than", "replay_outbox"]

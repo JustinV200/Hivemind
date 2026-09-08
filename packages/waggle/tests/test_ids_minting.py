@@ -1,16 +1,16 @@
-"""Tests for waggle.minting: the thirteen typed new_<kind>_id wrappers.
+"""Tests for waggle.ids: the thirteen typed new_<kind>_id wrappers.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises every wrapper against a FakeClock so
-    results are deterministic, and pins the one-wrapper-per-IdKind invariant that keeps
-    waggle.minting and waggle.ids.IdKind from drifting apart.
+    results are deterministic, and pins the one-wrapper-per-IdKind invariant that keeps the
+    wrappers and IdKind from drifting apart.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - waggle.minting for the module under test.
-    - waggle.ids for IdKind, parse_id and timestamp_of, which every assertion here goes through.
+    - waggle.ids for the module under test: the wrappers, and the IdKind, parse_id and
+      timestamp_of every assertion here goes through.
     - test_ids.py for the generic new_id and the parsers themselves.
 """
 
@@ -20,10 +20,10 @@ from collections.abc import Callable
 
 import pytest
 
-from waggle import minting
+from waggle import ids
 from waggle.clock import Clock, FakeClock
-from waggle.ids import IdKind, parse_id, timestamp_of
-from waggle.minting import (
+from waggle.ids import (
+    IdKind,
     new_alarm_id,
     new_cell_id,
     new_device_id,
@@ -37,6 +37,8 @@ from waggle.minting import (
     new_tool_id,
     new_warden_id,
     new_worker_id,
+    parse_id,
+    timestamp_of,
 )
 from waggle.ulid import ULID_LENGTH
 
@@ -120,11 +122,12 @@ def test_new_message_id_mints_a_msg_prefixed_message_id() -> None:
     assert parse_id(message_id, IdKind.MESSAGE) == message_id
 
 
-def test_minting_exports_exactly_one_wrapper_per_id_kind() -> None:
+def test_ids_exports_exactly_one_wrapper_per_id_kind() -> None:
     # Adding an IdKind member without its wrapper (or the reverse) must fail here, because the
     # rest of the workspace reaches for the typed wrapper, never for new_id with a bare kind.
     expected = sorted(f"new_{kind.name.lower()}_id" for kind in IdKind)
+    exported = sorted(name for name in ids.__all__ if name.startswith("new_") and name != "new_id")
 
-    assert sorted(minting.__all__) == expected
+    assert exported == expected
     assert {kind for _, kind in _WRAPPERS} == set(IdKind)
     assert len(_WRAPPERS) == len(IdKind)

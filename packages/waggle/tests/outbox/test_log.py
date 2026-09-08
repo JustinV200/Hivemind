@@ -1,4 +1,4 @@
-"""Tests for waggle.outbox_log: the record shapes, the torn-line rule, folding and compaction.
+"""Tests for waggle.outbox.log: the record shapes, the torn-line rule, folding and compaction.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Drives the pure functions (encode, parse, fold)
@@ -10,8 +10,8 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - waggle.outbox_log for the module under test.
-    - test_outbox.py for the same rules exercised through Outbox open.
+    - waggle.outbox.log for the module under test.
+    - test_queue.py for the same rules exercised through Outbox open.
 """
 
 from __future__ import annotations
@@ -26,9 +26,8 @@ from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope
 from waggle.errors import OutboxCorruptError
-from waggle.ids import MessageId
-from waggle.minting import new_message_id
-from waggle.outbox_log import (
+from waggle.ids import MessageId, new_message_id
+from waggle.outbox.log import (
     TEMP_SUFFIX,
     AckRecord,
     PutRecord,

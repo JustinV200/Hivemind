@@ -12,8 +12,8 @@ Key invariants:
 
 See Also:
     - waggle.outbox for the module under test.
-    - test_outbox_log.py for the record layer these rules are built on.
-    - test_outbox_replay.py for draining the queue through a transport.
+    - test_log.py for the record layer these rules are built on.
+    - test_replay.py for draining the queue through a transport.
 """
 
 from __future__ import annotations
@@ -31,11 +31,10 @@ from waggle.clock import FakeClock
 from waggle.codec import SIGNATURE_OVERHEAD_BYTES, Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, FrameTooLargeError, OutboxCorruptError
-from waggle.ids import MessageId
+from waggle.ids import MessageId, new_hive_id, new_node_id, new_warden_id
 from waggle.messages.control.protocol import Ping
-from waggle.minting import new_hive_id, new_node_id, new_warden_id
 from waggle.outbox import Outbox
-from waggle.outbox_log import TEMP_SUFFIX, append_record, encode_put
+from waggle.outbox.log import TEMP_SUFFIX, append_record, encode_put
 from waggle.signing import Ed25519Signer
 
 MakeEnvelope = Callable[..., Envelope]

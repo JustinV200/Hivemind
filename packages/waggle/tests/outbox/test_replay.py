@@ -1,4 +1,4 @@
-"""Tests for waggle.outbox_replay: draining an outbox through a transport, poison and expiry.
+"""Tests for waggle.outbox.replay: draining an outbox through a transport, poison and expiry.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Replays a real Outbox from tmp_path through a
@@ -12,8 +12,8 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - waggle.outbox_replay for the module under test.
-    - test_outbox.py for the queue itself.
+    - waggle.outbox.replay for the module under test.
+    - test_queue.py for the queue itself.
     - tests/contracts/test_transport_contract.py for replay after a dropped link over both
       transports.
 """
@@ -34,8 +34,8 @@ from waggle.errors import ConnectionLostError, TransportClosedError
 from waggle.messages.base import MAX_MESSAGE_AGE_S
 from waggle.messages.control.protocol import ErrorMessage
 from waggle.outbox import Outbox
-from waggle.outbox_log import append_record, encode_put
-from waggle.outbox_replay import ReplayReport, expire_older_than, replay_outbox
+from waggle.outbox.log import append_record, encode_put
+from waggle.outbox.replay import ReplayReport, expire_older_than, replay_outbox
 from waggle.transport.memory import MemoryTransport
 
 MakeEnvelope = Callable[..., Envelope]

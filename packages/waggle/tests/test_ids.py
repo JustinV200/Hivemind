@@ -3,8 +3,8 @@
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises IdKind, new_id, parse_id and
     timestamp_of against a FakeClock so results are deterministic. The typed new_<kind>_id
-    wrappers are covered by test_minting.py, mirroring the split of waggle.minting out of
-    waggle.ids.
+    wrappers of the same module are covered by test_ids_minting.py, a split by feature under
+    test (codingrules 5.1).
 
 Key invariants:
     - None: this module holds tests only.
@@ -12,7 +12,7 @@ Key invariants:
 See Also:
     - waggle.ids for the module under test.
     - waggle.clock for FakeClock, used throughout to control id timestamps.
-    - test_minting.py for the typed wrapper tests that used to live here.
+    - test_ids_minting.py for the typed wrapper tests.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from waggle.ulid import ULID_LENGTH
 
 # The twelve kinds roadmap step 0.5 shipped plus MESSAGE (step 1.2a, the envelope's own id); a
 # new member must be added here on purpose, because every kind also needs a NewType, a wrapper in
-# waggle.minting and a row in the protocol spec.
+# waggle.ids and a row in the protocol spec.
 _EXPECTED_KIND_COUNT = 13
 
 

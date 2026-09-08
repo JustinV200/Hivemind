@@ -13,12 +13,11 @@ truth for everything on the wire; `tests/test_spec_drift.py` keeps the code hone
 
 Shared primitives (roadmap step 0.5):
 
-- **Ids** (`waggle.ids`, encoding in `waggle.ulid`, typed constructors in `waggle.minting`):
+- **Ids** (`waggle.ids`, encoding in `waggle.ulid`):
   `IdKind` and thirteen `NewType` id types (`HiveId`, `CellId`, `LeaseId`, `TaskId`, `WorkerId`,
   `WardenId`, `AlarmId`, `GrantId`, `ToolId`, `NodeId`, `EventId`, `DeviceId`, `MessageId`), each
   generated as a prefixed ULID (`cell_01H...`) so an id is self-describing in a log line and sorts
-  lexicographically by creation time. `new_id` (`waggle.ids`) and the thirteen `new_<kind>_id`
-  wrappers (`waggle.minting`, split out of `ids.py` so each file stays under the size limit) mint
+  lexicographically by creation time. `new_id` and the thirteen `new_<kind>_id` wrappers mint
   one; `parse_id` validates a candidate string; `timestamp_of` reads its creation time back out.
 - **Clock** (`waggle.clock`): the `Clock` protocol every time-reading component depends on,
   `SystemClock` (the real clock) and `FakeClock` (a clock a test drives by hand with `advance()`).
@@ -41,13 +40,14 @@ The protocol (roadmap phase 1):
   `wrap(payload, hop, *, clock, correlation_id=None)` with `Hop(sender, recipient, node_id)`, and
   the `PROTOCOL_VERSION` constants. The envelope's model validator enforces the shape rule
   (a reply carries its request's id, a request carries none).
-- **Codec** (`waggle.codec`, parsing helpers in `waggle.frame`): `Codec(signer=..., verifier=...)`
+- **Codec** (`waggle.codec`): `Codec(signer=..., verifier=...)`
   with `encode(envelope) -> bytes` and `decode(frame) -> Envelope`, `canonical_bytes` (the sorted
   compact ASCII JSON that is signed, computed over the raw wire dict) and `MAX_FRAME_BYTES`
   (1 MiB). A verifier configured means every frame must be signed; none means signatures are
   ignored, the in-process case. `Signer` and `Verifier` are structural protocols, so the codec
-  never imports the signing module.
-- **Signing** (`waggle.signing`, hex helpers in `waggle.key_encoding`): `Ed25519Signer` (one per
+  never imports the signing module. The key-free decode steps (`parse_frame`, `check_version`,
+  `check_kind`, `build_envelope`) live beside `Codec`, which composes them in the spec's order.
+- **Signing** (`waggle.signing`): `Ed25519Signer` (one per
   node, built from a key in the secret store or `generate()`) and `Ed25519Verifier` (an immutable
   map of `node_id` to raw public key, extended with `with_key`); `public_key_hex` and
   `public_key_from_hex` for the manifest form.
@@ -56,7 +56,8 @@ The protocol (roadmap phase 1):
   `messages/README.md`.
 - **Transports** (`waggle.transport`): the `Transport` protocol, `MemoryTransport` for one process
   and the WebSocket client and server for everything else; see `transport/README.md`.
-- **Outbox** (`waggle.outbox`): `Outbox(path)`, the append-only JSONL queue of unsigned envelopes a
+- **Outbox** (`waggle.outbox`, a package: `queue`, `log`, `replay`): `Outbox(path)`, the
+  append-only JSONL queue of unsigned envelopes a
   node could not send, and `replay_outbox(outbox, transport)`, which sends them in order after a
   reconnection, signing at send time, acking each after a successful send and stopping at the
   first transport error so the tail stays pending.

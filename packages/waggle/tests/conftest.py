@@ -12,7 +12,7 @@ policies.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Loaded automatically by pytest before every test
-    module under packages/waggle/tests/. Depends on waggle.clock, waggle.minting,
+    module under packages/waggle/tests/. Depends on waggle.clock, waggle.ids,
     waggle.envelope, waggle.codec, waggle.signing and the control family; nothing depends on it.
 
 Key invariants:
@@ -35,10 +35,17 @@ import pytest
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
-from waggle.ids import MessageId, NodeId
+from waggle.ids import (
+    MessageId,
+    NodeId,
+    new_device_id,
+    new_hive_id,
+    new_node_id,
+    new_warden_id,
+    new_worker_id,
+)
 from waggle.messages.base import WaggleMessage
 from waggle.messages.control.protocol import Ping
-from waggle.minting import new_device_id, new_hive_id, new_node_id, new_warden_id, new_worker_id
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 
 

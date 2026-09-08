@@ -11,7 +11,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - waggle.codec and waggle.frame for the modules under test.
+    - waggle.codec and waggle.codec for the modules under test.
     - waggle.errors for the codes asserted here; docs/waggle/spec.md section 7 for the table.
     - test_codec.py for encode, round trips and canonical bytes.
 """
@@ -37,10 +37,9 @@ from waggle.errors import (
     UnsupportedVersionError,
     WaggleError,
 )
-from waggle.ids import NodeId
+from waggle.ids import NodeId, new_device_id, new_node_id
 from waggle.messages.control.hive import HumanMessage
 from waggle.messages.control.protocol import Pong
-from waggle.minting import new_device_id, new_node_id
 from waggle.signing import Ed25519Signer
 
 MakeEnvelope = Callable[..., Envelope]

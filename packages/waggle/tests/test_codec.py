@@ -23,10 +23,15 @@ from collections.abc import Callable
 
 import pytest
 
-from waggle.codec import MAX_FRAME_BYTES, SIGNATURE_OVERHEAD_BYTES, Codec, canonical_bytes
+from waggle.codec import (
+    ENVELOPE_KEYS,
+    MAX_FRAME_BYTES,
+    SIGNATURE_OVERHEAD_BYTES,
+    Codec,
+    canonical_bytes,
+)
 from waggle.envelope import Envelope
 from waggle.errors import FrameTooLargeError
-from waggle.frame import ENVELOPE_KEYS
 from waggle.messages.base import WaggleMessage
 
 MakeEnvelope = Callable[..., Envelope]

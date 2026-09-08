@@ -237,7 +237,7 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
   `waggle/codec.py` (JSON serialise/deserialise, version check, size limit constant with comment).
   Round-trip and rejection tests, plus `hypothesis` property tests for the codec. Landed as:
   `wrap(payload, hop, *, clock, correlation_id=None)` with `Hop(sender, recipient, node_id)`;
-  frame parsing in `waggle/frame.py`, the dialable-URI rule in `waggle/uris.py`; a verifier
+  frame parsing in `waggle/codec.py`, the dialable-URI rule in `waggle/uris.py`; a verifier
   configured on the `Codec` means signatures are required, none means ignored (in-process).
 - [x] **1.3 Message catalogue.** One file per family under `waggle/messages/`:
   - `task.py`: `TaskAssign`, `TaskProgress`, `TaskResult`, `TaskCancel`, `TaskPause`, `TaskResume`.
@@ -280,7 +280,7 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
 - [x] **1.7 Signing.** `waggle/signing.py`: Ed25519 signature over the canonical envelope bytes
   (`cryptography` library). Optional for in-process transport, mandatory for anything that crosses
   a machine boundary; the codec verifies when a key is configured.
-- [x] **1.8 Outbox for offline nodes.** `waggle/outbox.py`: a durable, ordered queue of envelopes
+- [x] **1.8 Outbox for offline nodes.** `waggle/outbox/`: a durable, ordered queue of envelopes
   a node could not send, replayed on reconnection. Used by offline Wardens and by the Pollen
   gateway. Small, file-backed, property-tested for ordering and idempotent replay.
 - [x] **1.9 Conformance suite.** `waggle/tests/contracts/test_transport_contract.py` parametrised

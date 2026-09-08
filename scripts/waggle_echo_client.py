@@ -15,7 +15,7 @@ Ping answered by its correlated Pong.
 Fits into the Hive:
     Layer: none (a demo, not shipped code). Started by scripts/waggle_echo.py as a child
     process; loads its keys through scripts/waggle_echo_keys.py; calls into waggle.transport,
-    waggle.outbox, waggle.outbox_replay, waggle.envelope, waggle.messages and the websockets
+    waggle.outbox, waggle.outbox.replay, waggle.envelope, waggle.messages and the websockets
     library (for the one deliberately dishonest connection).
 
 Key invariants:
@@ -28,7 +28,7 @@ Key invariants:
 See Also:
     - scripts/waggle_echo.py for the scenario this role plays its part in.
     - scripts/waggle_echo_server.py for the peer.
-    - waggle.transport.websocket_client and waggle.outbox_replay for what is exercised here.
+    - waggle.transport.websocket_client and waggle.outbox.replay for what is exercised here.
 """
 
 from __future__ import annotations

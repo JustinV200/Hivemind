@@ -1936,7 +1936,7 @@ connection, client or server side, binary frames only; a text frame is `waggle.c
 
 ## 10. Outbox and offline replay
 
-The outbox (`waggle/outbox.py`) is a durable, ordered queue of envelopes a node could not send,
+The outbox (`waggle/outbox/`) is a durable, ordered queue of envelopes a node could not send,
 replayed on reconnection. Offline Wardens and every Pollen Packet use it; it is what lets a
 disconnected Warden keep working within what it owns and report everything afterwards.
 

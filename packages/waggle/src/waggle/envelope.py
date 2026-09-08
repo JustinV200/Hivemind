@@ -19,7 +19,7 @@ Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen), inside the waggle package.
     Built by every bee through wrap() and by waggle.codec.Codec.decode from a parsed frame;
     encoded by waggle.codec and carried by every waggle.transport; calls into
-    waggle.messages.registry, waggle.messages.base, waggle.minting and waggle.ulid.
+    waggle.messages.registry, waggle.messages.base, waggle.ids and waggle.ulid.
 
 Key invariants:
     - An Envelope that exists is consistent: its kind is registered, equals the kind registered
@@ -46,7 +46,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SerializeAsAn
 
 from waggle.clock import Clock
 from waggle.errors import UnknownKindError
-from waggle.ids import IdKind, MessageId, NodeId
+from waggle.ids import IdKind, MessageId, NodeId, new_message_id
 from waggle.messages.base import (
     MessageIdField,
     MessageShape,
@@ -55,7 +55,6 @@ from waggle.messages.base import (
     WaggleMessage,
 )
 from waggle.messages.registry import kind_for, spec_for
-from waggle.minting import new_message_id
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
 PROTOCOL_VERSION = "1.0"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.

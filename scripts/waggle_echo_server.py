@@ -135,7 +135,7 @@ async def _serve_one(transport: WebSocketTransport, responder: _Responder) -> No
         # Network reads: each resolves when a frame arrives or the connection ends; a refused
         # frame raises after the transport has closed with the mapped code.
         async for envelope in transport.receive():
-            # sent_at is preserved through the outbox (waggle.outbox_replay), so an envelope
+            # sent_at is preserved through the outbox (waggle.outbox.replay), so an envelope
             # older than this process was queued during the outage and is now being replayed.
             if envelope.sent_at < responder.started_at:
                 replayed += 1

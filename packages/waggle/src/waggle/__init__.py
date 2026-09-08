@@ -38,8 +38,8 @@ Public API:
     - IdKind, HiveId, CellId, LeaseId, TaskId, WorkerId, WardenId, AlarmId, GrantId, ToolId,
       NodeId, EventId, DeviceId, MessageId: the id types every Waggle envelope and Hive record
       carries.
-    - new_id (waggle.ids) and the thirteen new_<kind>_id wrappers (waggle.minting): mint a
-      fresh, timestamped id of one kind.
+    - new_id and the thirteen new_<kind>_id wrappers (waggle.ids): mint a fresh, timestamped id
+      of one kind.
     - parse_id, timestamp_of: validate a candidate id string and read its creation time back out.
     - Clock, SystemClock, FakeClock: the injected time source every time-reading component uses.
     - TickLoop: the standard long-running loop shape every bee and Pollen subclass.
@@ -47,11 +47,11 @@ Public API:
       (waggle.envelope): the outer wrapper every message travels in and its factory.
     - Codec, canonical_bytes, MAX_FRAME_BYTES and the Signer / Verifier protocols
       (waggle.codec): frames in and out, with signature policy.
-    - Ed25519Signer, Ed25519Verifier (waggle.signing), public_key_hex, public_key_from_hex
-      (waggle.key_encoding): per-node signing keys and their manifest form.
+    - Ed25519Signer, Ed25519Verifier, public_key_hex, public_key_from_hex (waggle.signing):
+      per-node signing keys and their manifest form.
     - check_waggle_uri, is_loopback_host (waggle.uris): the one rule for a dialable endpoint.
-    - Outbox (waggle.outbox), replay_outbox, ReplayReport, expire_older_than
-      (waggle.outbox_replay): the durable queue of unsent envelopes and its replay.
+    - Outbox, replay_outbox, ReplayReport, expire_older_than (waggle.outbox): the durable queue
+      of unsent envelopes and its replay.
     - waggle.messages (the catalogue and registry) and waggle.transport (the transports) are
       sub-packages with their own public API.
     - WaggleError and the protocol error tree (waggle.errors): InvalidIdError; CodecError with
@@ -113,19 +113,13 @@ from waggle.ids import (
     ToolId,
     WardenId,
     WorkerId,
-    new_id,
-    parse_id,
-    timestamp_of,
-)
-from waggle.key_encoding import public_key_from_hex, public_key_hex
-from waggle.loop import TickLoop
-from waggle.minting import (
     new_alarm_id,
     new_cell_id,
     new_device_id,
     new_event_id,
     new_grant_id,
     new_hive_id,
+    new_id,
     new_lease_id,
     new_message_id,
     new_node_id,
@@ -133,10 +127,12 @@ from waggle.minting import (
     new_tool_id,
     new_warden_id,
     new_worker_id,
+    parse_id,
+    timestamp_of,
 )
-from waggle.outbox import Outbox
-from waggle.outbox_replay import ReplayReport, expire_older_than, replay_outbox
-from waggle.signing import Ed25519Signer, Ed25519Verifier
+from waggle.loop import TickLoop
+from waggle.outbox import Outbox, ReplayReport, expire_older_than, replay_outbox
+from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_from_hex, public_key_hex
 from waggle.uris import check_waggle_uri, is_loopback_host
 
 __all__ = [

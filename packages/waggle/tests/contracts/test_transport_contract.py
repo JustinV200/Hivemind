@@ -39,10 +39,10 @@ from waggle.errors import (
     TransportError,
     UnknownSignerError,
 )
+from waggle.ids import new_node_id
 from waggle.messages.control.protocol import Ping, Pong
-from waggle.minting import new_node_id
 from waggle.outbox import Outbox
-from waggle.outbox_replay import ReplayReport, replay_outbox
+from waggle.outbox.replay import ReplayReport, replay_outbox
 from waggle.signing import Ed25519Signer
 from waggle.transport.base import Transport
 

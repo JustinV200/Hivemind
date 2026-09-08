@@ -14,7 +14,7 @@ peer's public key from it and builds the signed Codec it speaks with.
 Fits into the Hive:
     Layer: none (a demo helper, not shipped code). Called by scripts/waggle_echo.py to write
     the directory and by scripts/waggle_echo_server.py and scripts/waggle_echo_client.py to
-    load it; calls into waggle.signing, waggle.key_encoding, waggle.codec and waggle.minting.
+    load it; calls into waggle.signing, waggle.signing, waggle.codec and waggle.ids.
 
 Key invariants:
     - A private key is written to and read from its own file only; it never appears in the

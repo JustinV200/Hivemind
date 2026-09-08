@@ -28,7 +28,7 @@ from waggle.clock import FakeClock
 from waggle.codec import Codec, canonical_bytes
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, SignatureError
-from waggle.ids import IdKind
+from waggle.ids import IdKind, new_hive_id, new_message_id, new_node_id, new_warden_id
 from waggle.messages.base import MessageShape, WaggleMessage
 from waggle.messages.control.hive import (
     HumanMessage,
@@ -48,7 +48,6 @@ from waggle.messages.control.protocol import (
 )
 from waggle.messages.labels import Urgency
 from waggle.messages.registry import all_kinds, kind_for, spec_for
-from waggle.minting import new_hive_id, new_message_id, new_node_id, new_warden_id
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 from waggle.ulid import CROCKFORD_ALPHABET, ULID_LENGTH
 

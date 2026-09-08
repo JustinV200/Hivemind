@@ -1,7 +1,7 @@
-"""Tests for waggle.frame: the key-free decode steps, exercised directly.
+"""Tests for waggle.codec: the key-free decode steps, exercised directly.
 
 Fits into the Hive:
-    Layer 0 (test infrastructure, not shipped). Most of waggle.frame is covered through
+    Layer 0 (test infrastructure, not shipped). Most of waggle.codec is covered through
     Codec.decode in test_codec.py; this module pins what is easier to see step by step: the key
     set, the strict JSON parse (NaN, deep nesting, chained causes), the version rule on its
     own, and that build_envelope reports locations rather than content.
@@ -10,7 +10,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - waggle.frame for the module under test.
+    - waggle.codec for the module under test.
     - test_codec.py for the same steps behind Codec.decode.
 """
 
@@ -22,6 +22,7 @@ from collections.abc import Callable
 import pytest
 
 from waggle.clock import FakeClock
+from waggle.codec import ENVELOPE_KEYS, build_envelope, check_kind, check_version, parse_frame
 from waggle.envelope import Envelope
 from waggle.errors import (
     InvalidPayloadError,
@@ -29,9 +30,8 @@ from waggle.errors import (
     UnknownKindError,
     UnsupportedVersionError,
 )
-from waggle.frame import ENVELOPE_KEYS, build_envelope, check_kind, check_version, parse_frame
+from waggle.ids import new_device_id
 from waggle.messages.control.hive import HumanMessage
-from waggle.minting import new_device_id
 
 MakeEnvelope = Callable[..., Envelope]
 

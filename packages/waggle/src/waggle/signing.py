@@ -19,13 +19,19 @@ actually sent, never a re-validated model, so defaults filled in on receipt cann
 signature). This module never imports codec: codec defines the structural ``Signer`` and
 ``Verifier`` protocols, which the two classes here satisfy by shape. A Verifier present in a Codec
 means signatures are REQUIRED on every frame; none means they are ignored (the in-process case).
+Wherever a human or a Hive Manifest (the TOML file that configures one Hive) sees a public key it
+is 64 hex characters: ``hive keys list`` prints that form, an operator pastes it into a manifest
+to tell a node which peers to trust, and the manifest loader turns it back into the 32 raw bytes
+an ``Ed25519Verifier`` takes; ``public_key_hex`` and ``public_key_from_hex`` are those two
+directions. WHY hex rather than base64: it reads back case-insensitively, has no padding or
+punctuation to mistype, and two keys are easy to compare by eye.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen), inside the waggle package.
     Called by waggle.codec.Codec through the Signer/Verifier protocols on every encode and decode,
     and by composition roots (CLI, Entrance, Pollen's agent loop) that load a node's key from the
-    secret store; calls into the cryptography library only. waggle.key_encoding renders the
-    public key for humans and manifests.
+    secret store, and by the manifest loader and the CLI's key commands for the hex form; calls
+    into the cryptography library only.
 
 Key invariants:
     - verify() returns None only when ``signature`` was made by the key registered for ``node_id``
@@ -36,14 +42,17 @@ Key invariants:
       so a composition root can persist the key to a secret store (codingrules 13).
     - Every key and signature length is checked before cryptography sees it, so a wrong length
       fails with a full-sentence waggle error, not a library error.
+    - public_key_from_hex(public_key_hex(key)) == key for every PUBLIC_KEY_BYTES-byte key, the
+      parse accepts either case, and both directions reject any other length with a ValueError
+      that names the length, never the bytes or the text.
 
 See Also:
     - waggle.codec for canonical_bytes and the Signer/Verifier protocols this module satisfies.
     - waggle.errors for SignatureError, UnknownSignerError and InvalidSignatureError.
-    - waggle.key_encoding for the hex form of a public key that humans and manifests carry.
     - docs/waggle/spec.md section 6 (Signing) for the wire-level rules.
-    - docs/adr/0005-waggle-envelope-signing-and-offline-outbox.md for the per-node key decision
-      and the phase 1 Hive-key note.
+    - docs/adr/0005-waggle-envelope-signing-and-offline-outbox.md for the per-node key decision,
+      the phase 1 Hive-key note and the decision that public keys are hex wherever a human or a
+      manifest sees them.
 """
 
 from __future__ import annotations
@@ -70,6 +79,8 @@ __all__ = [
     "SIGNATURE_BYTES",
     "Ed25519Signer",
     "Ed25519Verifier",
+    "public_key_from_hex",
+    "public_key_hex",
 ]
 
 
@@ -256,6 +267,46 @@ class Ed25519Verifier:
             ) from exc
 
 
+def public_key_hex(public_key: bytes) -> str:
+    """Render a raw public key as the lowercase hex a human or a Hive Manifest sees.
+
+    Args:
+        public_key: Exactly PUBLIC_KEY_BYTES raw bytes, e.g. ``Ed25519Signer.public_key_bytes``.
+
+    Returns:
+        64 lowercase hex characters; ``public_key_from_hex`` inverts it.
+
+    Raises:
+        ValueError: ``public_key`` is not exactly PUBLIC_KEY_BYTES long.
+    """
+    # Checked here rather than trusting the caller so a truncated key never reaches a manifest,
+    # where it would only fail much later, on the node that tries to load it.
+    _require_public_key_length(public_key)
+    return public_key.hex()
+
+
+def public_key_from_hex(text: str) -> bytes:
+    """Parse the hex form from a manifest or a human back into a raw public key.
+
+    Args:
+        text: 64 hex characters in either case, as ``public_key_hex`` produces or an operator types.
+
+    Returns:
+        Exactly PUBLIC_KEY_BYTES raw bytes, ready for ``Ed25519Verifier``.
+
+    Raises:
+        ValueError: ``text`` is not hexadecimal, or decodes to other than PUBLIC_KEY_BYTES bytes.
+    """
+    # The offending text stays out of the message: an operator who pasted the wrong value may have
+    # pasted a private key, and this error may end up in a log line.
+    try:
+        public_key = bytes.fromhex(text)
+    except ValueError as exc:
+        raise ValueError("A hex-encoded Ed25519 public key must contain only hex digits.") from exc
+    _require_public_key_length(public_key)
+    return public_key
+
+
 def _require_length(label: str, value: bytes, expected: int) -> None:
     """Raise ValueError with a full sentence when ``value`` is not exactly ``expected`` bytes."""
     # The length, never the bytes, goes into the message: this guards private keys too, and a
@@ -287,3 +338,12 @@ def _decode_signature(node_id: str, signature: str) -> bytes:
             f"bytes, expected {SIGNATURE_BYTES}."
         )
     return raw_signature
+
+
+def _require_public_key_length(public_key: bytes) -> None:
+    """Raise ValueError naming the length (never the bytes) unless it is PUBLIC_KEY_BYTES."""
+    if len(public_key) != PUBLIC_KEY_BYTES:
+        raise ValueError(
+            f"An Ed25519 public key must be exactly {PUBLIC_KEY_BYTES} raw bytes, "
+            f"got {len(public_key)}."
+        )

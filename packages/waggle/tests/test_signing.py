@@ -13,7 +13,7 @@ Key invariants:
 See Also:
     - waggle.signing for the module under test.
     - waggle.errors for the SignatureError family every verification failure here raises.
-    - test_key_encoding.py for the hex form of a public key.
+    - test_signing_keys.py for the hex form of a public key.
 """
 
 from __future__ import annotations

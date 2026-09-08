@@ -32,9 +32,9 @@ from waggle import messages
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope
+from waggle.ids import new_message_id
 from waggle.messages.base import MessageShape, WaggleMessage
 from waggle.messages.registry import MESSAGE_SPECS, all_kinds, kind_for, spec_for
-from waggle.minting import new_message_id
 
 # The ten families of the spec's catalogue, each a package under waggle/messages/ whose root
 # test module, tests/messages/<family>/test_<root>.py, defines EXAMPLES: one valid instance of

@@ -1,4 +1,4 @@
-"""Tests for waggle.key_encoding: the hex form of an Ed25519 public key.
+"""Tests for waggle.signing: the hex form of an Ed25519 public key.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises the two hex helpers against real keys
@@ -9,7 +9,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - waggle.key_encoding for the module under test.
+    - waggle.signing for the module under test.
     - test_signing.py for the signer whose public key these helpers render.
 """
 
@@ -19,8 +19,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from waggle.key_encoding import public_key_from_hex, public_key_hex
-from waggle.signing import PUBLIC_KEY_BYTES, Ed25519Signer
+from waggle.signing import PUBLIC_KEY_BYTES, Ed25519Signer, public_key_from_hex, public_key_hex
 
 
 def test_public_key_hex_is_sixty_four_lowercase_characters_that_parse_back() -> None:
