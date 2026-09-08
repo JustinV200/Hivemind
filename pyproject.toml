@@ -174,6 +174,10 @@ mypy_path = [
     "packages/hivemind/src",
     "packages/pollen/src",
     "scripts",  # roadmap 0.3: lets `import check_sizes` (etc.) resolve the same way pytest does.
+    # roadmap 2.4: same for `from builders.tasks import make_task` in hivemind's tests. Listing
+    # this base also renames hivemind's test modules from packages.hivemind.tests.unit.* to
+    # unit.*, which collides with nothing (waggle's and pollen's trees keep their long names).
+    "packages/hivemind/tests",
 ]
 explicit_package_bases = true  # Required for stable fully-qualified module names once namespace packages (no __init__.py) are in play -- see the tests/ note below.
 namespace_packages = true  # PEP 420: lets mypy walk tests/unit, tests/integration, tests/contracts etc. without requiring an __init__.py in every directory (codingrules 3: "tests/unit/ mirrors src/").
@@ -217,7 +221,13 @@ testpaths = [
 ]
 # roadmap 0.3: scripts/*.py has no __init__.py (it is dev tooling, not a workspace package), so
 # without this a `import check_sizes` from scripts/tests/test_check_sizes.py would not resolve.
-pythonpath = ["scripts"]
+pythonpath = [
+    "scripts",
+    # roadmap 2.4: packages/hivemind/tests/builders/ holds the test-data builders (codingrules
+    # 14.5: `make_task(status=...)`); the tests tree has no __init__.py, so this is what lets a
+    # test write `from builders.tasks import make_task`.
+    "packages/hivemind/tests",
+]
 addopts = "--import-mode=importlib --strict-markers --strict-config -ra"
 # --import-mode=importlib: the three tests/ trees have no __init__.py (codingrules 3), so the
 #   legacy sys.path-based import mode could silently collide two same-named modules (two
