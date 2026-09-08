@@ -126,7 +126,7 @@ HiveMind/
 ├── packages/
 │   ├── waggle/                   # SHARED PROTOCOL + shared primitives. Deps: pydantic, websockets, cryptography. No hivemind imports.
 │   │   ├── src/waggle/
-│   │   │   ├── messages/         # One file per message family (task.py, cell.py, honey.py, capping.py, ...)
+│   │   │   ├── messages/         # One package per message family (task/, cell/, honey/, capping/, ...), each split into modules by responsibility
 │   │   │   ├── transport/        # Transport protocol + implementations (memory.py, websocket.py)
 │   │   │   ├── envelope.py       # The outer wrapper every message travels in
 │   │   │   ├── codec.py          # Serialise / deserialise + version negotiation
@@ -207,6 +207,16 @@ HiveMind/
   re-exports **only** its public API (see 5.4). Anything not re-exported is private to the package.
 - A subsystem may have sub-packages (`hive/backends/`, `honey_store/ripening/`). Depth stops at
   three levels below `src/hivemind/`. Deeper than that means the subsystem should be split.
+- A Waggle message family is a package, `waggle/messages/<family>/`, never one file and never a
+  run of prefixed siblings (`forage.py`, `forage_values.py`, ...). Its modules split the family by
+  responsibility (`forage/grants.py`, `forage/values.py`, `forage/capacity.py`,
+  `forage/hosting.py`), each with the 7.2 header; its `__init__.py` re-exports the family's
+  messages, enums and value models (5.4), so a caller writes
+  `from waggle.messages.forage import SourceRef` without knowing the split, while every bound
+  stays in the module that names it. A new family starts as a package with one module, and a
+  module that outgrows 5.1 splits into a sibling inside the package, never into a prefixed file
+  beside it. `base.py`, `labels.py`, `reports.py`, `catalogue.py` and `registry.py` are the only
+  modules directly under `messages/`.
 - `tests/unit/` mirrors `src/` exactly: `src/hivemind/hive/backends/docker.py` is tested by
   `tests/unit/hive/backends/test_docker.py`. No exceptions; CI checks for orphan modules.
 - `common/` is the only place for cross-cutting primitives. It never grows domain logic. If you are
