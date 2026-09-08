@@ -317,7 +317,7 @@ commands.
 
 ### Steps
 
-- [ ] **2.1 Pheromone event model.** `pheromone/events.py`: `PheromoneEvent` base (id, hive_id,
+- [x] **2.1 Pheromone event model.** `pheromone/events.py`: `PheromoneEvent` base (id, hive_id,
   node_id, at, actor, kind, subject id, payload) plus one subclass per event family: `cell.*`
   (including `leased`, `released`, `touched_outside_scratch`), `task.*`, `alarm.*` (`raised`,
   `handled`, `escalated`, `resolved`), `forage.*` (`capacity_reported`, `granted`, `requested`,
@@ -334,10 +334,10 @@ commands.
   Add an explicit retention path for Night Veil execution records: ephemeral segmenting and
   teardown-time purge. The purge covers the VPN gateway's and Tor daemons' own per-Cell connection
   and circuit logs as well as the Trail, so the no-retention guarantee has no side channel.
-- [ ] **2.3 Migrations.** `hivemind/common/migrations.py`: applies numbered `.sql` files from a
+- [x] **2.3 Migrations.** `hivemind/common/migrations.py`: applies numbered `.sql` files from a
   package directory, records applied versions. Used by every SQLite-backed subsystem. First
   migration creates the pheromone table.
-- [ ] **2.3a Cell v0 and Tempo.** `forage/tempo.py` (`Tempo`: optional latency budget in seconds
+- [x] **2.3a Cell v0 and Tempo.** `forage/tempo.py` (`Tempo`: optional latency budget in seconds
   and an accuracy bar `LOW | NORMAL | HIGH | CRITICAL`), `cell/tiers.py` (`AccessLevel`,
   `CombShieldLevel`, `HoneyClearance`: the three security dimensions, what a Cell may do, how it
   must do it, what data it may touch, each with its plain meaning in the docstring) and
