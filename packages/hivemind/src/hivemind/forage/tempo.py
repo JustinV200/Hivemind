@@ -1,0 +1,119 @@
+"""Define Tempo and AccuracyBar: a task's speed-against-accuracy setting.
+
+Every task carries a tempo: how fast it must be done and how right it must be (codingrules
+section 8.14). ``AccuracyBar`` is the accuracy half of that setting -- LOW, NORMAL, HIGH or
+CRITICAL -- and sets a floor on the model grade a call may use, how much parallelism and spend
+Forage (the Hive's capacity, modelled as data in this package) grants, and how long a check
+ladder Capping (the quality gate that verifies every side effect before it lands) runs. ``Tempo``
+pairs that bar with an optional latency budget in seconds. Tempo lives here, in ``forage``, and
+not in ``llm`` (the package that talks to model providers), because codingrules section 4 fixes
+the dependency direction within Layer 1 as ``llm`` importing ``forage`` and never the reverse: a
+grant, a routing decision or an autopilot rule needs to read a task's tempo without pulling in
+provider machinery, and ``cell.needs.TaskNeeds`` needs to carry one without importing ``llm``
+either. This module mirrors ``waggle.messages.labels``'s ``AccuracyBar`` and ``Tempo`` member for
+member and field for field, because the same setting travels on task and Forage messages over the
+wire; a sync test in ``tests/unit/forage/test_tempo.py`` keeps the two from drifting apart.
+
+Fits into the Hive:
+    Layer 1 (forage; foundational services, capacity as data). Read by the Attendant (inbox
+    triage, supervision.attendant) when ordering a supervisor's inbox, by llm.routing when it
+    picks a slot's provider and effort, by forage.allocate when it grants parallelism and spend,
+    and by Capping when it lengthens or, within floors, shortens a proposal's check ladder.
+    Carried by hivemind.cell.needs.TaskNeeds, one per task. Calls into waggle.messages only, for
+    the from_wire/to_wire conversions.
+
+Key invariants:
+    - AccuracyBar's member names and values are identical to waggle.messages.labels.AccuracyBar's
+      (tests/unit/forage/test_tempo.py checks it member for member).
+    - Tempo.latency_budget_s is either None (no budget) or a number strictly greater than zero;
+      Field(gt=0) rejects zero and negative values before any other code sees them.
+    - Tempo is frozen and forbids unknown keys, like every boundary value in this repository.
+    - Tempo never overrides safety: access levels, capability attenuation and the left-as-found
+      rule for Real Cells are unaffected by how urgent a task is (codingrules section 8.14). This
+      module holds no enforcement of that rule; it is a property of how routing and Capping read
+      the value, not of the value itself.
+
+See Also:
+    - .claude/codingrules.md section 8.14 for Tempo's role in routing, Forage and Capping.
+    - .claude/codingrules.md section 4 for why forage never imports llm.
+    - waggle.messages.labels for the wire form this module mirrors.
+    - hivemind.cell.needs for TaskNeeds.tempo, the field that carries this value per task.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from waggle.messages import AccuracyBar as WireAccuracyBar
+from waggle.messages import Tempo as WireTempo
+
+__all__ = ["AccuracyBar", "Tempo"]
+
+
+class AccuracyBar(Enum):
+    """How right a task's answer must be: a model grade floor, Forage spend, Capping's ladder.
+
+    Read by llm.routing (a minimum model grade the bound source must clear), forage.allocate
+    (more parallelism for an urgent task, more spend for a thorough one) and Capping, whose check
+    ladder (docs/supervision/capping-tiers.toml) may shorten at LOW/NORMAL and lengthen at
+    HIGH/CRITICAL but never drop below the floor a risk tier fixes (codingrules section 8.14).
+    """
+
+    LOW = "LOW"  # Weakest allowed grade; least Forage spend; the shortest ladder a tier permits.
+    NORMAL = "NORMAL"  # The role's own floor; ordinary Forage spend; the tier's usual ladder.
+    HIGH = "HIGH"  # Raises the floor above NORMAL; more Forage spend; a longer ladder.
+    CRITICAL = "CRITICAL"  # Strongest grade; most spend and parallelism; the fullest ladder.
+
+
+class Tempo(BaseModel):
+    """A task's speed-against-accuracy setting: how fast it must be done and how right it must be.
+
+    The planner sets both fields per subtask (brood_chamber.task, phase 2 step 2.4); the human
+    may set them on a goal. Carried on hivemind.cell.needs.TaskNeeds, one per task, and mirrored
+    from waggle.messages.Tempo, the wire form the same setting travels on across task and Forage
+    messages.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    latency_budget_s: Annotated[float, Field(gt=0)] | None = Field(
+        default=None,
+        description="The latency the task can tolerate, in seconds; None means no budget. "
+        "Strictly greater than 0 when set.",
+    )
+    accuracy: AccuracyBar = Field(
+        default=AccuracyBar.NORMAL,
+        description="The accuracy bar: sets the minimum model grade, Forage's parallelism and "
+        "spend, and how long a Capping check ladder gets.",
+    )
+
+    @classmethod
+    def from_wire(cls, wire: WireTempo) -> Tempo:
+        """Build a Tempo from the wire form waggle.messages carries on task and Forage messages.
+
+        Args:
+            wire: The waggle.messages.Tempo value read off an Envelope.
+
+        Returns:
+            The equivalent hivemind Tempo.
+        """
+        # Both sides share field names and value strings, so the conversion is a straight
+        # field-by-field copy; the accuracy bar is mapped through its own enum by value.
+        return cls(
+            latency_budget_s=wire.latency_budget_s,
+            accuracy=AccuracyBar(wire.accuracy.value),
+        )
+
+    def to_wire(self) -> WireTempo:
+        """Build the wire form waggle.messages carries on task and Forage messages.
+
+        Returns:
+            The equivalent waggle.messages.Tempo.
+        """
+        return WireTempo(
+            latency_budget_s=self.latency_budget_s,
+            accuracy=WireAccuracyBar(self.accuracy.value),
+        )

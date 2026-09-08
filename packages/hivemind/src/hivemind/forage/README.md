@@ -4,3 +4,27 @@ The forage package models capacity as data: HostCapacity, a Seat, RoleFootprint,
 ForageRequest, the Forage map of every source that can serve a model, and the ModelSlot and
 Tempo types llm depends on. It never imports llm, so a grant or a routing input can name a model
 slot without pulling in the provider machinery.
+
+## Public API (roadmap step 2.3a)
+
+- **Tempo** (`hivemind.forage.tempo`): `AccuracyBar` (`LOW`, `NORMAL`, `HIGH`, `CRITICAL`, mirrors
+  `waggle.messages.labels.AccuracyBar`) and `Tempo`, the frozen pydantic model carrying an
+  optional latency budget in seconds and an accuracy bar. `Tempo.from_wire`/`to_wire` convert to
+  and from `waggle.messages.Tempo`. Read by the Attendant, `llm.routing`, `forage.allocate` and
+  Capping (codingrules section 8.14); it never overrides safety.
+
+HostCapacity, Seat, RoleFootprint, ForageGrant, ForageRequest, the Forage map and ModelSlot are
+not implemented yet; they land in phase 4.
+
+## How to test this
+
+```bash
+uv run --frozen pytest packages/hivemind/tests/unit/forage
+```
+
+Coverage floor is 95% (codingrules section 14.1):
+
+```bash
+COVERAGE_FILE=.coverage.forage uv run --frozen pytest -p no:cacheprovider --cov=hivemind.forage \
+    --cov-report=term-missing packages/hivemind/tests/unit/forage
+```
