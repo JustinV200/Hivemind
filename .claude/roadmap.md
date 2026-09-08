@@ -352,10 +352,10 @@ commands.
   per edge). A test walks every edge and asserts every non-edge raises.
 - [x] **2.5 Task graph.** `brood_chamber/graph.py`: pure functions over a set of tasks with
   `depends_on` edges: `ready_tasks()`, `is_acyclic()`, `descendants()`. Property-tested.
-- [ ] **2.6 Task store.** `brood_chamber/store.py` (`TaskStore` protocol), `brood_chamber/sqlite.py`,
+- [x] **2.6 Task store.** `brood_chamber/store.py` (`TaskStore` protocol), `brood_chamber/sqlite.py`,
   `brood_chamber/memory.py`. Every mutation records a `task.*` Pheromone event **in the same
   transaction** so the trail can never disagree with the store. Contract suite over both.
-- [ ] **2.7 Questions.** `brood_chamber/questions.py`: `Question` (id, task, asked by, text,
+- [x] **2.7 Questions.** `brood_chamber/questions.py`: `Question` (id, task, asked by, text,
   options, asked at) and `Answer`. Asking moves the task to `BLOCKED`; answering moves it back to
   `RUNNING`. Stored with the task; the Queen's inbox reads pending questions from here.
 - [ ] **2.8 BroodChamber facade.** `brood_chamber/chamber.py`: the public API the Queen uses
