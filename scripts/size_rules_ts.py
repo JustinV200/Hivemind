@@ -1,11 +1,12 @@
-"""Estimate TypeScript/TSX function length with a regex-and-brace-count heuristic.
+"""Estimate TypeScript/TSX function length and lines of code with text heuristics.
 
-`scripts/check_sizes.py` (Layer: none, a dev-time gate) needs the same "function <= 50 lines"
-rule from codingrules section 5.1 applied to `.ts`/`.tsx` files under `packages/observation-web/`,
-but Python's `ast` module cannot parse TypeScript. Adding a real TypeScript parser would pull a
-third-party dependency into a hygiene script that otherwise needs none, so this module trades
-precision for zero dependencies: it recognises common function-declaration shapes with a regular
-expression, then counts braces to find where the body ends. This is a heuristic, not a parser --
+`scripts/check_sizes.py` (Layer: none, a dev-time gate) needs the same "function <= 50 lines" and
+"file <= 300 lines of code" rules from codingrules section 5.1 applied to `.ts`/`.tsx` files under
+`packages/observation-web/`, but Python's `ast` module cannot parse TypeScript. Adding a real
+TypeScript parser would pull a third-party dependency into a hygiene script that otherwise needs
+none, so this module trades precision for zero dependencies: it recognises common
+function-declaration shapes with a regular expression, then counts braces to find where the body
+ends. This is a heuristic, not a parser --
 see "Known gaps" below for what it misses. Kept as a sibling of `check_sizes.py` rather than
 folded into it, per codingrules 5.2 (one concept per file) and to keep `check_sizes.py` itself
 under the file-length limit it enforces on everyone else.
@@ -30,6 +31,9 @@ Known gaps (documented instead of fixed, because fixing them means writing a TS 
       (`arr.map((x) => { ... })`) has no declaration line to anchor on and is not counted.
     - A one-line arrow function with an expression body and no braces (`const f = (x) => x + 1`)
       is never long enough to matter and is intentionally not matched.
+    - `count_code_lines` strips `//` lines and `/* ... */` blocks by text. A comment marker inside
+      a string or template literal is taken for a real one, so such a line (and, for an unpaired
+      `/*`, the lines after it) may be left uncounted; the error is always in the file's favour.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the limits this heuristic approximates.
@@ -62,7 +66,55 @@ _ARROW_DECL_RE = re.compile(
     r"(?:async\s*)?\(([^)]*)\)\s*(?::\s*[^{=]+)?=>\s*\{"
 )
 
-__all__ = ["find_function_length_violations"]
+__all__ = ["count_code_lines", "find_function_length_violations"]
+
+
+def count_code_lines(source: str) -> int:
+    r"""Count the lines of a TS/TSX file that carry code: not blank, not only a comment.
+
+    Args:
+        source: The file's full text.
+
+    Returns:
+        The number of lines with something other than whitespace, a `//` comment or the inside
+        of a `/* ... */` block on them. A line that mixes code and a comment counts once.
+
+    Example:
+        >>> count_code_lines("// header\nconst x = 1; // why\n/* a\n block */\n\n")
+        1
+    """
+    count = 0
+    in_block = False
+    for raw in source.splitlines():
+        line, in_block = _strip_block_comments(raw.strip(), in_block)
+        if line and not line.startswith("//"):
+            count += 1
+    return count
+
+
+def _strip_block_comments(line: str, in_block: bool) -> tuple[str, bool]:
+    """Remove every `/* ... */` span from `line`, carrying an open block across lines.
+
+    Args:
+        line: One source line, already stripped of surrounding whitespace.
+        in_block: Whether the previous line ended inside an unterminated block comment.
+
+    Returns:
+        What remains of the line outside comments, stripped, and whether a block is still open.
+    """
+    # Inside a block from an earlier line: everything up to its close is comment.
+    if in_block:
+        end = line.find("*/")
+        if end == -1:
+            return "", True
+        line = line[end + 2 :].strip()
+    # Then remove each complete block on this line; an opener with no close leaves the block open.
+    while (start := line.find("/*")) != -1:
+        end = line.find("*/", start + 2)
+        if end == -1:
+            return line[:start].strip(), True
+        line = (line[:start] + line[end + 2 :]).strip()
+    return line, False
 
 
 def find_function_length_violations(source: str, display_path: str) -> list[str]:

@@ -14,8 +14,9 @@ Read these before writing or changing anything:
 
 The rules that get broken most often:
 
-- Files stay under 300 lines and functions under 50. Every module starts with the header
-  docstring from codingrules 7.2. Comments answer *why*, on every logical block.
+- Files stay under 300 lines of code (comments and docstrings do not count) and functions under
+  50 lines. Every module starts with the header docstring from codingrules 7.2. Comments answer
+  *why*, on every logical block.
 - Imports flow down the layer table only. No vendor LLM SDK outside `hivemind/llm/providers/`.
   No `subprocess` outside `cell/`, `hive/backends/`, the dev sandbox, and `pollen/`.
 - Anything under an `autopilot/` directory never imports `hivemind.llm`. Awake episodes are

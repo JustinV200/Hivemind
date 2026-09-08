@@ -3,10 +3,13 @@
 The Hive's whole design bet on readability (codingrules section 1: "small pieces, sharp edges")
 only holds if the limits are actually enforced, not just documented. This script walks the given
 paths (or the whole repository) and checks every `.py`, `.ts` and `.tsx` file against four limits:
-file length, function/method length, class length, and parameter count. Python is checked exactly,
-via the standard library's `ast` module; TypeScript and TSX have no such parser available without
-adding a dependency, so their function-length check is a documented heuristic delegated to
-`scripts/size_rules_ts.py` (codingrules 5.2: one concept per file).
+file length, function/method length, class length, and parameter count. File length is counted in
+lines of code: a blank line, a comment-only line or a docstring line never counts, so the header
+and the per-block comments codingrules section 7 demands can never push a file over the limit.
+Python is checked exactly, via the standard library's `ast` and `tokenize` modules; TypeScript and
+TSX have no such parser available without adding a dependency, so their comment stripping and
+function-length check are documented heuristics delegated to `scripts/size_rules_ts.py`
+(codingrules 5.2: one concept per file).
 
 Fits into the Hive:
     Layer: none (a dev-time gate, not shipped code). Enforces codingrules section 5.1's size
@@ -27,16 +30,18 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import os
+import tokenize
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-from size_rules_ts import find_function_length_violations
+from size_rules_ts import count_code_lines, find_function_length_violations
 
 # codingrules 5.1: target/hard limits. We enforce the hard limits; the tighter targets are a
 # review nudge a human applies, not something a script can judge (is 210 lines "close enough"?).
-FILE_LINE_LIMIT = 300
-TEST_FILE_LINE_LIMIT = 400  # codingrules 5.1: "Test files may go to 400 lines."
+FILE_LINE_LIMIT = 300  # Lines of code, not raw lines: see _python_code_line_count.
+TEST_FILE_LINE_LIMIT = 400  # codingrules 5.1: "Test files may go to 400 lines of code."
 FUNCTION_LINE_LIMIT = 50
 CLASS_LINE_LIMIT = 200
 PARAM_COUNT_LIMIT = 5  # codingrules 5.1: excludes self/cls, see _count_parameters.
@@ -51,6 +56,20 @@ GENERATED_EXEMPT_SUFFIX = "packages/observation-web/src/landing_board/types.ts"
 
 _PY_SUFFIX = ".py"
 _TS_SUFFIXES = frozenset({".ts", ".tsx"})
+
+# Token types that never make a line a line of code: comments, the newline tokens themselves,
+# indentation bookkeeping, and the encoding and end markers tokenize emits around the file.
+_NON_CODE_TOKENS = frozenset(
+    {
+        tokenize.COMMENT,
+        tokenize.NL,
+        tokenize.NEWLINE,
+        tokenize.INDENT,
+        tokenize.DEDENT,
+        tokenize.ENCODING,
+        tokenize.ENDMARKER,
+    }
+)
 
 __all__ = ["main"]
 
@@ -139,7 +158,7 @@ def _check_python_source(path: Path, source: str) -> list[str]:
         return [f"{path}:{exc.lineno or 1}: could not parse as Python ({exc.msg})"]
 
     limit = TEST_FILE_LINE_LIMIT if "tests" in path.parts else FILE_LINE_LIMIT
-    findings = _check_line_count(path, source, limit)
+    findings = _check_line_count(path, _python_code_line_count(source, tree), limit)
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             findings.extend(_check_span_length(path, node, "class", CLASS_LINE_LIMIT))
@@ -157,17 +176,51 @@ def _check_typescript_source(path: Path, source: str) -> list[str]:
         source: The file's full text.
     """
     limit = TEST_FILE_LINE_LIMIT if "tests" in path.parts else FILE_LINE_LIMIT
-    findings = _check_line_count(path, source, limit)
+    findings = _check_line_count(path, count_code_lines(source), limit)
     findings.extend(find_function_length_violations(source, str(path)))
     return findings
 
 
-def _check_line_count(path: Path, source: str, limit: int) -> list[str]:
-    """Flag a file whose line count exceeds `limit`. Shared by the Python and TS/TSX checks."""
-    line_count = len(source.splitlines())
-    if line_count > limit:
-        return [f"{path}:1: file is {line_count} lines (limit {limit})"]
+def _check_line_count(path: Path, code_lines: int, limit: int) -> list[str]:
+    """Flag a file whose lines of code exceed `limit`. Shared by the Python and TS/TSX checks."""
+    if code_lines > limit:
+        return [f"{path}:1: file is {code_lines} lines of code (limit {limit})"]
     return []
+
+
+def _python_code_line_count(source: str, tree: ast.Module) -> int:
+    """Count the lines of `source` that carry code: not blank, not a comment, not a docstring.
+
+    A line counts when any token other than a comment or layout token starts or ends on it, so
+    a statement with a trailing comment counts once and a comment-only line not at all. The
+    lines a docstring spans are then removed: tokenize sees a docstring as an ordinary string,
+    and only the tree knows which strings are documentation (codingrules 7.2 and 7.3).
+    """
+    code_lines: set[int] = set()
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in _NON_CODE_TOKENS:
+            continue
+        code_lines.update(range(token.start[0], token.end[0] + 1))
+    return len(code_lines - _docstring_lines(tree))
+
+
+def _docstring_lines(tree: ast.Module) -> set[int]:
+    """Return every 1-based line that a module, class or function docstring occupies."""
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        # A docstring is the body's first statement when that statement is a bare string
+        # literal; anything else in first position (an import, an assignment) means no docstring.
+        first = node.body[0] if node.body else None
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            end = first.end_lineno if first.end_lineno is not None else first.lineno
+            lines.update(range(first.lineno, end + 1))
+    return lines
 
 
 def _check_span_length(

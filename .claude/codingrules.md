@@ -288,15 +288,18 @@ Layer 0  common                                                       (primitive
 
 | Unit | Target | Hard limit | Reaction when exceeded |
 |---|---|---|---|
-| File (incl. comments) | ≤ 200 lines | 300 lines | Split by responsibility, not by line count. |
+| File (lines of code) | ≤ 200 lines | 300 lines | Split by responsibility, not by line count. |
 | Function / method | ≤ 30 lines | 50 lines | Extract named helpers. Names replace comments. |
 | Class | ≤ 150 lines | 200 lines | Compose smaller classes; extract a Protocol. |
 | Parameters | ≤ 4 | 5 | Introduce a frozen dataclass for the argument group. |
 | Cyclomatic complexity | ≤ 8 | 10 | `ruff` C901. Flatten with early returns or `match`. |
 | Nesting depth | ≤ 3 | 4 | Early return / guard clause / extract. |
 
-Test files may go to 400 lines because fixtures and parametrisation are verbose; split by feature
-under test before that.
+A file's size is its **lines of code**: a blank line, a comment-only line or a line inside a
+docstring does not count, so the header of 7.2 and the per-block comments of 7.4 never push a
+file over. `scripts/check_sizes.py` counts exactly that; a statement with a trailing comment
+counts once. Test files may go to 400 lines of code because fixtures and parametrisation are
+verbose; split by feature under test before that.
 
 ### 5.2 One concept per file
 
@@ -1669,7 +1672,8 @@ backend made it.)
 
 Run through this before every commit. Every line is a yes/no.
 
-- [ ] The file I touched is under 300 lines and each function under 50.
+- [ ] The file I touched is under 300 lines of code (comments and docstrings excluded) and each
+      function under 50 lines.
 - [ ] The module docstring has the four parts: summary, explanation, "Fits into the Hive", invariants.
 - [ ] Every Hive term in this file is defined in plain English on first use.
 - [ ] Every public name has a Google-style docstring with Args / Returns / Raises.

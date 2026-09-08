@@ -52,7 +52,36 @@ def test_check_sizes_flags_a_python_file_over_the_line_limit(
 
     out = capsys.readouterr().out
     assert exit_code == 1
-    assert f"{sample}:1: file is 301 lines (limit 300)" in out
+    assert f"{sample}:1: file is 301 lines of code (limit 300)" in out
+
+
+def test_check_sizes_counts_python_lines_of_code_not_comments_or_docstrings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # codingrules 5.1: the limit is on lines of code. 100 statements wrapped in a 152-line module
+    # docstring, 100 comment lines, 50 blank lines and a documented function make 406 raw lines
+    # but only 103 lines of code, so the file must pass; the trailing comment on a statement
+    # must not stop that statement counting.
+    source = "\n".join(
+        [
+            '"""Summary.',
+            *["detail"] * 150,
+            '"""',
+            *["# a comment"] * 100,
+            *[""] * 50,
+            *["x = 1  # trailing comment"] * 100,
+            "def f() -> int:",
+            '    """Docstring."""',
+            "    return 1",
+            "",
+        ]
+    )
+    sample = _write(tmp_path, "documented.py", source)
+
+    exit_code = check_sizes.main([str(sample)])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_check_sizes_allows_a_test_file_up_to_400_lines(
@@ -145,7 +174,32 @@ def test_check_sizes_flags_a_typescript_file_over_the_line_limit(
 
     out = capsys.readouterr().out
     assert exit_code == 1
-    assert "file is 301 lines (limit 300)" in out
+    assert "file is 301 lines of code (limit 300)" in out
+
+
+def test_check_sizes_counts_typescript_lines_of_code_not_comments(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 250 statements among 200 line comments, a three-line block comment, a one-line block and
+    # 50 blank lines: 504 raw lines, 250 lines of code, so the file must pass.
+    source = "\n".join(
+        [
+            *["// header"] * 200,
+            "/*",
+            " * block",
+            " */",
+            "/* one line */",
+            *[""] * 50,
+            *["const x = 1; // trailing"] * 250,
+            "",
+        ]
+    )
+    sample = _write(tmp_path, "documented.ts", source)
+
+    exit_code = check_sizes.main([str(sample)])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_check_sizes_flags_a_long_typescript_function_via_the_ts_heuristic(
