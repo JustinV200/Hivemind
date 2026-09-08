@@ -345,12 +345,12 @@ commands.
   scopes, disposability, `comb_shield`, `tempo`). Built here, ahead of the rest of `cell/` and
   `forage/`, because `TaskSpec` carries them; they are pure data with no other dependencies, and
   they sit low enough that `forage` and `llm` can read `Tempo` without importing `cell`.
-- [ ] **2.4 Task model and state machine.** `brood_chamber/task.py` (`Task`, `TaskSpec` including
+- [x] **2.4 Task model and state machine.** `brood_chamber/task.py` (`Task`, `TaskSpec` including
   `TaskNeeds` from 2.3a, `TaskOutcome`), `brood_chamber/task_state.py` (`TaskStatus`
   enum: `PENDING`, `ASSIGNED`, `RUNNING`, `BLOCKED` (waiting on an `Answer`), `PAUSED`
   (Clustering), `SUCCEEDED`, `FAILED`, `CANCELLED`, plus the single transition table with a comment
   per edge). A test walks every edge and asserts every non-edge raises.
-- [ ] **2.5 Task graph.** `brood_chamber/graph.py`: pure functions over a set of tasks with
+- [x] **2.5 Task graph.** `brood_chamber/graph.py`: pure functions over a set of tasks with
   `depends_on` edges: `ready_tasks()`, `is_acyclic()`, `descendants()`. Property-tested.
 - [ ] **2.6 Task store.** `brood_chamber/store.py` (`TaskStore` protocol), `brood_chamber/sqlite.py`,
   `brood_chamber/memory.py`. Every mutation records a `task.*` Pheromone event **in the same
