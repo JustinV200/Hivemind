@@ -9,6 +9,8 @@ builds, migration runners, and similar). Hygiene checkers landed in step 0.3, ru
 - `check_sizes.py` -- fails a `.py`/`.ts`/`.tsx` file that breaks the codingrules 5.1 size limits
   (file, function/method, class length, parameter count); delegates TS/TSX function-length
   estimation to `size_rules_ts.py`.
+- `check_fanout.py` -- fails a directory under `packages/*/src/` that holds more than ten modules
+  (codingrules 5.6); `__init__.py` is not counted and a sub-package counts as one entry.
 - `check_no_model_ids.py` -- fails on a model id or provider URL literal outside `manifest/` and
   `docs/` (codingrules 8.6).
 - `check_no_kind_branches.py` -- fails on a `cell.kind` branch outside placement and the

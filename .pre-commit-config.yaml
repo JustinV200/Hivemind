@@ -75,6 +75,13 @@ repos:
         types_or: [python, ts, tsx]
         pass_filenames: false
 
+      - id: check-fanout
+        name: check modules per source directory
+        entry: uv run --frozen python scripts/check_fanout.py
+        language: system
+        types_or: [python, ts, tsx]
+        pass_filenames: false
+
       - id: check-no-model-ids
         name: check for hard-coded model ids and provider URLs
         entry: uv run --frozen python scripts/check_no_model_ids.py

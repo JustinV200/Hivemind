@@ -111,6 +111,8 @@ jobs:
       - run: uv sync --frozen --all-groups
       - name: check_sizes.py (codingrules 5.1 size limits)
         run: uv run --frozen python scripts/check_sizes.py
+      - name: check_fanout.py (codingrules 5.6 modules per directory)
+        run: uv run --frozen python scripts/check_fanout.py
       - name: check_no_model_ids.py (codingrules 8.6 model slots, not model names)
         run: uv run --frozen python scripts/check_no_model_ids.py
       - name: check_no_kind_branches.py (codingrules 8.7 capabilities, not kind)
@@ -179,6 +181,7 @@ jobs:
       - run: uv run --frozen mypy
       - run: uv run --frozen lint-imports
       - run: uv run --frozen python scripts/check_sizes.py
+      - run: uv run --frozen python scripts/check_fanout.py
       - run: uv run --frozen python scripts/check_no_model_ids.py
       - run: uv run --frozen python scripts/check_no_kind_branches.py
       - run: uv run --frozen python scripts/check_no_transcripts.py
