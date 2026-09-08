@@ -55,3 +55,7 @@ ADRs that exist today, in numeric order:
   layer table, and `llm` importing `forage` rather than the reverse.
 - `0003-ids-clock-and-loop-live-in-waggle.md`: prefixed ULIDs, an injected `Clock`, and the shared
   loop shape all live in the `waggle` package, not in `hivemind.common`.
+- `0004-waggle-transport-websocket-json.md`: JSON envelopes, one per binary WebSocket frame, over
+  `websockets`; loopback by default, every Cell dials out, and no reconnect inside `receive()`.
+- `0005-waggle-envelope-signing-and-offline-outbox.md`: the ten envelope fields, Ed25519 over
+  canonical JSON keyed by `node_id`, and the append-only JSONL outbox of unsigned envelopes.

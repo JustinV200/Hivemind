@@ -3,16 +3,23 @@
 Every Waggle message (the Hive's shared bee-to-bee wire protocol) carries an id, and so does
 nearly everything else the Hive tracks -- one IdKind member per family, listed below. Each id is a
 lowercase prefix plus a 26-char ULID (``waggle.ulid``): self-describing in logs, sortable by
-creation time, and its own ``NewType`` so mypy catches a mismatched id type.
+creation time, and its own ``NewType`` so mypy catches a mismatched id type. This module holds the
+kinds, the types, the generic generator and the two parsers; the typed ``new_<kind>_id``
+constructors callers actually reach for live in ``waggle.minting``, split out by responsibility so
+each file stays under the codingrules 5.1 size limit (the same reason ``waggle.ulid`` is separate).
 
 Fits into the Hive:
-    Its own layer, used by every layer in hivemind and by pollen.
+    Its own layer, used by every layer in hivemind and by pollen. Called by waggle.minting (to
+    mint typed ids) and by anything that validates an id read back from storage or an envelope.
 
 Key invariants:
     - Ids sort by creation time within their kind; parse_id/timestamp_of reject bad ones.
+    - Every IdKind member has exactly one NewType here and one typed wrapper in waggle.minting.
 
 See Also:
     - docs/adr/0003-ids-clock-and-loop-live-in-waggle.md for why ids live here, not in hivemind.
+    - waggle.minting for the thirteen typed new_<kind>_id wrappers built on new_id.
+    - waggle.ulid for the encoding underneath.
 """
 
 from __future__ import annotations
@@ -35,24 +42,13 @@ __all__ = [
     "HiveId",
     "IdKind",
     "LeaseId",
+    "MessageId",
     "NodeId",
     "TaskId",
     "ToolId",
     "WardenId",
     "WorkerId",
-    "new_alarm_id",
-    "new_cell_id",
-    "new_device_id",
-    "new_event_id",
-    "new_grant_id",
-    "new_hive_id",
     "new_id",
-    "new_lease_id",
-    "new_node_id",
-    "new_task_id",
-    "new_tool_id",
-    "new_warden_id",
-    "new_worker_id",
     "parse_id",
     "timestamp_of",
 ]
@@ -73,6 +69,7 @@ class IdKind(Enum):
     NODE = "node"
     EVENT = "event"
     DEVICE = "device"
+    MESSAGE = "msg"  # The envelope's own id; "msg" is in codingrules 6.2's accepted abbreviations.
 
 
 HiveId = NewType("HiveId", str)
@@ -87,6 +84,7 @@ ToolId = NewType("ToolId", str)
 NodeId = NewType("NodeId", str)
 EventId = NewType("EventId", str)
 DeviceId = NewType("DeviceId", str)
+MessageId = NewType("MessageId", str)
 
 
 def new_id(kind: IdKind, clock: Clock) -> str:
@@ -103,138 +101,6 @@ def new_id(kind: IdKind, clock: Clock) -> str:
     timestamp_ms = int(clock.now().timestamp() * 1000)
     randomness = secrets.token_bytes(RANDOMNESS_BYTES)
     return f"{kind.value}_{encode_ulid(timestamp_ms, randomness)}"
-
-
-def new_hive_id(clock: Clock) -> HiveId:
-    """Generate a new HiveId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A hive_-prefixed id.
-    """
-    return HiveId(new_id(IdKind.HIVE, clock))
-
-
-def new_cell_id(clock: Clock) -> CellId:
-    """Generate a new CellId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A cell_-prefixed id.
-    """
-    return CellId(new_id(IdKind.CELL, clock))
-
-
-def new_lease_id(clock: Clock) -> LeaseId:
-    """Generate a new LeaseId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A lease_-prefixed id.
-    """
-    return LeaseId(new_id(IdKind.LEASE, clock))
-
-
-def new_task_id(clock: Clock) -> TaskId:
-    """Generate a new TaskId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A task_-prefixed id.
-    """
-    return TaskId(new_id(IdKind.TASK, clock))
-
-
-def new_worker_id(clock: Clock) -> WorkerId:
-    """Generate a new WorkerId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A worker_-prefixed id.
-    """
-    return WorkerId(new_id(IdKind.WORKER, clock))
-
-
-def new_warden_id(clock: Clock) -> WardenId:
-    """Generate a new WardenId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A warden_-prefixed id.
-    """
-    return WardenId(new_id(IdKind.WARDEN, clock))
-
-
-def new_alarm_id(clock: Clock) -> AlarmId:
-    """Generate a new AlarmId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: An alarm_-prefixed id.
-    """
-    return AlarmId(new_id(IdKind.ALARM, clock))
-
-
-def new_grant_id(clock: Clock) -> GrantId:
-    """Generate a new GrantId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A grant_-prefixed id.
-    """
-    return GrantId(new_id(IdKind.GRANT, clock))
-
-
-def new_tool_id(clock: Clock) -> ToolId:
-    """Generate a new ToolId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A tool_-prefixed id.
-    """
-    return ToolId(new_id(IdKind.TOOL, clock))
-
-
-def new_node_id(clock: Clock) -> NodeId:
-    """Generate a new NodeId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A node_-prefixed id.
-    """
-    return NodeId(new_id(IdKind.NODE, clock))
-
-
-def new_event_id(clock: Clock) -> EventId:
-    """Generate a new EventId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: An event_-prefixed id.
-    """
-    return EventId(new_id(IdKind.EVENT, clock))
-
-
-def new_device_id(clock: Clock) -> DeviceId:
-    """Generate a new DeviceId.
-
-    Args:
-        clock: Injected clock for a deterministic timestamp.
-
-    Returns: A device_-prefixed id.
-    """
-    return DeviceId(new_id(IdKind.DEVICE, clock))
 
 
 def parse_id(value: str, kind: IdKind) -> str:
@@ -271,7 +137,7 @@ def parse_id(value: str, kind: IdKind) -> str:
 
 
 def timestamp_of(id_value: str) -> datetime:
-    """Extract the creation timestamp encoded in any id from new_id or a new_*_id wrapper.
+    """Extract the creation timestamp encoded in any id from new_id or a waggle.minting wrapper.
 
     Args:
         id_value: Any id of the shape ``"<prefix>_<26-char ULID>"``.

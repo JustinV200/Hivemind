@@ -16,6 +16,8 @@ Key invariants:
     - No submodule under this package imports anything from hivemind or pollen (see
       waggle.errors's docstring and the "waggle imports nothing from hivemind or pollen"
       import-linter contract in the root pyproject.toml).
+    - Every error waggle raises on purpose is a WaggleError subclass exported here, each with a
+      stable ``code`` that is the same string an ErrorMessage carries on the wire.
 
 See Also:
     - .claude/codingrules.md section 4 for why ids, the clock and the loop shape live here and
@@ -25,16 +27,40 @@ See Also:
 
 Public API:
     - IdKind, HiveId, CellId, LeaseId, TaskId, WorkerId, WardenId, AlarmId, GrantId, ToolId,
-      NodeId, EventId, DeviceId: the id types every Waggle envelope and Hive record carries.
-    - new_id and the twelve new_<kind>_id wrappers: mint a fresh, timestamped id of one kind.
+      NodeId, EventId, DeviceId, MessageId: the id types every Waggle envelope and Hive record
+      carries.
+    - new_id (waggle.ids) and the thirteen new_<kind>_id wrappers (waggle.minting): mint a
+      fresh, timestamped id of one kind.
     - parse_id, timestamp_of: validate a candidate id string and read its creation time back out.
     - Clock, SystemClock, FakeClock: the injected time source every time-reading component uses.
     - TickLoop: the standard long-running loop shape every bee and Pollen subclass.
-    - WaggleError, InvalidIdError: waggle's own error root and its id-parsing error.
+    - WaggleError and the protocol error tree (waggle.errors): InvalidIdError; CodecError with
+      MalformedFrameError, FrameTooLargeError, UnsupportedVersionError, UnknownKindError;
+      SignatureError with MissingSignatureError, UnknownSignerError, InvalidSignatureError;
+      TransportError with TransportClosedError, ConnectionLostError, ConnectFailedError;
+      OutboxError with OutboxCorruptError.
 """
 
 from waggle.clock import Clock, FakeClock, SystemClock
-from waggle.errors import InvalidIdError, WaggleError
+from waggle.errors import (
+    CodecError,
+    ConnectFailedError,
+    ConnectionLostError,
+    FrameTooLargeError,
+    InvalidIdError,
+    InvalidSignatureError,
+    MalformedFrameError,
+    MissingSignatureError,
+    OutboxCorruptError,
+    OutboxError,
+    SignatureError,
+    TransportClosedError,
+    TransportError,
+    UnknownKindError,
+    UnknownSignerError,
+    UnsupportedVersionError,
+    WaggleError,
+)
 from waggle.ids import (
     AlarmId,
     CellId,
@@ -44,46 +70,66 @@ from waggle.ids import (
     HiveId,
     IdKind,
     LeaseId,
+    MessageId,
     NodeId,
     TaskId,
     ToolId,
     WardenId,
     WorkerId,
+    new_id,
+    parse_id,
+    timestamp_of,
+)
+from waggle.loop import TickLoop
+from waggle.minting import (
     new_alarm_id,
     new_cell_id,
     new_device_id,
     new_event_id,
     new_grant_id,
     new_hive_id,
-    new_id,
     new_lease_id,
+    new_message_id,
     new_node_id,
     new_task_id,
     new_tool_id,
     new_warden_id,
     new_worker_id,
-    parse_id,
-    timestamp_of,
 )
-from waggle.loop import TickLoop
 
 __all__ = [
     "AlarmId",
     "CellId",
     "Clock",
+    "CodecError",
+    "ConnectFailedError",
+    "ConnectionLostError",
     "DeviceId",
     "EventId",
     "FakeClock",
+    "FrameTooLargeError",
     "GrantId",
     "HiveId",
     "IdKind",
     "InvalidIdError",
+    "InvalidSignatureError",
     "LeaseId",
+    "MalformedFrameError",
+    "MessageId",
+    "MissingSignatureError",
     "NodeId",
+    "OutboxCorruptError",
+    "OutboxError",
+    "SignatureError",
     "SystemClock",
     "TaskId",
     "TickLoop",
     "ToolId",
+    "TransportClosedError",
+    "TransportError",
+    "UnknownKindError",
+    "UnknownSignerError",
+    "UnsupportedVersionError",
     "WaggleError",
     "WardenId",
     "WorkerId",
@@ -95,6 +141,7 @@ __all__ = [
     "new_hive_id",
     "new_id",
     "new_lease_id",
+    "new_message_id",
     "new_node_id",
     "new_task_id",
     "new_tool_id",

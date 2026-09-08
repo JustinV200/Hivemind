@@ -8,12 +8,13 @@ against it directly and must install on hardware with no room for the full Queen
 
 ## Public API (roadmap step 0.5)
 
-- **Ids** (`waggle.ids`, encoding in `waggle.ulid`): `IdKind` and twelve `NewType` id types
-  (`HiveId`, `CellId`, `LeaseId`, `TaskId`, `WorkerId`, `WardenId`, `AlarmId`, `GrantId`, `ToolId`,
-  `NodeId`, `EventId`, `DeviceId`), each generated as a prefixed ULID (`cell_01H...`) so an id is
-  self-describing in a log line and sorts lexicographically by creation time. `new_id` and the
-  twelve `new_<kind>_id` wrappers mint one; `parse_id` validates a candidate string; `timestamp_of`
-  reads its creation time back out.
+- **Ids** (`waggle.ids`, encoding in `waggle.ulid`, typed constructors in `waggle.minting`):
+  `IdKind` and thirteen `NewType` id types (`HiveId`, `CellId`, `LeaseId`, `TaskId`, `WorkerId`,
+  `WardenId`, `AlarmId`, `GrantId`, `ToolId`, `NodeId`, `EventId`, `DeviceId`, `MessageId`), each
+  generated as a prefixed ULID (`cell_01H...`) so an id is self-describing in a log line and sorts
+  lexicographically by creation time. `new_id` (`waggle.ids`) and the thirteen `new_<kind>_id`
+  wrappers (`waggle.minting`, split out of `ids.py` so each file stays under the size limit) mint
+  one; `parse_id` validates a candidate string; `timestamp_of` reads its creation time back out.
 - **Clock** (`waggle.clock`): the `Clock` protocol every time-reading component depends on,
   `SystemClock` (the real clock) and `FakeClock` (a clock a test drives by hand with `advance()`).
 - **TickLoop** (`waggle.loop`): the standard long-running loop shape from codingrules section 11,
@@ -21,7 +22,10 @@ against it directly and must install on hardware with no room for the full Queen
   Worker and the Pollen gateway all subclass.
 - **Errors** (`waggle.errors`): `WaggleError`, the package's own root (it cannot inherit from
   `hivemind.common.errors.HiveMindError`, since waggle may not import hivemind), and
-  `InvalidIdError`, raised by `parse_id`/`timestamp_of` on a malformed id.
+  `InvalidIdError`, raised by `parse_id`/`timestamp_of` on a malformed id; plus the protocol
+  error tree (`CodecError`, `SignatureError`, `TransportError`, `OutboxError` and their
+  subclasses), each with a stable `code` string, that phase 1's codec, signing, transports and
+  outbox raise.
 
 Message envelopes, the codec, signing, transports and the outbox (the rest of the tree in
 `.claude/codingrules.md` section 3) are not implemented yet; they land in phase 1.
