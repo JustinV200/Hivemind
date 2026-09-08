@@ -35,6 +35,7 @@ __all__ = [
     "DeadlineExceededError",
     "HiveMindError",
     "InvariantViolationError",
+    "MigrationError",
     "NotFoundError",
     "PermissionDeniedError",
 ]
@@ -107,3 +108,17 @@ class InvariantViolationError(HiveMindError):
     """
 
     code: ClassVar[str] = "hivemind.invariant_violation"
+
+
+class MigrationError(HiveMindError):
+    """Raise when a subsystem's numbered SQL migration series is malformed or cannot be applied.
+
+    Covers both problems `hivemind.common.migrations` can detect: a migrations directory whose
+    versions are duplicated or not exactly contiguous from 1, and a migration already recorded as
+    applied whose file was renamed or replaced since it shipped. Not one of the six base
+    categories above because neither problem is caller input, a missing resource, a state
+    conflict, a permission gap, a timeout, or a broken internal invariant; it is specific enough
+    to `hivemind.common.migrations` that no subsystem should need to subclass it.
+    """
+
+    code: ClassVar[str] = "hivemind.migration_error"
