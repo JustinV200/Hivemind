@@ -46,6 +46,7 @@ __all__ = [
     "ConnectionLostError",
     "FrameTooLargeError",
     "InvalidIdError",
+    "InvalidPayloadError",
     "InvalidSignatureError",
     "MalformedFrameError",
     "MissingSignatureError",
@@ -143,6 +144,44 @@ class UnknownKindError(CodecError):
     """
 
     code: ClassVar[str] = "waggle.codec.unknown_kind"
+
+
+class InvalidPayloadError(CodecError):
+    """Raised when a frame parsed with a readable id but a field, id or shape rule fails.
+
+    Raised by waggle.codec.Codec.decode when the envelope's own validators (a bee address of the
+    wrong kind, a naive datetime, a reply without a correlation id) or the registered payload
+    model reject the parsed content. Unlike MalformedFrameError the frame is well-formed JSON with
+    a readable ``id``, so the receiver answers with a control.error correlated to it and keeps the
+    connection open (spec section 7). The keyword attributes carry the raw ``id``, ``sender``,
+    ``kind`` and ``correlation_id`` that reply needs, so a caller never parses the message.
+    """
+
+    code: ClassVar[str] = "waggle.codec.invalid_payload"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        message_id: str | None = None,
+        sender: str | None = None,
+        kind: str | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Record the failure sentence and the raw ids a control.error reply is built from.
+
+        Args:
+            message: The full-sentence failure, naming locations and never content.
+            message_id: The frame's ``id`` as received, or None when it was not text.
+            sender: The frame's ``sender`` as received, or None when it was not text.
+            kind: The frame's registered ``kind``, or None when unknown.
+            correlation_id: The frame's ``correlation_id`` as received, or None.
+        """
+        super().__init__(message)
+        self.message_id = message_id  # What the control.error reply's correlation_id points to.
+        self.sender = sender  # Who the reply is addressed to.
+        self.kind = kind  # What the reply reports as failed_kind.
+        self.correlation_id = correlation_id  # What the failed frame itself pointed to.
 
 
 # ──────────────────────────────────────────────────────────────────────────────

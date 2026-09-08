@@ -25,6 +25,7 @@ from waggle.errors import (
     ConnectionLostError,
     FrameTooLargeError,
     InvalidIdError,
+    InvalidPayloadError,
     InvalidSignatureError,
     MalformedFrameError,
     MissingSignatureError,
@@ -49,6 +50,7 @@ _TREE: list[tuple[type[WaggleError], type[WaggleError]]] = [
     (FrameTooLargeError, CodecError),
     (UnsupportedVersionError, CodecError),
     (UnknownKindError, CodecError),
+    (InvalidPayloadError, CodecError),
     (SignatureError, WaggleError),
     (MissingSignatureError, SignatureError),
     (UnknownSignerError, SignatureError),
@@ -71,6 +73,7 @@ _CODES: list[tuple[type[WaggleError], str]] = [
     (FrameTooLargeError, "waggle.codec.too_large"),
     (UnsupportedVersionError, "waggle.version.unsupported_major"),
     (UnknownKindError, "waggle.codec.unknown_kind"),
+    (InvalidPayloadError, "waggle.codec.invalid_payload"),
     (SignatureError, "waggle.signature.error"),
     (MissingSignatureError, "waggle.signature.missing"),
     (UnknownSignerError, "waggle.signature.unknown_node"),
@@ -109,6 +112,35 @@ def test_waggle_error_carries_its_message() -> None:
     error = WaggleError("something went wrong.")
 
     assert str(error) == "something went wrong."
+
+
+def test_invalid_payload_error_carries_the_raw_ids_a_control_error_reply_needs() -> None:
+    error = InvalidPayloadError(
+        "The frame failed validation.",
+        message_id="msg_x",
+        sender="hive_y",
+        kind="control.ping",
+        correlation_id="msg_z",
+    )
+
+    assert str(error) == "The frame failed validation."
+    assert (error.message_id, error.sender, error.kind, error.correlation_id) == (
+        "msg_x",
+        "hive_y",
+        "control.ping",
+        "msg_z",
+    )
+
+
+def test_invalid_payload_error_ids_default_to_none() -> None:
+    error = InvalidPayloadError("The frame failed validation.")
+
+    assert (error.message_id, error.sender, error.kind, error.correlation_id) == (
+        None,
+        None,
+        None,
+        None,
+    )
 
 
 @pytest.mark.parametrize(("child", "parent"), _TREE)
