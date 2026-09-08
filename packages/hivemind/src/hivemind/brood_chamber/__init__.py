@@ -2,16 +2,17 @@
 
 The Brood Chamber is the Hive's task store, holding the task graph and its state machine in
 SQLite. Every task the Queen decomposes a goal into lives here for the rest of its life. Phase 2
-step 2.4 (task model and state machine), 2.5 (task graph) and the model half of 2.7 (questions)
-build the domain layer this face re-exports: the Task and Question models, both state machines,
-and the pure graph functions. `hivemind.brood_chamber.store`, `.chamber` and the SQLite/in-memory
-stores (roadmap steps 2.6 and 2.8) land in a later phase 2 dispatch and are not part of this face
-yet.
+step 2.4 (task model and state machine), 2.5 (task graph), the model half of 2.7 (questions) and
+step 2.6 (the store) build the layer this face re-exports: the Task and Question models, both
+state machines, the pure graph functions, and TaskStore with its two implementations.
+`hivemind.brood_chamber.chamber` (roadmap step 2.8), the thin facade the Queen calls, lands in a
+later phase 2 dispatch and is not part of this face yet.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by queen.planner, which
     persists the task graph here, and the dispatcher, which reads it. Calls into
-    hivemind.common, hivemind.cell (for TaskNeeds and HoneyClearance) and waggle.
+    hivemind.common, hivemind.cell (for TaskNeeds and HoneyClearance), hivemind.pheromone (for
+    TaskEvent and PheromoneTrail) and waggle.
 
 Key invariants:
     - Task.status and Question.status only ever move along the edges TRANSITIONS and
@@ -19,9 +20,12 @@ Key invariants:
       way anything in the Hive enforces that.
     - TaskGraphDraft is acyclic by construction: a pydantic ValidationError, not a Task or a
       TaskGraphDraft, is what a cyclic or malformed submission produces.
+    - Every TaskStore mutation records its TaskEvent(s) in the same transaction as the state
+      change (Appendix C rule 3); check_task_event is the guard both implementations call first.
 
 See Also:
-    - .claude/codingrules.md section 4 for the layer 2 row this package occupies.
+    - .claude/codingrules.md section 4 for the layer 2 row this package occupies, and Appendix C
+      rule 3 for the same-transaction rule TaskStore's implementations guarantee.
     - .claude/roadmap.md phase 2 for the work that first populates this package.
     - hivemind.brood_chamber.README for the module-by-module map of this package.
 
@@ -36,6 +40,10 @@ Public API:
       (graph).
     - QuestionStatus, AnswerSource, Answer, Question, QUESTION_TRANSITIONS,
       assert_question_transition: the question model and its state machine (questions).
+    - TaskFilter, TaskStore, check_task_event: the store protocol and its query/guard (store).
+    - MemoryTaskStore: an in-process TaskStore for tests and demos (memory).
+    - SqliteTaskStore, apply_brood_chamber_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE: the durable
+      TaskStore (sqlite).
 """
 
 from hivemind.brood_chamber.errors import (
@@ -52,6 +60,7 @@ from hivemind.brood_chamber.graph import (
     is_acyclic_edges,
     ready_tasks,
 )
+from hivemind.brood_chamber.memory import MemoryTaskStore
 from hivemind.brood_chamber.questions import (
     QUESTION_TRANSITIONS,
     Answer,
@@ -60,6 +69,13 @@ from hivemind.brood_chamber.questions import (
     QuestionStatus,
     assert_question_transition,
 )
+from hivemind.brood_chamber.sqlite import (
+    MIGRATIONS_PACKAGE,
+    SUBSYSTEM,
+    SqliteTaskStore,
+    apply_brood_chamber_migrations,
+)
+from hivemind.brood_chamber.store import TaskFilter, TaskStore, check_task_event
 from hivemind.brood_chamber.task import Task, TaskDraft, TaskGraphDraft, TaskOutcome, TaskSpec
 from hivemind.brood_chamber.task_state import (
     TERMINAL_STATUSES,
@@ -71,7 +87,9 @@ from hivemind.brood_chamber.task_state import (
 )
 
 __all__ = [
+    "MIGRATIONS_PACKAGE",
     "QUESTION_TRANSITIONS",
+    "SUBSYSTEM",
     "TERMINAL_STATUSES",
     "TRANSITIONS",
     "Answer",
@@ -79,20 +97,26 @@ __all__ = [
     "BroodChamberError",
     "InvalidGraphError",
     "InvalidTransitionError",
+    "MemoryTaskStore",
     "Question",
     "QuestionNotFoundError",
     "QuestionStatus",
+    "SqliteTaskStore",
     "Task",
     "TaskAlreadyExistsError",
     "TaskDraft",
+    "TaskFilter",
     "TaskGraphDraft",
     "TaskNotFoundError",
     "TaskOutcome",
     "TaskSpec",
     "TaskStatus",
+    "TaskStore",
+    "apply_brood_chamber_migrations",
     "assert_question_transition",
     "assert_transition",
     "can_transition",
+    "check_task_event",
     "descendants",
     "is_acyclic",
     "is_acyclic_edges",
