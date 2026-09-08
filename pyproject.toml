@@ -1,0 +1,426 @@
+# Workspace root for HiveMind. This file is a virtual project (see [tool.uv] below): it builds
+# nothing itself and exists only to declare the uv workspace, the shared dev toolchain, and
+# (from roadmap step 0.2 onward) the tool configuration every member inherits.
+[project]
+name = "hivemind-workspace"  # Not a real distribution; a name for the workspace as a whole.
+version = "0.1.0.dev0"  # Pre-release marker: no phase has shipped yet.
+requires-python = ">=3.12"  # codingrules section 2: match, TaskGroup and PEP 695 generics are fair game.
+# The root ships no code of its own, but it depends on every member so that a plain `uv sync`
+# (no --all-packages needed) resolves and installs all three into the shared .venv.
+dependencies = [
+    "waggle",    # Shared protocol + primitives; resolved locally via [tool.uv.sources] below.
+    "hivemind",  # The Queen and every control-plane subsystem.
+    "pollen",    # Device-side connector; depends only on waggle.
+]
+
+[tool.uv]
+package = false  # Virtual root: uv manages the workspace but never tries to build/install this project itself.
+
+[tool.uv.workspace]
+# Every package uv resolves and locks together, so the whole Hive shares one lockfile and one venv.
+members = [
+    "packages/waggle",    # Shared protocol + primitives; no hivemind imports (codingrules section 4).
+    "packages/hivemind",  # The Queen and every control-plane subsystem.
+    "packages/pollen",    # Device-side connector; depends only on waggle.
+]
+
+[tool.uv.sources]
+# Workspace members resolve each other locally instead of from an index, so a change to waggle is
+# picked up by hivemind and pollen immediately without a publish step.
+waggle = { workspace = true }
+hivemind = { workspace = true }
+pollen = { workspace = true }
+
+# The dev toolchain from codingrules section 2. Installed once at the workspace root and shared by
+# every member; a member's own pyproject.toml never repeats these.
+[dependency-groups]
+dev = [
+    "ruff",           # Formats and lints every .py file (size limits are checked by scripts/check_sizes.py, step 0.3).
+    "mypy",           # Static type checking; CI requires zero errors under --strict on main.
+    "import-linter",  # Enforces the layer contracts in codingrules section 4 (no upward imports).
+    "pytest",             # Test runner for every workspace member.
+    "pytest-asyncio",     # Lets tests await the async code the Hive is built from (section 11).
+    "pytest-cov",         # Coverage reporting against the targets in codingrules section 14.
+    "hypothesis",         # Property-based testing for the pure-core decision functions (section 8.3).
+    "pre-commit",         # Runs ruff, mypy and import-linter locally before a commit lands.
+    "pip-audit",          # Scans locked dependencies for known vulnerabilities.
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tool configuration (roadmap step 0.2)
+# ──────────────────────────────────────────────────────────────────────────────
+# Every setting below carries a comment: this file, and .claude/codingrules.md, are among the
+# first things a new contributor (human or agent) reads, and a bare setting invites silent drift.
+
+[tool.ruff]
+# Format AND lint through one tool (codingrules section 2) so there is only one config to keep
+# in sync with the size and style rules in codingrules section 5.
+line-length = 100  # codingrules section 2: line length 100, matches .editorconfig's max_line_length.
+target-version = "py312"  # codingrules section 2: match, TaskGroup and PEP 695 generics are fair game.
+src = [
+    "packages/waggle/src",    # So ruff's isort resolves `waggle` as first-party, not third-party.
+    "packages/hivemind/src",  # Same, for `hivemind`.
+    "packages/pollen/src",    # Same, for `pollen`.
+]
+extend-exclude = [
+    "node_modules",  # packages/observation-web's dependencies; not Python and not ours to lint.
+    ".venv",         # The uv-managed virtualenv; never lint installed third-party code.
+]
+
+[tool.ruff.lint]
+# Rule sets from roadmap step 0.2, chosen to enforce codingrules mechanically instead of by review:
+#   E, F  - pyflakes/pycodestyle core correctness (undefined names, unused imports, syntax
+#           footguns): the baseline every other rule set here is layered on top of, and the
+#           minimum codingrules section 5's "reviewers should not need to catch this by eye" bar
+#           implies for a codebase this size.
+#   I     - import sorting (codingrules 5.3: stdlib / third-party / workspace / local, blank-line separated).
+#   N     - naming (codingrules section 6: snake_case, PascalCase, UPPER_SNAKE).
+#   D     - pydocstyle, Google convention (codingrules 7.2/7.3: every module and public name documented).
+#   UP    - pyupgrade: keep syntax on the Python 3.12 baseline, no stale idioms.
+#   B     - bugbear: common correctness footguns (mutable defaults, broad excepts, etc).
+#   C4    - comprehension quality: codingrules 5.1 prefers the obvious/idiomatic form (e.g. a
+#           generator passed straight to `any()`/`all()` instead of wrapped in a list comprehension
+#           first) that a reviewer would otherwise have to flag by hand.
+#   C90   - mccabe complexity (codingrules 5.1: cyclomatic complexity <= 10 hard limit).
+#   SIM   - flake8-simplify: flags the "obvious way" codingrules 5.1 asks reviewers to prefer.
+#   ANN   - flake8-annotations: mypy --strict needs annotations everywhere; ruff catches gaps fast.
+#   ASYNC - flake8-async: codingrules section 11 (structured concurrency, no blocking calls in async code).
+#   S     - flake8-bandit: security smells (codingrules section 15): shell=True, eval, weak hashes.
+#   T20   - flake8-print: codingrules section 12 forbids print() outside cli/ (per-file-ignores below).
+#   RUF   - ruff's own additional checks (e.g. noqa hygiene: codingrules 15 requires every
+#           `# noqa` to carry a reason, and RUF100 is what catches a stale one left after a fix).
+select = ["E", "F", "I", "N", "D", "UP", "B", "C4", "C90", "SIM", "ANN", "ASYNC", "S", "T20", "RUF"]
+# NOTE: pydocstyle's D100-D107 (missing-docstring-*) treat a module whose *filename* starts with
+# `_` (other than `__init__.py`) as private, and skip every definition inside it -- this is
+# pydocstyle's own long-standing convention, not something `convention = "google"` below turns on
+# or a setting here can turn off. It is a non-issue for this repo: codingrules 5.3 only prefixes
+# individual private *names* (`_helper`) inside a normally-named module, never names a whole
+# module file with a leading underscore, so every real module keeps full D10x coverage. Verified
+# empirically (roadmap step 0.2 fix round): `queen/zz_batch_test.py` (no leading underscore) with
+# an undocumented public function correctly fails D100+D103; renaming the same content to
+# `queen/_zz_batch_test.py` makes ruff report zero diagnostics for it, in this config and in a
+# bare pyproject.toml alike.
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # codingrules 7.3: Args / Returns / Raises in Google style, not numpy/pep257.
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10  # codingrules 5.1 hard limit; the <=8 target is a review nudge ruff can't see.
+
+[tool.ruff.lint.isort]
+known-first-party = ["waggle", "hivemind", "pollen"]  # Otherwise isort would file them as third-party.
+# codingrules 5.3 wants four groups: stdlib, third-party, workspace (waggle/hivemind/pollen), local
+# (relative imports). Ruff's default groups don't separate "third-party" from "our own workspace
+# packages that happen to be installed the same way uv installs everything else"; naming
+# first-party explicitly gives the workspace its own section instead of lumping it with third-party.
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test idiom: bare `assert` is how pytest reports failures, and a test function's own name is its
+# one-line summary (codingrules 6.2), so requiring a docstring on every `test_*` would just be
+# restating the name. Limited to the three test trees, nothing else.
+"packages/waggle/tests/**" = ["S101", "D103"]
+"packages/hivemind/tests/**" = ["S101", "D103"]
+"packages/pollen/tests/**" = ["S101", "D103"]
+"scripts/tests/**" = ["S101", "D103"]  # The hygiene scripts' own tests (step 0.3) follow the same idiom.
+# codingrules section 12: "NEVER print() outside cli/"; scripts/ is dev/ops tooling (section 3)
+# that talks to a human on a terminal, so it is the other named exception.
+"scripts/**" = ["T20"]
+"packages/hivemind/src/hivemind/cli/**" = ["T20"]
+# S603/S607 (subprocess call / partial-path executable) are NOT blanket-ignored anywhere: the
+# handful of allowed subprocess sites (codingrules section 4 corollary) silence them one call at a
+# time with `# noqa: S603  # SAFETY: ...`, so the safety justification is never optional.
+
+[tool.ruff.format]
+docstring-code-format = true  # Appendix A.2's docstring code samples get formatted like real code.
+line-ending = "lf"  # codingrules section 2 hosts include Windows; the repo is LF-only (.gitattributes).
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mypy (codingrules section 2: "mypy --strict, zero errors on main")
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tool.mypy]
+strict = true  # codingrules section 2: zero errors under --strict on main; no `type: ignore` without a reason code.
+python_version = "3.12"  # Matches requires-python, so strict-mode checks assume the same language features the code actually runs on.
+warn_unreachable = true  # A branch mypy proves can never run is exactly the kind of dead code the size limits in 5.1 exist to keep out.
+plugins = ["pydantic.mypy"]  # pydantic v2 is the boundary-model library (codingrules section 9); the plugin understands Field(), validators and model_config instead of seeing a plain class.
+# Every src/ and tests/ tree in the three workspace packages: `mypy --strict` covers shipped code
+# and its tests alike (a badly-typed test is still a bug), and nothing else in the tree has Python
+# to check yet (packages/observation-web is TypeScript; images/ and docs/ hold no Python).
+files = [
+    "packages/waggle/src",
+    "packages/waggle/tests",
+    "packages/hivemind/src",
+    "packages/hivemind/tests",
+    "packages/pollen/src",
+    "packages/pollen/tests",
+    "scripts",  # roadmap 0.3: the hygiene checkers and their tests join the strict type-check.
+]
+# Duplicates the src/ subset of `files` above on purpose: `files` tells mypy *what to check*,
+# while `mypy_path` tells it *where to resolve a first-party import from* (the same role PYTHONPATH
+# plays at runtime for a workspace with no installed console-visible package root). Without it,
+# `import hivemind.cell` inside packages/waggle's or packages/pollen's own files -- or one workspace
+# package importing another across the uv workspace -- would not resolve, because mypy has no other
+# way to learn that "hivemind" lives under packages/hivemind/src rather than being an installed
+# distribution on a normal site-packages path.
+mypy_path = [
+    "packages/waggle/src",
+    "packages/hivemind/src",
+    "packages/pollen/src",
+    "scripts",  # roadmap 0.3: lets `import check_sizes` (etc.) resolve the same way pytest does.
+]
+explicit_package_bases = true  # Required for stable fully-qualified module names once namespace packages (no __init__.py) are in play -- see the tests/ note below.
+namespace_packages = true  # PEP 420: lets mypy walk tests/unit, tests/integration, tests/contracts etc. without requiring an __init__.py in every directory (codingrules 3: "tests/unit/ mirrors src/").
+# The three tests/ trees have no __init__.py (mypy_path above lists only the src/ roots, not the
+# tests/ roots), so each tests/ file sits outside every mypy_path entry. With explicit_package_bases
+# set, mypy's search for a package root then falls back to the current working directory (the repo
+# root, where this file lives, since `uv run --frozen mypy` always runs from here) -- giving every
+# tests/ module a full path-based name (packages.hivemind.tests.conftest, packages.waggle.tests.
+# conftest, ...) instead of three files colliding on the bare name "conftest". That collision is
+# exactly the "source file found twice" failure this step's self-check guards against.
+exclude = [
+    "node_modules/",  # packages/observation-web's dependencies; not Python, and mypy should never try to resolve into them.
+    "\\.venv/",  # The uv-managed virtualenv; never type-check installed third-party code.
+]
+
+# Untyped third-party dependency policy (codingrules section 9): when a future roadmap step adds
+# one, it gets either (a) a stub file under typings/<package>/*.pyi (preferred -- the real fix), or
+# (b) if no stub is practical, a narrowly-scoped override here:
+#   [[tool.mypy.overrides]]
+#   module = ["some_untyped_package.*"]
+#   ignore_missing_imports = true  # WHY: <name the package and the reason no stub exists>
+# No override exists yet because every dependency imported so far (pydantic, structlog, typer,
+# websockets, cryptography) ships its own type information.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pytest (codingrules section 2 + 14: pytest-asyncio, marker set, strictness)
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"  # codingrules 11: the Hive is built from async code; every `async def test_*` should just work without an explicit @pytest.mark.asyncio on each one.
+# One entry per workspace package's own tests/ tree (codingrules 3), not a single top-level
+# "tests" glob: the three packages are separately installable (pollen ships with no hivemind code
+# at all), so pointing pytest at their individual tests/ roots is what makes `--import-mode=
+# importlib` below key each collected module on its real package-qualified path instead of relying
+# on a shared top-level "tests" package that does not exist.
+testpaths = [
+    "packages/waggle/tests",
+    "packages/hivemind/tests",
+    "packages/pollen/tests",
+    "scripts",  # roadmap 0.3: scripts/tests/ holds the hygiene checkers' own unit tests.
+]
+# roadmap 0.3: scripts/*.py has no __init__.py (it is dev tooling, not a workspace package), so
+# without this a `import check_sizes` from scripts/tests/test_check_sizes.py would not resolve.
+pythonpath = ["scripts"]
+addopts = "--import-mode=importlib --strict-markers --strict-config -ra"
+# --import-mode=importlib: the three tests/ trees have no __init__.py (codingrules 3), so the
+#   legacy sys.path-based import mode could silently collide two same-named modules (two
+#   test_ids.py, one per package); importlib mode keys each on its actual file path instead.
+# --strict-markers: an undeclared @pytest.mark.* is almost always a typo, not a new marker --
+#   codingrules 14.2 defines the fixed marker set below and nothing else is expected to appear.
+# --strict-config: an unrecognised ini option in this file fails the run instead of being ignored,
+#   so a typo here is caught immediately rather than silently doing nothing.
+# -ra: prints a one-line reason for every non-passing test (skips and xfails included), which
+#   `integration`/`slow`-marked deselections would otherwise hide from the summary.
+markers = [
+    "integration: needs a real SQLite file, Docker, or network access (codingrules 14.2).",
+    "e2e: exercises a whole-Hive scenario end-to-end (codingrules 14.2).",
+    "slow: takes long enough that it should not run in the default fast loop (codingrules 14.2: unit tests run in under 30 seconds total).",
+    "live_llm: makes a real call to a hosted LLM provider; never runs in the default CI job (codingrules 8.6).",
+    "local_llm: needs a local model server (Ollama, vLLM, llama.cpp) already running on the host.",
+]
+filterwarnings = [
+    "error",  # A warning is a bug (roadmap step 0.2 decision); add a specific, commented ignore below only if a plugin genuinely forces one.
+]
+xfail_strict = true  # An @pytest.mark.xfail that starts passing must fail the run so someone notices and removes the mark, instead of quietly staying marked forever.
+asyncio_default_fixture_loop_scope = "function"  # Matches asyncio_mode=auto's per-test event loop; pinned explicitly so a future pytest-asyncio default change can't silently widen fixture sharing across tests.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Coverage (codingrules section 14.1: floors by layer; pytest-cov reports against them)
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tool.coverage.run]
+branch = true  # Line coverage alone hides an `if` whose one branch never actually runs; the floors in 14.1 are meaningless without branch coverage.
+source = ["waggle", "hivemind", "pollen"]  # Only the shipped packages; a test measuring itself, or the dev toolchain, is never "coverage".
+# pollen ships no code until phase 11, so coverage would warn "module-not-imported" on every run.
+# Keeping pollen listed (rather than re-adding it later and forgetting) and silencing only that
+# warning is the honest trade; remove this line when pollen has its first module.
+disable_warnings = ["module-not-imported"]
+omit = [
+    # codingrules 5.4: an __init__.py holds only a docstring, re-exports and __all__ -- no branches,
+    # no behaviour. Without this, every not-yet-imported (future-phase) package would show as a
+    # covered-0% "miss" for lines that were never meant to execute anything.
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+fail_under = 85  # codingrules 14.1: repository-total floor; CI fails below this.
+show_missing = true  # So a contributor can jump straight to the uncovered lines instead of re-running with -v, keeping the floors in 14.1 actionable from CI output alone.
+skip_empty = true  # Don't list a file with zero executable statements (e.g. a not-yet-populated package) as "0% covered" noise.
+exclude_also = [
+    "if TYPE_CHECKING:",  # Only evaluated by mypy; this branch never runs at all, in any test.
+    "@overload",  # An @overload stub has no body to execute; the real implementation right below it is what gets covered.
+    "^\\s*\\.\\.\\.\\s*$",  # A bare `...` Protocol method body (Appendix A.1): declares a signature, never executes.
+    "raise NotImplementedError",  # Marks a deliberately-unfinished path, not one a test is expected to reach.
+]
+
+[tool.hivemind.coverage_floors]
+# Per-layer coverage floors from codingrules section 14.1. coverage.py has no notion of "this
+# subpackage needs a stricter floor than the repository total" -- roadmap step 0.3's
+# scripts/check_coverage_floors.py reads this table and enforces each floor against the matching
+# package/module prefix in coverage.json (see the --cov-report=json note below).
+common = 95  # Cheap to test, expensive to get wrong: pure primitives, no I/O (codingrules 14.1).
+waggle = 95  # Same rationale: the wire protocol is foundational and dependency-light.
+brood_chamber = 95  # The task graph and its state machine; a silent bug here corrupts every task.
+guard = 95  # The policy engine (codingrules section 15's least-privilege boundary).
+adapters = 80  # Backends, transports, stores: integration-tested against the real thing where possible, so 100% unit coverage isn't the right bar.
+cli = 60  # Thin by design (codingrules section 2: "commands call into subsystem APIs, never contain logic"); smoke tests plus critical paths.
+observation = 60  # Read-only views; same rationale as cli.
+total = 85  # Repository-wide floor; mirrors [tool.coverage.report] fail_under above.
+
+# Coverage is invoked explicitly and deliberately kept OUT of addopts above:
+#   uv run --frozen pytest --cov --cov-report=term-missing --cov-report=json
+# Baking `--cov` into addopts would slow every `pytest -k foo` iteration during development and
+# breaks stepping through tests in a debugger (coverage's tracer and a debugger's tracer conflict).
+
+# ──────────────────────────────────────────────────────────────────────────────
+# import-linter (codingrules section 4: the layer table and its corollaries, enforced in CI)
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tool.importlinter]
+root_packages = ["hivemind", "waggle", "pollen"]  # The three packages whose imports are policed (codingrules section 4).
+include_external_packages = true  # Needed so the vendor-SDK (contract e) and subprocess (contract f) contracts below can name external modules like `anthropic` and `subprocess` as forbidden targets.
+
+[[tool.importlinter.contracts]]
+name = "hivemind layer table (codingrules section 4)"
+type = "layers"
+containers = ["hivemind"]
+layers = [
+    # Layer 7: edges (HTTP, dashboard, terminal). Independent siblings -- none of the three needs
+    # to import another, and codingrules doesn't document a dependency between them.
+    "entrance | observation | cli",
+    "queen",  # Layer 6: the kernel; the only global view; divides Forage.
+    "wardens",  # Layer 5: per-Cell supervisors; spawn and supervise Workers.
+    "workers",  # Layer 4: roles that do the work.
+    # Layer 3: sources of Cells, and capabilities handed down. Independent siblings.
+    "hive | swarm | exoskeleton | royal_jelly",
+    # Layer 2, upper half: independent siblings that read hivemind.cell (the layer below) for its
+    # enums and protocols (section 4's last corollary: "guard, hive, honey_store and supervision
+    # import them from there"; hive already gets this for free by being a full layer above cell).
+    "guard | honey_store | supervision | brood_chamber | memory",
+    # Layer 2, lower half: the Cell abstraction. Ranked as its own sub-layer BELOW its Layer-2
+    # siblings, rather than joined to them with import-linter's ":" (non-independent) separator --
+    # a probe proved ":" is symmetric (it would also let cell import guard, which the corollary
+    # "nothing at Layer 2 or below imports guard for an enum" forbids). An ordered sub-rank gives
+    # the one-way guard/honey_store/supervision -> cell edge without opening the reverse one.
+    "cell",
+    # Layer 1, upper half: independent siblings; llm reads forage (the layer below) for ModelSlot
+    # and Tempo (section 4: "llm imports forage").
+    "llm | manifest | pheromone",
+    "forage",  # Layer 1, lower half: forage never imports llm (section 4's last Layer-1 corollary).
+    "common",  # Layer 0: primitives; imports nothing internal.
+]
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "waggle... imports nothing from hivemind"; section 3 makes waggle the
+# package pollen depends on, so waggle importing pollen would be equally backwards.
+name = "waggle imports nothing from hivemind or pollen"
+type = "forbidden"
+source_modules = ["waggle"]
+forbidden_modules = ["hivemind", "pollen"]
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "pollen imports waggle and nothing else from the workspace."
+name = "pollen imports nothing from hivemind"
+type = "forbidden"
+source_modules = ["pollen"]
+forbidden_modules = ["hivemind"]
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "Autopilot never awaits a model... `lint-imports` enforces it. This is
+# what keeps the Hive alive when every provider is down (section 8.8)."
+name = "autopilot never imports llm"
+type = "forbidden"
+source_modules = ["hivemind.queen.autopilot", "hivemind.wardens.autopilot"]
+forbidden_modules = ["hivemind.llm"]
+# allow_indirect_imports left at its default (false): a transitive path into hivemind.llm would
+# defeat the guarantee just as completely as a direct import.
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "forage never imports llm" -- restated as its own contract (in addition
+# to the layers contract above) because CLAUDE.md calls this direction out by name.
+name = "forage never imports llm"
+type = "forbidden"
+source_modules = ["hivemind.forage"]
+forbidden_modules = ["hivemind.llm"]
+
+[[tool.importlinter.contracts]]
+# codingrules section 8.6: "Vendor SDKs and model-server HTTP clients are imported only inside
+# `llm/providers/<name>/`... An `import anthropic` or `import openai` anywhere else fails
+# `lint-imports`." faster_whisper and sentence_transformers are the in-process model libraries
+# for TRANSCRIBER and EMBEDDER (section 2's toolchain table). httpx is deliberately NOT listed:
+# section 8.6 says "httpx itself is not banned elsewhere (the Entrance and the http tool use it)";
+# what is banned outside the adapters is a model-server client, which scripts/check_no_model_ids.py
+# catches by provider URL rather than by import.
+name = "vendor LLM SDKs only inside hivemind.llm.providers"
+type = "forbidden"
+source_modules = ["hivemind", "waggle", "pollen"]
+forbidden_modules = ["anthropic", "openai", "faster_whisper", "sentence_transformers"]
+ignore_imports = [
+    "hivemind.llm.providers.** -> anthropic",
+    "hivemind.llm.providers.** -> openai",
+    "hivemind.llm.providers.** -> faster_whisper",
+    "hivemind.llm.providers.** -> sentence_transformers",
+]
+# "warn" rather than the default "error": at this roadmap step hivemind.llm.providers has no
+# adapter code yet (only its step-0.1 docstring stub), so every one of these carve-outs currently
+# matches zero real imports. The default would hard-fail `lint-imports` on every commit until the
+# providers land; "warn" still surfaces a visible note (so a typo'd path is never silent forever)
+# without blocking CI for a contract that has nothing to check yet.
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "subprocess... importable only from `hivemind.cell.*`...
+# `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`, `pollen.*`
+# and `scripts/`." pollen is deliberately not a source module of this contract -- it has no Cell
+# session of its own to delegate through, so it may use subprocess anywhere (section 4). waggle
+# never needs it and stays out of the source list too.
+name = "subprocess only from Cell sessions and hive backends"
+type = "forbidden"
+source_modules = ["hivemind"]
+forbidden_modules = ["subprocess"]
+ignore_imports = [
+    "hivemind.cell.** -> subprocess",
+    "hivemind.hive.backends.** -> subprocess",
+    "hivemind.royal_jelly.quarantine_comb.sandbox_subprocess -> subprocess",
+]
+# Same "warn" rationale as the vendor-SDK contract above: none of these carve-outs has real code
+# behind it yet, so the default "error" alerting would hard-fail every run before phase 3+ exists.
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+# codingrules section 3: "`common` is the only place for cross-cutting primitives. It never grows
+# domain logic." Belt and braces on top of the layers contract above, which already forbids this
+# by ranking common at Layer 0 -- this contract keeps failing even if the layers contract is ever
+# loosened by mistake.
+name = "common imports nothing else in hivemind"
+type = "forbidden"
+source_modules = ["hivemind.common"]
+# Named explicitly rather than as "hivemind": import-linter treats a forbidden_modules entry that
+# CONTAINS the source module (hivemind.common is inside hivemind) as an "overlapping pair" and
+# skips it entirely (see importlinter.contracts.forbidden._modules_overlap) -- that would silently
+# disable this whole contract. waggle is allowed (section 4: "common provides errors, results,
+# logging and migrations", built on waggle's ids/clock/loop like every other layer).
+forbidden_modules = [
+    "hivemind.manifest", "hivemind.pheromone", "hivemind.llm", "hivemind.forage",
+    "hivemind.cell", "hivemind.brood_chamber", "hivemind.honey_store", "hivemind.memory",
+    "hivemind.supervision", "hivemind.guard", "hivemind.hive", "hivemind.swarm",
+    "hivemind.exoskeleton", "hivemind.royal_jelly", "hivemind.workers", "hivemind.wardens",
+    "hivemind.queen", "hivemind.entrance", "hivemind.observation", "hivemind.cli",
+]

@@ -1,0 +1,22 @@
+[project]
+name = "hivemind"
+version = "0.1.0.dev0"
+description = "The Queen and every control-plane subsystem: the Hive's orchestrator, memory, policy, and Entrance."
+requires-python = ">=3.12"
+dependencies = [
+    "waggle",           # Ids, the clock, the loop shape and every wire message (codingrules section 4).
+    "pydantic>=2",      # Boundary validation for the Hive Manifest, tasks, and every crossing point.
+    "structlog",        # Structured logging: JSON in production, pretty in dev (codingrules section 12).
+    "typer",            # The `hive` CLI's command layer.
+]
+
+[tool.uv.sources]
+waggle = { workspace = true }  # Resolve waggle from this workspace, not from an index.
+
+[project.scripts]
+# Registers the `hive` command, backed by the composition root added in roadmap step 0.6.
+hive = "hivemind.cli.app:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"

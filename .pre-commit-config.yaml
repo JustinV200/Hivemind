@@ -1,0 +1,97 @@
+# Pre-commit configuration for HiveMind (roadmap step 0.2; codingrules section 2's toolchain
+# table: "pre-commit: ruff, mypy, import-linter, trailing-whitespace, end-of-file").
+#
+# The four HiveMind-specific hooks below run `through uv` (repo: local, language: system) rather
+# than through pre-commit's own hook-environment cache. That way a commit always lints against the
+# exact tool versions pinned in uv.lock -- the same ones `uv run --frozen <tool>` uses in CI and at
+# the terminal -- instead of a second, independently-resolved copy pre-commit would otherwise
+# install for itself.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        # Formats first, before lint: a lint rule (e.g. line length) can depend on formatting
+        # having already normalised the file, so running lint first would flag things format
+        # would have fixed for free.
+        entry: uv run --frozen ruff format
+        language: system
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check --fix
+        # --fix applies every autofixable finding (import sorting, most pyupgrade rules, ...) so a
+        # contributor doesn't hand-fix what the tool already knows how to fix.
+        entry: uv run --frozen ruff check --fix
+        language: system
+        types: [python]
+
+      - id: mypy
+        name: mypy --strict
+        entry: uv run --frozen mypy
+        language: system
+        types: [python]
+        # mypy resolves modules from [tool.mypy] files/mypy_path (the whole three src+tests
+        # trees), not from whatever subset of files changed -- a type error introduced in one
+        # file often surfaces in a caller pre-commit would not otherwise touch. pass_filenames
+        # would also risk the "source file found twice" failure mode documented in pyproject.toml
+        # if mypy were ever invoked against a partial, non-package-rooted file list.
+        pass_filenames: false
+
+      - id: import-linter
+        name: import-linter (lint-imports)
+        entry: uv run --frozen lint-imports
+        language: system
+        types: [python]
+        # Same reasoning as mypy: a layers/forbidden contract is a property of the whole import
+        # graph, not of any single changed file, so there is no per-file mode to run it in.
+        pass_filenames: false
+
+  # Generic hygiene checks (codingrules section 2's toolchain table names trailing-whitespace and
+  # end-of-file explicitly; the rest are pre-commit's standard low-risk file-sanity set). Pinned to
+  # an exact tag, like every other tool, so a hook's behaviour never changes under a contributor's
+  # feet between two commits.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml # Catches a broken pyproject.toml before it reaches CI, not after.
+      - id: check-yaml # Same, for this file and any workflow/config YAML.
+      - id: check-added-large-files # Guards against an accidental commit of a VM image or model weights; images/ holds build recipes, never built artefacts.
+      - id: check-merge-conflict # A stray `<<<<<<<` marker left in from a bad rebase.
+      - id: mixed-line-ending
+        args: [--fix=lf] # codingrules section 2 hosts include Windows; the repo is LF-only (.gitattributes, .editorconfig).
+
+  # Roadmap step 0.3's hygiene-script hooks. check_coverage_floors.py is deliberately not one of
+  # these: it reads a coverage.json a full pytest run produced, which pre-commit cannot afford on
+  # every commit; it belongs to CI only (roadmap step 0.4).
+  - repo: local
+    hooks:
+      - id: check-sizes
+        name: check file/function/class size limits
+        entry: uv run --frozen python scripts/check_sizes.py
+        language: system
+        types_or: [python, ts, tsx]
+        pass_filenames: false
+
+      - id: check-no-model-ids
+        name: check for hard-coded model ids and provider URLs
+        entry: uv run --frozen python scripts/check_no_model_ids.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: check-no-kind-branches
+        name: check for cell.kind branches outside placement/Undertaker
+        entry: uv run --frozen python scripts/check_no_kind_branches.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: check-no-transcripts
+        name: check for accumulating messages/history state outside memory/
+        entry: uv run --frozen python scripts/check_no_transcripts.py
+        language: system
+        types: [python]
+        pass_filenames: false

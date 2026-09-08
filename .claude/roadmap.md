@@ -149,14 +149,14 @@ so every later phase lands into an enforced shape.
 
 ### Steps
 
-- [ ] **0.1 Workspace scaffold.** Root `pyproject.toml` declaring the `uv` workspace with members
+- [x] **0.1 Workspace scaffold.** Root `pyproject.toml` declaring the `uv` workspace with members
   `packages/waggle`, `packages/hivemind`, `packages/pollen`. Each member has a `pyproject.toml`,
   `src/<name>/__init__.py` with the subsystem docstring, and an empty `tests/`. Create every
   directory from the layout in codingrules section 3 with a one-paragraph `README.md` in each.
   `packages/observation-web/` is scaffolded too: `pnpm`, Vite, React, TypeScript strict,
   `eslint` + `prettier`, `vitest`, a placeholder `app.tsx` that renders the Hive name, and a
   `README.md` saying it is built in phase 12 and served by the Entrance.
-- [ ] **0.2 Toolchain config.** In the root `pyproject.toml`: `ruff` (format + lint, line length
+- [x] **0.2 Toolchain config.** In the root `pyproject.toml`: `ruff` (format + lint, line length
   100, rule sets `E,F,I,N,D,UP,B,C4,C90,SIM,ANN,ASYNC,S,T20,RUF`, `pydocstyle` Google convention),
   `mypy --strict`, `pytest` (asyncio mode auto, markers `integration`, `e2e`, `slow`, `live_llm`,
   `local_llm`), `pytest-cov` with the floors from codingrules 14.1, and `import-linter` contracts:
@@ -165,7 +165,7 @@ so every later phase lands into an enforced shape.
   `hivemind.hive.backends.*`, the dev sandbox and `pollen.*`, **no `hivemind.llm` import from
   any `autopilot` package**, and **no `hivemind.llm` import from `hivemind.forage`**. Add
   `.pre-commit-config.yaml`.
-- [ ] **0.3 Hygiene checkers.** `scripts/check_sizes.py` (file ≤ 300 lines, function ≤ 50, via
+- [x] **0.3 Hygiene checkers.** `scripts/check_sizes.py` (file ≤ 300 lines, function ≤ 50, via
   `ast`, covering `.py`, `.ts` and `.tsx`), `scripts/check_no_model_ids.py` (no model id or
   provider URL outside `manifest/` and `docs/`; skips comments and docstrings, otherwise the
   OpenAI-compatible adapter's own docstring naming llama.cpp fails it),
@@ -175,13 +175,13 @@ so every later phase lands into an enforced shape.
   `llm/models.py`, where `LLMRequest.messages` is one request, `llm/tools.py`, where the tool loop
   accumulates within one episode by design, and `waggle/messages/`, a package name). Wire all
   into pre-commit and CI. Heavily commented; these are the first files people will read.
-- [ ] **0.4 CI.** `.github/workflows/ci.yml`: matrix on Ubuntu + Windows, plus an Arch Linux
+- [x] **0.4 CI.** `.github/workflows/ci.yml`: matrix on Ubuntu + Windows, plus an Arch Linux
   job running in an `archlinux` container on the Ubuntu runner; jobs for `ruff`, `mypy`,
   `lint-imports`, the hygiene scripts, `pytest -m "not integration and not e2e and not live_llm
   and not local_llm"`, coverage upload, `pip-audit`; a `web` job on Ubuntu running `pnpm lint`,
   `tsc --noEmit`, `vitest` and `pnpm audit` for `packages/observation-web/`. A second workflow
   `integration.yml` runs Docker-dependent tests on Ubuntu only, on demand and nightly.
-- [ ] **0.5 Shared primitives: `waggle` and `hivemind.common`.** Everything `pollen` also needs
+- [x] **0.5 Shared primitives: `waggle` and `hivemind.common`.** Everything `pollen` also needs
   lives in `waggle`, because `pollen` may import nothing from `hivemind` (coding rules 4). These
   are the first code in `packages/waggle`, ahead of phase 1, because phase 2 needs ids and the
   clock and may not wait on the protocol. Each in its own file:
@@ -198,12 +198,12 @@ so every later phase lands into an enforced shape.
   - `common/logging.py`: `structlog` configuration function called only from composition roots,
     and `get_logger`.
   - `common/result.py`: a tiny `Ok/Err` union for the LLM boundary only.
-- [ ] **0.6 CLI skeleton.** `hivemind/cli/app.py` (composition root) and `cli/version.py`. `uv run
+- [x] **0.6 CLI skeleton.** `hivemind/cli/app.py` (composition root) and `cli/version.py`. `uv run
   hive --version` prints the version and the Python version. Registered as a script entry point.
-- [ ] **0.7 Docs skeleton.** `docs/adr/0000-adr-template.md`, `docs/adr/README.md` (how to write
+- [x] **0.7 Docs skeleton.** `docs/adr/0000-adr-template.md`, `docs/adr/README.md` (how to write
   one), `docs/waggle/README.md` (placeholder), `docs/manifests/README.md`. Confirm the root
   `CLAUDE.md` points at `.claude/codingrules.md` and `.claude/roadmap.md`.
-- [ ] **0.8 First ADRs.** `language-and-toolchain.md` (Python/uv/ruff/mypy; TypeScript + React
+- [x] **0.8 First ADRs.** `language-and-toolchain.md` (Python/uv/ruff/mypy; TypeScript + React
   for the front end), `workspace-layout-and-layering.md` (three Python packages plus the web
   package, layer table, `llm` over `forage`), `ids-clock-and-loop-live-in-waggle.md` (prefixed
   ULIDs; why the shared primitives sit in the protocol package).

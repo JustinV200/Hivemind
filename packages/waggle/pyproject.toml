@@ -1,0 +1,14 @@
+[project]
+name = "waggle"
+version = "0.1.0.dev0"
+description = "Shared Waggle wire protocol and primitives (envelopes, ids, clock, loop) used by both hivemind and pollen."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2",   # Every message and envelope is a validated model, never a raw dict (codingrules section 4).
+    "websockets",    # The WebSocket transport implementation for Waggle envelopes.
+    "cryptography",  # Ed25519 signing of canonical envelope bytes (waggle/signing.py, phase 1).
+]
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"

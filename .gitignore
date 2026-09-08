@@ -1,3 +1,31 @@
 .env
 __pycache__/
 .venv/
+
+# Front end (packages/observation-web)
+node_modules/
+dist/
+packages/observation-web/dist/
+
+# Python test/type/lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Coverage output
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+
+# Packaging metadata
+*.egg-info/
+
+# CI (roadmap step 0.4): the audit job's exported, non-workspace lockfile snapshot -- regenerated
+# fresh by `uv export` each run, never a source of truth.
+requirements-audit.txt
+
+# import-linter's on-disk import graph cache
+.import_linter_cache/

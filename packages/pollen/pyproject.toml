@@ -1,0 +1,15 @@
+[project]
+name = "pollen"
+version = "0.1.0.dev0"
+description = "The Pollen Packet: a lightweight device connector that turns a borrowed device into a Real Cell."
+requires-python = ">=3.12"
+dependencies = [
+    "waggle",  # Only the shared protocol package; pollen must install with no other workspace deps (phase 1 exit criterion).
+]
+
+[tool.uv.sources]
+waggle = { workspace = true }  # Resolve waggle from this workspace, not from an index.
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
