@@ -1469,8 +1469,10 @@ rule here exists because a bug in this system has a large blast radius.
   (`feat(hive): add docker cell backend`). Types: `feat`, `fix`, `refactor`, `test`, `docs`,
   `chore`, `perf`, `ci`. Body explains *why*; footer links issues.
 - One logical change per commit. A commit that touches three subsystems is three commits.
-- PRs: under 400 changed lines excluding tests and generated code. Larger changes are split into a
-  stack. The PR description states the roadmap phase and step it advances.
+- PRs have no size cap. A PR is one logical change, however many lines that takes, provided every
+  file in it meets sections 3-13: modular under the 5.1 limits, layered per section 4, commented
+  per section 7. Split a PR only when it mixes two logical changes, never to hit a line count. The
+  PR description states the roadmap phase and step it advances.
 - Every PR that adds a Protocol, a backend, a storage format, or a message type links the ADR.
 - No force-push to shared branches. Rebase your own branch freely.
 

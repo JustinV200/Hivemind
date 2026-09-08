@@ -27,8 +27,8 @@ nothing here belongs in the bee vocabulary.
 
 ## Unit of delegation: one roadmap step
 
-The roadmap already scopes every step to "small enough for one PR" (codingrules §16: under 400
-changed lines, one logical change). That is also the right size for one subagent call — small
+The roadmap already scopes every step to "small enough for one PR" (codingrules §16: one logical
+change, with no line cap). That is also the right size for one subagent call — small
 enough that a Sonnet subagent can hold the whole step in context, self-check it, and return before
 drifting off-task.
 
