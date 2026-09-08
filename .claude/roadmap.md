@@ -327,7 +327,7 @@ commands.
   `reconnected`, `migrated`), `tool.*`, `swarm.*`, `llm.*` (`call` with normalised `Usage`, slot
   and provider; `rebound`; `fallback`). The `kind` string is the stable audit vocabulary; document
   it in the module docstring. No event ever carries prompt or completion text.
-- [ ] **2.2 Pheromone Trail store.** `pheromone/trail.py` (`PheromoneTrail` protocol: `record`,
+- [x] **2.2 Pheromone Trail store.** `pheromone/trail.py` (`PheromoneTrail` protocol: `record`,
   `query`, `export_segment`, `merge_segment`), `pheromone/sqlite.py` (append-only table, no
   UPDATE/DELETE statements exist in the file; segments keyed by node id), `pheromone/memory.py`
   (tests). Contract suite over both, including a merge of two segments with interleaved timestamps.
