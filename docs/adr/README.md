@@ -59,3 +59,9 @@ ADRs that exist today, in numeric order:
   `websockets`; loopback by default, every Cell dials out, and no reconnect inside `receive()`.
 - `0005-waggle-envelope-signing-and-offline-outbox.md`: the ten envelope fields, Ed25519 over
   canonical JSON keyed by `node_id`, and the append-only JSONL outbox of unsigned envelopes.
+- `0006-sqlite-as-the-single-hive-store.md`: one SQLite file per Hive through the standard
+  library's `sqlite3` under `asyncio.to_thread`, explicit `BEGIN IMMEDIATE` transactions, one
+  migration series per subsystem, and what would force a move to Postgres.
+- `0007-pheromone-trail-append-only-transactional-and-segmented.md`: one event class per family
+  with a closed kind vocabulary, no `UPDATE`/`DELETE` in the store module, state and event in one
+  transaction, segments keyed by node id merged by id, and the Night Veil purge as the one deletion.

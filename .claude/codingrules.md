@@ -95,7 +95,7 @@ Everything below is a consequence of these six rules.
 | Front end | TypeScript (strict) + React, Vite | `packages/observation-web/`. `eslint` + `prettier`, `tsc --noEmit`, `vitest`. No `any`. Sections 5 and 7 apply to `.ts`/`.tsx` unchanged. TS types for every Landing Board model are generated from `docs/entrance/openapi.json`, never hand-written. |
 | Android | Capacitor over the same React app | `packages/observation-web/android/`. Native push and the credential manager (passkeys) through plugins; the APK is a release artifact. Push delivery (FCM or UnifiedPush) is decided in the Android ADR. |
 | Config format | TOML | Hive Manifests are TOML validated by pydantic (section 13). |
-| Storage | SQLite (`aiosqlite`, FTS5, `sqlite-vec`) | One file per Hive. Migrations are numbered SQL files. |
+| Storage | SQLite (the standard library's `sqlite3` under `asyncio.to_thread`, FTS5, `sqlite-vec`) | One file per Hive (ADR-0006). Migrations are numbered SQL files, one series per subsystem. |
 | LLM | `LLMProvider`, `EmbeddingProvider` and `TranscriptionProvider` protocols in `hivemind/llm/` | Provider-agnostic. Adapters under `hivemind/llm/providers/<name>/` are the only modules that import a vendor SDK, model-server client or in-process model library (`anthropic`; `httpx` for OpenAI-compatible local servers such as Ollama, vLLM, llama.cpp; `faster_whisper` and `sentence_transformers` for in-process models). Enforced by `import-linter`. See 8.6. |
 | Pre-commit | `pre-commit` | ruff, mypy, import-linter, trailing-whitespace, end-of-file. |
 
@@ -142,7 +142,7 @@ HiveMind/
 │   │   └── pyproject.toml
 │   ├── hivemind/                 # THE QUEEN and every control-plane + Hive subsystem
 │   │   ├── src/hivemind/
-│   │   │   ├── common/           # Layer 0. errors, result, logging setup, migrations. Imports nothing internal except waggle (ids, clock, loop).
+│   │   │   ├── common/           # Layer 0. errors, result, logging setup, sqlite (connect + transaction), migrations. Imports nothing internal except waggle (ids, clock, loop).
 │   │   │   ├── manifest/         # Hive Manifest loading, schema, validation
 │   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync
 │   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders, routing, fanner.py (seat meter), prompts/, providers/. Imports forage; forage never imports llm.
@@ -1749,7 +1749,7 @@ transaction as the state change.
 
 | Machine | Owner and file | States and transitions | Notes |
 |---|---|---|---|
-| Task | Brood Chamber, `brood_chamber/task_state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering); `ASSIGNED → PENDING` (Warden lost) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
+| Task | Brood Chamber, `brood_chamber/task_state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
 | Question | Brood Chamber, `brood_chamber/questions.py` | `ASKED → ANSWERED / WITHDRAWN` | Asking blocks the task; answering resumes it. |
 | Proposal | Capping, `supervision/capping/state.py` | `PROPOSED → CHECKING → CAPPED → APPLIED → VERIFIED`; `CHECKING → REJECTED`; `APPLIED → ROLLED_BACK` | Tier decides the checks between `CHECKING` and `CAPPED`. |
 | Alarm | Supervision, `supervision/alarm.py` | `RAISED → HANDLING → RESOLVED`; `HANDLING → ESCALATED → HANDLING` (at the next level) | Attempt count travels with it; same id at every level. |
