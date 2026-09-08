@@ -1,26 +1,94 @@
-"""Define the Transport protocol that carries signed Envelopes between two processes.
+"""Define the Transport protocol that carries Envelopes between two bees, and its implementations.
 
-The implementations that satisfy it are an in-memory transport for tests and a WebSocket
-transport for real Hives, each moving one signed Envelope (the outer wrapper every Waggle
-message travels in) at a time. Higher layers depend only on the protocol, never on which
-transport is in use.
+A Transport is one connection between two bees (the Queen, the central orchestrator; a Warden,
+a per-Cell supervisor; a Worker, a subagent; a Pollen Packet, the thin gateway on an enrolled
+device) that moves Envelopes (the outer wrapper every Waggle message travels in) as frames, in
+order, at most once. Two implementations satisfy it: ``MemoryTransport``, an in-process pair for
+tests and for the Warden and Workers that run inside the Queen's process, and the WebSocket
+transport for anything that crosses a process or machine boundary, split into the connection
+(``WebSocketTransport``), the dialling client (``WebSocketClientTransport``) and the listener
+(``WebSocketServer``). Every check on a frame (size, shape, version, kind, signature) belongs to
+the Codec; transports are policy-free carriers of bytes.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen), inside the waggle package.
-    Handles the Transport protocol and its in-memory and WebSocket implementations. Called by
-    waggle's public API on behalf of whatever calls waggle itself; calls into nothing else in
-    the workspace.
+    Called by every bee's loop to send and receive; calls into waggle.codec for every frame and
+    into waggle.clock for the client's backoff sleeps. The outbox (waggle.outbox) replays through
+    a Transport after a dropped link.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 1 adds its first public name.
+    - Delivery at this layer is at-most-once, with ordering preserved within one connection;
+      retries and durability belong to the caller through the outbox (spec section 9).
+    - A frame that fails to decode closes the connection with the close code
+      ``close_code_for`` maps it to, except InvalidPayloadError, after which ``receive`` may be
+      called again on the same connection (spec section 7).
+    - The memory transport moves bytes through the same Codec as the WebSocket one, so it is a
+      faithful stand-in in the conformance suite that runs over both.
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under waggle.
-    - .claude/roadmap.md phase 1 for the work that first populates it.
+    - docs/waggle/spec.md section 9 for the contract every implementation is held to.
+    - docs/adr/0004-waggle-transport-websocket-json.md for the transport decision.
+    - packages/waggle/tests/contracts/test_transport_contract.py for the conformance suite.
 
-Public API: none yet; first populated in phase 1.
+Public API:
+    - Transport: the protocol (connect, send, receive, close, is_connected).
+    - close_code_for, CLOSE_CODE_FOR and the CLOSE_* codes: the WebSocket close code a decode
+      failure maps to, shared by both transports.
+    - MemoryTransport: the in-process pair (pair, inject_frame, drop).
+    - WebSocketTransport: one open websockets connection, client or server side.
+    - WebSocketClientTransport: dials out with capped backoff through the injected Clock.
+    - WebSocketServer: the loopback-by-default listener that hands out connections.
+    - The commented constants behind them: PING_INTERVAL_S, PING_TIMEOUT_S, CLOSE_TIMEOUT_S,
+      RECONNECT_INITIAL_S, RECONNECT_FACTOR, RECONNECT_MAX_S, OPEN_TIMEOUT_S,
+      DEFAULT_MAX_ATTEMPTS, DEFAULT_HOST, OS_ASSIGNED_PORT.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 1 adds the first public name.
-__all__: list[str] = []
+from waggle.transport.base import (
+    CLOSE_CODE_FOR,
+    CLOSE_MESSAGE_TOO_BIG,
+    CLOSE_NORMAL,
+    CLOSE_POLICY_VIOLATION,
+    CLOSE_PROTOCOL_ERROR,
+    Transport,
+    close_code_for,
+)
+from waggle.transport.memory import MemoryTransport
+from waggle.transport.websocket import (
+    CLOSE_TIMEOUT_S,
+    PING_INTERVAL_S,
+    PING_TIMEOUT_S,
+    WebSocketTransport,
+)
+from waggle.transport.websocket_client import (
+    DEFAULT_MAX_ATTEMPTS,
+    OPEN_TIMEOUT_S,
+    RECONNECT_FACTOR,
+    RECONNECT_INITIAL_S,
+    RECONNECT_MAX_S,
+    WebSocketClientTransport,
+)
+from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
+
+__all__ = [
+    "CLOSE_CODE_FOR",
+    "CLOSE_MESSAGE_TOO_BIG",
+    "CLOSE_NORMAL",
+    "CLOSE_POLICY_VIOLATION",
+    "CLOSE_PROTOCOL_ERROR",
+    "CLOSE_TIMEOUT_S",
+    "DEFAULT_HOST",
+    "DEFAULT_MAX_ATTEMPTS",
+    "OPEN_TIMEOUT_S",
+    "OS_ASSIGNED_PORT",
+    "PING_INTERVAL_S",
+    "PING_TIMEOUT_S",
+    "RECONNECT_FACTOR",
+    "RECONNECT_INITIAL_S",
+    "RECONNECT_MAX_S",
+    "MemoryTransport",
+    "Transport",
+    "WebSocketClientTransport",
+    "WebSocketServer",
+    "WebSocketTransport",
+    "close_code_for",
+]
