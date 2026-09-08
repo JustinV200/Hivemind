@@ -128,11 +128,13 @@ HiveMind/
 │   │   ├── src/waggle/
 │   │   │   ├── messages/         # One package per message family (task/, cell/, honey/, capping/, ...), each split into modules by responsibility
 │   │   │   ├── transport/        # Transport protocol + implementations (memory.py, websocket.py)
+│   │   │   ├── outbox/           # Durable queue for nodes that are offline: queue.py, log.py (the JSONL file), replay.py
 │   │   │   ├── envelope.py       # The outer wrapper every message travels in
-│   │   │   ├── codec.py          # Serialise / deserialise + version negotiation
-│   │   │   ├── signing.py        # Ed25519 over canonical envelope bytes
-│   │   │   ├── outbox.py         # Durable queue for nodes that are offline
-│   │   │   ├── ids.py            # Prefixed-ULID NewType ids. Here, not in hivemind, because envelopes and pollen need them
+│   │   │   ├── codec.py          # Serialise / deserialise, frame parsing, version negotiation
+│   │   │   ├── signing.py        # Ed25519 over canonical envelope bytes, and the hex form of a public key
+│   │   │   ├── ids.py            # Prefixed-ULID NewType ids and their typed constructors. Here, not in hivemind, because envelopes and pollen need them
+│   │   │   ├── ulid.py           # The Crockford base32 encoding under ids.py
+│   │   │   ├── uris.py           # The one rule for a dialable endpoint (wss://, or ws:// on loopback)
 │   │   │   ├── clock.py          # Clock protocol, SystemClock, FakeClock. Here because pollen needs the fake too
 │   │   │   ├── loop.py           # The standard long-running loop shape (section 11), shared by every bee and the gateway
 │   │   │   └── errors.py
@@ -207,8 +209,8 @@ HiveMind/
   re-exports **only** its public API (see 5.4). Anything not re-exported is private to the package.
 - A subsystem may have sub-packages (`hive/backends/`, `honey_store/ripening/`). Depth stops at
   three levels below `src/hivemind/`. Deeper than that means the subsystem should be split.
-- A Waggle message family is a package, `waggle/messages/<family>/`, never one file and never a
-  run of prefixed siblings (`forage.py`, `forage_values.py`, ...). Its modules split the family by
+- A Waggle message family is a package, `waggle/messages/<family>/`, from its first module (5.2
+  applies to a family before it has a second file). Its modules split the family by
   responsibility (`forage/grants.py`, `forage/values.py`, `forage/capacity.py`,
   `forage/hosting.py`), each with the 7.2 header; its `__init__.py` re-exports the family's
   messages, enums and value models (5.4), so a caller writes
@@ -317,6 +319,13 @@ A file holds exactly one of: a Protocol and its docs; one concrete class; a grou
 functions that share a noun; one pydantic model family; one CLI command group. If you cannot
 write the module docstring's first sentence without "and", split the file.
 
+**A concept that needs a second file becomes a package**, never a run of prefixed siblings
+(`outbox.py`, `outbox_log.py`, `outbox_replay.py`). The package's `__init__.py` is its face
+(5.4), its modules split the concept by responsibility (`outbox/queue.py`, `outbox/log.py`,
+`outbox/replay.py`), and each carries the 7.2 header. A module that outgrows 5.1 splits into a
+sibling inside its package; if it has no package yet, it becomes one. The reverse holds too: a
+split made only for size, with no responsibility of its own, folds back once 5.1 allows it.
+
 ### 5.3 Module structure (in this order)
 
 1. Module docstring (mandatory, see 7.2).
@@ -345,6 +354,15 @@ write the module docstring's first sentence without "and", split the file.
 
 Importing any module must be free of I/O, network, environment reads, logger configuration or
 global mutation. Construction happens in a composition root (`cli/`, `entrance/`, or a test).
+
+### 5.6 Directory fan-out (enforced by `scripts/check_fanout.py`)
+
+A source directory holds at most **10** modules directly (target 6), `__init__.py` excluded. A
+sub-package is one entry of its own and never counts against its parent, so past the limit the
+fix is 5.2: group by concept into sub-packages. The rule applies to every directory under
+`packages/*/src/`, Python and TypeScript alike. `tests/` trees mirror `src/` (section 3) and may
+split one module's tests by feature (5.1), so they are not counted; `scripts/` is flat dev
+tooling run by path, not a package, and is not counted either.
 
 ---
 
@@ -1686,6 +1704,8 @@ Run through this before every commit. Every line is a yes/no.
 
 - [ ] The file I touched is under 300 lines of code (comments and docstrings excluded) and each
       function under 50 lines.
+- [ ] Every directory I touched holds at most ten modules, and any concept I split became a
+      package with an `__init__` face, not a prefixed sibling.
 - [ ] The module docstring has the four parts: summary, explanation, "Fits into the Hive", invariants.
 - [ ] Every Hive term in this file is defined in plain English on first use.
 - [ ] Every public name has a Google-style docstring with Args / Returns / Raises.

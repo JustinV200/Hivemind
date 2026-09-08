@@ -17,6 +17,9 @@ The rules that get broken most often:
 - Files stay under 300 lines of code (comments and docstrings do not count) and functions under
   50 lines. Every module starts with the header docstring from codingrules 7.2. Comments answer
   *why*, on every logical block.
+- A concept that needs a second file becomes a package with an `__init__` face, never a prefixed
+  sibling (`outbox_log.py`). A source directory holds at most ten modules; group into
+  sub-packages before that.
 - Imports flow down the layer table only. No vendor LLM SDK outside `hivemind/llm/providers/`.
   No `subprocess` outside `cell/`, `hive/backends/`, the dev sandbox, and `pollen/`.
 - Anything under an `autopilot/` directory never imports `hivemind.llm`. Awake episodes are
