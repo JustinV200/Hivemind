@@ -1,6 +1,24 @@
 # waggle tests
 
-Tests for the waggle package: the Hive's shared wire protocol (message envelopes, ids, the clock,
-and the standard long-running loop shape). This tree has no fixed internal shape yet beyond
-`conftest.py`, the test composition root; it fills in as `packages/waggle/src/waggle/` grows,
-starting with the message and transport contract suites in phase 1.
+Tests for the waggle package: the Hive's shared wire protocol (the envelope, the codec, signing,
+the message catalogue, the transports and the offline outbox) and its shared primitives (ids,
+the clock and the long-running loop shape). The tree is flat and mirrors `src/waggle/` one test
+module per source module, with three subdirectories:
+
+- `messages/`: one test module per family module, each family's `test_<family>.py` carrying an
+  `EXAMPLES` tuple with one valid instance of every class; `test_registry*.py` loads all ten by
+  file path and round-trips every example through the codec.
+- `transport/`: the memory and WebSocket transports, the latter against a real loopback server.
+- `contracts/`: the transport conformance suite of roadmap step 1.9, parametrised over both
+  implementations.
+
+At the top level, `test_spec_drift.py` parses the catalogue table in `docs/waggle/spec.md` and
+checks it against the registry in both directions, and `test_dependencies.py` proves no module
+under `src/waggle/` imports anything beyond the standard library, `pydantic`, `websockets` and
+`cryptography`, which is what lets `pollen` depend on waggle alone. `conftest.py` is the test
+composition root: a `FakeClock`, ids and bee addresses, an envelope factory, and a keypair with
+the plain and signed codecs built on it.
+
+```bash
+uv run --frozen pytest packages/waggle/tests
+```
