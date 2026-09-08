@@ -32,6 +32,7 @@ The system borrows its vocabulary from real bee biology and beekeeping; it reads
 | Term | Meaning |
 |---|---|
 | **Queen** | The central orchestrator, the only component with a global view of the system. Delegates everything; may change which model runs any bee |
+| **Monarch** | The Queen's human-facing name in chat: what she calls herself when talking directly to the human. Every other reference, internal or between bees, still says Queen |
 | **Hive Stand** | The machine HiveMind itself runs on: home of the Queen, the first Real Cell, and where every Warden lives by default. A role rather than a fixed machine: Supersedure moves it |
 | **The Hive** | The on-demand Virtual Cell fleet |
 | **Cell** | A unit of compute a Worker runs in or on: either a Virtual Cell or a Real Cell |
@@ -263,7 +264,7 @@ One live page to watch and talk to the Hive. It is read-only with a single excep
 - **Mask visibility rule**: the Observation Hive renders Pheromone Mask state as a persistent, high-contrast badge in both the Cell page header and Fleet list rows, including whether it is Queen-forced.
 - **Capping queue**: proposals by tier and state, verdicts with reasons, rollbacks, and sampled-audit findings.
 - **Attendant views**: the task graph the Queen is concerned with, what just finished and what is next, and the same view for every Warden over its own sub-bees.
-- **Chat**: the human's way to request tasks, ask, and answer, typed or spoken. Messages go into the Queen's inbox; her replies, questions and escalated Alarms come back on the same channel as text.
+- **Chat**: the human's way to request tasks, ask, and answer, typed or spoken. Messages go into the Queen's inbox; her replies, questions and escalated Alarms come back on the same channel as text, as **Monarch**, the name she goes by when speaking to the human directly.
 - **Destructive action guardrail**: no one-click control may trigger Absconding. Any UI path must require a clearly marked break-glass flow with password re-auth, a typed confirmation phrase, and a final review screen showing teardown scope before execution.
 - **Honey browser**: the Hive's knowledge as a folder tree, the shared store plus what each Cell and bee can see, read-only, with clearance labels visible on every item and "propose a note" going to the Queen rather than writing. Each Cell's folder includes its live Cell Wax, and a note proposed from there is proposed as wax for that Cell.
 
