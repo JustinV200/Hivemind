@@ -32,7 +32,7 @@ from waggle.codec import Codec
 from waggle.envelope import Envelope
 from waggle.errors import ConnectionLostError, TransportClosedError
 from waggle.messages.base import MAX_MESSAGE_AGE_S
-from waggle.messages.control import ErrorMessage
+from waggle.messages.control.protocol import ErrorMessage
 from waggle.outbox import Outbox
 from waggle.outbox_log import append_record, encode_put
 from waggle.outbox_replay import ReplayReport, expire_older_than, replay_outbox

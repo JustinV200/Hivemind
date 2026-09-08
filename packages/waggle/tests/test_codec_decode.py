@@ -38,8 +38,8 @@ from waggle.errors import (
     WaggleError,
 )
 from waggle.ids import NodeId
-from waggle.messages.control import Pong
-from waggle.messages.control_hive import HumanMessage
+from waggle.messages.control.hive import HumanMessage
+from waggle.messages.control.protocol import Pong
 from waggle.minting import new_device_id, new_node_id
 from waggle.signing import Ed25519Signer
 

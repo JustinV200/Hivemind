@@ -32,7 +32,7 @@ from waggle.codec import SIGNATURE_OVERHEAD_BYTES, Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, FrameTooLargeError, OutboxCorruptError
 from waggle.ids import MessageId
-from waggle.messages.control import Ping
+from waggle.messages.control.protocol import Ping
 from waggle.minting import new_hive_id, new_node_id, new_warden_id
 from waggle.outbox import Outbox
 from waggle.outbox_log import TEMP_SUFFIX, append_record, encode_put

@@ -262,9 +262,11 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
     `MaskOverride` (Queen → Warden, reason and expiry; phase 6.13), `QueenMoved` (a relocation
     notice signed with the Hive key: new address, effective at, grace until; phase 13.2a).
   Each message is a pydantic model with every field described. A `registry.py` maps `kind` string
-  to model class and is the only place that list lives. Landed as: each family split by
-  responsibility into two to four modules (`task.py` + `task_reports.py`, and so on; the list is
-  in `messages/README.md`) because one file per family broke the 300-line limit; the shared
+  to model class and is the only place that list lives. Landed as: each family a package
+  `messages/<family>/` split by responsibility into two to four modules (`task/assignment.py` +
+  `task/reports.py`, and so on; the list is in `messages/README.md`) with an `__init__.py` as the
+  family's face, because one file per family broke the size limit (codingrules section 3 now
+  requires the package shape); the shared
   labels and reports in `labels.py` and `reports.py`; `Error` named `ErrorMessage` (codingrules
   section 10); the sixty-six rows in `messages/catalogue.py`, which `registry.py` indexes.
 - [x] **1.4 Transport protocol.** `waggle/transport/base.py`: `Transport` protocol with

@@ -511,7 +511,7 @@ Value models:
   - `cpu_load` (`float`): one-minute load average divided by `cores`. At least 0.
   - `gpus` (`tuple[GpuReport, ...]`): every GPU. Max 16.
 
-### 8.2 task (`messages/task.py`)
+### 8.2 task (`messages/task/`)
 
 The lifecycle of one task: assigned by the Queen to the Warden of the placed Cell, run by a
 Worker, reported on, and closed. A task reaches `SUCCEEDED` only after its Warden, never the
@@ -637,7 +637,7 @@ bee, optionally on a different slot.
   still down; None keeps the current binding. Slot rules of the conventions.
 - `reason` (`str`): why it resumes now.
 
-### 8.3 supervision (`messages/supervision.py`)
+### 8.3 supervision (`messages/supervision/`)
 
 The one `Supervisor` protocol at every level of the tree (human, Queen, Wardens, sub-bees):
 heartbeats with context telemetry, Alarms escalated upward, inspection, intervention and
@@ -791,7 +791,7 @@ Deliver the answer to a blocked question back down the chain so the task resumes
 - `clearance` (`HoneyClearance`): the label of the answer; a human's answer is `C2` by
   provenance (`source` `HUMAN` requires `C2`, validator).
 
-### 8.4 forage (`messages/forage.py`)
+### 8.4 forage (`messages/forage/`)
 
 Forage is the Hive's capacity in several dimensions, never one number. The Queen divides what is
 shared by grant; a Warden divides what is physically on its own Cell (its local pool) under
@@ -966,7 +966,7 @@ a default chain for slots not named, with the reason.
 - `default` (`SourceChain`): the chain for any slot not named.
 - `reason` (`str`): why this plan.
 
-### 8.5 cell (`messages/cell.py`)
+### 8.5 cell (`messages/cell/`)
 
 The life of a Cell and of the leases on it: a Cell reports ready and alive, a Warden asks the
 Queen for a Cell or to retire one, leases open and close (a lease is one Warden's tenancy on a
@@ -1149,7 +1149,7 @@ with its destroyed Virtual Cell.
 - `cause` (`WaxClearCause`): why it left.
 - `reason` (`str`): the decision text; expiry names the sweep.
 
-### 8.6 session (`messages/session.py`)
+### 8.6 session (`messages/session/`)
 
 The terminal-over-Waggle family: a Warden on the Hive Stand drives a remote Real Cell through its
 Pollen Packet exactly as it would a local terminal (exec with streaming output, stdin, put and get
@@ -1304,7 +1304,7 @@ released by `cell.lease_released`, not here.
 - `lease_id` (`LeaseId`): the session to close.
 - `reason` (`str`): why the session closes.
 
-### 8.7 honey (`messages/honey.py`)
+### 8.7 honey (`messages/honey/`)
 
 Knowledge in and out of the Honey Store, the persistent knowledge base: Nectar (raw, unprocessed
 findings a bee brings back) goes in with provenance and clearance; Honey (distilled, indexed
@@ -1390,7 +1390,7 @@ reader knows what was withheld without seeing it.
   least 0.
 - `reason` (`str`): why the result is what it is.
 
-### 8.8 tool (`messages/tool.py`)
+### 8.8 tool (`messages/tool/`)
 
 Tools from request to call: a bee asks for a capability it lacks, the Royal Jelly Lab (the
 tool-authoring pipeline) scaffolds and quarantines it, the Comb Registry (the catalogue of
@@ -1502,7 +1502,7 @@ The outcome of one `ToolInvoke`: its bounded JSON output or a stable error code,
 - `duration_s` (`float`): wall-clock seconds. At least 0.
 - `reason` (`str`): the explanation of a non-success, or a one-line summary on success.
 
-### 8.9 capping (`messages/capping.py`)
+### 8.9 capping (`messages/capping/`)
 
 The Capping gate: every action with a side effect outside a lease's scratch directory is proposed
 with its risk tier and the postconditions the bee expects, checked cheapest-first, applied,
@@ -1621,7 +1621,7 @@ completely, and what residue remains.
   `is_complete` (validator). Max 64, each max `MAX_PATH_CHARS`.
 - `reason` (`str`): why the rollback happened and, if incomplete, why.
 
-### 8.10 swarm (`messages/swarm.py`)
+### 8.10 swarm (`messages/swarm/`)
 
 Devices joining and living in the Swarm: enrolment with a one-time token, the gateway's heartbeat,
 promotion of a colonized device (one whose Warden lives on it) to a Nuc and back, and the merge of
@@ -1763,10 +1763,10 @@ idempotently on reconnection. The bytes are the trail's own export format, opaqu
 - `sha256` (`str | None`): digest of the whole export. Required when `final`, None otherwise
   (validator).
 
-### 8.11 control (`messages/control.py`, `messages/control_hive.py`)
+### 8.11 control (`messages/control/`)
 
-`Ping`, `Pong`, `ErrorMessage`, `Shutdown`, `Cluster` and `Wake` live in `control.py`;
-`HumanMessage`, `MaskOverride` and `QueenMoved`, the Hive-wide orders, in `control_hive.py`, a
+`Ping`, `Pong`, `ErrorMessage`, `Shutdown`, `Cluster` and `Wake` live in `control/protocol.py`;
+`HumanMessage`, `MaskOverride` and `QueenMoved`, the Hive-wide orders, in `control/hive.py`, a
 split by responsibility that keeps each file under the size limit.
 
 Protocol housekeeping and Hive-wide orders: liveness probes, the error reply, shutdown,
@@ -2058,10 +2058,10 @@ Shared shapes:
     the one home for OS and architecture; `CellCapabilitiesReport` carries neither, and
     `cell.ready` and `swarm.enrol_request` carry both models. `HostCapacityReport` takes the
     forage designer's shape (all figures required, a full snapshot).
-12. **`LocalSourceReport` stays in `forage.py`.** `swarm.nuc_promoted` reports loaded model ids
+12. **`LocalSourceReport` stays in `forage/capacity.py`.** `swarm.nuc_promoted` reports loaded model ids
     only; the seats, VRAM and measured speed follow in the `forage.capacity_report` a promotion
     always triggers, so no model-server value model crosses families.
-13. **`TaskNeedsReport` and `IsolationNeed` stay in `cell.py`** because `task.assign` carries no
+13. **`TaskNeedsReport` and `IsolationNeed` stay in `cell/status.py`** because `task.assign` carries no
     needs in phase 1; a task inherits its tiers from the placed Cell.
 14. **Shared bounds** live in `messages/base.py`: `MAX_REASON_CHARS`, `MAX_CHUNK_BYTES`,
     `MAX_PATH_CHARS`, `MAX_SLOT_CHARS` with the slot pattern, and the sha256 pattern. The

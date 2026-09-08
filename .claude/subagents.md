@@ -34,7 +34,7 @@ drifting off-task.
 
 - One step → one Agent call, by default.
 - A step whose file list has no internal imports between the files (e.g. step 1.3's message
-  catalogue: ten independent files under `waggle/messages/`) → group the files into two to four
+  catalogue: ten independent family packages under `waggle/messages/`) → group the files into two to four
   Agent calls (one per related family group), dispatched in parallel in a single message. One
   call per file was the original rule; it multiplied the fixed cost of every subagent re-reading
   the brief, the spec and the coding rules by the number of files, and that fixed cost is most of

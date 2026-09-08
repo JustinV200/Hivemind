@@ -30,7 +30,7 @@ from waggle.errors import (
     UnsupportedVersionError,
 )
 from waggle.frame import ENVELOPE_KEYS, build_envelope, check_kind, check_version, parse_frame
-from waggle.messages.control_hive import HumanMessage
+from waggle.messages.control.hive import HumanMessage
 from waggle.minting import new_device_id
 
 MakeEnvelope = Callable[..., Envelope]

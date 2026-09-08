@@ -28,8 +28,8 @@ from waggle.errors import UnknownKindError
 from waggle.messages import registry
 from waggle.messages.base import KIND_PATTERN, MessageShape, WaggleMessage
 from waggle.messages.catalogue import CATALOGUE
-from waggle.messages.control import Cluster, ErrorMessage, Ping, Pong, Shutdown, Wake
-from waggle.messages.control_hive import HumanMessage, MaskOverride, QueenMoved
+from waggle.messages.control.hive import HumanMessage, MaskOverride, QueenMoved
+from waggle.messages.control.protocol import Cluster, ErrorMessage, Ping, Pong, Shutdown, Wake
 from waggle.messages.registry import (
     MESSAGE_SPECS,
     MessageSpec,

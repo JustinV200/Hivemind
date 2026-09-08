@@ -2,11 +2,12 @@
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins the registry's kind order to the spec's
-    catalogue table, then loads the EXAMPLES tuple of each family's test module by file path
-    (the test tree has no packages, so a sibling test module cannot be imported by name) and
-    checks that every example is registered, resolves back to its kind and survives wrap,
+    catalogue table, then loads the EXAMPLES tuple of each family's root test module by file
+    path (the test tree has no packages, so a sibling test module cannot be imported by name)
+    and checks that every example is registered, resolves back to its kind and survives wrap,
     encode and decode unchanged; that the ten tuples together cover every registered model
-    exactly once; and that waggle.messages re-exports every registered class.
+    exactly once; and that waggle.messages and each family package re-export every registered
+    class.
 
 Key invariants:
     - None: this module holds tests only.
@@ -19,6 +20,7 @@ See Also:
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 from collections import Counter
 from collections.abc import Callable
@@ -34,20 +36,22 @@ from waggle.messages.base import MessageShape, WaggleMessage
 from waggle.messages.registry import MESSAGE_SPECS, all_kinds, kind_for, spec_for
 from waggle.minting import new_message_id
 
-# The ten families of the spec's catalogue, each with a tests/messages/test_<family>.py that
-# defines EXAMPLES: one valid instance of every message class of that family.
-FAMILIES = (
-    "task",
-    "supervision",
-    "forage",
-    "cell",
-    "session",
-    "honey",
-    "tool",
-    "capping",
-    "swarm",
-    "control",
-)
+# The ten families of the spec's catalogue, each a package under waggle/messages/ whose root
+# test module, tests/messages/<family>/test_<root>.py, defines EXAMPLES: one valid instance of
+# every message class of that family.
+EXAMPLE_MODULES: dict[str, str] = {
+    "task": "assignment",
+    "supervision": "oversight",
+    "forage": "grants",
+    "cell": "status",
+    "session": "commands",
+    "honey": "exchange",
+    "tool": "authoring",
+    "capping": "proposals",
+    "swarm": "enrolment",
+    "control": "protocol",
+}
+FAMILIES = tuple(EXAMPLE_MODULES)
 
 # Every kind of the spec's catalogue table (docs/waggle/spec.md section 8), in the table's order.
 CATALOGUE_KINDS: tuple[str, ...] = (
@@ -121,14 +125,14 @@ CATALOGUE_KINDS: tuple[str, ...] = (
 
 
 def _load_examples(family: str) -> tuple[WaggleMessage, ...]:
-    """Load ``EXAMPLES`` from tests/messages/test_<family>.py by file path.
+    """Load ``EXAMPLES`` from tests/messages/<family>/test_<root>.py by file path.
 
     pytest runs with --import-mode=importlib and the test tree has no __init__.py, so a test
     module has no importable name; loading it by path under a private name is the one way to
     read a sibling's module-level tuple. Defined before the constants built from it because
     those are evaluated at import.
     """
-    path = Path(__file__).with_name(f"test_{family}.py")
+    path = Path(__file__).parent / family / f"test_{EXAMPLE_MODULES[family]}.py"
     spec = importlib.util.spec_from_file_location(f"waggle_examples_{family}", path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load {path}: no import spec for it.")
@@ -217,7 +221,7 @@ def test_example_round_trips_through_wrap_and_the_codec(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# The package face: waggle.messages re-exports every registered class
+# The package faces: waggle.messages and each family package re-export every registered class
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -228,6 +232,19 @@ def test_messages_package_re_exports_every_registered_class() -> None:
     assert not missing, f"Registered classes missing from waggle.messages.__all__: {missing}"
     for spec in MESSAGE_SPECS:
         assert getattr(messages, spec.model.__name__) is spec.model
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_family_package_re_exports_every_registered_class_of_that_family(family: str) -> None:
+    package = importlib.import_module(f"waggle.messages.{family}")
+    exported = set(package.__all__)
+    registered = [spec.model for spec in MESSAGE_SPECS if spec.kind.startswith(f"{family}.")]
+
+    assert registered
+    missing = [model.__name__ for model in registered if model.__name__ not in exported]
+    assert not missing, f"Classes missing from waggle.messages.{family}.__all__: {missing}"
+    for model in registered:
+        assert getattr(package, model.__name__) is model
 
 
 def test_messages_package_re_exports_the_registry_api_and_base_classes() -> None:

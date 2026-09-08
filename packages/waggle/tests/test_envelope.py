@@ -38,7 +38,7 @@ from waggle.envelope import (
 from waggle.errors import UnknownKindError
 from waggle.ids import IdKind, MessageId, NodeId, parse_id, timestamp_of
 from waggle.messages.base import WaggleMessage
-from waggle.messages.control import Ping, Pong, Shutdown
+from waggle.messages.control.protocol import Ping, Pong, Shutdown
 from waggle.messages.labels import Urgency
 from waggle.minting import new_message_id, new_task_id
 

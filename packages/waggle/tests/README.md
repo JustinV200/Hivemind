@@ -2,12 +2,13 @@
 
 Tests for the waggle package: the Hive's shared wire protocol (the envelope, the codec, signing,
 the message catalogue, the transports and the offline outbox) and its shared primitives (ids,
-the clock and the long-running loop shape). The tree is flat and mirrors `src/waggle/` one test
-module per source module, with three subdirectories:
+the clock and the long-running loop shape). The tree mirrors `src/waggle/` one test module per
+source module, with three subdirectories:
 
-- `messages/`: one test module per family module, each family's `test_<family>.py` carrying an
-  `EXAMPLES` tuple with one valid instance of every class; `test_registry*.py` loads all ten by
-  file path and round-trips every example through the codec.
+- `messages/`: one directory per family mirroring `src/waggle/messages/<family>/`, one test
+  module per source module, the family's root test module carrying an `EXAMPLES` tuple with one
+  valid instance of every class; `test_registry*.py` loads all ten by file path and round-trips
+  every example through the codec.
 - `transport/`: the memory and WebSocket transports, the latter against a real loopback server.
 - `contracts/`: the transport conformance suite of roadmap step 1.9, parametrised over both
   implementations.

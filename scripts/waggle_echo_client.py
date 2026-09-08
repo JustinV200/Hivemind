@@ -65,8 +65,8 @@ from waggle.messages import (
     TaskProgress,
     Tempo,
 )
-from waggle.messages.task import WorkerRole
-from waggle.messages.task_reports import TaskStage
+from waggle.messages.task.assignment import WorkerRole
+from waggle.messages.task.reports import TaskStage
 from waggle.transport import DEFAULT_HOST, WebSocketClientTransport
 
 QUEUED_PINGS = 3  # Enough to show ordering on replay; the exit criterion says "an outbox".

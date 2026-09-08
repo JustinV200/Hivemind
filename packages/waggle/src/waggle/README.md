@@ -51,8 +51,9 @@ The protocol (roadmap phase 1):
   node, built from a key in the secret store or `generate()`) and `Ed25519Verifier` (an immutable
   map of `node_id` to raw public key, extended with `with_key`); `public_key_hex` and
   `public_key_from_hex` for the manifest form.
-- **Messages** (`waggle.messages`): the catalogue of sixty-six kinds in ten families and the
-  registry that maps each kind to its class and shape; see `messages/README.md`.
+- **Messages** (`waggle.messages`): the catalogue of sixty-six kinds in ten families, one
+  package each, and the registry that maps each kind to its class and shape; see
+  `messages/README.md`.
 - **Transports** (`waggle.transport`): the `Transport` protocol, `MemoryTransport` for one process
   and the WebSocket client and server for everything else; see `transport/README.md`.
 - **Outbox** (`waggle.outbox`): `Outbox(path)`, the append-only JSONL queue of unsigned envelopes a

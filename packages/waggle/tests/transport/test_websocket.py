@@ -40,7 +40,7 @@ from waggle.errors import (
     MissingSignatureError,
     TransportClosedError,
 )
-from waggle.messages.control import Ping, Pong
+from waggle.messages.control.protocol import Ping, Pong
 from waggle.transport.base import (
     CLOSE_MESSAGE_TOO_BIG,
     CLOSE_NORMAL,

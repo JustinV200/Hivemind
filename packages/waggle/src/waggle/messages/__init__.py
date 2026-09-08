@@ -2,16 +2,16 @@
 
 Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle dance); a message
 is a frozen pydantic model, one per kind, that travels as the payload of an Envelope (the outer
-wrapper every Waggle message travels in). The package holds one module per family (task,
-supervision, forage, cell, session, honey, tool, capping, swarm, control), split by
-responsibility where a family outgrew one file, plus the shared base, labels and reports, the
-catalogue (the one kind list) and the registry that indexes it. This file re-exports every
-message class, the shared labels and reports, the two base classes and the registry API, so a
-caller writes ``from waggle.messages import TaskAssign`` without knowing which file a family
-was split into. Under the codingrules 5.1 file limit it cannot also carry each family's enums,
-value models and bounds: those stay importable from the family module that defines them
-(``waggle.messages.task.WorkerRole``), and the shared constants, the id field aliases,
-``UtcDatetime``, ``check_id`` and ``id_validator`` from ``waggle.messages.base``.
+wrapper every Waggle message travels in). The package holds one sub-package per family (task,
+supervision, forage, cell, session, honey, tool, capping, swarm, control), each split by
+responsibility into modules behind the family's own ``__init__``, plus the shared base, labels
+and reports, the catalogue (the one kind list) and the registry that indexes it. This file
+re-exports every message class, the shared labels and reports, the two base classes and the
+registry API, so a caller writes ``from waggle.messages import TaskAssign`` without knowing
+which family, let alone which module, defines it. It does not also carry each family's enums
+and value models: those are the family package's face (``waggle.messages.task.WorkerRole``);
+the bounds stay in the module that names them, and the shared constants, the id field aliases,
+``UtcDatetime``, ``check_id`` and ``id_validator`` come from ``waggle.messages.base``.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -37,38 +37,68 @@ Public API:
     - Labels (labels): AccessLevel, AccuracyBar, AlarmSeverity, CombShieldLevel, HandoffRef,
       HoneyClearance, OsFamily, Postcondition, PostconditionKind, Tempo, Urgency.
     - Reports (reports): CellCapabilitiesReport, GpuReport, HostCapacityReport, PlatformReport.
-    - Task (task, task_reports): TaskAssign, TaskProgress, TaskResult, TaskCancel, TaskPause,
+    - Task (task): TaskAssign, TaskProgress, TaskResult, TaskCancel, TaskPause,
       TaskResume.
-    - Supervision (supervision, supervision_alarms, supervision_questions): Heartbeat,
+    - Supervision (supervision): Heartbeat,
       AlarmRaised, AlarmResolved, Inspect, InspectReply, Intervene, Question, Answer.
-    - Forage (forage, forage_hosting): CapacityReport, GrantIssued, GrantRevoked, ForageRequest,
+    - Forage (forage): CapacityReport, GrantIssued, GrantRevoked, ForageRequest,
       ForageReply, HostingDecided, CeilingsSet, PlanWritten.
-    - Cell (cell, cell_leases, cell_wax): CellReady, CellHeartbeat, CellTeardownRequest,
+    - Cell (cell): CellReady, CellHeartbeat, CellTeardownRequest,
       CellRequest, LeaseOpened, LeaseReleased, CellWaxProposed, CellWaxWritten, CellWaxCleared.
-    - Session (session, session_output, session_files): SessionOpen, SessionExec, SessionStdin,
+    - Session (session): SessionOpen, SessionExec, SessionStdin,
       SessionOutput, SessionExit, SessionPutFile, SessionGetFile, SessionClose.
     - Honey (honey): NectarDeposit, HoneyQuery, HoneyResponse.
-    - Tool (tool, tool_call): ToolRequest, ToolPromoted, ToolInvoke, ToolResult.
-    - Capping (capping, capping_verdict): ProposalSubmitted, CheckResult, Verdict,
+    - Tool (tool): ToolRequest, ToolPromoted, ToolInvoke, ToolResult.
+    - Capping (capping): ProposalSubmitted, CheckResult, Verdict,
       PostconditionResult, RollbackDone.
-    - Swarm (swarm, swarm_colonized): EnrolRequest, EnrolAccept, DeviceHeartbeat, NucPromote,
+    - Swarm (swarm): EnrolRequest, EnrolAccept, DeviceHeartbeat, NucPromote,
       NucPromoted, TrailSegmentSync.
-    - Control (control, control_hive): Ping, Pong, ErrorMessage, Shutdown, Cluster, Wake,
+    - Control (control): Ping, Pong, ErrorMessage, Shutdown, Cluster, Wake,
       HumanMessage, MaskOverride, QueenMoved.
     - Registry (registry): MessageSpec, MESSAGE_SPECS, spec_for, model_for, kind_for,
       all_kinds.
 """
 
 from waggle.messages.base import MessageShape, WaggleMessage
-from waggle.messages.capping import CheckResult, ProposalSubmitted
-from waggle.messages.capping_verdict import PostconditionResult, RollbackDone, Verdict
-from waggle.messages.cell import CellHeartbeat, CellReady
-from waggle.messages.cell_leases import CellRequest, CellTeardownRequest, LeaseOpened, LeaseReleased
-from waggle.messages.cell_wax import CellWaxCleared, CellWaxProposed, CellWaxWritten
-from waggle.messages.control import Cluster, ErrorMessage, Ping, Pong, Shutdown, Wake
-from waggle.messages.control_hive import HumanMessage, MaskOverride, QueenMoved
-from waggle.messages.forage import ForageReply, ForageRequest, GrantIssued, GrantRevoked
-from waggle.messages.forage_hosting import CapacityReport, CeilingsSet, HostingDecided, PlanWritten
+from waggle.messages.capping import (
+    CheckResult,
+    PostconditionResult,
+    ProposalSubmitted,
+    RollbackDone,
+    Verdict,
+)
+from waggle.messages.cell import (
+    CellHeartbeat,
+    CellReady,
+    CellRequest,
+    CellTeardownRequest,
+    CellWaxCleared,
+    CellWaxProposed,
+    CellWaxWritten,
+    LeaseOpened,
+    LeaseReleased,
+)
+from waggle.messages.control import (
+    Cluster,
+    ErrorMessage,
+    HumanMessage,
+    MaskOverride,
+    Ping,
+    Pong,
+    QueenMoved,
+    Shutdown,
+    Wake,
+)
+from waggle.messages.forage import (
+    CapacityReport,
+    CeilingsSet,
+    ForageReply,
+    ForageRequest,
+    GrantIssued,
+    GrantRevoked,
+    HostingDecided,
+    PlanWritten,
+)
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.labels import (
     AccessLevel,
@@ -97,18 +127,43 @@ from waggle.messages.reports import (
     HostCapacityReport,
     PlatformReport,
 )
-from waggle.messages.session import SessionClose, SessionExec, SessionOpen, SessionStdin
-from waggle.messages.session_files import SessionGetFile, SessionPutFile
-from waggle.messages.session_output import SessionExit, SessionOutput
-from waggle.messages.supervision import Heartbeat, Inspect, InspectReply, Intervene
-from waggle.messages.supervision_alarms import AlarmRaised, AlarmResolved
-from waggle.messages.supervision_questions import Answer, Question
-from waggle.messages.swarm import DeviceHeartbeat, EnrolAccept, EnrolRequest
-from waggle.messages.swarm_colonized import NucPromote, NucPromoted, TrailSegmentSync
-from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume
-from waggle.messages.task_reports import TaskProgress, TaskResult
-from waggle.messages.tool import ToolPromoted, ToolRequest
-from waggle.messages.tool_call import ToolInvoke, ToolResult
+from waggle.messages.session import (
+    SessionClose,
+    SessionExec,
+    SessionExit,
+    SessionGetFile,
+    SessionOpen,
+    SessionOutput,
+    SessionPutFile,
+    SessionStdin,
+)
+from waggle.messages.supervision import (
+    AlarmRaised,
+    AlarmResolved,
+    Answer,
+    Heartbeat,
+    Inspect,
+    InspectReply,
+    Intervene,
+    Question,
+)
+from waggle.messages.swarm import (
+    DeviceHeartbeat,
+    EnrolAccept,
+    EnrolRequest,
+    NucPromote,
+    NucPromoted,
+    TrailSegmentSync,
+)
+from waggle.messages.task import (
+    TaskAssign,
+    TaskCancel,
+    TaskPause,
+    TaskProgress,
+    TaskResult,
+    TaskResume,
+)
+from waggle.messages.tool import ToolInvoke, ToolPromoted, ToolRequest, ToolResult
 
 __all__ = [
     "MESSAGE_SPECS",

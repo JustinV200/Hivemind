@@ -30,13 +30,21 @@ from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, SignatureError
 from waggle.ids import IdKind
 from waggle.messages.base import MessageShape, WaggleMessage
-from waggle.messages.control import Cluster, ClusterCause, ErrorMessage, Ping, Pong, Shutdown, Wake
-from waggle.messages.control_hive import (
+from waggle.messages.control.hive import (
     HumanMessage,
     MaskOverride,
     MaskOverrideAction,
     MaskTactic,
     QueenMoved,
+)
+from waggle.messages.control.protocol import (
+    Cluster,
+    ClusterCause,
+    ErrorMessage,
+    Ping,
+    Pong,
+    Shutdown,
+    Wake,
 )
 from waggle.messages.labels import Urgency
 from waggle.messages.registry import all_kinds, kind_for, spec_for

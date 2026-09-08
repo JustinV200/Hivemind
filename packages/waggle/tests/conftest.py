@@ -37,7 +37,7 @@ from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.ids import MessageId, NodeId
 from waggle.messages.base import WaggleMessage
-from waggle.messages.control import Ping
+from waggle.messages.control.protocol import Ping
 from waggle.minting import new_device_id, new_hive_id, new_node_id, new_warden_id, new_worker_id
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 

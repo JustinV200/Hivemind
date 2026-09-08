@@ -13,7 +13,7 @@ effect a validator must not have, and a name is not proof of where the traffic g
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
-    connector), inside the waggle package. Called by waggle.messages.control_hive (QueenMoved's
+    connector), inside the waggle package. Called by waggle.messages.control.hive (QueenMoved's
     validator), by the WebSocket client transport before it dials, and by the manifest loader;
     calls into the standard library only.
 
@@ -25,7 +25,7 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 6 ("Confidentiality is the link's") for the rule.
-    - waggle.messages.control_hive for QueenMoved, the message that carries an address.
+    - waggle.messages.control.hive for QueenMoved, the message that carries an address.
 """
 
 from __future__ import annotations

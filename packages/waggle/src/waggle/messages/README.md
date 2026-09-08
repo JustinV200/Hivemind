@@ -16,14 +16,16 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
 - `labels.py` and `reports.py`: the closed sets and value models that ride on messages of more
   than one family (`HoneyClearance`, `AccessLevel`, `CombShieldLevel`, `Urgency`, `Tempo`,
   `Postcondition`, `PlatformReport`, `HostCapacityReport`, ...), so no family file imports another.
-- One module per family, split by responsibility where a family outgrew the size limit:
-  `task.py` + `task_reports.py`; `supervision.py` + `supervision_telemetry.py` +
-  `supervision_alarms.py` + `supervision_questions.py`; `forage.py` + `forage_values.py` +
-  `forage_capacity.py` + `forage_hosting.py`; `cell.py` + `cell_leases.py` + `cell_wax.py`;
-  `session.py` + `session_output.py` + `session_files.py`; `honey.py` + `honey_hit.py`;
-  `tool.py` + `tool_call.py` + `tool_json.py`; `capping.py` + `capping_action.py` +
-  `capping_verdict.py`; `swarm.py` + `swarm_colonized.py`; `control.py` + `control_hive.py`.
-  Enums that only one family uses live in that family's file.
+- One package per family, `messages/<family>/`, split by responsibility into modules, with an
+  `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
+  `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
+  3): `task/` (`assignment.py`, `reports.py`); `supervision/` (`oversight.py`, `telemetry.py`,
+  `alarms.py`, `questions.py`); `forage/` (`grants.py`, `values.py`, `capacity.py`,
+  `hosting.py`); `cell/` (`status.py`, `leases.py`, `wax.py`); `session/` (`commands.py`,
+  `output.py`, `files.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
+  `call.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `verdict.py`); `swarm/`
+  (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`). Enums that only one
+  family uses live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all
   sixty-six kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
   `all_kinds`. Message classes never carry their own kind.
@@ -40,6 +42,7 @@ the receiver and only mentioned in the field description.
 uv run --frozen pytest packages/waggle/tests/messages packages/waggle/tests/test_spec_drift.py
 ```
 
-Each family's test module carries an `EXAMPLES` tuple with one valid instance of every class;
-the registry tests load all ten by file path and round-trip every example through `wrap`, the
-`Codec` and back, so a class that cannot survive the wire never reaches the registry.
+The test tree mirrors the packages (`tests/messages/<family>/test_<module>.py`). Each family's
+root test module carries an `EXAMPLES` tuple with one valid instance of every class; the registry
+tests load all ten by file path and round-trip every example through `wrap`, the `Codec` and
+back, so a class that cannot survive the wire never reaches the registry.

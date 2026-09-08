@@ -11,7 +11,7 @@ Key invariants:
 
 See Also:
     - waggle.uris for the module under test.
-    - waggle.messages.control_hive for QueenMoved, which applies the rule to new_address.
+    - waggle.messages.control.hive for QueenMoved, which applies the rule to new_address.
 """
 
 from __future__ import annotations

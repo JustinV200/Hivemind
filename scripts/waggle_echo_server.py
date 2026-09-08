@@ -42,7 +42,7 @@ from waggle_echo_keys import SERVER_ROLE, Identity, load_keyring
 
 from waggle import Clock, Envelope, Hop, SystemClock, TransportError, WaggleError, wrap
 from waggle.messages import HoneyClearance, Ping, Pong, TaskAssign, TaskProgress
-from waggle.messages.task_reports import TaskStage
+from waggle.messages.task.reports import TaskStage
 from waggle.transport import WebSocketServer, WebSocketTransport
 
 READY_LINE = "READY"  # Printed once bound: the orchestrator's cue to start the client.
