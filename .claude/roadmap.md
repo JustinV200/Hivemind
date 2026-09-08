@@ -228,15 +228,18 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
 
 ### Steps
 
-- [ ] **1.1 Protocol spec first.** Write `docs/waggle/spec.md`: envelope fields (`id`,
+- [x] **1.1 Protocol spec first.** Write `docs/waggle/spec.md`: envelope fields (`id`,
   `correlation_id`, `sender`, `recipient`, `kind`, `version`, `sent_at`, `node_id`, `payload`,
   `signature`), the request/reply/event distinction, versioning rule (additive changes bump minor;
   breaking bump major; receivers reject unknown majors), and error message shape with stable
   `code` strings.
-- [ ] **1.2 Envelope and codec.** `waggle/envelope.py` (pydantic, frozen, `extra="forbid"`),
+- [x] **1.2 Envelope and codec.** `waggle/envelope.py` (pydantic, frozen, `extra="forbid"`),
   `waggle/codec.py` (JSON serialise/deserialise, version check, size limit constant with comment).
-  Round-trip and rejection tests, plus `hypothesis` property tests for the codec.
-- [ ] **1.3 Message catalogue.** One file per family under `waggle/messages/`:
+  Round-trip and rejection tests, plus `hypothesis` property tests for the codec. Landed as:
+  `wrap(payload, hop, *, clock, correlation_id=None)` with `Hop(sender, recipient, node_id)`;
+  frame parsing in `waggle/frame.py`, the dialable-URI rule in `waggle/uris.py`; a verifier
+  configured on the `Codec` means signatures are required, none means ignored (in-process).
+- [x] **1.3 Message catalogue.** One file per family under `waggle/messages/`:
   - `task.py`: `TaskAssign`, `TaskProgress`, `TaskResult`, `TaskCancel`, `TaskPause`, `TaskResume`.
   - `supervision.py`: `Heartbeat` (carries `ContextTelemetry`), `AlarmRaised`, `AlarmResolved`,
     `Inspect`, `InspectReply`, `Intervene` (compact, checkpoint, handoff, rebind, takeover, cancel),
@@ -259,25 +262,29 @@ conformance suite, and `docs/waggle/` as the human-readable spec.
     `MaskOverride` (Queen → Warden, reason and expiry; phase 6.13), `QueenMoved` (a relocation
     notice signed with the Hive key: new address, effective at, grace until; phase 13.2a).
   Each message is a pydantic model with every field described. A `registry.py` maps `kind` string
-  to model class and is the only place that list lives.
-- [ ] **1.4 Transport protocol.** `waggle/transport/base.py`: `Transport` protocol with
+  to model class and is the only place that list lives. Landed as: each family split by
+  responsibility into two to four modules (`task.py` + `task_reports.py`, and so on; the list is
+  in `messages/README.md`) because one file per family broke the 300-line limit; the shared
+  labels and reports in `labels.py` and `reports.py`; `Error` named `ErrorMessage` (codingrules
+  section 10); the sixty-six rows in `messages/catalogue.py`, which `registry.py` indexes.
+- [x] **1.4 Transport protocol.** `waggle/transport/base.py`: `Transport` protocol with
   `connect()`, `send(envelope)`, `receive() -> AsyncIterator[Envelope]`, `close()`. Document the
   delivery guarantee (at-most-once at this layer; retries belong to the caller) in the docstring.
-- [ ] **1.5 Memory transport.** `waggle/transport/memory.py`: in-process pair of queues for tests
+- [x] **1.5 Memory transport.** `waggle/transport/memory.py`: in-process pair of queues for tests
   and for the Warden and Workers running in the Queen's process during phase 3.
-- [ ] **1.6 WebSocket transport.** `waggle/transport/websocket.py` using `websockets`. Server and
+- [x] **1.6 WebSocket transport.** `waggle/transport/websocket.py` using `websockets`. Server and
   client halves in separate files if either exceeds the size limit. Heartbeat, reconnect with
   backoff (constants with comments), and clean close.
-- [ ] **1.7 Signing.** `waggle/signing.py`: Ed25519 signature over the canonical envelope bytes
+- [x] **1.7 Signing.** `waggle/signing.py`: Ed25519 signature over the canonical envelope bytes
   (`cryptography` library). Optional for in-process transport, mandatory for anything that crosses
   a machine boundary; the codec verifies when a key is configured.
-- [ ] **1.8 Outbox for offline nodes.** `waggle/outbox.py`: a durable, ordered queue of envelopes
+- [x] **1.8 Outbox for offline nodes.** `waggle/outbox.py`: a durable, ordered queue of envelopes
   a node could not send, replayed on reconnection. Used by offline Wardens and by the Pollen
   gateway. Small, file-backed, property-tested for ordering and idempotent replay.
-- [ ] **1.9 Conformance suite.** `waggle/tests/contracts/test_transport_contract.py` parametrised
+- [x] **1.9 Conformance suite.** `waggle/tests/contracts/test_transport_contract.py` parametrised
   over `MemoryTransport` and `WebSocketTransport`: ordering within a connection, close semantics,
   oversized message rejection, malformed frame rejection, outbox replay after a dropped link.
-- [ ] **1.10 Spec/code drift check.** A test loads `docs/waggle/spec.md`'s message table and asserts
+- [x] **1.10 Spec/code drift check.** A test loads `docs/waggle/spec.md`'s message table and asserts
   every listed `kind` exists in `registry.py` and vice versa.
 
 ### Exit criteria

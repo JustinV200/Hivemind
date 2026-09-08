@@ -34,10 +34,46 @@ drifting off-task.
 
 - One step → one Agent call, by default.
 - A step whose file list has no internal imports between the files (e.g. step 1.3's message
-  catalogue: ten independent files under `waggle/messages/`) → one Agent call per file, dispatched
-  in parallel in a single message.
-- Never batch multiple roadmap steps into a single subagent call. If a subagent's output would
-  cover more than one checkbox, it took on scope it shouldn't have — split the dispatch next time.
+  catalogue: ten independent files under `waggle/messages/`) → group the files into two to four
+  Agent calls (one per related family group), dispatched in parallel in a single message. One
+  call per file was the original rule; it multiplied the fixed cost of every subagent re-reading
+  the brief, the spec and the coding rules by the number of files, and that fixed cost is most of
+  the bill (see "Usage budget" below).
+- Batch two adjacent roadmap steps into one subagent call only when the second is a thin
+  consumer of the first (a Protocol and its first implementation; a module and its conformance
+  test). Never batch more than two, and never batch steps that touch different subsystems.
+
+## Usage budget
+
+Subagent tokens come out of the same session limit as the main loop, and a phase that hits that
+limit mid-run leaves half-written steps behind that cost more to recover than they saved. These
+rules exist to keep a phase inside one session:
+
+1. **Every subagent has a fixed cost before it writes a line**: reading the brief, the roadmap
+   step, the coding-rules sections and the existing files it must match. Budget roughly 100k
+   tokens per dispatch for that alone. Ten dispatches that each read the same spec cost ten times
+   what one dispatch reading it once would; prefer fewer, larger dispatches over many small ones.
+2. **No separate tester subagent by default.** Fable runs the gates itself (`ruff`, `mypy`,
+   `lint-imports`, the hygiene scripts, `pytest` with coverage) and reviews the diff; that is
+   cheaper than a subagent re-deriving the whole context to run the same commands. Spin up an
+   independent tester only for a phase's exit criteria, or for a step that touches a security
+   boundary (codingrules §8.15, §15).
+3. **No review panels.** One adversarial reviewer for a spec or an ADR, at most, and only when the
+   document is the source of truth for a whole phase (a protocol spec, the layer table). Fable
+   applies the findings directly; a separate "fixer" subagent costs a full re-read for edits Fable
+   can make in minutes.
+4. **The Workflow tool (multi-agent orchestration) stays off** unless the user asks for it by
+   name. Its fan-out patterns (judge panels, loop-until-dry, three-vote verification) are the
+   opposite of conservative.
+5. **Fable does small work itself**: a spec edit pass, a docstring fix, an `__init__.py` re-export
+   list, ticking the roadmap, the commit. Dispatching a subagent for anything under about fifty
+   changed lines costs more than doing it.
+6. **Run at most five subagents at once**, and stagger phases so that a session-limit failure
+   loses one wave, not a whole phase. When a dispatch fails on a limit, do not relaunch it
+   verbatim: check what it left on disk first (`git status`), and resume from there with a
+   narrower prompt.
+7. **Subagent prompts carry file paths and section line ranges**, never pasted documents, and say
+   exactly which files the subagent may touch, so two dispatches never edit the same file.
 
 ## Context discipline
 
@@ -89,12 +125,13 @@ within a phase. Use it directly instead of re-deriving it:
 
 ## Testing subagents
 
-Spin one up:
+Spin one up (sparingly; see "Usage budget"):
 
-- At the end of every step, to independently confirm codingrules §17 (Definition of Done) rather
-  than accepting the implementer's self-report at face value.
 - At a phase's exit criteria, to run the phase's full acceptance scenario end to end and report
   pass/fail per bullet in that phase's "Exit criteria" list.
+- For a step that touches a security boundary, to independently confirm codingrules §17
+  (Definition of Done) rather than accepting the implementer's self-report at face value. For
+  every other step Fable runs the gates and reads the diff itself.
 
 A tester subagent's prompt is the checklist item plus the exact command to run
 (`uv run pytest -m "not integration and not e2e and not live_llm and not local_llm"`,

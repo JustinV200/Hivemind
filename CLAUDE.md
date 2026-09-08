@@ -8,6 +8,9 @@ Read these before writing or changing anything:
 - `.claude/roadmap.md`: the build order. Work one step at a time, in order, and tick the box in
   the PR that lands it. Do not start a phase until the previous phase's exit criteria hold.
 - `README.md`: the vision and the vocabulary. Code uses the bee terms literally.
+- `.claude/subagents.md`: how work splits between the orchestrator and subagents, and the usage
+  budget. Subagent tokens share the session limit: few, large dispatches; no tester or reviewer
+  subagents by default; the orchestrator runs the gates, applies small edits and commits itself.
 
 The rules that get broken most often:
 

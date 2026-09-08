@@ -62,10 +62,21 @@ Public API:
       OutboxError with OutboxCorruptError.
 """
 
-from waggle.clock import (
-    Clock,
-    FakeClock,
-    SystemClock,
+from waggle.clock import Clock, FakeClock, SystemClock
+from waggle.codec import (
+    MAX_FRAME_BYTES,
+    Codec,
+    Signer,
+    Verifier,
+    canonical_bytes,
+)
+from waggle.envelope import (
+    PROTOCOL_MAJOR,
+    PROTOCOL_MINOR,
+    PROTOCOL_VERSION,
+    Envelope,
+    Hop,
+    wrap,
 )
 from waggle.errors import (
     CodecError,
@@ -106,9 +117,8 @@ from waggle.ids import (
     parse_id,
     timestamp_of,
 )
-from waggle.loop import (
-    TickLoop,
-)
+from waggle.key_encoding import public_key_from_hex, public_key_hex
+from waggle.loop import TickLoop
 from waggle.minting import (
     new_alarm_id,
     new_cell_id,
@@ -124,20 +134,33 @@ from waggle.minting import (
     new_warden_id,
     new_worker_id,
 )
+from waggle.outbox import Outbox
+from waggle.outbox_replay import ReplayReport, expire_older_than, replay_outbox
+from waggle.signing import Ed25519Signer, Ed25519Verifier
+from waggle.uris import check_waggle_uri, is_loopback_host
 
 __all__ = [
+    "MAX_FRAME_BYTES",
+    "PROTOCOL_MAJOR",
+    "PROTOCOL_MINOR",
+    "PROTOCOL_VERSION",
     "AlarmId",
     "CellId",
     "Clock",
+    "Codec",
     "CodecError",
     "ConnectFailedError",
     "ConnectionLostError",
     "DeviceId",
+    "Ed25519Signer",
+    "Ed25519Verifier",
+    "Envelope",
     "EventId",
     "FakeClock",
     "FrameTooLargeError",
     "GrantId",
     "HiveId",
+    "Hop",
     "IdKind",
     "InvalidIdError",
     "InvalidPayloadError",
@@ -147,9 +170,12 @@ __all__ = [
     "MessageId",
     "MissingSignatureError",
     "NodeId",
+    "Outbox",
     "OutboxCorruptError",
     "OutboxError",
+    "ReplayReport",
     "SignatureError",
+    "Signer",
     "SystemClock",
     "TaskId",
     "TickLoop",
@@ -159,9 +185,14 @@ __all__ = [
     "UnknownKindError",
     "UnknownSignerError",
     "UnsupportedVersionError",
+    "Verifier",
     "WaggleError",
     "WardenId",
     "WorkerId",
+    "canonical_bytes",
+    "check_waggle_uri",
+    "expire_older_than",
+    "is_loopback_host",
     "new_alarm_id",
     "new_cell_id",
     "new_device_id",
@@ -177,5 +208,9 @@ __all__ = [
     "new_warden_id",
     "new_worker_id",
     "parse_id",
+    "public_key_from_hex",
+    "public_key_hex",
+    "replay_outbox",
     "timestamp_of",
+    "wrap",
 ]
