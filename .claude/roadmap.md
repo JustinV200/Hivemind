@@ -395,7 +395,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
 
 ### Steps
 
-- [ ] **3.1 Hive Manifest.** `manifest/schema.py` (pydantic `HiveManifest` with sections `[hive]`,
+- [x] **3.1 Hive Manifest.** `manifest/schema.py` (pydantic `HiveManifest` with sections `[hive]`,
   `[queen]`, `[hive_stand]` (`enabled`, `scratch_root`, `address`, `capacity` overrides), `[llm]`,
   `[llm.providers.*]`, `[llm.slots]`, `[forage]` with `[forage.roles.<role>]` footprints (cpu,
   memory, seats per bee, estimated token rate, Exoskeleton extra), `[forage.map.<model-id>]`
@@ -461,7 +461,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `decompose_goal.md`, `warden_system.md`, `drone_system.md`, `attendant_triage.md`), loaded by
   `llm/prompts/loader.py`; `llm/prompts/README.md` states the portability rules. Snapshot tests.
   Prompts label retrieved, hot-state and user-supplied content as such and delimit it.
-- [ ] **3.10 The Cell abstraction.** `cell/models.py` (`Cell`: id, kind, capabilities, source,
+- [x] **3.10 The Cell abstraction.** `cell/models.py` (`Cell`: id, kind, capabilities, source,
   `ForageCapacity`, `comb_shield`; `CellKind` enum; `CellCapabilities`: os, arch, has_display,
   has_audio, has_browser, can_start_display, can_host_model, network scopes),
   `cell/session.py` (`CellSession` protocol: streaming `exec`, `put_file`, `get_file`,
@@ -551,7 +551,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   pure `CapabilitySet` with `allows()` and `attenuate(subset)` from 10.1, built now because 3.15
   and 3.16 gate on them; 10.1 adds the remaining families and 10.2 the policy engine.
   `guard/access.py`: what each `AccessLevel` (2.3a) permits, as data.
-- [ ] **3.14 Memory v0.** `memory/handoff.py` (the `Handoff` schema with mandatory fields and
+- [x] **3.14 Memory v0.** `memory/handoff.py` (the `Handoff` schema with mandatory fields and
   capped notes), `memory/hot_state.py` (`assemble(principal, event, budget) -> Prompt`: v0 packs
   active tasks, open Alarms, pending questions, last N decisions, pins and notes by recency, then
   token-counts and trims), `memory/checkpoint.py` (write a Handoff, mark the raw transcript for
