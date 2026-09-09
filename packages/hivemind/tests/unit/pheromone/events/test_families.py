@@ -159,6 +159,11 @@ def test_llm_event_non_call_kinds_do_not_require_slot_provider_or_usage(kind: st
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
+    # roadmap step 3.14 (memory v0): added alongside the store that first needs them.
+    assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS
+
+
 def test_event_families_covers_exactly_the_eleven_families() -> None:
     assert set(EVENT_FAMILIES) == {
         "cell",

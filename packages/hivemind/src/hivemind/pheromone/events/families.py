@@ -36,7 +36,10 @@ Vocabulary (family -> kind -> when it is recorded):
         half of a checkpoint); reset (a threshold reset ran); compacted (a summary replaced older
         source records); wax_proposed (Cell Wax was proposed); wax_written (the Queen wrote it);
         wax_rejected (the Queen refused it); wax_cleared (the Queen cleared it); wax_expired (its
-        expiry passed unrenewed).
+        expiry passed unrenewed); episode (an EpisodeRecord was written for an awake episode or an
+        autopilot decision, roadmap step 3.14); note (a bee wrote a short note directly into hot
+        state, bounded per author); pinned (a Pin was added to hot state, from the manifest or at
+        runtime).
     queen: started (the Queen process came up); placed (a Placement decision was made for a task);
         woke (an awake episode ran); clustered (Clustering paused affected bees); resumed (bees
         resumed from Clustering); stopped (the Queen process is shutting down).
@@ -205,6 +208,10 @@ class MemoryEvent(PheromoneEvent):
             "memory.wax_rejected",
             "memory.wax_cleared",
             "memory.wax_expired",
+            # roadmap step 3.14 (memory v0): an EpisodeRecord, a bee-written Note, and a Pin.
+            "memory.episode",
+            "memory.note",
+            "memory.pinned",
         }
     )
 
