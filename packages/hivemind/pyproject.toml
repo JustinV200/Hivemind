@@ -9,6 +9,7 @@ dependencies = [
     "structlog",        # Structured logging: JSON in production, pretty in dev (codingrules section 12).
     "typer",            # The `hive` CLI's command layer.
     "httpx",            # The OpenAI-compatible adapter's client and, later, the Entrance and the http tool (codingrules 8.6).
+    "anthropic",        # The Anthropic adapter's SDK; imported only under llm/providers/anthropic/ (codingrules 8.6).
 ]
 
 [tool.uv.sources]
