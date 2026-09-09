@@ -68,6 +68,9 @@ ADRs that exist today, in numeric order:
 - `0008-llm-provider-independence-and-model-slots.md`: one `LLMProvider` door, HiveMind's own
   request/response types, declared capabilities instead of provider-name branches, model slots
   and `Effort` in `forage`, offline mode, and normalised `Usage`.
+- `0009-structured-output-and-tool-call-degradation-ladders.md`: rungs and protocols chosen from
+  declared capabilities, a `CallGate` seam for the Fanner, a `LadderObserver` seam for the
+  Pheromone Trail, and a documented JSON-schema subset instead of a `jsonschema` dependency.
 - `0011-kernel-shape-autopilot-then-awake.md`: the Queen and every Warden run autopilot (a
   deterministic dispatch table that never awaits a model) first, and only what autopilot cannot
   decide runs a stateless awake episode assembled fresh from durable state.
@@ -88,3 +91,6 @@ ADRs that exist today, in numeric order:
   not a single hosting flag.
 - `0017-tempo-speed-against-accuracy.md`: one table, `GRADE_FLOORS`, is the only place a task's
   accuracy bar becomes a minimum Forage map grade (`LOW`→1, `NORMAL`→2, `HIGH`→3, `CRITICAL`→4).
+- `0020-llm-records-its-own-trail-events.md`: Layer 1 becomes two ranks, `llm | manifest` above
+  `pheromone | forage`, so the ladders and the Fanner record their own `llm.*` events; amends
+  ADR-0002's Layer 1 row only.

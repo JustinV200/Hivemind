@@ -23,8 +23,10 @@ build. No vendor SDK is imported here or anywhere else outside `llm/providers/<n
   implementation may be an `async def` generator function), `count_tokens` and `health`.
 - **Errors** (`hivemind.llm.errors`): `LLMError` and its tree -- `RateLimitedError`,
   `ProviderUnavailableError`, `ContextTooLongError`, `RefusedError`, `MalformedOutputError`,
-  `UnknownProviderError`, `OfflineViolationError` -- every one carrying `provider`, the manifest's
-  `[llm.providers.<name>]` key.
+  `UnknownProviderError`, `OfflineViolationError`, `ProviderRequestError` (a provider's
+  non-retryable 4xx, e.g. an OpenAI-compatible server's own error body or its probe-time refusal
+  of an unlisted model) -- every one carrying `provider`, the manifest's `[llm.providers.<name>]`
+  key.
 - **The fake** (`hivemind.llm.fake`): `FakeLLMProvider`, an honestly-capability-limited,
   scriptable `LLMProvider`. `script(*responses)` queues `LLMResponse`/`LLMError` values FIFO;
   `set_outage(is_down)` simulates a total outage; `calls` records every request seen. A
@@ -35,6 +37,41 @@ build. No vendor SDK is imported here or anywhere else outside `llm/providers/<n
   manifest binding key, a live `LLMProvider`, the model id, effort, context window, per-million
   token prices copied from the Forage map at bind time, and an optional `fallback` chain.
   `resolve(slot, manifest) -> BoundModel` is **not** implemented here; it is roadmap step 3.4.
+
+## Public API (roadmap step 3.5)
+
+The degradation ladders (`hivemind.llm.ladders`): the fallback logic codingrules section 8.6
+("degrade by ladder, in one place") requires, so a caller never branches on provider name or asks
+whether a binding can enforce a schema or call a tool natively.
+
+- **Structured output** (`hivemind.llm.ladders.structured`): `complete_structured(bound, request,
+  schema, *, gate=None, observer=None)` walks NATIVE (schema-enforced) -> JSON_MODE (JSON-enforced,
+  pydantic-validated) -> PROMPTED (fenced ` ```json ` block, extracted and validated), retrying
+  each rung with the validation error fed back as a correction before stepping down. Returns a
+  `StructuredResult` (`value`, `rung`, `attempts`, `usage`); raises `MalformedOutputError` once
+  PROMPTED's own retries are exhausted. `Rung`, `NATIVE_SCHEMA_RETRIES`, `JSON_MODE_RETRIES`,
+  `PROMPTED_JSON_RETRIES` are the rung enum and its commented retry-count constants.
+- **Tool calls** (`hivemind.llm.ladders.tools`): `run_tool_loop(bound, request, tools, executor,
+  options=None)` runs the native tool-call protocol when the binding declares
+  `native_tool_calls`, else a prompted protocol (a preamble listing every tool, fenced ` ```tool `
+  blocks parsed back out). Every call, either protocol, is validated with `validate_arguments`
+  before it reaches `ToolExecutor.execute`; an invalid call comes back as an `is_error`
+  `ToolResultPart`, never a raised exception. Returns a `ToolLoopResult` (`final_text`, `rounds`,
+  `calls`, `usage`, `stop_reason`, `is_exhausted`). `ToolLoopOptions` groups `max_rounds`, `gate`
+  and `observer`; `MAX_TOOL_ROUNDS_DEFAULT` is its default round cap.
+- **Argument validation** (`hivemind.llm.ladders.extraction`): `validate_arguments(schema,
+  arguments) -> tuple[str, ...]`, a documented JSON-schema subset (`type`, `properties`,
+  `required`, `additionalProperties: false`, `enum`, one level deep) with no `jsonschema`
+  dependency (see `docs/adr/0009-structured-output-and-tool-call-degradation-ladders.md`).
+- **The call seam** (`hivemind.llm.ladders.gate`): `CallGate`, a `typing.Protocol` with one
+  `complete(bound, request)` method every ladder calls through instead of `bound.provider.complete`
+  directly, and `DirectCallGate`, the unmetered default. The Fanner (roadmap step 3.12a) will
+  implement `CallGate` so every call is seat-metered without either ladder knowing.
+- **Reporting a step-down** (`hivemind.llm.ladders.observer`): `LadderObserver`, a `typing.
+  Protocol` with one `on_fallback(note)` method; `FallbackNote`, the frozen value a ladder builds
+  (`slot`, `from_binding`, `to_binding`, `from_rung`, `to_rung`, `reason: FallbackReason`);
+  `NullLadderObserver`, the default that discards every note; `TrailLadderObserver`, which records
+  each one as an `llm.fallback` `LlmEvent` on the Pheromone Trail.
 
 ## How to test this
 
