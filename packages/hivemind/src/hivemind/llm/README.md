@@ -36,7 +36,38 @@ build. No vendor SDK is imported here or anywhere else outside `llm/providers/<n
 - **Slots** (`hivemind.llm.slots`): `BoundModel`, a frozen dataclass carrying the slot, the
   manifest binding key, a live `LLMProvider`, the model id, effort, context window, per-million
   token prices copied from the Forage map at bind time, and an optional `fallback` chain.
-  `resolve(slot, manifest) -> BoundModel` is **not** implemented here; it is roadmap step 3.4.
+
+## Public API (roadmap step 3.4)
+
+- **Resolving a slot** (`hivemind.llm.slots`): `resolve(slot, bindings, providers, map=None) ->
+  BoundModel` walks `slot`'s own `[llm.slots]` row and its whole fallback chain to a `BoundModel`;
+  `resolve_key(key, slot, bindings, providers, map=None) -> BoundModel` does the same starting
+  from a named binding (`"local_worker"`) instead, for a rebind that still records which slot the
+  result serves. `bindings` is `Iterable[hivemind.forage.map.SlotBinding]` -- the forage-side view
+  of `[llm.slots]`, not the manifest's own `LlmSection` -- because codingrules section 4 places
+  `llm` and `manifest` as independent Layer 1 siblings that may not import each other; the
+  composition root converts a loaded manifest's slot table into these rows once, the same way
+  `hivemind.forage.map.ForageMap.for_slot` already does. `providers` is a `ProviderLookup`
+  (`__call__(name) -> LLMProvider`); `map`, an optional `hivemind.forage.map.ForageMap`, prices
+  every binding in the chain, leaving `cost_per_million_*_usd` `None` when it is absent or has no
+  matching source. `UnresolvableSlotError` guards a hand-built `bindings` table that names no row
+  for the starting key, or whose fallback chain cycles -- a condition the manifest's own
+  validators already prevent for a loaded Hive Manifest.
+- **The provider registry** (`hivemind.llm.registry`): `ProviderRegistry` constructs a provider
+  lazily on first use and caches it; `provider(name)` raises `UnknownProviderError` for an unknown
+  name or a `kind` with no factory, and `OfflineViolationError` when `[llm] offline = true` and
+  that provider's `base_url` is not provably loopback -- enforced a second time here, on top of
+  the manifest's own load-time check, so a provider whose *default* endpoint is remote (a future
+  `ANTHROPIC` adapter with no `base_url` set) is caught too. `bound(slot)`/`bound_for_key(key,
+  slot)` call `resolve`/`resolve_key`. `RegistryDeps` groups `factories` (a `kind -> ProviderFactory`
+  table), `environ` (the only place this module reads a `HIVEMIND_*` variable, mirroring
+  `hivemind.manifest.env.provider_api_key`'s derivation), `clock` and an optional `map`.
+  `ProviderConfig` is this package's own, decoupled mirror of one `[llm.providers.<name>]` row
+  (`ProviderKind` mirrors the manifest's own `Literal`); `apply_overrides(base, overrides)`
+  replaces every field named in a `hivemind.manifest.schema.llm.CapabilityOverrides.
+  as_overrides()`-shaped mapping. `default_factories()` covers `"fake"` and `"openai_compat"`;
+  `PENDING_KINDS` (`frozenset({"anthropic"})`) names what it does not yet cover until roadmap step
+  3.6's adapter lands.
 
 ## Public API (roadmap step 3.5)
 
@@ -72,6 +103,35 @@ whether a binding can enforce a schema or call a tool natively.
   (`slot`, `from_binding`, `to_binding`, `from_rung`, `to_rung`, `reason: FallbackReason`);
   `NullLadderObserver`, the default that discards every note; `TrailLadderObserver`, which records
   each one as an `llm.fallback` `LlmEvent` on the Pheromone Trail.
+
+## Public API (roadmap step 3.12a)
+
+The Fanner (`hivemind.llm.fanner`): the seat meter every model call in the Hive passes through
+(codingrules section 8.10, "the only place seat counts are enforced"), named after the bees that
+fan their wings to regulate the hive's airflow.
+
+- **`Fanner`**: owns every provider's `SeatMeter` and `ProviderRateLimiter` for one Hive
+  process, built once from a `FannerDeps` (`map`, `seats`, `limits`, `clock`, `recorder`).
+  Seats are one budget per provider, shared by every binding on it. `Fanner.lane(tempo)` hands
+  one bee or call site a `FannerLane`; `in_flight(provider)` and `queued(provider)` are the
+  introspection `hive llm` (a later roadmap step) and tests read.
+- **`FannerLane`**: implements `hivemind.llm.ladders.gate.CallGate` exactly, so a ladder can take
+  a lane as its `gate=` with no code of its own aware the Fanner exists. `complete(bound, request)`
+  walks `bound`'s fallback chain, spilling to the next binding in exactly three cases -- the
+  source's grade is below the calling tempo's floor, the model is not loaded there (read as
+  `spec.seats == 0`, since `ModelSourceSpec` carries no separate "loaded" field), or seat-queueing
+  ate more than `SPILL_WAIT_FRACTION` of the tempo's latency budget -- then rate-limits per
+  provider, queues for a seat ordered by tempo, makes the call, and records an `llm.call` or
+  `llm.spill` `LlmEvent`. With no fallback left it proceeds on the current binding regardless: the
+  Fanner never refuses a call.
+- **`RateLimit`**: a provider's `requests_per_minute`/`tokens_per_minute` ceiling, straight from
+  its manifest row; both `None` means unlimited.
+- **`SpillReason`**: `GRADE_BELOW_FLOOR`, `MODEL_NOT_LOADED`, `QUEUE_WAIT_EXCEEDED`.
+- **`LlmEventRecorder`**, **`NullLlmEventRecorder`**, **`TrailLlmEventRecorder`**: the trail-write
+  seam a lane calls with a raw `(kind, subject_id, payload)` triple, mirroring
+  `hivemind.llm.ladders.observer`'s `LadderObserver` shape; `TrailLlmEventRecorder` lifts `slot`,
+  `provider` and `usage` out of `payload` into `LlmEvent`'s own typed fields.
+- **`DEFAULT_SEATS`** (`1`): what a provider absent from `FannerDeps.seats` gets.
 
 ## How to test this
 

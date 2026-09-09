@@ -20,9 +20,9 @@ Key invariants:
     - `observe` and `set_abundance` run under one `asyncio.Lock` (codingrules section 8.5's "a
       class that owns mutable state and says so"): each does a read-then-write on one source that
       must not interleave with the other's write to the same key.
-    - `get`, `sources` and `for_slot` are synchronous and take no lock: a single dict lookup is
-      atomic under the GIL and every `ModelSource` is itself frozen, so a reader can never observe
-      a half-updated source, only the whole old one or the whole new one.
+    - `get`, `sources`, `for_slot` and `find` are synchronous and take no lock: a single dict
+      lookup or iteration is atomic under the GIL and every `ModelSource` is itself frozen, so a
+      reader can never observe a half-updated source, only the whole old one or the whole new one.
     - Constructing a ForageMap from sources with a repeated `source_id` keeps the last one; this
       mirrors how a manifest's `[forage.map.*]` TOML table itself cannot repeat a key.
 
@@ -147,6 +147,23 @@ class ForageMap:
                 return match
             binding = by_key.get(binding.fallback) if binding.fallback is not None else None
         return None
+
+    def find(self, provider: str, model: str) -> ModelSource | None:
+        """Return the first source on the map whose spec names `provider` and `model`.
+
+        Used by the Fanner (`hivemind.llm.fanner`, roadmap step 3.12a) to look up a
+        `BoundModel`'s live figures: a binding carries a provider name and a model id, not a
+        `source_id`, so this is how a call resolves the map entry it should meter and, on
+        success, update.
+
+        Args:
+            provider: The manifest `[llm.providers.*]` name to match.
+            model: The model id to match.
+
+        Returns:
+            The first matching ModelSource, or None when the map holds no such source.
+        """
+        return _find_by_provider_and_model(self._sources.values(), provider, model)
 
     async def observe(self, source_id: str, latency_s: float, tokens_per_s: float) -> None:
         """Record a fresh latency/speed measurement for `source_id`.

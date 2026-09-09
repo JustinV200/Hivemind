@@ -25,9 +25,11 @@ Key invariants:
       a `hivemind.forage` cost type: `forage` may not be imported by anything that would create a
       cycle, and its own cost shape is still under construction elsewhere this phase (see
       `hivemind.llm.slots`'s module docstring for the full reasoning).
-    - `resolve(slot, manifest) -> BoundModel` does not exist yet; it is roadmap step 3.4
-      (`hivemind.llm.slots` gains it in a later dispatch). This package only defines the shape it
-      will return.
+    - `hivemind.llm` never imports `hivemind.manifest` (codingrules section 4's Layer 1
+      "llm | manifest" independent siblings): `resolve`/`resolve_key` (`hivemind.llm.slots`) and
+      `ProviderRegistry` (`hivemind.llm.registry`) take Forage-side and this package's own
+      decoupled shapes instead of the manifest's `LlmSection`/`ProviderSpec` directly; the CLI
+      composition root (roadmap step 3.21) builds those from a loaded `HiveManifest`.
 
 See Also:
     - .claude/codingrules.md section 8.6 for the LLM provider independence rules this package
@@ -50,7 +52,11 @@ Public API:
       OfflineViolationError, ProviderRequestError, MAX_RAW_PREVIEW_CHARS.
     - The fake (`hivemind.llm.fake`): FakeLLMProvider, Responder, text_response,
       tool_call_response, FAKE_MODEL_ID, TEXT_STREAM_CHUNK_COUNT, CHARS_PER_TOKEN_ESTIMATE.
-    - Slots (`hivemind.llm.slots`): BoundModel.
+    - Slots (`hivemind.llm.slots`): BoundModel, ProviderLookup, UnresolvableSlotError, resolve,
+      resolve_key.
+    - The provider registry (`hivemind.llm.registry`): ProviderRegistry, RegistryDeps,
+      ProviderFactory, ProviderConfig, ProviderKind, PENDING_KINDS, apply_overrides,
+      default_factories.
     - Prompts (`hivemind.llm.prompts`): PromptName, SectionLabel, load_prompt, render.
 
 Public API (roadmap step 3.5):
@@ -91,6 +97,20 @@ from hivemind.llm.fake import (
     Responder,
     text_response,
     tool_call_response,
+)
+from hivemind.llm.fanner import (
+    DEFAULT_SEATS,
+    LLM_CALL_KIND,
+    LLM_SPILL_KIND,
+    SPILL_WAIT_FRACTION,
+    Fanner,
+    FannerDeps,
+    FannerLane,
+    LlmEventRecorder,
+    NullLlmEventRecorder,
+    RateLimit,
+    SpillReason,
+    TrailLlmEventRecorder,
 )
 from hivemind.llm.ladders import (
     JSON_MODE_RETRIES,
@@ -133,18 +153,40 @@ from hivemind.llm.models import (
 )
 from hivemind.llm.prompts import PromptName, SectionLabel, load_prompt, render
 from hivemind.llm.provider import LLMProvider
-from hivemind.llm.slots import BoundModel
+from hivemind.llm.registry import (
+    PENDING_KINDS,
+    MissingDefaultModelError,
+    ProviderConfig,
+    ProviderFactory,
+    ProviderKind,
+    ProviderRegistry,
+    RegistryDeps,
+    apply_overrides,
+    default_factories,
+)
+from hivemind.llm.slots import (
+    BoundModel,
+    ProviderLookup,
+    UnresolvableSlotError,
+    resolve,
+    resolve_key,
+)
 
 __all__ = [
     "CHARS_PER_TOKEN_ESTIMATE",
+    "DEFAULT_SEATS",
     "FAKE_MODEL_ID",
     "FULL_CONTEXT_WINDOW_DEFAULT",
     "JSON_MODE_RETRIES",
+    "LLM_CALL_KIND",
+    "LLM_SPILL_KIND",
     "MAX_RAW_PREVIEW_CHARS",
     "MAX_TOOL_ROUNDS_DEFAULT",
     "NATIVE_SCHEMA_RETRIES",
     "NONE_CONTEXT_WINDOW_DEFAULT",
+    "PENDING_KINDS",
     "PROMPTED_JSON_RETRIES",
+    "SPILL_WAIT_FRACTION",
     "TEXT_STREAM_CHUNK_COUNT",
     "TOOL_NAME_PATTERN",
     "BoundModel",
@@ -155,6 +197,9 @@ __all__ = [
     "FakeLLMProvider",
     "FallbackNote",
     "FallbackReason",
+    "Fanner",
+    "FannerDeps",
+    "FannerLane",
     "HealthState",
     "ImagePart",
     "JsonObject",
@@ -164,21 +209,32 @@ __all__ = [
     "LLMRequest",
     "LLMResponse",
     "LadderObserver",
+    "LlmEventRecorder",
     "MalformedOutputError",
     "Message",
+    "MissingDefaultModelError",
     "NullLadderObserver",
+    "NullLlmEventRecorder",
     "OfflineViolationError",
     "PromptName",
     "ProviderCapabilities",
+    "ProviderConfig",
+    "ProviderFactory",
     "ProviderHealth",
+    "ProviderKind",
+    "ProviderLookup",
+    "ProviderRegistry",
     "ProviderRequestError",
     "ProviderUnavailableError",
+    "RateLimit",
     "RateLimitedError",
     "RefusedError",
+    "RegistryDeps",
     "Responder",
     "Role",
     "Rung",
     "SectionLabel",
+    "SpillReason",
     "StopReason",
     "StructuredResult",
     "TextPart",
@@ -190,11 +246,17 @@ __all__ = [
     "ToolLoopResult",
     "ToolResultPart",
     "TrailLadderObserver",
+    "TrailLlmEventRecorder",
     "UnknownProviderError",
+    "UnresolvableSlotError",
     "Usage",
+    "apply_overrides",
     "complete_structured",
+    "default_factories",
     "load_prompt",
     "render",
+    "resolve",
+    "resolve_key",
     "run_tool_loop",
     "text_response",
     "tool_call_response",

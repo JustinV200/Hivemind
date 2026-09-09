@@ -99,6 +99,19 @@ def test_for_slot_returns_none_when_the_fallback_chain_is_exhausted() -> None:
     assert forage_map.for_slot(ModelSlot.WORKER, [binding]) is None
 
 
+def test_find_returns_the_first_source_matching_provider_and_model() -> None:
+    source = make_source(source_id="src_1", provider="acme", model="acme-model")
+    forage_map = ForageMap([source], clock=FakeClock())
+
+    assert forage_map.find("acme", "acme-model") == source
+
+
+def test_find_returns_none_when_no_source_matches() -> None:
+    forage_map = ForageMap([make_source(source_id="src_1")], clock=FakeClock())
+
+    assert forage_map.find("no-such-provider", "no-such-model") is None
+
+
 async def test_observe_updates_distance_and_stamps_measured_at() -> None:
     clock = FakeClock()
     source = make_source(source_id="src_1")
