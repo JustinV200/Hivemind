@@ -571,7 +571,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   crashing), `workers/capabilities.py` (a Worker's `CapabilitySet` slice from 3.13a). The runtime receives a `Cell`, an open `CellSession`, a
   `BoundModel` and a `ForageGrant` slice; it never receives a provider, a subprocess handle, or the
   Cell's kind.
-- [ ] **3.16 Drone role and built-in tools.** `workers/roles/drone.py` runs a bounded tool loop
+- [x] **3.16 Drone role and built-in tools.** `workers/roles/drone.py` runs a bounded tool loop
   through `llm/tools.py` with prompts assembled by `memory.assemble`. `workers/tools/session.py`
   (`run_command`, `read_file`, `write_file` through `CellSession`, capability-gated outside
   scratch), `workers/tools/http.py`, `workers/tools/ask.py` (raise a `Question` up the chain).
