@@ -436,7 +436,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   + cost); a fallback may name a slot or a named binding that exists only in `[llm.slots]`. `llm/registry.py`: constructs
   providers from `[llm.providers.*]` by `kind`, enforces `offline = true` by refusing non-loopback
   base URLs, and hands out `BoundModel`s. The composition root is the only caller.
-- [ ] **3.5 Degradation ladders.** `llm/structured.py`: `complete_structured(bound, request,
+- [x] **3.5 Degradation ladders.** `llm/structured.py`: `complete_structured(bound, request,
   schema) -> T` walking native schema output → JSON mode plus pydantic validation and retry →
   prompted JSON with fenced extraction, validation and retry; retry counts are commented constants.
   `llm/tools.py`: `run_tool_loop(bound, request, tools, executor)` using native tool calls when
@@ -448,7 +448,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   prompt-caching breakpoints on the stable prefix, token counting through the API, typed errors
   mapped to `LLMError` subclasses. Verify every call shape against the SDK docs at implementation
   time rather than memory.
-- [ ] **3.7 OpenAI-compatible adapter (local models).** `llm/providers/openai_compat/{provider,
+- [x] **3.7 OpenAI-compatible adapter (local models).** `llm/providers/openai_compat/{provider,
   mapping,client}.py` over `httpx` against `/v1/chat/completions` and `/v1/models`. Capabilities
   probed at startup where possible and otherwise set per provider in the manifest so a weak model
   honestly reports what it cannot do and the ladders take over. Token counting by estimate with a
