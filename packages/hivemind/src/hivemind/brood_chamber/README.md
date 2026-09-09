@@ -40,7 +40,22 @@ here for the rest of its life.
   task/question row(s) and calls `hivemind.pheromone.insert_event` for the event, so both commit
   or neither does.
 
-Facade: a later step (2.8 `chamber.py`).
+## Facade (phase 2 step 2.8)
+
+- `chamber/` -- the public API the Queen uses; a package because the whole class broke the
+  codingrules 5.1 200-line class limit as one file. `chamber/base.py` holds `ChamberIdentity`
+  (the hive, node and actor every `TaskEvent` this facade writes is stamped with) and the private
+  `_ChamberBase` every mixin below inherits (the store/clock/identity plus `_build_event`,
+  `_write`, `_transition`). `chamber/submission.py` (`submit`), `chamber/lifecycle.py` (`assign`,
+  `unassign`, `start`, `report_progress`, `pause`, `resume`), `chamber/outcomes.py` (`complete`,
+  `fail`, `cancel`) and `chamber/questions.py` (`ask`, `answer`, `withdraw`) are one mixin each,
+  split by responsibility; `chamber/queries.py` holds the four read-only methods (`get`, `list`,
+  `next_ready`, `pending_questions`). `chamber/__init__.py` composes `BroodChamber` from all five
+  mixins and re-exports it with `ChamberIdentity`; every other module in the package is private.
+  Every mutating method loads the current `Task`/`Question`, asserts the move is legal against
+  `task_state.TRANSITIONS` or `questions.QUESTION_TRANSITIONS`, builds the new value with
+  `model_copy`, and writes it with its `TaskEvent` (payload: ids, reasons, statuses and counts
+  only, never a task's objective or a question's text) through `TaskStore` in one call.
 
 ## How to test this
 

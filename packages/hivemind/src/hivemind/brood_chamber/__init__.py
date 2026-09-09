@@ -3,16 +3,16 @@
 The Brood Chamber is the Hive's task store, holding the task graph and its state machine in
 SQLite. Every task the Queen decomposes a goal into lives here for the rest of its life. Phase 2
 step 2.4 (task model and state machine), 2.5 (task graph), the model half of 2.7 (questions) and
-step 2.6 (the store) build the layer this face re-exports: the Task and Question models, both
-state machines, the pure graph functions, and TaskStore with its two implementations.
-`hivemind.brood_chamber.chamber` (roadmap step 2.8), the thin facade the Queen calls, lands in a
-later phase 2 dispatch and is not part of this face yet.
+step 2.6 (the store) build the persistence layer this face re-exports: the Task and Question
+models, both state machines, the pure graph functions, and TaskStore with its two implementations.
+Step 2.8 adds `hivemind.brood_chamber.chamber`, the thin facade (`BroodChamber`) the Queen calls
+instead of the state machines and the store directly.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by queen.planner, which
-    persists the task graph here, and the dispatcher, which reads it. Calls into
-    hivemind.common, hivemind.cell (for TaskNeeds and HoneyClearance), hivemind.pheromone (for
-    TaskEvent and PheromoneTrail) and waggle.
+    persists the task graph here, and the dispatcher, which reads it, both through BroodChamber.
+    Calls into hivemind.common, hivemind.cell (for TaskNeeds and HoneyClearance), hivemind.pheromone
+    (for TaskEvent and PheromoneTrail) and waggle.
 
 Key invariants:
     - Task.status and Question.status only ever move along the edges TRANSITIONS and
@@ -44,8 +44,11 @@ Public API:
     - MemoryTaskStore: an in-process TaskStore for tests and demos (memory).
     - SqliteTaskStore, apply_brood_chamber_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE: the durable
       TaskStore (sqlite).
+    - BroodChamber, ChamberIdentity: the public facade the Queen (and, until phase 3, the CLI)
+      uses to submit and advance tasks (chamber).
 """
 
+from hivemind.brood_chamber.chamber import BroodChamber, ChamberIdentity
 from hivemind.brood_chamber.errors import (
     BroodChamberError,
     InvalidGraphError,
@@ -94,7 +97,9 @@ __all__ = [
     "TRANSITIONS",
     "Answer",
     "AnswerSource",
+    "BroodChamber",
     "BroodChamberError",
+    "ChamberIdentity",
     "InvalidGraphError",
     "InvalidTransitionError",
     "MemoryTaskStore",
