@@ -43,6 +43,7 @@ __all__ = [
     "LLMError",
     "MalformedOutputError",
     "OfflineViolationError",
+    "ProviderRequestError",
     "ProviderUnavailableError",
     "RateLimitedError",
     "RefusedError",
@@ -192,6 +193,50 @@ class UnknownProviderError(LLMError):
             provider: The provider name that was looked up and not found.
         """
         super().__init__(f"No provider named {provider!r} is registered.", provider=provider)
+
+
+class ProviderRequestError(LLMError):
+    """Raise for a provider's non-retryable 4xx rejection of the request itself.
+
+    Covers every 4xx a more specific type does not already claim: `RateLimitedError` owns 429,
+    and `ContextTooLongError` owns the 400s whose message is about context length specifically.
+    Everything else in the 4xx family (401, 403, 404, a plain 400 that is not about context
+    length, 413, 422, ...) lands here, because the request was rejected on its own terms and
+    retrying it unchanged will not help -- unlike a rate limit (wait) or an outage (try later).
+    An OpenAI-compatible server's own probe-time model refusal (`OpenAICompatProvider.probe`,
+    hivemind.llm.providers.openai_compat) also raises this, synthesizing a 404-shaped status
+    since no real HTTP response is involved. A later dispatch's Anthropic adapter raises the same
+    type for its own equivalent 4xx family (phase 3 brief section 2.13), so a caller catches one
+    type regardless of which adapter is behind the call.
+    """
+
+    code: ClassVar[str] = "hivemind.llm.provider_request"
+
+    def __init__(
+        self, provider: str, status_code: int, error_type: str | None = None, detail: str = ""
+    ) -> None:
+        """Build the error for a provider's non-retryable 4xx.
+
+        Args:
+            provider: The provider that rejected the request.
+            status_code: The HTTP status code the provider responded with (or a synthesized one,
+                documented by the raising call site, when no real HTTP response exists).
+            error_type: The provider's own error-type string, when its error body names one
+                (OpenAI-compatible servers commonly nest one at `error.type`).
+            detail: A short, human-readable reason folded into the message; not kept as an
+                attribute (mirrors `ProviderUnavailableError`'s `detail` parameter), because the
+                two stable, structured fields a caller can branch on are `status_code` and
+                `error_type`.
+        """
+        type_clause = f" ({error_type})" if error_type is not None else ""
+        detail_clause = f": {detail}" if detail else ""
+        super().__init__(
+            f"Provider {provider!r} rejected the request with HTTP "
+            f"{status_code}{type_clause}{detail_clause}.",
+            provider=provider,
+        )
+        self.status_code = status_code
+        self.error_type = error_type
 
 
 class OfflineViolationError(LLMError):

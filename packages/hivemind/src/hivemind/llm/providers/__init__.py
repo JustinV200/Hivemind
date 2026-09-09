@@ -1,24 +1,40 @@
 """Hold one sub-package per model vendor or local server kind: the providers package.
 
 These are the only modules in the whole workspace allowed to import a vendor LLM SDK or an HTTP
-client aimed at a model server, so that swapping a provider never touches code above llm/.
+client aimed at a model server, so that swapping a provider never touches code above llm/. Each
+sub-package (`openai_compat/` today; `anthropic/` in a later roadmap step) owns exactly one
+`kind` string from `[llm.providers.<name>]`'s manifest schema, and exposes only its
+`LLMProvider` implementation and that implementation's config type -- a sub-package's own
+`mapping.py`/`client.py` (vendor wire details) stay private to it, never re-exported here or
+further.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside the llm package. Handles the only
-    sub-package allowed to import a vendor LLM SDK or model-server HTTP client. Called by llm's
-    public API on behalf of whatever calls llm itself; calls into sibling packages at Layer 1 or
-    below, never back up into llm's other sub-packages directly.
+    sub-package allowed to import a vendor LLM SDK or model-server HTTP client. Imported by the
+    registry (`hivemind.llm.registry`, roadmap step 3.4) **by module**
+    (`hivemind.llm.providers.openai_compat`), not through this face: the registry picks a
+    sub-package by the manifest's `kind` string, so it names the sub-module directly rather than
+    routing through a name collected here. This face exists for a human or a test reaching for
+    "every provider implementation this workspace ships", not for the registry's own dispatch.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 3 adds its first public name.
+    - Only an adapter's `LLMProvider` implementation and its config type are re-exported here
+      (`OpenAICompatProvider`/`OpenAICompatConfig` today); a sub-package's wire-mapping and HTTP
+      modules are never imported from outside that sub-package.
+    - Importing this module has no side effect (codingrules section 5.5): no provider is
+      constructed, no network touched, at import time.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under llm.
-    - .claude/roadmap.md phase 3 for the work that first populates it.
+    - .claude/codingrules.md section 8.6 for the vendor-SDK-confinement rule this package exists
+      to satisfy.
+    - .claude/roadmap.md phase 3 for the work that first populates it (step 3.7, this adapter).
+    - hivemind.llm.providers.openai_compat for the OpenAI-compatible local-server adapter.
 
-Public API: none yet; first populated in phase 3.
+Public API:
+    - OpenAICompatConfig, OpenAICompatProvider (hivemind.llm.providers.openai_compat).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 3 adds the first public name.
-__all__: list[str] = []
+from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
+
+__all__ = ["OpenAICompatConfig", "OpenAICompatProvider"]

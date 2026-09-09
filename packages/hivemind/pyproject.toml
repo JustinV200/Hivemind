@@ -8,6 +8,7 @@ dependencies = [
     "pydantic>=2",      # Boundary validation for the Hive Manifest, tasks, and every crossing point.
     "structlog",        # Structured logging: JSON in production, pretty in dev (codingrules section 12).
     "typer",            # The `hive` CLI's command layer.
+    "httpx",            # The OpenAI-compatible adapter's client and, later, the Entrance and the http tool (codingrules 8.6).
 ]
 
 [tool.uv.sources]
