@@ -4,9 +4,10 @@ The Brood Chamber is the Hive's task store, holding the task graph and its state
 SQLite. Every task the Queen decomposes a goal into lives here for the rest of its life. Phase 2
 step 2.4 (task model and state machine), 2.5 (task graph), the model half of 2.7 (questions) and
 step 2.6 (the store) build the persistence layer this face re-exports: the Task and Question
-models, both state machines, the pure graph functions, and TaskStore with its two implementations.
-Step 2.8 adds `hivemind.brood_chamber.chamber`, the thin facade (`BroodChamber`) the Queen calls
-instead of the state machines and the store directly.
+models, both state machines, the pure graph functions, and TaskStore with its two implementations,
+grouped into the `task` and `store` sub-packages (codingrules 5.6: at most ten modules per
+directory). Step 2.8 adds `hivemind.brood_chamber.chamber`, the thin facade (`BroodChamber`) the
+Queen calls instead of the state machines and the store directly.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by queen.planner, which
@@ -33,17 +34,18 @@ Public API:
     - BroodChamberError, TaskNotFoundError, QuestionNotFoundError, TaskAlreadyExistsError,
       InvalidTransitionError, InvalidGraphError: this subsystem's error tree (errors).
     - TaskStatus, TERMINAL_STATUSES, TRANSITIONS, can_transition, assert_transition, is_terminal:
-      the task state machine (task_state).
+      the task state machine (task.state).
     - TaskSpec, TaskOutcome, Task, TaskDraft, TaskGraphDraft: the task model and the JSON graph
-      file `hive tasks submit` reads (task).
+      file `hive tasks submit` reads (task.model).
     - is_acyclic_edges, is_acyclic, ready_tasks, descendants: pure functions over a task graph
-      (graph).
+      (task.graph).
     - QuestionStatus, AnswerSource, Answer, Question, QUESTION_TRANSITIONS,
       assert_question_transition: the question model and its state machine (questions).
-    - TaskFilter, TaskStore, check_task_event: the store protocol and its query/guard (store).
-    - MemoryTaskStore: an in-process TaskStore for tests and demos (memory).
+    - TaskFilter, TaskStore, check_task_event: the store protocol and its query/guard
+      (store.protocol).
+    - MemoryTaskStore: an in-process TaskStore for tests and demos (store.memory).
     - SqliteTaskStore, apply_brood_chamber_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE: the durable
-      TaskStore (sqlite).
+      TaskStore (store.sqlite).
     - BroodChamber, ChamberIdentity: the public facade the Queen (and, until phase 3, the CLI)
       uses to submit and advance tasks (chamber).
 """
@@ -57,13 +59,6 @@ from hivemind.brood_chamber.errors import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
 )
-from hivemind.brood_chamber.graph import (
-    descendants,
-    is_acyclic,
-    is_acyclic_edges,
-    ready_tasks,
-)
-from hivemind.brood_chamber.memory import MemoryTaskStore
 from hivemind.brood_chamber.questions import (
     QUESTION_TRANSITIONS,
     Answer,
@@ -72,21 +67,32 @@ from hivemind.brood_chamber.questions import (
     QuestionStatus,
     assert_question_transition,
 )
-from hivemind.brood_chamber.sqlite import (
+from hivemind.brood_chamber.store import (
     MIGRATIONS_PACKAGE,
     SUBSYSTEM,
+    MemoryTaskStore,
     SqliteTaskStore,
+    TaskFilter,
+    TaskStore,
     apply_brood_chamber_migrations,
+    check_task_event,
 )
-from hivemind.brood_chamber.store import TaskFilter, TaskStore, check_task_event
-from hivemind.brood_chamber.task import Task, TaskDraft, TaskGraphDraft, TaskOutcome, TaskSpec
-from hivemind.brood_chamber.task_state import (
+from hivemind.brood_chamber.task import (
     TERMINAL_STATUSES,
     TRANSITIONS,
+    Task,
+    TaskDraft,
+    TaskGraphDraft,
+    TaskOutcome,
+    TaskSpec,
     TaskStatus,
     assert_transition,
     can_transition,
+    descendants,
+    is_acyclic,
+    is_acyclic_edges,
     is_terminal,
+    ready_tasks,
 )
 
 __all__ = [

@@ -2,19 +2,19 @@
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
-    hivemind.pheromone.trail.PheromoneTrail contract and runs against both implementations that
-    ship: hivemind.pheromone.memory.MemoryPheromoneTrail and hivemind.pheromone.sqlite.
-    SqlitePheromoneTrail (over a tmp_path SQLite file, created through SqlitePheromoneTrail.
-    create). A second suite below covers hivemind.pheromone.retention.SegmentPurge the same way,
-    over MemorySegmentPurge and SqliteSegmentPurge. A new implementation of either protocol joins
-    the matching fixture's params and must pass here before it is used anywhere else (codingrules
-    14.3).
+    hivemind.pheromone.trail.protocol.PheromoneTrail contract and runs against both
+    implementations that ship: hivemind.pheromone.trail.memory.MemoryPheromoneTrail and
+    hivemind.pheromone.trail.sqlite.SqlitePheromoneTrail (over a tmp_path SQLite file, created
+    through SqlitePheromoneTrail.create). A second suite below covers
+    hivemind.pheromone.retention.SegmentPurge the same way, over MemorySegmentPurge and
+    SqliteSegmentPurge. A new implementation of either protocol joins the matching fixture's
+    params and must pass here before it is used anywhere else (codingrules 14.3).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.pheromone.trail for the PheromoneTrail protocol under test.
+    - hivemind.pheromone.trail.protocol for the PheromoneTrail protocol under test.
     - hivemind.pheromone.retention for the SegmentPurge protocol under test.
     - packages/waggle/tests/contracts/test_transport_contract.py for the pattern this mirrors
       (this suite needs no by-path harness loader: both implementations import cleanly).
@@ -29,12 +29,16 @@ import pytest
 from pydantic import ValidationError
 
 from hivemind.common.sqlite import connect
+from hivemind.pheromone import (
+    MemoryPheromoneTrail,
+    PheromoneTrail,
+    SqlitePheromoneTrail,
+    TrailQuery,
+    TrailSegment,
+)
 from hivemind.pheromone.errors import DuplicateEventError
 from hivemind.pheromone.events import CellEvent, PheromoneEvent, TaskEvent
-from hivemind.pheromone.memory import MemoryPheromoneTrail
 from hivemind.pheromone.retention import MemorySegmentPurge, SegmentPurge, SqliteSegmentPurge
-from hivemind.pheromone.sqlite import SqlitePheromoneTrail
-from hivemind.pheromone.trail import PheromoneTrail, TrailQuery, TrailSegment
 from waggle.clock import FakeClock
 from waggle.ids import NodeId, new_cell_id, new_event_id, new_hive_id, new_node_id, new_task_id
 

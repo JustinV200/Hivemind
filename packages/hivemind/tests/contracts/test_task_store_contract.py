@@ -2,17 +2,17 @@
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
-    hivemind.brood_chamber.store.TaskStore contract and runs against both implementations that
-    ship: hivemind.brood_chamber.memory.MemoryTaskStore (over MemoryPheromoneTrail) and
-    hivemind.brood_chamber.sqlite.SqliteTaskStore (over SqlitePheromoneTrail, both on the same
-    tmp_path SQLite file). A new implementation joins the fixture's params and must pass here
-    before it is used anywhere else (codingrules 14.3).
+    hivemind.brood_chamber.store.protocol.TaskStore contract and runs against both
+    implementations that ship: hivemind.brood_chamber.store.memory.MemoryTaskStore (over
+    MemoryPheromoneTrail) and hivemind.brood_chamber.store.sqlite.SqliteTaskStore (over
+    SqlitePheromoneTrail, both on the same tmp_path SQLite file). A new implementation joins the
+    fixture's params and must pass here before it is used anywhere else (codingrules 14.3).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.brood_chamber.store for the TaskStore protocol under test.
+    - hivemind.brood_chamber.store.protocol for the TaskStore protocol under test.
     - packages/hivemind/tests/contracts/test_pheromone_trail_contract.py for the pattern this
       mirrors.
 """
@@ -25,23 +25,30 @@ from pathlib import Path
 import pytest
 from builders.tasks import make_answer, make_question, make_task
 
+from hivemind.brood_chamber import (
+    MemoryTaskStore,
+    SqliteTaskStore,
+    Task,
+    TaskFilter,
+    TaskStatus,
+    TaskStore,
+)
 from hivemind.brood_chamber.errors import (
     QuestionNotFoundError,
     TaskAlreadyExistsError,
     TaskNotFoundError,
 )
-from hivemind.brood_chamber.memory import MemoryTaskStore
 from hivemind.brood_chamber.questions import Question, QuestionStatus
-from hivemind.brood_chamber.sqlite import SqliteTaskStore
-from hivemind.brood_chamber.store import TaskFilter, TaskStore
-from hivemind.brood_chamber.task import Task
-from hivemind.brood_chamber.task_state import TaskStatus
 from hivemind.common.errors import ConflictError, InvariantViolationError
 from hivemind.common.sqlite import connect
-from hivemind.pheromone import DuplicateEventError, PheromoneTrail, TaskEvent
-from hivemind.pheromone.memory import MemoryPheromoneTrail
-from hivemind.pheromone.sqlite import SqlitePheromoneTrail
-from hivemind.pheromone.trail import TrailQuery
+from hivemind.pheromone import (
+    DuplicateEventError,
+    MemoryPheromoneTrail,
+    PheromoneTrail,
+    SqlitePheromoneTrail,
+    TaskEvent,
+    TrailQuery,
+)
 from waggle.clock import FakeClock
 from waggle.ids import new_event_id, new_hive_id, new_node_id
 

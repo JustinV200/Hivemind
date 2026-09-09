@@ -26,7 +26,7 @@ import brood_demo
 
 from hivemind.brood_chamber import ChamberIdentity, TaskGraphDraft
 from hivemind.cli.stores import open_chamber, open_trail
-from hivemind.pheromone.trail import TrailQuery
+from hivemind.pheromone import TrailQuery
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import new_hive_id, new_node_id
 

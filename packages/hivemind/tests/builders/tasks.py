@@ -6,8 +6,8 @@ field a test does not care about, so a test that only cares about one field writ
 `make_task(status=TaskStatus.BLOCKED)` rather than filling in a dozen unrelated fields by hand.
 `make_task` in particular fills in `warden_id`, `cell_id`, `outcome` and `pending_question_id`
 however the requested `status` requires, so the result always satisfies `Task`'s own cross-field
-validators (`hivemind.brood_chamber.task`) without the caller needing to know which combination
-that status demands.
+validators (`hivemind.brood_chamber.task.model`) without the caller needing to know which
+combination that status demands.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -22,7 +22,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 14.5 for the builders-over-fixtures rule this module follows.
-    - hivemind.brood_chamber.task for TaskSpec, TaskOutcome, Task, TaskDraft, TaskGraphDraft.
+    - hivemind.brood_chamber.task.model for TaskSpec, TaskOutcome, Task, TaskDraft, TaskGraphDraft.
     - hivemind.brood_chamber.questions for Question and Answer.
 """
 
@@ -30,16 +30,23 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from hivemind.brood_chamber import (
+    TERMINAL_STATUSES,
+    Task,
+    TaskDraft,
+    TaskGraphDraft,
+    TaskOutcome,
+    TaskSpec,
+    TaskStatus,
+)
 from hivemind.brood_chamber.questions import Answer, AnswerSource, Question
-from hivemind.brood_chamber.task import Task, TaskDraft, TaskGraphDraft, TaskOutcome, TaskSpec
-from hivemind.brood_chamber.task_state import TERMINAL_STATUSES, TaskStatus
 from hivemind.cell import HoneyClearance
 from waggle.clock import Clock, FakeClock
 from waggle.ids import new_cell_id, new_message_id, new_task_id, new_warden_id, new_worker_id
 from waggle.messages import Postcondition, PostconditionKind
 
 # The statuses a Task holds a placement (warden_id/cell_id) in; mirrors
-# hivemind.brood_chamber.task's own private _PLACED_STATUSES so make_task can fill the same
+# hivemind.brood_chamber.task.model's own private _PLACED_STATUSES so make_task can fill the same
 # fields that module's validator requires, without importing a private name across the boundary.
 _PLACED_STATUSES = frozenset(
     {TaskStatus.ASSIGNED, TaskStatus.RUNNING, TaskStatus.BLOCKED, TaskStatus.PAUSED}
@@ -102,7 +109,8 @@ def make_outcome(
     """
     active_clock = clock if clock is not None else FakeClock()
     fields: dict[str, object] = {"status": status, "summary": f"Finished as {status.name}."}
-    # verified_by is required exactly when SUCCEEDED (hivemind.brood_chamber.task.TaskOutcome).
+    # verified_by is required exactly when SUCCEEDED
+    # (hivemind.brood_chamber.task.model.TaskOutcome).
     if status is TaskStatus.SUCCEEDED:
         fields["verified_by"] = new_warden_id(active_clock)
     fields.update(overrides)

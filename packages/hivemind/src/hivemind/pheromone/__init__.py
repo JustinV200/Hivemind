@@ -2,9 +2,9 @@
 
 Every state-changing action anywhere in the Hive leaves a `PheromoneEvent` here before the action
 counts as complete (codingrules section 12). `events` defines the eleven event families and the
-JSON codec; `trail` defines the `PheromoneTrail` protocol, `TrailQuery` and `TrailSegment`;
-`memory` and `sqlite` are its two implementations; `retention` is the Night Veil boundary, the
-package's one deletion path; `tail` follows the trail live. This face re-exports every module's
+JSON codec; `trail` groups the `PheromoneTrail` protocol, its two implementations and live-tail
+follow behind its own face (codingrules 5.6: at most ten modules per directory); `retention` is
+the Night Veil boundary, the package's one deletion path. This face re-exports every module's
 public names so a caller writes `from hivemind.pheromone import SqlitePheromoneTrail` without
 knowing the split (codingrules 5.2).
 
@@ -15,18 +15,17 @@ Fits into the Hive:
 Key invariants:
     - Whatever is not re-exported here (private validators and helpers inside each module) is
       private to this package (codingrules 5.4).
-    - hivemind.pheromone.sqlite carries no `UPDATE` or `DELETE` token anywhere in its own source;
-      hivemind.pheromone.retention is the package's only removal path, and only at Night Veil
-      teardown (ADR-0007, codingrules section 12).
+    - hivemind.pheromone.trail.sqlite carries no `UPDATE` or `DELETE` token anywhere in its own
+      source; hivemind.pheromone.retention is the package's only removal path, and only at Night
+      Veil teardown (ADR-0007, codingrules section 12).
 
 See Also:
     - .claude/codingrules.md section 4 for the layer 1 row this package occupies, and section 12
       for the Pheromone Trail and Night Veil rules the whole package follows.
     - docs/adr/0006-sqlite-as-the-single-hive-store.md and docs/adr/0007-pheromone-trail-append-
       only-transactional-and-segmented.md for the decisions this package implements.
-    - hivemind.pheromone.events, hivemind.pheromone.trail, hivemind.pheromone.memory,
-      hivemind.pheromone.sqlite, hivemind.pheromone.retention, hivemind.pheromone.tail for the
-      modules behind this package's public API.
+    - hivemind.pheromone.events, hivemind.pheromone.trail, hivemind.pheromone.retention for the
+      modules and packages behind this package's public API.
 
 Public API:
     - PheromoneEvent, LlmUsage and the eleven event families (CellEvent, TaskEvent, AlarmEvent,
@@ -78,7 +77,6 @@ from hivemind.pheromone.events import (
     parse_event,
     parse_event_json,
 )
-from hivemind.pheromone.memory import MemoryPheromoneTrail
 from hivemind.pheromone.retention import (
     MemorySegmentPurge,
     NightVeilTeardownPurge,
@@ -88,21 +86,21 @@ from hivemind.pheromone.retention import (
     SqliteSegmentPurge,
     TrailRecorder,
 )
-from hivemind.pheromone.sqlite import (
-    MIGRATIONS_PACKAGE,
-    SUBSYSTEM,
-    SqlitePheromoneTrail,
-    apply_pheromone_migrations,
-    insert_event,
-)
-from hivemind.pheromone.tail import DEFAULT_POLL_INTERVAL_S, follow
 from hivemind.pheromone.trail import (
+    DEFAULT_POLL_INTERVAL_S,
     DEFAULT_QUERY_LIMIT,
     MAX_QUERY_LIMIT,
+    MIGRATIONS_PACKAGE,
+    SUBSYSTEM,
     TRAIL_ORDER_KEY,
+    MemoryPheromoneTrail,
     PheromoneTrail,
+    SqlitePheromoneTrail,
     TrailQuery,
     TrailSegment,
+    apply_pheromone_migrations,
+    follow,
+    insert_event,
 )
 
 __all__ = [

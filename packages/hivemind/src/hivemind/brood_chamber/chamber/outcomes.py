@@ -1,29 +1,29 @@
 """Define _OutcomesMixin: BroodChamber's terminal-status methods, complete, fail and cancel.
 
 A task's story ends once it reaches SUCCEEDED, FAILED or CANCELLED
-(`hivemind.brood_chamber.task_state.TERMINAL_STATUSES`); this module holds the three ways it gets
+(`hivemind.brood_chamber.task.state.TERMINAL_STATUSES`); this module holds the three ways it gets
 there. `complete`/`fail` each require the caller's `TaskOutcome`
-(`hivemind.brood_chamber.task.TaskOutcome`) to already carry the matching terminal status, since the
-Warden that ran acceptance checks is the one that decided it, not this chamber; `cancel` is the odd
-one out, building its own `TaskOutcome` from a plain `reason` string because cancelling carries no
-separate verification step.
+(`hivemind.brood_chamber.task.model.TaskOutcome`) to already carry the matching terminal status,
+since the Warden that ran acceptance checks is the one that decided it, not this chamber; `cancel`
+is the odd one out, building its own `TaskOutcome` from a plain `reason` string because cancelling
+carries no separate verification step.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
-    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.task_state` and
+    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.task.state` and
     `hivemind.common.errors` only.
 
 Key invariants:
     - `complete`/`fail` reject a mismatched `outcome.status` before touching the store, so a
       caller's bug never reaches `_transition` and fails against the wrong edge of
-      `hivemind.brood_chamber.task_state.TRANSITIONS` instead of the real problem.
+      `hivemind.brood_chamber.task.state.TRANSITIONS` instead of the real problem.
     - Every terminal transition here clears `warden_id`/`cell_id` (a terminal Task is never
       "placed", per `Task`'s own invariants); `cancel` also clears `pending_question_id`, since
       `BLOCKED -> CANCELLED` is a legal edge and a cancelled task can never still be blocked.
 
 See Also:
-    - hivemind.brood_chamber.task for TaskOutcome, the value every method here records.
+    - hivemind.brood_chamber.task.model for TaskOutcome, the value every method here records.
     - hivemind.brood_chamber.chamber.base for _ChamberBase, the shared write helpers this mixin
       uses.
 """
@@ -35,8 +35,8 @@ from collections.abc import Mapping
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
-from hivemind.brood_chamber.task import Task, TaskOutcome
-from hivemind.brood_chamber.task_state import TaskStatus
+from hivemind.brood_chamber.task.model import Task, TaskOutcome
+from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.common.errors import InvariantViolationError
 from waggle.ids import TaskId
 

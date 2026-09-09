@@ -10,8 +10,8 @@ caller's, and this module only sequences and records it.
 
 Fits into the Hive:
     Layer 0 (primitives; imports nothing internal beyond waggle). Called by every subsystem's own
-    ``sqlite.py`` composition step (starting with ``hivemind.pheromone.sqlite`` in a later roadmap
-    step), always from inside ``asyncio.to_thread`` since every function here is synchronous.
+    ``sqlite.py`` composition step (starting with ``hivemind.pheromone.trail.sqlite``), always
+    from inside ``asyncio.to_thread`` since every function here is synchronous.
 
 Key invariants:
     - ``load_migrations`` only ever returns a contiguous 1..n run of versions with no gaps and no

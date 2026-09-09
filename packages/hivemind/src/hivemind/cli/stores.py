@@ -24,7 +24,8 @@ Key invariants:
 See Also:
     - docs/adr/0006-sqlite-as-the-single-hive-store.md for the "separate connections" decision.
     - hivemind.brood_chamber.chamber for BroodChamber and ChamberIdentity.
-    - hivemind.pheromone.sqlite for SqlitePheromoneTrail.create, applied by both functions here.
+    - hivemind.pheromone.trail.sqlite for SqlitePheromoneTrail.create, applied by both functions
+      here.
 
 Public API:
     - DEFAULT_DB: the database file every command falls back to.

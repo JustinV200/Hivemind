@@ -10,9 +10,9 @@ deliberately synchronous.
 
 Fits into the Hive:
     Layer 0 (primitives; imports nothing internal beyond waggle). Called by every subsystem's own
-    ``sqlite.py`` adapter (starting with ``hivemind.pheromone.sqlite`` in a later roadmap step),
-    always from inside ``asyncio.to_thread``. ``hivemind.common.migrations`` uses :func:`connect`'s
-    connections but not :func:`transaction` itself, for the reason documented on that function.
+    ``sqlite.py`` adapter (starting with ``hivemind.pheromone.trail.sqlite``), always from inside
+    ``asyncio.to_thread``. ``hivemind.common.migrations`` uses :func:`connect`'s connections but
+    not :func:`transaction` itself, for the reason documented on that function.
 
 Key invariants:
     - A connection returned by ``connect`` is in autocommit mode (``isolation_level=None``): no
@@ -62,8 +62,8 @@ def connect(path: Path | str) -> sqlite3.Connection:
 
     Args:
         path: The database file to open, or ``":memory:"`` for a private in-memory database
-            (used by tests and by :mod:`hivemind.pheromone.memory`-style fakes that still want a
-            real SQLite engine without a file on disk).
+            (used by tests and by :mod:`hivemind.pheromone.trail.memory`-style fakes that still
+            want a real SQLite engine without a file on disk).
 
     Returns:
         A connection in autocommit mode (``isolation_level=None``) with WAL journalling (skipped

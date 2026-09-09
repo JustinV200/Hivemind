@@ -13,18 +13,18 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Inherited by every other module in this
     package; nothing outside `hivemind.brood_chamber.chamber` imports it directly (the package's
     `__init__.py` is the public face).
-    Calls into `hivemind.brood_chamber.task_state` (assert_transition) and `hivemind.pheromone`
+    Calls into `hivemind.brood_chamber.task.state` (assert_transition) and `hivemind.pheromone`
     (TaskEvent) only.
 
 Key invariants:
     - `_transition` never writes a `Task` whose `status` a caller has not already had
-      `hivemind.brood_chamber.task_state.assert_transition` approve.
+      `hivemind.brood_chamber.task.state.assert_transition` approve.
     - Every `TaskEvent` `_build_event` builds is stamped with this chamber's own `identity` and a
       freshly minted id; no caller builds a `TaskEvent` by hand.
 
 See Also:
     - hivemind.brood_chamber.chamber for BroodChamber, the class every mixin here composes into.
-    - hivemind.brood_chamber.task_state for the transition table `_transition` enforces.
+    - hivemind.brood_chamber.task.state for the transition table `_transition` enforces.
 """
 
 from __future__ import annotations
@@ -35,9 +35,9 @@ from datetime import datetime
 
 from pydantic import JsonValue
 
-from hivemind.brood_chamber.store import TaskStore
-from hivemind.brood_chamber.task import Task
-from hivemind.brood_chamber.task_state import TaskStatus, assert_transition
+from hivemind.brood_chamber.store.protocol import TaskStore
+from hivemind.brood_chamber.task.model import Task
+from hivemind.brood_chamber.task.state import TaskStatus, assert_transition
 from hivemind.pheromone import TaskEvent
 from waggle.clock import Clock
 from waggle.ids import HiveId, NodeId, new_event_id

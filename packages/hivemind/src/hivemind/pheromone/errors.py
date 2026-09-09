@@ -12,8 +12,8 @@ anything the trail itself raised on purpose (codingrules section 10).
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Raised by `hivemind.pheromone.events` (the
     JSON codec) and by the trail store implementations phase 2.2 adds
-    (`hivemind.pheromone.sqlite`, `hivemind.pheromone.memory`). Imported by every layer above
-    that records or reads trail events.
+    (`hivemind.pheromone.trail.sqlite`, `hivemind.pheromone.trail.memory`). Imported by every
+    layer above that records or reads trail events.
 
 Key invariants:
     - Every PheromoneError subclass sets its own `code`; none shares a code with another.

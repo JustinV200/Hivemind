@@ -21,9 +21,9 @@ Key invariants:
       (`hivemind.pheromone.PheromoneTrail.merge_segment`'s own idempotence guarantee).
 
 See Also:
-    - hivemind.pheromone.tail for follow, the generator `tail --follow` drives.
-    - hivemind.pheromone.trail for TrailQuery and TrailSegment, the shapes this file reads and
-      writes but never redefines.
+    - hivemind.pheromone.trail.tail for follow, the generator `tail --follow` drives.
+    - hivemind.pheromone.trail.protocol for TrailQuery and TrailSegment, the shapes this file
+      reads and writes but never redefines.
     - hivemind.cli.stores for open_trail, DbOption and DEFAULT_DB.
 """
 
@@ -41,11 +41,11 @@ from hivemind.cli.stores import DEFAULT_DB, DbOption, open_trail
 from hivemind.pheromone import (
     DEFAULT_POLL_INTERVAL_S,
     PheromoneEvent,
+    PheromoneTrail,
     TrailQuery,
     TrailSegment,
     follow,
 )
-from hivemind.pheromone.trail import PheromoneTrail
 from waggle.clock import SystemClock
 from waggle.ids import NodeId
 

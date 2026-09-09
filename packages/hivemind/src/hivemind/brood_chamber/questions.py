@@ -1,7 +1,7 @@
 """Define Question and Answer: the Brood Chamber's blocking-question domain models.
 
 A Worker or a Warden that cannot proceed without more information raises a Question against its
-task; the task moves to `TaskStatus.BLOCKED` (`hivemind.brood_chamber.task_state`) until an
+task; the task moves to `TaskStatus.BLOCKED` (`hivemind.brood_chamber.task.state`) until an
 `Answer` comes back, at which point it moves back to `RUNNING`. This module holds the domain form
 of both, stored with the task (`hivemind.brood_chamber.store`, roadmap step 2.6) rather than as a
 Waggle message: `waggle.messages.supervision.questions.Question`/`Answer` are what travels the wire
@@ -13,7 +13,7 @@ value with its own status machine (`QuestionStatus`) the wire form does not need
 
 `QUESTION_TRANSITIONS` is the second machine of the two Appendix C fixes for the Brood Chamber (the
 "Question" row): `ASKED -> ANSWERED / WITHDRAWN`, each edge tested, forbidden edges raising, exactly
-like `hivemind.brood_chamber.task_state.TRANSITIONS`. The two tables never call each other: a
+like `hivemind.brood_chamber.task.state.TRANSITIONS`. The two tables never call each other: a
 Question's status and its Task's status change together (asking blocks the task, answering resumes
 it) but that coupling is `hivemind.brood_chamber.chamber`'s job (roadmap step 2.8), not this
 module's.
@@ -42,7 +42,7 @@ See Also:
     - .claude/codingrules.md Appendix C, "Question" row, for the transition table this module
       implements.
     - waggle.messages.supervision.questions for the wire Question/Answer this module mirrors.
-    - hivemind.brood_chamber.task_state for TaskStatus.BLOCKED, the Task-side half of asking.
+    - hivemind.brood_chamber.task.state for TaskStatus.BLOCKED, the Task-side half of asking.
     - hivemind.brood_chamber.errors for InvalidTransitionError, the error
       assert_question_transition raises.
 """

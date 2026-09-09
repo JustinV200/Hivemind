@@ -144,10 +144,10 @@ HiveMind/
 │   │   ├── src/hivemind/
 │   │   │   ├── common/           # Layer 0. errors, result, logging setup, sqlite (connect + transaction), migrations. Imports nothing internal except waggle (ids, clock, loop).
 │   │   │   ├── manifest/         # Hive Manifest loading, schema, validation
-│   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync
+│   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync. events/, trail/ (protocol, memory, sqlite, tail, migrations), retention.py
 │   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders, routing, fanner.py (seat meter), prompts/, providers/. Imports forage; forage never imports llm.
 │   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
-│   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence
+│   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence. task/ (model, state, graph), store/ (protocol, memory, sqlite, migrations), chamber/ (facade)
 │   │   │   ├── honey_store/      # Cold tier: nectar/ intake, ripening/ pipeline, honey/ retrieval, schema/
 │   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread, cell_wax.py (Queen-written per-Cell cautions)
 │   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state)
@@ -579,10 +579,10 @@ Mandatory protocols (each gets its own ADR when first implemented):
 | `Sandbox` | `hivemind/royal_jelly/quarantine_comb/sandbox.py` | Container sandbox, subprocess sandbox (dev only) |
 | `EmbeddingProvider` | `hivemind/llm/embedding.py` | `OpenAICompatEmbedding` (Ollama, vLLM, hosted), `SentenceTransformersEmbedding` (in-process), `FakeEmbedding` |
 | `TranscriptionProvider` | `hivemind/llm/transcription.py` | `WhisperLocalTranscription` (faster-whisper in-process, optional extra, GPU when present), `OpenAICompatTranscription` (any server or hosted API speaking `/v1/audio/transcriptions`), `FakeTranscription` |
-| `TaskStore` | `hivemind/brood_chamber/store.py` | SQLite, in-memory (tests) |
+| `TaskStore` | `hivemind/brood_chamber/store/protocol.py` | SQLite, in-memory (tests) |
 | `Worker` | `hivemind/workers/base.py` | one per role |
 | `DeviceExecutor` | `pollen/executors/base.py` | shell, files, per-OS |
-| `PheromoneTrail` | `hivemind/pheromone/trail.py` | SQLite, in-memory (tests) |
+| `PheromoneTrail` | `hivemind/pheromone/trail/protocol.py` | SQLite, in-memory (tests) |
 | `Snapshotter` | `hivemind/cell/snapshot.py` | `DockerSnapshotter`, `QemuSnapshotter` (in `hive/snapshot.py`), `NoopSnapshotter` (Real Cells, warns) |
 | `PushChannel` | `hivemind/entrance/push/base.py` | `WebSocketPush`, `WebhookPush`, `WebPush`, `FakePush` |
 
@@ -1189,7 +1189,7 @@ the role to another machine without losing a task.
 - Use `NewType` for every identifier (`CellId = NewType("CellId", str)`).
 - Use `Literal` and `Enum` for closed sets; never bare strings for states or kinds.
 - State machines are modelled as an `Enum` plus a **single** transition table in one file per
-  machine (`brood_chamber/task_state.py`, `wardens/state.py`, and so on) with a comment on every
+  machine (`brood_chamber/task/state.py`, `wardens/state.py`, and so on) with a comment on every
   allowed edge. Appendix C lists every machine, its owner and where it persists; a new machine is
   added there in the same PR that introduces it.
 - Optional means "absence is meaningful". Do not use `Optional` as "I haven't decided yet".
@@ -1749,7 +1749,7 @@ transaction as the state change.
 
 | Machine | Owner and file | States and transitions | Notes |
 |---|---|---|---|
-| Task | Brood Chamber, `brood_chamber/task_state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
+| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
 | Question | Brood Chamber, `brood_chamber/questions.py` | `ASKED → ANSWERED / WITHDRAWN` | Asking blocks the task; answering resumes it. |
 | Proposal | Capping, `supervision/capping/state.py` | `PROPOSED → CHECKING → CAPPED → APPLIED → VERIFIED`; `CHECKING → REJECTED`; `APPLIED → ROLLED_BACK` | Tier decides the checks between `CHECKING` and `CAPPED`. |
 | Alarm | Supervision, `supervision/alarm.py` | `RAISED → HANDLING → RESOLVED`; `HANDLING → ESCALATED → HANDLING` (at the next level) | Attempt count travels with it; same id at every level. |

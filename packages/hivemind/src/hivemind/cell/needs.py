@@ -1,8 +1,9 @@
 """Define TaskNeeds: what a task requires from the Cell (Real or Virtual) that runs it.
 
 TaskNeeds is pure data a planner, or the human, attaches to a task's spec
-(brood_chamber.task.TaskSpec, phase 2 step 2.4). queen.placement.decide reads it alongside the
-current Cell inventory, each candidate's Cell Wax (a Queen-written caution about one Cell) and the
+(brood_chamber.task.model.TaskSpec, phase 2 step 2.4). queen.placement.decide reads it alongside
+the current Cell inventory, each candidate's Cell Wax (a Queen-written caution about one Cell) and
+the
 manifest's ``[placement]`` section to choose a Cell: whether isolation is required, preferred or
 unnecessary; whether the task needs an Exoskeleton (a display, input or audio attachment on top of
 a Cell's plain terminal session); which operating-system family it needs; which network scopes its
@@ -78,10 +79,10 @@ class OsFamily(Enum):
 class TaskNeeds(BaseModel):
     """What a task requires from the Cell (Real or Virtual) that runs it.
 
-    Attached to a TaskSpec (brood_chamber.task) and read by queen.placement.decide. Every field is
-    defaulted so TaskNeeds() is the plain case: no isolation demand beyond a mild preference, a
-    terminal-only Cell, any OS, no extra network reach, a disposable Cell, the MEADOW security
-    tier, and NORMAL-accuracy Tempo with no latency budget.
+    Attached to a TaskSpec (brood_chamber.task.model) and read by queen.placement.decide. Every
+    field is defaulted so TaskNeeds() is the plain case: no isolation demand beyond a mild
+    preference, a terminal-only Cell, any OS, no extra network reach, a disposable Cell, the
+    MEADOW security tier, and NORMAL-accuracy Tempo with no latency budget.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

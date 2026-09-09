@@ -1,32 +1,32 @@
 """Define _QueriesMixin: BroodChamber's four read-only methods.
 
 `get`, `list`, `next_ready` and `pending_questions` never write anything: each is a thin
-pass-through to `TaskStore` (`hivemind.brood_chamber.store`), except `next_ready`, which
-additionally runs the pure `hivemind.brood_chamber.graph.ready_tasks` decision over the tasks a
-store read returns. Reads need no real `ChamberIdentity` (docs/PHASE2_BRIEF.md decision 3), since
+pass-through to `TaskStore` (`hivemind.brood_chamber.store.protocol`), except `next_ready`, which
+additionally runs the pure `hivemind.brood_chamber.task.graph.ready_tasks` decision over the tasks
+a store read returns. Reads need no real `ChamberIdentity` (docs/PHASE2_BRIEF.md decision 3), since
 nothing here builds a `TaskEvent`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
-    `hivemind.brood_chamber.chamber.base` and `hivemind.brood_chamber.graph` only.
+    `hivemind.brood_chamber.chamber.base` and `hivemind.brood_chamber.task.graph` only.
 
 Key invariants:
     - None of these methods calls `_ChamberBase._write` or `_transition`: every one is read-only.
 
 See Also:
-    - hivemind.brood_chamber.graph for ready_tasks, the pure function `next_ready` wraps.
-    - hivemind.brood_chamber.store for TaskFilter and TaskStore, the protocol every method here
-      reads through.
+    - hivemind.brood_chamber.task.graph for ready_tasks, the pure function `next_ready` wraps.
+    - hivemind.brood_chamber.store.protocol for TaskFilter and TaskStore, the protocol every
+      method here reads through.
 """
 
 from __future__ import annotations
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
-from hivemind.brood_chamber.graph import ready_tasks
 from hivemind.brood_chamber.questions import Question, QuestionStatus
-from hivemind.brood_chamber.store import TaskFilter
-from hivemind.brood_chamber.task import Task
+from hivemind.brood_chamber.store.protocol import TaskFilter
+from hivemind.brood_chamber.task.graph import ready_tasks
+from hivemind.brood_chamber.task.model import Task
 from waggle.ids import TaskId
 
 __all__: list[str] = []  # Private mixin: nothing here is part of the package's public API.

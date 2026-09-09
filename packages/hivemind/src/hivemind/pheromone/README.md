@@ -15,29 +15,35 @@ trail on reconnection.
   vocabulary documented in `events/families.py`, and the JSON codec `parse_event`/
   `parse_event_json`. No event ever carries prompt or completion text; `payload`'s own validator
   enforces that.
-- **Trail** (`hivemind.pheromone.trail`): the `PheromoneTrail` protocol (`record`, `query`,
-  `export_segment`, `merge_segment`), `TrailQuery` (filters, ordering, limit) and `TrailSegment`
-  (one node's exported slice, JSON round-trip preserving each event's real subclass).
-  `TRAIL_ORDER_KEY = ("at", "node_id")` is the one place trail order is defined; every
-  implementation sorts by it and keeps events that tie on both in the order they were recorded
-  (a stable sort in memory, `rowid` in SQLite), because ids minted within one millisecond carry
-  random tails and would shuffle an audit log.
-- **Memory** (`hivemind.pheromone.memory`): `MemoryPheromoneTrail(clock)`, an in-process
-  `PheromoneTrail` for tests and demos, plus `drop_segment(node_id)` (sync), used by
-  `MemorySegmentPurge`.
-- **SQLite** (`hivemind.pheromone.sqlite`): `SqlitePheromoneTrail`, the durable store, built on
-  one table (`pheromone_events`, created by `hivemind.pheromone.migrations`). `insert_event
-  (connection, event)` is the primitive another store's own transaction calls so a state change
-  and its trail event commit together (codingrules section 12's "same transaction" rule). This
-  module issues only `INSERT` and `INSERT OR IGNORE` statements -- never `UPDATE` or `DELETE` --
-  which `test_sqlite.py` checks by reading the file's own source.
+- **Trail** (`hivemind.pheromone.trail`): a package because the protocol, its two implementations
+  and live-tail follow together pushed past a single file (codingrules 5.6). `trail/__init__.py`
+  is its face: a caller writes `from hivemind.pheromone.trail import PheromoneTrail` (or straight
+  from `hivemind.pheromone`) without knowing the split.
+  - `trail/protocol.py` -- the `PheromoneTrail` protocol (`record`, `query`, `export_segment`,
+    `merge_segment`), `TrailQuery` (filters, ordering, limit) and `TrailSegment` (one node's
+    exported slice, JSON round-trip preserving each event's real subclass).
+    `TRAIL_ORDER_KEY = ("at", "node_id")` is the one place trail order is defined; every
+    implementation sorts by it and keeps events that tie on both in the order they were recorded
+    (a stable sort in memory, `rowid` in SQLite), because ids minted within one millisecond carry
+    random tails and would shuffle an audit log.
+  - `trail/memory.py` -- `MemoryPheromoneTrail(clock)`, an in-process `PheromoneTrail` for tests
+    and demos, plus `drop_segment(node_id)` (sync), used by `MemorySegmentPurge`.
+  - `trail/sqlite.py` -- `SqlitePheromoneTrail`, the durable store, built on one table
+    (`pheromone_events`, created by `trail/migrations/`). `insert_event(connection, event)` is the
+    primitive another store's own transaction calls so a state change and its trail event commit
+    together (codingrules section 12's "same transaction" rule). This module issues only `INSERT`
+    and `INSERT OR IGNORE` statements -- never `UPDATE` or `DELETE` -- which `test_sqlite.py`
+    checks by reading the file's own source.
+  - `trail/migrations/` -- the numbered SQL migration series `trail/sqlite.py` applies
+    (`0001_create_pheromone_events.sql`); a real Python package (an `__init__.py`, however empty)
+    because `importlib.resources` addresses it by dotted name.
+  - `trail/tail.py` -- `follow(trail, clock, poll_interval_s, since)` yields the trail's backlog,
+    then polls forever, never returning on its own; the caller cancels it.
 - **Retention** (`hivemind.pheromone.retention`): the Night Veil boundary and the package's one
   deletion path. `SqliteSegmentPurge`/`MemorySegmentPurge` remove one node's rows;
   `SideChannelPurger` is the protocol the VPN gateway's and Tor daemon's per-Cell connection and
   circuit logs implement in phases 5 and 11; `NightVeilTeardownPurge.purge` runs both, then
   records one `cell.purged` event (counts only) on the Queen's trail.
-- **Tail** (`hivemind.pheromone.tail`): `follow(trail, clock, poll_interval_s, since)` yields the
-  trail's backlog, then polls forever, never returning on its own; the caller cancels it.
 
 ## The Night Veil boundary
 
@@ -68,6 +74,10 @@ Coverage floor is 95% for the pure pieces and 80% for the adapters (codingrules 
 uv run --frozen pytest packages/hivemind/tests/unit/pheromone packages/hivemind/tests/contracts \
     --cov=hivemind.pheromone --cov-report=term-missing
 ```
+
+`tests/unit/pheromone/` mirrors this layout: `events/`, `trail/` (`test_protocol.py`,
+`test_memory.py`, `test_sqlite.py`, `test_tail.py`), and `test_errors.py`/`test_retention.py` for
+the two modules that stayed flat.
 
 `tests/contracts/test_pheromone_trail_contract.py` parametrises the same behavioural suite over
 `MemoryPheromoneTrail` and `SqlitePheromoneTrail` (the latter on a `tmp_path` SQLite file), plus a

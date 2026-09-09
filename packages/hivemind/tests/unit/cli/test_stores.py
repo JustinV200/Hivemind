@@ -18,8 +18,7 @@ from pathlib import Path
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, TaskFilter
 from hivemind.cli.stores import DEFAULT_DB, open_chamber, open_trail
-from hivemind.pheromone import SqlitePheromoneTrail
-from hivemind.pheromone.trail import TrailQuery
+from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
 from waggle.clock import SystemClock
 from waggle.ids import new_hive_id, new_node_id
 

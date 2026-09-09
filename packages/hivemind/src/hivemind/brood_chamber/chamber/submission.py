@@ -2,15 +2,15 @@
 
 Submitting is its own concept, distinct from advancing an existing task (`lifecycle.py`,
 `outcomes.py`, `questions.py`) or reading one back (`queries.py`): it mints every `TaskId` a
-`TaskGraphDraft` (`hivemind.brood_chamber.task`, the JSON graph file `hive tasks submit` reads)
-needs before any `Task` exists, resolves each draft's `depends_on` keys to those ids, and inserts
-every minted `Task` with its `task.submitted` `TaskEvent` in one atomic `TaskStore.insert_tasks`
-call.
+`TaskGraphDraft` (`hivemind.brood_chamber.task.model`, the JSON graph file `hive tasks submit`
+reads) needs before any `Task` exists, resolves each draft's `depends_on` keys to those ids, and
+inserts every minted `Task` with its `task.submitted` `TaskEvent` in one atomic
+`TaskStore.insert_tasks` call.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
-    `hivemind.brood_chamber.task` and `hivemind.brood_chamber.chamber.base` only.
+    `hivemind.brood_chamber.task.model` and `hivemind.brood_chamber.chamber.base` only.
 
 Key invariants:
     - The first draft in `graph.tasks` mints the goal: every Task this mixin builds gets
@@ -19,7 +19,7 @@ Key invariants:
       call, never to an id from an earlier submission.
 
 See Also:
-    - hivemind.brood_chamber.task for TaskGraphDraft, TaskDraft and TaskSpec.
+    - hivemind.brood_chamber.task.model for TaskGraphDraft, TaskDraft and TaskSpec.
     - hivemind.brood_chamber.chamber.base for _ChamberBase, the shared write helpers this mixin
       uses.
 """
@@ -29,8 +29,8 @@ from __future__ import annotations
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
-from hivemind.brood_chamber.task import Task, TaskGraphDraft, TaskSpec
-from hivemind.brood_chamber.task_state import TaskStatus
+from hivemind.brood_chamber.task.model import Task, TaskGraphDraft, TaskSpec
+from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.pheromone import TaskEvent
 from waggle.ids import new_task_id
 

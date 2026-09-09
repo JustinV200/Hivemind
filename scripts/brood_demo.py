@@ -51,8 +51,7 @@ from hivemind.brood_chamber.questions import Answer, AnswerSource
 from hivemind.cell import HoneyClearance
 from hivemind.cli.stores import open_chamber, open_trail
 from hivemind.common.sqlite import connect
-from hivemind.pheromone import PheromoneEvent, SqlitePheromoneTrail, WardenEvent
-from hivemind.pheromone.trail import TrailQuery
+from hivemind.pheromone import PheromoneEvent, SqlitePheromoneTrail, TrailQuery, WardenEvent
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import (
     HiveId,
@@ -96,8 +95,8 @@ def build_graph_draft_json() -> dict[str, object]:
     """Build the demo's three-task graph as a plain dict: `plan` -> `build` -> `verify`.
 
     Returns:
-        A dict matching `hivemind.brood_chamber.task.TaskGraphDraft`'s JSON shape, with `build`
-        depending on `plan` and `verify` depending on both.
+        A dict matching `hivemind.brood_chamber.task.model.TaskGraphDraft`'s JSON shape, with
+        `build` depending on `plan` and `verify` depending on both.
     """
     return {
         "tasks": [

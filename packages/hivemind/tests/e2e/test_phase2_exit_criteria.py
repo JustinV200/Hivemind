@@ -35,8 +35,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.cli.app import app
 from hivemind.cli.stores import open_chamber, open_trail
 from hivemind.common.sqlite import connect
-from hivemind.pheromone import SqlitePheromoneTrail
-from hivemind.pheromone.trail import TrailQuery
+from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import (
     HiveId,

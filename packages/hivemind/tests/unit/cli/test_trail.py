@@ -25,8 +25,7 @@ from typer.testing import CliRunner
 
 import hivemind.cli.trail as trail_module
 from hivemind.cli.app import app
-from hivemind.pheromone import PheromoneEvent, TaskEvent
-from hivemind.pheromone.memory import MemoryPheromoneTrail
+from hivemind.pheromone import MemoryPheromoneTrail, PheromoneEvent, TaskEvent
 from waggle.clock import FakeClock
 from waggle.ids import new_event_id, new_hive_id, new_node_id, new_task_id
 

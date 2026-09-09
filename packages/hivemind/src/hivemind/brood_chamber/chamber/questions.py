@@ -12,7 +12,7 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
     `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.questions`,
-    `hivemind.brood_chamber.task_state` and `hivemind.cell` (HoneyClearance) only.
+    `hivemind.brood_chamber.task.state` and `hivemind.cell` (HoneyClearance) only.
 
 Key invariants:
     - `ask`'s question text and `withdraw`'s reason never appear in the TaskEvent payload each
@@ -40,8 +40,8 @@ from hivemind.brood_chamber.questions import (
     QuestionStatus,
     assert_question_transition,
 )
-from hivemind.brood_chamber.task import Task
-from hivemind.brood_chamber.task_state import TaskStatus, assert_transition
+from hivemind.brood_chamber.task.model import Task
+from hivemind.brood_chamber.task.state import TaskStatus, assert_transition
 from hivemind.cell import HoneyClearance
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_message_id
 

@@ -5,13 +5,13 @@ Warden (a Cell's supervisor) takes on and starts the task; `report_progress` rec
 task's latest summary with no status change; `pause`/`resume` move a task in and out of PAUSED for
 Clustering (the Queen suspending work while a model provider is unavailable). Every transition
 here (other than `report_progress`, which is not one) is asserted legal by
-`hivemind.brood_chamber.task_state.TRANSITIONS` before it is written, through
+`hivemind.brood_chamber.task.state.TRANSITIONS` before it is written, through
 `_ChamberBase._transition` (`hivemind.brood_chamber.chamber.base`).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
-    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.task_state` and
+    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.task.state` and
     `hivemind.brood_chamber.errors` only.
 
 Key invariants:
@@ -25,7 +25,7 @@ Key invariants:
 See Also:
     - hivemind.brood_chamber.chamber.base for _ChamberBase, the shared write helpers this mixin
       uses.
-    - hivemind.brood_chamber.task_state for the transition table every move here is checked
+    - hivemind.brood_chamber.task.state for the transition table every move here is checked
       against.
 """
 
@@ -35,8 +35,8 @@ from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
 from hivemind.brood_chamber.errors import InvalidTransitionError
-from hivemind.brood_chamber.task import Task
-from hivemind.brood_chamber.task_state import TaskStatus
+from hivemind.brood_chamber.task.model import Task
+from hivemind.brood_chamber.task.state import TaskStatus
 from waggle.ids import CellId, TaskId, WardenId
 
 __all__: list[str] = []  # Private mixin: nothing here is part of the package's public API.

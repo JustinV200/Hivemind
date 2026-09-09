@@ -1,8 +1,8 @@
 """Compose BroodChamber, the public API the Queen uses to submit and advance tasks.
 
 The Queen (the Hive's central orchestrator) never touches `TaskStore`
-(`hivemind.brood_chamber.store`) or the task and question state machines
-(`hivemind.brood_chamber.task_state`, `hivemind.brood_chamber.questions`) directly; it calls
+(`hivemind.brood_chamber.store.protocol`) or the task and question state machines
+(`hivemind.brood_chamber.task.state`, `hivemind.brood_chamber.questions`) directly; it calls
 `BroodChamber`, a thin facade that loads a `Task` or `Question`, asks the right state machine
 whether a move is legal, builds the new value with `model_copy`, builds the matching `TaskEvent`
 (`hivemind.pheromone`, the Pheromone Trail's audit record of who did what to what and when), and

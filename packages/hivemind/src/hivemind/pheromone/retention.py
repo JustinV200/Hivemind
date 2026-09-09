@@ -7,14 +7,14 @@ that node id, and the VPN gateway's and Tor daemons' own per-Cell connection and
 a parallel side channel with the exact same no-retention rule -- purging only the trail and
 leaving those logs behind would be a side channel that defeats the whole guarantee. This module
 purges both, in one call, and is the *only* place `hivemind.pheromone` ever removes a row:
-`hivemind.pheromone.sqlite` contains no `UPDATE` or `DELETE` token at all (decision 7), so every
-other module in this package only ever inserts.
+`hivemind.pheromone.trail.sqlite` contains no `UPDATE` or `DELETE` token at all (decision 7), so
+every other module in this package only ever inserts.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by the Undertaker (the cleanup
     Worker, `hivemind.hive.lifecycle`) at Night Veil teardown, once the Cell's task has ended and
     its Warden has stopped writing. Calls into hivemind.common.sqlite, hivemind.pheromone.events,
-    hivemind.pheromone.memory and hivemind.pheromone.trail.
+    hivemind.pheromone.trail.memory and hivemind.pheromone.trail.protocol.
 
 Key invariants:
     - `SqliteSegmentPurge.purge_segment` runs the package's only `DELETE` statement, in one
@@ -29,8 +29,8 @@ See Also:
     - .claude/codingrules.md section 12 for the Night Veil boundary this module implements.
     - docs/adr/0007-pheromone-trail-append-only-transactional-and-segmented.md for the decision
       that this is the package's one deletion path.
-    - hivemind.pheromone.trail for PheromoneTrail, and hivemind.pheromone.sqlite for the table
-      every other module in this package only ever inserts into.
+    - hivemind.pheromone.trail.protocol for PheromoneTrail, and hivemind.pheromone.trail.sqlite
+      for the table every other module in this package only ever inserts into.
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.common.sqlite import transaction
 from hivemind.pheromone.events import CellEvent
-from hivemind.pheromone.memory import MemoryPheromoneTrail
-from hivemind.pheromone.trail import PheromoneTrail
+from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.pheromone.trail.protocol import PheromoneTrail
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId, NodeId, new_event_id
 from waggle.messages.base import CellIdField, NodeIdField

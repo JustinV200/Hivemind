@@ -42,9 +42,11 @@ coroutine can interleave a statement into another store's open transaction) and 
 connection worker thread. Two stores that write the same file hold separate connections, which WAL
 makes safe; a state change and its trail event share one transaction because the writing store's
 transaction function calls the trail's synchronous `insert_event(connection, event)` on its own
-connection. Each subsystem owns a numbered migration series, `<subsystem>/migrations/NNNN_name.sql`
-loaded by `hivemind.common.migrations.load_migrations` and applied by `apply_migrations`, which
-records what ran in one `schema_migrations(subsystem, version, name, applied_at)` table keyed by
+connection. Each SQLite-backed store package owns its own `migrations/` directory holding a
+numbered series, `NNNN_name.sql` (`hivemind.pheromone.trail.migrations`,
+`hivemind.brood_chamber.store.migrations`), loaded by `hivemind.common.migrations.load_migrations`
+and applied by `apply_migrations`, which records what ran in one
+`schema_migrations(subsystem, version, name, applied_at)` table keyed by
 subsystem, so several series share the file without renumbering each other. Store Protocols
 (`PheromoneTrail`, `TaskStore`, and their successors) are the swap point: nothing above a store
 sees SQL. The move to a client-server engine such as Postgres is forced by exactly three things,

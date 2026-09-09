@@ -19,9 +19,9 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.pheromone.memory import MemoryPheromoneTrail
 from hivemind.pheromone.retention import NightVeilTeardownPurge, PurgeReport, TrailRecorder
-from hivemind.pheromone.trail import TrailQuery
+from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.pheromone.trail.protocol import TrailQuery
 from waggle.clock import FakeClock
 from waggle.ids import CellId, NodeId, new_cell_id, new_hive_id, new_node_id
 

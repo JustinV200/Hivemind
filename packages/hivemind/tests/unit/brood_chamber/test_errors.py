@@ -21,7 +21,7 @@ from hivemind.brood_chamber.errors import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
 )
-from hivemind.brood_chamber.task_state import TaskStatus
+from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.common.errors import ConflictError, HiveMindError, NotFoundError
 
 
