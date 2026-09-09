@@ -330,10 +330,14 @@ layers = [
     # "nothing at Layer 2 or below imports guard for an enum" forbids). An ordered sub-rank gives
     # the one-way guard/honey_store/supervision -> cell edge without opening the reverse one.
     "cell",
-    # Layer 1, upper half: independent siblings; llm reads forage (the layer below) for ModelSlot
-    # and Tempo (section 4: "llm imports forage").
-    "llm | manifest | pheromone",
-    "forage",  # Layer 1, lower half: forage never imports llm (section 4's last Layer-1 corollary).
+    # Layer 1, upper half: independent siblings. llm reads forage (the rank below) for ModelSlot,
+    # Tempo and the Forage map, and pheromone to record its own llm.* events from the Fanner and
+    # the ladders (ADR-0020); manifest reads forage for the section models it embeds.
+    "llm | manifest",
+    # Layer 1, lower half: independent siblings that import nothing else at Layer 1. forage never
+    # imports llm (section 4's Layer-1 corollary, restated as its own contract below); pheromone
+    # is the audit sink every layer above it writes to and reads nothing from any of them.
+    "pheromone | forage",
     "common",  # Layer 0: primitives; imports nothing internal.
 ]
 

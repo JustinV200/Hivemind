@@ -145,7 +145,7 @@ HiveMind/
 │   │   │   ├── common/           # Layer 0. errors, result, logging setup, sqlite (connect + transaction), migrations. Imports nothing internal except waggle (ids, clock, loop).
 │   │   │   ├── manifest/         # Hive Manifest loading, schema, validation
 │   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync. events/, trail/ (protocol, memory, sqlite, tail, migrations), retention.py
-│   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders, routing, fanner.py (seat meter), prompts/, providers/. Imports forage; forage never imports llm.
+│   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders/, routing, fanner.py (seat meter), prompts/, providers/. Imports forage and pheromone (its own llm.* events); neither imports llm.
 │   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence. task/ (model, state, graph), store/ (protocol, memory, sqlite, migrations), chamber/ (facade)
 │   │   │   ├── honey_store/      # Cold tier: nectar/ intake, ripening/ pipeline, honey/ retrieval, schema/
@@ -248,7 +248,8 @@ Layer 5  wardens                                                      (per-Cell 
 Layer 4  workers                                                      (roles that do the work)
 Layer 3  hive, swarm, exoskeleton, royal_jelly                        (sources of Cells, and capabilities handed down)
 Layer 2  cell, brood_chamber, honey_store, memory, supervision, guard (the Cell abstraction, state, memory, policy)
-Layer 1  manifest, pheromone, llm, forage                             (foundational services; capacity as data)
+Layer 1  llm, manifest                                               (foundational services: models, configuration)
+         pheromone, forage                                            (the audit sink; capacity as data)
 Layer 0  common                                                       (primitives; imports nothing internal)
 ──────── waggle (separate package)              (usable by every layer; imports nothing from hivemind)
 ```
@@ -284,9 +285,12 @@ Layer 0  common                                                       (primitive
   `hivemind.llm.providers.<name>`. An `import anthropic` or `import openai` anywhere else fails
   `lint-imports`. Everything above `llm/` sees only our own request, response and capability
   models (section 8.6).
-- Within Layer 1, `llm` imports `forage` and `forage` never imports `llm`. `ModelSlot` and
-  `Tempo` live in `forage` so that grants, routing inputs and autopilot rules can name a slot or
-  read a tempo without touching `hivemind.llm`.
+- Within Layer 1, `llm` and `manifest` sit above `pheromone` and `forage`. `llm` imports
+  `forage` (never the reverse) and `pheromone`, because the Fanner and the ladders record the
+  LLM layer's own `llm.call`, `llm.fallback` and `llm.spill` events; `manifest` imports `forage`
+  for the section models it embeds; `pheromone` and `forage` import nothing else at Layer 1
+  (ADR-0020). `ModelSlot` and `Tempo` live in `forage` so that grants, routing inputs and
+  autopilot rules can name a slot or read a tempo without touching `hivemind.llm`.
 - `cell` is the home of everything a task or a policy needs to say about a Cell: `TaskNeeds`, the
   three security enums (`AccessLevel`, `CombShieldLevel`, `HoneyClearance`) and the `Snapshotter`
   protocol. `guard`, `hive`, `honey_store` and `supervision` import them from there; nothing at

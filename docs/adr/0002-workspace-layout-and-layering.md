@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-07
+- Amended by: ADR-0020 (the Layer 1 row only; everything else here stands)
 
 ## Context
 
