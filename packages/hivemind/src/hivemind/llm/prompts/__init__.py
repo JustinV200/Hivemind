@@ -1,25 +1,35 @@
-"""Hold the templates assembled into an awake episode: the prompts package.
+"""Re-export the prompts package's public surface: named prompt assets and their assembly.
 
-The Queen and her bees assemble these templates into an awake episode (a bounded, stateless turn
-where a bee is allowed to think with a model). Prompts live here, not scattered through the
-callers, so tone and structure stay consistent across the Hive.
+The Queen and her bees assemble these plain-markdown templates into an awake episode (a bounded,
+stateless turn where a bee is allowed to think with a model). Prompts live here, not scattered
+through the callers, so tone and structure stay consistent across the Hive, and so a portability
+rule (codingrules section 8.6: no vendor tags, no model ids) has exactly one place to hold.
 
 Fits into the Hive:
-    Layer 1 (foundational services; capacity as data), inside the llm package. Handles the
-    prompt templates an awake episode is assembled from. Called by llm's public API on behalf of
-    whatever calls llm itself; calls into sibling packages at Layer 1 or below, never back up
-    into llm's other sub-packages directly.
+    Layer 1 (foundational services), inside hivemind.llm. Called by hivemind.memory.assemble (a
+    parallel roadmap step) once it turns durable state into labelled sections, and by every awake
+    episode (queen/awake, wardens/awake) and the Drone's tool loop, which pass the assembled text
+    as an LLMRequest's `system` field. Calls into hivemind.common only.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 3 adds its first public name.
+    - Every PromptName maps to exactly one `<name>.md` file shipped inside this package; a missing
+      file raises PromptNotFoundError rather than a bare FileNotFoundError.
+    - render() always orders sections PINS, HOT_STATE, RETRIEVED, USER, EVENT regardless of the
+      order the caller's mapping iterates in (codingrules 8.9, "stable prefix first").
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under llm.
-    - .claude/roadmap.md phase 3 for the work that first populates it.
+    - .claude/codingrules.md section 8.6 for "Prompts are portable".
+    - .claude/codingrules.md section 8.9 for "Stable prefix first".
+    - .claude/codingrules.md section 15 for labelling retrieved/hot-state content as data.
+    - hivemind.llm.prompts.loader for the implementation these names come from.
 
-Public API: none yet; first populated in phase 3.
+Public API:
+    - PromptName: which shipped prompt asset to load (hivemind.llm.prompts.loader).
+    - SectionLabel: what kind of durable state one rendered section carries.
+    - load_prompt: read one prompt's markdown body.
+    - render: assemble a prompt body plus its labelled sections in stable-prefix order.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 3 adds the first public name.
-__all__: list[str] = []
+from hivemind.llm.prompts.loader import PromptName, SectionLabel, load_prompt, render
+
+__all__ = ["PromptName", "SectionLabel", "load_prompt", "render"]
