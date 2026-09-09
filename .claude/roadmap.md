@@ -414,12 +414,12 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   (Claude only) and `docs/manifests/local.toml` (local only) are both loaded in tests. `[security]`
   and `[honey.clearance]` are declared here as schema with defaults, so the example manifests never
   drift; they are enforced in phases 5, 7 and 10. `[entrance]` is added in phase 10.
-- [ ] **3.2 LLM boundary models.** `llm/models.py`: `LLMRequest` (system, messages, tools,
+- [x] **3.2 LLM boundary models.** `llm/models.py`: `LLMRequest` (system, messages, tools,
   response schema, slot, max output), `Message` with `ContentPart` union (text, image, tool call,
   tool result), `ToolDefinition` (name, description, JSON schema), `ToolCall`, `LLMResponse`
   (parts, stop reason enum, `Usage`), `Usage` (input, output, cached, cost). These are HiveMind's
   own types; no SDK type appears here. Round-trip tests.
-- [ ] **3.3 Provider protocol and capabilities.** `llm/provider.py`: `LLMProvider` with
+- [x] **3.3 Provider protocol and capabilities.** `llm/provider.py`: `LLMProvider` with
   `capabilities -> ProviderCapabilities`, `complete(request) -> LLMResponse`,
   `stream(request) -> AsyncIterator[LLMChunk]`, `count_tokens(request) -> int | None`, and
   `health() -> ProviderHealth`. `llm/capabilities.py`: the frozen `ProviderCapabilities` (native
@@ -457,7 +457,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   parametrised over the fake, Anthropic and OpenAI-compatible adapters using recorded HTTP
   cassettes: completion, structured output at each rung, tool loop at each rung, streaming, error
   mapping, health, usage normalisation. A `live_llm` variant hits real endpoints on demand.
-- [ ] **3.9 Prompt assets.** `llm/prompts/` with one file per prompt (`queen_system.md`,
+- [x] **3.9 Prompt assets.** `llm/prompts/` with one file per prompt (`queen_system.md`,
   `decompose_goal.md`, `warden_system.md`, `drone_system.md`, `attendant_triage.md`), loaded by
   `llm/prompts/loader.py`; `llm/prompts/README.md` states the portability rules. Snapshot tests.
   Prompts label retrieved, hot-state and user-supplied content as such and delimit it.
@@ -539,7 +539,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   observations; deterministic `score()` from kind, severity, age, task linkage, the task's latency
   budget and a per-principal weight table; an optional model tie-break on `ModelSlot.ATTENDANT`
   that the Queen enables and a Warden may enable only within its grant), `supervision/fake.py`.
-- [ ] **3.13a Capability primitives.** `guard/capabilities.py`: the `Capability` families and the
+- [x] **3.13a Capability primitives.** `guard/capabilities.py`: the `Capability` families and the
   pure `CapabilitySet` with `allows()` and `attenuate(subset)` from 10.1, built now because 3.15
   and 3.16 gate on them; 10.1 adds the remaining families and 10.2 the policy engine.
   `guard/access.py`: what each `AccessLevel` (2.3a) permits, as data.

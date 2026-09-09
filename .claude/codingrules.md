@@ -1760,7 +1760,7 @@ transaction as the state change.
 | Swarm node | Swarm, `swarm/node_state.py` | `INVITED → ENROLLING → ONLINE ↔ UNREACHABLE`; `ONLINE → PROMOTING → NUC`; `NUC → DEMOTING → ONLINE`; any → `REVOKED` | Access level is an attribute, not a state. |
 | Forage grant | Queen, `forage/grant_state.py` | `ISSUED → ACTIVE → REVOKED`; `ACTIVE → EXHAUSTED → ACTIVE` (top-up) | Growing or shrinking keeps it `ACTIVE`; each change is an event. |
 | Tool | Royal Jelly, `royal_jelly/tool_state.py` | `REQUESTED → SCAFFOLDED → QUARANTINING → PROMOTED / REJECTED`; `PROMOTED → RETIRED` | Scope (`hive` or `cell`) is an attribute set at promotion. |
-| Provider health | LLM, `llm/health.py` | `HEALTHY ↔ DEGRADED ↔ DOWN` | In memory, re-probed on start; `DOWN` with no fallback triggers Clustering. |
+| Provider health | LLM, `llm/capabilities.py` | `HEALTHY ↔ DEGRADED ↔ DOWN` | In memory, re-probed on start; `DOWN` with no fallback triggers Clustering. |
 | Queen mode | Queen, `queen/state.py` | `REQUEENING → RUNNING`; `RUNNING ↔ CLUSTERED` (per provider set); `CLUSTERED → SUPERSEDING → SUPERSEDED` (the old Queen, 8.16); `SUPERSEDING → CLUSTERED` (rollback) | Per event, `RUNNING` is autopilot then awake; mode is not a transcript. A new Queen starts in `REQUEENING` from the copied stores. |
 | Knowledge tier | Memory and Honey Store | `HOT → BEE_BREAD → HONEY`; `NECTAR → HONEY` | A pipeline, not a strict machine; demotion is a House Bee duty. |
 | Cell Wax note | Memory, `memory/cell_wax.py` | `PROPOSED → WRITTEN → CLEARED / EXPIRED`; `PROPOSED → REJECTED` | Only the Queen writes, rejects or clears; every edge is a `memory.wax_*` event; cleared and expired notes are ripened into Honey at `cell:<id>` scope. |
