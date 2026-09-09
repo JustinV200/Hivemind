@@ -1,24 +1,29 @@
 """Queue questions, Alarms and Worker results for the Warden's Attendant triage.
 
 Questions, Alarms and results from its Workers queue up here for Attendant, the inbox triage
-every supervisor uses.
+every supervisor uses. `warden_attendant` builds a Warden's own `Attendant` over `WeightTable.
+warden_default()`, autopilot-only (no `TieBreaker`, codingrules section 8.8); `to_inbox_item`
+classifies one received `waggle.envelope.Envelope`'s payload into the `InboxItem` shape that
+Attendant scores.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package.
-    Handles where questions, Alarms and results from its Workers queue up. Called by wardens'
-    public API on behalf of whatever calls wardens itself; calls into sibling packages at Layer
-    5 or below, never back up into wardens' other sub-packages directly.
+    Handles where questions, Alarms and results from its Workers queue up. Called by
+    `hivemind.wardens.warden.Warden`.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 3 adds its first public name.
+    - `warden_attendant` never passes a `TieBreaker`: a Warden's Attendant is autopilot-only by
+      default.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under wardens.
-    - .claude/roadmap.md phase 3 for the work that first populates it.
+    - .claude/codingrules.md section 8.8 for the Attendant shape this package builds.
+    - .claude/roadmap.md phase 3 step 3.19 for the work that first populates it.
 
-Public API: none yet; first populated in phase 3.
+Public API (roadmap step 3.19):
+    - to_inbox_item, warden_attendant: build the Warden's Attendant and wrap one envelope (weights).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 3 adds the first public name.
-__all__: list[str] = []
+from hivemind.wardens.inbox.weights import to_inbox_item, warden_attendant
+
+__all__ = ["to_inbox_item", "warden_attendant"]

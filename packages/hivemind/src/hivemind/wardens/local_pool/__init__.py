@@ -1,24 +1,29 @@
-"""Allocate a Nuc's own Cell resources to the model servers it hosts.
+"""Allocate a Warden's own sub-bee slots against its current grant's `max_sub_bees`.
 
-A Nuc is a colonized Real Cell with its own model server; allocating its Cell's resources to the
-servers it hosts itself keeps it working while disconnected.
+A Warden's local pool (codingrules section 8.10) is everything physically on its own Cell; roadmap
+step 3.19 populates only the sub-bee-slot half of it (`LocalPool`), a bare counter against
+`GrantIssued.max_sub_bees` the Warden never asks the Queen to check for it. Allocating a Nuc's own
+model-server resources (VRAM, disk, seats) is `hosting.py`, a later roadmap phase (8).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package.
-    Handles allocating a Nuc's own Cell resources to the model servers it hosts. Called by
-    wardens' public API on behalf of whatever calls wardens itself; calls into sibling packages
-    at Layer 5 or below, never back up into wardens' other sub-packages directly.
+    Handles allocating a Warden's own sub-bee slots. Owned by one `hivemind.wardens.warden.Warden`
+    instance; consulted by `hivemind.wardens.ticks.assign` before every spawn.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 8 adds its first public name.
+    - `LocalPool.acquire()` never lets `in_use` exceed `capacity` (hivemind.wardens.local_pool.pool
+      for the full contract).
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under wardens.
-    - .claude/roadmap.md phase 8 for the work that first populates it.
+    - .claude/codingrules.md section 8.10 for "a Warden divides its local pool under ceilings the
+      Queen set once".
+    - .claude/roadmap.md phase 3 step 3.19 for the work that first populates this package; phase 8
+      for the model-server half (`hosting.py`).
 
-Public API: none yet; first populated in phase 8.
+Public API (roadmap step 3.19):
+    - LocalPool: a bare sub-bee-slot counter against a grant's max_sub_bees (pool).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 8 adds the first public name.
-__all__: list[str] = []
+from hivemind.wardens.local_pool.pool import LocalPool
+
+__all__ = ["LocalPool"]

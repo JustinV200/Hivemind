@@ -1,23 +1,31 @@
 """Start a new Worker on the Warden's Cell and hand it a CellSession.
 
-This is how a Warden starts that Worker and hands it the CellSession it needs.
+This is how a Warden starts that Worker and hands it the CellSession it needs. `SubBee`
+(`sub_bee.py`) is the Warden's own bookkeeping row for one spawned Worker: its mirrored
+`WorkerState`, its current binding, its last Handoff and the owned runtime task and transport
+link. `spawn_sub_bee` (`spawn.py`) is the whole start-up sequence: attenuate capabilities, carve a
+grant slice, resolve the assignment's slot to a live model, build the Capping gate and
+`WorkerContext`, start the `WorkerRuntime` and send the sub-bee its first `TaskAssign`.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package.
-    Handles starting a new Worker on the Warden's Cell. Called by wardens' public API on behalf
-    of whatever calls wardens itself; calls into sibling packages at Layer 5 or below, never
-    back up into wardens' other sub-packages directly.
+    Handles starting a new Worker on the Warden's Cell. Called by `hivemind.wardens.ticks.assign`
+    and `hivemind.wardens.ticks.alarms`.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 3 adds its first public name.
+    - `spawn_sub_bee`'s runtime task is returned, never dropped: its caller tracks, awaits or
+      cancels it (codingrules section 11).
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under wardens.
-    - .claude/roadmap.md phase 3 for the work that first populates it.
+    - .claude/roadmap.md phase 3 step 3.19 for the work that first populates it.
 
-Public API: none yet; first populated in phase 3.
+Public API (roadmap step 3.19):
+    - SubBee: the Warden's own bookkeeping row for one sub-bee (sub_bee).
+    - WardenCellContext, spawn_sub_bee: start one new sub-bee within a grant (spawn).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 3 adds the first public name.
-__all__: list[str] = []
+from hivemind.wardens.spawn.spawn import WardenCellContext, spawn_sub_bee
+from hivemind.wardens.spawn.sub_bee import SubBee
+
+__all__ = ["SubBee", "WardenCellContext", "spawn_sub_bee"]

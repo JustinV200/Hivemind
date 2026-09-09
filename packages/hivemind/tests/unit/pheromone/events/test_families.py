@@ -166,6 +166,12 @@ def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
     assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS
 
 
+def test_warden_event_kinds_include_the_phase_3_19_additions() -> None:
+    # roadmap step 3.19 (the Warden): started/watch/active added alongside the state machine that
+    # first needs them.
+    assert {"warden.started", "warden.watch", "warden.active"} <= WardenEvent.KINDS
+
+
 def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
     # roadmap step 3.15 (worker runtime): one kind per WorkerState transition it drives.
     assert {

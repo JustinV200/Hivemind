@@ -43,9 +43,12 @@ Vocabulary (family -> kind -> when it is recorded):
     queen: started (the Queen process came up); placed (a Placement decision was made for a task);
         woke (an awake episode ran); clustered (Clustering paused affected bees); resumed (bees
         resumed from Clustering); stopped (the Queen process is shutting down).
-    warden: spawned (a Warden started supervising a Cell); offline (its connection to the Queen
-        was lost); reconnected (its connection came back); migrated (it moved to another host, a
-        Supersedure or promotion step); stopped (it is shutting down).
+    warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
+        moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
+        sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
+        offline (its connection to the Queen was lost); reconnected (its connection came back);
+        migrated (it moved to another host, a Supersedure or promotion step); stopped (it is
+        shutting down).
     tool: requested (a Worker asked for a tool the Comb Registry does not yet have); scaffolded
         (Royal Jelly generated a draft implementation); quarantined (a QuarantineReport was
         produced, pass or fail); promoted (CombRegistry.promote admitted it); rejected (promotion
@@ -247,6 +250,9 @@ class WardenEvent(PheromoneEvent):
     KINDS: ClassVar[frozenset[str]] = frozenset(
         {
             "warden.spawned",
+            "warden.started",
+            "warden.watch",
+            "warden.active",
             "warden.offline",
             "warden.reconnected",
             "warden.migrated",
