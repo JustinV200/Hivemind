@@ -25,5 +25,13 @@ builds, migration runners, and similar). Hygiene checkers landed in step 0.3, ru
   killed and restarted on the same port; prints a milestone table and exits 0 only when every
   step happened in order. Run as `uv run --frozen python scripts/waggle_echo.py`; the roles and
   key layout live in `waggle_echo_server.py`, `waggle_echo_client.py` and `waggle_echo_keys.py`.
+- `brood_demo.py` -- the phase 2 exit demo: submits a three-task graph (`plan` -> `build` ->
+  `verify`) via a real `uv run --frozen hive tasks submit` child process, drives `plan` and
+  `build` through every task status (`BLOCKED` and `PAUSED` included) and cancels `verify` through
+  a `BroodChamber` built in-process, "restarts" by running `hive tasks list`/`show` and `hive
+  trail tail` as fresh child processes and checking they see identical state and `plan`'s complete
+  trail, then merges a second node's trail segment into the first database and checks the result
+  is ordered and duplicate-free; prints a milestone table and exits 0 only when every milestone
+  passed. Run as `uv run --frozen python scripts/brood_demo.py`.
 
 Tests for all of the above live under `scripts/tests/`.
