@@ -1,0 +1,105 @@
+# The Hive's default escalation policy: what a supervisor does about an Alarm, keyed by its kind
+# and how many resolution attempts have already been made against it.
+#
+# Loaded by hivemind.supervision.policy.load_policy into an EscalationPolicy. Read by
+# hivemind.supervision.policy.decide: among the rules whose `kind` matches the Alarm's own kind,
+# the one with the highest `min_attempts` that the Alarm's `attempts` clears wins; failing that,
+# the same search runs again over the wildcard rows (no `kind` key); failing that, `default`
+# applies. `min_attempts` is always >= 1, so a freshly-raised Alarm (attempts == 0, nothing tried
+# yet at this level) always falls through to `default` -- this file's tables below all start their
+# first real rule at 1, i.e. "once one attempt has already failed".
+#
+# A PolicyAction is one of: RETRY, RESPAWN, REBIND, TAKEOVER, ESCALATE, CANCEL.
+
+default = "ESCALATE"  # Conservative: an unnamed or unmatched case always reaches a human eventually.
+
+# WORKER_FAILED: an ordinary failure (a tool call errored, a check failed). Cheapest fix first.
+[[rules]]
+kind = "WORKER_FAILED"
+min_attempts = 1
+action = "RETRY"  # Most failures are transient; a bare retry costs nothing.
+
+[[rules]]
+kind = "WORKER_FAILED"
+min_attempts = 2
+action = "REBIND"  # A second failure suggests the model, not the moment; try a stronger one.
+
+[[rules]]
+kind = "WORKER_FAILED"
+min_attempts = 3
+action = "ESCALATE"  # Two attempts is this level's budget; the next supervisor decides.
+
+# WORKER_CRASHED: the bee's process died outright. A retry cannot help; start fresh.
+[[rules]]
+kind = "WORKER_CRASHED"
+min_attempts = 1
+action = "RESPAWN"  # Start a new bee from the last Handoff, if one exists.
+
+[[rules]]
+kind = "WORKER_CRASHED"
+min_attempts = 3
+action = "ESCALATE"  # Two respawns crashing again means the task itself needs a human look.
+
+# WORKER_STALLED: no progress within its own watchdog. Same shape as a crash: respawn, then escalate.
+[[rules]]
+kind = "WORKER_STALLED"
+min_attempts = 1
+action = "RESPAWN"
+
+[[rules]]
+kind = "WORKER_STALLED"
+min_attempts = 3
+action = "ESCALATE"
+
+# CONTEXT_OVERFLOW: the bee's context is full. There is no "retry"; a respawn from its own last
+# Handoff is the checkpoint-and-continue move (the Warden writes the Handoff before raising this).
+[[rules]]
+kind = "CONTEXT_OVERFLOW"
+min_attempts = 1
+action = "RESPAWN"
+
+# POSTCONDITION_FAILED: a proposal's declared postcondition did not hold after applying. One retry
+# (a different approach may still satisfy it); a second failure needs a human's judgement.
+[[rules]]
+kind = "POSTCONDITION_FAILED"
+min_attempts = 1
+action = "RETRY"
+
+[[rules]]
+kind = "POSTCONDITION_FAILED"
+min_attempts = 2
+action = "ESCALATE"
+
+# ACCEPTANCE_FAILED: the task's own acceptance checks did not pass. Same shape as a postcondition.
+[[rules]]
+kind = "ACCEPTANCE_FAILED"
+min_attempts = 1
+action = "RETRY"
+
+[[rules]]
+kind = "ACCEPTANCE_FAILED"
+min_attempts = 2
+action = "ESCALATE"
+
+# GRANT_EXCEEDED: the bee asked for more Forage than its grant allows. Only the Queen divides
+# Forage, so a Warden can never fix this locally; escalate immediately, every time.
+[[rules]]
+kind = "GRANT_EXCEEDED"
+min_attempts = 1
+action = "ESCALATE"
+
+# PROVIDER_UNAVAILABLE: the bound model's provider is down. Try the slot's fallback binding once;
+# if that is also unreachable, this is bigger than one supervisor's routing and needs a human look.
+[[rules]]
+kind = "PROVIDER_UNAVAILABLE"
+min_attempts = 1
+action = "REBIND"
+
+[[rules]]
+kind = "PROVIDER_UNAVAILABLE"
+min_attempts = 2
+action = "ESCALATE"
+
+# AUDIT_FAILED, CELL_UNREACHABLE and OTHER have no row here on purpose: each is rare enough, or
+# unnamed enough (OTHER), that a fixed playbook would be guessing. `default` (ESCALATE) reaches a
+# human rather than autopilot guessing wrong on a case nobody has characterised yet.

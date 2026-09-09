@@ -68,3 +68,23 @@ ADRs that exist today, in numeric order:
 - `0008-llm-provider-independence-and-model-slots.md`: one `LLMProvider` door, HiveMind's own
   request/response types, declared capabilities instead of provider-name branches, model slots
   and `Effort` in `forage`, offline mode, and normalised `Usage`.
+- `0011-kernel-shape-autopilot-then-awake.md`: the Queen and every Warden run autopilot (a
+  deterministic dispatch table that never awaits a model) first, and only what autopilot cannot
+  decide runs a stateless awake episode assembled fresh from durable state.
+- `0012-wardens-alarms-and-the-escalation-chain.md`: one Warden per Cell, the same alarm id at
+  every hop, escalation policy as data (TOML), and the human reached only through the Queen.
+- `0013-attendant-for-every-supervisor.md`: one deterministic `Attendant` scorer parametrised by a
+  `WeightTable`, shared by the Queen and every Warden; a model only arbitrates an exact tie, and
+  only where the grant allows it.
+- `0014-forage-grants-and-attenuation.md`: a `ForageGrant` only ever narrows a Cell's raw capacity
+  (Royal Reserve, then headroom, then the tightest of five limits), computed by one pure
+  `forage.allocate.grant`; its lifecycle is a separate `GrantState` table from its terms.
+- `0015-forage-map-seats-footprints-and-the-fanner.md`: `ModelSource` splits a static
+  `ModelSourceSpec` from live `Distance`/`Abundance`; `ForageMap` locks only its two writers; the
+  Fanner (seat enforcement) lives in `llm`, one layer above, and meets the map through
+  `observe`/`set_abundance`.
+- `0016-forage-two-pools-ceilings-and-hosting-plans.md`: `LocalPool`/`Ceilings` are distinct types
+  from the shared-pool `ForageGrant`/`RoyalReserve`; a `HostingPlan` is a per-slot `SourceChain`,
+  not a single hosting flag.
+- `0017-tempo-speed-against-accuracy.md`: one table, `GRADE_FLOORS`, is the only place a task's
+  accuracy bar becomes a minimum Forage map grade (`LOW`→1, `NORMAL`→2, `HIGH`→3, `CRITICAL`→4).
