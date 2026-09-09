@@ -1,4 +1,4 @@
-"""Tests for hivemind.pheromone.events.families: the eleven event families and the JSON codec.
+"""Tests for hivemind.pheromone.events.families: the twelve event families and the JSON codec.
 
 Fits into the Hive:
     Mirrors src/hivemind/pheromone/events/families.py (codingrules section 3: tests/unit mirrors
@@ -33,6 +33,7 @@ from hivemind.pheromone.events.families import (
     TaskEvent,
     ToolEvent,
     WardenEvent,
+    WorkerEvent,
     _build_event_families,  # White-box test of the collision assertion only; not public API.
     event_class_for,
     parse_event,
@@ -42,7 +43,7 @@ from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 
 # Every family but LlmEvent: LlmEvent's extra required-together fields need their own kwargs
-# builder, so it is tested separately below rather than parametrised alongside these ten.
+# builder, so it is tested separately below rather than parametrised alongside these eleven.
 _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -54,6 +55,7 @@ _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     ToolEvent,
     SwarmEvent,
     CappingEvent,
+    WorkerEvent,
 )
 _ALL_FAMILIES: tuple[type[PheromoneEvent], ...] = (*_NON_LLM_FAMILIES, LlmEvent)
 
@@ -164,7 +166,21 @@ def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
     assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS
 
 
-def test_event_families_covers_exactly_the_eleven_families() -> None:
+def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
+    # roadmap step 3.15 (worker runtime): one kind per WorkerState transition it drives.
+    assert {
+        "worker.spawned",
+        "worker.started",
+        "worker.handing_off",
+        "worker.paused",
+        "worker.resumed",
+        "worker.done",
+        "worker.failed",
+        "worker.killed",
+    } == WorkerEvent.KINDS
+
+
+def test_event_families_covers_exactly_the_twelve_families() -> None:
     assert set(EVENT_FAMILIES) == {
         "cell",
         "task",
@@ -177,8 +193,9 @@ def test_event_families_covers_exactly_the_eleven_families() -> None:
         "swarm",
         "capping",
         "llm",
+        "worker",
     }
-    assert len(EVENT_FAMILIES) == 11
+    assert len(EVENT_FAMILIES) == 12
 
 
 @pytest.mark.parametrize("event_cls", _ALL_FAMILIES)

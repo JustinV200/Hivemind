@@ -64,6 +64,13 @@ Vocabulary (family -> kind -> when it is recorded):
         rebound (a call was retried on the same binding after a transient failure); fallback (a
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
         shared Forage, one of the three cases in codingrules 8.10).
+    worker: spawned (a Warden started a sub-bee, roadmap step 3.19); started (SPAWNED -> RUNNING,
+        its first TaskAssign arrived); handing_off (RUNNING/PAUSED -> HANDING_OFF, writing a
+        Handoff before a reset, rebind, takeover or stop); paused (RUNNING -> PAUSED, TaskPause);
+        resumed (PAUSED/HANDING_OFF -> RUNNING, TaskResume or a restart from a checkpoint); done
+        (-> DONE, the role claimed the work done or the runtime stopped after a handoff); failed
+        (-> FAILED, the role's own coroutine raised); killed (-> KILLED, TaskCancel or an
+        Intervene(CANCEL) ended the attempt).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Every layer above Layer 1 constructs one
@@ -117,6 +124,7 @@ __all__ = [
     "TaskEvent",
     "ToolEvent",
     "WardenEvent",
+    "WorkerEvent",
     "event_class_for",
     "parse_event",
     "parse_event_json",
@@ -337,8 +345,32 @@ class LlmEvent(PheromoneEvent):
         return self
 
 
+class WorkerEvent(PheromoneEvent):
+    """A Worker's state-machine transition; see the module docstring's `worker` entry.
+
+    Roadmap step 3.15: recorded by `hivemind.workers.runtime.WorkerRuntime` for every
+    `hivemind.workers.state.WorkerState` change it makes (Appendix C's "Worker" row), and by
+    `hivemind.wardens.spawn` (roadmap step 3.19) for `worker.spawned`, the one transition that
+    happens before a WorkerRuntime exists to record it itself.
+    """
+
+    FAMILY: ClassVar[str] = "worker"
+    KINDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "worker.spawned",
+            "worker.started",
+            "worker.handing_off",
+            "worker.paused",
+            "worker.resumed",
+            "worker.done",
+            "worker.failed",
+            "worker.killed",
+        }
+    )
+
+
 # Every family class, in the order the vocabulary is documented above; the tuple, not the mapping
-# built from it, is the single place a twelfth family would be added.
+# built from it, is the single place a thirteenth family would be added.
 _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -351,6 +383,7 @@ _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     SwarmEvent,
     CappingEvent,
     LlmEvent,
+    WorkerEvent,
 )
 
 
