@@ -42,16 +42,18 @@ jobs:
       # in for "the runner had no Docker".
       - name: Verify Docker is available
         run: docker info
-      # No integration test exists until phase 2 adds the first Docker Cell backend, and pytest
+      # No integration test exists until phase 5 adds the first Docker Cell backend, and pytest
       # exits 5 ("no tests collected") when a marker selects nothing. Treat that one exit code as
       # success explicitly, rather than with `continue-on-error` (which would also swallow a real
-      # collection error), so this step still fails loudly on anything else.
+      # collection error), so this step still fails loudly on anything else. GitHub runs `run:`
+      # under `bash -e`, so the exit code is captured on the same line with `|| status=$?`;
+      # a bare `status=$?` on the next line is never reached when pytest exits non-zero.
       - name: pytest -m integration
         run: |
-          uv run --frozen pytest -m "integration"
-          status=$?
+          status=0
+          uv run --frozen pytest -m "integration" || status=$?
           if [ "$status" -eq 5 ]; then
-            echo "No integration tests collected yet (expected until phase 2's first Docker Cell backend); treating as success."
+            echo "No integration tests collected yet (expected until phase 5's first Docker Cell backend); treating as success."
             exit 0
           fi
           exit "$status"
