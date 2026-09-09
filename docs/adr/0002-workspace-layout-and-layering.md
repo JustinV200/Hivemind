@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-07
-- Amended by: ADR-0020 (the Layer 1 row only; everything else here stands)
+- Amended by: ADR-0020 (the Layer 1 row only; everything else here stands); ADR-0018 (guard becomes its own rank below its Layer-2 siblings)
 
 ## Context
 
