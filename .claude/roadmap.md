@@ -564,7 +564,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   memory-table row carries a `HoneyClearance` (2.3a) assigned from provenance, and `assemble`
   filters by the principal's allowance. Relevance scoring, Bee Bread and compaction come in
   phase 4.
-- [ ] **3.15 Worker runtime.** `workers/base.py` (`Worker` protocol), `workers/runtime.py` (the
+- [x] **3.15 Worker runtime.** `workers/base.py` (`Worker` protocol), `workers/runtime.py` (the
   loop: receive `TaskAssign`, run the role, send `TaskProgress`/`TaskResult`, honour `TaskCancel`,
   `TaskPause`, `TaskResume`; send `Heartbeat` with `ContextTelemetry`; honour every
   `Intervention`; checkpoint and reset at the manifest threshold; raise an `Alarm` instead of
