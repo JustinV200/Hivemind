@@ -32,16 +32,20 @@ Key invariants:
       rule for Real Cells are unaffected by how urgent a task is (codingrules section 8.14). This
       module holds no enforcement of that rule; it is a property of how routing and Capping read
       the value, not of the value itself.
+    - grade_floor is total: every AccuracyBar member has an entry in GRADE_FLOORS, and every
+      floor it returns is a legal Forage map grade (1 to 5).
 
 See Also:
     - .claude/codingrules.md section 8.14 for Tempo's role in routing, Forage and Capping.
     - .claude/codingrules.md section 4 for why forage never imports llm.
     - waggle.messages.labels for the wire form this module mirrors.
     - hivemind.cell.needs for TaskNeeds.tempo, the field that carries this value per task.
+    - hivemind.forage.allocate for grant(), grade_floor's caller when it filters map sources.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import Enum
 from typing import Annotated
 
@@ -50,7 +54,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from waggle.messages import AccuracyBar as WireAccuracyBar
 from waggle.messages import Tempo as WireTempo
 
-__all__ = ["AccuracyBar", "Tempo"]
+# The Forage map grades sources 1 (weakest) to 5 (strongest, waggle.messages.forage.values.
+# MIN_MODEL_GRADE/MAX_MODEL_GRADE); these four floors are hand-set, not derived, so the reasoning
+# for each lives beside it rather than in one shared comment.
+LOW_GRADE_FLOOR = 1  # LOW tolerates the map's weakest usable grade: speed and cost win outright.
+NORMAL_GRADE_FLOOR = 2  # The ordinary bar most work clears without asking for anything special.
+HIGH_GRADE_FLOOR = (
+    3  # Worth the extra cost: the upper half of the scale, not just "better than average".
+)
+CRITICAL_GRADE_FLOOR = 4  # Reserves the top two grades for work that must not be wrong; grade 5
+# itself stays headroom above the floor rather than the floor, since the Queen's own slot always
+# reaches for the strongest available regardless of any task's bar (codingrules section 8.10).
+
+__all__ = ["GRADE_FLOORS", "AccuracyBar", "Tempo", "grade_floor"]
 
 
 class AccuracyBar(Enum):
@@ -117,3 +133,28 @@ class Tempo(BaseModel):
             latency_budget_s=self.latency_budget_s,
             accuracy=WireAccuracyBar(self.accuracy.value),
         )
+
+
+# The single table behind grade_floor (codingrules section 5.2: one small table, not a chain of
+# ifs); roadmap step 3.12 names these exact floors for forage.allocate.grant to filter map sources
+# by, alongside a task's latency budget (which grade_floor does not touch: distance, not grade, is
+# the latency-budget-facing half of tempo, and that comparison lives in llm.routing, Layer 2).
+GRADE_FLOORS: Mapping[AccuracyBar, int] = {
+    AccuracyBar.LOW: LOW_GRADE_FLOOR,
+    AccuracyBar.NORMAL: NORMAL_GRADE_FLOOR,
+    AccuracyBar.HIGH: HIGH_GRADE_FLOOR,
+    AccuracyBar.CRITICAL: CRITICAL_GRADE_FLOOR,
+}
+
+
+def grade_floor(bar: AccuracyBar) -> int:
+    """Return the minimum Forage map grade a source must clear for `bar`.
+
+    Args:
+        bar: The accuracy half of a task's tempo.
+
+    Returns:
+        A grade from 1 to 5 (`GRADE_FLOORS`); `hivemind.forage.allocate.grant` keeps only map
+        sources whose `ModelSourceSpec.grade` is at least this floor.
+    """
+    return GRADE_FLOORS[bar]

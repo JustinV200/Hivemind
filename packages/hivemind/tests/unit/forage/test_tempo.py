@@ -16,9 +16,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from hivemind.forage.tempo import AccuracyBar, Tempo
+from hivemind.forage.tempo import GRADE_FLOORS, AccuracyBar, Tempo, grade_floor
 from waggle.messages import AccuracyBar as WireAccuracyBar
 from waggle.messages import Tempo as WireTempo
+from waggle.messages.forage.values import MAX_MODEL_GRADE, MIN_MODEL_GRADE
 
 
 def test_accuracy_bar_mirrors_the_wire_enum_member_for_member() -> None:
@@ -94,3 +95,23 @@ def test_tempo_json_round_trips() -> None:
     restored = Tempo.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_grade_floor_is_total_over_every_accuracy_bar() -> None:
+    assert set(GRADE_FLOORS) == set(AccuracyBar)
+
+
+@pytest.mark.parametrize("bar", list(AccuracyBar))
+def test_grade_floor_returns_a_legal_map_grade(bar: AccuracyBar) -> None:
+    floor = grade_floor(bar)
+
+    assert MIN_MODEL_GRADE <= floor <= MAX_MODEL_GRADE
+
+
+def test_grade_floor_rises_monotonically_with_accuracy() -> None:
+    ordered = [AccuracyBar.LOW, AccuracyBar.NORMAL, AccuracyBar.HIGH, AccuracyBar.CRITICAL]
+
+    floors = [grade_floor(bar) for bar in ordered]
+
+    assert floors == sorted(floors)
+    assert len(set(floors)) == len(floors)  # Each bar gets a strictly higher floor than the last.
