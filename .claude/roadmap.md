@@ -358,10 +358,10 @@ commands.
 - [x] **2.7 Questions.** `brood_chamber/questions.py`: `Question` (id, task, asked by, text,
   options, asked at) and `Answer`. Asking moves the task to `BLOCKED`; answering moves it back to
   `RUNNING`. Stored with the task; the Queen's inbox reads pending questions from here.
-- [ ] **2.8 BroodChamber facade.** `brood_chamber/chamber.py`: the public API the Queen uses
+- [x] **2.8 BroodChamber facade.** `brood_chamber/chamber.py`: the public API the Queen uses
   (`submit`, `assign`, `report_progress`, `ask`, `answer`, `pause`, `resume`, `complete`, `fail`,
   `cancel`, `next_ready`). Thin: it calls the state machine, then the store.
-- [ ] **2.9 CLI.** `cli/tasks.py` (`hive tasks list|show`) and `cli/trail.py` (`hive trail tail
+- [x] **2.9 CLI.** `cli/tasks.py` (`hive tasks list|show`) and `cli/trail.py` (`hive trail tail
   --follow`, `hive trail merge <segment>`). Output formatting only; no logic.
 
 ### Exit criteria
