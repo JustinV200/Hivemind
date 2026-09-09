@@ -477,9 +477,17 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   (platform, arch, cores, memory, GPU, display, browser, with POSIX and Windows shims side by
   side) and `session.py` (`LocalProcessSession`: asyncio subprocess, standard library only, POSIX
   and Windows). Each lease gets its own directory under `[hive_stand] scratch_root`,
-  tracks child processes, and `release()` terminates survivors and removes the directory. Refuses
-  to lease when disabled. `CellSession` contract suite over local and fake. A **left-as-found
-  test** snapshots a temporary home and the process table before and after.
+  tracks child processes, and `release()` terminates survivors and removes the directory.
+  `[hive_stand] scratch_quota_mb` caps each lease's directory (default 4096): the lease samples
+  the directory's size on the watchdog tick while a command runs and after every command, and
+  on POSIX also sets `RLIMIT_FSIZE` to the quota on each child; over quota it terminates the
+  child, the command returns a quota error, and the Worker raises a `QUOTA_EXCEEDED` Alarm
+  (a waggle minor bump to `AlarmKind`) whose policy row is roll back then fail, never a
+  `ForageRequest`, since scratch disk is local capacity nobody grants more of. Refuses to
+  lease when disabled or when the host's free disk is under `[hive_stand] disk_reserve_mb`.
+  `CellSession` contract suite over local and fake. A **left-as-found test** snapshots a
+  temporary home and the process table before and after, and a quota test extracts a nested
+  archive and asserts the lease stops it under the cap.
 - [x] **3.12 Forage v0: the models.** `forage/models.py`, one frozen model per concept, each
   field described:
   - `HostCapacity`: static (cores, memory, disk, GPUs with VRAM, arch, OS) and live (load, free
@@ -579,6 +587,10 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `ROLLED_BACK` outcomes; `capping.*` trail events), `postconditions.py` (machine-checkable
   assertions: file exists, command exits zero, test passes, HTTP status, element text; checked
   after apply by the Warden, never by the bee that proposed). Uncapped work never leaves scratch.
+  An `outside_scratch_write` on a Real Cell (an install the Hive makes, for instance) carries
+  its restore path, recorded on the lease and replayed by `release()`, unless the operator
+  approved it to persist, in which case it is recorded with the node the way a colonized
+  device's resident tools are (phase 11), so Absconding can still remove it.
   Judge review, snapshots, the flight recorder and sampled audit arrive in later phases as extra
   checks on the same gate.
 - [ ] **3.18 Acceptance criteria.** The planner (3.20) emits `acceptance` for every subtask as a
@@ -744,9 +756,10 @@ failing.
   Stand, the measured distance from the Cell to each candidate source against the task's tempo,
   the task's need to survive disconnection, and cost caps; local sources first wherever the Cell
   has them; recorded as `forage.plan_written` with the reason. `queen/forage/ceilings.py`: set
-  and change a Warden's `Ceilings` (maximum sub-bees, VRAM and disk for models, loadable map
-  entries, exportable seats), recorded as `forage.ceilings_set`. Routing (phase 8) consumes the
-  plan; a local source is only selectable once phase 8.3 can start a server on a Cell.
+  and change a Warden's `Ceilings` (maximum sub-bees, VRAM and disk for models, scratch disk
+  per lease, loadable map entries, exportable seats), recorded as `forage.ceilings_set`. Routing
+  (phase 8) consumes the plan; a local source is only selectable once phase 8.3 can start a
+  server on a Cell.
 - [ ] **4.9 Clustering.** `queen/cluster/protocol.py`: triggered per provider by `ProviderHealth`
   failing with no fallback within Forage, by a cost cap, or by `hive cluster`: checkpoint every
   affected bee, move their tasks to `PAUSED`, keep leases and Cells alive, keep heartbeats and
@@ -1042,7 +1055,8 @@ duty, `hive honey` CLI.
   state (phase 4), ripen Nectar, and ripen aged Bee Bread into Honey. Runs in the Queen's process
   by default.
 - [ ] **7.7 Retrieval.** Hybrid FTS + vector search with manifest weights; result token budget
-  scaled by the bound model's window and folded into `memory.assemble` as the cold tier.
+  scaled by the bound model's window and folded into `memory.assemble` as the cold tier. A
+  tainted item (10.6d) is never returned, whatever its score.
 - [ ] **7.8 Waggle integration.** `HoneyQuery` / `HoneyResponse`; results injected as delimited,
   labelled untrusted content.
 - [ ] **7.9 Queen pre-check.** The planner queries Honey for the goal's targets and for the chosen
@@ -1195,9 +1209,12 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   Emits a `QuarantineReport`.
 - [ ] **9.6 Promotion flow.** request → scaffold → sandbox request → quarantine → (promote at
   scope | reject with report), a `tool.*` event per stage, one retry with the report.
-- [ ] **9.7 Worker integration.** Workers load hive-scope tools plus their Cell's cell-scope tools
-  at start and on `ToolPromoted`; `workers/tools/invoke.py` re-validates inputs, capabilities and
-  OS before every call.
+- [ ] **9.7 Worker integration.** A Worker loads only the bundle its Warden hands it at spawn,
+  attenuated from the Queen's grant, never the registry (README, core concept 10). A promotion
+  updates the registry and deposits Honey (9.8); it pushes nothing into a running Worker. A
+  Worker's bundle changes only when its Warden re-attenuates it, on a fulfilled `ToolRequest`
+  or a smaller minimum for the next step, as an intervention. `workers/tools/invoke.py`
+  re-validates inputs, capabilities and OS before every call.
 - [ ] **9.8 Honey link.** Every promotion deposits Nectar describing the tool.
 - [ ] **9.9 Versioning and rollback.** Immutable versions; `retire`; `hive tools rollback`.
 - [ ] **9.10 CLI.** `hive tools list|show|request|retire|rollback|quarantine <path>`.
@@ -1228,9 +1245,9 @@ can then be driven from a phone, from another program, and by the dashboard.
 
 **Depends on.** Phase 3, plus 6.5a for the voice route in 10.5f. Should land before phases 11 and 12.
 
-**Deliverables.** `hivemind/guard`, `hivemind/entrance` (two listeners, enrolment, auth, push,
-exposure, the Entrance Reducer), Guard Bee role, `docs/entrance/`, `hive entrance` and `hive
-keys` CLI.
+**Deliverables.** `hivemind/guard` (capabilities, policy, the scanner), `hivemind/entrance` (two
+listeners, enrolment, auth, push, exposure, the Entrance Reducer), Guard Bee role, Cell
+isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
 
 ### Steps
 
@@ -1324,8 +1341,11 @@ keys` CLI.
   public key with a self-description; the request lands in a pending table and is pushed to every
   enrolled device as "a device is asking to join"; `hive entrance approve <id> --capabilities ...
   --spend-cap ... --expires ...`, or the Observation Hive on loopback, approves it; `deny` refuses
-  it; pending requests expire. Approval, denial, unlock, capability widening and revocation are
-  loopback-only routes. `[entrance] steward_devices` (off by default) lets a device flagged
+  it; pending requests expire. `revoke` lists the device's open goals and, with `--cancel-goals`,
+  cancels them in the same step; the Observation Hive's revoke screen (12.8a) offers the same
+  toggle, and the revocation event names any goals left running. Approval, denial, unlock,
+  capability widening and revocation are loopback-only routes. `[entrance] steward_devices` (off
+  by default) lets a device flagged
   `entrance:steward` approve after full step-up, and nothing else can. The device state machine
   (`INVITED → PENDING → APPROVED`, `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`,
   `→ REVOKED`) lives in `entrance/enrol/state.py` (Appendix C); every edge is a
@@ -1337,8 +1357,10 @@ keys` CLI.
   re-runs both factors, is valid for `step_up_window_minutes`, and is required for spend above
   `step_up_spend`, key and capability changes, Supersedure, Sting Cut, Absconding and reopening;
   break-glass actions add the typed confirmation phrase on every path. Lockout after
-  `lockout_attempts` failures moves the device to `LOCKED` until a loopback unlock; rate limits
-  per device and per address. `entrance/reducer.py`: `hive entrance reduce` drops the Entrance to
+  `lockout_attempts` failures, or a burst of capability denials from one device past
+  `lockout_denials` (a submit-only program suddenly calling observe routes), moves the device to
+  `LOCKED` until a loopback unlock; rate limits per device and per address.
+  `entrance/reducer.py`: `hive entrance reduce` drops the Entrance to
   loopback only and revokes every remote session; a Guard Bee autopilot rule does the same on
   failure bursts, cross-device lockouts, or an unknown client hammering the invite route;
   `hive entrance open` on loopback with step-up reopens. `travel_lock` (off by default) forces
@@ -1357,12 +1379,82 @@ keys` CLI.
   retention window; `max_clip_seconds` caps a clip and the rate limiter counts audio seconds per
   device. Tests with fixture clips through `FakeTranscription`; a clip from a pending or revoked
   device is refused before any model runs.
-- [ ] **10.6 Guard Bee role.** Watches the trail for denial rates, out-of-scratch touches,
-  over-grant spend, unexpected network attempts, Capping rejection and rollback rates, failed
-  sampled audits, and Entrance events (failure bursts, lockouts, invite-route abuse, travel-lock
-  triggers); can ask the Queen to quarantine a bee or raise a tier's audit rate, and may trigger
-  the Entrance Reducer itself by autopilot rule, since narrowing access is always safe;
-  `guard.alert`.
+- [ ] **10.6 Guard Bee role.** `workers/roles/guard_bee.py`, run in the Queen's process on the
+  Hive Stand like the House Bee (7.6), so no Cell action can take it down and it always reads the
+  central trail. Deterministic rules first; its awake episodes run on `ModelSlot.JUDGE`, so the
+  manifest can pin them to a different provider than `WORKER` and blind spots do not correlate.
+  Watches the trail for denial rates, out-of-scratch touches, over-grant spend, unexpected
+  network attempts, Capping rejection and rollback rates, failed sampled audits,
+  injection-suspected events from the scanner (10.6b) and their correlation with a denial in the
+  same episode, node integrity failures (a signature or replay failure, a capability report that
+  changed without re-enrolment, a refused segment merge, 11.9), and Entrance events (failure
+  bursts, lockouts, invite-route abuse, travel-lock triggers). It acts on its own only where the
+  action narrows access hive-wide, by autopilot rule: raise a tier's audit rate, and trigger the
+  Entrance Reducer (10.5e). Anything aimed at one Cell or one bee it can only **request**:
+  isolate a Cell (10.6a), quarantine a bee, or Sting Cut a Cell (13.4a). Every request carries a
+  `GuardReport`: the rule that fired, the trail event ids, the affected Cell, bees and grants,
+  the recommended action and a confidence tier. Requests enter the Queen's inbox as
+  `InboxKind.GUARD_REQUEST`, which `WeightTable.queen_default()` scores above `ALARM` and every
+  human message, with the Guard principal's multiplier on top, so only age separates two of
+  them; the Warden table never sees one. The Guard Bee never touches a Cell, never calls a model
+  on the hot path, and can never widen anything. Every report is a `guard.alert` on the trail
+  and is deposited as `C2` Nectar so it appears in the Honey browser; a report the Queen acts on,
+  or one at `CRITICAL`, also reaches the human on the existing path, an Alarm that reached the
+  human in the inbox, pushed to every enrolled device (10.5b), with the report linked. `AlarmKind`
+  gains `SECURITY` and `PolicyAction` gains `ISOLATE` and `QUARANTINE`, a waggle minor bump
+  since both mirror wire enums.
+- [ ] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
+  never a Guard Bee's or a Warden's: revoke the Warden's grant, checkpoint and pause every bee on
+  the Cell, write a `BLOCK` Cell Wax so nothing is placed there, set a Virtual Cell's network
+  policy to `none`, and keep the lease and its scratch intact for forensics. Recorded as
+  `cell.isolated` with reason, the `GuardReport` id and the trail ids that justified it, and
+  pushed to the human. The Queen decides by autopilot rule for the dire patterns in `[guard]`
+  (13.4a) and by awake episode with the report attached otherwise; when her awake mode is
+  unavailable the autopilot fallback on a `GUARD_REQUEST` is to isolate, since isolation only
+  removes access. Any Handoff, checkpoint or Nectar from an isolated Cell is labelled **tainted**
+  and `memory.assemble` refuses it until a judge clears it, so an injection cannot survive
+  through memory. Lifting isolation needs the human with step-up; the Queen never lifts it on
+  her own, and the Hive Stand's own lease is isolated only by the human: on a dire pattern there
+  her rule falls back to quarantining the implicated bee (10.6c), holding new placements for that
+  goal on the Hive Stand, and raising a `CRITICAL` Alarm to the human with the report. Tests: a
+  Guard request never isolates without a Queen decision on the trail; a tainted Handoff is
+  refused; the Hive Stand path is human-only and the fallback fires instead.
+- [ ] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
+  every point where outside text enters a prompt, tool results in the Worker runtime (3.16),
+  session output, Honey hits at assembly (7.7), Nectar intake (7.4) and Landing Board messages
+  (10.5). It emits `guard.injection_suspected` carrying the source, the consuming bee and a
+  content hash, never the text, and `memory.assemble` applies the `[guard] untrusted_content`
+  policy: label harder or drop. The trail carries no prompt text, so this is the only producer
+  of the injection signal the Guard Bee watches. The invariant, tested with seeded payloads
+  through Honey and a tool result: an injected instruction can at most make a bee ask; it never
+  widens a grant, never reaches an outside-scratch write uncapped, and always leaves a `guard.*`
+  event. The patterns are data, not code: `docs/guard/untrusted-content.toml`, one family per
+  table (imperatives addressed to the model, role and identity overrides, secrets paths beside
+  exfiltration verbs, encoded blobs over a size, tool-call-shaped text, hosts outside the task's
+  targets), each with a weight, and the `[guard] untrusted_content` thresholds for label and
+  drop per Comb Shield tier. A flag alone never stops a bee; only the correlation rule in 10.6
+  escalates. The chaos seeds in 13.6 are drawn from the same file, so a pattern change is a
+  visible diff and the invariant stays testable.
+- [ ] **10.6c Quarantine, one intervention.** `Quarantine` joins the `Intervention` union (3.13)
+  and `InterventionAction` on the wire (minor bump), carrying the episode id from which the
+  bee's memory is suspect. One code path in `wardens/`, nothing composed by hand anywhere else:
+  checkpoint, cancel, kill the tracked process, revoke the bee's slice of the grant, label every
+  checkpoint, Handoff and Nectar from that episode on as tainted (10.6a's rule), move the task
+  to `PAUSED`, record `warden.intervened` and `memory.tainted`. Ordered by the Queen on a Guard
+  request, by rule for the dire patterns or by awake decision otherwise, or by a Warden's own
+  policy row for its own sub-bee, since a Warden may already cancel it; the Queen is told
+  either way. The only way out is a respawn from a Handoff the judge has cleared. A test
+  asserts no other path marks memory tainted.
+- [ ] **10.6d Taint, one label.** `tainted` is one marker on checkpoints, Handoffs, episode
+  records, Nectar and Honey items, with the reason and the event that set it. Set by isolation
+  (10.6a), by quarantine (10.6c), or by the Queen on a Guard report about a Honey item, and by
+  nothing else. `memory.assemble` and retrieval (7.7) refuse a tainted item outright; the
+  Handoff loader refuses a tainted Handoff. Only a judge verdict clears it, on the taint rubric
+  with no shared context. A House Bee duty re-ripens tainted Nectar with the flagged span
+  stripped into a new Honey item that starts tainted and goes to the judge; the old item is
+  retired, never edited. `memory.tainted` and `memory.taint_cleared` on the trail. A test seeds
+  a tainted Handoff, a tainted Honey hit and a tainted Nectar deposit and asserts none reaches a
+  prompt until cleared.
 - [ ] **10.7 Access levels.** `guard/access.py` (3.13a) grows the full permission data for
   `AccessLevel` (2.3a) on every Real Cell (`read_only`, `scratch`, `full`), stored with the node
   and the lease and shown in the UI. Virtual Cells are
@@ -1406,6 +1498,9 @@ keys` CLI.
   approved on loopback only; device-bound sessions and step-up; VPN overlay choice; mutual TLS for
   LAN and tunnel; the Entrance Reducer; push payloads carry no content).
 - `landing-board-versioning-and-push.md`.
+- `guard-bee-requests-queen-only-isolation-and-tainted-memory.md` (the Guard never acts on a
+  Cell; every Cell-level lever is a request with a `GuardReport` the Queen decides on, scored
+  above every human message; dire patterns as manifest data; tainted memory after isolation).
 
 ---
 
@@ -1434,7 +1529,25 @@ promotion, `hive swarm` CLI.
   check every request against the node's capabilities locally, hand `session.*` and `lease` traffic
   to the executors, keep an outbox. It persists the Queen's address from enrolment and replaces it
   only on a `QueenMoved` signed by the Hive key (13.2a). No supervision logic; no model client.
-- [ ] **11.4 Device-side lease, executors and dead-man switch.** `pollen/lease/` (scratch dir,
+- [ ] **11.3a Per-node frame ceiling.** The server half of `waggle/transport/websocket.py`
+  gains `max_frames_per_minute` per connection, lax on purpose (default 6000, a hundred a
+  second, well above any Warden's heartbeat and result traffic) with a burst allowance; over
+  it the server closes the connection with a reason code and the node reconnects with its
+  usual backoff. Below it nothing changes. `waggle` writes no trail, so the Hive Stand's
+  listener wrapper records `guard.frame_ceiling` with the node id on each close. A narrowing
+  action the transport takes alone; the Guard Bee only counts the events, and repeated
+  ceilings from one node in a window are a dire pattern (13.4a), since isolation keeps the
+  socket open and only a Sting Cut invalidates the node's keys.
+- [ ] **11.3b Replay window.** ADR-0005 leaves deduplication to receivers that care; every
+  receiver now must. The server half keeps the envelope ids seen per node over a bounded window
+  (`replay_window_minutes`, default 10, and a cap on ids kept) and drops a duplicate without
+  handling it, so a lost ack followed by an outbox replay stays idempotent. A duplicate inside
+  the reconnection grace after `warden.reconnected` is expected and silent; any other is
+  `guard.replay_refused` with the node id, and a burst is the signature-or-replay dire pattern
+  (13.4a). `docs/waggle/spec.md` states the obligation, and the gateway contract (11.7a) carries
+  it, so a compiled gateway is held to it too.
+- [ ] **11.4 Device-side lease, executors and dead-man switch.** `pollen/lease/` (scratch dir
+  under the quota the node's `Ceilings` carry, enforced the way 3.11 does on the Hive Stand;
   started pids, restore; **dead-man**: when the link is lost longer than the enrolled limit and no
   Warden runs on the device, kill what the lease started and release), `pollen/executors/session.py`
   (persistent shell with streaming, argument lists only), `files.py`, `info.py`.
@@ -1487,8 +1600,11 @@ promotion, `hive swarm` CLI.
   trail segment, retry the link with backoff, refuse anything that needs the Queen (new Cells,
   shared Forage, human-bound questions), and run full Clustering past the offline limit. On
   reconnection: outbox replay, `TrailSegmentSync`, grant and ceiling reconciliation, local pool
-  report, `warden.reconnected`. The Queen's side: mark unreachable, hold the node's tasks for a
-  grace period, spawn the diagnostic Drone below, then decide.
+  report, `warden.reconnected`. A merged segment is verified against the node's key over its
+  events before insertion, and one that fails is refused and recorded as a `guard.*` event,
+  since ADR-0007 covers order and dedupe on merge, not authenticity. The Queen's side: mark
+  unreachable, hold the node's tasks for a grace period, spawn the diagnostic Drone below, then
+  decide.
 - [ ] **11.9a Active reconnection: a diagnostic Drone on both ends.** Retry-with-backoff (11.9) is
   the floor for every offline Cell, but wherever a model is actually reachable to do the thinking,
   the Warden does not just wait on it. A Nuc's Warden (it has its own model server) spawns a
@@ -1579,6 +1695,8 @@ promotion, `hive swarm` CLI.
 - `nucs-warden-migration-and-offline-operation.md`.
 - `access-levels-watch-mode-and-the-patrol.md` (what watch mode may observe per level; never
   screen or input; Patrol cadence; retention).
+- An amendment to ADR-0005: receivers must deduplicate by envelope id within a bounded window
+  (11.3b), and the server may close a connection over its frame ceiling (11.3a).
 - `active-reconnection-diagnostic-drones.md` (why a Drone, not a new role; the reconnect budget
   is carved out of the offline limit, never added to it; why this never touches the Royal Jelly
   Lab; who investigates on the Hive Stand side once a device's own Warden has migrated away).
@@ -1777,14 +1895,27 @@ borrowed device and revoking every grant.
   volatile traces (ephemeral caches, temp artifacts, transient credentials) per policy. Records
   `cell.sting_cut` with reason and actor in the trail and leaves central audit state intact for
   Meadow and Propolis. For Night Veil, retained logs and persisted records are destroyed at
-  teardown.
+  teardown. A Guard Bee may request a Sting Cut with a `GuardReport` (10.6), and the Queen may
+  perform one under `[guard] sting_cut`: by autopilot rule only for the **dire patterns** listed
+  there as data (a signature or replay failure from the Cell's session or envelope; repeated
+  egress attempts outside a bee's network scopes; an outside-scratch touch after a Capping
+  rejection; an injection-suspected event followed by a denial in the same episode; a node whose
+  capability report changed without re-enrolment; repeated frame-ceiling closes from one node,
+  11.3a), by awake decision with the report attached
+  otherwise, and never for the Hive Stand's lease, which stays human-only. Every Queen-performed
+  cut follows an isolation (10.6a) rather than replacing one, is capped per hour by
+  `max_autonomous_sting_cuts_per_hour`, preserves evidence before scrubbing (a snapshot on a
+  Virtual Cell, scratch copied as tainted `C2` Nectar on a Real one), and is pushed to the human.
+  `hive cells sting-cut` with step-up remains the human's path for any Cell.
 - [ ] **13.5 Overwintering at scale.** QEMU snapshots and cloud stop; disk accounting; eviction.
 - [ ] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
   refusals, malformed JSON and rate limits from the fake, take a provider down mid-run and assert
   Clustering then resume, flood the inbox, exhaust a grant, kill the old Queen mid-Supersedure,
   kill the candidate before it is ready, hammer the Entrance's invite route from an unknown
-  client and assert the Reducer fires. Every goal finishes or fails
-  explicitly; nothing hangs; no lease or grant is left open.
+  client and assert the Reducer fires, seed injection payloads through Honey and a tool result
+  and assert no grant widens, the Queen isolates on the Guard's report and the tainted Handoff is
+  never assembled, forge a Swarm node's trail segment and assert the merge is refused. Every goal
+  finishes or fails explicitly; nothing hangs; no lease or grant is left open.
 - [ ] **13.7 Backups.** `hive backup` / `hive restore`; `docs/runbooks/backup.md`.
 
 ### Exit criteria
@@ -1918,3 +2049,6 @@ borrowed device and revoking every grant.
 | An exposed Entrance is the biggest new attack surface. | Loopback always; VPN overlay by default and mutual TLS for LAN and tunnel; no public mode; devices enrolled and approved on loopback only; two-factor login bound to the device key; step-up for anything sensitive; lockout, rate limits and the Entrance Reducer; every security event trailed and pushed to every other device (10.5a, 10.5d, 10.5e); the route test (coding rules 8.11). |
 | Supersedure leaves two Queens or loses a task. | The old Queen stays clustered from the first byte of the copy; the new one refuses to run until acknowledged or the grace window expires; checksummed restore; `QueenMoved` signed with the Hive key; rollback inside the window; chaos tests (13.2a, 13.6). |
 | A lost or stolen phone. | Its key is one device among several; revoking it on loopback kills its sessions instantly; every login and step-up is pushed to the other devices; the passkey needs the phone's biometric or PIN; push payloads carry no content. |
+| A prompt injection through Honey, hot state or a tool result steers a bee. | Untrusted content labelled and delimited in every prompt (3.9, 7.8); the scanner and its trail event (10.6b); tool calls validated against schema and capabilities whichever rung produced them (3.16); Capping on every side effect outside scratch (3.17); the Guard Bee's injection-then-denial rule (10.6); Queen-only isolation and tainted memory (10.6a); the chaos seeds (13.6). |
+| A compromised Swarm device lies in its reports or poisons its session output. | Pollen has no brain and holds no capabilities, so its key speaks only as that node (11.3); signed envelopes and replay rejection (1.7, 11.3); session output is untrusted content to the scanner (10.6b); a capability report changed without re-enrolment is a dire pattern (13.4a); trail segments verified on merge (11.9); the dead-man switch (11.4); isolation and Sting Cut on the Queen's decision only (10.6a, 13.4a). |
+| A stolen client key or an abusive enrolled program. | Sessions bound to the device key and step-up for anything sensitive (10.5e); narrow capability sets and spend caps per device (10.5d); lockout on capability-denial bursts, undone only on loopback (10.5e); revocation on loopback; every Entrance event pushed to every other device (10.5b). |
