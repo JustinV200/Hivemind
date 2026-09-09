@@ -6,6 +6,8 @@ import pytest
 from builders.workers import FakeAsker, make_context, make_grant_slice
 from pydantic import ValidationError
 
+from hivemind.llm import DirectCallGate
+from hivemind.supervision.capping import CappingGate
 from hivemind.workers.context import GrantSlice, WorkerContext
 from waggle.clock import FakeClock
 from waggle.ids import new_message_id, new_task_id, new_worker_id
@@ -18,6 +20,29 @@ def test_make_context_builds_a_valid_worker_context() -> None:
 
     assert isinstance(ctx, WorkerContext)
     assert ctx.handoff_threshold == pytest.approx(0.66)
+
+
+def test_make_context_wires_a_real_capping_gate() -> None:
+    """Roadmap 3.16: WorkerContext.capping is a real CappingGate, not a stub."""
+    ctx = make_context()
+
+    assert isinstance(ctx.capping, CappingGate)
+
+
+def test_make_context_wires_a_lease_view_over_the_same_scratch_root() -> None:
+    """Roadmap 3.16: WorkerContext.lease satisfies LeaseView over the session's own scratch root."""
+    ctx = make_context()
+
+    # LeaseView is a plain (non-runtime-checkable) Protocol, so this checks the structural
+    # contract itself rather than isinstance: the session's own scratch is a reachable path.
+    assert ctx.lease.is_path_allowed(ctx.session.scratch_dir.resolve())
+
+
+def test_make_context_wires_a_direct_call_gate_by_default() -> None:
+    """Roadmap 3.16: WorkerContext.call_gate defaults to a bare DirectCallGate (no metering)."""
+    ctx = make_context()
+
+    assert isinstance(ctx.call_gate, DirectCallGate)
 
 
 def test_worker_context_is_frozen() -> None:

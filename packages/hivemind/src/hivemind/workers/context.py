@@ -4,22 +4,25 @@
 session on it, the model it is bound to, its own slice of the Warden's `ForageGrant`
 (`GrantSlice`), its `CapabilitySet` (`hivemind.workers.capabilities.worker_capabilities` computes
 it), where to write memory and the trail, a way to ask a blocking `Question`
-(`QuestionChannel`) and its mutable telemetry. It never carries a provider, a subprocess handle,
-or the Cell's `kind` (codingrules section 8.7: "branch on capabilities, never on kind") -- a role
-reads `ctx.cell.capabilities`, never `ctx.cell.kind`. `GrantSlice` is deliberately nothing
-model-shaped: no provider, no model id, because `ctx.bound` (a `hivemind.llm.BoundModel`) already
-names the model this Worker calls, and `GrantSlice` only ever answers "how much" (spend, tokens,
-which named bindings it may still fall back to), the one Worker's share of the `ForageGrant`
-`hivemind.wardens` (roadmap step 3.19) carves it from.
+(`QuestionChannel`), its mutable telemetry, its Capping gate, a view of its Real Cell lease and the
+seam every model call passes through. It never carries a provider, a subprocess handle, or the
+Cell's `kind` (codingrules section 8.7: "branch on capabilities, never on kind") -- a role reads
+`ctx.cell.capabilities`, never `ctx.cell.kind`. `GrantSlice` is deliberately nothing model-shaped:
+no provider, no model id, because `ctx.bound` (a `hivemind.llm.BoundModel`) already names the model
+this Worker calls, and `GrantSlice` only ever answers "how much" (spend, tokens, which named
+bindings it may still fall back to), the one Worker's share of the `ForageGrant` `hivemind.wardens`
+(roadmap step 3.19) carves it from.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). `WorkerContext` is constructed by `hivemind.wardens.spawn`
     (roadmap step 3.19), which fills `asker` with its own transport-backed implementation before
     `hivemind.workers.runtime.WorkerRuntime` replaces it with the runtime's own mailbox
-    (`hivemind.workers.runtime.mailbox.Mailbox`, which satisfies `QuestionChannel` structurally);
-    read by `hivemind.workers.base.Worker.run` implementations (the Drone, roadmap step 3.16).
-    Calls into `hivemind.cell`, `hivemind.guard`, `hivemind.llm`, `hivemind.memory`,
-    `hivemind.pheromone`, `hivemind.workers.telemetry` and waggle only.
+    (`hivemind.workers.runtime.mailbox.Mailbox`, which satisfies `QuestionChannel` structurally),
+    and passes a `hivemind.llm.FannerLane` or a bare `hivemind.llm.DirectCallGate` as `call_gate`;
+    read by `hivemind.workers.base.Worker.run` implementations (the Drone, roadmap step 3.16) and
+    by every tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.guard`,
+    `hivemind.llm`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.supervision.capping`,
+    `hivemind.workers.telemetry` and waggle only.
 
 Key invariants:
     - GrantSlice is frozen and forbids extras like every boundary value in this repository; its
@@ -27,17 +30,20 @@ Key invariants:
     - WorkerContext is a frozen, slotted dataclass (codingrules section 8.5: "internal values are
       @dataclass(frozen=True, slots=True)"): it is not itself read from or written to JSON/TOML,
       so it is a dataclass, not a pydantic BaseModel, matching `hivemind.llm.slots.BoundModel`.
-    - Nothing in this module imports `hivemind.supervision.capping` (roadmap step 3.17): `gate`
-      (the Capping gate) and `lease` (a LeaseView) are added to WorkerContext once that lands
-      (roadmap step 3.16), not here.
+    - `capping` is the one gate every tool with a side effect proposes through
+      (`hivemind.workers.tools.proposals.cap`); `lease` is the `LeaseView` that same gate checks
+      path reachability against. Both are read-only from a role's own perspective: a role never
+      mutates either directly, only through `capping.propose`/`capping.run`.
 
 See Also:
     - .claude/codingrules.md section 8.7 for "branch on capabilities, never on kind".
+    - .claude/codingrules.md section 8.12 for "Propose, then commit," the rule `capping` enforces.
     - .claude/codingrules.md section 15 for "Capabilities and Forage only attenuate down the tree",
       the rule `GrantSlice` and `hivemind.workers.capabilities.worker_capabilities` both uphold.
     - hivemind.workers.telemetry for TelemetryTracker, the mutable object `WorkerContext.telemetry`
       names.
     - hivemind.workers.runtime for WorkerRuntime, which builds a WorkerContext's real `asker`.
+    - hivemind.workers.tools for every tool that reads `capping`, `lease` and `call_gate`.
 """
 
 from __future__ import annotations
@@ -49,9 +55,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell, CellSession
 from hivemind.guard import CapabilitySet
-from hivemind.llm import BoundModel
+from hivemind.llm import BoundModel, CallGate
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
+from hivemind.supervision.capping import CappingGate, LeaseView
 from hivemind.workers.telemetry import TelemetryTracker
 from waggle.clock import Clock
 from waggle.ids import GrantId, WorkerId
@@ -132,12 +139,16 @@ class WorkerContext:
             turns and read by the runtime for every Heartbeat.
         handoff_threshold: The manifest's `[memory] handoff_threshold` fraction; a role compares
             it against `telemetry.should_hand_off` to decide when to checkpoint on its own.
-
-    A later roadmap step (3.16, once Capping (3.17) lands) adds two further fields here: `gate`
-    (the Capping gate a tool's side effect proposes through) and `lease` (a read-only view of the
-    Warden's Real Cell lease). Neither exists yet; this module does not import
-    `hivemind.supervision.capping` (codingrules section 4: workers may import supervision, but
-    nothing here needs the Capping gate until a role's tools do).
+        capping: The Capping gate a tool's side effect proposes through
+            (`hivemind.workers.tools.proposals.cap`); the Warden (roadmap step 3.19) builds this
+            once per Cell and shares it across every Worker running on that Cell.
+        lease: A read-only view of the Warden's Real Cell lease, for path reachability
+            (`LeaseView.is_path_allowed`) and outside-scratch restore bookkeeping; the same object
+            `capping` itself checks a proposal's paths against.
+        call_gate: The seam every model call this Worker makes passes through
+            (`hivemind.llm.ladders.run_tool_loop`'s own `gate` option); the Warden passes its own
+            `hivemind.llm.FannerLane` (the seat meter, roadmap step 3.12a) or a bare
+            `hivemind.llm.DirectCallGate` when no metering is wired up yet.
     """
 
     worker_id: WorkerId
@@ -153,3 +164,6 @@ class WorkerContext:
     identity: MemoryIdentity
     telemetry: TelemetryTracker
     handoff_threshold: float
+    capping: CappingGate
+    lease: LeaseView
+    call_gate: CallGate

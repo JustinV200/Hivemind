@@ -10,7 +10,11 @@ exactly the scenario it needs (return an outcome, raise, yield some ticks then h
 in-process policy every phase-3 bee link uses): `send` wraps and sends an order
 (`TaskAssign`/`TaskCancel`/`TaskPause`/`TaskResume`/`Intervene`/`Answer`), and `pump_until`/
 `wait_for_*` read the runtime's own reports off the same pair and sort them into
-`heartbeats`/`progress`/`results`/`alarms`/`questions`.
+`heartbeats`/`progress`/`results`/`alarms`/`questions`. Since roadmap step 3.16, `make_context`
+also wires a real `hivemind.supervision.capping.CappingGate` (over the same `FakeSession`, a
+`NoopSnapshotter`, the shared trail and `docs/supervision/capping-tiers.toml`), a
+`builders.capping.FakeLeaseView` and a bare `hivemind.llm.DirectCallGate`, so a Worker or a tool
+test exercises the real gate rather than a stub.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -42,15 +46,19 @@ import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import cast
 
+from builders.capping import FakeLeaseView
 from builders.cells import make_cell
 from builders.llm import make_bound
 
-from hivemind.cell import CellKind, HoneyClearance
+from hivemind.cell import Cell, CellIdentity, CellKind, HoneyClearance, NoopSnapshotter
 from hivemind.cell.fake import FakeSession
 from hivemind.guard import CapabilitySet
+from hivemind.llm import DirectCallGate
 from hivemind.memory import Handoff, InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.supervision.capping import CappingGate, GateDeps, deterministic_checks, load_tiers
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import GrantSlice, WorkerContext
 from hivemind.workers.telemetry import TelemetryTracker
@@ -77,6 +85,9 @@ from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging forever.
 _SCRATCH_DIR = Path("scratch")  # A FakeSession never touches a real filesystem; any path works.
+# packages/hivemind/tests/builders/workers.py -> parents[4] is the repo root (matches the same
+# climb tests/unit/supervision/capping/test_tiers.py uses, one directory shallower here).
+_TIERS_PATH = Path(__file__).resolve().parents[4] / "docs" / "supervision" / "capping-tiers.toml"
 
 __all__ = [
     "DEFAULT_PUMP_LIMIT",
@@ -197,11 +208,21 @@ def make_context(clock: Clock | None = None, **overrides: object) -> WorkerConte
         docstring), so `FakeAsker()` is a safe, inert default.
     """
     active_clock = clock if clock is not None else FakeClock()
-    trail = MemoryPheromoneTrail(active_clock)
+    # Resolved from `overrides` first (falling back to the usual default) rather than built
+    # unconditionally, so a test that overrides `session` (or `cell`/`trail`) still gets a
+    # `capping`/`lease` wired to that same object, never a stale default one (module docstring:
+    # "over the same FakeSession").
+    trail = _pick(overrides, "trail", lambda: MemoryPheromoneTrail(active_clock))
+    cell = _pick(overrides, "cell", lambda: make_cell(kind=CellKind.REAL, clock=active_clock))
+    session = _pick(
+        overrides, "session", lambda: FakeSession(scratch_dir=_SCRATCH_DIR, clock=active_clock)
+    )
+    hive_id, node_id = new_hive_id(active_clock), new_node_id(active_clock)
+    cell_identity = CellIdentity(hive_id=hive_id, node_id=node_id, actor="system")
     fields: dict[str, object] = {
         "worker_id": new_worker_id(active_clock),
-        "cell": make_cell(kind=CellKind.REAL, clock=active_clock),
-        "session": FakeSession(scratch_dir=_SCRATCH_DIR, clock=active_clock),
+        "cell": cell,
+        "session": session,
         "bound": make_bound(),
         "grant": make_grant_slice(clock=active_clock),
         "capabilities": CapabilitySet.parse(
@@ -211,14 +232,51 @@ def make_context(clock: Clock | None = None, **overrides: object) -> WorkerConte
         "trail": trail,
         "clock": active_clock,
         "asker": FakeAsker(),
-        "identity": MemoryIdentity(
-            hive_id=new_hive_id(active_clock), node_id=new_node_id(active_clock), actor="system"
-        ),
+        "identity": MemoryIdentity(hive_id=hive_id, node_id=node_id, actor="system"),
         "telemetry": TelemetryTracker(context_window=128_000),
         "handoff_threshold": 0.66,
+        "capping": _make_capping_gate(cell, session, trail, active_clock, cell_identity),
+        "lease": FakeLeaseView(session.scratch_dir),
+        "call_gate": DirectCallGate(),
     }
     fields.update(overrides)
     return WorkerContext(**fields)  # type: ignore[arg-type]  # a plain dataclass; see builders/llm.py
+
+
+def _pick[T](overrides: dict[str, object], key: str, default: Callable[[], T]) -> T:
+    """Return `overrides[key]` when a test supplied it, else build the usual default.
+
+    Lets `make_context` build `capping`/`lease` from whichever `session`/`cell`/`trail` a test
+    actually asked for, before `fields.update(overrides)` applies the rest. The override is
+    trusted to be `T`-shaped (the same trust `WorkerContext(**fields)` already extends to every
+    entry in `overrides` two lines down); `cast` only tells mypy that, it checks nothing at
+    runtime.
+    """
+    if key in overrides:
+        return cast(T, overrides[key])
+    return default()
+
+
+def _make_capping_gate(
+    cell: Cell,
+    session: FakeSession,
+    trail: MemoryPheromoneTrail,
+    clock: Clock,
+    identity: CellIdentity,
+) -> CappingGate:
+    """Build the real CappingGate `make_context` wires by default (module docstring)."""
+    return CappingGate(
+        GateDeps(
+            session=session,
+            snapshotter=NoopSnapshotter(),
+            cell=cell,
+            tiers=load_tiers(_TIERS_PATH),
+            trail=trail,
+            identity=identity,
+            clock=clock,
+            checks=deterministic_checks(),
+        )
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

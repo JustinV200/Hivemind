@@ -15,7 +15,10 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   `RUNNING <-> PAUSED`. Mirrors `waggle.messages.supervision.WorkerState` member for member.
 - `context.py` -- `WorkerContext` (everything a role may use; never a provider, a subprocess
   handle, or the Cell's kind), `GrantSlice` (one Worker's share of a Warden's `ForageGrant`) and
-  `QuestionChannel` (ask a blocking Question, get its Answer).
+  `QuestionChannel` (ask a blocking Question, get its Answer). Since roadmap step 3.16,
+  `WorkerContext` also carries `capping` (the Capping gate a tool's side effect proposes through),
+  `lease` (a `LeaseView` onto the Warden's Real Cell lease) and `call_gate` (the seam every model
+  call passes through -- a `FannerLane` or a bare `DirectCallGate`).
 - `telemetry.py` -- `TelemetryTracker`: the mutable per-Worker `ContextTelemetry` a role writes
   between turns and the runtime reads for every `Heartbeat`; also the `cancel_requested`/
   `handoff_requested` flags and the `wait_if_paused()` a role's own turn loop cooperates with.
@@ -30,12 +33,25 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   Question channel), `reporter.py` (this Worker's own `WorkerState` and every outgoing message)
   and `attempt.py` (starting, cancelling and interpreting one role attempt); `__init__.py` is the
   package's own face.
-- `roles/`, `tools/`, `tactics/` -- empty until roadmap step 3.16.
+- `roles/` -- one module (or package) per Worker role; `hivemind.workers.roles.drone.Drone` is the
+  first, added by roadmap step 3.16. See `hivemind.workers.roles`'s own README.
+- `tools/` -- the tool implementations a Worker calls while it works, each one going through its
+  Cell's `CellSession`. Roadmap step 3.16 adds the Drone's first five: `run_command`, `read_file`,
+  `write_file`, `http_request` and `ask`. See `hivemind.workers.tools`'s own README.
+- `tactics/` -- empty until a later roadmap step.
 
 ## Public API (roadmap 3.15)
 
 See the `Public API:` section of `__init__.py` for the full, current list; the summary above names
 each name's home module.
+
+## Public API (roadmap 3.16)
+
+`WorkerContext`'s three new fields (`capping`, `lease`, `call_gate`), and the `roles`/`tools`
+sub-packages, are not re-exported at this package's own top level: a Warden (roadmap step 3.19)
+imports `hivemind.workers.roles.Drone` and `hivemind.workers.tools.build_registry` directly, the
+same way it already imports `hivemind.workers.context.WorkerContext`. See `hivemind.workers.roles`
+and `hivemind.workers.tools`'s own `Public API:` sections for their full, current lists.
 
 ## How to test this
 
