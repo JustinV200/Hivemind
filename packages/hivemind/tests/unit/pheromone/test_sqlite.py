@@ -65,8 +65,10 @@ def test_sqlite_module_source_contains_no_update_or_delete_token() -> None:
 
 
 def test_sqlite_order_by_matches_trail_order_key() -> None:
-    expected_asc = " ORDER BY " + ", ".join(TRAIL_ORDER_KEY)
-    expected_desc = " ORDER BY " + ", ".join(f"{column} DESC" for column in TRAIL_ORDER_KEY)
+    # rowid is the insertion-order tiebreaker the SQLite store adds after the shared key.
+    columns = (*TRAIL_ORDER_KEY, "rowid")
+    expected_asc = " ORDER BY " + ", ".join(columns)
+    expected_desc = " ORDER BY " + ", ".join(f"{column} DESC" for column in columns)
 
     assert expected_asc == pheromone_sqlite._ORDER_BY_ASC
     assert expected_desc == pheromone_sqlite._ORDER_BY_DESC

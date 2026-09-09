@@ -57,8 +57,11 @@ how the Brood Chamber writes a task row and its `task.*` event atomically. A dup
 node's events) that serialises to JSON and travels as a file or over Waggle; `merge_segment`
 inserts every event whose id is unknown and ignores the rest, so a segment can be merged twice
 without duplicates and two segments with interleaved timestamps merge into one log. Trail order
-is `(at, node_id, id)`, and every query returns it in that order; the documentation says it is
-approximate across nodes because their clocks are not the same clock. The Night Veil boundary is
+is `(at, node_id)` with ties kept in the order they were recorded (a stable sort in memory, the
+row's insertion order in SQLite, and a merged segment inserted in its exporter's order), never
+the event id, because ids minted within one millisecond carry random tails; every query returns
+that order, and the documentation says it is approximate across nodes because their clocks are
+not the same clock. The Night Veil boundary is
 the one deletion in the package and lives in its own module, `retention.py`: a Night Veil Cell's
 Warden runs inside the Cell, so its node's segment is the ephemeral segment, and at teardown
 `NightVeilTeardownPurge` deletes that node's rows, calls every registered side-channel purger (the

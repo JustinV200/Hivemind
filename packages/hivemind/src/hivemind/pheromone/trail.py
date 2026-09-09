@@ -17,9 +17,9 @@ Fits into the Hive:
     hivemind.pheromone.events and waggle only.
 
 Key invariants:
-    - Every query() and export_segment() result is ordered by TRAIL_ORDER_KEY -- (at, node_id,
-      id) -- ascending, or fully reversed end-to-end when TrailQuery.newest_first is set; no
-      implementation may return a different order.
+    - Every query() and export_segment() result is ordered by TRAIL_ORDER_KEY -- (at, node_id)
+      -- ascending with ties kept in the order they were recorded, or fully reversed end-to-end
+      when TrailQuery.newest_first is set; no implementation may return a different order.
     - record() raises DuplicateEventError (hivemind.pheromone.errors) on an id the store already
       holds; it never silently overwrites.
     - merge_segment() never raises on a duplicate id: it inserts every event whose id is unknown
@@ -62,12 +62,17 @@ MAX_QUERY_LIMIT = 10_000  # A page this large is still a sub-second SQLite scan 
 DEFAULT_QUERY_LIMIT = 1_000  # Generous for a human `hive trail tail`, small enough to stay fast.
 
 # The Pheromone Trail's canonical order. Every query() and export_segment() result is sorted by
-# exactly these three event attributes, in this order (ascending, or fully reversed when
-# TrailQuery.newest_first is set), so a Queen's trail and a merged Warden segment always agree on
-# what "trail order" means. hivemind.pheromone.memory builds operator.attrgetter(*TRAIL_ORDER_KEY)
-# from this tuple; hivemind.pheromone.sqlite's literal `ORDER BY at, node_id, id` clause names the
-# same three columns in the same order (test_sqlite.py checks the two never drift apart).
-TRAIL_ORDER_KEY: tuple[str, str, str] = ("at", "node_id", "id")
+# exactly these two event attributes, in this order (ascending, or fully reversed when
+# TrailQuery.newest_first is set), and two events that tie on both keep the order they were
+# recorded in: a stable sort in hivemind.pheromone.memory, `rowid` in hivemind.pheromone.sqlite,
+# and a merged segment is inserted in its exporter's order so the tie survives the merge. The
+# event id is deliberately NOT the tiebreaker: a system clock can stamp several events with the
+# same millisecond, and the ULID tails minted inside one millisecond are random, so ordering by id
+# would shuffle an audit log's `blocked` before its `started`. hivemind.pheromone.memory builds
+# operator.attrgetter(*TRAIL_ORDER_KEY) from this tuple; hivemind.pheromone.sqlite's literal
+# `ORDER BY at, node_id, rowid` clause names the same columns plus the insertion tiebreaker
+# (test_sqlite.py checks the two never drift apart).
+TRAIL_ORDER_KEY: tuple[str, str] = ("at", "node_id")
 
 __all__ = [
     "DEFAULT_QUERY_LIMIT",

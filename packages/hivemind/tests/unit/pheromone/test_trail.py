@@ -49,8 +49,8 @@ def _make_cell_event(clock: FakeClock, node_id: NodeId) -> CellEvent:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_trail_order_key_is_at_node_id_id() -> None:
-    assert TRAIL_ORDER_KEY == ("at", "node_id", "id")
+def test_trail_order_key_is_at_then_node_id_with_insertion_order_breaking_ties() -> None:
+    assert TRAIL_ORDER_KEY == ("at", "node_id")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

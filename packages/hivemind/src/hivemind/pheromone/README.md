@@ -18,8 +18,10 @@ trail on reconnection.
 - **Trail** (`hivemind.pheromone.trail`): the `PheromoneTrail` protocol (`record`, `query`,
   `export_segment`, `merge_segment`), `TrailQuery` (filters, ordering, limit) and `TrailSegment`
   (one node's exported slice, JSON round-trip preserving each event's real subclass).
-  `TRAIL_ORDER_KEY = ("at", "node_id", "id")` is the one place trail order is defined; every
-  implementation sorts by it.
+  `TRAIL_ORDER_KEY = ("at", "node_id")` is the one place trail order is defined; every
+  implementation sorts by it and keeps events that tie on both in the order they were recorded
+  (a stable sort in memory, `rowid` in SQLite), because ids minted within one millisecond carry
+  random tails and would shuffle an audit log.
 - **Memory** (`hivemind.pheromone.memory`): `MemoryPheromoneTrail(clock)`, an in-process
   `PheromoneTrail` for tests and demos, plus `drop_segment(node_id)` (sync), used by
   `MemorySegmentPurge`.

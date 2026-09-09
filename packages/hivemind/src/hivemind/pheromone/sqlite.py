@@ -70,11 +70,12 @@ INSERT OR IGNORE INTO pheromone_events
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 _SELECT_BODY_SQL = "SELECT body FROM pheromone_events"  # Every read decodes the JSON body column.
-# Mirrors hivemind.pheromone.trail.TRAIL_ORDER_KEY = ("at", "node_id", "id") exactly; kept in sync
-# by test_sqlite_order_by_matches_trail_order_key.
-_ORDER_BY_ASC = " ORDER BY at, node_id, id"
+# Mirrors hivemind.pheromone.trail.TRAIL_ORDER_KEY = ("at", "node_id") plus rowid, the insertion
+# order, as the tiebreaker (see the comment on TRAIL_ORDER_KEY for why the id is not it); kept in
+# sync by test_sqlite_order_by_matches_trail_order_key.
+_ORDER_BY_ASC = " ORDER BY at, node_id, rowid"
 _ORDER_BY_DESC = (
-    " ORDER BY at DESC, node_id DESC, id DESC"  # newest_first: the same triple, reversed.
+    " ORDER BY at DESC, node_id DESC, rowid DESC"  # newest_first: the same triple, reversed.
 )
 
 __all__ = [

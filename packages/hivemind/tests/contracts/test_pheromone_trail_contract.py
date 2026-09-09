@@ -79,7 +79,7 @@ async def _seed_interleaved_events(
     """Record six events alternating between two nodes, each one tick after the last.
 
     Returns them in the order recorded, which is also trail order: every `at` strictly
-    increases, so (at, node_id, id) never needs a tiebreak.
+    increases, so (at, node_id) never needs the insertion-order tiebreak.
     """
     events: list[PheromoneEvent] = []
     for _ in range(3):
@@ -345,3 +345,31 @@ async def test_purge_segment_a_second_time_removes_nothing(
     second = await segments.purge_segment(node_id)
 
     assert second == 0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ties on (at, node_id): recorded order is the tiebreaker, never the id
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_events_that_tie_on_at_and_node_keep_their_recorded_order(
+    trail: PheromoneTrail,
+) -> None:
+    # Arrange: three events on one node stamped in the same millisecond (the clock never
+    # advances), recorded in an order that a sort by id would very likely shuffle: ULID tails
+    # minted within one millisecond are random, so nothing but insertion order can hold them.
+    clock = FakeClock()
+    node_id = new_node_id(clock)
+    recorded = [_make_cell_event(clock, node_id) for _ in range(3)]
+    for event in recorded:
+        await trail.record(event)
+
+    ascending = await trail.query(TrailQuery())
+    descending = await trail.query(TrailQuery(newest_first=True))
+    segment = await trail.export_segment(node_id)
+
+    # Assert: trail order is the recorded order, newest_first is its exact reverse (ties
+    # included), and an exported segment carries the same order for the receiver to replay.
+    assert [event.id for event in ascending] == [event.id for event in recorded]
+    assert [event.id for event in descending] == [event.id for event in reversed(recorded)]
+    assert [event.id for event in segment.events] == [event.id for event in recorded]

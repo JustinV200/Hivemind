@@ -11,5 +11,5 @@ exist to catch problems that only show up when every layer runs at once.
   SQLite file and checking identical state through both the chamber and `hive tasks show`, and
   checks the trail is complete and in order; a second test merges two nodes' trail segments
   through `hive trail export`/`merge` and checks the merged log has no duplicate ids and is
-  ordered by `(at, node_id, id)`. `scripts/brood_demo.py` is the same scenario run as real child
+  ordered by `(at, node_id)`. `scripts/brood_demo.py` is the same scenario run as real child
   processes, for a human to watch.

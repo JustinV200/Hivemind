@@ -42,7 +42,6 @@ import json
 import subprocess
 import sys
 import tempfile
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,7 +67,9 @@ from waggle.ids import (
 )
 
 HIVE_TIMEOUT_S = 60.0  # A cold `uv run --frozen hive ...` resolves and starts well within this.
-_TICK_S = 0.02  # Real sleep between SystemClock-stamped chamber calls; see _tick's docstring.
+_INTERLEAVE_S = (
+    0.005  # FakeClock step for the second node's events, so they land between the first's.
+)
 _POSTCONDITION: dict[str, object] = {
     "kind": "FILE_EXISTS",
     "subject": "scratch/done.txt",
@@ -157,17 +158,6 @@ class Recorder:
             raise DemoError(f"milestone failed: {name}")
 
 
-def _tick() -> None:
-    """Sleep briefly so consecutive SystemClock-stamped trail events get distinct timestamps.
-
-    Some hosts' system clocks (observed on Windows) have coarse enough resolution that two
-    `datetime.now(UTC)` calls a few milliseconds apart can still compare equal; trail order across
-    two events that tie on `(at, node_id)` is documented as approximate (codingrules section 12),
-    so STEP 3's exact-sequence check needs this small real sleep between chamber calls instead.
-    """
-    time.sleep(_TICK_S)
-
-
 def _run_hive(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     """Run `uv run --frozen hive <args>` as a child process and return its completed result.
 
@@ -198,27 +188,20 @@ def _step2_drive_plan(chamber: BroodChamber, plan_id: str, recorder: Recorder) -
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
     plan = asyncio.run(chamber.assign(TaskId(plan_id), warden_id, cell_id, reason="placement"))
     recorder.check("plan assigned", plan.status is TaskStatus.ASSIGNED)
-    _tick()
     plan = asyncio.run(chamber.start(TaskId(plan_id)))
     recorder.check("plan started", plan.status is TaskStatus.RUNNING)
-    _tick()
     plan = asyncio.run(chamber.report_progress(TaskId(plan_id), "working on it", fraction_done=0.4))
     recorder.check("plan progress reported", plan.fraction_done == 0.4)
-    _tick()
     question = asyncio.run(chamber.ask(TaskId(plan_id), new_worker_id(clock), "which approach?"))
-    _tick()
     blocked = asyncio.run(chamber.get(TaskId(plan_id)))
     recorder.check("plan blocked on its question", blocked.status is TaskStatus.BLOCKED)
     answer = _make_human_answer(clock)
     plan = asyncio.run(chamber.answer(question.id, answer))
     recorder.check("plan answered, running again", plan.status is TaskStatus.RUNNING)
-    _tick()
     plan = asyncio.run(chamber.pause(TaskId(plan_id), reason="provider outage"))
     recorder.check("plan paused", plan.status is TaskStatus.PAUSED)
-    _tick()
     plan = asyncio.run(chamber.resume(TaskId(plan_id), reason="provider back"))
     recorder.check("plan resumed", plan.status is TaskStatus.RUNNING)
-    _tick()
     outcome = TaskOutcome(status=TaskStatus.SUCCEEDED, summary="done", verified_by=warden_id)
     plan = asyncio.run(chamber.complete(TaskId(plan_id), outcome))
     recorder.check("plan succeeded", plan.status is TaskStatus.SUCCEEDED)
@@ -247,13 +230,10 @@ def _step2_drive_build_and_verify(
     clock = SystemClock()
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
     asyncio.run(chamber.assign(TaskId(ids["build"]), warden_id, cell_id, reason="placement"))
-    _tick()
     asyncio.run(chamber.start(TaskId(ids["build"])))
-    _tick()
     outcome = TaskOutcome(status=TaskStatus.SUCCEEDED, summary="done", verified_by=warden_id)
     build = asyncio.run(chamber.complete(TaskId(ids["build"]), outcome))
     recorder.check("build succeeded", build.status is TaskStatus.SUCCEEDED)
-    _tick()
 
     ready2 = asyncio.run(chamber.next_ready())
     recorder.check(
@@ -295,7 +275,7 @@ async def _record_warden_events(db2: Path, identity: ChamberIdentity, clock: Fak
         await trail.record(event)
         # Small enough to likely fall within the first database's own real-time-spaced (_tick)
         # gaps between consecutive events, so the two nodes' events genuinely interleave.
-        clock.advance(_TICK_S / 4)
+        clock.advance(_INTERLEAVE_S)
 
 
 def _check_merged_trail_is_ordered_without_duplicates(
@@ -306,10 +286,8 @@ def _check_merged_trail_is_ordered_without_duplicates(
     recorder.check("merge added exactly the second node's 3 events", len(after) == len(before) + 3)
     ids_seen = [event.id for event in after]
     recorder.check("merged trail has no duplicate ids", len(ids_seen) == len(set(ids_seen)))
-    ordering_key = [(event.at, event.node_id, event.id) for event in after]
-    recorder.check(
-        "merged trail is ordered by (at, node_id, id)", ordering_key == sorted(ordering_key)
-    )
+    ordering_key = [(event.at, event.node_id) for event in after]
+    recorder.check("merged trail is ordered by (at, node_id)", ordering_key == sorted(ordering_key))
 
 
 # ──────────────────────────────────────────────────────────────────────────────

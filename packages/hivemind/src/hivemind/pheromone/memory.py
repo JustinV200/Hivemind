@@ -42,8 +42,10 @@ from waggle.ids import NodeId
 
 __all__ = ["MemoryPheromoneTrail"]
 
-# Sorts a list of events the same way hivemind.pheromone.sqlite's `ORDER BY at, node_id, id` does;
-# built once from TRAIL_ORDER_KEY so the two implementations can never drift apart silently.
+# Sorts a list of events the same way hivemind.pheromone.sqlite's `ORDER BY at, node_id, rowid`
+# does; built once from TRAIL_ORDER_KEY so the two implementations can never drift apart silently.
+# Python's sort is stable, so events that tie on the key keep their recorded (list) order, which is
+# exactly what rowid gives the SQLite store.
 _trail_sort_key = attrgetter(*TRAIL_ORDER_KEY)
 
 
@@ -74,7 +76,12 @@ class MemoryPheromoneTrail:
         async with self._lock:
             # Copy while holding the lock; filtering and sorting below never touch shared state.
             matches = [event for event in self._events if _matches(event, query)]
-        matches.sort(key=_trail_sort_key, reverse=query.newest_first)
+        matches.sort(key=_trail_sort_key)
+        # reverse() after a stable sort, never sort(reverse=True): the latter keeps ties in
+        # recorded order while `ORDER BY ... rowid DESC` reverses them, and the contract is that
+        # newest_first is the exact reverse of trail order, ties included.
+        if query.newest_first:
+            matches.reverse()
         return tuple(matches[: query.limit])
 
     async def export_segment(self, node_id: NodeId, since: datetime | None = None) -> TrailSegment:

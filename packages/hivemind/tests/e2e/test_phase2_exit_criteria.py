@@ -269,7 +269,8 @@ def test_two_trail_segments_merge_into_one_ordered_log_with_no_duplicates(tmp_pa
     ids_seen = [event.id for event in events]
     assert len(ids_seen) == len(set(ids_seen))  # no duplicates
     assert {event.node_id for event in events} == {node_a, node_b}
-    ordering_key = [(event.at, event.node_id, event.id) for event in events]
+    # Trail order is (at, node_id) with ties in recorded order; the id is never a tiebreaker.
+    ordering_key = [(event.at, event.node_id) for event in events]
     assert ordering_key == sorted(ordering_key)
 
     merged_again = runner.invoke(app, ["trail", "merge", str(segment_b_file), "--db", str(db_a)])
