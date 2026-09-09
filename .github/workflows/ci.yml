@@ -151,6 +151,28 @@ jobs:
             coverage.xml
             coverage.json
 
+  # roadmap phase 3 exit criteria: "All eight e2e scenarios pass in CI in under 20 seconds."
+  # The tests job above deliberately excludes `-m e2e` (codingrules 14.2's fast loop); this job
+  # runs exactly that marker on both hosts, without coverage, so a whole-Hive scenario that
+  # regresses fails a build rather than only a developer's terminal. `--durations` keeps the
+  # 20-second budget visible in the log on every run.
+  e2e:
+    name: e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - run: uv run --frozen pytest -m "e2e" packages/hivemind -q --durations=10
+
   # codingrules section 2: "Hosts: Windows 11, Ubuntu LTS, Arch Linux... the Hive Stand and the
   # framework run on all three." The matrix above covers two of the three; this job proves the
   # same Python gates pass on the third by running them inside a fresh Arch Linux container on
