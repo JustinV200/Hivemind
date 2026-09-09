@@ -139,6 +139,7 @@ def test_decide_falls_back_to_default_when_no_row_matches_at_all() -> None:
         (AlarmKind.GRANT_EXCEEDED, 1, PolicyAction.ESCALATE),
         (AlarmKind.PROVIDER_UNAVAILABLE, 1, PolicyAction.REBIND),
         (AlarmKind.PROVIDER_UNAVAILABLE, 2, PolicyAction.ESCALATE),
+        (AlarmKind.QUOTA_EXCEEDED, 1, PolicyAction.CANCEL),
         (AlarmKind.AUDIT_FAILED, 5, PolicyAction.ESCALATE),  # no row: always the default
         (AlarmKind.CELL_UNREACHABLE, 5, PolicyAction.ESCALATE),  # no row: always the default
     ],

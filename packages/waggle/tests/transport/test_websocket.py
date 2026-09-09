@@ -279,7 +279,7 @@ async def test_signed_codecs_accept_a_signed_frame_and_reject_a_tampered_one(
     tampered_end = await _accept(signed_server)
     try:
         frame = signed_codec.encode(good)
-        tampered = frame.replace(b'"version":"1.0"', b'"version":"1.1"')
+        tampered = frame.replace(b'"version":"1.1"', b'"version":"1.2"')
         await raw.send(tampered)
 
         with pytest.raises(InvalidSignatureError):

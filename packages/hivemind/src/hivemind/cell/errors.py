@@ -56,6 +56,7 @@ __all__ = [
     "LeaseRefusedError",
     "PathNotAllowedError",
     "ProbeError",
+    "ScratchQuotaExceededError",
     "SessionClosedError",
     "SnapshotUnsupportedError",
 ]
@@ -211,3 +212,30 @@ class ProbeError(CellError):
         """
         super().__init__(f"Cannot probe this host's capabilities: {reason}.")
         self.reason = reason
+
+
+class ScratchQuotaExceededError(CellError):
+    """Raise when a lease's scratch directory grows past its configured quota mid-command.
+
+    Raised by `hivemind.cell.local.session.LocalProcessSession.exec`'s watchdog once it has
+    already killed the offending command's process tree; the caller (eventually a Worker, phase
+    3 step 3.15+) turns this into a `QUOTA_EXCEEDED` Alarm (roadmap step 3.11).
+    """
+
+    code: ClassVar[str] = "hivemind.cell.scratch_quota_exceeded"
+
+    def __init__(self, scratch_dir: Path, quota_bytes: int, observed_bytes: int) -> None:
+        """Build the error for a scratch directory that outgrew its quota.
+
+        Args:
+            scratch_dir: The lease's scratch directory that exceeded its quota.
+            quota_bytes: The configured cap it exceeded.
+            observed_bytes: The size the watchdog measured when it killed the command.
+        """
+        super().__init__(
+            f"Scratch directory {scratch_dir} grew to {observed_bytes} bytes, over its "
+            f"{quota_bytes}-byte quota; the command was killed."
+        )
+        self.scratch_dir = scratch_dir
+        self.quota_bytes = quota_bytes
+        self.observed_bytes = observed_bytes

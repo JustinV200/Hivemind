@@ -57,9 +57,10 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.0"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.1"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 0  # Additive changes bump it; any minor of a known major is accepted.
+PROTOCOL_MINOR = 1  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+# 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

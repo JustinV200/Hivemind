@@ -272,7 +272,7 @@ async def test_a_signed_pair_rejects_a_tampered_frame_with_1008(
     assert (await _next(end_b)).id == good.id
     # A minor bump keeps the frame well-formed and acceptable, so only the signature can fail.
     frame = signed_codec.encode(good)
-    tampered = frame.replace(b'"version":"1.0"', b'"version":"1.1"')
+    tampered = frame.replace(b'"version":"1.1"', b'"version":"1.2"')
     assert tampered != frame
 
     end_b.inject_frame(tampered)

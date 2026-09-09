@@ -30,11 +30,14 @@ here; `swarm` for enrolled devices, a later phase).
 - **Lease** (`hivemind.cell.lease_state`, `hivemind.cell.lease`): `LeaseState`
   (`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`) with
   `can_transition`/`assert_transition`; `LeaseRequest`, `LeaseFacts`, `LeaseReleaseReport`,
+  `RestoreRecord` (one path written outside scratch, and what `release()` must put back),
   `LeaseReleaser` (the injected Protocol `release()` delegates to) and `RealCellLease` --
   `open()` and `release()` each write their own trail event (`cell.leased`, `cell.released`) in
   the same call that changes `state`; `release()` is idempotent; `note_started_process`,
-  `note_touched_path` (writes `cell.touched_outside_scratch` when the path is outside scratch)
-  and `is_path_allowed` round out the bookkeeping a Warden and the Undertaker read.
+  `note_touched_path` (writes `cell.touched_outside_scratch` when the path is outside scratch),
+  `note_restore_path`/`restore_records` (sync bookkeeping for what a Capping proposal wrote
+  outside scratch, roadmap step 3.17; a path inside scratch is never recorded) and
+  `is_path_allowed` round out the bookkeeping a Warden and the Undertaker read.
 - **Source** (`hivemind.cell.source`): `RealCellSource` (`name`, `cells()`, `lease(request)`,
   `open_session(lease)`) and `CellIdentity` (the Hive/node/actor a source stamps on its events).
 - **Snapshot** (`hivemind.cell.snapshot`): `Snapshotter`, `NoopSnapshotter` (every Real Cell
@@ -45,9 +48,12 @@ here; `swarm` for enrolled devices, a later phase).
   inventory; refuses a lease on an unknown or still-open Cell with `LeaseRefusedError`).
 - **Errors** (`hivemind.cell.errors`): `CellError` and its tree --
   `LeaseRefusedError`, `SessionClosedError`, `CommandTimeoutError`, `PathNotAllowedError`,
-  `SnapshotUnsupportedError`, `InvalidLeaseTransitionError`, `ProbeError`.
+  `SnapshotUnsupportedError`, `InvalidLeaseTransitionError`, `ProbeError`,
+  `ScratchQuotaExceededError` (a lease's scratch directory outgrew its quota mid-command).
 - **Local** (`hivemind.cell.local`): the Hive Stand, the machine the Queen runs on and the first
-  Real Cell source; see `cell/local/README.md` for its own public API.
+  Real Cell source (roadmap step 3.11) -- `HiveStandConfig`, `probe_host`/`refresh_live`,
+  `LocalProcessSession`, `HiveStandLeaseReleaser`, `HiveStandSource`; see `cell/local/README.md`
+  for its own public API.
 
 ## How to test this
 

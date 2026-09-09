@@ -31,6 +31,13 @@ scratch_root = ".hive/scratch"
 # The Queen's own address: what Wardens and Pollen Packets dial. Loopback here; Supersedure
 # (moving the Hive Stand) rewrites this value on every node when the Queen actually moves.
 address = "ws://127.0.0.1:8720"
+# The most bytes, in megabytes, any one lease's scratch directory may grow to before its
+# watchdog kills the running command and a QUOTA_EXCEEDED Alarm is raised (roadmap step 3.11).
+scratch_quota_mb = 4096
+# Free disk, in megabytes, a new lease refuses to dip below.
+disk_reserve_mb = 1024
+# The most access any lease on the Hive Stand may hold: READ_ONLY, SCRATCH or FULL.
+access_level = "SCRATCH"
 
 [hive_stand.capacity]
 # Override the Hive Stand's own concurrent sub-bee cap instead of trusting the probe.

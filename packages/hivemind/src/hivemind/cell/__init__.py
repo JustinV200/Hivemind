@@ -51,8 +51,8 @@ Public API:
       (hivemind.cell.session).
     - LeaseState, TRANSITIONS, can_transition, assert_transition: a lease's state machine
       (hivemind.cell.lease_state).
-    - LeaseRequest, LeaseFacts, LeaseReleaseReport, LeaseReleaser, RealCellLease: a Real Cell's
-      tenancy (hivemind.cell.lease).
+    - LeaseRequest, LeaseFacts, LeaseReleaseReport, LeaseReleaser, RealCellLease, RestoreRecord:
+      a Real Cell's tenancy (hivemind.cell.lease).
     - RealCellSource, CellIdentity: how Real Cells are inventoried and leased
       (hivemind.cell.source).
     - SnapshotId, Snapshotter, NoopSnapshotter, NOOP_SNAPSHOT_ID: the (usually absent) ability to
@@ -60,10 +60,12 @@ Public API:
     - FakeSession, FakeCellSource, FakeLeaseReleaser, Responder: an in-memory implementation of
       both Protocols (hivemind.cell.fake).
     - CellError, LeaseRefusedError, SessionClosedError, CommandTimeoutError, PathNotAllowedError,
-      SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError: this package's error
-      tree (hivemind.cell.errors).
-    - hivemind.cell.local: the Hive Stand, the first Real Cell source (roadmap step 3.11); see
-      its own README for its public API.
+      SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError,
+      ScratchQuotaExceededError: this package's error tree (hivemind.cell.errors).
+    - hivemind.cell.local: the Hive Stand, the first Real Cell source (roadmap step 3.11): see
+      its own README for HiveStandConfig, HiveStandSource, LocalProcessSession and
+      HiveStandLeaseReleaser, not re-exported here (codingrules section 4: `hivemind.cell.local`
+      is the one place under this package allowed to import `subprocess`).
 """
 
 from hivemind.cell.errors import (
@@ -73,6 +75,7 @@ from hivemind.cell.errors import (
     LeaseRefusedError,
     PathNotAllowedError,
     ProbeError,
+    ScratchQuotaExceededError,
     SessionClosedError,
     SnapshotUnsupportedError,
 )
@@ -83,6 +86,7 @@ from hivemind.cell.lease import (
     LeaseReleaseReport,
     LeaseRequest,
     RealCellLease,
+    RestoreRecord,
 )
 from hivemind.cell.lease_state import TRANSITIONS, LeaseState, assert_transition, can_transition
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
@@ -141,6 +145,8 @@ __all__ = [
     "RealCellLease",
     "RealCellSource",
     "Responder",
+    "RestoreRecord",
+    "ScratchQuotaExceededError",
     "SessionClosedError",
     "SnapshotId",
     "SnapshotUnsupportedError",

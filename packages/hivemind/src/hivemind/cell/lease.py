@@ -1,15 +1,17 @@
-"""Define LeaseRequest, LeaseReleaseReport and RealCellLease: a Real Cell's tenancy, end to end.
+"""Define LeaseRequest, LeaseReleaseReport, RestoreRecord and RealCellLease: a Real Cell's tenancy.
 
 A `RealCellLease` is one Warden's tenancy on a Real Cell (an existing device the Hive borrows and
 leaves exactly as found): its own scratch directory, the process ids its session started, the
-paths it touched outside scratch, and the `LeaseState` (`hivemind.cell.lease_state`) it moves
-through from request to release. `LeaseRequest` is what a caller asks a `RealCellSource` for;
-`LeaseReleaseReport` is what `release()` returns, saying whether the device was left as found.
-`RealCellLease` is the one class in this package that owns mutable bookkeeping in place
-(codingrules section 8.5 requires that to be documented, so it is, here): its frozen facts never
-change once opened, but `state`, the started-process list and the touched-path list all grow or
-change over the lease's life. `release()` never does the actual killing or path restoration
-itself; it delegates that to an injected `LeaseReleaser`, so the identical bookkeeping,
+paths it touched outside scratch, the `RestoreRecord`s a Capping proposal wrote outside scratch
+(roadmap step 3.17), and the `LeaseState` (`hivemind.cell.lease_state`) it moves through from
+request to release. `LeaseRequest` is what a caller asks a `RealCellSource` for;
+`LeaseReleaseReport` is what `release()` returns, saying whether the device was left as found;
+`RestoreRecord` is one path outside scratch and what must be put back there. `RealCellLease` is
+the one class in this package that owns mutable bookkeeping in place (codingrules section 8.5
+requires that to be documented, so it is, here): its frozen facts never change once opened, but
+`state`, the started-process list, the touched-path list and the restore-record list all grow or
+change over the lease's life. `release()` never does the actual killing, path restoration or
+replay itself; it delegates that to an injected `LeaseReleaser`, so the identical bookkeeping,
 idempotence and trail-writing logic serves both `hivemind.cell.fake.FakeCellSource` and
 `hivemind.cell.local.HiveStandSource` (phase 3 step 3.11) without either reimplementing it.
 
@@ -34,6 +36,8 @@ Key invariants:
     - `is_path_allowed` and `note_touched_path` both resolve `..` and symlinks with
       `Path.resolve(strict=False)` before comparing, so neither can be used to sneak outside
       scratch undetected.
+    - `note_restore_path` never records a path that resolves inside `scratch_root`: scratch is
+      removed wholesale on release, so there is nothing individual to restore there.
 
 See Also:
     - .claude/codingrules.md section 8.5 for the "a class documents its own mutable state" rule
@@ -79,6 +83,7 @@ __all__ = [
     "LeaseReleaser",
     "LeaseRequest",
     "RealCellLease",
+    "RestoreRecord",
 ]
 
 
@@ -111,6 +116,30 @@ class LeaseReleaseReport(BaseModel):
     )
     is_restored: bool = Field(
         description="True when the scratch directory is gone and every touched path restored."
+    )
+
+
+class RestoreRecord(BaseModel):
+    """One path a lease wrote outside scratch, and what release() must put back.
+
+    Recorded by `RealCellLease.note_restore_path` whenever a Capping proposal (roadmap step
+    3.17) applies an `outside_scratch_write` outside a lease's scratch directory; a path inside
+    scratch is never recorded here, since scratch is removed wholesale on release.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: Path = Field(
+        description="The resolved absolute path outside scratch that the Hive wrote."
+    )
+    prior: bytes | None = Field(
+        description="The bytes at `path` before the Hive wrote it; None when `path` did not "
+        "exist yet, in which case release() deletes it rather than restoring content."
+    )
+    persist: bool = Field(
+        default=False,
+        description="True only once the operator has approved this change to stay (phase 11); "
+        "release() skips a record with persist=True rather than undoing it.",
     )
 
 
@@ -196,6 +225,7 @@ class RealCellLease:
         self._releaser = releaser
         self._started_pids: list[int] = []
         self._touched_paths: list[Path] = []
+        self._restore_records: list[RestoreRecord] = []
         self._release_report: LeaseReleaseReport | None = None
 
     @property
@@ -211,6 +241,15 @@ class RealCellLease:
     def touched_paths(self) -> tuple[Path, ...]:
         """Every resolved path `note_touched_path` has recorded, in the order they were touched."""
         return tuple(self._touched_paths)
+
+    @property
+    def restore_records(self) -> tuple[RestoreRecord, ...]:
+        """Every RestoreRecord `note_restore_path` has recorded, in the order they were recorded.
+
+        Read by an injected LeaseReleaser (`hivemind.cell.local.HiveStandLeaseReleaser`) to
+        replay in reverse on release; this class itself never writes a byte back.
+        """
+        return tuple(self._restore_records)
 
     async def open(self) -> None:
         """Transition this lease from REQUESTED to OPEN and record cell.leased.
@@ -259,6 +298,23 @@ class RealCellLease:
                 {"lease_id": self.id, "path": str(resolved)[:MAX_PATH_CHARS]},
             )
 
+    def note_restore_path(self, path: Path, prior: bytes | None) -> None:
+        """Record what `release()` must put back at `path`, once resolved.
+
+        Sync bookkeeping (unlike `note_touched_path`, this never writes a trail event of its own:
+        the Capping proposal that called this already records its own `capping.*` event, roadmap
+        step 3.17). A path that resolves inside this lease's scratch root is not recorded: scratch
+        is removed wholesale on release, so there is nothing individual to restore there.
+
+        Args:
+            path: The path that was written outside scratch, relative or absolute.
+            prior: The bytes that were at `path` before this write, or None if `path` did not
+                exist yet (release() then deletes it instead of restoring content).
+        """
+        resolved, within_scratch = self._resolve_touched(path)
+        if not within_scratch:
+            self._restore_records.append(RestoreRecord(path=resolved, prior=prior))
+
     def _resolve_touched(self, path: Path) -> tuple[Path, bool]:
         """Resolve `path` and report whether it lands inside this lease's scratch root."""
         resolved = path.resolve(strict=False)
@@ -277,11 +333,8 @@ class RealCellLease:
             True if the resolved path is inside `scratch_root` or under one of `allowed_paths`.
         """
         resolved = path.resolve(strict=False)
-        roots = (
-            self.scratch_root.resolve(strict=False),
-            *(allowed.resolve(strict=False) for allowed in self.allowed_paths),
-        )
-        return any(_is_within(resolved, root) for root in roots)
+        roots = (self.scratch_root, *self.allowed_paths)
+        return any(_is_within(resolved, root.resolve(strict=False)) for root in roots)
 
     async def release(self) -> LeaseReleaseReport:
         """Release this lease, idempotently.

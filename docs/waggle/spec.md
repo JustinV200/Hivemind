@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.0`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.1`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.0"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.1"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.0"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 0` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.1"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 1` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -660,8 +660,9 @@ Family enums and value models:
     `telemetry` (`ContextTelemetry`).
 - `AlarmKind`: `WORKER_FAILED`, `WORKER_CRASHED`, `WORKER_STALLED`, `ACCEPTANCE_FAILED`,
   `POSTCONDITION_FAILED`, `CONTEXT_OVERFLOW`, `GRANT_EXCEEDED`, `PROVIDER_UNAVAILABLE`,
-  `AUDIT_FAILED`, `CELL_UNREACHABLE`, `OTHER`. The closed set the escalation policy keys on;
-  `OTHER` carries anything new until a minor bump names it.
+  `AUDIT_FAILED`, `CELL_UNREACHABLE`, `QUOTA_EXCEEDED` (a lease's scratch directory outgrew its
+  configured quota; added in a minor 1 bump, roadmap step 3.11), `OTHER`. The closed set the
+  escalation policy keys on; `OTHER` carries anything new until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:
     the bee concerned, which may differ from `origin` when a Warden raises about a sub-bee),

@@ -5,13 +5,14 @@ orchestrator), its Wardens (per-Cell supervisors) and the Cells (units of comput
 on) they supervise. This module holds the sections every Hive needs regardless of which model
 providers or security posture it runs with: ``HiveSection`` (the Hive's own identity: its id, its
 node id, and where its SQLite file lives), ``QueenSection`` (how often the Queen ticks and checks
-in), ``HiveStandSection`` (the Hive Stand, the machine the Queen runs on and the first Real Cell,
-plus its own capacity-probe overrides in ``HiveStandCapacityOverrides``), ``BroodChamberSection``
-(the task graph store's one limit) and ``PheromoneSection`` (how long the audit trail keeps
-events). Every field here carries a default sensible for local development, so a manifest that
-omits every section but ``[hive]`` still loads (``hivemind.manifest.schema.manifest.HiveManifest``
-gives every section but ``hive`` a default; ``hive`` alone has no sensible default because a Hive's
-own identity cannot be guessed).
+in), ``HiveStandSection`` (the Hive Stand, the machine the Queen runs on and the first Real Cell:
+its own capacity-probe overrides in ``HiveStandCapacityOverrides``, its per-lease scratch quota
+and disk reserve, and the wire ``AccessLevel`` any lease on it may hold at most),
+``BroodChamberSection`` (the task graph store's one limit) and ``PheromoneSection`` (how long the
+audit trail keeps events). Every field here carries a default sensible for local development, so a
+manifest that omits every section but ``[hive]`` still loads
+(``hivemind.manifest.schema.manifest.HiveManifest`` gives every section but ``hive`` a default;
+``hive`` alone has no sensible default because a Hive's own identity cannot be guessed).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -44,6 +45,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from waggle.messages.base import HiveIdField, NodeIdField
+from waggle.messages.labels import AccessLevel as WireAccessLevel
 from waggle.uris import check_waggle_uri
 
 MAX_HIVE_NAME_CHARS = 128  # A human-facing label, not an id; a page title's worth of room.
@@ -61,18 +63,26 @@ DEFAULT_SCRATCH_ROOT = ".hive/scratch"  # Relative to the manifest's own directo
 DEFAULT_HIVE_STAND_ADDRESS = (
     "ws://127.0.0.1:8720"  # Loopback by default; check_waggle_uri allows it.
 )
+DEFAULT_SCRATCH_QUOTA_MB = 4096  # Roadmap step 3.11's own default: 4 GiB per lease's scratch dir.
+DEFAULT_DISK_RESERVE_MB = 1024  # A new lease refuses when free disk drops under this, in MiB.
+# Least-privilege default: the Hive Stand is the operator's own machine, so a lease may write
+# its own scratch directory but not the whole device unless the operator explicitly widens it.
+DEFAULT_HIVE_STAND_ACCESS_LEVEL = WireAccessLevel.SCRATCH
 DEFAULT_MAX_GRAPH_TASKS = 64  # A single goal's task graph rarely needs more nodes than this.
 DEFAULT_RETENTION_DAYS = (
     90  # A quarter of trail history kept before the retention job may delete it.
 )
 
 __all__ = [
+    "DEFAULT_DISK_RESERVE_MB",
     "DEFAULT_HEARTBEAT_INTERVAL_S",
     "DEFAULT_HIVE_DB",
+    "DEFAULT_HIVE_STAND_ACCESS_LEVEL",
     "DEFAULT_HIVE_STAND_ADDRESS",
     "DEFAULT_MAX_AWAKE_PER_MINUTE",
     "DEFAULT_MAX_GRAPH_TASKS",
     "DEFAULT_RETENTION_DAYS",
+    "DEFAULT_SCRATCH_QUOTA_MB",
     "DEFAULT_SCRATCH_ROOT",
     "DEFAULT_TICK_INTERVAL_S",
     "MAX_HIVE_NAME_CHARS",
@@ -184,6 +194,25 @@ class HiveStandSection(BaseModel):
     capacity: HiveStandCapacityOverrides = Field(
         default_factory=HiveStandCapacityOverrides,
         description="Manual overrides for the Hive Stand's own capacity probe.",
+    )
+    scratch_quota_mb: int = Field(
+        default=DEFAULT_SCRATCH_QUOTA_MB,
+        gt=0,
+        description="The most bytes, in megabytes, any one lease's scratch directory may grow "
+        "to before its command is killed and a QUOTA_EXCEEDED Alarm is raised.",
+    )
+    disk_reserve_mb: int = Field(
+        default=DEFAULT_DISK_RESERVE_MB,
+        ge=0,
+        description="Free disk, in megabytes, a new lease refuses to dip below.",
+    )
+    access_level: WireAccessLevel = Field(
+        default=DEFAULT_HIVE_STAND_ACCESS_LEVEL,
+        description="The most access any lease on the Hive Stand may hold. This is the wire "
+        "label (waggle.messages.labels.AccessLevel), not hivemind.cell.tiers.AccessLevel: this "
+        "module is Layer 1 and may not import hivemind.cell (Layer 2); "
+        "hivemind.cell.local.HiveStandConfig.from_section converts it via the hivemind mirror's "
+        "own from_wire.",
     )
 
     @field_validator("address")

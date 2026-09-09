@@ -100,6 +100,15 @@ kind = "PROVIDER_UNAVAILABLE"
 min_attempts = 2
 action = "ESCALATE"
 
+# QUOTA_EXCEEDED: a lease's scratch directory outgrew its configured quota. The lease already
+# killed the child that caused it (hivemind.cell.local.session's watchdog), so there is nothing
+# left to retry, rebind or respawn -- and scratch disk is local capacity nobody grants more of, so
+# this never becomes a ForageRequest either. Roll the proposal back and fail the task outright.
+[[rules]]
+kind = "QUOTA_EXCEEDED"
+min_attempts = 1
+action = "CANCEL"
+
 # AUDIT_FAILED, CELL_UNREACHABLE and OTHER have no row here on purpose: each is rare enough, or
 # unnamed enough (OTHER), that a fixed playbook would be guessing. `default` (ESCALATE) reaches a
 # human rather than autopilot guessing wrong on a case nobody has characterised yet.

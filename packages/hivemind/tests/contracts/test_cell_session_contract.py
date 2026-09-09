@@ -3,16 +3,17 @@
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
     hivemind.cell.session.CellSession contract and runs against every implementation registered
-    in `_HARNESSES` below: `hivemind.cell.fake.FakeSession` now (phase 3 step 3.10);
-    `hivemind.cell.local.LocalProcessSession` joins in phase 3 step 3.11. A new CellSession
-    implementation adds a `SessionHarness` here and must pass this suite before it is used
-    anywhere else (codingrules 14.3).
+    in `_HARNESSES` below: `hivemind.cell.fake.FakeSession` (phase 3 step 3.10) and
+    `hivemind.cell.local.LocalProcessSession`, the Hive Stand's own session (phase 3 step 3.11). A
+    new CellSession implementation adds a `SessionHarness` here and must pass this suite before it
+    is used anywhere else (codingrules 14.3).
 
-    Every case name a harness supports maps to a fixed, kind-independent outcome (`_CASES`
-    below): "echo" writes `_STDOUT_TEXT` to stdout and exits 0, "stderr" writes `_STDERR_TEXT` to
-    stderr and exits `_NONZERO_EXIT`, "sleep" never returns before its timeout. A harness decides
-    *how* its session produces that outcome (a scripted responder for the fake, a real
-    `sys.executable -c ...` for the Hive Stand); the test bodies only ever assert the outcome.
+    Every case name a harness supports maps to a fixed, kind-independent outcome (`_LOCAL_SCRIPTS`
+    keys below): "echo" writes `_STDOUT_TEXT` to stdout and exits 0, "both" writes both
+    `_STDOUT_TEXT` and `_STDERR_TEXT` and exits 0, "nonzero" exits `_NONZERO_EXIT`, "sleep" never
+    returns before its timeout. A harness decides *how* its session produces that outcome (a
+    scripted responder for the fake, a real `sys.executable -c ...` child for the Hive Stand); the
+    test bodies only ever assert the outcome.
 
 Key invariants:
     - None: this module holds tests only.
@@ -20,26 +21,33 @@ Key invariants:
 See Also:
     - hivemind.cell.session for the CellSession protocol under test.
     - hivemind.cell.fake for FakeSession, the first implementation registered here.
+    - hivemind.cell.local for LocalProcessSession, the Hive Stand's own implementation.
     - packages/hivemind/tests/contracts/test_pheromone_trail_contract.py for the pattern this
       suite's harness-per-implementation shape mirrors.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Protocol
 
 import pytest
+from builders.cells import make_real_cell_lease
 
 from hivemind.cell.errors import CommandTimeoutError, PathNotAllowedError, SessionClosedError
 from hivemind.cell.fake import FakeSession
+from hivemind.cell.local.quota import ScratchQuota
+from hivemind.cell.local.releaser import HiveStandLeaseReleaser
+from hivemind.cell.local.session import LocalProcessSession
 from hivemind.cell.session import CellSession, CompletedCommand, ExecSpec, ExitStatus, run
-from waggle.clock import FakeClock
+from waggle.clock import FakeClock, SystemClock
 
 _STDOUT_TEXT = b"hello"
 _STDERR_TEXT = b"boom"
 _NONZERO_EXIT = 7
 _SHORT_TIMEOUT_S = 0.5  # The one test that actually waits for a timeout; kept short on purpose.
+_LOCAL_QUOTA_BYTES = 64 * 1024 * 1024  # Generous: this suite is about the CellSession contract.
 
 
 class SessionHarness(Protocol):
@@ -79,7 +87,42 @@ class _FakeHarness:
         return (case,)
 
 
-_HARNESSES: dict[str, SessionHarness] = {"fake": _FakeHarness()}
+# One small `python -c` script per case, producing the exact same fixed outcome _FakeHarness's
+# responder maps a case to -- so a test body cannot tell which harness ran it. `sys.stdout.buffer`/
+# `sys.stderr.buffer` (not print) so no platform's newline translation can perturb the exact bytes
+# _STDOUT_TEXT/_STDERR_TEXT compare equal to.
+_LOCAL_SCRIPTS = {
+    "echo": f"import sys; sys.stdout.buffer.write({_STDOUT_TEXT!r})",
+    "both": (
+        f"import sys; sys.stdout.buffer.write({_STDOUT_TEXT!r}); "
+        f"sys.stderr.buffer.write({_STDERR_TEXT!r})"
+    ),
+    "nonzero": f"import sys; sys.exit({_NONZERO_EXIT})",
+    "sleep": f"import time; time.sleep({_SHORT_TIMEOUT_S * 100})",  # Outlives the short timeout.
+}
+
+
+class _LocalHarness:
+    """Builds a LocalProcessSession over a real, unopened RealCellLease and a real subprocess."""
+
+    def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
+        # A real SystemClock: this harness spawns real child processes, whose exit and timeout
+        # timing cannot be driven by a FakeClock. note_started_process/note_touched_path never
+        # check lease.state, so the lease need not be open()ed for a session to use it here.
+        clock = SystemClock()
+        lease = make_real_cell_lease(
+            tmp_path,
+            clock=clock,
+            releaser=HiveStandLeaseReleaser(clock),
+            allowed_paths=allowed_paths,
+        )
+        return LocalProcessSession(lease, ScratchQuota(quota_bytes=_LOCAL_QUOTA_BYTES), clock)
+
+    def command_for(self, case: str) -> tuple[str, ...]:
+        return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
+
+
+_HARNESSES: dict[str, SessionHarness] = {"fake": _FakeHarness(), "local": _LocalHarness()}
 
 
 @pytest.fixture(params=sorted(_HARNESSES))

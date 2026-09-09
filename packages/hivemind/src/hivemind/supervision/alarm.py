@@ -100,6 +100,7 @@ class AlarmKind(Enum):
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
     AUDIT_FAILED = "AUDIT_FAILED"
     CELL_UNREACHABLE = "CELL_UNREACHABLE"
+    QUOTA_EXCEEDED = "QUOTA_EXCEEDED"  # A lease's scratch directory outgrew its configured quota.
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 
