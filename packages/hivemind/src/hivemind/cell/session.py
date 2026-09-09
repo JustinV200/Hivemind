@@ -111,7 +111,7 @@ class ExecSpec(BaseModel):
 
 
 class CellSession(Protocol):
-    """A terminal session on one Cell: exec, put a file, get a file, close.
+    """A terminal session on one Cell: exec, put a file, get a file, delete a file, close.
 
     The only way a Worker or a tool runs a command or touches a file on its Cell (codingrules
     section 4). Implementations must be safe to call `exec` on more than once concurrently.
@@ -168,6 +168,23 @@ class CellSession(Protocol):
 
         Returns:
             The file's full contents.
+
+        Raises:
+            SessionClosedError: This session is closed.
+            PathNotAllowedError: `path` resolves outside scratch and outside every path this
+                session's lease allows touching.
+            FileNotFoundError: No such file exists.
+        """
+        ...
+
+    async def delete_file(self, path: Path) -> None:
+        """Remove the file at `path`.
+
+        Exists so the Capping gate can roll back a write that created a file, not only one
+        that overwrote an existing file (codingrules section 8.12).
+
+        Args:
+            path: What to remove; relative to `scratch_dir` when relative.
 
         Raises:
             SessionClosedError: This session is closed.

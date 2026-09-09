@@ -85,6 +85,15 @@ async def test_put_file_then_get_file_round_trips_bytes(tmp_path: Path) -> None:
     assert result == b"hello"
 
 
+async def test_delete_file_after_close_raises_session_closed(tmp_path: Path) -> None:
+    session = FakeSession(tmp_path, FakeClock())
+    await session.put_file(Path("a.txt"), b"x")
+    await session.close()
+
+    with pytest.raises(SessionClosedError):
+        await session.delete_file(Path("a.txt"))
+
+
 async def test_get_file_of_an_unwritten_path_raises_file_not_found(tmp_path: Path) -> None:
     session = FakeSession(tmp_path, FakeClock())
 

@@ -162,6 +162,24 @@ class FakeSession:
             raise FileNotFoundError(f"No file at {resolved} in this fake session.")
         return self._files[resolved]
 
+    async def delete_file(self, path: Path) -> None:
+        """Remove `path`'s resolved entry from the in-memory files dict.
+
+        Args:
+            path: What to remove; relative to `scratch_dir` when relative.
+
+        Raises:
+            SessionClosedError: This session is closed.
+            PathNotAllowedError: `path` resolves outside scratch and every allowed path.
+            FileNotFoundError: No `put_file` ever wrote to this resolved path.
+        """
+        if not self._open:
+            raise SessionClosedError(self.scratch_dir)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        if resolved not in self._files:
+            raise FileNotFoundError(f"No file at {resolved} in this fake session.")
+        del self._files[resolved]
+
     async def close(self) -> None:
         """Close this session. Idempotent."""
         self._open = False

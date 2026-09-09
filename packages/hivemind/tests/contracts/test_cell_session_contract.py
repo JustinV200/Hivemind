@@ -130,6 +130,22 @@ async def test_put_file_then_get_file_round_trips_bytes(
     assert result == b"payload"
 
 
+async def test_delete_file_removes_a_written_file_and_a_missing_path_raises(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+    await session.put_file(Path("gone.txt"), b"bye")
+
+    await session.delete_file(Path("gone.txt"))
+
+    # Deleting twice is an error, never a silent no-op, so a rollback that runs twice is
+    # visible as a bookkeeping bug rather than hidden.
+    with pytest.raises(FileNotFoundError):
+        await session.get_file(Path("gone.txt"))
+    with pytest.raises(FileNotFoundError):
+        await session.delete_file(Path("gone.txt"))
+
+
 async def test_relative_paths_resolve_under_scratch_dir(
     harness: SessionHarness, tmp_path: Path
 ) -> None:

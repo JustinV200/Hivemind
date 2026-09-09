@@ -22,7 +22,7 @@ here; `swarm` for enrolled devices, a later phase).
   waggle `PlatformReport`/`CellCapabilitiesReport` pair); `Cell` (id, kind, name, source,
   capabilities, capacity, access_level, comb_shield), whose validator refuses a REAL Cell at
   `NIGHT_VEIL` and a VIRTUAL Cell below `FULL` access.
-- **Session** (`hivemind.cell.session`): `CellSession` (the terminal Protocol: `exec`, `put_file`,
+- **Session** (`hivemind.cell.session`): `CellSession` (the terminal Protocol: `exec`, `put_file`, `delete_file`,
   `get_file`, `scratch_dir`, `is_open`, `close`), `ExecSpec`, `ExecEvent` (`OutputChunk |
   ExitStatus`), `CompletedCommand`, `run(session, spec)` (drives `exec` to completion), and
   `resolve_scratch_path` (the shared relative-path-under-scratch, `..`/symlink-safe resolution
