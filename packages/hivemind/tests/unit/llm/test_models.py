@@ -303,3 +303,11 @@ def test_llm_chunk_round_trips_through_json() -> None:
 def test_llm_chunk_rejects_an_unknown_field() -> None:
     with pytest.raises(ValidationError, match="extra"):
         LLMChunk.model_validate({"text": "hi", "bogus": True})
+
+
+def test_llm_request_model_defaults_to_none_and_round_trips_when_set() -> None:
+    unstamped = make_request()
+    stamped = make_request(model="local-small")
+
+    assert unstamped.model is None
+    assert LLMRequest.model_validate_json(stamped.model_dump_json()) == stamped

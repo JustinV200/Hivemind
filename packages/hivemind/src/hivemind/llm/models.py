@@ -264,6 +264,11 @@ class LLMRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     slot: ModelSlot = Field(description="The named place this call resolves to (hivemind.forage).")
+    model: str | None = Field(
+        default=None,
+        description="The provider's own model id for this call, stamped by the call gate from the "
+        "BoundModel; None lets the provider use its configured default.",
+    )
     system: str | None = Field(
         default=None, description="The system prompt, or None when the call needs none."
     )
