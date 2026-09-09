@@ -1,0 +1,15 @@
+{
+  "id": "msg_fixture_2",
+  "type": "message",
+  "role": "assistant",
+  "model": "test-model",
+  "content": [
+    {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "Paris"}}
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 20,
+    "output_tokens": 8
+  }
+}

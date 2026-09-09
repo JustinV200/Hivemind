@@ -32,6 +32,7 @@ from hivemind.llm.capabilities import HealthState, ProviderCapabilities
 from hivemind.llm.errors import OfflineViolationError, UnknownProviderError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
+from hivemind.llm.providers.anthropic import AnthropicProvider
 from hivemind.llm.registry import (
     PENDING_KINDS,
     MissingDefaultModelError,
@@ -43,7 +44,7 @@ from hivemind.llm.registry import (
 )
 from hivemind.manifest import ProviderKind as ManifestProviderKind
 from hivemind.manifest import load_manifest
-from waggle.clock import Clock
+from waggle.clock import Clock, FakeClock
 
 # Same depth as tests/unit/manifest/test_loader.py's own _REPO_ROOT: five parents up from
 # packages/hivemind/tests/unit/llm/test_registry.py.
@@ -54,7 +55,7 @@ _MANIFESTS_DIR = _REPO_ROOT / "docs" / "manifests"
 def _stub_anthropic_factory(
     name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
 ) -> LLMProvider:
-    """A stand-in ANTHROPIC factory: the real adapter (roadmap step 3.6) is not wired up yet."""
+    """A stand-in ANTHROPIC factory that keeps these tests off the real adapter's SDK client."""
     return FakeLLMProvider(name=name)
 
 
@@ -137,11 +138,25 @@ def test_provider_raises_unknown_provider_error_for_an_unconfigured_name() -> No
         registry.provider("nobody")
 
 
+def test_default_factories_builds_an_anthropic_provider_with_overrides_applied() -> None:
+    # No network: from_config only constructs the SDK client; nothing is sent.
+    config = ProviderConfig(
+        kind="anthropic", base_url="", capability_overrides={"schema_output": False}
+    )
+
+    provider = default_factories()["anthropic"]("hosted", config, SecretStr("k"), FakeClock())
+
+    assert isinstance(provider, AnthropicProvider)
+    assert provider.name == "hosted"
+    assert provider.capabilities.schema_output is False
+
+
 def test_provider_raises_unknown_provider_error_for_a_kind_with_no_factory() -> None:
-    # "anthropic" is in PENDING_KINDS; default_factories() has no entry for it yet.
+    # Drop one kind's factory so the registry meets a configured kind it cannot build.
+    factories = {k: v for k, v in default_factories().items() if k != "anthropic"}
     providers = {"hosted": make_provider_config(kind="anthropic", base_url="")}
     registry = ProviderRegistry(
-        providers, [], offline=False, deps=make_registry_deps(factories=default_factories())
+        providers, [], offline=False, deps=make_registry_deps(factories=factories)
     )
 
     with pytest.raises(UnknownProviderError):

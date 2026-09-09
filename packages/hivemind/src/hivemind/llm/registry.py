@@ -5,8 +5,8 @@
 production implementation, plus the one place a `kind` string turns into a live `LLMProvider`.
 `ProviderRegistry` constructs a provider lazily (on first use, not at startup) and caches it, so
 a Hive with nine slots bound to three providers only ever builds three provider objects.
-`default_factories()` is the built-in `kind -> ProviderFactory` table for the two adapters this
-phase ships (`fake`, `openai_compat`); `apply_overrides` is the one place a manifest's
+`default_factories()` is the built-in `kind -> ProviderFactory` table for the three adapters this
+phase ships (`fake`, `openai_compat`, `anthropic`); `apply_overrides` is the one place a manifest's
 per-provider capability override replaces a base `ProviderCapabilities` field. Offline mode
 (`[llm] offline = true`, codingrules section 8.6) is enforced a second time here, at
 construction, on top of the manifest's own load-time check -- belt and braces, and the only way
@@ -36,9 +36,9 @@ Key invariants:
       pointless if every layer above got its own copy of the same provider).
     - Offline mode is checked before a factory ever runs (`_check_offline`), so a misconfigured
       remote provider never gets as far as opening a client.
-    - `PENDING_KINDS` names every `ProviderKind` `default_factories()` does not yet cover; the
-      orchestrator adds `"anthropic"`'s factory once its adapter (roadmap step 3.6) lands,
-      removing it from this set in the same change.
+    - `PENDING_KINDS` names every `ProviderKind` `default_factories()` does not cover. It is
+      empty now that all three adapters are wired, and stays so the completeness test and the
+      next adapter have a home.
     - `_resolve_api_key` is the only place this module reads `RegistryDeps.environ`; it mirrors
       `hivemind.manifest.env.provider_api_key`'s own derivation (which this module cannot call
       directly, for the same reason it cannot import `ProviderSpec`) so a provider's secret still
@@ -71,6 +71,7 @@ from hivemind.llm.capabilities import ProviderCapabilities, ProviderHealth
 from hivemind.llm.errors import OfflineViolationError, UnknownProviderError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
+from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
 from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
 from hivemind.llm.slots import BoundModel, resolve, resolve_key
 from waggle.clock import Clock
@@ -82,7 +83,7 @@ ProviderKind = Literal["anthropic", "openai_compat", "fake"]
 
 # ANTHROPIC's factory is added to default_factories() once its adapter (roadmap step 3.6) lands;
 # the completeness test excludes exactly this set from "every ProviderKind must have a factory".
-PENDING_KINDS: frozenset[ProviderKind] = frozenset({"anthropic"})
+PENDING_KINDS: frozenset[ProviderKind] = frozenset()
 
 __all__ = [
     "PENDING_KINDS",
@@ -208,7 +209,7 @@ class ProviderRegistry:
 
         Raises:
             UnknownProviderError: No provider is configured under `name`, or its `kind` has no
-                factory in `deps.factories` (roadmap step 3.6 has not registered "anthropic" yet).
+                factory in `deps.factories` (a kind listed in `PENDING_KINDS`).
             OfflineViolationError: `[llm] offline = true` and this provider's `base_url` is not
                 provably loopback.
         """
@@ -263,10 +264,13 @@ def apply_overrides(
 def default_factories() -> Mapping[ProviderKind, ProviderFactory]:
     """Return the built-in `kind -> ProviderFactory` table for every adapter this phase ships.
 
-    Covers every `ProviderKind` except `PENDING_KINDS`; the orchestrator adds `"anthropic"` here
-    once roadmap step 3.6's adapter lands.
+    Covers every `ProviderKind` except `PENDING_KINDS` (currently none).
     """
-    return {"fake": _build_fake, "openai_compat": _build_openai_compat}
+    return {
+        "fake": _build_fake,
+        "openai_compat": _build_openai_compat,
+        "anthropic": _build_anthropic,
+    }
 
 
 def _check_offline(name: str, base_url: str, offline: bool) -> None:
@@ -313,6 +317,23 @@ def _build_fake(
     """Build a FakeLLMProvider from `config`; `api_key` is accepted (Protocol shape) and unused."""
     capabilities = apply_overrides(ProviderCapabilities.full(), config.capability_overrides)
     return FakeLLMProvider(name=name, capabilities=capabilities, clock=clock)
+
+
+def _build_anthropic(
+    name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
+) -> LLMProvider:
+    """Build an AnthropicProvider from `config` via its own SDK-client-building classmethod.
+
+    An empty `base_url` means the SDK's default hosted endpoint (None to the adapter);
+    `_check_offline` has already refused that case when the Hive is offline, so this never
+    opens a client an air-gapped Hive would not want.
+    """
+    base = AnthropicConfig(
+        api_key=api_key, base_url=config.base_url or None, timeout_s=config.timeout_s
+    )
+    capabilities = apply_overrides(base.capabilities, config.capability_overrides)
+    adapter_config = base.model_copy(update={"capabilities": capabilities})
+    return AnthropicProvider.from_config(name, adapter_config, clock)
 
 
 def _build_openai_compat(

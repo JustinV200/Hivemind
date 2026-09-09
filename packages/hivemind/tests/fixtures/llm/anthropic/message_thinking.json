@@ -1,0 +1,16 @@
+{
+  "id": "msg_fixture_4",
+  "type": "message",
+  "role": "assistant",
+  "model": "test-model",
+  "content": [
+    {"type": "thinking", "thinking": "Consider the options.", "signature": "sig-fixture"},
+    {"type": "text", "text": "Answer."}
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 15,
+    "output_tokens": 6
+  }
+}

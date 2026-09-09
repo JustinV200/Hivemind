@@ -6,11 +6,12 @@ at a model server, so that swapping a provider never touches code above llm/.
 
 ## Layout
 
+- **`anthropic/`** (roadmap step 3.6): the hosted-Claude adapter, using the `anthropic` SDK. See
+  its own `README.md` for capability declaration, prompt caching, adaptive thinking, structured
+  output, streaming and error mapping.
 - **`openai_compat/`** (roadmap step 3.7): speaks the OpenAI-compatible chat-completions wire to
   a local or self-hosted server (Ollama, vLLM, llama.cpp's built-in server, LM Studio). See its
   own `README.md` for capability declaration and error mapping.
-- **`anthropic/`** (roadmap step 3.6, a later dispatch): the hosted-Claude adapter, using the
-  `anthropic` SDK.
 
 Each sub-package owns exactly one `[llm.providers.<name>] kind` string. This package's own face
 (`__init__.py`) re-exports only an adapter's `LLMProvider` implementation and its config type

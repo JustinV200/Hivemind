@@ -1,0 +1,14 @@
+{
+  "id": "msg_fixture_3",
+  "type": "message",
+  "role": "assistant",
+  "model": "test-model",
+  "content": [],
+  "stop_reason": "refusal",
+  "stop_details": {"type": "refusal", "category": "cyber", "explanation": "policy declined"},
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 5,
+    "output_tokens": 0
+  }
+}
