@@ -526,7 +526,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   threshold derived from the latency budget; each spill is an `llm.spill` event. It lives in
   `llm/`, so nothing under `autopilot/` may import it, and nothing needs to: autopilot never makes
   a model call. It imports no provider code, only the `LLMProvider` protocol and the Forage map.
-- [ ] **3.13 Supervision protocol.** `supervision/supervisor.py` (`Supervisor` protocol:
+- [x] **3.13 Supervision protocol.** `supervision/supervisor.py` (`Supervisor` protocol:
   `children()`, `telemetry(child)`, `inspect(child) -> CompactView`, `intervene(child,
   Intervention)`), `supervision/alarm.py` (`Alarm`: id, kind, severity, origin, attempts, context
   reference, state machine `RAISED → HANDLING → ESCALATED | RESOLVED`; `AlarmKind` enum),
