@@ -480,7 +480,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   tracks child processes, and `release()` terminates survivors and removes the directory. Refuses
   to lease when disabled. `CellSession` contract suite over local and fake. A **left-as-found
   test** snapshots a temporary home and the process table before and after.
-- [ ] **3.12 Forage v0: the models.** `forage/models.py`, one frozen model per concept, each
+- [x] **3.12 Forage v0: the models.** `forage/models.py`, one frozen model per concept, each
   field described:
   - `HostCapacity`: static (cores, memory, disk, GPUs with VRAM, arch, OS) and live (load, free
     memory, free VRAM) figures for one host.
