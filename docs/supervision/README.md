@@ -21,4 +21,14 @@ the Queen and each Warden load their own `EscalationPolicy` from it once at star
 
 ## `capping-tiers.toml`
 
-Not yet populated; lands with the Capping gate (roadmap step 3.17, dispatch C4).
+Loaded by `hivemind.supervision.capping.tiers.load_tiers` into a `TierTable`: one
+`[tiers.<name>]` section per `RiskTier` (`read_only`, `scratch_write`, `outside_scratch_write`,
+`network_egress`, `spend`, `device_command`, `irreversible` -- the lowercase manifest-key form of
+each `RiskTier` member), each a `TierSpec` with `checks` (the `CheckKind`s
+`hivemind.supervision.capping.gate.CappingGate` runs, cheapest first), `floor` (the subset that
+still runs even when `checks` is empty, and that a later phase's Tempo-driven shortening may never
+remove -- codingrules section 8.14), `snapshot_before` and `max_diff_bytes`. v0 implements exactly
+three checks (`SCHEMA`, `ALLOWLIST`, `SIZE_CAP`); a `CheckKind` a tier names that the gate's own
+check registry does not implement fails the proposal closed, reason `"check unavailable"`, never a
+silently skipped rung. `tests/unit/supervision/capping/test_tiers.py` loads the shipped file and
+checks each tier's expected check set.

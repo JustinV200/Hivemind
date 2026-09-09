@@ -37,6 +37,19 @@ both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this pac
 - **Fake** (`fake.py`): `FakeSupervisor`, a scripted `Supervisor` recording every `intervene` call
   on `interventions`.
 
+## Public API (roadmap step 3.17): Capping
+
+`capping/` is the QA gate codingrules section 8.12 describes: nothing with a side effect outside
+a lease's scratch directory lands uncapped. This face re-exports its three most commonly reached
+names -- `CappingGate`, `Proposal`, `RiskTier` -- so `from hivemind.supervision import
+CappingGate` works for a quick reach; everything else (`ProposalState` and its transition table,
+`TierSpec`/`TierTable`/`load_tiers`, `LeaseView`, the check ladder, `apply_action`,
+`apply_unified_diff`, `check_postcondition`, `GateDeps`/`GateOutcome`, and `capping`'s own error
+tree) lives on `hivemind.supervision.capping`, documented in that sub-package's own README. It is
+the one place under `supervision` that reads `hivemind.guard` (for `CapabilitySet`), because
+checking a proposal's paths and commands against what its Warden actually holds is exactly
+codingrules section 15's "least privilege is code, not policy."
+
 ## How to test this
 
 ```bash

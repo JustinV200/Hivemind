@@ -95,6 +95,11 @@ ADRs that exist today, in numeric order:
   not a single hosting flag.
 - `0017-tempo-speed-against-accuracy.md`: one table, `GRADE_FLOORS`, is the only place a task's
   accuracy bar becomes a minimum Forage map grade (`LOW`→1, `NORMAL`→2, `HIGH`→3, `CRITICAL`→4).
+- `0018-capping-gate-postconditions-and-risk-tiers.md`: risk tiers as data with checks
+  cheapest-first and a fail-closed unavailable check, `REVERSE_DIFF` vs snapshot rollback chosen
+  by catching `SnapshotUnsupportedError` rather than branching on Cell kind, `LeaseView` as a
+  Protocol seam to `cell`, and an in-memory proposal table with the trail as the durable record
+  for now.
 - `0020-llm-records-its-own-trail-events.md`: Layer 1 becomes two ranks, `llm | manifest` above
   `pheromone | forage`, so the ladders and the Fanner record their own `llm.*` events; amends
   ADR-0002's Layer 1 row only.

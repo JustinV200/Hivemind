@@ -17,7 +17,9 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.queen` and
     `hivemind.wardens` (both of which implement `Supervisor`) and by `hivemind.workers` (which
     raises `Alarm`s). Calls into `hivemind.common`, `hivemind.cell` (for `HoneyClearance`),
-    `hivemind.forage` (for `ModelSlot`) and waggle only.
+    `hivemind.forage` (for `ModelSlot`) and waggle only; its `capping` sub-package additionally
+    reads `hivemind.guard` (for `CapabilitySet`, roadmap step 3.17), the one Layer-2 edge this
+    package needs guard for.
 
 Key invariants:
     - Nothing in this package imports hivemind.llm, directly or transitively
@@ -53,6 +55,10 @@ Public API:
     - InboxKind, InboxItem, WeightTable, Priority, TieBreaker, Attendant, score_item: one
       supervisor's inbox triage (attendant).
     - FakeSupervisor: a scripted Supervisor for tests (fake).
+    - CappingGate, Proposal, RiskTier: the three names of `hivemind.supervision.capping` (roadmap
+      step 3.17, the Capping QA gate) reached often enough to re-export here; see that
+      sub-package's own README for its full public surface (Proposal state machine, tiers as
+      data, the check ladder, apply and postcondition checking).
 """
 
 from hivemind.supervision.alarm import (
@@ -73,6 +79,7 @@ from hivemind.supervision.attendant import (
     WeightTable,
     score_item,
 )
+from hivemind.supervision.capping import CappingGate, Proposal, RiskTier
 from hivemind.supervision.errors import (
     InvalidAlarmTransitionError,
     PolicyError,
@@ -114,6 +121,7 @@ __all__ = [
     "AlarmState",
     "Attendant",
     "Cancel",
+    "CappingGate",
     "Checkpoint",
     "ChildKind",
     "ChildRef",
@@ -130,7 +138,9 @@ __all__ = [
     "PolicyError",
     "PolicyRule",
     "Priority",
+    "Proposal",
     "Rebind",
+    "RiskTier",
     "SupervisionError",
     "Supervisor",
     "Takeover",

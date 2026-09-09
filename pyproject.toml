@@ -320,10 +320,16 @@ layers = [
     "workers",  # Layer 4: roles that do the work.
     # Layer 3: sources of Cells, and capabilities handed down. Independent siblings.
     "hive | swarm | exoskeleton | royal_jelly",
-    # Layer 2, upper half: independent siblings that read hivemind.cell (the layer below) for its
+    # Layer 2, upper half: independent siblings that read hivemind.cell (two ranks below) for its
     # enums and protocols (section 4's last corollary: "guard, hive, honey_store and supervision
-    # import them from there"; hive already gets this for free by being a full layer above cell).
-    "guard | honey_store | supervision | brood_chamber | memory",
+    # import them from there"; hive already gets this for free by being a full layer above cell),
+    # and guard (the rank below) for the capability primitives the Capping gate checks a proposal
+    # against (ADR-0018).
+    "honey_store | supervision | brood_chamber | memory",
+    # Layer 2, middle: the capability primitives. Its own sub-rank for the same reason cell is one:
+    # supervision.capping -> guard must be one-way (guard never reads a policy), and guard -> cell
+    # stays open for the enums guard.access maps capabilities onto.
+    "guard",
     # Layer 2, lower half: the Cell abstraction. Ranked as its own sub-layer BELOW its Layer-2
     # siblings, rather than joined to them with import-linter's ":" (non-independent) separator --
     # a probe proved ":" is symmetric (it would also let cell import guard, which the corollary

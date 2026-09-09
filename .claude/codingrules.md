@@ -295,6 +295,10 @@ Layer 0  common                                                       (primitive
   three security enums (`AccessLevel`, `CombShieldLevel`, `HoneyClearance`) and the `Snapshotter`
   protocol. `guard`, `hive`, `honey_store` and `supervision` import them from there; nothing at
   Layer 2 or below imports `guard` for an enum.
+- Within Layer 2, `guard` sits below `brood_chamber`, `honey_store`, `memory` and `supervision`
+  and above `cell`: the Capping gate checks every proposal against a `CapabilitySet`, so
+  `supervision.capping` imports `guard` (ADR-0018), while `guard` reads `cell` only for the
+  enums `guard.access` maps capabilities onto and never reads a policy back.
 
 ---
 

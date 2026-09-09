@@ -1,0 +1,93 @@
+# The Hive's v0 Capping tier table: which checks a proposal's declared RiskTier requires before
+# the gate applies it, cheapest first (codingrules section 8.12).
+#
+# Loaded by hivemind.supervision.capping.tiers.load_tiers into a TierTable. Each `[tiers.<name>]`
+# section is one RiskTier, named lowercase here (the manifest-key convention, codingrules section
+# 13) even though the enum's own wire value is UPPER_SNAKE ("outside_scratch_write" ->
+# RiskTier.OUTSIDE_SCRATCH_WRITE).
+#
+# Keys read by hivemind.supervision.capping.gate.CappingGate:
+#   checks           -- CheckKind members this tier requires, in any order (the gate always runs
+#                        them cheapest-first, per waggle.messages.capping.CheckKind's own
+#                        declaration order: SCHEMA, LINT, TYPES, ALLOWLIST, SIZE_CAP,
+#                        SANDBOX_TESTS, JUDGE, HUMAN).
+#   floor             -- checks that still run even when `checks` is empty, and that a later
+#                         phase's Tempo-driven shortening may never remove (codingrules section
+#                         8.14: "It can never remove a check the tier table marks as a floor").
+#   snapshot_before   -- whether the gate snapshots the Cell before applying this tier's action,
+#                         so a failed postcondition can restore the whole Cell rather than one
+#                         file at a time (codingrules section 8.12). Real Cells get a documented
+#                         no-op (hivemind.cell.NoopSnapshotter) and fall back to REVERSE_DIFF.
+#   max_diff_bytes    -- the largest inline unified diff this tier's DiffSizeCapCheck allows;
+#                         omit (or leave unset) for a tier whose actions never carry a diff.
+#
+# v0 implements exactly three checks (SCHEMA, ALLOWLIST, SIZE_CAP; hivemind.supervision.capping.
+# checks.deterministic.deterministic_checks()). Every tier below names only those three. The
+# check ladder's remaining rungs -- SANDBOX_TESTS (a sandbox Cell runs the proposed tests),
+# JUDGE (an independent model reviews the diff against a rubric) and HUMAN (the operator approves)
+# -- join this table in a later roadmap phase (roadmap step 3.17: "Judge review, snapshots, the
+# flight recorder and sampled audit arrive in later phases as extra checks on the same gate.");
+# each tier's own comment below repeats which of those it will eventually add.
+
+[tiers.read_only]
+# A bee reading a file or listing a directory. No write, no command; SCHEMA still runs (via
+# `floor`, since `checks` is empty here) so a malformed action never silently proceeds.
+checks = []
+floor = ["SCHEMA"]
+snapshot_before = false
+# Adds SANDBOX_TESTS never (a read has nothing to sandbox-test); JUDGE and HUMAN stay unneeded
+# for this tier even after the later phase lands.
+
+[tiers.scratch_write]
+# A diff confined to the lease's own scratch directory. Cheap: no allowlist needed (scratch is
+# always reachable), just schema and a size cap so one proposal cannot smuggle an oversized diff.
+checks = ["SCHEMA", "SIZE_CAP"]
+floor = ["SCHEMA"]
+snapshot_before = false
+max_diff_bytes = 1048576  # 1 MiB: generous for hand-written source changes in one proposal.
+# A later phase adds SANDBOX_TESTS here (run the touched tests in a sandbox Cell before applying).
+
+[tiers.outside_scratch_write]
+# A diff that touches a path outside scratch (an install the Hive makes, for instance). The
+# allowlist check enforces both a capability grant and that the path is reachable from the lease.
+checks = ["SCHEMA", "ALLOWLIST", "SIZE_CAP"]
+floor = ["SCHEMA"]
+snapshot_before = false
+max_diff_bytes = 1048576
+# A later phase adds SANDBOX_TESTS and JUDGE here: touching outside scratch is exactly the case
+# an independent review matters most for.
+
+[tiers.network_egress]
+# A command or tool call that reaches the network. No diff to size; the allowlist check still
+# enforces a net: capability for the destination.
+checks = ["SCHEMA", "ALLOWLIST"]
+floor = ["SCHEMA"]
+snapshot_before = false
+# A later phase adds JUDGE here (an independent review of what was sent and to whom).
+
+[tiers.spend]
+# A proposal that spends money (a paid API call, a purchase). Snapshotted so a Cell-wide rollback
+# is available even though spend itself cannot be undone by any snapshot.
+checks = ["SCHEMA", "ALLOWLIST"]
+floor = ["SCHEMA"]
+snapshot_before = true
+# A later phase adds JUDGE and, above the manifest's step-up spend threshold, HUMAN.
+
+[tiers.device_command]
+# A command that reaches a Real Cell device beyond the lease's own scratch (installing a service,
+# changing a startup item). Snapshotted for the same whole-Cell rollback reason as spend.
+checks = ["SCHEMA", "ALLOWLIST"]
+floor = ["SCHEMA"]
+snapshot_before = true
+# A later phase adds SANDBOX_TESTS (where the command has a dry-run form) and JUDGE.
+
+[tiers.irreversible]
+# Anything the Hive cannot undo by any means (a destructive command, a message actually sent).
+# The highest tier: same checks as device_command in v0, but every later-phase rung applies here
+# first, because roadmap 3.17 fixes that this tier "always gets its full ladder however urgent
+# the task claims to be" (codingrules section 8.14).
+checks = ["SCHEMA", "ALLOWLIST"]
+floor = ["SCHEMA"]
+snapshot_before = true
+# A later phase adds SANDBOX_TESTS, JUDGE and HUMAN here, all as floor checks Tempo may never
+# shorten away.
