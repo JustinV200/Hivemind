@@ -9,16 +9,18 @@ CLI row), never containing logic of its own.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
-    console script. Calls into hivemind.cli.version now; later phases add queen, entrance and
-    friends through their own public APIs.
+    console script. Calls into hivemind.cli.version, hivemind.cli.tasks and hivemind.cli.trail
+    now; later phases add queen, entrance and friends through their own public APIs.
 
 Key invariants:
-    - `hive --version` and a bare `hive` both exit 0; no other path exists yet.
-    - No command group beyond version handling exists until the roadmap step that adds it lands.
+    - `hive --version` and a bare `hive` both exit 0.
+    - Every command group registered below is a thin typer layer with no logic of its own
+      (codingrules section 2's CLI row); this file only wires them together.
 
 See Also:
     - .claude/codingrules.md section 8.2 for the composition-root rule this file follows.
     - hivemind.cli.version for what `--version` prints.
+    - hivemind.cli.tasks and hivemind.cli.trail for the two command groups roadmap step 2.9 adds.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from typing import Annotated
 
 import typer
 
+from hivemind.cli import tasks, trail
 from hivemind.cli.version import collect_version_info, format_version
 
 __all__ = ["app", "main"]
@@ -41,6 +44,10 @@ app = typer.Typer(
     # below instead of typer demanding a subcommand first.
     invoke_without_command=True,
 )
+
+# Roadmap step 2.9: submit and inspect tasks in the Brood Chamber, and read the Pheromone Trail.
+app.add_typer(tasks.app, name="tasks")
+app.add_typer(trail.app, name="trail")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
