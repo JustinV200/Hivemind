@@ -471,7 +471,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `snapshot(cell) -> SnapshotId`, `rollback(cell, snapshot)`; `NoopSnapshotter` for Real Cells
   with a documented warning; Virtual backends implement it in 5.10), `cell/fake.py`,
   `cell/errors.py`. Records `cell.leased` / `cell.released`.
-- [ ] **3.11 The Hive Stand as a Real Cell.** `cell/local/`, a package, because source, session,
+- [x] **3.11 The Hive Stand as a Real Cell.** `cell/local/`, a package, because source, session,
   lease directories and two platforms will not fit one file: `source.py` (`HiveStandSource`, one
   Cell whose capabilities and `ForageCapacity` are probed from the running machine), `probe.py`
   (platform, arch, cores, memory, GPU, display, browser, with POSIX and Windows shims side by
