@@ -1,0 +1,356 @@
+# Full Hive Manifest: every section and every field the schema supports, annotated.
+#
+# A test in packages/hivemind/tests/unit/manifest/test_loader.py loads this file and round-trips
+# it through model_dump/model_validate, so it cannot silently drift from hivemind.manifest.schema.
+# [entrance] is not shown here: it is added in phase 10 (roadmap step 3.1).
+
+[hive]
+# This Hive's identity: minted once with waggle.ids.new_hive_id/new_node_id, never regenerated.
+id = "hive_01M221E4C10R4XDPNQNRX85AAA"
+node_id = "node_01M221E4C1PPFP6D65E7Z1EYY5"
+# A human-facing label; purely cosmetic.
+name = "Full Example Hive"
+# "dev" or "prod"; gates dev-only escape hatches (e.g. the subprocess sandbox, codingrules 15).
+env = "prod"
+# Where this Hive's one SQLite file lives, resolved relative to this file's own directory.
+db = "data/hive.sqlite3"
+
+[queen]
+# Seconds between Queen tick loop passes: order inbox, run autopilot, wake for judgement.
+tick_interval_s = 0.25
+# Seconds between the Queen's own heartbeat reports to the Observation Hive.
+heartbeat_interval_s = 5.0
+# A ceiling on awake episodes per minute, against a runaway autopilot rule.
+max_awake_per_minute = 30
+
+[hive_stand]
+# Whether the Hive Stand (the Queen's own machine) may be leased as a Real Cell at all.
+enabled = true
+# Where per-lease scratch directories live, resolved relative to this file's own directory.
+scratch_root = ".hive/scratch"
+# The Queen's own address: what Wardens and Pollen Packets dial. Loopback here; Supersedure
+# (moving the Hive Stand) rewrites this value on every node when the Queen actually moves.
+address = "ws://127.0.0.1:8720"
+
+[hive_stand.capacity]
+# Override the Hive Stand's own concurrent sub-bee cap instead of trusting the probe.
+max_sub_bees = 4
+# Override the probed logical core count; useful under a cgroup limit the probe cannot see.
+cores = 8
+# Override the probed total memory, in bytes (16 GiB here).
+memory_bytes = 17179869184
+
+[llm]
+# true refuses every provider whose base_url is empty (hosted) or not loopback; false here
+# because [llm.providers.anthropic] below is hosted.
+offline = false
+# The reply length cap absent a per-slot override.
+default_max_output_tokens = 4096
+# Default per-request timeout, in seconds.
+request_timeout_s = 120.0
+
+[llm.providers.anthropic]
+# Which adapter speaks to this provider.
+kind = "anthropic"
+# Empty (the default) means a hosted API with a vendor-fixed endpoint; omitted here on purpose.
+# The environment variable holding this provider's API key; omitted here to take the derived
+# default, HIVEMIND_ANTHROPIC_API_KEY (hivemind.manifest.env.provider_api_key).
+api_key_env = "HIVEMIND_ANTHROPIC_API_KEY"
+# Per-request timeout for this provider specifically, in seconds.
+timeout_s = 120.0
+# Concurrent requests this provider allows.
+seats = 4
+# A rate limit to respect; None (omitted) when not metered that way.
+requests_per_minute = 500
+# A token-rate limit to respect; None (omitted) when not metered that way.
+tokens_per_minute = 400000
+
+[llm.providers.anthropic.capabilities]
+# Every field overrides hivemind.llm.ProviderCapabilities' default for this provider; explicit
+# here even though they match the adapter's own defaults, purely to show every field in one place.
+native_tool_calls = true
+schema_output = true
+json_mode = true
+vision = true
+streaming = true
+reasoning_control = true
+context_window = 200000
+system_role = true
+parallel_tool_calls = true
+token_counting = true
+
+[llm.providers.local]
+# The second adapter kind: any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studio).
+kind = "openai_compat"
+# Non-empty base_url: a local server, not a hosted API.
+base_url = "http://127.0.0.1:11434/v1"
+# api_key_env omitted: a local server needs no key, so provider_api_key returns None for it.
+timeout_s = 60.0
+seats = 2
+# requests_per_minute and tokens_per_minute omitted: a local server has no such rate limit.
+
+[llm.providers.local.capabilities]
+# A weak local model's honest shape: no native tool calls, no schema enforcement, JSON mode
+# only, no vision, no reasoning-effort knob, a small context window.
+native_tool_calls = false
+schema_output = false
+json_mode = true
+vision = false
+streaming = true
+reasoning_control = false
+context_window = 8192
+system_role = true
+parallel_tool_calls = false
+token_counting = false
+
+# Every ModelSlot must resolve directly (LlmSection's own validator); "local_worker" below is an
+# extra named binding, used only as [llm.slots.worker]'s fallback target.
+[llm.slots.queen]
+provider = "anthropic"
+model = "claude-opus-5"
+# How hard the model is asked to think; HIGH for the Queen's own awake episodes.
+effort = "HIGH"
+# Overrides [llm] default_max_output_tokens for this row alone; None (omitted) keeps the default.
+max_output_tokens = 8192
+
+[llm.slots.judge]
+provider = "anthropic"
+model = "claude-opus-5"
+effort = "HIGH"
+
+[llm.slots.attendant]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+# Cheap and fast: inbox triage ties, not a decision that needs deep reasoning.
+effort = "LOW"
+
+[llm.slots.ripener]
+provider = "local"
+model = "llama3.1:8b"
+effort = "LOW"
+
+[llm.slots.warden]
+provider = "anthropic"
+model = "claude-sonnet-5"
+effort = "MEDIUM"
+
+[llm.slots.worker]
+provider = "anthropic"
+model = "claude-sonnet-5"
+# Falls back to the named binding below when Anthropic is unavailable (a later roadmap step's
+# degradation ladder chooses this over failing the task outright).
+fallback = "local_worker"
+effort = "MEDIUM"
+
+[llm.slots.local_worker]
+# A named binding: legal as a [llm.slots] key without being a ModelSlot itself, because
+# something else's fallback names it (here, [llm.slots.worker]).
+provider = "local"
+model = "llama3.1:8b"
+effort = "MEDIUM"
+
+[llm.slots.scaffolder]
+provider = "anthropic"
+model = "claude-sonnet-5"
+effort = "MEDIUM"
+
+[llm.slots.embedder]
+provider = "local"
+model = "nomic-embed-text"
+effort = "LOW"
+
+[llm.slots.transcriber]
+provider = "local"
+model = "whisper-large-v3"
+effort = "LOW"
+
+[forage]
+# Seconds before an unrenewed grant expires.
+grant_ttl_s = 300.0
+# The most one goal may spend, in US dollars.
+spend_cap_per_goal_usd = 5.0
+# The most tokens one goal may use across every bee working on it.
+token_budget_per_goal = 2000000
+# The most concurrent sub-bees one goal's tasks may spawn in total.
+max_sub_bees_per_goal = 4
+
+[forage.roles.drone]
+# Logical cores this role's bee occupies while running.
+cpu_cores = 0.5
+# Memory this role's bee occupies while running, in bytes (256 MiB here).
+memory_bytes = 268435456
+# Model seats held while mid-call; one for almost every role.
+seats = 1
+# Estimated tokens per minute this role's bee consumes while active.
+token_rate_per_minute = 20000
+# Extra memory this role needs when it attaches an Exoskeleton; 0 because a Drone never does.
+exoskeleton_extra_memory_bytes = 0
+
+[forage.roles.forager]
+# A second role footprint, shown for shape only: no Forager Worker exists yet (roadmap phase 4+).
+cpu_cores = 0.5
+memory_bytes = 268435456
+seats = 1
+token_rate_per_minute = 15000
+
+[forage.map.anthropic_opus]
+provider = "anthropic"
+model = "claude-opus-5"
+# Hand-set strength from 1 (weakest) to 5 (strongest).
+grade = 5
+context_window = 200000
+# Capability flags this source supports; short tags, not the full ProviderCapabilities shape.
+capabilities = ["tool_calls", "vision", "schema_output"]
+# Concurrent requests this source offers.
+seats = 4
+
+[forage.map.anthropic_opus.cost]
+cost_per_million_input_usd = 5.0
+cost_per_million_output_usd = 25.0
+
+[forage.map.anthropic_sonnet]
+provider = "anthropic"
+model = "claude-sonnet-5"
+grade = 4
+context_window = 200000
+capabilities = ["tool_calls", "vision", "schema_output"]
+seats = 4
+
+[forage.map.anthropic_sonnet.cost]
+cost_per_million_input_usd = 2.0
+cost_per_million_output_usd = 10.0
+
+[forage.map.anthropic_haiku]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+grade = 3
+context_window = 200000
+capabilities = ["tool_calls", "schema_output"]
+seats = 4
+
+[forage.map.anthropic_haiku.cost]
+cost_per_million_input_usd = 1.0
+cost_per_million_output_usd = 5.0
+
+[forage.map.local_llama]
+provider = "local"
+model = "llama3.1:8b"
+grade = 2
+context_window = 8192
+capabilities = ["json_mode"]
+seats = 2
+
+[forage.map.local_embed]
+provider = "local"
+model = "nomic-embed-text"
+grade = 2
+context_window = 8192
+seats = 2
+
+[forage.map.local_whisper]
+provider = "local"
+model = "whisper-large-v3"
+grade = 2
+context_window = 8192
+seats = 2
+
+[forage.reserve]
+# Shared seats held back for the Queen, the Attendant and the House Bees.
+seats = 1
+# Memory held back on the Hive Stand for the same, in bytes (512 MiB here).
+memory_bytes = 536870912
+# An extra margin subtracted from whatever remains, as a fraction in [0, 1).
+headroom_fraction = 0.1
+
+[supervision]
+# The EscalationPolicy TOML file, resolved relative to this file's own directory.
+policy_file = "docs/supervision/default-policy.toml"
+# The Capping risk-tier TOML file, resolved the same way.
+capping_tiers_file = "docs/supervision/capping-tiers.toml"
+# Seconds between a supervised child's heartbeat reports.
+heartbeat_interval_s = 5.0
+# Missed heartbeats before a child is treated as stalled.
+heartbeat_miss_limit = 3
+# Seconds an offline Warden may stay disconnected before its grant is reclaimed.
+max_offline_s = 600.0
+# A ceiling on attempts an escalation policy row is expected to need.
+alarm_attempt_limit = 3
+
+[memory]
+# Fraction of a request's context window reserved for assembled (retrieved/hot-state) content.
+budget_fraction = 0.6
+# Tokens reserved for the model's own reply, never spent on assembled content.
+output_reserve_tokens = 4096
+# Fraction of the context budget used at which a bee checkpoints via Handoff.
+handoff_threshold = 0.66
+# The most characters one hot-state item holds.
+item_cap_chars = 4000
+# Cell Wax cautions kept per Cell before the oldest, least-severe ones are dropped.
+cell_wax_cap = 20
+# Default seconds before a pin or caution expires (seven days here).
+default_expiry_s = 604800
+# Seconds an EpisodeRecord is kept before it may be purged (seven days here).
+episode_retention_s = 604800
+# Operator-set facts always included in hot state, regardless of age.
+pins = ["This Hive runs on Windows and Linux hosts; never assume POSIX-only paths."]
+
+[security]
+# The tier a Cell gets when nothing else sets one.
+default_comb_shield = "MEADOW"
+
+[security.tiers.MEADOW]
+# How task traffic on this tier must egress: no VPN required.
+egress_profile = "open"
+# No OpenVPN profile or Tor proxy needed at this tier.
+vpn_profile = ""
+tor_socks = ""
+route_checks = []
+dns_leak_checks = []
+# How this tier's own Waggle control channel must bind.
+control_channel = "direct"
+
+[security.tiers.PROPOLIS]
+# Hardened baseline: OpenVPN required, Tor disabled.
+egress_profile = "vpn_only"
+vpn_profile = "propolis-vpn"
+tor_socks = ""
+route_checks = ["default_route_via_vpn"]
+dns_leak_checks = ["resolver_is_vpn_provided"]
+control_channel = "vpn_only"
+
+[security.tiers.NIGHT_VEIL]
+# Virtual-only, teardown-only: OpenVPN plus Tor for task traffic.
+egress_profile = "vpn_tor"
+vpn_profile = "night-veil-vpn"
+tor_socks = "127.0.0.1:9050"
+route_checks = ["default_route_via_vpn", "tor_circuit_established"]
+dns_leak_checks = ["resolver_is_vpn_provided", "no_direct_dns_queries"]
+# Its own Waggle control channel binds through a hidden service, never the open network.
+control_channel = "tor_hidden_service"
+
+[honey.clearance]
+# The clearance a new item gets absent other evidence.
+default_label = "C1"
+# Permitted label transitions; a model may raise a label, never lower one (codingrules 6.1).
+allowed_flows = ["C0->C1", "C1->C2"]
+
+[honey.clearance.matrix.MEADOW]
+read = ["C0", "C1", "C2"]
+write = ["C0", "C1", "C2"]
+
+[honey.clearance.matrix.PROPOLIS]
+read = ["C0", "C1", "C2"]
+write = ["C0", "C1", "C2"]
+
+[honey.clearance.matrix.NIGHT_VEIL]
+# Never C2 here: a Night Veil Cell only ever touches C0/C1 data (rejected at schema time if it did).
+read = ["C0", "C1"]
+write = ["C0", "C1"]
+
+[brood_chamber]
+# The most tasks one goal's task graph may hold at once.
+max_graph_tasks = 64
+
+[pheromone]
+# Days a trail event is kept before the retention job may delete it.
+retention_days = 90

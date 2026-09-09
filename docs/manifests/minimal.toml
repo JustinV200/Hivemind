@@ -1,0 +1,95 @@
+# Minimal Hive Manifest: one hosted provider (Anthropic), every model slot bound to it.
+#
+# This is the smallest manifest that validates: it still has to bind every hivemind.forage.
+# ModelSlot (codingrules section 8.6) and give the Drone role a Forage footprint, because those
+# two things have no safe default -- everything else below is the schema's own default. See
+# docs/manifests/README.md for what every HIVEMIND_* environment variable does to this file, and
+# docs/manifests/full.toml for every field this schema supports, annotated.
+
+[hive]
+id = "hive_01M221E2YZ76H25M1TTCEJTZQN"
+node_id = "node_01M221E2YZEFD69JA7FGH26D5B"
+name = "Minimal Hive"
+
+# [llm] offline defaults to false: this Hive calls Anthropic's hosted API, so HIVEMIND_ANTHROPIC_
+# API_KEY must be set in the environment before `hive run` can complete a single episode.
+[llm.providers.anthropic]
+kind = "anthropic"
+
+# Every ModelSlot must resolve (hivemind.manifest.schema.llm.LlmSection's own validator): the
+# Queen and the Judge get the strongest model, the Attendant and the Ripener the cheapest, and
+# everything else a middle grade -- one provider, three models, nine slots.
+[llm.slots.queen]
+provider = "anthropic"
+model = "claude-opus-5"
+
+[llm.slots.judge]
+provider = "anthropic"
+model = "claude-opus-5"
+
+[llm.slots.attendant]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+
+[llm.slots.ripener]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+
+[llm.slots.warden]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+[llm.slots.worker]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+[llm.slots.scaffolder]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+[llm.slots.embedder]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+[llm.slots.transcriber]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+# One Forage map entry per model actually bound above, so a grant can price and grade a call
+# (hivemind.forage.ModelSourceSpec). Grades and prices per roadmap step 3.1's worked example.
+[forage.map.anthropic_opus]
+provider = "anthropic"
+model = "claude-opus-5"
+grade = 5
+context_window = 200000
+
+[forage.map.anthropic_opus.cost]
+cost_per_million_input_usd = 5.0
+cost_per_million_output_usd = 25.0
+
+[forage.map.anthropic_sonnet]
+provider = "anthropic"
+model = "claude-sonnet-5"
+grade = 4
+context_window = 200000
+
+[forage.map.anthropic_sonnet.cost]
+cost_per_million_input_usd = 2.0
+cost_per_million_output_usd = 10.0
+
+[forage.map.anthropic_haiku]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+grade = 3
+context_window = 200000
+
+[forage.map.anthropic_haiku.cost]
+cost_per_million_input_usd = 1.0
+cost_per_million_output_usd = 5.0
+
+# The Drone is the only Worker role phase 3 implements; ForageSection's own validator refuses a
+# manifest that leaves it out. Figures are a reasonable guess for one hosted-model tool loop.
+[forage.roles.drone]
+cpu_cores = 0.5
+memory_bytes = 268435456
+token_rate_per_minute = 20000

@@ -1,0 +1,82 @@
+# Local-only Hive Manifest: one OpenAI-compatible server (e.g. Ollama) on loopback, offline = true.
+#
+# Demonstrates codingrules section 8.6's "offline is a first-class mode": every provider's
+# base_url must be loopback, or hivemind.manifest.schema.llm.LlmSection's own validator refuses
+# the manifest. The capability overrides below are a realistic weak local model's shape: no
+# native tool calls, no schema-enforced output, JSON mode only, no vision, no reasoning control.
+
+[hive]
+id = "hive_01M221E3NHQRBXPHPY5P4K3CAQ"
+node_id = "node_01M221E3NH935FQM767BXFFZTK"
+name = "Local-Only Hive"
+
+[llm]
+offline = true
+
+[llm.providers.local]
+kind = "openai_compat"
+base_url = "http://127.0.0.1:11434/v1"
+
+# A weak local model's honest shape: no native tool-call protocol, no schema enforcement, JSON
+# mode only, no vision, no reasoning-effort knob, a small context window. The degradation ladders
+# (a later roadmap step) fall back to the prompted rungs for every one of these.
+[llm.providers.local.capabilities]
+native_tool_calls = false
+schema_output = false
+json_mode = true
+vision = false
+streaming = true
+reasoning_control = false
+context_window = 8192
+system_role = true
+parallel_tool_calls = false
+token_counting = false
+
+# Every slot on the one local model this server hosts.
+[llm.slots.queen]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.judge]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.attendant]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.ripener]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.warden]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.worker]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.scaffolder]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.embedder]
+provider = "local"
+model = "llama3.1:8b"
+
+[llm.slots.transcriber]
+provider = "local"
+model = "llama3.1:8b"
+
+# A weak model earns the Forage map's low grades; free of charge, since it is self-hosted.
+[forage.map.local_llama]
+provider = "local"
+model = "llama3.1:8b"
+grade = 2
+context_window = 8192
+
+[forage.roles.drone]
+cpu_cores = 1.0
+memory_bytes = 536870912
+token_rate_per_minute = 8000
