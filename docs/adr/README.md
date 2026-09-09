@@ -65,3 +65,6 @@ ADRs that exist today, in numeric order:
 - `0007-pheromone-trail-append-only-transactional-and-segmented.md`: one event class per family
   with a closed kind vocabulary, no `UPDATE`/`DELETE` in the store module, state and event in one
   transaction, segments keyed by node id merged by id, and the Night Veil purge as the one deletion.
+- `0008-llm-provider-independence-and-model-slots.md`: one `LLMProvider` door, HiveMind's own
+  request/response types, declared capabilities instead of provider-name branches, model slots
+  and `Effort` in `forage`, offline mode, and normalised `Usage`.
