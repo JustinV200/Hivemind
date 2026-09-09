@@ -453,7 +453,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   probed at startup where possible and otherwise set per provider in the manifest so a weak model
   honestly reports what it cannot do and the ladders take over. Token counting by estimate with a
   documented margin. No vendor SDK; one small client file.
-- [ ] **3.8 Provider contract suite.** `tests/contracts/test_llm_provider_contract.py`
+- [x] **3.8 Provider contract suite.** `tests/contracts/test_llm_provider_contract.py`
   parametrised over the fake, Anthropic and OpenAI-compatible adapters using recorded HTTP
   cassettes: completion, structured output at each rung, tool loop at each rung, streaming, error
   mapping, health, usage normalisation. A `live_llm` variant hits real endpoints on demand.
