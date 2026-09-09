@@ -598,7 +598,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   task reaches `SUCCEEDED` only when its Warden has run the acceptance checks and they pass; the
   bee that did the work cannot mark itself done. Failed acceptance raises an Alarm with the
   failing assertion attached.
-- [ ] **3.19 Warden.** `wardens/warden.py` (standard loop; owns one Cell and its session; holds a
+- [x] **3.19 Warden.** `wardens/warden.py` (standard loop; owns one Cell and its session; holds a
   `ForageGrant`; implements `Supervisor` over its sub-bees; reports its own `ContextTelemetry` and
   aggregate sub-bee telemetry to the Queen; runs the Capping gate and acceptance checks for its
   sub-bees), `wardens/state.py` (the Warden state machine: `STARTING → ACTIVE ↔ WATCH` for Real
