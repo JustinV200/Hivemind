@@ -428,7 +428,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `ProviderUnavailable`, `ContextTooLong`, `Refused`, `MalformedOutput`). `llm/fake.py`:
   `FakeLLMProvider` with scripted responses, a configurable capability set, and a switch to
   simulate an outage.
-- [ ] **3.4 Model slots and registry.** `forage/slots.py`: the `ModelSlot` enum (`QUEEN`,
+- [x] **3.4 Model slots and registry.** `forage/slots.py`: the `ModelSlot` enum (`QUEEN`,
   `ATTENDANT`, `WARDEN`, `WORKER`, `RIPENER`, `SCAFFOLDER`, `EMBEDDER`, `JUDGE`, `TRANSCRIBER`),
   placed in `forage` so autopilot rules and grants can name a slot without importing
   `hivemind.llm`.
@@ -442,7 +442,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `llm/tools.py`: `run_tool_loop(bound, request, tools, executor)` using native tool calls when
   supported, else a prompted tool protocol we parse and validate. Both handle `ContextTooLong` by
   signalling the caller to shrink the budget. Tested at every capability level with the fake.
-- [ ] **3.6 Anthropic adapter.** `llm/providers/anthropic/{provider,mapping,client}.py` using the
+- [x] **3.6 Anthropic adapter.** `llm/providers/anthropic/{provider,mapping,client}.py` using the
   `anthropic` SDK: maps our models to SDK types in `mapping.py` only; declares full capabilities;
   adaptive thinking, streaming for long outputs, native structured output, `strict` tool schemas,
   prompt-caching breakpoints on the stable prefix, token counting through the API, typed errors
@@ -523,7 +523,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   exceeds capacity minus reserve. The live ledger comes in phase 4. `forage/tempo.py` and
   `forage/slots.py` already exist (2.3a, 3.4); `forage` imports nothing from `llm`, and
   `import-linter` (0.2) enforces it.
-- [ ] **3.12a The Fanner v0.** `llm/fanner.py`: every model call from any bee passes through a
+- [x] **3.12a The Fanner v0.** `llm/fanner.py`: every model call from any bee passes through a
   per-binding semaphore sized to the seats that binding holds, with a queue ordered by tempo for
   excess requests and a rate limiter per hosted provider. It measures tokens per second and
   latency per call, updates `distance` and `abundance` on the Forage map, and emits usage to the
@@ -577,7 +577,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   scratch), `workers/tools/http.py`, `workers/tools/ask.py` (raise a `Question` up the chain).
   Tool calls are validated against schema and capabilities whichever rung produced them, and any
   call with a side effect outside scratch goes through Capping (3.17) first.
-- [ ] **3.17 Capping gate v0.** `supervision/capping/`: `Proposal` (what a bee wants to do: a
+- [x] **3.17 Capping gate v0.** `supervision/capping/`: `Proposal` (what a bee wants to do: a
   diff, a command, an action sequence; its declared **postconditions**; its risk tier),
   `tiers.py` (risk tiers as data in `docs/supervision/capping-tiers.toml`: `read_only`,
   `scratch_write`, `outside_scratch_write`, `network_egress`, `spend`, `device_command`,
