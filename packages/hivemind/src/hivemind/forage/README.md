@@ -13,8 +13,17 @@ slot without pulling in the provider machinery.
   and from `waggle.messages.Tempo`. Read by the Attendant, `llm.routing`, `forage.allocate` and
   Capping (codingrules section 8.14); it never overrides safety.
 
-HostCapacity, Seat, RoleFootprint, ForageGrant, ForageRequest, the Forage map and ModelSlot are
-not implemented yet; they land in phase 4.
+## Public API (roadmap step 3.4)
+
+- **Slots** (`hivemind.forage.slots`): `ModelSlot` (`QUEEN`, `ATTENDANT`, `WARDEN`, `WORKER`,
+  `RIPENER`, `SCAFFOLDER`, `EMBEDDER`, `JUDGE`, `TRANSCRIBER`), whose value is its own
+  UPPER_SNAKE name (the wire label) and whose `manifest_key` is the lowercase `[llm.slots]` key;
+  `from_wire`/`to_wire` and `from_manifest_key` convert. `Effort` (`LOW`, `MEDIUM`, `HIGH`)
+  mirrors `waggle.messages.forage.Effort` and is the per-binding "how hard to think" value a
+  grant caps.
+
+HostCapacity, Seat, RoleFootprint, ForageGrant, ForageRequest and the Forage map are not
+implemented yet; they land in phase 3 step 3.12.
 
 ## How to test this
 
