@@ -127,7 +127,7 @@ class ProviderCapabilities(BaseModel):
         """Return every capability disabled: a plain-text model with no native affordances.
 
         Every ladder and the Drone must still work against this shape, through the prompted
-        rungs (phase 3 brief section 7).
+        rungs (codingrules section 8.6: degrade by ladder, in one place).
 
         Args:
             context_window: The model's context window, in tokens.

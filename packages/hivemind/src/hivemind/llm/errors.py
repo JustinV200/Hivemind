@@ -206,7 +206,8 @@ class ProviderRequestError(LLMError):
     An OpenAI-compatible server's own probe-time model refusal (`OpenAICompatProvider.probe`,
     hivemind.llm.providers.openai_compat) also raises this, synthesizing a 404-shaped status
     since no real HTTP response is involved. A later dispatch's Anthropic adapter raises the same
-    type for its own equivalent 4xx family (phase 3 brief section 2.13), so a caller catches one
+    type for its own equivalent 4xx family (codingrules section 8.6: one error tree at the
+    boundary), so a caller catches one
     type regardless of which adapter is behind the call.
     """
 

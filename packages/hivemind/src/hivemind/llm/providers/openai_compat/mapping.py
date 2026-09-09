@@ -258,7 +258,7 @@ def _tool_definition_to_wire(tool: ToolDefinition) -> JsonValue:
 def _response_format_to_wire(
     request: LLMRequest, capabilities: ProviderCapabilities
 ) -> JsonValue | None:
-    """Choose `response_format` per the schema/json-mode/none ladder the brief fixes.
+    """Choose `response_format` per the schema/json-mode/none ladder of ADR-0009.
 
     Native schema enforcement first, then plain JSON mode, then nothing (a prompted-only model
     gets no wire hint at all; `hivemind.llm.ladders` carries that rung instead).

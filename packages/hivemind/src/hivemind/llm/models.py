@@ -8,7 +8,7 @@ translate to and from these shapes in its own ``mapping.py``, so nothing above `
 ever imports a vendor SDK. ``Message`` carries a tuple of ``ContentPart`` (text, an image, a tool
 call, or a tool result), tagged by a pydantic discriminated union on ``kind`` so a JSON payload
 round-trips through the exact subtype it was built from. ``JsonObject`` is the one alias for "a
-field that holds arbitrary JSON" (codingrules phase-3 brief section 0): a tool's JSON-schema
+field that holds arbitrary JSON": a tool's JSON-schema
 parameters, a tool call's arguments, and a requested response schema are all ``JsonObject``, never
 ``dict[str, Any]`` (codingrules section 9).
 

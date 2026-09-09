@@ -285,7 +285,7 @@ def _build_request_for_rung(
             turns = (*turns, Message.text(Role.USER, correction))
         return base.model_copy(update={"messages": turns, "response_schema": None})
     # NATIVE and JSON_MODE both send the schema; the adapter is what turns JSON mode on for a
-    # provider that lacks schema_output (brief section 2.3: "the adapter turns on JSON mode").
+    # provider that lacks schema_output (ADR-0009: the rung picks the hint, the adapter the wire).
     turns = (
         base.messages
         if correction is None

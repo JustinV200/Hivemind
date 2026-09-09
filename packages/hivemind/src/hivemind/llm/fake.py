@@ -58,8 +58,12 @@ from hivemind.llm.models import (
 from waggle.clock import Clock, FakeClock
 
 FAKE_MODEL_ID = "fake-model"  # A neutral model id (codingrules 8.6): never a real provider's id.
-TEXT_STREAM_CHUNK_COUNT = 3  # brief section 2.2: "text split into ~3 chunks" when streaming.
-CHARS_PER_TOKEN_ESTIMATE = 4  # brief section 2.2: count_tokens is "len(text)//4 estimate only".
+TEXT_STREAM_CHUNK_COUNT = (
+    3  # Enough pieces to prove a consumer reassembles a stream; few, so tests stay fast.
+)
+CHARS_PER_TOKEN_ESTIMATE = (
+    4  # The usual English chars-per-token rule of thumb; the fake never tokenizes.
+)
 
 # A responder computes the next LLMResponse for a request; the default one (`_pop_scripted`)
 # ignores the request and pops the scripted queue, but a caller may pass its own for a fake that
