@@ -14,9 +14,10 @@ forage-side and registry-side inputs `resolve`/`resolve_key`/`ProviderRegistry` 
 the manifest's own `LlmSection`/`ProviderSpec` (`hivemind.llm` may not import `hivemind.manifest`,
 codingrules section 4); `bindings_from_manifest`/`provider_configs_from_manifest` convert a real,
 loaded `HiveManifest` into those same inputs, for the tests that resolve against
-`docs/manifests/*.toml` the way the CLI composition root (roadmap step 3.21) eventually will.
-Test code is not bound by that layering rule (only `hivemind.llm`'s own source is), so this
-module is a safe place for the conversion to live.
+`docs/manifests/*.toml`. Roadmap step 3.21 shipped that conversion for real as
+`hivemind.cli.stores.slot_bindings`/`provider_configs`; both functions here are now thin
+dict-shaped wrappers around those, kept so existing call sites do not all need to switch from a
+dict lookup to a tuple.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -34,12 +35,15 @@ See Also:
     - hivemind.llm.slots for BoundModel and resolve/resolve_key, the values these builders feed.
     - hivemind.llm.registry for ProviderRegistry, ProviderConfig and RegistryDeps.
     - hivemind.llm.fanner for FannerDeps, the value make_fanner_deps builds.
+    - hivemind.cli.stores for slot_bindings and provider_configs, the production functions
+      bindings_from_manifest/provider_configs_from_manifest now wrap.
 """
 
 from __future__ import annotations
 
 import dataclasses
 
+from hivemind.cli.stores import provider_configs, slot_bindings
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
 from hivemind.llm.fake import FakeLLMProvider, text_response, tool_call_response
@@ -265,8 +269,10 @@ def make_registry_deps(clock: Clock | None = None, **overrides: object) -> Regis
 def bindings_from_manifest(manifest: HiveManifest) -> dict[str, SlotBinding]:
     """Convert a loaded HiveManifest's `[llm.slots]` table into forage-side SlotBinding rows.
 
-    A preview of the conversion the CLI composition root (roadmap step 3.21) will do once, since
-    `hivemind.llm` cannot import `hivemind.manifest` (codingrules section 4) to do it itself.
+    Roadmap step 3.21 shipped this conversion for real as `hivemind.cli.stores.slot_bindings`
+    (`hivemind.llm` still cannot import `hivemind.manifest` itself, codingrules section 4); this
+    wrapper only re-keys that production function's tuple by its own `.key`, for the tests here
+    that want a dict lookup rather than a fallback chain to walk.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
@@ -274,25 +280,15 @@ def bindings_from_manifest(manifest: HiveManifest) -> dict[str, SlotBinding]:
     Returns:
         Every `[llm.slots]` row, keyed by its own manifest key, as a forage `SlotBinding`.
     """
-    return {
-        key: SlotBinding(
-            key=key,
-            provider=row.provider,
-            model=row.model,
-            fallback=row.fallback,
-            effort=row.effort,
-        )
-        for key, row in manifest.llm.slots.items()
-    }
+    return {binding.key: binding for binding in slot_bindings(manifest)}
 
 
 def provider_configs_from_manifest(manifest: HiveManifest) -> dict[str, ProviderConfig]:
     """Convert a loaded HiveManifest's `[llm.providers]` table into ProviderConfig rows.
 
-    `ProviderConfig.default_model` (needed only by an `openai_compat` provider's config, which has
-    no manifest-level default of its own) is derived as the model of that provider's first
-    `[llm.slots]` row -- a reasonable default for a manifest with one local model per server, and
-    exactly what every shipped example manifest (`docs/manifests/*.toml`) has.
+    A thin `dict`-returning wrapper around the production `hivemind.cli.stores.provider_configs`
+    (roadmap step 3.21), kept here only so existing tests that already expect a concrete `dict`
+    do not all need updating to accept a `Mapping`.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
@@ -300,23 +296,4 @@ def provider_configs_from_manifest(manifest: HiveManifest) -> dict[str, Provider
     Returns:
         Every `[llm.providers]` row, keyed by its own manifest name, as a ProviderConfig.
     """
-    default_models = _first_model_by_provider(manifest)
-    return {
-        name: ProviderConfig(
-            kind=spec.kind,
-            base_url=spec.base_url,
-            api_key_env=spec.api_key_env,
-            timeout_s=spec.timeout_s,
-            capability_overrides=spec.capabilities.as_overrides(),
-            default_model=default_models.get(name),
-        )
-        for name, spec in manifest.llm.providers.items()
-    }
-
-
-def _first_model_by_provider(manifest: HiveManifest) -> dict[str, str]:
-    """Return the first `[llm.slots]` row's model id seen for each provider name, in table order."""
-    defaults: dict[str, str] = {}
-    for row in manifest.llm.slots.values():
-        defaults.setdefault(row.provider, row.model)
-    return defaults
+    return dict(provider_configs(manifest))

@@ -9,8 +9,9 @@ CLI row), never containing logic of its own.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
-    console script. Calls into hivemind.cli.version, hivemind.cli.tasks and hivemind.cli.trail
-    now; later phases add queen, entrance and friends through their own public APIs.
+    console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
+    hivemind.cli.llm and hivemind.cli.capping now; later phases add queen, entrance and friends
+    through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -21,6 +22,8 @@ See Also:
     - .claude/codingrules.md section 8.2 for the composition-root rule this file follows.
     - hivemind.cli.version for what `--version` prints.
     - hivemind.cli.tasks and hivemind.cli.trail for the two command groups roadmap step 2.9 adds.
+    - hivemind.cli.llm and hivemind.cli.capping for the two command groups roadmap step 3.21's
+      first half adds; hivemind.cli.stores for the manifest-aware composition helpers both use.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli import tasks, trail
+from hivemind.cli import capping, llm, tasks, trail
 from hivemind.cli.version import collect_version_info, format_version
 
 __all__ = ["app", "main"]
@@ -49,10 +52,19 @@ app = typer.Typer(
 app.add_typer(tasks.app, name="tasks")
 app.add_typer(trail.app, name="trail")
 
+# Roadmap step 3.21 (first half): inspect model providers/slots and the Capping proposal queue.
+# Neither depends on a running Queen -- `llm` builds its own ProviderRegistry from a manifest, and
+# `capping` reads proposal state back out of the trail -- so both land ahead of `hive run`.
+app.add_typer(llm.app, name="llm")
+app.add_typer(capping.app, name="capping")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
 #   run        - start a Hive from a manifest
+#   cells      - list Cells the Hive Stand and Swarm can offer
+#   inbox      - list and answer pending questions and Alarms at the human
+#   wardens    - list Wardens with their grant, sub-bees and telemetry
 #   doctor     - environment and manifest diagnostics
 #   cluster    - pause/resume a Hive while a provider is unavailable
 #   wake       - trigger an awake episode by hand

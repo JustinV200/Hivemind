@@ -29,6 +29,34 @@ typer layer that calls into a subsystem's public API and never contains logic of
   export NODE_ID OUT [--db]` (writes a `TrailSegment` JSON file), `hive trail merge SEGMENT [--db]`
   (reads one back; prints how many events were actually inserted, 0 on a re-merge).
 
+## Command groups (phase 3 step 3.21, first half)
+
+- `stores.py` also holds the manifest-aware composition helpers every later command that needs a
+  model builds on: `slot_bindings(manifest) -> tuple[SlotBinding, ...]` and
+  `provider_configs(manifest) -> Mapping[str, ProviderConfig]` convert a loaded `HiveManifest`'s
+  `[llm.slots]`/`[llm.providers]` tables into `hivemind.llm`'s own inputs (`hivemind.llm` may not
+  import `hivemind.manifest`, codingrules section 4); `build_forage_map(manifest, clock) ->
+  ForageMap` does the same for `[forage.map]`; `build_registry(manifest, environ, clock) ->
+  ProviderRegistry` composes all three with `hivemind.llm.registry.default_factories()` into one
+  ready registry. `tests/builders/llm.py`'s `bindings_from_manifest`/
+  `provider_configs_from_manifest` now call straight through to `slot_bindings`/`provider_configs`.
+- `llm.py` -- `hive llm providers --manifest hive.toml [--json]` (one row per
+  `[llm.providers.<name>]`: kind, base URL (or `(vendor default)`), seats, whether an API key is
+  set in the environment, and a live health probe; `[llm] offline = true` refusing a provider's
+  construction shows `refused: offline` instead of failing the command), `hive llm slots
+  --manifest hive.toml [--json]` (one row per `hivemind.forage.slots.ModelSlot`: binding key,
+  provider, model, effort, context window, per-million-token price or `-`, and the fallback chain
+  as `a -> b -> c`), `hive llm test SLOT --manifest hive.toml [--prompt "..."]` (resolves SLOT,
+  sends one small completion the way `hivemind.llm.ladders.gate.DirectCallGate` would, and prints
+  latency, usage and the reply's first line; exits 1 with the raised `LLMError`'s own message on
+  failure).
+- `capping.py` -- `hive capping queue --trail hive.sqlite3 [--json]` (every Capping proposal whose
+  latest `capping.*` event is not terminal, newest latest-event first: proposal id, task id, tier,
+  state, age) and `hive capping show PROPOSAL_ID --trail hive.sqlite3 [--json]` (that proposal's
+  `capping.*` events, in order, with their payload fields). A v0 `CappingGate`'s proposal table
+  lives only in the Queen process's own memory, so both commands reconstruct what they show from
+  the Pheromone Trail every gate transition already writes (codingrules section 12).
+
 ## How to test this
 
 ```
@@ -43,3 +71,11 @@ version and the running interpreter, and `format_version`'s exact shape. `test_s
 real `tmp_path` SQLite file; `test_trail.py`'s `--follow` test monkeypatches
 `hivemind.cli.trail.open_trail` and `hivemind.cli.trail.follow` so Ctrl-C is simulated
 deterministically instead of depending on real signal delivery or wall-clock timing.
+`test_stores.py` also covers the four manifest-conversion helpers against
+`docs/manifests/{minimal,local,full}.toml`. `test_llm.py` drives `hive llm` against a hand-built
+`kind = "fake"` manifest, fully offline; its `test` command tests monkeypatch
+`hivemind.cli.llm.build_registry` to hand back a pre-scripted `FakeLLMProvider` for the success
+case, and rely on an unscripted one's own `ProviderUnavailableError` for the failure case.
+`test_capping.py` seeds a `MemoryPheromoneTrail` directly through `PheromoneTrail.record` (the
+same event shapes `hivemind.supervision.capping.gate.CappingGate` itself writes) and monkeypatches
+`hivemind.cli.capping.open_trail` to hand it to the CLI.
