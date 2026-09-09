@@ -71,6 +71,10 @@ ADRs that exist today, in numeric order:
 - `0009-structured-output-and-tool-call-degradation-ladders.md`: rungs and protocols chosen from
   declared capabilities, a `CallGate` seam for the Fanner, a `LadderObserver` seam for the
   Pheromone Trail, and a documented JSON-schema subset instead of a `jsonschema` dependency.
+- `0010-cells-are-real-or-virtual-terminal-first.md`: one `Cell`/`CellSession` abstraction for
+  both Real and Virtual Cells, a `RealCellLease` that owns its mutable bookkeeping and delegates
+  killing/restoring to an injected `LeaseReleaser`, and the Hive Stand as the first Real Cell
+  source because it needs nothing provisioned or enrolled.
 - `0011-kernel-shape-autopilot-then-awake.md`: the Queen and every Warden run autopilot (a
   deterministic dispatch table that never awaits a model) first, and only what autopilot cannot
   decide runs a stateless awake episode assembled fresh from durable state.
