@@ -25,7 +25,7 @@ from collections.abc import Callable
 import pytest
 
 from waggle.codec import Codec
-from waggle.envelope import Envelope
+from waggle.envelope import PROTOCOL_MAJOR, PROTOCOL_MINOR, PROTOCOL_VERSION, Envelope
 from waggle.errors import (
     ConnectionLostError,
     FrameTooLargeError,
@@ -271,8 +271,13 @@ async def test_a_signed_pair_rejects_a_tampered_frame_with_1008(
     await end_a.send(good)
     assert (await _next(end_b)).id == good.id
     # A minor bump keeps the frame well-formed and acceptable, so only the signature can fail.
+    # Built from the live constants, not a hardcoded pair, so this stays correct across a future
+    # protocol minor bump instead of silently no-op'ing when PROTOCOL_VERSION moves past "1.1".
     frame = signed_codec.encode(good)
-    tampered = frame.replace(b'"version":"1.1"', b'"version":"1.2"')
+    bumped_version = f"{PROTOCOL_MAJOR}.{PROTOCOL_MINOR + 1}"
+    tampered = frame.replace(
+        f'"version":"{PROTOCOL_VERSION}"'.encode(), f'"version":"{bumped_version}"'.encode()
+    )
     assert tampered != frame
 
     end_b.inject_frame(tampered)

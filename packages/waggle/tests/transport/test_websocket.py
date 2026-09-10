@@ -30,7 +30,7 @@ from websockets.exceptions import ConnectionClosed
 
 from waggle.clock import FakeClock
 from waggle.codec import MAX_FRAME_BYTES, Codec
-from waggle.envelope import Envelope
+from waggle.envelope import PROTOCOL_MAJOR, PROTOCOL_MINOR, PROTOCOL_VERSION, Envelope
 from waggle.errors import (
     ConnectionLostError,
     FrameTooLargeError,
@@ -278,8 +278,13 @@ async def test_signed_codecs_accept_a_signed_frame_and_reject_a_tampered_one(
     raw = await _dial_raw(signed_server)
     tampered_end = await _accept(signed_server)
     try:
+        # Built from the live constants, not a hardcoded pair, so this stays correct across a
+        # future protocol minor bump instead of silently no-op'ing past PROTOCOL_VERSION "1.1".
         frame = signed_codec.encode(good)
-        tampered = frame.replace(b'"version":"1.1"', b'"version":"1.2"')
+        bumped_version = f"{PROTOCOL_MAJOR}.{PROTOCOL_MINOR + 1}"
+        tampered = frame.replace(
+            f'"version":"{PROTOCOL_VERSION}"'.encode(), f'"version":"{bumped_version}"'.encode()
+        )
         await raw.send(tampered)
 
         with pytest.raises(InvalidSignatureError):

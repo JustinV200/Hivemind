@@ -74,8 +74,10 @@ from waggle.messages.supervision.telemetry import (
 
 MIN_INTERVAL_S = 0.0  # Exclusive: an interval of 0 would size the receiver's watchdog to nothing.
 MIN_INSPECT_CHARS = 256  # The least a view can say something in; a smaller cap returns noise.
+MAX_BINDING_CHARS = 64  # A [llm.slots] manifest key ("local_worker"): short, never a model id.
 
 __all__ = [
+    "MAX_BINDING_CHARS",
     "MIN_INSPECT_CHARS",
     "MIN_INTERVAL_S",
     "Heartbeat",
@@ -102,6 +104,9 @@ class InterventionAction(Enum):
 _Reason = Annotated[str, Field(max_length=MAX_REASON_CHARS)]
 # A model slot (the named role a model is bound to) as the conventions fix it.
 _Slot = Annotated[str, Field(max_length=MAX_SLOT_CHARS, pattern=SLOT_PATTERN)]
+# A [llm.slots] manifest key ("worker", "local_worker"): lowercase, unlike _Slot's own UPPER_SNAKE
+# wire label, so it is bounded only, with no shared pattern to reuse (PROTOCOL_MINOR 2).
+_Binding = Annotated[str, Field(max_length=MAX_BINDING_CHARS)]
 # A bee that can be described: a Worker or a Warden, never the Queen or a device.
 _BeeId = Annotated[WorkerId | WardenId, id_validator(IdKind.WORKER, IdKind.WARDEN)]
 
@@ -212,7 +217,10 @@ class Intervene(WaggleMessage):
     """Pull a supervisor lever on a child or one of its sub-bees (supervision.intervene, an event).
 
     Compact, checkpoint, handoff, rebind to a slot, takeover or cancel. Wardens hold the same
-    levers over their sub-bees minus takeover with the Queen's slot.
+    levers over their sub-bees minus takeover with the Queen's slot. `binding` (PROTOCOL_MINOR 2)
+    is an optional, additional REBIND hint: a `[llm.slots]` manifest key the sender already
+    resolved (the Queen's own fallback-chain lookup, for instance), so a receiving Warden can
+    respawn on it directly instead of searching its own grant.
     """
 
     action: InterventionAction = Field(description="The lever pulled.")
@@ -224,6 +232,13 @@ class Intervene(WaggleMessage):
     )
     slot: _Slot | None = Field(
         description="The model slot to rebind to. Required when action is REBIND, None otherwise."
+    )
+    binding: _Binding | None = Field(
+        default=None,
+        description="A `[llm.slots]` manifest key to rebind to, when the sender already resolved "
+        "one (e.g. the Queen's own fallback-chain lookup for a REBIND); optional even when "
+        "action is REBIND, so a Warden falls back to its own local search when unset. Added in "
+        "PROTOCOL_MINOR 2.",
     )
     alarm_id: AlarmIdField | None = Field(
         description="The Alarm this intervention answers, so the trail links the two."

@@ -37,6 +37,7 @@ from waggle.messages.supervision.alarms import (
     AlarmResolved,
 )
 from waggle.messages.supervision.oversight import (
+    MAX_BINDING_CHARS,
     MIN_INSPECT_CHARS,
     Heartbeat,
     Inspect,
@@ -351,3 +352,25 @@ def test_intervene_every_other_lever_carries_no_slot(action: InterventionAction)
 def test_intervene_validators(changes: dict[str, object], reason: str) -> None:
     with pytest.raises(ValidationError, match=reason):
         _rebuild(_example(Intervene), **changes)
+
+
+def test_intervene_binding_defaults_to_none_and_is_independent_of_action() -> None:
+    """PROTOCOL_MINOR 2: an optional REBIND hint, unset unless a caller names one."""
+    intervene = _example(Intervene)
+
+    assert isinstance(intervene, Intervene)
+    assert intervene.binding is None
+
+
+def test_intervene_binding_round_trips_when_set() -> None:
+    """A sender that already resolved a fallback key (the Queen's own lookup) can name it."""
+    intervene = _rebuild(_example(Intervene), binding="local_worker")
+
+    assert isinstance(intervene, Intervene)
+    assert intervene.binding == "local_worker"
+    assert Intervene.model_validate(intervene.model_dump(mode="json")) == intervene
+
+
+def test_intervene_binding_is_bounded() -> None:
+    with pytest.raises(ValidationError, match="at most"):
+        _rebuild(_example(Intervene), binding="x" * (MAX_BINDING_CHARS + 1))
