@@ -108,3 +108,8 @@ ADRs that exist today, in numeric order:
 - `0020-llm-records-its-own-trail-events.md`: Layer 1 becomes two ranks, `llm | manifest` above
   `pheromone | forage`, so the ladders and the Fanner record their own `llm.*` events; amends
   ADR-0002's Layer 1 row only.
+- `0021-queen-never-executes-but-rebinds-and-takes-over.md`: the Queen holds no session and
+  assigns only to Wardens; recovery is a Warden respawning from the failed bee's `Handoff`
+  (taking over through a fresh bee, never in the Queen's process) and rebinding within the
+  grant, with the Queen answering an escalated Alarm by `Intervene(REBIND)` to the manifest's
+  fallback binding, and the human inbox last.
