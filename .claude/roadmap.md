@@ -630,7 +630,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   route the `Answer` back), `queen/queen.py` (one tick = Attendant orders the inbox → autopilot
   handles → awake for `NEEDS_JUDGEMENT` → write back). The Queen implements `Supervisor` over
   Wardens. A test asserts she holds no session and no Comb Registry.
-- [ ] **3.21 CLI.** `cli/run.py` (`hive run "goal" --manifest hive.toml`, streams progress),
+- [x] **3.21 CLI.** `cli/run.py` (`hive run "goal" --manifest hive.toml`, streams progress),
   `cli/llm.py` (`hive llm providers|slots|test <slot>`), `cli/cells.py` (`hive cells list`),
   `cli/inbox.py` (`hive inbox` lists pending questions and Alarms at the human; `hive inbox answer
   <id> "..."`), `cli/wardens.py` (`hive wardens list` with grant, sub-bees, telemetry),
