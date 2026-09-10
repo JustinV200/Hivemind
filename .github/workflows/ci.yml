@@ -171,7 +171,7 @@ jobs:
           enable-cache: true
           python-version-file: ".python-version"
       - run: uv sync --frozen --all-groups
-      - run: uv run --frozen pytest -m "e2e" packages/hivemind -q --durations=10
+      - run: uv run --frozen pytest -m "e2e" packages/hivemind/tests/e2e -q --durations=10
 
   # codingrules section 2: "Hosts: Windows 11, Ubuntu LTS, Arch Linux... the Hive Stand and the
   # framework run on all three." The matrix above covers two of the three; this job proves the
