@@ -27,12 +27,15 @@ from collections.abc import Awaitable, Callable
 
 from builders.queen import make_queen_deps, plan_responder
 
-from hivemind.brood_chamber import TaskStatus
+from hivemind.brood_chamber import Answer, AnswerSource, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
+from hivemind.memory import MemoryContext, Note, add_note
+from hivemind.queen import answer_note_author, sync_answers_from_chamber
+from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.clock import Clock
-from waggle.ids import TaskId, WardenId, new_message_id
+from waggle.ids import MessageId, TaskId, WardenId, new_event_id, new_message_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Question
 
@@ -149,4 +152,111 @@ async def test_answer_question_resumes_the_task_and_forwards_the_answer_to_its_w
     assert answer.text == "Use staging."
     still_pending = await queen.human_inbox.pending_questions(deps.chamber)
     assert still_pending == ()  # Answered questions never linger.
+    await warden_end.close()
+
+
+async def _answer_directly_and_leave_a_note(
+    deps: QueenDeps, chamber_question_id: MessageId, text: str
+) -> None:
+    """Simulate `hive inbox answer`'s own two writes (cli/inbox.py), bypassing `Queen`.
+
+    `chamber.answer` resumes the task with no forwarding of its own; the Note is left for a
+    separate process's own `sync_answers_from_chamber` to read back (queen/questions.py's own
+    module docstring: the Brood Chamber's public API has no way to read an answer's text back out).
+    """
+    answer = Answer(
+        text=text,
+        chosen_option=None,
+        source=AnswerSource.HUMAN,
+        clearance=HoneyClearance.C2,
+        answered_at=deps.clock.now(),
+    )
+    await deps.chamber.answer(chamber_question_id, answer)
+    note = Note(
+        id=new_event_id(deps.clock),
+        author=answer_note_author(chamber_question_id),
+        text=text,
+        clearance=HoneyClearance.C2,
+        written_at=deps.clock.now(),
+    )
+    memory_ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+    await add_note(note, memory_ctx)
+
+
+async def test_sync_answers_from_chamber_forwards_a_note_a_separate_process_left() -> None:
+    """Rehearses `hive inbox answer`'s own cross-process handoff at the unit level.
+
+    See queen/questions.py's own module docstring: a separate process cannot call `Queen.
+    answer_question` (no live link into a running Queen this phase), so it calls `chamber.answer`
+    directly and leaves a Note keyed by the Brood Chamber's own Question id; `sync_answers_from_
+    chamber` is what a running `hive run`'s own poll loop calls to pick that up and forward it to
+    the blocked sub-bee's own Warden, tagged with the *original* wire question_id.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    question = _question(deps.clock, task_id=goal_id, warden_id=link.warden_id)
+    await warden_end.send(question)
+
+    async def _blocked() -> bool:
+        task = await deps.chamber.get(goal_id)
+        return task.status is TaskStatus.BLOCKED
+
+    await _wait_until(_blocked)
+    pending = await queen.human_inbox.pending_questions(deps.chamber)
+    chamber_question_id = pending[0].id  # What a human (and hive inbox answer) answers by.
+    await _answer_directly_and_leave_a_note(deps, chamber_question_id, "Use staging.")
+
+    forwarded = await sync_answers_from_chamber(queen)
+    forwarded_answer = await warden_end.wait_for_answer()
+
+    queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert forwarded == 1
+    # The forwarded Answer carries the *original* wire question_id (module docstring), matching
+    # test_answer_question_resumes_the_task_and_forwards_the_answer_to_its_warden above.
+    assert forwarded_answer.question_id == question.question_id
+    assert forwarded_answer.task_id == goal_id
+    assert forwarded_answer.text == "Use staging."
+    resumed = await deps.chamber.get(goal_id)
+    assert resumed.status is TaskStatus.RUNNING
+    await warden_end.close()
+
+
+async def test_sync_answers_from_chamber_is_a_no_op_while_the_task_is_still_blocked() -> None:
+    """A poll landing before `hive inbox answer` ever runs finds nothing to forward.
+
+    And leaves the question's own bookkeeping in place for the next poll to find.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    question = _question(deps.clock, task_id=goal_id, warden_id=link.warden_id)
+    await warden_end.send(question)
+
+    async def _blocked() -> bool:
+        task = await deps.chamber.get(goal_id)
+        return task.status is TaskStatus.BLOCKED
+
+    await _wait_until(_blocked)
+
+    forwarded = await sync_answers_from_chamber(queen)
+
+    queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert forwarded == 0
+    still_blocked = await deps.chamber.get(goal_id)
+    assert still_blocked.status is TaskStatus.BLOCKED
     await warden_end.close()

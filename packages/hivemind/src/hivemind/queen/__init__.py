@@ -39,7 +39,9 @@ Public API (roadmap step 3.20):
     - QueenError, UnknownWardenError: this subsystem's error tree (errors).
     - HumanInbox: pending questions and Alarms awaiting the human (human_inbox).
     - answer_question, handle_question, route_answers: the Queen's own question traffic
-      (questions).
+      (questions). Roadmap step 3.21 (second half) adds ANSWER_NOTE_AUTHOR_PREFIX,
+      answer_note_author and sync_answers_from_chamber: the cross-process handoff `hive inbox
+      answer` and a running `hive run` share (questions).
     - dispatch_ready: place, grant and assign every ready task (dispatcher).
     - record_event: the one place a queen.* trail event is built (trail).
     - MAX_TIE_REASON_CHARS, ModelTieBreaker, queen_attendant, to_inbox_item: her Attendant (inbox).
@@ -98,12 +100,20 @@ from hivemind.queen.planner import (
     plan_goal,
 )
 from hivemind.queen.queen import Queen
-from hivemind.queen.questions import answer_question, handle_question, route_answers
+from hivemind.queen.questions import (
+    ANSWER_NOTE_AUTHOR_PREFIX,
+    answer_note_author,
+    answer_question,
+    handle_question,
+    route_answers,
+    sync_answers_from_chamber,
+)
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
 
 __all__ = [
     "ACTIVE_TASKS_LIMIT",
+    "ANSWER_NOTE_AUTHOR_PREFIX",
     "AWAKE_MAX_OUTPUT_TOKENS",
     "AWAKE_OUTPUT_RESERVE_TOKENS",
     "MAX_ACCEPTANCE_ITEMS",
@@ -139,6 +149,7 @@ __all__ = [
     "UnknownWardenError",
     "WardenLink",
     "WardenLiveness",
+    "answer_note_author",
     "answer_question",
     "decide",
     "decide_awake",
@@ -149,5 +160,6 @@ __all__ = [
     "queen_attendant",
     "record_event",
     "route_answers",
+    "sync_answers_from_chamber",
     "to_inbox_item",
 ]

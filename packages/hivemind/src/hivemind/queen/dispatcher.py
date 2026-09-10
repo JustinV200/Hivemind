@@ -18,10 +18,23 @@ is already placed on, at the caller's own attempt number, leaving the chamber's 
 at RUNNING throughout -- the same way a Warden's own internal RETRY/REBIND never tells the Brood
 Chamber anything happened at all.
 
-`dispatch_ready` fills in three Forage inputs `hivemind.queen.deps.QueenDeps` carries no field for
--- a fixed Drone footprint, a default Royal Reserve, and a fixed grant lifetime -- because the
-Queen takes manifest *slices*, and per-role footprints, the reserve and the grant TTL were not part
-of the fixed seam this dispatch was given; see this dispatch's own report for the flag.
+`dispatch_ready` reads its three Forage inputs -- the Drone's footprint, the Royal Reserve and the
+grant lifetime -- from `deps.footprints`/`deps.reserve`/`deps.grant_ttl_s` (roadmap step 3.21,
+second half added these three `QueenDeps` fields, defaulted to the module constants this file used
+to carry itself, so `hivemind.cli.compose.build_hive` can bind them to the loaded manifest's own
+`[forage.roles.drone]`/`[forage.reserve]`/`[forage] grant_ttl_s` while every existing test, which
+never names these fields, keeps today's behaviour unchanged).
+
+This module also records `forage.granted` right after sending a fresh grant: nothing else in the
+Hive's committed code recorded that `hivemind.pheromone.events.families.ForageEvent` kind despite
+it already existing in `ForageEvent.KINDS` -- neither the Queen's own dispatch nor the Warden's
+`hivemind.wardens.ticks.assign.handle_grant` wrote one. Roadmap step 3.21 (second half)'s own
+required trail order (`granted` between `placed` and `spawned`) and `hive wardens list` (reading
+"the grants issued to it") both need it to exist, so this dispatch adds the one call, here, where
+the grant is already in hand; `hivemind.wardens.**` is outside this dispatch's owned files, so the
+event is built directly rather than through `hivemind.queen.trail.record_event` (which only ever
+builds a `queen.*` `QueenEvent`) -- flagged in this dispatch's own report as a pre-existing gap,
+not a new rule this module invents.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -29,10 +42,10 @@ Fits into the Hive:
     immediately after `submit_goal` and after every `COMPLETE_TASK` decision, so a newly-ready
     task is placed without waiting for the next tick; `redispatch` is called by
     `hivemind.queen.ticks.results.retry_task` and `hivemind.queen.ticks.alarms` for a REBIND.
-    Calls into `hivemind.brood_chamber` (Task), `hivemind.forage` (GrantInputs, ModelSlot,
-    RoleFootprint, RoyalReserve, grant), `hivemind.queen.deps` (QueenDeps, WardenLink),
-    `hivemind.queen.placement` (PlacementError, decide), `hivemind.queen.trail` (record_event)
-    and waggle only.
+    Calls into `hivemind.brood_chamber` (Task), `hivemind.forage` (ForageGrant, GrantInputs,
+    ModelSlot, grant), `hivemind.pheromone` (ForageEvent), `hivemind.queen.deps` (QueenDeps,
+    WardenLink), `hivemind.queen.placement` (PlacementError, decide), `hivemind.queen.trail`
+    (record_event) and waggle only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task,
@@ -58,27 +71,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from hivemind.brood_chamber import Task
-from hivemind.forage import GrantInputs, ModelSlot, RoleFootprint, RoyalReserve, grant
+from hivemind.forage import ForageGrant, GrantInputs, ModelSlot, grant
 from hivemind.forage.models.sources import ModelSource
+from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.placement import Placement, PlacementError, decide
 from hivemind.queen.trail import record_event
 from waggle.envelope import wrap
-from waggle.ids import CellId, GrantId, TaskId, WardenId, new_grant_id
+from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
 from waggle.messages.task import TaskAssign, WorkerRole
-
-# v0's one role: the Queen always dispatches a Drone. A light, single-seat footprint stands in for
-# the manifest's own [forage.roles.drone] table, which QueenDeps carries no field for this phase
-# (flagged in this dispatch's report).
-_DRONE_FOOTPRINT = RoleFootprint(
-    cpu_cores=1.0,
-    memory_bytes=512 * 1024 * 1024,
-    seats=1,
-    token_rate_per_minute=1_000.0,
-    exoskeleton_extra_memory_bytes=0,
-)
-_DEFAULT_RESERVE = RoyalReserve()  # QueenDeps carries no [forage.reserve] slice this phase.
-_GRANT_TTL_S = 300.0  # Matches the manifest's own [forage] grant_ttl_s default.
 
 __all__ = ["dispatch_ready", "redispatch"]
 
@@ -132,7 +133,8 @@ async def redispatch(
     if link is None:
         return  # Its Warden is no longer attached; nothing to resend to.
     placement = Placement(cell_id=task.cell_id, warden_id=task.warden_id)
-    await _send_grant_and_assign(deps, link, task, placement, attempt)
+    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, attempt)
+    await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
 
 
 async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Task) -> None:
@@ -141,7 +143,7 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     link = _link_for(wardens, placement.warden_id)
     if link is None:
         return  # Defensive: unreachable, since decide() only ever names a Warden from `wardens`.
-    await _send_grant_and_assign(deps, link, task, placement, task.attempt)
+    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, task.attempt)
 
     reason = "Placed by the Queen's dispatcher."
     await deps.chamber.assign(task.id, placement.warden_id, placement.cell_id, reason)
@@ -149,11 +151,15 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     await record_event(
         deps, "queen.assigned", task.id, cell_id=placement.cell_id, warden_id=placement.warden_id
     )
+    # "placed" (queen.assigned, just above) precedes "granted" on the trail (module docstring's
+    # own required order), even though the wire GrantIssued was already sent a moment earlier:
+    # this Queen-side record only exists because nothing else writes forage.granted at all.
+    await _record_forage_granted(deps, task, fresh_grant, placement.warden_id)
 
 
 async def _send_grant_and_assign(
     deps: QueenDeps, link: WardenLink, task: Task, placement: Placement, attempt: int
-) -> None:
+) -> ForageGrant:
     """Mint a fresh grant and send it, then a TaskAssign at `attempt`, in that order."""
     cell_id, warden_id = placement.cell_id, placement.warden_id
     fresh_grant = grant(_grant_inputs(deps, link, warden_id, cell_id, task))
@@ -163,6 +169,7 @@ async def _send_grant_and_assign(
     assign = _task_assign(task, cell_id, fresh_grant.id, attempt)
     await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
     await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
+    return fresh_grant
 
 
 def _grant_inputs(
@@ -172,18 +179,35 @@ def _grant_inputs(
     return GrantInputs(
         cell_capacity=link.cell.capacity,
         role=WorkerRole.DRONE,
-        footprint=_DRONE_FOOTPRINT,
+        footprint=deps.footprints[WorkerRole.DRONE],
         tempo=task.spec.needs.tempo,
         map=deps.map,
-        reserve=_DEFAULT_RESERVE,
+        reserve=deps.reserve,
         budgets=deps.budgets,
         holder=holder,
         cell_id=cell_id,
         task_id=task.id,
         grant_id=new_grant_id(deps.clock),
         now=deps.clock.now(),
-        ttl_s=_GRANT_TTL_S,
+        ttl_s=deps.grant_ttl_s,
     )
+
+
+async def _record_forage_granted(
+    deps: QueenDeps, task: Task, fresh_grant: ForageGrant, warden_id: WardenId
+) -> None:
+    """Record the one `forage.granted` ForageEvent no other module writes (module docstring)."""
+    event = ForageEvent(
+        id=new_event_id(deps.clock),
+        hive_id=deps.identity.hive_id,
+        node_id=deps.identity.node_id,
+        at=deps.clock.now(),
+        actor=deps.identity.actor,
+        kind="forage.granted",
+        subject_id=fresh_grant.id,
+        payload={"task_id": task.id, "warden_id": warden_id},
+    )
+    await deps.trail.record(event)
 
 
 def _task_assign(task: Task, cell_id: CellId, grant_id: GrantId, attempt: int) -> TaskAssign:

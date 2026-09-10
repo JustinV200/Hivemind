@@ -10,20 +10,29 @@ CLI row), never containing logic of its own.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
-    hivemind.cli.llm and hivemind.cli.capping now; later phases add queen, entrance and friends
-    through their own public APIs.
+    hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run and hivemind.cli.readback (cells,
+    inbox, wardens) now; later phases add entrance and friends through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
     - Every command group registered below is a thin typer layer with no logic of its own
       (codingrules section 2's CLI row); this file only wires them together.
+    - `hive run` is registered with `app.command("run")`, not `app.add_typer`: unlike every other
+      group here, it has no subcommand of its own (`hive run "goal"`, not `hive run run "goal"`),
+      and this repository's pinned typer version does not collapse a single-command `add_typer`
+      sub-app to its parent's own command name (verified empirically; see `hivemind.cli.run`'s own
+      module docstring).
 
 See Also:
     - .claude/codingrules.md section 8.2 for the composition-root rule this file follows.
+    - .claude/codingrules.md section 5.6 for the module-count limit hivemind.cli.readback exists
+      to keep this package under.
     - hivemind.cli.version for what `--version` prints.
     - hivemind.cli.tasks and hivemind.cli.trail for the two command groups roadmap step 2.9 adds.
     - hivemind.cli.llm and hivemind.cli.capping for the two command groups roadmap step 3.21's
       first half adds; hivemind.cli.stores for the manifest-aware composition helpers both use.
+    - hivemind.cli.run and hivemind.cli.readback for the four commands roadmap step 3.21's second
+      half adds, and hivemind.cli.compose for the composition root they are built on.
 """
 
 from __future__ import annotations
@@ -33,6 +42,8 @@ from typing import Annotated
 import typer
 
 from hivemind.cli import capping, llm, tasks, trail
+from hivemind.cli.readback import cells_app, inbox_app, wardens_app
+from hivemind.cli.run import run_command
 from hivemind.cli.version import collect_version_info, format_version
 
 __all__ = ["app", "main"]
@@ -58,13 +69,18 @@ app.add_typer(trail.app, name="trail")
 app.add_typer(llm.app, name="llm")
 app.add_typer(capping.app, name="capping")
 
+# Roadmap step 3.21 (second half): compose and run a Hive, and inspect it while it runs.
+# `run` is a bare command, not a group (see this module's own "Key invariants" and
+# hivemind.cli.run's own docstring for why `app.command` and not `app.add_typer` here); `cells`,
+# `inbox` and `wardens` (hivemind.cli.readback) are ordinary single- or multi-subcommand groups.
+app.command("run")(run_command)
+app.add_typer(cells_app, name="cells")
+app.add_typer(inbox_app, name="inbox")
+app.add_typer(wardens_app, name="wardens")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
-#   run        - start a Hive from a manifest
-#   cells      - list Cells the Hive Stand and Swarm can offer
-#   inbox      - list and answer pending questions and Alarms at the human
-#   wardens    - list Wardens with their grant, sub-bees and telemetry
 #   doctor     - environment and manifest diagnostics
 #   cluster    - pause/resume a Hive while a provider is unavailable
 #   wake       - trigger an awake episode by hand

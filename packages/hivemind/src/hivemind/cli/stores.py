@@ -13,8 +13,12 @@ resolve` and `hivemind.llm.registry.ProviderRegistry` actually take. `slot_bindi
 `provider_configs` are that conversion (the same one `tests/builders/llm.py`'s
 `bindings_from_manifest`/`provider_configs_from_manifest` prototyped for tests, now shipped as the
 real thing); `build_forage_map` does the matching conversion for `[forage.map]`; `build_registry`
-composes all three into one ready `ProviderRegistry`. `hive llm` (this step) is the first caller;
-every later command that needs a model (`hive run`, a later step) builds on the same four functions.
+composes all three into one ready `ProviderRegistry`. `hive llm` was the first caller;
+`hivemind.cli.compose.build_hive` (roadmap step 3.21, second half) is the next, and adds
+`open_memory` (a `MemoryStore` opened the same way as `open_trail`/`open_chamber`) plus two
+optional `build_registry` keyword arguments (`factories`, `forage_map`) it needs to share one
+`ForageMap` between the registry, the Fanner and `QueenDeps.map`, and to substitute a
+responder-installing `"fake"` factory for `hive run`'s own tests.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.tasks` and
@@ -58,7 +62,10 @@ See Also:
 Public API:
     - DEFAULT_DB: the database file every command falls back to.
     - DbOption: the shared `--db` typer option annotation.
-    - open_trail, open_chamber: the two store composition functions.
+    - DEFAULT_MANIFEST, ManifestOption, JsonOption: the shared `--manifest`/`--json` typer option
+      annotations every command group from roadmap step 3.21 on attaches.
+    - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
+    - open_trail, open_chamber, open_memory: the three store composition functions.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
       conversion functions.
 """
@@ -66,6 +73,7 @@ Public API:
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated
@@ -76,8 +84,16 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStor
 from hivemind.common.sqlite import connect
 from hivemind.forage import Abundance, ForageMap, ModelSource
 from hivemind.forage.map import SlotBinding
-from hivemind.llm import ProviderConfig, ProviderRegistry, RegistryDeps, default_factories
-from hivemind.manifest import HiveManifest
+from hivemind.llm import (
+    ProviderConfig,
+    ProviderFactory,
+    ProviderKind,
+    ProviderRegistry,
+    RegistryDeps,
+    default_factories,
+)
+from hivemind.manifest import HiveManifest, ManifestError, load_manifest
+from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
 from waggle.clock import Clock, SystemClock
 
@@ -92,12 +108,31 @@ DbOption = Annotated[
     Path, typer.Option("--db", help=f"The Hive's SQLite database file (default: {DEFAULT_DB}).")
 ]
 
+# Every command group added from roadmap step 3.21 on takes a Hive Manifest; `hive llm` (3.21's
+# first half) defined its own copy of this pair locally before `hive run`/`cells`/`inbox`/`wardens`
+# (3.21's second half) existed to share it with, so this is that consolidation (this module's own
+# docstring flags it as optional; done here since four more command groups would otherwise repeat
+# it a fifth time).
+DEFAULT_MANIFEST = Path("hive.toml")
+ManifestOption = Annotated[
+    Path,
+    typer.Option("--manifest", help=f"The Hive Manifest TOML file (default: {DEFAULT_MANIFEST})."),
+]
+# Likewise shared by every command group that offers `--json` (`hive llm`, `hive capping`, and now
+# `hive cells`/`inbox`/`wardens`).
+JsonOption = Annotated[bool, typer.Option("--json", help="Print JSON instead of a table.")]
+
 __all__ = [
     "DEFAULT_DB",
+    "DEFAULT_MANIFEST",
     "DbOption",
+    "JsonOption",
+    "ManifestOption",
     "build_forage_map",
     "build_registry",
+    "load_manifest_or_exit",
     "open_chamber",
+    "open_memory",
     "open_trail",
     "provider_configs",
     "slot_bindings",
@@ -145,6 +180,65 @@ def open_chamber(db: Path, identity: ChamberIdentity) -> BroodChamber:
         return BroodChamber(store, clock, identity)
 
     return asyncio.run(_open())
+
+
+def open_memory(db: Path) -> MemoryStore:
+    """Open `db` and return a ready MemoryStore, applying both subsystems' migrations first.
+
+    Added in roadmap step 3.21 (second half) so `hive inbox answer` (a separate process from a
+    running `hive run`, v0 has no live link into the Queen process) can leave a human's answer
+    text somewhere `hivemind.queen.questions.sync_answers_from_chamber` can read it back: the
+    Brood Chamber's own public API exposes no way to read an already-`ANSWERED` Question's text
+    (`hivemind.queen.questions`'s own module docstring), but `hivemind.memory.MemoryStore.
+    list_notes` can be filtered by `author`, so `hive inbox answer` also writes a Note keyed by
+    the question's id.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteMemoryStore whose four tables exist and are current.
+    """
+
+    async def _open() -> MemoryStore:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same "trail's migration runs first" rule open_chamber follows: SqliteMemoryStore.create
+        # refuses without a pheromone_events table already on this connection.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def load_manifest_or_exit(path: Path) -> HiveManifest:
+    """Load the Hive Manifest at `path`, or print `ManifestError`'s message and exit 2.
+
+    The same bad-input shape `hivemind.cli.tasks`/`.trail` already give a malformed input
+    (codingrules section 10: a CLI command body is one of the three places a broad-looking catch
+    is allowed); `hivemind.cli.llm`'s own `_load_manifest_or_exit` predates this consolidation and
+    keeps its own private copy rather than being edited to call this one (not this dispatch's file
+    to change without cause).
+
+    Args:
+        path: A `--manifest` option's own value.
+
+    Returns:
+        The loaded HiveManifest.
+
+    Raises:
+        typer.Exit: Always, with code 2, when `path` does not exist or fails validation; the
+            command that called this never sees a raw `ManifestError` or a traceback.
+    """
+    try:
+        # SAFETY: top of a CLI command's own input-loading step (codingrules section 10): a
+        # missing file, invalid TOML or a validation failure all become one clean stderr line.
+        # os.environ is read here, at the composition root's very edge, and passed down; nothing
+        # below this line reads it again (codingrules section 13).
+        return load_manifest(path, environ=os.environ)
+    except ManifestError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
 
 
 def slot_bindings(manifest: HiveManifest) -> tuple[SlotBinding, ...]:
@@ -218,7 +312,12 @@ def build_forage_map(manifest: HiveManifest, clock: Clock) -> ForageMap:
 
 
 def build_registry(
-    manifest: HiveManifest, environ: Mapping[str, str], clock: Clock
+    manifest: HiveManifest,
+    environ: Mapping[str, str],
+    clock: Clock,
+    *,
+    factories: Mapping[ProviderKind, ProviderFactory] | None = None,
+    forage_map: ForageMap | None = None,
 ) -> ProviderRegistry:
     """Build a ready ProviderRegistry from a loaded HiveManifest.
 
@@ -232,15 +331,26 @@ def build_registry(
         environ: A raw environment mapping to read provider API keys from (codingrules section
             13); the composition root's own `os.environ`, never read by this function itself.
         clock: Passed to the built ForageMap and to every provider this registry later constructs.
+        factories: Overrides `hivemind.llm.registry.default_factories()`; added in roadmap step
+            3.21 (second half) so `hivemind.cli.compose.build_hive` can substitute a `"fake"`
+            factory that installs a scripted `hivemind.llm.Responder` on every `FakeLLMProvider`
+            it builds (this module's own docstring's "not a kind branch" note: the substitute
+            factory is still selected by `ProviderConfig.kind`, the same dispatch
+            `hivemind.llm.registry.default_factories` already performs). `None` keeps today's
+            behaviour.
+        forage_map: A ForageMap to share with this registry's `BoundModel` pricing, instead of a
+            fresh one `build_forage_map` would otherwise build; added so `build_hive` can hand the
+            same live map to the registry, the Fanner and `QueenDeps.map` (one Hive, one map).
+            `None` keeps today's behaviour (`build_forage_map(manifest, clock)`).
 
     Returns:
         A ProviderRegistry ready to resolve any `[llm.slots]` binding this manifest declares.
     """
     deps = RegistryDeps(
-        factories=default_factories(),
+        factories=factories if factories is not None else default_factories(),
         environ=environ,
         clock=clock,
-        map=build_forage_map(manifest, clock),
+        map=forage_map if forage_map is not None else build_forage_map(manifest, clock),
     )
     return ProviderRegistry(
         provider_configs(manifest), slot_bindings(manifest), manifest.llm.offline, deps

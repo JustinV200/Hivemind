@@ -57,6 +57,56 @@ typer layer that calls into a subsystem's public API and never contains logic of
   lives only in the Queen process's own memory, so both commands reconstruct what they show from
   the Pheromone Trail every gate transition already writes (codingrules section 12).
 
+## Command groups (phase 3 step 3.21, second half)
+
+- `stores.py` also holds the composition helpers every command below shares: `DEFAULT_MANIFEST`
+  (`hive.toml`), `ManifestOption`/`JsonOption` (the `--manifest`/`--json` typer option annotations
+  every command in this section attaches), `load_manifest_or_exit(path) -> HiveManifest` (loads a
+  manifest or exits 2 with the raised `ManifestError`'s own message), and `build_registry`'s own
+  signature grew two keyword-only parameters (`factories`, `forage_map`) so `hivemind.cli.compose.
+  build_hive` can share one `ForageMap` across the registry, the Fanner and `QueenDeps`, and
+  substitute a responder-installing `"fake"` factory for a test.
+- `compose/` -- the composition root that turns a loaded `HiveManifest` into a running Hive
+  (codingrules section 8.2: "exactly one place per entry point"). `build_hive(manifest, *,
+  environ, clock, stores=None, responders=None) -> Hive` builds every store, the LLM registry, the
+  Fanner, the Hive Stand source, one Queen<->Warden Waggle link and both kernels; `run_hive(hive)
+  -> AsyncIterator[None]` is an `asynccontextmanager` that leases the Cell, runs the Queen and
+  Warden as an `asyncio.TaskGroup`, and tears both down (and closes the link) on exit; `run_goal
+  (hive, goal, *, clearance, timeout_s, on_event=None) -> GoalReport` submits a goal and polls
+  until every task is terminal or `timeout_s` elapses, calling `hivemind.queen.
+  sync_answers_from_chamber` and streaming trail events to `on_event` each poll. Split into
+  `links.py` (the one Waggle link) and `deps.py` (every manifest-slice-to-deps conversion) to stay
+  within codingrules section 5.1's 300-line budget; see its own `__init__.py` for the full split.
+- `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
+  [--json]`: the one command that calls `build_hive`/`run_hive`/`run_goal`. Streams trail events as
+  they arrive (unless `--json`), then a one-line summary; exits 0 on success, 1 when the goal
+  failed, 2 on a timeout or a bad manifest. Registered on the root app with `app.command("run")`,
+  not `app.add_typer` -- unlike every other group in this package, it has no subcommand of its own
+  (`hive run "goal"`, not `hive run run "goal"`), and the pinned typer version does not collapse a
+  single-command `add_typer` sub-app onto its parent's own name (verified empirically; see this
+  module's own docstring).
+- `readback/` -- three commands grouped into a sub-package (codingrules section 5.6: `cli/` itself
+  stays within the ten-module limit) because they share one shape: each reconstructs what it shows
+  from a stored artifact this Hive already writes for another reason, never a live link into a
+  running `hive run`'s Queen process, which v0 has none of.
+    - `cells.py` -- `hive cells list --manifest hive.toml [--json]`: builds only the Hive Stand's
+      own `HiveStandSource` (never a full Hive) and lists every Cell it reports (id, name, source,
+      kind, access level, Comb Shield tier, capabilities, capacity).
+    - `inbox.py` -- `hive inbox --manifest hive.toml [--json]` lists pending questions
+      (`chamber.pending_questions`) and Alarms still escalated to the human, reconstructed from the
+      trail's own `alarm.escalated`/`alarm.resolved` events; `hive inbox answer QUESTION_ID "text"
+      [--option N] --manifest hive.toml` records the answer through `chamber.answer` and also
+      leaves a `hivemind.memory.Note` (keyed by `hivemind.queen.answer_note_author`) a running
+      `hive run`'s own `sync_answers_from_chamber` polls for and forwards on its next poll, since
+      the Brood Chamber's own public API has no way to read an already-`ANSWERED` question's text
+      back out.
+    - `wardens.py` -- `hive wardens list --manifest hive.toml [--json]`: every Warden id ever seen
+      in a `warden.*` event (state = its latest kind), the grants issued to it
+      (`forage.granted`'s own `warden_id` payload field), and every sub-bee id seen in a `worker.*`
+      event. v0 has exactly one Warden and a `worker.*` event carries no `warden_id` of its own, so
+      every sub-bee is listed under every Warden this command has ever seen -- exact for the
+      one-Warden Hive this phase ships, flagged as a limitation a multi-Warden phase must close.
+
 ## How to test this
 
 ```
@@ -79,3 +129,25 @@ case, and rely on an unscripted one's own `ProviderUnavailableError` for the fai
 `test_capping.py` seeds a `MemoryPheromoneTrail` directly through `PheromoneTrail.record` (the
 same event shapes `hivemind.supervision.capping.gate.CappingGate` itself writes) and monkeypatches
 `hivemind.cli.capping.open_trail` to hand it to the CLI.
+
+`tests/builders/cli.py`'s `fake_manifest(tmp_path, *, capabilities="full", clock=None) -> Path`
+writes a real Hive Manifest TOML with every `hivemind.forage.slots.ModelSlot` bound to one
+`kind = "fake"` provider, so `build_hive`'s own `responders` argument can script every call the
+Queen, a Warden and a Drone make; its sibling `pump_until_done(clock, coro, *, limit=2_000)` drives
+a `FakeClock`-backed coroutine to completion, yielding the event loop repeatedly between advances
+so a whole message cascade (Warden tick -> spawn -> sub-bee tick -> tool loop round -> Capping
+gate) settles before the next `clock.sleep()` in the chain is even registered.
+
+`test_compose.py` builds a `Hive` over `fake_manifest` and a scripted three-haiku responder (write
+three files, one tool call round each), and drives it through `run_hive`/`run_goal` with
+`pump_until_done`: the key test asserts the goal succeeds and that the trail's own event kinds
+carry `cell.leased`, `queen.planned`, `queen.assigned`, `forage.granted`, `worker.spawned`, every
+`capping.*` stage, `task.succeeded` and `cell.released`, each in that relative order. `test_run.py`
+drives `hive run` itself through `CliRunner`, monkeypatching `hivemind.cli.run.build_hive` to
+inject a scripted responder (mirroring `test_llm.py`'s own pattern); `hive run` is one of the few
+places a real `SystemClock` and a real sleep are expected, so these tests run in real time (the
+goal itself finishes in well under a second). `test_cells.py`, `test_inbox.py` and
+`test_wardens.py` seed a `fake_manifest`'s own SQLite file directly through `hivemind.cli.stores`'
+`open_chamber`/`open_trail`/`open_memory` (or, for `hive wardens list`, trail events built by
+hand) the same way a running `hive run` process would have left them, since each command's own job
+is reading state a *different* process wrote.

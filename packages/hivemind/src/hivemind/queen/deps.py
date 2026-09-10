@@ -41,12 +41,19 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 
 from hivemind.brood_chamber import BroodChamber
 from hivemind.cell import Cell
-from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, SlotBinding
+from hivemind.forage import (
+    ForageMap,
+    GoalBudgets,
+    ModelSlot,
+    RoleFootprint,
+    RoyalReserve,
+    SlotBinding,
+)
 from hivemind.llm import BoundModel, CallGate
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -54,7 +61,23 @@ from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
 from waggle.envelope import Hop
 from waggle.ids import WardenId
+from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
+
+# roadmap step 3.21 (second half): QueenDeps carried no [forage.roles.*]/[forage.reserve]/
+# grant_ttl_s slice, so hivemind.queen.dispatcher stood in with these three module constants
+# (flagged in that dispatch's own report); they move here, unchanged, as this dataclass's own
+# defaults, so a caller that builds a QueenDeps without naming these three fields (every existing
+# test) gets exactly today's behaviour, and hivemind.cli.compose.build_hive is the first caller
+# that overrides them from a loaded HiveManifest's own [forage] section.
+_DEFAULT_DRONE_FOOTPRINT = RoleFootprint(
+    cpu_cores=1.0,
+    memory_bytes=512 * 1024 * 1024,
+    seats=1,
+    token_rate_per_minute=1_000.0,
+    exoskeleton_extra_memory_bytes=0,
+)
+_DEFAULT_GRANT_TTL_S = 300.0  # Matches the manifest's own [forage] grant_ttl_s default.
 
 __all__ = ["MemoryBudget", "QueenDeps", "WardenLink"]
 
@@ -125,6 +148,16 @@ class QueenDeps:
         alarm_attempt_limit: A ceiling on attempts before an Alarm escalates to the human
             regardless of what the escalation policy's own rows would otherwise decide.
         memory_budget: The `[memory]` slice an awake episode's `TokenBudget` is built from.
+        footprints: Every `[forage.roles.<role>]` footprint, forage-side, keyed by
+            `waggle.messages.task.WorkerRole`; `hivemind.queen.dispatcher` reads
+            `footprints[WorkerRole.DRONE]` for every fresh grant it computes (roadmap step 3.21,
+            second half). Defaults to a single DRONE entry matching the constant the dispatcher
+            used before this field existed.
+        reserve: The `[forage.reserve]` Royal Reserve every fresh grant subtracts first. Defaults
+            to `RoyalReserve()` (its own manifest-sensible defaults), matching the dispatcher's
+            prior module constant.
+        grant_ttl_s: The `[forage] grant_ttl_s` every fresh grant expires after. Defaults to
+            300.0, matching the dispatcher's prior module constant.
     """
 
     chamber: BroodChamber
@@ -143,3 +176,8 @@ class QueenDeps:
     heartbeat_miss_limit: int
     alarm_attempt_limit: int
     memory_budget: MemoryBudget
+    footprints: Mapping[WorkerRole, RoleFootprint] = field(
+        default_factory=lambda: {WorkerRole.DRONE: _DEFAULT_DRONE_FOOTPRINT}
+    )
+    reserve: RoyalReserve = field(default_factory=RoyalReserve)
+    grant_ttl_s: float = _DEFAULT_GRANT_TTL_S
