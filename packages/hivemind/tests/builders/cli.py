@@ -38,6 +38,13 @@ Key invariants:
       (`hivemind.manifest.schema.llm.LlmSection`'s own validator requires this of any manifest).
     - `pump_until_done` never blocks forever: it gives up and raises `AssertionError` after
       `limit` clock advances, matching `builders.queen.WardenEnd.pump_until`'s own contract.
+    - `worker_fallback=True` (roadmap step 3.22, scenario (c)) adds a second `[llm.slots.
+      local_worker]` row, bound to the same `"fake"` provider under a distinct neutral model id,
+      and sets `[llm.slots.worker] fallback = "local_worker"`, so `hivemind.queen.deps.QueenDeps.
+      bindings` has somewhere for an escalated Alarm's own REBIND decision to name.
+    - `handoff_threshold`, when given, writes `[memory] handoff_threshold`; omitted, the manifest
+      carries no `[memory]` section at all and `hivemind.manifest.schema.supervision.
+      MemorySection`'s own default applies.
 
 See Also:
     - .claude/codingrules.md section 14.5 for the builders-over-fixtures rule this module follows.
@@ -51,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +80,7 @@ _POLICY_PATH = _REPO_ROOT / "docs" / "supervision" / "default-policy.toml"
 _TIERS_PATH = _REPO_ROOT / "docs" / "supervision" / "capping-tiers.toml"
 
 _MODEL_ID = "test-model"  # Neutral (codingrules 8.6); never a real vendor id.
+_STRONG_MODEL_ID = "test-model-strong"  # worker_fallback=True's own second binding's model id.
 _SOURCE_ID = "fake_default"  # The one [forage.map.<source_id>] entry every slot's binding prices.
 
 # Every hivemind.forage.slots.ModelSlot's own lowercase manifest key (hivemind.manifest.schema.llm.
@@ -106,7 +115,12 @@ token_counting = false
 
 
 def fake_manifest(
-    tmp_path: Path, *, capabilities: str = "full", clock: Clock | None = None
+    tmp_path: Path,
+    *,
+    capabilities: str = "full",
+    clock: Clock | None = None,
+    worker_fallback: bool = False,
+    handoff_threshold: float | None = None,
 ) -> Path:
     """Write `<tmp_path>/hive.toml`: every ModelSlot bound to one `kind = "fake"` provider.
 
@@ -116,36 +130,56 @@ def fake_manifest(
         capabilities: `"full"` (default) for `ProviderCapabilities.full()`'s own shape, or
             `"none"` for `ProviderCapabilities.none()`'s own shape (module docstring).
         clock: Mints `[hive] id`/`node_id`; a fresh FakeClock when omitted.
+        worker_fallback: When True, adds a second `[llm.slots.local_worker]` row and a `fallback`
+            on `[llm.slots.worker]` naming it (module docstring's own "Key invariants" entry).
+        handoff_threshold: When given, writes `[memory] handoff_threshold`; omitted writes no
+            `[memory]` section at all.
 
     Returns:
         The written manifest's own path.
     """
     active_clock = clock if clock is not None else FakeClock()
-    hive_id = new_hive_id(active_clock)
-    node_id = new_node_id(active_clock)
     data_dir = tmp_path / "data"
     scratch_root = tmp_path / "scratch"
     data_dir.mkdir(parents=True, exist_ok=True)
     scratch_root.mkdir(parents=True, exist_ok=True)
-    manifest_path = tmp_path / "hive.toml"
-    manifest_path.write_text(
-        _render(hive_id, node_id, data_dir / "hive.sqlite3", scratch_root, capabilities),
-        encoding="utf-8",
+    spec = _ManifestSpec(
+        hive_id=new_hive_id(active_clock),
+        node_id=new_node_id(active_clock),
+        db_path=data_dir / "hive.sqlite3",
+        scratch_root=scratch_root,
+        capabilities=capabilities,
+        worker_fallback=worker_fallback,
+        handoff_threshold=handoff_threshold,
     )
+    manifest_path = tmp_path / "hive.toml"
+    manifest_path.write_text(_render(spec), encoding="utf-8")
     return manifest_path
 
 
-def _render(
-    hive_id: str, node_id: str, db_path: Path, scratch_root: Path, capabilities: str
-) -> str:
+@dataclass(frozen=True, slots=True)
+class _ManifestSpec:
+    """Every value `_render` needs, grouped to stay within codingrules 5.1's five-parameter cap."""
+
+    hive_id: str
+    node_id: str
+    db_path: Path
+    scratch_root: Path
+    capabilities: str
+    worker_fallback: bool
+    handoff_threshold: float | None
+
+
+def _render(spec: _ManifestSpec) -> str:
     """Render the manifest's full TOML text."""
     sections = [
-        _hive_section(hive_id, node_id, db_path),
-        _queen_and_hive_stand_section(scratch_root),
-        _provider_section(capabilities),
-        _slots_section(),
+        _hive_section(spec.hive_id, spec.node_id, spec.db_path),
+        _queen_and_hive_stand_section(spec.scratch_root),
+        _provider_section(spec.capabilities),
+        _slots_section(worker_fallback=spec.worker_fallback),
         _forage_section(),
         _supervision_section(),
+        _memory_section(spec.handoff_threshold),
     ]
     return "\n".join(sections)
 
@@ -172,11 +206,22 @@ def _provider_section(capabilities: str) -> str:
     return base + _NONE_CAPABILITIES if capabilities == "none" else base
 
 
-def _slots_section() -> str:
-    """Build one `[llm.slots.<slot>]` per ModelSlot, all bound to the one fake provider."""
-    return "\n".join(
-        f'[llm.slots.{key}]\nprovider = "fake"\nmodel = "{_MODEL_ID}"\n' for key in _SLOT_KEYS
-    )
+def _slots_section(*, worker_fallback: bool) -> str:
+    """Build one `[llm.slots.<slot>]` per ModelSlot, plus `local_worker` when `worker_fallback`."""
+    rows = []
+    for key in _SLOT_KEYS:
+        fallback_line = 'fallback = "local_worker"\n' if worker_fallback and key == "worker" else ""
+        rows.append(f'[llm.slots.{key}]\nprovider = "fake"\nmodel = "{_MODEL_ID}"\n{fallback_line}')
+    if worker_fallback:
+        rows.append(f'[llm.slots.local_worker]\nprovider = "fake"\nmodel = "{_STRONG_MODEL_ID}"\n')
+    return "\n".join(rows)
+
+
+def _memory_section(handoff_threshold: float | None) -> str:
+    """Build `[memory]`, only when `handoff_threshold` was given (module docstring)."""
+    if handoff_threshold is None:
+        return ""
+    return f"[memory]\nhandoff_threshold = {handoff_threshold}\n"
 
 
 def _forage_section() -> str:
