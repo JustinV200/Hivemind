@@ -38,13 +38,9 @@ Key invariants:
       (`hivemind.manifest.schema.llm.LlmSection`'s own validator requires this of any manifest).
     - `pump_until_done` never blocks forever: it gives up and raises `AssertionError` after
       `limit` clock advances, matching `builders.queen.WardenEnd.pump_until`'s own contract.
-    - `worker_fallback=True` (roadmap step 3.22, scenario (c)) adds a second `[llm.slots.
-      local_worker]` row, bound to the same `"fake"` provider under a distinct neutral model id,
-      and sets `[llm.slots.worker] fallback = "local_worker"`, so `hivemind.queen.deps.QueenDeps.
-      bindings` has somewhere for an escalated Alarm's own REBIND decision to name.
-    - `handoff_threshold`, when given, writes `[memory] handoff_threshold`; omitted, the manifest
-      carries no `[memory]` section at all and `hivemind.manifest.schema.supervision.
-      MemorySection`'s own default applies.
+    - Every rarely-needed override (a second worker binding, a memory handoff threshold, a slower
+      heartbeat cadence) is grouped on `ManifestTuning` rather than added to `fake_manifest`'s own
+      signature (codingrules 5.1's parameter cap); see that class's own docstring for each field.
 
 See Also:
     - .claude/codingrules.md section 14.5 for the builders-over-fixtures rule this module follows.
@@ -65,7 +61,7 @@ from typing import Any
 from waggle.clock import Clock, FakeClock
 from waggle.ids import new_hive_id, new_node_id
 
-__all__ = ["fake_manifest", "pump_until_done"]
+__all__ = ["ManifestTuning", "fake_manifest", "pump_until_done"]
 
 # pump_until_done's own cadence: a small clock step so a poll/heartbeat interval is crossed in a
 # few pumps, and several real scheduling turns per step so a whole message cascade (module
@@ -82,6 +78,7 @@ _TIERS_PATH = _REPO_ROOT / "docs" / "supervision" / "capping-tiers.toml"
 _MODEL_ID = "test-model"  # Neutral (codingrules 8.6); never a real vendor id.
 _STRONG_MODEL_ID = "test-model-strong"  # worker_fallback=True's own second binding's model id.
 _SOURCE_ID = "fake_default"  # The one [forage.map.<source_id>] entry every slot's binding prices.
+_DEFAULT_HEARTBEAT_INTERVAL_S = 0.05  # This suite's usual cadence; fake_manifest's own default.
 
 # Every hivemind.forage.slots.ModelSlot's own lowercase manifest key (hivemind.manifest.schema.llm.
 # LlmSection's own validator requires every one of these to resolve).
@@ -114,13 +111,43 @@ token_counting = false
 """
 
 
+@dataclass(frozen=True, slots=True)
+class ManifestTuning:
+    """The rarely-needed `fake_manifest` overrides, grouped to stay within its own parameter cap.
+
+    Codingrules 5.1's five-parameter cap is why this exists (`_ManifestSpec` below groups
+    `_render`'s own values for the same reason).
+
+    Fields:
+        worker_fallback: When True, adds a second `[llm.slots.local_worker]` row and a `fallback`
+            on `[llm.slots.worker]` naming it (module docstring's own "Key invariants" entry;
+            roadmap step 3.22 scenario (c)'s own use).
+        handoff_threshold: When given, writes `[memory] handoff_threshold`; omitted writes no
+            `[memory]` section at all.
+        heartbeat_interval_s: When given, overrides both `[queen] heartbeat_interval_s` and
+            `[supervision] heartbeat_interval_s` together (normally `0.05`, module docstring's own
+            "short `[supervision]`/`[queen]` intervals"). Roadmap step 3.22 scenario (d)'s own use:
+            a slower heartbeat cadence keeps the Queen's own tick loop -- woken only by a new
+            envelope arriving on a Warden link, e.g. a Heartbeat -- from re-entering `hivemind.
+            queen.questions.route_answers` (which drops tracking for any question whose task has
+            already left BLOCKED) inside the narrow real-time window between `hive inbox answer`'s
+            own two separate writes (`chamber.answer`, then the answer Note); `hivemind.cli.
+            compose.run_goal`'s own poll loop calls `sync_answers_from_chamber` every 50ms
+            regardless of this manifest's heartbeat cadence, so slowing only the heartbeat-driven
+            wake reliably lets that poll loop win the race instead of leaving it to chance.
+    """
+
+    worker_fallback: bool = False
+    handoff_threshold: float | None = None
+    heartbeat_interval_s: float | None = None
+
+
 def fake_manifest(
     tmp_path: Path,
     *,
     capabilities: str = "full",
     clock: Clock | None = None,
-    worker_fallback: bool = False,
-    handoff_threshold: float | None = None,
+    tuning: ManifestTuning | None = None,
 ) -> Path:
     """Write `<tmp_path>/hive.toml`: every ModelSlot bound to one `kind = "fake"` provider.
 
@@ -130,14 +157,13 @@ def fake_manifest(
         capabilities: `"full"` (default) for `ProviderCapabilities.full()`'s own shape, or
             `"none"` for `ProviderCapabilities.none()`'s own shape (module docstring).
         clock: Mints `[hive] id`/`node_id`; a fresh FakeClock when omitted.
-        worker_fallback: When True, adds a second `[llm.slots.local_worker]` row and a `fallback`
-            on `[llm.slots.worker]` naming it (module docstring's own "Key invariants" entry).
-        handoff_threshold: When given, writes `[memory] handoff_threshold`; omitted writes no
-            `[memory]` section at all.
+        tuning: The rarely-needed overrides, grouped in `ManifestTuning` (see its own docstring
+            for each field); every default applies when omitted.
 
     Returns:
         The written manifest's own path.
     """
+    active_tuning = tuning if tuning is not None else ManifestTuning()
     active_clock = clock if clock is not None else FakeClock()
     data_dir = tmp_path / "data"
     scratch_root = tmp_path / "scratch"
@@ -149,8 +175,9 @@ def fake_manifest(
         db_path=data_dir / "hive.sqlite3",
         scratch_root=scratch_root,
         capabilities=capabilities,
-        worker_fallback=worker_fallback,
-        handoff_threshold=handoff_threshold,
+        worker_fallback=active_tuning.worker_fallback,
+        handoff_threshold=active_tuning.handoff_threshold,
+        heartbeat_interval_s=active_tuning.heartbeat_interval_s,
     )
     manifest_path = tmp_path / "hive.toml"
     manifest_path.write_text(_render(spec), encoding="utf-8")
@@ -168,17 +195,23 @@ class _ManifestSpec:
     capabilities: str
     worker_fallback: bool
     handoff_threshold: float | None
+    heartbeat_interval_s: float | None
 
 
 def _render(spec: _ManifestSpec) -> str:
     """Render the manifest's full TOML text."""
+    heartbeat_s = (
+        spec.heartbeat_interval_s
+        if spec.heartbeat_interval_s is not None
+        else _DEFAULT_HEARTBEAT_INTERVAL_S
+    )
     sections = [
         _hive_section(spec.hive_id, spec.node_id, spec.db_path),
-        _queen_and_hive_stand_section(spec.scratch_root),
+        _queen_and_hive_stand_section(spec.scratch_root, heartbeat_s),
         _provider_section(spec.capabilities),
         _slots_section(worker_fallback=spec.worker_fallback),
         _forage_section(),
-        _supervision_section(),
+        _supervision_section(heartbeat_s),
         _memory_section(spec.handoff_threshold),
     ]
     return "\n".join(sections)
@@ -192,10 +225,10 @@ def _hive_section(hive_id: str, node_id: str, db_path: Path) -> str:
     )
 
 
-def _queen_and_hive_stand_section(scratch_root: Path) -> str:
+def _queen_and_hive_stand_section(scratch_root: Path, heartbeat_interval_s: float) -> str:
     """Build `[queen]` and `[hive_stand]`: short cadences, the Hive Stand enabled and scratched."""
     return (
-        "[queen]\ntick_interval_s = 0.05\nheartbeat_interval_s = 0.05\n\n"
+        f"[queen]\ntick_interval_s = 0.05\nheartbeat_interval_s = {heartbeat_interval_s}\n\n"
         f'[hive_stand]\nenabled = true\nscratch_root = "{scratch_root.as_posix()}"\n'
     )
 
@@ -240,13 +273,13 @@ def _forage_section() -> str:
     )
 
 
-def _supervision_section() -> str:
+def _supervision_section(heartbeat_interval_s: float) -> str:
     """Build `[supervision]`: the shipped policy/tiers files, and short heartbeat cadences."""
     return (
         "[supervision]\n"
         f'policy_file = "{_POLICY_PATH.as_posix()}"\n'
         f'capping_tiers_file = "{_TIERS_PATH.as_posix()}"\n'
-        "heartbeat_interval_s = 0.05\n"
+        f"heartbeat_interval_s = {heartbeat_interval_s}\n"
         "heartbeat_miss_limit = 3\n"
     )
 

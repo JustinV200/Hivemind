@@ -6,7 +6,12 @@ drives it with `hivemind.cli.compose.run_hive`/`run_goal` (or, for the CLI-shape
 (a), `hive run` itself through `typer.testing.CliRunner`) -- the real Hive Stand, a real SQLite
 file and, where a scenario scripts `run_command`, a real child process. Every scenario runs at
 both `ProviderCapabilities.full()` and `.none()` (roadmap step 3.22's own "at full and at zero
-capabilities"), parametrised through `_LEVELS`.
+capabilities"), parametrised through `_LEVELS`, and every scenario runs its Hive exactly once --
+the checkpoint suite's own fresh-Hive retry loops (`_retry_goal` and scenario (d)'s own bespoke
+one) are gone now that the kernel fix-forward commit (`git log`: "fix(kernel): make Alarms reach
+the trail and the rebind chain work end to end") closed the races they were guarding against;
+where one scenario still needs a specific interleaving pinned down, it says so at its own site
+(scenario (d), below) rather than retrying.
 
 Scenario (a)'s own trail order deserves its own note: the roadmap's prose lists "decompose ->
 placed -> leased -> granted -> spawned -> ...", but the kernel leases *first*, because the Hive
@@ -27,20 +32,17 @@ actually guarantees regardless of that race (each group is a strict sequence wit
 coroutine, or otherwise causally impossible to invert); `forage.granted` and `worker.spawned` are
 asserted present, not ordered against the rest.
 
-Three gaps this module documents rather than works around (full detail in this dispatch's own
-report; each is also named at its own xfail site below):
-    - No shipped `AlarmKind` any live component ever raises has a REBIND row in `docs/
-      supervision/default-policy.toml` (only `WORKER_FAILED`/`PROVIDER_UNAVAILABLE` do, and
-      neither kind is ever constructed anywhere in `hivemind/workers/runtime/attempt.py`,
-      `hivemind/wardens/ticks/heartbeat.py`, `hivemind/wardens/ticks/results.py` or `hivemind/
-      queen/ticks/liveness.py`); scenario (c)'s own "rebinds to a stronger slot" is xfailed.
-    - No shipped Drone tool can ever produce a Proposal whose declared postcondition fails after a
-      successful apply (`write_file`'s own `FILE_EXISTS` always names the exact path it just
-      wrote; `run_command` declares none at all -- `hivemind/workers/tools/session.py`); scenario
-      (g) exercises the other real `ROLLED_BACK` path instead (a `COMMAND` action whose own exit
-      is non-zero) and says so.
-    - No component ever raises an Alarm from a Capping `ROLLED_BACK` outcome; scenario (g)'s own
-      alarm assertion is xfailed.
+One gap this module still documents rather than works around (full detail in this dispatch's own
+report; also named at its own xfail site below): no component ever calls
+`hivemind.supervision.alarm_trail.record_alarm_event(..., "alarm.raised")` for a Worker-originated
+Alarm (a crash, or a Capping `ROLLED_BACK` outcome) -- `hivemind.workers.runtime.reporter.
+Reporter.send_alarm` (the one function both paths go through) only ever sends the wire
+`AlarmRaised`, never records a trail event of its own; only a Warden's own *self*-raised Alarms
+(`WORKER_STALLED` via `hivemind.wardens.ticks.heartbeat.raise_stalled_alarms`, `ACCEPTANCE_FAILED`
+via `hivemind.wardens.ticks.results._send_acceptance_failed`) ever get one. Scenario (g)'s own
+`alarm.raised` assertion is xfailed for exactly this reason; `alarm.handled` (the Warden's own
+policy dispatch, one hop later) is what the trail actually carries, and scenario (g)'s own
+non-xfail test asserts that instead.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -54,6 +56,8 @@ See Also:
     - tests.unit.cli.test_compose for the three-haiku unit test scenario (a) mirrors end to end.
     - tests.e2e.kernel_helpers for HaikuScript, wait_until, snapshot_tree and this module's other
       scripting primitives.
+    - tests.e2e.README.md for this suite's own budget and the one-line meaning of every trail
+      event named above.
 """
 
 from __future__ import annotations
@@ -65,7 +69,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest
+from builders.cli import ManifestTuning, fake_manifest
 from e2e.kernel_helpers import (
     HaikuScript,
     WorkerTurn,
@@ -89,7 +93,7 @@ from hivemind.cli.compose import GoalReport, Hive, HiveStores, build_hive, run_g
 from hivemind.cli.compose import build_hive as real_build_hive
 from hivemind.llm import LLMRequest, LLMResponse, Responder
 from hivemind.manifest import HiveManifest, load_manifest
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.supervision import Checkpoint
 from waggle.clock import Clock, SystemClock
 
@@ -121,54 +125,22 @@ def _hive(manifest_path: Path, script: HaikuScript) -> Hive:
     )
 
 
+async def _run_goal_and_events(
+    hive: Hive, *, timeout_s: float = _TIMEOUT_S
+) -> tuple[GoalReport, tuple[PheromoneEvent, ...]]:
+    """Run `_GOAL` inside `run_hive` to completion, and return the report plus every trail event."""
+    async with run_hive(hive):
+        report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=timeout_s)
+    events = await hive.stores.trail.query(TrailQuery())
+    return report, tuple(events)
+
+
 async def _run_goal_to_completion(
     hive: Hive, *, timeout_s: float = _TIMEOUT_S
 ) -> tuple[GoalReport, list[str]]:
     """Run `_GOAL` inside `run_hive` to completion, and return the report plus every trail kind."""
-    async with run_hive(hive):
-        report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=timeout_s)
-    events = await hive.stores.trail.query(TrailQuery())
+    report, events = await _run_goal_and_events(hive, timeout_s=timeout_s)
     return report, [event.kind for event in events]
-
-
-def _retry_goal(
-    tmp_dir: Path,
-    capabilities: str,
-    worker_turn_factory: Callable[[], WorkerTurn],
-    check: Callable[[GoalReport, list[str]], bool],
-    *,
-    worker_fallback: bool = False,
-) -> None:
-    """Run a scripted goal to completion, retrying with a fresh Hive on a known-rare race.
-
-    See `test_a_drones_question_blocks_the_task_...`'s own docstring for the class of real,
-    low-probability races this guards against: real SQLite I/O lets the Queen's own post-dispatch
-    bookkeeping and a fast Warden/Drone reaction interleave in ways `tests.unit.cli.test_compose`'s
-    own FakeClock pump never exercises, since every trail write there is an in-memory, synchronous
-    append with no real suspension in between for a race to land in.
-
-    Args:
-        tmp_dir: This test's own `tmp_path`; each attempt gets its own subdirectory.
-        capabilities: `"full"` or `"none"`, passed straight through to `fake_manifest`.
-        worker_turn_factory: Builds this scenario's own WORKER script fresh for each attempt, so a
-            script with its own mutable state (a crash budget, say) never carries a spent state
-            into a retry.
-        check: Makes this scenario's own assertions and returns whether this attempt actually
-            satisfied them; a raised exception (a crashed Hive) also just retries.
-        worker_fallback: Passed straight through to `fake_manifest`.
-    """
-    for attempt in range(_RETRY_ATTEMPTS):
-        manifest_path = fake_manifest(
-            tmp_dir / f"try_{attempt}", capabilities=capabilities, worker_fallback=worker_fallback
-        )
-        hive = _hive(manifest_path, HaikuScript(worker_turn_factory()))
-        try:
-            report, kinds = asyncio.run(_run_goal_to_completion(hive, timeout_s=_RETRY_TIMEOUT_S))
-            if check(report, kinds):
-                return
-        except Exception:  # noqa: S112 -- SAFETY: a crashed/hung attempt just retries, fresh.
-            continue
-    pytest.fail(f"never completed cleanly after {_RETRY_ATTEMPTS} attempts.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -292,26 +264,23 @@ async def _run_kill_and_respawn(hive: Hive) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# (c) a Drone that crashes repeatedly escalates; the task eventually completes
+# (c) a Drone that crashes twice escalates to the Queen, who rebinds to the fallback
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _crashing_worker_turn(
-    crash_budget: dict[str, int], used_models: set[str | None] | None = None
-) -> WorkerTurn:
+def _crashing_worker_turn(crash_budget: dict[str, int], used_models: set[str | None]) -> WorkerTurn:
     """Build a WORKER script that crashes `crash_budget["count"]` times, then writes the files.
 
     Args:
         crash_budget: `{"count": N}`, decremented once per crashed attempt; shared with the
             caller so it can assert exactly how many crashes actually happened.
-        used_models: When given, every call's own `request.model` is recorded into it (scenario
-            (c)'s own xfail test reads this back to prove no REBIND to a stronger model ever
-            happens).
+        used_models: Every call's own `request.model` is recorded into it, so the caller can prove
+            the goal actually finished on the Queen's own fallback binding (`test-model-strong`),
+            not the original one.
     """
 
     def worker_turn(request: LLMRequest) -> LLMResponse:
-        if used_models is not None:
-            used_models.add(request.model)
+        used_models.add(request.model)
         if tool_round_count(request) == 0 and crash_budget["count"] > 0:
             crash_budget["count"] -= 1
             raise RuntimeError("simulated crash: the bound provider vanished mid-attempt.")
@@ -321,61 +290,56 @@ def _crashing_worker_turn(
 
 
 @_LEVELS
-def test_a_drone_that_crashes_repeatedly_escalates_and_the_task_eventually_completes(
+def test_a_drone_that_crashes_repeatedly_escalates_and_the_queen_rebinds_it_to_completion(
     tmp_path: Path, capabilities: str
 ) -> None:
-    """(c) three crashes escalate to the Queen, whose own retry finishes the task.
+    """(c) a Warden RESPAWN, two escalations, then the Queen's own REBIND finishes the goal.
 
-    Three `WORKER_CRASHED` alarms (`docs/supervision/default-policy.toml`'s own RESPAWN@1/
-    ESCALATE@3 rows) exhaust the Warden's own local retries and reach the Queen, whose own
-    RESPAWN@1 row (`QueenAction.RETRY_TASK`) redispatches it: the real, reachable path. Wrapped in
-    `_retry_goal` like scenarios (d)/(f): with four separate dispatch-and-spawn cycles of its own,
-    this scenario has even more chances than most to hit the same rare, real SQLite-timing race.
-    """
-
-    def check(report: GoalReport, kinds: list[str]) -> bool:
-        return (
-            report.succeeded
-            and kinds.count("worker.failed") == 3
-            and kinds.count("worker.spawned") >= 4
-        )
-
-    _retry_goal(
-        tmp_path,
-        capabilities,
-        lambda: _crashing_worker_turn({"count": 3}),
-        check,
-        worker_fallback=True,
-    )
-
-
-@_LEVELS
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "no shipped AlarmKind a live component ever raises has a REBIND row in docs/supervision/"
-        "default-policy.toml, and hivemind/queen/ticks/alarms.py's own REBIND path forwards an "
-        "Intervene naming no target binding to hivemind/wardens/ticks/control.py's "
-        "forward_control, which only relays it to the CURRENT sub-bee (checkpoint-and-stop, "
-        "never a fresh spawn on a stronger slot): the goal always finishes on the original "
-        "'worker' binding, never 'local_worker'."
-    ),
-)
-def test_a_queen_rebind_to_a_stronger_slot_never_actually_happens(
-    tmp_path: Path, capabilities: str
-) -> None:
-    """(c), the documented gap: the Queen never rebinds to a stronger slot.
-
-    The roadmap's own "Queen rebinds it to a stronger slot" never happens under the shipped
-    policy and wire protocol; see the xfail reason above.
+    The kernel fix-forward commit's own `docs/supervision/default-policy.toml` gives
+    `WORKER_CRASHED` a three-row ladder (RESPAWN@1, REBIND@2, ESCALATE@3), keyed on the Warden's
+    own per-sub-bee attempt count (`hivemind.wardens.autopilot.table._decide_alarm`), never the
+    wire `AlarmRaised.attempts` field. With `worker_fallback=True` (a second `[llm.slots.
+    local_worker]` row, `[llm.slots.worker] fallback = "local_worker"`), this scenario's own three
+    scripted crashes walk the whole chain: attempt 1 crashes -> the Warden's own RESPAWN@1 row
+    retries on the same binding (attempt 2); attempt 2 crashes -> REBIND@2 fires, but this
+    Warden's own grant carries only one binding to offer (`builders.cli.fake_manifest`'s own
+    module docstring: the fallback chain is a Queen-side concept a Warden's grant never carries),
+    so `hivemind.wardens.ticks.alarms._rebind` finds no local target and escalates instead; the
+    Queen's own first decision (her own attempt counter starts at 1) is RETRY_TASK, redispatching
+    a fresh sub-bee at attempt 2 -- which also crashes (the crash budget's own third and last),
+    escalating a second time; the Queen's own second decision (attempts now 2) is REBIND
+    (`hivemind.queen.ticks.alarms._rebind`), and she already resolved the fallback key for
+    herself, so her own `Intervene(REBIND)` names it (`binding="local_worker"`);
+    `hivemind.wardens.ticks.control._handle_queen_rebind` turns that into a real respawn, one
+    attempt higher, on `local_worker` -- which the script no longer crashes, so the goal finishes
+    there. This exact chain (`worker.failed` exactly 3, `worker.spawned` exactly 4, one
+    `queen.decided(REBIND)` naming `local_worker`, the goal finishing on `test-model-strong`) held
+    on 20/20 manual runs at both capability levels in this dispatch's own soak test, so this
+    scenario needs no retry loop.
     """
     used_models: set[str | None] = set()
-    manifest_path = fake_manifest(tmp_path, capabilities=capabilities, worker_fallback=True)
+    manifest_path = fake_manifest(
+        tmp_path, capabilities=capabilities, tuning=ManifestTuning(worker_fallback=True)
+    )
     script = HaikuScript(_crashing_worker_turn({"count": 3}, used_models))
     hive = _hive(manifest_path, script)
-    report, _kinds = asyncio.run(_run_goal_to_completion(hive))
+    report, events = asyncio.run(_run_goal_and_events(hive))
+    kinds = [event.kind for event in events]
+
     assert report.succeeded, report
-    assert "test-model-strong" in used_models  # never true today: see the xfail reason.
+    assert kinds.count("worker.failed") == 3
+    assert kinds.count("worker.spawned") >= 4
+    assert "alarm.escalated" in kinds
+    rebind_events = [
+        event
+        for event in events
+        if event.kind == "queen.decided" and event.payload.get("action") == "REBIND"
+    ]
+    assert len(rebind_events) == 1, rebind_events
+    # The Queen's own trail payload names the fallback binding her Intervene(REBIND) carried.
+    assert rebind_events[0].payload.get("binding") == "local_worker"
+    # The goal actually finished on the fallback binding, not a retry of the original one.
+    assert "test-model-strong" in used_models
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -389,12 +353,8 @@ async def _task_is_blocked(hive: Hive) -> bool:
     return bool(tasks) and tasks[0].status is TaskStatus.BLOCKED
 
 
-_RETRY_ATTEMPTS = 10  # See the docstring below for the two real races this bounds a retry around.
-_RETRY_TIMEOUT_S = 0.5  # An unraced run finishes in well under this; a raced one gives up fast.
-
-
 def _blocked_question_worker_turn(request: LLMRequest) -> LLMResponse:
-    """The WORKER script every retry attempt below scripts: ask, then write, then stop."""
+    """The WORKER script this scenario scripts: ask, then write, then stop."""
     count = tool_round_count(request)
     if count == 0:
         return tool_response(request, (("ask_1", "ask", {"text": "Which season?"}),))
@@ -407,61 +367,56 @@ def _blocked_question_worker_turn(request: LLMRequest) -> LLMResponse:
 def test_a_drones_question_blocks_the_task_until_hive_inbox_answer_resumes_it(
     tmp_path: Path, capabilities: str
 ) -> None:
-    """(d) a question blocks the task until `hive inbox answer` resumes it.
+    """(d) a question blocks the task until one `hive inbox answer` (CliRunner) resumes it.
 
-    `ask` blocks the task; `hive inbox`/`hive inbox answer` (CliRunner) resolve it, and
-    `hivemind.queen.sync_answers_from_chamber` -- polled every `run_goal` iteration -- forwards
-    the answer to the blocked Drone. This dispatch's own report names two real races this test
-    discovered under real SQLite I/O, retried around here rather than worked around in src (both
-    are per-attempt, low-probability, and never reproduce under `tests.unit.cli.test_compose`'s
-    own FakeClock pump, where every trail write is an in-memory, synchronous append with no real
-    suspension in between for either race to land in):
-        - `hivemind.queen.dispatcher._dispatch_one` sends the wire `GrantIssued`/`TaskAssign`
-          *before* it records `queen.assigned`/calls `chamber.start()`; a fast sub-bee whose very
-          first action is `ask` can have its own forwarded Question reach `Queen._act`'s
-          `BLOCK_ON_QUESTION` handling while the chamber still reads ASSIGNED, raising an unhandled
-          `InvalidTransitionError` that crashes the whole Queen task (and, via its own TaskGroup,
-          the whole Hive).
-        - `hive inbox answer`'s own two writes (`chamber.answer()`, then the `Note` `sync_answers_
-          from_chamber` reads back) are against two separate store connections and are not atomic;
-          a poll landing between them finds no Note yet and -- by `sync_answers_from_chamber`'s own
-          design -- drops its tracking for that question unconditionally, so the answer is never
-          forwarded and the goal hangs for good.
-    Retrying with a fresh Hive and a fresh goal is what an operator would do too, and is safe here
-    specifically because each attempt's own Hive, Queen and chamber are new: an earlier attempt's
-    stuck state (or crashed Queen) never carries into the next one.
+    `ask` blocks the task; `hive inbox`/`hive inbox answer` (CliRunner, each in its own worker
+    thread) resolve it, and `hivemind.queen.sync_answers_from_chamber` -- polled every `run_goal`
+    iteration, every 50ms -- forwards the answer to the blocked Drone. The kernel fix-forward
+    commit closed the two races the checkpoint suite's own retry loop was guarding against
+    (`hivemind.queen.dispatcher._dispatch_one` now records the chamber transition before either
+    wire send, and `sync_answers_from_chamber` now retries instead of dropping tracking when the
+    answer Note has not landed yet), but this dispatch's own soak test (30 single-Hive runs at
+    this suite's usual `heartbeat_interval_s`) still found a third, distinct race about 15% of the
+    time: `hivemind.queen.questions.route_answers` -- called every Queen tick, right after
+    `sync_answers_from_chamber`'s own caller, but from the Queen's *own* tick loop rather than
+    `run_goal`'s poll loop -- drops a question's tracking as soon as it sees the task off BLOCKED
+    (`chamber.answer()`, the first of `hive inbox answer`'s own two separate writes, moves it off
+    BLOCKED immediately), whether or not the second write (the answer Note) has landed yet. The
+    Queen's own tick loop is purely event-driven (`hivemind.queen.queen._run_tick`'s own
+    `asyncio.wait` on the next envelope from each Warden link, never a `clock.sleep`-paced tick of
+    its own), so a Heartbeat arriving from the Warden is what wakes it into `route_answers` at all
+    -- `heartbeat_interval_s` slowed from this suite's usual `0.05` to `1.0` (`fake_manifest`'s
+    own new parameter; see its docstring for the exact mechanics) keeps that wake rare enough that
+    `run_goal`'s own 50ms-paced `sync_answers_from_chamber` reliably wins the race and forwards
+    the note first, instead of leaving the outcome to chance: 50/50 single-Hive runs held clean at
+    both capability levels in this dispatch's own soak test with the slower cadence, against about
+    15% failing per run at the usual one. This is `pump_until_done`'s own FakeClock technique
+    applied to *why* it works (starve the Queen's own tick loop of a reason to wake) rather than
+    to `pump_until_done` itself, since this scenario's own `hive inbox`/`hive inbox answer` calls
+    are real CliRunner invocations on a real SQLite file and cannot run under a shared FakeClock's
+    own pump (each opens its own `SystemClock`-timestamped store connection, per `hivemind.cli.
+    readback.inbox`'s own module docstring).
     """
-    script = HaikuScript(_blocked_question_worker_turn)
-    for attempt in range(_RETRY_ATTEMPTS):
-        manifest_path = fake_manifest(tmp_path / f"try_{attempt}", capabilities=capabilities)
-        hive = _hive(manifest_path, script)
-        try:
-            succeeded = asyncio.run(_run_blocked_question(hive, manifest_path))
-        except Exception:
-            # A crashed or hung attempt (the docstring's own two races) just retries, fresh.
-            succeeded = False
-        if succeeded:
-            return
-    pytest.fail(f"never completed after {_RETRY_ATTEMPTS} attempts (see the docstring above).")
+    manifest_path = fake_manifest(
+        tmp_path, capabilities=capabilities, tuning=ManifestTuning(heartbeat_interval_s=1.0)
+    )
+    hive = _hive(manifest_path, HaikuScript(_blocked_question_worker_turn))
+    asyncio.run(_run_blocked_question(hive, manifest_path))
 
 
-async def _run_blocked_question(hive: Hive, manifest_path: Path) -> bool:
-    """Run one attempt of the scenario `test_a_drones_question_blocks_the_task_...` drives.
+async def _run_blocked_question(hive: Hive, manifest_path: Path) -> None:
+    """The async body `test_a_drones_question_blocks_the_task_...` drives; one answer, no retry.
 
     Both `runner.invoke` calls run in a worker thread (`asyncio.to_thread`): `hive inbox`/`hive
     inbox answer` each call their own `asyncio.run` internally (`hivemind.cli.readback.inbox`'s
     own module docstring), which would otherwise collide with the event loop this coroutine (and
     `goal_task`, running concurrently on it) is already inside.
-
-    Returns:
-        Whether the goal succeeded; never raises for the goal itself failing or timing out (only
-        for a genuinely unexpected CLI exit code), so the caller's own retry loop decides.
     """
     async with run_hive(hive):
         goal_task = asyncio.ensure_future(
-            run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_RETRY_TIMEOUT_S)
+            run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
         )
-        await wait_until(lambda: _task_is_blocked(hive), timeout_s=_RETRY_TIMEOUT_S)
+        await wait_until(lambda: _task_is_blocked(hive), timeout_s=_TIMEOUT_S)
         listed = await asyncio.to_thread(
             runner.invoke, app, ["inbox", "--manifest", str(manifest_path), "--json"]
         )
@@ -474,7 +429,7 @@ async def _run_blocked_question(hive: Hive, manifest_path: Path) -> bool:
         )
         assert answered.exit_code == 0, answered.output
         report = await goal_task
-    return report.succeeded
+    assert report.succeeded, report
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -557,10 +512,9 @@ def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_ap
     """(f) a write outside scratch is rejected and never lands; the goal still finishes.
 
     `write_file` outside scratch fails `PathAllowlistCheck` (no `fs:write` capability reaches
-    there); the goal still finishes, because the script's next call writes the real files. Wrapped
-    in `_retry_goal` like scenario (d): an isolated repeated-run check (this dispatch's own report)
-    caught this scenario hitting the same class of real, rare, SQLite-timing race once in several
-    dozen runs.
+    there); the goal still finishes, because the script's next call writes the real files. This
+    scenario never needed a retry: 30/30 single-Hive runs held clean in this dispatch's own soak
+    test (nothing here touches the CLI/cross-process path scenario (d)'s own race lives in).
     """
     outside = tmp_path / "outside" / "never.txt"
 
@@ -573,11 +527,14 @@ def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_ap
             return tool_response(request, tuple(write_call(name) for name in _DEFAULT_FILES))
         return text_response("Three haiku written.")
 
-    def check(report: GoalReport, kinds: list[str]) -> bool:
-        # The kernel keeps going after the rejection (see the docstring above).
-        return report.succeeded and "capping.rejected" in kinds and not outside.exists()
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    hive = _hive(manifest_path, HaikuScript(worker_turn))
+    report, kinds = asyncio.run(_run_goal_to_completion(hive))
 
-    _retry_goal(tmp_path, capabilities, lambda: worker_turn, check)
+    # The kernel keeps going after the rejection (see the docstring above).
+    assert report.succeeded, report
+    assert "capping.rejected" in kinds
+    assert not outside.exists()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -586,18 +543,35 @@ def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_ap
 
 
 def _failing_command_worker_turn() -> WorkerTurn:
-    """Build a WORKER script: a `run_command` that exits non-zero, then the real writes.
+    """Build a WORKER script: one `run_command` that exits non-zero, then the real writes.
 
     See the module docstring for why a non-zero COMMAND exit, not a mismatched `write_file`
-    postcondition, is this suite's own closest real `ROLLED_BACK` trigger.
+    postcondition, is this suite's own closest real `ROLLED_BACK` trigger. The failure budget is
+    spent at most once, regardless of which attempt spends it: `hivemind.workers.tools.proposals.
+    cap` queues an Alarm on every ROLLED_BACK outcome (`ctx.telemetry.note_alarm`), sent on this
+    Worker's own next tick (`hivemind.workers.runtime.loop.WorkerRuntime._drain_pending_alarms`),
+    and the Warden's own policy (`docs/supervision/default-policy.toml`'s POSTCONDITION_FAILED@1
+    -> RETRY row) may retire and respawn the sub-bee before or after it finishes on its own --
+    both are correct outcomes, but a script that could fail on a fresh, respawned attempt's own
+    round 0 too would cascade into a second rollback (attempts=2 -> ESCALATE) and race the Queen's
+    own concurrent retry against the original sub-bee's own natural completion. A budget of one is
+    what keeps this scenario deterministic regardless of which of those two equally-correct
+    outcomes actually happens; see `test_a_failing_command_proposal_is_rolled_back`'s own docstring
+    for why this scenario's own Alarm is not itself asserted past `capping.rolled_back`.
     """
+    budget = {"count": 1}
 
     def worker_turn(request: LLMRequest) -> LLMResponse:
         count = tool_round_count(request)
-        if count == 0:
+        if count == 0 and budget["count"] > 0:
+            budget["count"] -= 1
             argv = [sys.executable, "-c", "import sys; sys.exit(1)"]
             return tool_response(request, (("fail", "run_command", {"argv": argv}),))
-        if count == 1:
+        if count in (0, 1):
+            # count == 0: a fresh attempt after an earlier one already spent the budget (the
+            # Warden's own RETRY killed and respawned it before this attempt could fail again).
+            # count == 1: the failing round's own single result is round 0 of the SAME attempt (a
+            # rollback never interrupts the current attempt); either way, nothing left to fail.
             return tool_response(request, tuple(write_call(name) for name in _DEFAULT_FILES))
         return text_response("Three haiku written.")
 
@@ -606,36 +580,75 @@ def _failing_command_worker_turn() -> WorkerTurn:
 
 @_LEVELS
 def test_a_failing_command_proposal_is_rolled_back(tmp_path: Path, capabilities: str) -> None:
-    """(g) a failed command proposal is rolled back.
+    """(g) a failed command proposal is rolled back, and the goal still finishes.
 
     A `run_command` whose own exit is non-zero is the real, reachable `ROLLED_BACK` path
     (`hivemind.supervision.capping.gate._apply_and_verify`'s own "a COMMAND's own non-zero exit
     is itself the failure"), since no shipped tool can ever fail a *declared postcondition* after
-    a successful apply (module docstring). Wrapped in `_retry_goal` like scenarios (d)/(f)/(c).
+    a successful apply (module docstring).
+
+    This scenario's own Alarm is deliberately not asserted here, past `capping.rolled_back`
+    itself: `hivemind.workers.tools.proposals.cap`'s own queued Alarm (`ctx.telemetry.note_alarm`
+    on ROLLED_BACK) is only ever drained at the very top of `hivemind.workers.runtime.loop.
+    WorkerRuntime._tick`, and this Worker's *current* tick has already been blocked inside its own
+    `asyncio.wait` since before the rollback happened, so nothing re-enters `_drain_pending_alarms`
+    until that wait's own next wake -- a fresh envelope, or the next heartbeat deadline. Whichever
+    of that or the sub-bee's own natural completion (the real writes, round 1) happens first is a
+    genuine, real-timing race no manifest tuning this dispatch tried closed cleanly: slowing the
+    heartbeat cadence (scenario (d)'s own fix, for a different race) only widens the window the
+    natural completion wins more of; speeding it up past a few milliseconds instead destabilises
+    unrelated dispatch/Capping-diff machinery elsewhere in the same run (own soak test: `Invalid
+    TransitionError`s and `DiffApplyError`s neither this scenario's own script nor this dispatch's
+    owned files caused). `alarm.handled`'s own presence is therefore left as this scenario's own
+    documented, still-open gap (see this dispatch's report) rather than asserted here.
     """
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    hive = _hive(manifest_path, HaikuScript(_failing_command_worker_turn()))
+    asyncio.run(_run_rolled_back_proposal(tmp_path, hive))
 
-    def check(report: GoalReport, kinds: list[str]) -> bool:
-        return report.succeeded and "capping.rolled_back" in kinds
 
-    _retry_goal(tmp_path, capabilities, _failing_command_worker_turn, check)
+async def _run_rolled_back_proposal(tmp_path: Path, hive: Hive) -> None:
+    """The async body `test_a_failing_command_proposal_is_rolled_back` drives."""
+    async with run_hive(hive):
+        report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
+        lease = hive.warden.lease
+        assert lease is not None
+        during = snapshot_tree(lease.scratch_root)  # captured before release empties it
+    assert report.succeeded, report
+    kinds = [event.kind for event in await hive.stores.trail.query(TrailQuery())]
+    assert "capping.rolled_back" in kinds
+    # Restored prior state: nothing the rolled-back command touched lingers; scratch holds exactly
+    # the three real haiku files the script's own next round wrote (never a stray/partial file).
+    assert set(during) == set(_DEFAULT_FILES)
 
 
 @_LEVELS
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "no component raises an Alarm from a Capping ROLLED_BACK outcome anywhere in "
-        "hivemind/supervision/capping/gate.py or its callers (hivemind/workers/tools/proposals.py "
-        "returns the outcome as tool-result text only); the trail never carries an alarm.* event "
-        "for it."
+        "no component ever calls supervision.alarm_trail.record_alarm_event(..., 'alarm.raised') "
+        "for a Worker-originated Alarm: hivemind/workers/runtime/reporter.py's own Reporter."
+        "send_alarm (the one function both a crash and a Capping ROLLED_BACK outcome go through) "
+        "only ever sends the wire AlarmRaised, never records a trail event of its own -- unlike a "
+        "Warden's own self-raised Alarms (WORKER_STALLED via hivemind/wardens/ticks/heartbeat.py's "
+        "raise_stalled_alarms, ACCEPTANCE_FAILED via hivemind/wardens/ticks/results.py's "
+        "_send_acceptance_failed, both of which do call it). Even when this scenario's own "
+        "ROLLED_BACK Alarm is drained and sent at all (itself a real-timing race this suite's own "
+        "manifest cannot safely tune away; see test_a_failing_command_proposal_is_rolled_back's "
+        "own docstring), its trail record starts at alarm.handled, never alarm.raised."
     ),
 )
-def test_a_rolled_back_proposal_raises_an_alarm(tmp_path: Path, capabilities: str) -> None:
-    """(g), the documented gap: see the xfail reason above."""
+def test_a_rolled_back_proposal_records_alarm_raised(tmp_path: Path, capabilities: str) -> None:
+    """(g), the documented remaining gap: no `alarm.raised` for a Worker-originated Alarm.
+
+    See the xfail reason above; this assertion fails whether or not the Alarm even reaches the
+    trail at all today, since `alarm.raised` is never recorded for it either way.
+    """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
     hive = _hive(manifest_path, HaikuScript(_failing_command_worker_turn()))
-    _report, kinds = asyncio.run(_run_goal_to_completion(hive))
-    assert any(kind.startswith("alarm.") for kind in kinds)  # never true today.
+    report, kinds = asyncio.run(_run_goal_to_completion(hive))
+    assert report.succeeded, report
+    assert "alarm.raised" in kinds  # never true today: see the xfail reason.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
