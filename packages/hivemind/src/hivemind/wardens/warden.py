@@ -64,6 +64,7 @@ from hivemind.cell import (
     RealCellLease,
 )
 from hivemind.cell import HoneyClearance as _HoneyClearance
+from hivemind.common.tasks import reap
 from hivemind.guard import CapabilitySet, ceiling_for
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
@@ -301,8 +302,7 @@ async def _run_tick(warden: Warden) -> None:
     stop_task: asyncio.Task[bool] = asyncio.ensure_future(warden._stop.wait())
     waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), heartbeat_task, stop_task}
     done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-    if stop_task not in done:
-        stop_task.cancel()
+    await reap(stop_task)  # Discards the loser of the race without leaking it.
     if stop_task in done:
         return
     items = _drain_items(warden, receive_tasks, done)

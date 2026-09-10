@@ -69,6 +69,7 @@ from typing import Any
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reap
 from hivemind.memory import Handoff, read_handoff
 from hivemind.supervision.intervention import Checkpoint, Compact, Rebind, Takeover
 from hivemind.supervision.intervention import Handoff as HandoffLever
@@ -158,8 +159,7 @@ class WorkerRuntime(TickLoop):
         if cancel_deadline_task is not None:
             waitables.add(cancel_deadline_task)
         done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-        if stop_task not in done:
-            stop_task.cancel()
+        await reap(stop_task)  # Discards the loser of the race without leaking it.
         if stop_task in done:
             # This dispatch's own fix 2: run() is about to return once this tick ends, so any
             # Alarm still queued goes out now rather than being silently dropped with the runtime.

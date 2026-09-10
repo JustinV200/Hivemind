@@ -57,6 +57,7 @@ from typing import Any, ClassVar
 
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
+from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory import TriggerEvent
 from hivemind.queen import questions, ticks
@@ -331,8 +332,7 @@ async def _run_tick(queen: Queen) -> None:
     stop_task: asyncio.Task[bool] = asyncio.ensure_future(queen._stop.wait())
     waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), stop_task}
     done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-    if stop_task not in done:
-        stop_task.cancel()
+    await reap(stop_task)  # Discards the loser of the race without leaking it.
     if stop_task in done:
         return
     items = _drain_items(queen, receive_tasks, done)

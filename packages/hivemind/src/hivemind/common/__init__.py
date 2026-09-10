@@ -53,6 +53,7 @@ from hivemind.common.migrations import (
 )
 from hivemind.common.result import Err, Ok, Result, ResultUnwrapError
 from hivemind.common.sqlite import BUSY_TIMEOUT_MS, connect, transaction
+from hivemind.common.tasks import reap
 
 __all__ = [
     "BUSY_TIMEOUT_MS",
@@ -77,5 +78,6 @@ __all__ = [
     "connect",
     "get_logger",
     "load_migrations",
+    "reap",
     "transaction",
 ]
