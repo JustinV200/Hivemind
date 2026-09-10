@@ -26,18 +26,19 @@ exist to catch problems that only show up when every layer runs at once.
       goal finishes there -- the trail's own `queen.decided(REBIND)` names the fallback binding,
       and the goal is proven to have actually run on it.
     - **(d)** a Drone's question blocks the task until one `hive inbox answer` (CliRunner) resumes
-      it. This scenario tunes `heartbeat_interval_s` up (`fake_manifest`'s own parameter) to pin
-      down a specific interleaving between the Queen's own tick loop and `hive inbox answer`'s own
-      two separate writes; see the test's own docstring for the exact race and why slowing the
-      heartbeat cadence (not retrying) is what makes it deterministic.
+      it. Ran on the manifest's own default heartbeat cadence: the second kernel fix-forward
+      commit's own fix 3 (one answer-forwarding rule, called from both the Queen's tick and
+      `run_goal`'s poll loop) closed the race a slower `heartbeat_interval_s` used to paper over;
+      see the test's own docstring for the exact race and which fix closed it.
     - **(e)** a scripted checkpoint resumes and finishes from its own Handoff.
     - **(f)** a write outside scratch is rejected and never lands, and the goal still finishes.
-    - **(g)** a failed `run_command` proposal is rolled back, the goal still finishes, and the
-      Warden's own handling of the Alarm it raises (`alarm.handled`) reaches the trail. One gap
-      remains here, xfailed: no component ever records `alarm.raised` for a Worker-originated
-      Alarm (a crash, or this scenario's own Capping rollback) -- only a Warden's own *self*-raised
-      Alarms do. See the module's own docstring and this scenario's own xfail reason for the exact
-      missing call site.
+    - **(g)** a failed `run_command` proposal is rolled back, the goal still finishes, and its
+      whole Alarm chain reaches the trail: `alarm.raised` (kind `POSTCONDITION_FAILED`, raised by
+      the Worker) and `alarm.handled` (action `RETRY`, the Warden's own policy dispatch one hop
+      later). The second kernel fix-forward commit's own fix 1 (the Worker now records
+      `alarm.raised`) and fix 2 (a pending Alarm is flushed before every terminal WorkerState
+      transition) together close the gap the previous suite's own xfail here documented; see the
+      module's own docstring for the exact mechanics.
     - **(h)** the left-as-found snapshot holds -- an unchanged tree, empty scratch, every started
       pid dead.
 
@@ -47,9 +48,29 @@ exist to catch problems that only show up when every layer runs at once.
 
 ## Budget
 
-All sixteen parametrised cases (eight scenarios × two capability levels) plus the two xfails run
-in under twenty seconds on this host (roadmap step 3.22's own exit criterion), typically well
-under it -- see `--durations=10` below for the slowest individual cases on a given run.
+All sixteen parametrised cases (eight scenarios × two capability levels; nine test functions, one
+of which -- scenario (a) -- has both an in-process and a `hive run`-CLI form) run in under twenty
+seconds on this host (roadmap step 3.22's own exit criterion), typically well under it -- see
+`--durations=10` below for the slowest individual cases on a given run. No case retries and none
+is xfailed: the two kernel fix-forward commits closed every race this suite once had to work
+around instead of assert through.
+
+## What each scenario asserts
+
+No case in `test_kernel_on_hive_stand.py` retries and none is xfailed; every one below runs once
+per capability level and asserts real trail events (and, where named, filesystem or process state)
+rather than only `report.succeeded`.
+
+| Scenario | Trail events (and other state) asserted |
+|---|---|
+| (a) | `cell.leased`/`queen.planned`/`queen.assigned` in order; `capping.proposed`/`capped`/`applied`/`verified` in order; `task.succeeded` before `cell.released`; `forage.granted` and `worker.spawned` present (see the table below for what each means); scratch empty after release; the CLI form's own output also names `task.succeeded`. |
+| (b) | `worker.spawned` at least twice (the respawn); `queen.awake` never appears. |
+| (c) | `worker.failed` exactly 3 times; `worker.spawned` at least 4 times; `alarm.escalated` present; exactly one `queen.decided` with `action="REBIND"` naming `binding="local_worker"`; the goal actually ran on the fallback model id. |
+| (d) | the task reaches `BLOCKED` before `hive inbox answer` is called; the goal succeeds once the CLI answers it. |
+| (e) | `worker.handing_off` and `worker.resumed` both present; the `memory.checkpoint` event's own id resolves to a real, storable Handoff. |
+| (f) | `capping.rejected` present; the file the rejected write targeted never exists on disk. |
+| (g) | `capping.rolled_back` present; scratch holds exactly the three real haiku files (nothing the rolled-back command touched lingers); exactly one `alarm.raised` with payload `kind="POSTCONDITION_FAILED"`; exactly one `alarm.handled` with payload `action="RETRY"`. |
+| (h) | every pid the lease started is dead; the Hive Stand's own tree outside the SQLite data dir is byte-for-byte unchanged; scratch is empty. |
 
 ## What the order assertions check
 

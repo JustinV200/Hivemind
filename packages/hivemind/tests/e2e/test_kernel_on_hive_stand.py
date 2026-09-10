@@ -8,10 +8,12 @@ file and, where a scenario scripts `run_command`, a real child process. Every sc
 both `ProviderCapabilities.full()` and `.none()` (roadmap step 3.22's own "at full and at zero
 capabilities"), parametrised through `_LEVELS`, and every scenario runs its Hive exactly once --
 the checkpoint suite's own fresh-Hive retry loops (`_retry_goal` and scenario (d)'s own bespoke
-one) are gone now that the kernel fix-forward commit (`git log`: "fix(kernel): make Alarms reach
-the trail and the rebind chain work end to end") closed the races they were guarding against;
-where one scenario still needs a specific interleaving pinned down, it says so at its own site
-(scenario (d), below) rather than retrying.
+one, plus scenario (d)'s own `heartbeat_interval_s` manifest tuning) are gone now that the two
+kernel fix-forward commits (`git log`: "fix(kernel): make Alarms reach the trail and the rebind
+chain work end to end", then "fix(kernel): record Worker-raised Alarms, never drop a pending
+Alarm, forward Answers by one rule, stop cleanly") closed the races they were guarding against,
+scenario (d)'s own cross-process Answer race included (see that scenario's own docstring, below,
+for exactly which fix closed it).
 
 Scenario (a)'s own trail order deserves its own note: the roadmap's prose lists "decompose ->
 placed -> leased -> granted -> spawned -> ...", but the kernel leases *first*, because the Hive
@@ -32,17 +34,21 @@ actually guarantees regardless of that race (each group is a strict sequence wit
 coroutine, or otherwise causally impossible to invert); `forage.granted` and `worker.spawned` are
 asserted present, not ordered against the rest.
 
-One gap this module still documents rather than works around (full detail in this dispatch's own
-report; also named at its own xfail site below): no component ever calls
-`hivemind.supervision.alarm_trail.record_alarm_event(..., "alarm.raised")` for a Worker-originated
-Alarm (a crash, or a Capping `ROLLED_BACK` outcome) -- `hivemind.workers.runtime.reporter.
-Reporter.send_alarm` (the one function both paths go through) only ever sends the wire
-`AlarmRaised`, never records a trail event of its own; only a Warden's own *self*-raised Alarms
-(`WORKER_STALLED` via `hivemind.wardens.ticks.heartbeat.raise_stalled_alarms`, `ACCEPTANCE_FAILED`
-via `hivemind.wardens.ticks.results._send_acceptance_failed`) ever get one. Scenario (g)'s own
-`alarm.raised` assertion is xfailed for exactly this reason; `alarm.handled` (the Warden's own
-policy dispatch, one hop later) is what the trail actually carries, and scenario (g)'s own
-non-xfail test asserts that instead.
+Scenario (g)'s own Alarm chain is worth a note here too, since no single scenario file change
+closed it -- two fixes from the same second fix-forward commit had to land together. Before that
+commit, no component ever called `hivemind.supervision.alarm_trail.record_alarm_event(...,
+"alarm.raised")` for a Worker-originated Alarm (a crash, or a Capping `ROLLED_BACK` outcome):
+`hivemind.workers.runtime.reporter.Reporter.send_alarm` built and sent the wire `AlarmRaised` but
+never recorded a trail event of its own, unlike a Warden's own *self*-raised Alarms. That commit's
+own fix 1 closed the gap directly (`send_alarm` now calls `record_alarm_event` before the wire
+send); its own fix 2 closed a second, independent gap that would otherwise have kept the Alarm
+from ever being *sent* in time to matter here -- a Capping rollback noted mid-attempt now flushes
+before every terminal `WorkerState` transition (`hivemind.workers.runtime.attempt.AttemptManager`'s
+four `_finish_*` methods), so it always leaves on the Worker's own mailbox before the `TaskResult`
+that closes the same attempt, on the same ordered link. Scenario (g) below asserts the whole
+chain -- `capping.rolled_back`, `alarm.raised` (kind `POSTCONDITION_FAILED`) and `alarm.handled`
+(the Warden's own policy dispatch, action `RETRY` per `docs/supervision/default-policy.toml`'s own
+`POSTCONDITION_FAILED`@1 row) -- with no xfail and no retry.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -370,36 +376,30 @@ def test_a_drones_question_blocks_the_task_until_hive_inbox_answer_resumes_it(
     """(d) a question blocks the task until one `hive inbox answer` (CliRunner) resumes it.
 
     `ask` blocks the task; `hive inbox`/`hive inbox answer` (CliRunner, each in its own worker
-    thread) resolve it, and `hivemind.queen.sync_answers_from_chamber` -- polled every `run_goal`
-    iteration, every 50ms -- forwards the answer to the blocked Drone. The kernel fix-forward
-    commit closed the two races the checkpoint suite's own retry loop was guarding against
-    (`hivemind.queen.dispatcher._dispatch_one` now records the chamber transition before either
-    wire send, and `sync_answers_from_chamber` now retries instead of dropping tracking when the
-    answer Note has not landed yet), but this dispatch's own soak test (30 single-Hive runs at
-    this suite's usual `heartbeat_interval_s`) still found a third, distinct race about 15% of the
-    time: `hivemind.queen.questions.route_answers` -- called every Queen tick, right after
-    `sync_answers_from_chamber`'s own caller, but from the Queen's *own* tick loop rather than
-    `run_goal`'s poll loop -- drops a question's tracking as soon as it sees the task off BLOCKED
-    (`chamber.answer()`, the first of `hive inbox answer`'s own two separate writes, moves it off
-    BLOCKED immediately), whether or not the second write (the answer Note) has landed yet. The
-    Queen's own tick loop is purely event-driven (`hivemind.queen.queen._run_tick`'s own
-    `asyncio.wait` on the next envelope from each Warden link, never a `clock.sleep`-paced tick of
-    its own), so a Heartbeat arriving from the Warden is what wakes it into `route_answers` at all
-    -- `heartbeat_interval_s` slowed from this suite's usual `0.05` to `1.0` (`fake_manifest`'s
-    own new parameter; see its docstring for the exact mechanics) keeps that wake rare enough that
-    `run_goal`'s own 50ms-paced `sync_answers_from_chamber` reliably wins the race and forwards
-    the note first, instead of leaving the outcome to chance: 50/50 single-Hive runs held clean at
-    both capability levels in this dispatch's own soak test with the slower cadence, against about
-    15% failing per run at the usual one. This is `pump_until_done`'s own FakeClock technique
-    applied to *why* it works (starve the Queen's own tick loop of a reason to wake) rather than
-    to `pump_until_done` itself, since this scenario's own `hive inbox`/`hive inbox answer` calls
-    are real CliRunner invocations on a real SQLite file and cannot run under a shared FakeClock's
-    own pump (each opens its own `SystemClock`-timestamped store connection, per `hivemind.cli.
-    readback.inbox`'s own module docstring).
+    thread) resolve it, and `hivemind.queen.questions.sync_answers_from_chamber` forwards the
+    answer to the blocked Drone. The first kernel fix-forward commit closed the two races the
+    checkpoint suite's own retry loop was guarding against (`hivemind.queen.dispatcher.
+    _dispatch_one` now records the chamber transition before either wire send, and
+    `sync_answers_from_chamber` retries instead of dropping tracking when the answer Note has not
+    landed yet); this dispatch's own earlier soak test (30 single-Hive runs at this suite's usual
+    heartbeat cadence) still found a third, distinct race about 15% of the time: the Queen's own
+    tick loop is purely event-driven (`hivemind.queen.queen._run_tick`'s own `asyncio.wait` on the
+    next envelope from each Warden link, never a `clock.sleep`-paced tick of its own), and it used
+    to call a separate `route_answers` sweep that dropped a question's tracking as soon as it saw
+    the task off BLOCKED (`chamber.answer()`, the first of `hive inbox answer`'s own two separate
+    writes, moves it off BLOCKED immediately), whether or not the second write (the answer Note)
+    had landed yet -- so a Heartbeat waking the tick loop in that narrow window could lose the
+    answer for good. The second kernel fix-forward commit's own fix 3 removed `route_answers`
+    entirely: the Queen's own tick now calls `sync_answers_from_chamber` itself, the exact same
+    retry-safe function `run_goal`'s own 50ms poll loop already called, so there is exactly one
+    rule -- "keep tracking until the Note is present, then forward once" -- applied from both
+    places (`hivemind.queen.questions`'s own module docstring has the full mechanics). That closes
+    the race structurally rather than by timing, so this scenario needs no `heartbeat_interval_s`
+    tuning any more: `builders.cli.fake_manifest`'s own default cadence held 20/20 single-Hive runs
+    clean at both capability levels in this dispatch's own soak test (see this dispatch's own
+    report for the 20-run result recorded against this exact test).
     """
-    manifest_path = fake_manifest(
-        tmp_path, capabilities=capabilities, tuning=ManifestTuning(heartbeat_interval_s=1.0)
-    )
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
     hive = _hive(manifest_path, HaikuScript(_blocked_question_worker_turn))
     asyncio.run(_run_blocked_question(hive, manifest_path))
 
@@ -548,16 +548,16 @@ def _failing_command_worker_turn() -> WorkerTurn:
     See the module docstring for why a non-zero COMMAND exit, not a mismatched `write_file`
     postcondition, is this suite's own closest real `ROLLED_BACK` trigger. The failure budget is
     spent at most once, regardless of which attempt spends it: `hivemind.workers.tools.proposals.
-    cap` queues an Alarm on every ROLLED_BACK outcome (`ctx.telemetry.note_alarm`), sent on this
-    Worker's own next tick (`hivemind.workers.runtime.loop.WorkerRuntime._drain_pending_alarms`),
-    and the Warden's own policy (`docs/supervision/default-policy.toml`'s POSTCONDITION_FAILED@1
-    -> RETRY row) may retire and respawn the sub-bee before or after it finishes on its own --
-    both are correct outcomes, but a script that could fail on a fresh, respawned attempt's own
-    round 0 too would cascade into a second rollback (attempts=2 -> ESCALATE) and race the Queen's
-    own concurrent retry against the original sub-bee's own natural completion. A budget of one is
+    cap` queues an Alarm on every ROLLED_BACK outcome (`ctx.telemetry.note_alarm`), flushed and
+    sent no later than this attempt's own terminal transition (`hivemind.workers.runtime.attempt.
+    AttemptManager`'s `_finish_*` methods, the kernel fix-forward commit's own fix 2), and the
+    Warden's own policy (`docs/supervision/default-policy.toml`'s POSTCONDITION_FAILED@1 -> RETRY
+    row) may retire and respawn the sub-bee before or after it finishes on its own -- both are
+    correct outcomes, but a script that could fail on a fresh, respawned attempt's own round 0 too
+    would cascade into a second rollback (attempts=2 -> ESCALATE) and race the Queen's own
+    concurrent retry against the original sub-bee's own natural completion. A budget of one is
     what keeps this scenario deterministic regardless of which of those two equally-correct
-    outcomes actually happens; see `test_a_failing_command_proposal_is_rolled_back`'s own docstring
-    for why this scenario's own Alarm is not itself asserted past `capping.rolled_back`.
+    outcomes actually happens.
     """
     budget = {"count": 1}
 
@@ -580,27 +580,28 @@ def _failing_command_worker_turn() -> WorkerTurn:
 
 @_LEVELS
 def test_a_failing_command_proposal_is_rolled_back(tmp_path: Path, capabilities: str) -> None:
-    """(g) a failed command proposal is rolled back, and the goal still finishes.
+    """(g) a failed command proposal is rolled back, its Alarm chain lands, and the goal finishes.
 
     A `run_command` whose own exit is non-zero is the real, reachable `ROLLED_BACK` path
     (`hivemind.supervision.capping.gate._apply_and_verify`'s own "a COMMAND's own non-zero exit
     is itself the failure"), since no shipped tool can ever fail a *declared postcondition* after
     a successful apply (module docstring).
 
-    This scenario's own Alarm is deliberately not asserted here, past `capping.rolled_back`
-    itself: `hivemind.workers.tools.proposals.cap`'s own queued Alarm (`ctx.telemetry.note_alarm`
-    on ROLLED_BACK) is only ever drained at the very top of `hivemind.workers.runtime.loop.
-    WorkerRuntime._tick`, and this Worker's *current* tick has already been blocked inside its own
-    `asyncio.wait` since before the rollback happened, so nothing re-enters `_drain_pending_alarms`
-    until that wait's own next wake -- a fresh envelope, or the next heartbeat deadline. Whichever
-    of that or the sub-bee's own natural completion (the real writes, round 1) happens first is a
-    genuine, real-timing race no manifest tuning this dispatch tried closed cleanly: slowing the
-    heartbeat cadence (scenario (d)'s own fix, for a different race) only widens the window the
-    natural completion wins more of; speeding it up past a few milliseconds instead destabilises
-    unrelated dispatch/Capping-diff machinery elsewhere in the same run (own soak test: `Invalid
-    TransitionError`s and `DiffApplyError`s neither this scenario's own script nor this dispatch's
-    owned files caused). `alarm.handled`'s own presence is therefore left as this scenario's own
-    documented, still-open gap (see this dispatch's report) rather than asserted here.
+    Before the second kernel fix-forward commit, this scenario's own Alarm was a genuine
+    real-timing race: `hivemind.workers.runtime.loop.WorkerRuntime._drain_pending_alarms` only
+    ever ran at the very top of a tick, so a rollback noted mid-attempt sat queued until this
+    Worker's own `asyncio.wait` woke again -- a fresh envelope, or the next heartbeat deadline --
+    racing the sub-bee's own natural completion (the real writes, round 1) with no manifest tuning
+    able to close it cleanly (module's own git history). That commit's own fix 2 closed it
+    structurally instead of by timing: every terminal `WorkerState` transition
+    (`hivemind.workers.runtime.attempt.AttemptManager`'s four `_finish_*` methods) now flushes the
+    pending-Alarm queue first, so the queued `ROLLED_BACK` Alarm always leaves this Worker's own
+    mailbox before the `TaskResult` that closes the very same attempt -- on the same ordered link,
+    so the Warden always processes the Alarm first. Combined with fix 1 (`Reporter.send_alarm` now
+    records `alarm.raised` before the wire send), the whole chain -- `capping.rolled_back`,
+    `alarm.raised` (kind `POSTCONDITION_FAILED`) and `alarm.handled` (the Warden's own policy
+    dispatch, action `RETRY` per `docs/supervision/default-policy.toml`'s own
+    `POSTCONDITION_FAILED`@1 row) -- is now asserted deterministically below.
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
     hive = _hive(manifest_path, HaikuScript(_failing_command_worker_turn()))
@@ -615,40 +616,20 @@ async def _run_rolled_back_proposal(tmp_path: Path, hive: Hive) -> None:
         assert lease is not None
         during = snapshot_tree(lease.scratch_root)  # captured before release empties it
     assert report.succeeded, report
-    kinds = [event.kind for event in await hive.stores.trail.query(TrailQuery())]
+    events = await hive.stores.trail.query(TrailQuery())
+    kinds = [event.kind for event in events]
     assert "capping.rolled_back" in kinds
     # Restored prior state: nothing the rolled-back command touched lingers; scratch holds exactly
     # the three real haiku files the script's own next round wrote (never a stray/partial file).
     assert set(during) == set(_DEFAULT_FILES)
-
-
-@_LEVELS
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "no component ever calls supervision.alarm_trail.record_alarm_event(..., 'alarm.raised') "
-        "for a Worker-originated Alarm: hivemind/workers/runtime/reporter.py's own Reporter."
-        "send_alarm (the one function both a crash and a Capping ROLLED_BACK outcome go through) "
-        "only ever sends the wire AlarmRaised, never records a trail event of its own -- unlike a "
-        "Warden's own self-raised Alarms (WORKER_STALLED via hivemind/wardens/ticks/heartbeat.py's "
-        "raise_stalled_alarms, ACCEPTANCE_FAILED via hivemind/wardens/ticks/results.py's "
-        "_send_acceptance_failed, both of which do call it). Even when this scenario's own "
-        "ROLLED_BACK Alarm is drained and sent at all (itself a real-timing race this suite's own "
-        "manifest cannot safely tune away; see test_a_failing_command_proposal_is_rolled_back's "
-        "own docstring), its trail record starts at alarm.handled, never alarm.raised."
-    ),
-)
-def test_a_rolled_back_proposal_records_alarm_raised(tmp_path: Path, capabilities: str) -> None:
-    """(g), the documented remaining gap: no `alarm.raised` for a Worker-originated Alarm.
-
-    See the xfail reason above; this assertion fails whether or not the Alarm even reaches the
-    trail at all today, since `alarm.raised` is never recorded for it either way.
-    """
-    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
-    hive = _hive(manifest_path, HaikuScript(_failing_command_worker_turn()))
-    report, kinds = asyncio.run(_run_goal_to_completion(hive))
-    assert report.succeeded, report
-    assert "alarm.raised" in kinds  # never true today: see the xfail reason.
+    # The rollback's own Alarm chain: raised by the Worker (kind POSTCONDITION_FAILED, module
+    # docstring), then handled by the Warden's own policy (action RETRY, one hop later).
+    raised = [event for event in events if event.kind == "alarm.raised"]
+    assert len(raised) == 1, raised
+    assert raised[0].payload.get("kind") == "POSTCONDITION_FAILED", raised[0].payload
+    handled = [event for event in events if event.kind == "alarm.handled"]
+    assert len(handled) == 1, handled
+    assert handled[0].payload.get("action") == "RETRY", handled[0].payload
 
 
 # ──────────────────────────────────────────────────────────────────────────────
