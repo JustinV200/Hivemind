@@ -1,24 +1,31 @@
-"""Queue questions, Alarms and task events for the Queen's Attendant triage.
+"""Provide the Queen's Attendant: her inbox triage, human messages heavy but not absolute.
 
-Every Warden's questions, Alarms and task events queue here, for Attendant (the inbox triage
-every supervisor uses), before the Queen acts.
+`weights.py` builds the Queen's own `hivemind.supervision.attendant.Attendant` over
+`WeightTable.queen_default()` and classifies one received envelope into the `InboxItem` shape it
+scores; `tie_breaker.py` is the model-backed `TieBreaker` (`ModelSlot.ATTENDANT`) the Queen may
+enable for an exact score tie or an unknown inbox kind. Unlike `hivemind.wardens.inbox`, this
+sub-package MAY import `hivemind.llm`: only anything under an `autopilot/` directory may not
+(codingrules section 4).
 
 Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
-    Handles where questions, Alarms and task events queue up for Attendant triage. Called by
-    queen's public API on behalf of whatever calls queen itself; calls into sibling packages at
-    Layer 6 or below, never back up into queen's other sub-packages directly.
+    Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Handles
+    where a Warden's questions, Alarms and task events queue up for Attendant triage before the
+    Queen acts. Called by `hivemind.queen.queen.Queen`.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 3 adds its first public name.
+    - `queen_attendant` never hard-codes a `TieBreaker`: the caller decides whether one is enabled.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under queen.
-    - .claude/roadmap.md phase 3 for the work that first populates it.
+    - .claude/codingrules.md section 8.8 for the Attendant shape this package builds.
+    - .claude/roadmap.md phase 3 step 3.20 for the work that first populates it.
 
-Public API: none yet; first populated in phase 3.
+Public API (roadmap step 3.20):
+    - to_inbox_item, queen_attendant: build the Queen's Attendant and wrap one envelope (weights).
+    - MAX_TIE_REASON_CHARS, ModelTieBreaker: the model-backed tie-break seam (tie_breaker).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 3 adds the first public name.
-__all__: list[str] = []
+from hivemind.queen.inbox.tie_breaker import MAX_TIE_REASON_CHARS, ModelTieBreaker
+from hivemind.queen.inbox.weights import queen_attendant, to_inbox_item
+
+__all__ = ["MAX_TIE_REASON_CHARS", "ModelTieBreaker", "queen_attendant", "to_inbox_item"]

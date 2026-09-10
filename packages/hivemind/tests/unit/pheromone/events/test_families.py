@@ -166,6 +166,16 @@ def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
     assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS
 
 
+def test_queen_event_kinds_include_the_phase_3_20_additions() -> None:
+    # roadmap step 3.20 (the Queen kernel): added alongside the tick loop that first needs them.
+    assert {
+        "queen.decided",
+        "queen.planned",
+        "queen.assigned",
+        "queen.awake",
+    } <= QueenEvent.KINDS
+
+
 def test_warden_event_kinds_include_the_phase_3_19_additions() -> None:
     # roadmap step 3.19 (the Warden): started/watch/active added alongside the state machine that
     # first needs them.

@@ -100,6 +100,11 @@ ADRs that exist today, in numeric order:
   by catching `SnapshotUnsupportedError` rather than branching on Cell kind, `LeaseView` as a
   Protocol seam to `cell`, and an in-memory proposal table with the trail as the durable record
   for now.
+- `0019-queen-kernel-autopilot-first-with-stateless-awake-episodes.md`: the Queen runs a
+  deterministic dispatch table before ever waking a model, an awake episode is assembled fresh
+  from durable state and discarded after one decision, she holds no `CellSession` and no Comb
+  Registry, the planner emits acceptance for every subtask, and placement v0 is the Hive Stand
+  only.
 - `0020-llm-records-its-own-trail-events.md`: Layer 1 becomes two ranks, `llm | manifest` above
   `pheromone | forage`, so the ladders and the Fanner record their own `llm.*` events; amends
   ADR-0002's Layer 1 row only.

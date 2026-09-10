@@ -1,24 +1,28 @@
 """Decide whether a task's TaskNeeds are met by a Real Cell or a new Virtual one.
 
 TaskNeeds are what a task requires from the Cell that runs it; this is the Queen's pure decision
-of whether to reuse a Real Cell or provision a new Virtual one.
+of whether to reuse a Real Cell or provision a new Virtual one. Roadmap step 3.20's own v0: the
+Hive Stand only, so `decide` (`decide.py`) reduces to two checks over the first attached
+`hivemind.queen.deps.WardenLink` -- isolation and operating system -- and raises `PlacementError`
+when neither can be satisfied.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
-    Handles the pure decision of Real vs Virtual Cell for a task's TaskNeeds. Called by queen's
-    public API on behalf of whatever calls queen itself; calls into sibling packages at Layer 6
-    or below, never back up into queen's other sub-packages directly.
+    Handles the pure decision of Real vs Virtual Cell for a task's TaskNeeds. Called by
+    `hivemind.queen.dispatcher.dispatch_ready`.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 5 adds its first public name.
+    - `decide` is pure: the same `(needs, wardens)` always returns the same `Placement`.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under queen.
-    - .claude/roadmap.md phase 5 for the work that first populates it.
+    - .claude/codingrules.md section 8.7 for "placement is a pure decision".
+    - .claude/roadmap.md phase 3 step 3.20 for the work that first populates it.
 
-Public API: none yet; first populated in phase 5.
+Public API (roadmap step 3.20):
+    - Placement, PlacementError, decide: the placement decision itself (decide).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 5 adds the first public name.
-__all__: list[str] = []
+from hivemind.queen.placement.decide import Placement, PlacementError, decide
+
+__all__ = ["Placement", "PlacementError", "decide"]

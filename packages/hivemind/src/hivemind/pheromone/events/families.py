@@ -42,7 +42,12 @@ Vocabulary (family -> kind -> when it is recorded):
         runtime).
     queen: started (the Queen process came up); placed (a Placement decision was made for a task);
         woke (an awake episode ran); clustered (Clustering paused affected bees); resumed (bees
-        resumed from Clustering); stopped (the Queen process is shutting down).
+        resumed from Clustering); stopped (the Queen process is shutting down); decided (the Queen
+        acted on an awake QueenDecision, or autopilot itself decided ESCALATE_TO_HUMAN, roadmap
+        step 3.20); planned (a goal was decomposed and its task graph persisted, roadmap step
+        3.20); assigned (a ready task was placed, granted and assigned to a Warden, roadmap step
+        3.20); awake (one stateless awake episode ran for the Queen, roadmap step 3.20 -- distinct
+        from the existing `woke`, reserved for other Queen lifecycle wake-ups).
     warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
         moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
@@ -239,6 +244,12 @@ class QueenEvent(PheromoneEvent):
             "queen.clustered",
             "queen.resumed",
             "queen.stopped",
+            # roadmap step 3.20 (the Queen kernel): the decision, plan, assignment and awake-
+            # episode events her tick loop, planner and dispatcher record.
+            "queen.decided",
+            "queen.planned",
+            "queen.assigned",
+            "queen.awake",
         }
     )
 

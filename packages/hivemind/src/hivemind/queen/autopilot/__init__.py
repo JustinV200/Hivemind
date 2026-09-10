@@ -1,23 +1,39 @@
-"""Provide the Queen's Autopilot: deterministic fallback behaviour that never awaits a model.
+"""Provide the Queen's Autopilot: a deterministic dispatch table that never awaits a model.
 
-Nothing under this package may import hivemind.llm.
+This keeps the Hive working when every provider is down (codingrules section 8.8). `QueenAction`
+(`actions.py`) is the closed set of moves the table can pick; `decide` (`table.py`) is the pure
+function `hivemind.queen.queen.Queen`'s tick calls once per ordered inbox item, mapping a
+`Heartbeat`, a `TaskResult`, an `AlarmRaised` (through `hivemind.supervision.policy.decide`, capped
+by the Queen's own attempt ceiling), a `Question`, an `Answer`, or anything unrecognised
+(`NEEDS_JUDGEMENT`) onto one `QueenAction`; `effort_for` (`effort.py`) sets the `Effort` any
+resulting awake episode runs at, by event class. Nothing under this package may import
+`hivemind.llm`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
-    Handles the Queen's deterministic fallback; never imports hivemind.llm. Called by queen's
-    public API on behalf of whatever calls queen itself; calls into sibling packages at Layer 6
-    or below, never back up into queen's other sub-packages directly.
+    Handles the Queen's deterministic fallback; never imports hivemind.llm. Called by
+    `hivemind.queen.queen.Queen`'s tick, once per ordered inbox item.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 3 adds its first public name.
+    - `decide` never imports `hivemind.llm`, directly or transitively (`lint-imports` enforces it
+      for every module under an `autopilot/` directory, codingrules section 4).
+    - `decide` is pure: the same `(item, task, attempts, policy, limit)` always returns the same
+      `QueenAction`.
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under queen.
-    - .claude/roadmap.md phase 3 for the work that first populates it.
+    - .claude/codingrules.md section 4 for "autopilot never imports hivemind.llm".
+    - .claude/codingrules.md section 8.8 for the autopilot-first-awake-second shape this package
+      implements.
+    - .claude/roadmap.md phase 3 step 3.20 for the work that first populates this package.
 
-Public API: none yet; first populated in phase 3.
+Public API (roadmap step 3.20):
+    - QueenAction: the closed set of moves the dispatch table can pick (actions).
+    - decide: the dispatch table itself (table).
+    - effort_for: the Effort an awake episode gets, by event class (effort).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 3 adds the first public name.
-__all__: list[str] = []
+from hivemind.queen.autopilot.actions import QueenAction
+from hivemind.queen.autopilot.effort import effort_for
+from hivemind.queen.autopilot.table import decide
+
+__all__ = ["QueenAction", "decide", "effort_for"]
