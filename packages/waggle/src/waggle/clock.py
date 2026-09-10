@@ -132,8 +132,14 @@ class FakeClock:
         """
         self._now = start if start is not None else _DEFAULT_FAKE_START
         self._monotonic = 0.0
-        # Pending sleepers as (wake_at monotonic time, future to resolve); advance() drains this.
-        self._pending: list[tuple[float, asyncio.Future[None]]] = []
+        # Pending sleepers as (wake_at monotonic time, insertion sequence, future to resolve);
+        # advance() drains this. The sequence number is a tiebreaker only: two sleeps registered
+        # for the exact same wake_at (a common case when several collaborators share one interval,
+        # e.g. two heartbeat cadences both 0.05s and both armed at monotonic 0.0) would otherwise
+        # make advance()'s own sort compare two asyncio.Future objects directly and raise TypeError
+        # (neither Future nor the tuple itself defines ordering past its first differing element).
+        self._pending: list[tuple[float, int, asyncio.Future[None]]] = []
+        self._next_sequence = 0
 
     def now(self) -> datetime:
         """Return the fake clock's current wall-clock time.
@@ -168,7 +174,8 @@ class FakeClock:
             return
         wake_at = self._monotonic + seconds
         future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self._pending.append((wake_at, future))
+        self._next_sequence += 1
+        self._pending.append((wake_at, self._next_sequence, future))
         await future
 
     def advance(self, seconds: float) -> None:
@@ -191,13 +198,19 @@ class FakeClock:
 
         # Wake every sleeper whose deadline is now in the past, earliest deadline first, so
         # sleepers with shorter durations observably resume before ones with longer durations
-        # even when a single advance() call satisfies several at once.
+        # even when a single advance() call satisfies several at once; the insertion sequence
+        # breaks a tie between two sleepers that share the exact same wake_at (registration order,
+        # never comparing the two Futures directly -- see __init__'s own comment on _pending).
         due = sorted(
-            (wake_at, future) for wake_at, future in self._pending if wake_at <= self._monotonic
+            (wake_at, sequence, future)
+            for wake_at, sequence, future in self._pending
+            if wake_at <= self._monotonic
         )
         self._pending = [
-            (wake_at, future) for wake_at, future in self._pending if wake_at > self._monotonic
+            (wake_at, sequence, future)
+            for wake_at, sequence, future in self._pending
+            if wake_at > self._monotonic
         ]
-        for _, future in due:
+        for _, _, future in due:
             if not future.done():
                 future.set_result(None)
