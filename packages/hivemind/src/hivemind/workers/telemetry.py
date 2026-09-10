@@ -11,24 +11,31 @@ the manifest threshold... checkpoints and resets itself") has been crossed. It a
 two flags and the one event a role's own turn loop cooperates with: `cancel_requested` and
 `handoff_requested`, set by the runtime on `TaskCancel`/`Intervene`, and `wait_if_paused`, which a
 role awaits between turns so `TaskPause` takes effect without the runtime forcibly suspending the
-role's coroutine.
+role's coroutine. `note_alarm`/`take_pending_alarms` (this dispatch's own fix 2) are a second such
+seam, a small queue: a tool's own side effect several calls deep in a role's tool loop
+(`hivemind.workers.tools.proposals.cap`, on a Capping rollback) has no handle on the runtime that
+alone may send an `AlarmRaised`, but it already shares this tracker with it.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Constructed and owned by `hivemind.workers.runtime.
     WorkerRuntime` (roadmap step 3.15); written by whichever role `hivemind.workers.base.Worker.run`
     is running (roadmap step 3.16 for the Drone); read by the runtime to build every outgoing
-    `Heartbeat` and to decide on a checkpoint. Calls into `hivemind.workers.errors` and waggle only.
+    `Heartbeat`, to decide on a checkpoint, and to drain `take_pending_alarms` on every tick.
+    Calls into `hivemind.workers.errors` and waggle only.
 
 Key invariants:
     - This class owns its own mutable state in place (codingrules section 8.5): every `record_*`/
-      `add_spend`/`set_blockers` call mutates the tracker itself rather than returning a new one,
-      because it is meant to accumulate across a role's whole attempt, not to be replaced.
+      `add_spend`/`set_blockers`/`note_alarm` call mutates the tracker itself rather than
+      returning a new one, because it is meant to accumulate across a role's whole attempt, not to
+      be replaced.
     - `snapshot()` never raises: every field it copies into a ContextTelemetry is already clamped
       to that model's own bounds by the `record_*`/`set_blockers` methods, so a role that writes
       an over-length action or too many blockers never breaks the next heartbeat.
     - `wait_if_paused` returns immediately while not paused (the pause event starts set), and
       raises WorkerCancelledError the moment `cancel_requested` is true, whether or not a pause is
       also in effect: a cancelled Worker's role must never be left blocked by a pause forever.
+    - `take_pending_alarms` drains the queue it reads: the same `PendingAlarm` is never returned
+      twice, so a caller that sends every drained entry on can never double-send one.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "every bee reports ContextTelemetry on heartbeat".
@@ -43,8 +50,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from dataclasses import dataclass
 
 from hivemind.workers.errors import WorkerCancelledError
+from waggle.messages.supervision import AlarmKind
+from waggle.messages.supervision.alarms import MAX_DETAIL_CHARS
 from waggle.messages.supervision.telemetry import (
     MAX_ACTION_CHARS,
     MAX_BLOCKER_CHARS,
@@ -54,16 +64,30 @@ from waggle.messages.supervision.telemetry import (
     ContextTelemetry,
 )
 
-__all__ = ["TelemetryTracker"]
+__all__ = ["PendingAlarm", "TelemetryTracker"]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingAlarm:
+    """One Alarm a tool-level failure noted, waiting for the runtime to actually send it.
+
+    `hivemind.workers.tools.proposals.cap` builds one of these when the Capping gate rolls a
+    proposal back (this dispatch's own fix 2: a rollback becomes a real `AlarmRaised`, not only
+    tool-result text); `hivemind.workers.runtime.loop.WorkerRuntime` drains the queue on its next
+    tick and turns each entry into a real `AlarmRaised` to this Worker's Warden.
+    """
+
+    kind: AlarmKind
+    detail: str
 
 
 class TelemetryTracker:
     """Mutable per-Worker telemetry: written by a role between turns, read by the runtime.
 
     Owns its own mutable state in place (codingrules section 8.5), documented here: `_tokens_used`,
-    `_context_window`, `_goal`, `_last_actions`, `_blockers` and `_spend` all change as the role
-    runs, and `cancel_requested`/`handoff_requested` are plain public flags the runtime sets and a
-    role's own turn loop reads.
+    `_context_window`, `_goal`, `_last_actions`, `_blockers`, `_spend` and `_pending_alarms` all
+    change as the role runs, and `cancel_requested`/`handoff_requested` are plain public flags the
+    runtime sets and a role's own turn loop reads.
     """
 
     def __init__(self, context_window: int, goal: str = "") -> None:
@@ -83,6 +107,9 @@ class TelemetryTracker:
         self._last_actions: deque[str] = deque(maxlen=MAX_LAST_ACTIONS)
         self._blockers: tuple[str, ...] = ()
         self._spend = 0.0
+        # Grows on note_alarm (a tool-level failure the role never sees as an exception, e.g. a
+        # Capping rollback) and drains on take_pending_alarms, this dispatch's own fix 2.
+        self._pending_alarms: list[PendingAlarm] = []
         # Starts "not paused": a role's first wait_if_paused() call returns at once unless a
         # TaskPause has already landed by then.
         self._pause_event = asyncio.Event()
@@ -190,3 +217,31 @@ class TelemetryTracker:
         no-op).
         """
         self._pause_event.set()
+
+    def note_alarm(self, kind: AlarmKind, detail: str) -> None:
+        """Queue an Alarm a tool-level failure raised, for the runtime to send on its next tick.
+
+        A tool's own side effect (`hivemind.workers.tools.proposals.cap`) runs deep inside a
+        role's tool loop, several calls away from `hivemind.workers.runtime.WorkerRuntime`, which
+        is the only thing that may actually send an `AlarmRaised` (this dispatch's own fix 2): the
+        tracker is the one object both sides already share, so noting it here is how the failure
+        crosses that gap without a tool needing a handle on the runtime itself.
+
+        Args:
+            kind: What went wrong, as the escalation policy keys it.
+            detail: The failing assertion or observation; truncated to MAX_DETAIL_CHARS so this
+                can never fail to build the eventual AlarmRaised.
+        """
+        self._pending_alarms.append(PendingAlarm(kind=kind, detail=detail[:MAX_DETAIL_CHARS]))
+
+    def take_pending_alarms(self) -> tuple[PendingAlarm, ...]:
+        """Drain and return every Alarm noted since the last drain, oldest first.
+
+        Returns:
+            Every `PendingAlarm` queued by `note_alarm` since the last call; empty when none are
+            pending. Draining clears the queue, so a caller that does not send them on is the only
+            way one could ever be sent twice.
+        """
+        drained = tuple(self._pending_alarms)
+        self._pending_alarms.clear()
+        return drained

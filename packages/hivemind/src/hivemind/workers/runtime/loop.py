@@ -11,11 +11,14 @@ section 12's "a state change and its trail event share one transaction"). One ti
 one thing: the next envelope from `hivemind.workers.runtime.mailbox.Mailbox`, the next heartbeat
 deadline, the role's own task finishing, a scheduled cancel deadline firing, or `stop()` having
 been called -- whichever comes first (`asyncio.wait(..., return_when=FIRST_COMPLETED)`), so a role
-blocked asking a Question never stops heartbeats or `TaskCancel` from being noticed. This class's
-own state and every outgoing message go through `hivemind.workers.runtime.reporter.Reporter`, and
-starting the role, scheduling its cancel and interpreting its finished task go through
-`hivemind.workers.runtime.attempt.AttemptManager`, both split out only to keep this class inside
-codingrules 5.1's size limits.
+blocked asking a Question never stops heartbeats or `TaskCancel` from being noticed. Every tick
+also drains `hivemind.workers.telemetry.TelemetryTracker.take_pending_alarms` (this dispatch's own
+fix 2: a Capping rollback several awaits deep inside the role's own tool loop has no handle on
+this runtime, so it notes the Alarm on the shared tracker instead and this is where it actually
+gets sent). This class's own state and every outgoing message go through `hivemind.workers.
+runtime.reporter.Reporter`, and starting the role, scheduling its cancel and interpreting its
+finished task go through `hivemind.workers.runtime.attempt.AttemptManager`, both split out only to
+keep this class inside codingrules 5.1's size limits.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Constructed by `hivemind.wardens.spawn` (roadmap step 3.19)
@@ -65,6 +68,7 @@ from hivemind.workers.runtime.attempt import AttemptManager
 from hivemind.workers.runtime.deps import RuntimeDeps
 from hivemind.workers.runtime.mailbox import Mailbox
 from hivemind.workers.runtime.reporter import Reporter
+from hivemind.workers.runtime.reports import AlarmDetails
 from hivemind.workers.state import WorkerState, can_transition, is_terminal
 from waggle.envelope import Envelope
 from waggle.loop import TickLoop
@@ -121,6 +125,10 @@ class WorkerRuntime(TickLoop):
 
     async def _tick(self) -> None:
         """Wait for whichever of this Worker's wake sources fires first, and handle only that."""
+        # Checked every tick, whatever wakes it: a Capping rollback noted on this attempt's own
+        # telemetry (hivemind.workers.tools.proposals.cap, this dispatch's own fix 2) is never
+        # more than one tick's delay from becoming a real AlarmRaised to this Worker's Warden.
+        await self._drain_pending_alarms()
         receive_task = self._mailbox.receive_task()
         heartbeat_task = self._mailbox.heartbeat_task()
         # Throwaway: only wakes this asyncio.wait early when stop() is called mid-tick; cancelled
@@ -158,6 +166,14 @@ class WorkerRuntime(TickLoop):
         if heartbeat_task in done:
             self._mailbox.clear_heartbeat()
             await self._reporter.send_heartbeat()
+
+    async def _drain_pending_alarms(self) -> None:
+        """Send every Alarm a tool-level failure noted on this attempt's own telemetry tracker.
+
+        Module-level, not inline, so this class stays within codingrules 5.1's size limit; see
+        `_send_pending_alarms` below for what it actually does and why.
+        """
+        await _send_pending_alarms(self)
 
     async def _dispatch(self, envelope: Envelope) -> None:
         """Route one received envelope's payload to its handler, dropping an illegal transition."""
@@ -260,3 +276,26 @@ class WorkerRuntime(TickLoop):
         # The only remaining variant is Cancel; every Intervention variant carries `reason`, so
         # no narrowing is needed to reach it here.
         self._attempt.request_cancel(lever.reason, DEFAULT_INTERVENE_CANCEL_GRACE_S)
+
+
+async def _send_pending_alarms(runtime: WorkerRuntime) -> None:
+    """Send every Alarm a tool-level failure noted on this attempt's own telemetry tracker.
+
+    A tool's own call into Capping (`hivemind.workers.tools.proposals.cap`) runs several awaits
+    deep inside the role's own tool loop, with no handle on this runtime; noting the Alarm on
+    `ctx.telemetry` (this dispatch's own fix 2) is the one seam that reaches back out to here,
+    drained once per tick (`WorkerRuntime._drain_pending_alarms`) regardless of what woke it.
+    Module-level, reading `runtime`'s private state directly, the same way `hivemind.workers.
+    runtime.attempt.AttemptManager` does (that module's own docstring), so `WorkerRuntime` itself
+    stays within codingrules 5.1's size limit.
+    """
+    if runtime._reporter.assignment is None:
+        return  # Defensive: nothing to report against yet (Reporter.require_assignment).
+    for pending in runtime._ctx.telemetry.take_pending_alarms():
+        await runtime._reporter.send_alarm(
+            AlarmDetails(
+                kind=pending.kind,
+                detail=pending.detail,
+                reason="A Capping proposal was rolled back after applying.",
+            )
+        )

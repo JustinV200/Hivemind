@@ -125,6 +125,11 @@ async def redispatch(
     Returns:
         None, once a fresh grant and assignment have been sent, or silently if the task is
         somehow not placed or its Warden is no longer attached (nothing to resend to).
+
+    `_dispatch_one`'s own fix 4a (chamber transitions before either wire send) has nothing to
+    reorder here: `redispatch` never calls `chamber.assign`/`chamber.start` at all (module
+    docstring), so there is no PENDING/ASSIGNED window for a fast Warden's own reaction to land
+    inside in the first place.
     """
     task = await deps.chamber.get(task_id)
     if task.warden_id is None or task.cell_id is None:
@@ -138,22 +143,29 @@ async def redispatch(
 
 
 async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Task) -> None:
-    """Place, grant and assign one ready task, in that order."""
+    """Place, grant and assign one ready task, in that order.
+
+    The chamber's own PENDING -> ASSIGNED -> RUNNING transition, and `queen.assigned`, land
+    BEFORE either wire message is sent (this dispatch's own fix 4a): a real Warden reacting to
+    `TaskAssign` can, on genuine SQLite I/O, run faster than the Queen's own remaining
+    bookkeeping -- and a Drone's own immediate Question forwarded straight back up
+    (`Queen._act`'s `BLOCK_ON_QUESTION` handling) must never find the chamber still reading
+    ASSIGNED while it tries to move a RUNNING task to BLOCKED.
+    """
     placement = decide(task.spec.needs, wardens)
     link = _link_for(wardens, placement.warden_id)
     if link is None:
         return  # Defensive: unreachable, since decide() only ever names a Warden from `wardens`.
-    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, task.attempt)
-
     reason = "Placed by the Queen's dispatcher."
     await deps.chamber.assign(task.id, placement.warden_id, placement.cell_id, reason)
     await deps.chamber.start(task.id)
     await record_event(
         deps, "queen.assigned", task.id, cell_id=placement.cell_id, warden_id=placement.warden_id
     )
+    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, task.attempt)
     # "placed" (queen.assigned, just above) precedes "granted" on the trail (module docstring's
-    # own required order), even though the wire GrantIssued was already sent a moment earlier:
-    # this Queen-side record only exists because nothing else writes forage.granted at all.
+    # own required order): this Queen-side record only exists because nothing else writes
+    # forage.granted at all.
     await _record_forage_granted(deps, task, fresh_grant, placement.warden_id)
 
 

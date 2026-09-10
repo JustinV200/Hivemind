@@ -155,14 +155,12 @@ async def test_answer_question_resumes_the_task_and_forwards_the_answer_to_its_w
     await warden_end.close()
 
 
-async def _answer_directly_and_leave_a_note(
-    deps: QueenDeps, chamber_question_id: MessageId, text: str
-) -> None:
-    """Simulate `hive inbox answer`'s own two writes (cli/inbox.py), bypassing `Queen`.
+async def _answer_only(deps: QueenDeps, chamber_question_id: MessageId, text: str) -> None:
+    """The first of `hive inbox answer`'s own two writes (cli/inbox.py): `chamber.answer` alone.
 
-    `chamber.answer` resumes the task with no forwarding of its own; the Note is left for a
-    separate process's own `sync_answers_from_chamber` to read back (queen/questions.py's own
-    module docstring: the Brood Chamber's public API has no way to read an answer's text back out).
+    Resumes the task with no forwarding of its own; see `_leave_note_only` for the second write,
+    the one `sync_answers_from_chamber` actually reads back (queen/questions.py's own module
+    docstring: the Brood Chamber's public API has no way to read an answer's text back out).
     """
     answer = Answer(
         text=text,
@@ -172,6 +170,10 @@ async def _answer_directly_and_leave_a_note(
         answered_at=deps.clock.now(),
     )
     await deps.chamber.answer(chamber_question_id, answer)
+
+
+async def _leave_note_only(deps: QueenDeps, chamber_question_id: MessageId, text: str) -> None:
+    """The second write: the Note `sync_answers_from_chamber` reads back (see `_answer_only`)."""
     note = Note(
         id=new_event_id(deps.clock),
         author=answer_note_author(chamber_question_id),
@@ -181,6 +183,14 @@ async def _answer_directly_and_leave_a_note(
     )
     memory_ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
     await add_note(note, memory_ctx)
+
+
+async def _answer_directly_and_leave_a_note(
+    deps: QueenDeps, chamber_question_id: MessageId, text: str
+) -> None:
+    """Simulate `hive inbox answer`'s own two writes (cli/inbox.py) together, bypassing `Queen`."""
+    await _answer_only(deps, chamber_question_id, text)
+    await _leave_note_only(deps, chamber_question_id, text)
 
 
 async def test_sync_answers_from_chamber_forwards_a_note_a_separate_process_left() -> None:
@@ -259,4 +269,53 @@ async def test_sync_answers_from_chamber_is_a_no_op_while_the_task_is_still_bloc
     assert forwarded == 0
     still_blocked = await deps.chamber.get(goal_id)
     assert still_blocked.status is TaskStatus.BLOCKED
+    await warden_end.close()
+
+
+async def test_sync_answers_from_chamber_retries_when_the_note_has_not_landed_yet() -> None:
+    """Fix 4b: a poll landing between `chamber.answer()` and its own Note write must retry.
+
+    Interleaves the two `hive inbox answer` writes `_answer_directly_and_leave_a_note` normally
+    makes together: `chamber.answer` alone first (moving the task off BLOCKED with no Note yet
+    for `sync_answers_from_chamber` to find, exactly `cli/readback/inbox.py::_answer`'s own two
+    separate store writes), a sync that must leave its own tracking in place rather than drop it
+    and lose the answer for good, then the Note, then a second sync that finally forwards it.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    question = _question(deps.clock, task_id=goal_id, warden_id=link.warden_id)
+    await warden_end.send(question)
+
+    async def _blocked() -> bool:
+        task = await deps.chamber.get(goal_id)
+        return task.status is TaskStatus.BLOCKED
+
+    await _wait_until(_blocked)
+    pending = await queen.human_inbox.pending_questions(deps.chamber)
+    chamber_question_id = pending[0].id
+
+    # Only the chamber write lands first; the Note (the second, separate write) has not yet.
+    await _answer_only(deps, chamber_question_id, "Use staging.")
+    first_sync = await sync_answers_from_chamber(queen)
+    resumed = await deps.chamber.get(goal_id)
+
+    # Now the second write lands.
+    await _leave_note_only(deps, chamber_question_id, "Use staging.")
+    second_sync = await sync_answers_from_chamber(queen)
+    forwarded_answer = await warden_end.wait_for_answer()
+
+    queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert first_sync == 0  # No Note yet: nothing to forward, but nothing dropped either.
+    assert resumed.status is TaskStatus.RUNNING  # The chamber write alone already moved this.
+    assert second_sync == 1  # The retry found the Note this time and forwarded it.
+    assert forwarded_answer.question_id == question.question_id  # The original wire id, not ours.
+    assert forwarded_answer.text == "Use staging."
     await warden_end.close()

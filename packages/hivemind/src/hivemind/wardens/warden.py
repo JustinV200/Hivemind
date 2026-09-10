@@ -386,12 +386,16 @@ async def _handle_item(warden: Warden, item: InboxItem) -> None:
 
 
 def _sub_bee_for_item(warden: Warden, item: InboxItem) -> SubBee | None:
-    """Return the sub-bee `item` concerns: by sender for a sub-bee link, by task for the Queen's."""
+    """Return the sub-bee `item` concerns: by sender for a sub-bee link, by task for the Queen's.
+
+    The Queen's link carries no sub-bee sender, so her TaskCancel/Pause/Resume and Intervene
+    items resolve through the task id the inbox classifier read off the payload.
+    """
     if item.principal != _QUEEN_LINK:
         return warden._sub_bees.get(WorkerId(item.principal))
-    if item.task_id is not None:
-        return next((sb for sb in warden._sub_bees.values() if sb.task_id == item.task_id), None)
-    return None
+    # A None task_id matches no real SubBee.task_id, so this falls through to None on its own.
+    task_id = item.task_id
+    return next((sb for sb in warden._sub_bees.values() if sb.task_id == task_id), None)
 
 
 def _trigger_event(item: InboxItem) -> TriggerEvent:

@@ -16,10 +16,11 @@ an injected value or a Protocol, never a call to a provider.
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.queen` and
     `hivemind.wardens` (both of which implement `Supervisor`) and by `hivemind.workers` (which
-    raises `Alarm`s). Calls into `hivemind.common`, `hivemind.cell` (for `HoneyClearance`),
-    `hivemind.forage` (for `ModelSlot`) and waggle only; its `capping` sub-package additionally
-    reads `hivemind.guard` (for `CapabilitySet`, roadmap step 3.17), the one Layer-2 edge this
-    package needs guard for.
+    raises `Alarm`s). Calls into `hivemind.common`, `hivemind.cell` (for `HoneyClearance` and, in
+    `alarm_trail`, `CellIdentity`), `hivemind.forage` (for `ModelSlot`), `hivemind.pheromone` (for
+    `AlarmEvent`/`PheromoneTrail`, `alarm_trail`'s own one edge) and waggle only; its `capping`
+    sub-package additionally reads `hivemind.guard` (for `CapabilitySet`, roadmap step 3.17), the
+    one other Layer-2 edge this package needs.
 
 Key invariants:
     - Nothing in this package imports hivemind.llm, directly or transitively
@@ -47,6 +48,8 @@ Public API:
     - ChildKind, ChildRef, Supervisor: the one supervision protocol (supervisor).
     - Alarm, AlarmKind, AlarmSeverity, AlarmState, TRANSITIONS, can_transition, assert_transition:
       the mirrored kinds, the model, and its state machine (alarm).
+    - record_alarm_event: one alarm.* trail event per raise/handle/escalate/resolve step of an
+      Alarm's own chain (alarm_trail).
     - ContextTelemetry, fraction_used, is_past_threshold, summarise: waggle's own telemetry value
       model, re-exported, plus the pure helpers over it (telemetry).
     - Compact, Checkpoint, Handoff, Rebind, Takeover, Cancel, Intervention, to_wire, from_wire: the
@@ -70,6 +73,7 @@ from hivemind.supervision.alarm import (
     assert_transition,
     can_transition,
 )
+from hivemind.supervision.alarm_trail import record_alarm_event
 from hivemind.supervision.attendant import (
     Attendant,
     InboxItem,
@@ -154,6 +158,7 @@ __all__ = [
     "from_wire",
     "is_past_threshold",
     "load_policy",
+    "record_alarm_event",
     "score_item",
     "summarise",
     "to_wire",

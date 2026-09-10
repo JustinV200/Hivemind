@@ -32,6 +32,11 @@ Key invariants:
       must never delay noticing a dead Warden or placing a newly-ready task (this dispatch's own
       report explains why `QueenAction.DISPATCH`/`MARK_WARDEN_OFFLINE` exist in the vocabulary but
       are not reached through this module's own live wiring).
+    - `_recoverable_errors` names `InvalidTransitionError` (this dispatch's own fix 4): a chamber
+      transition that still fails on a stale status even after fix 4a's own reordering (`hivemind.
+      queen.dispatcher._dispatch_one`) is a recoverable tick failure, not one that ends `run()` and
+      takes the whole Hive down with it -- `waggle.loop.TickLoop.run` backs off and retries the
+      next tick, and `_on_tick_failed` records it as `queen.decided`.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the kernel/Attendant/autopilot/awake shape this class
@@ -48,10 +53,10 @@ from __future__ import annotations
 import asyncio
 import types
 from collections.abc import AsyncIterator, Mapping
-from typing import Any
+from typing import Any, ClassVar
 
-from hivemind.brood_chamber import AnswerSource, Task, TaskNotFoundError
-from hivemind.cell import HoneyClearance
+from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
+from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory import TriggerEvent
 from hivemind.queen import questions, ticks
@@ -66,7 +71,14 @@ from hivemind.queen.planner import plan_goal
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
-from hivemind.supervision import ChildKind, ChildRef, Intervention, to_wire
+from hivemind.supervision import (
+    Alarm,
+    ChildKind,
+    ChildRef,
+    Intervention,
+    record_alarm_event,
+    to_wire,
+)
 from hivemind.supervision.attendant import InboxItem, TieBreaker
 from waggle.envelope import Envelope, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
@@ -93,6 +105,13 @@ class Queen(TickLoop):
     `_liveness`, `_last_heartbeat`, `_open_questions` and `_human_inbox` change as she runs. Her
     `hivemind.queen.ticks`, `.dispatcher` and `.questions` delegates read and write it directly.
     """
+
+    # A chamber transition failing on a status some other hop already moved past her own view of
+    # (a stale read racing a real Warden's own reaction over real SQLite I/O) is recoverable, not
+    # fatal: codingrules section 8.8 never intends one InvalidTransitionError to take the whole
+    # Hive down (this dispatch's own fix 4, "the Queen's own crash surface"). `waggle.loop.
+    # TickLoop.run` backs off and retries the next tick rather than letting it propagate.
+    _recoverable_errors: ClassVar[tuple[type[Exception], ...]] = (InvalidTransitionError,)
 
     def __init__(self, deps: QueenDeps, tie_breaker: TieBreaker | None = None) -> None:
         """Build a Queen with no Warden attached yet; call `attach_warden` before `run()`.
@@ -125,6 +144,10 @@ class Queen(TickLoop):
         # edge back from RUNNING that would let `Task.attempt` itself track this (module docstring
         # of hivemind.queen.dispatcher.redispatch); absent means "on its first attempt" (1).
         self._attempts: dict[TaskId, int] = {}
+        # The Alarm behind a still-outstanding REBIND/RETRY_TASK, so a later COMPLETE_TASK for the
+        # same task can record alarm.resolved (this dispatch's own fix 3d); populated by
+        # hivemind.queen.ticks.alarms.handle_alarm, popped here once the task actually succeeds.
+        self._pending_alarms: dict[TaskId, Alarm] = {}
         self._human_inbox = HumanInbox()
         self._attendant = queen_attendant(deps.clock, tie_breaker)
 
@@ -214,6 +237,10 @@ class Queen(TickLoop):
         """Drain every attached Warden's link, order and act, then liveness and dispatch."""
         await _run_tick(self)
 
+    async def _on_tick_failed(self, error: Exception) -> None:
+        """Record a recovered tick error on the trail (`waggle.loop.TickLoop`'s own hook)."""
+        await _record_recovered_tick_error(self, error)
+
     # ──────────────────────────────────────────────────────────────────────────
     # Supervisor protocol (hivemind.supervision.supervisor.Supervisor)
     # ──────────────────────────────────────────────────────────────────────────
@@ -252,19 +279,9 @@ class Queen(TickLoop):
         Raises:
             UnknownWardenError: `child` names no attached Warden.
         """
-        link = self._wardens.get(WardenId(child))
-        if link is None:
-            raise UnknownWardenError(child)
-        action, slot = to_wire(intervention)
-        message = Intervene(
-            action=action,
-            subject=None,
-            task_id=None,
-            slot=slot,
-            alarm_id=None,
-            reason=intervention.reason,
-        )
-        await link.transport.send(wrap(message, link.hop, clock=self._deps.clock))
+        # Module-level, not inline, so this class stays within codingrules 5.1's size limit
+        # (matching _run_tick/_act's own delegate shape below).
+        await _send_intervene(self, child, intervention)
 
     def _state_of(self, warden_id: WardenId) -> str:
         """Return one attached Warden's own state, for a Supervisor.children() row."""
@@ -280,6 +297,27 @@ class Queen(TickLoop):
 # ──────────────────────────────────────────────────────────────────────────────
 # Tick dispatch: module-level so Queen's own class body stays within codingrules 5.1
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _send_intervene(queen: Queen, child: str, intervention: Intervention) -> None:
+    """Send `intervention` to `child` over its own link (`Queen.intervene`'s own body).
+
+    Raises:
+        UnknownWardenError: `child` names no attached Warden.
+    """
+    link = queen._wardens.get(WardenId(child))
+    if link is None:
+        raise UnknownWardenError(child)
+    action, slot = to_wire(intervention)
+    message = Intervene(
+        action=action,
+        subject=None,
+        task_id=None,
+        slot=slot,
+        alarm_id=None,
+        reason=intervention.reason,
+    )
+    await link.transport.send(wrap(message, link.hop, clock=queen._deps.clock))
 
 
 async def _run_tick(queen: Queen) -> None:
@@ -303,6 +341,23 @@ async def _run_tick(queen: Queen) -> None:
     )
     await dispatch_ready(queen._deps, queen.wardens)
     await questions.route_answers(queen._deps, queen._open_questions)
+
+
+async def _record_recovered_tick_error(queen: Queen, error: Exception) -> None:
+    """Record that one tick raised a `_recoverable_errors` member and was backed off, not fatal.
+
+    `waggle.loop.TickLoop.run` calls this once per recovered failure, before its own backoff
+    sleep; `queen.decided` (rather than a new kind) is reused because it already covers "the Queen
+    acted on a decision" broadly, and `hivemind.pheromone.events.families` is outside this
+    dispatch's own files to add a kind to.
+    """
+    await record_event(
+        queen._deps,
+        "queen.decided",
+        queen._deps.identity.hive_id,
+        action="RECOVERED_TICK_ERROR",
+        error=type(error).__name__,
+    )
 
 
 def _receive_tasks_snapshot(queen: Queen) -> dict[WardenId, asyncio.Task[Envelope | None]]:
@@ -413,6 +468,7 @@ async def _act(
             payload=payload,
             action=action,
             attempts=queen._attempts,
+            pending_alarms=queen._pending_alarms,
         )
         await ticks.alarms.handle_alarm(queen._deps, queen.wardens, handling)
     elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(payload, Question):
@@ -428,6 +484,7 @@ async def _act_on_task_result(queen: Queen, action: QueenAction, payload: TaskRe
     """Carry out COMPLETE_TASK, RETRY_TASK or FAIL_TASK for a TaskResult."""
     if action is QueenAction.COMPLETE_TASK:
         await ticks.results.complete_task(queen._deps, queen.wardens, payload)
+        await _resolve_pending_alarm(queen, payload.task_id)
     elif action is QueenAction.RETRY_TASK:
         attempt = _next_attempt(queen, payload.task_id)
         await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, attempt)
@@ -440,6 +497,26 @@ def _next_attempt(queen: Queen, task_id: TaskId) -> int:
     next_value = queen._attempts.get(task_id, 1) + 1
     queen._attempts[task_id] = next_value
     return next_value
+
+
+async def _resolve_pending_alarm(queen: Queen, task_id: TaskId) -> None:
+    """Record alarm.resolved when `task_id` succeeds with a REBIND/RETRY_TASK still outstanding.
+
+    This dispatch's own fix 3d: `hivemind.queen.ticks.alarms.handle_alarm` remembers the Alarm
+    behind a REBIND or RETRY_TASK on `queen._pending_alarms`; once the rebound or retried attempt
+    actually reaches COMPLETE_TASK, the Alarm that prompted it is finally settled.
+    """
+    alarm = queen._pending_alarms.pop(task_id, None)
+    if alarm is None:
+        return  # No outstanding Alarm for this task (it never needed a rebind or a retry).
+    identity = CellIdentity(
+        hive_id=queen._deps.identity.hive_id,
+        node_id=queen._deps.identity.node_id,
+        actor=queen._deps.identity.actor,
+    )
+    await record_alarm_event(
+        queen._deps.trail, identity, queen._deps.clock, alarm, "alarm.resolved"
+    )
 
 
 def _compact_view(telemetry: ContextTelemetry) -> CompactView:

@@ -31,9 +31,11 @@ gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_
   was offered) as the tool result. No proposal: asking has no side effect to check.
 - `proposals.py` -- `ProposalRequest` (a tool's tier, action, postconditions and reason, bundled
   so `make_proposal` stays under codingrules 5.1's parameter limit), `make_proposal` (build a
-  Proposal from one), `cap` (propose, then run, through `ctx.capping`) and `describe` (render a
-  `GateOutcome` as tool-result text: state, reason, every check and postcondition -- never the
-  diff or command text itself).
+  Proposal from one), `cap` (propose, then run, through `ctx.capping`; on a `ROLLED_BACK` outcome
+  also notes `ROLLBACK_ALARM_KIND` (`POSTCONDITION_FAILED`) on `ctx.telemetry`, so the runtime
+  raises a real Alarm instead of the rollback only ever showing up as tool-result text) and
+  `describe` (render a `GateOutcome` as tool-result text: state, reason, every check and
+  postcondition -- never the diff or command text itself).
 - `errors.py` -- `ToolError` (root) and `UnreachablePathError` (a path this Worker's session
   cannot reach at all, distinct from merely lacking a capability for it).
 

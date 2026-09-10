@@ -14,6 +14,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from builders.queen import make_queen_deps, plan_responder
@@ -25,6 +26,9 @@ from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail import TrailQuery
 from hivemind.queen.queen import Queen
+from waggle.ids import new_message_id
+from waggle.messages.labels import HoneyClearance as WireHoneyClearance
+from waggle.messages.supervision import Question
 from waggle.messages.task import WorkerRole
 
 
@@ -185,4 +189,50 @@ async def test_overriding_footprints_and_grant_ttl_change_the_computed_grant() -
 
     assert fresh_grant.max_sub_bees == 0  # by_memory is now the binding constraint, at zero.
     assert fresh_grant.expires_at == deps.clock.now() + timedelta(seconds=42.0)
+    await warden_end.close()
+
+
+async def test_a_question_right_after_dispatch_never_raises_invalid_transition() -> None:
+    """Fix 4a: chamber.assign/start land before dispatch_one's own wire sends (module docstring).
+
+    `hivemind.queen.dispatcher._dispatch_one`'s own required order is what closes the race
+    `tests.e2e.test_kernel_on_hive_stand`'s own module docstring names: a fast sub-bee whose very
+    first action is `ask`, forwarded straight back, must never reach `Queen._act`'s own
+    BLOCK_ON_QUESTION handling while the chamber still reads ASSIGNED (raising
+    `InvalidTransitionError`, which -- before fix 4's own `_recoverable_errors` addition -- would
+    also have ended the Queen's own `run()` loop for good). This drives the real tick loop
+    concurrently with the dispatch it reacts to, the same shape `test_queen_alarms.py`'s own
+    REBIND test already uses for a Warden-forwarded AlarmRaised.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    run_task = asyncio.ensure_future(queen.run())
+
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    assignment = await warden_end.wait_for_assignment()
+    assert assignment.task_id == goal_id
+    question = Question(
+        question_id=new_message_id(deps.clock),
+        task_id=goal_id,
+        asked_by=link.warden_id,
+        text="Which season?",
+        options=(),
+        clearance=WireHoneyClearance.C1,
+        asked_at=deps.clock.now(),
+    )
+    await warden_end.send(question)
+
+    for _ in range(200):
+        task = await deps.chamber.get(goal_id)
+        if task.status is TaskStatus.BLOCKED:
+            break
+        assert not run_task.done(), f"Queen.run() ended early: {run_task.exception()}"
+        await asyncio.sleep(0)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("The Question never blocked its task in time.")
+
+    queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
     await warden_end.close()

@@ -128,6 +128,7 @@ def test_decide_falls_back_to_default_when_no_row_matches_at_all() -> None:
         (AlarmKind.WORKER_FAILED, 2, PolicyAction.REBIND),
         (AlarmKind.WORKER_FAILED, 3, PolicyAction.ESCALATE),
         (AlarmKind.WORKER_CRASHED, 1, PolicyAction.RESPAWN),
+        (AlarmKind.WORKER_CRASHED, 2, PolicyAction.REBIND),
         (AlarmKind.WORKER_CRASHED, 3, PolicyAction.ESCALATE),
         (AlarmKind.WORKER_STALLED, 1, PolicyAction.RESPAWN),
         (AlarmKind.WORKER_STALLED, 3, PolicyAction.ESCALATE),

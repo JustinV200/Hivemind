@@ -12,9 +12,12 @@ Key invariants:
 See Also:
     - hivemind.wardens.ticks.alarms for the module under test.
     - docs/supervision/default-policy.toml for WORKER_CRASHED's own rows: min_attempts=1 ->
-      RESPAWN, min_attempts=3 -> ESCALATE, so two respawns precede an escalate -- this test
-      crashes three times, not two, to match the shipped policy exactly (see this dispatch's
-      report for why "the second failure" reads differently for WORKER_CRASHED specifically).
+      RESPAWN, min_attempts=2 -> REBIND, min_attempts=3 -> ESCALATE. A Worker that crashes on
+      every attempt (this module's own always-crashing script) only ever gets one same-binding
+      respawn: its second crash already meets the REBIND row, and a Warden whose own grant (this
+      module's own fixture) names no second binding to offer falls straight through REBIND's own
+      no-target fallback to ESCALATE (roadmap 3.22 scenario (c)'s own fix-forward dispatch), one
+      attempt sooner than the plain RESPAWN/RESPAWN/ESCALATE ladder alone would have escalated at.
 """
 
 from __future__ import annotations

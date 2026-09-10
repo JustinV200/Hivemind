@@ -20,10 +20,11 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick dispatch, once per decided
     `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an `AlarmRaised`. Calls into
-    `hivemind.forage.slots` (ModelSlot), `hivemind.queen.autopilot` (QueenAction), `hivemind.queen.
-    deps` (QueenDeps, WardenLink), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.queen.
-    ticks.results` (fail_task, retry_task), `hivemind.queen.trail` (record_event),
-    `hivemind.supervision` (Alarm, from_wire, intervention.Rebind, to_wire) and waggle only.
+    `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.queen.autopilot`
+    (QueenAction), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.human_inbox`
+    (HumanInbox), `hivemind.queen.ticks.results` (fail_task, retry_task), `hivemind.queen.trail`
+    (record_event), `hivemind.supervision` (Alarm, record_alarm_event, intervention.Rebind,
+    to_wire) and waggle only.
 
 Key invariants:
     - `handle_alarm` never re-decides `action`: it is a pure dispatch over whatever
@@ -31,6 +32,15 @@ Key invariants:
     - A REBIND with no fallback binding for `ModelSlot.WORKER`, or a `context.task_id` of `None`,
       always falls back to `ESCALATE_TO_HUMAN` rather than sending a message that names nothing to
       act on.
+    - Every REBIND/RETRY_TASK/FAIL_TASK records `alarm.handled` and `_escalate` records
+      `alarm.escalated` (this dispatch's own fix 1). A REBIND or RETRY_TASK also remembers its own
+      Alarm on `handling.pending_alarms`, keyed by task id, so `hivemind.queen.queen`'s own
+      COMPLETE_TASK handling can record `alarm.resolved` once the rebound or retried attempt
+      actually succeeds (fix 3d) -- the one Alarm outcome this module itself never reaches, since
+      it always runs before the task's own next result is even in flight.
+    - The `Intervene(REBIND)` this module sends always fills `binding` with the same fallback key
+      it resolved for itself (fix 3c): the receiving Warden (`hivemind.wardens.ticks.control`) has
+      no other way to learn which `[llm.slots]` key to respawn on.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the exact Alarm handling this module
@@ -45,13 +55,14 @@ from __future__ import annotations
 from collections.abc import MutableMapping, Sequence
 from dataclasses import dataclass
 
+from hivemind.cell import CellIdentity
 from hivemind.forage.slots import ModelSlot
 from hivemind.queen.autopilot import QueenAction
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.ticks.results import fail_task, retry_task
 from hivemind.queen.trail import record_event
-from hivemind.supervision import Alarm
+from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.intervention import Rebind, to_wire
 from waggle.envelope import wrap
 from waggle.ids import TaskId, WardenId
@@ -71,6 +82,13 @@ class AlarmHandling:
         warden_id: The Warden that forwarded `payload` (the envelope's own sender).
         payload: The escalated AlarmRaised.
         action: The already-decided QueenAction; one of the four `handle_alarm` dispatches.
+        attempts: The Queen's own shared attempt counter (module docstring: the chamber's
+            `Task.attempt` cannot track a RUNNING task's own retries, so the Queen tracks it
+            instead).
+        pending_alarms: The Queen's own task_id -> Alarm table for a REBIND or RETRY_TASK still
+            awaiting its own outcome; `hivemind.queen.queen`'s own COMPLETE_TASK handling pops
+            from it to record `alarm.resolved` once the retried or rebound attempt succeeds
+            (fix 3d).
     """
 
     human_inbox: HumanInbox
@@ -78,6 +96,7 @@ class AlarmHandling:
     payload: AlarmRaised
     action: QueenAction
     attempts: MutableMapping[TaskId, int]
+    pending_alarms: MutableMapping[TaskId, Alarm]
 
 
 async def handle_alarm(
@@ -95,10 +114,16 @@ async def handle_alarm(
     payload, action = handling.payload, handling.action
     task_id = payload.context.task_id
     if action is QueenAction.RETRY_TASK and task_id is not None:
+        await _record_handled(deps, handling, task_id, "RETRY_TASK")
         next_attempt = handling.attempts.get(task_id, 1) + 1
         handling.attempts[task_id] = next_attempt
         await retry_task(deps, wardens, task_id, next_attempt)
     elif action is QueenAction.FAIL_TASK and task_id is not None:
+        alarm = Alarm.from_wire(payload)
+        await record_alarm_event(
+            deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="FAIL_TASK"
+        )
+        handling.pending_alarms.pop(task_id, None)  # A failed task never resolves its own Alarm.
         await fail_task(deps, task_id, _reason(payload))
     elif action is QueenAction.REBIND:
         await _rebind(deps, wardens, handling)
@@ -124,11 +149,16 @@ async def _rebind(deps: QueenDeps, wardens: Sequence[WardenLink], handling: Alar
         subject=None,
         task_id=task_id,
         slot=slot,
+        # The one field a Warden cannot derive on its own (module docstring's fix 3c): the
+        # fallback chain (`[llm.slots] fallback`) is a Queen-side concept the Warden's own grant
+        # never carries, so the Queen ships the already-resolved manifest key on the wire.
+        binding=fallback_key,
         alarm_id=payload.alarm_id,
         reason=intervention.reason,
     )
     await link.transport.send(wrap(message, link.hop, clock=deps.clock))
     await record_event(deps, "queen.decided", task_id, action="REBIND", binding=fallback_key)
+    await _record_handled(deps, handling, task_id, "REBIND")
 
 
 async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRaised) -> None:
@@ -138,6 +168,25 @@ async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRais
     subject = payload.context.task_id or deps.identity.hive_id
     await record_event(
         deps, "queen.decided", subject, action="ESCALATE_TO_HUMAN", alarm_id=alarm.id
+    )
+    await record_alarm_event(deps.trail, _identity(deps), deps.clock, alarm, "alarm.escalated")
+
+
+async def _record_handled(
+    deps: QueenDeps, handling: AlarmHandling, task_id: TaskId, action: str
+) -> None:
+    """Record `alarm.handled` for REBIND/RETRY_TASK and remember it for a later `alarm.resolved`."""
+    alarm = Alarm.from_wire(handling.payload)
+    handling.pending_alarms[task_id] = alarm
+    await record_alarm_event(
+        deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action=action
+    )
+
+
+def _identity(deps: QueenDeps) -> CellIdentity:
+    """Build the CellIdentity every alarm.* event this module records is stamped with."""
+    return CellIdentity(
+        hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor=deps.identity.actor
     )
 
 

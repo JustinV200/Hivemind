@@ -16,8 +16,9 @@ Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. These are `hivemind.wardens.warden.Warden`'s own delegates (see
     `hivemind.wardens.ticks.assign`'s own module docstring for why). Calls into `hivemind.cell`
-    (HoneyClearance), `hivemind.forage.slots` (ModelSlot), `hivemind.wardens.spawn`
-    (WardenCellContext, spawn_sub_bee) and waggle only.
+    (HoneyClearance, CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.supervision`
+    (Alarm, record_alarm_event -- this dispatch's own alarm-reaches-the-trail fix),
+    `hivemind.wardens.spawn` (WardenCellContext, spawn_sub_bee) and waggle only.
 
 Key invariants:
     - `retire_sub_bee` closes the old sub-bee's link and cancels its runtime task (if still running)
@@ -25,6 +26,16 @@ Key invariants:
       respawn, so its old worker id is never briefly aliased to two runtime tasks.
     - `_rebind` never respawns on the sub-bee's own current binding: it always picks a different
       entry from the grant's `allowed`, or escalates when none is left.
+    - Every RETRY/REBIND/CANCEL_TASK records `alarm.handled` and every path that reaches
+      `_escalate` records `alarm.escalated`, exactly once per Alarm handled (this dispatch's own
+      fix 1: an Alarm's own chain is now visible on the trail).
+    - `rebind_sub_bee` is the one place a fresh sub-bee is spawned on an explicit target binding
+      without the grant's own `allowed`-bindings search: `hivemind.wardens.ticks.control`'s own
+      Queen-driven REBIND path calls it with the binding key the Queen already resolved
+      (`hivemind.queen.ticks.alarms._fallback_binding_key`), because `_next_allowed_binding` below
+      can only ever name a *source* within the current grant (every v0 grant's own `allowed`
+      entries share one `ModelSlot.WORKER`, so it never actually differs from `sub_bee.binding`) --
+      this dispatch's own fix 3b/3c.
 
 See Also:
     - docs/adr/0012-wardens-alarms-and-the-escalation-chain.md for the escalation chain this
@@ -37,8 +48,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.forage.slots import ModelSlot
+from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from waggle.envelope import wrap
@@ -54,7 +66,13 @@ if TYPE_CHECKING:
 
 MAX_REASON_CHARS = 2_000  # Mirrors waggle.messages.task.reports.MAX_SUMMARY_CHARS's own bound.
 
-__all__ = ["MAX_REASON_CHARS", "handle_alarm_action", "retire_sub_bee", "send_alarm_to_queen"]
+__all__ = [
+    "MAX_REASON_CHARS",
+    "handle_alarm_action",
+    "rebind_sub_bee",
+    "retire_sub_bee",
+    "send_alarm_to_queen",
+]
 
 
 async def handle_alarm_action(
@@ -75,12 +93,14 @@ async def handle_alarm_action(
             lets `_rebind` pick the next entry in the grant's own allowed bindings.
     """
     if action is WardenAction.RETRY:
+        await _record_handled(warden, alarm, action)
         await _respawn(warden, sub_bee, alarm, binding_override=None)
     elif action is WardenAction.REBIND:
         await _rebind(warden, sub_bee, alarm, binding)
     elif action is WardenAction.ESCALATE:
         await _escalate(warden, sub_bee, alarm)
     elif action is WardenAction.CANCEL_TASK:
+        await _record_handled(warden, alarm, action)
         await _cancel_task(warden, sub_bee, alarm)
 
 
@@ -120,6 +140,7 @@ async def _rebind(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, binding: 
     if target is None:
         await _escalate(warden, sub_bee, alarm)
         return
+    await _record_handled(warden, alarm, WardenAction.REBIND)
     await _respawn(warden, sub_bee, alarm, binding_override=target)
 
 
@@ -132,6 +153,39 @@ def _next_allowed_binding(sub_bee: SubBee, grant: GrantIssued) -> str | None:
     return None
 
 
+async def rebind_sub_bee(warden: Warden, sub_bee: SubBee, target_binding: str) -> None:
+    """Retire `sub_bee` and respawn it on `target_binding`, one attempt higher, from its Handoff.
+
+    The counterpart `hivemind.wardens.ticks.control`'s own Queen-driven REBIND path calls once the
+    Queen has already named an explicit target key (module docstring's fix 3b/3c): unlike `_rebind`
+    above, this never searches the grant's own `allowed` bindings -- the caller already resolved
+    one -- so it is the one place both the sub-bee-driven and the Queen-driven rebind paths share.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+        sub_bee: The sub-bee to respawn.
+        target_binding: The `[llm.slots]` manifest key to respawn on.
+    """
+    grant = warden._grants.get(sub_bee.assignment.grant_id)
+    if grant is None or warden._cell is None or warden._lease is None or warden._session is None:
+        return  # Defensive: nothing to respawn onto; the next liveness sweep notices the gap.
+    await retire_sub_bee(warden, sub_bee)
+    new_assignment = sub_bee.assignment.model_copy(
+        update={"attempt": sub_bee.attempt + 1, "resume_from": sub_bee.last_handoff}
+    )
+    ctx = WardenCellContext(
+        warden_id=warden._warden_id,
+        deps=warden._deps,
+        ceiling=warden._ceiling,
+        cell=warden._cell,
+        lease=warden._lease,
+        session=warden._session,
+    )
+    new_sub_bee = await spawn_sub_bee(ctx, new_assignment, grant, target_binding)
+    warden._sub_bees[new_sub_bee.worker_id] = new_sub_bee
+    warden._sub_bee_iters[new_sub_bee.worker_id] = new_sub_bee.link.receive()
+
+
 async def _cancel_task(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised) -> None:
     """Retire `sub_bee` and report its task FAILED to the Queen."""
     await retire_sub_bee(warden, sub_bee)
@@ -142,8 +196,33 @@ async def _cancel_task(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised) -> N
 async def _escalate(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised) -> None:
     """Forward `alarm` to the Queen unchanged apart from an incremented attempt count."""
     del sub_bee  # Not needed to forward: the Alarm already carries every reference it needs.
+    await record_alarm_event(
+        warden._deps.trail,
+        _identity(warden),
+        warden._deps.clock,
+        Alarm.from_wire(alarm),
+        "alarm.escalated",
+    )
     forwarded = alarm.model_copy(update={"attempts": alarm.attempts + 1})
     await _send_to_queen(warden, forwarded)
+
+
+async def _record_handled(warden: Warden, alarm: AlarmRaised, action: WardenAction) -> None:
+    """Record `alarm.handled` for a RETRY/REBIND/CANCEL_TASK this Warden resolved, no escalation."""
+    await record_alarm_event(
+        warden._deps.trail,
+        _identity(warden),
+        warden._deps.clock,
+        Alarm.from_wire(alarm),
+        "alarm.handled",
+        action=action.value,
+    )
+
+
+def _identity(warden: Warden) -> CellIdentity:
+    """Build the CellIdentity every alarm.* event this module records is stamped with."""
+    identity = warden._deps.identity
+    return CellIdentity(hive_id=identity.hive_id, node_id=identity.node_id, actor=identity.actor)
 
 
 async def send_alarm_to_queen(

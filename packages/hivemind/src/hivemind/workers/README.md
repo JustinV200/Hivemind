@@ -22,13 +22,19 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
 - `telemetry.py` -- `TelemetryTracker`: the mutable per-Worker `ContextTelemetry` a role writes
   between turns and the runtime reads for every `Heartbeat`; also the `cancel_requested`/
   `handoff_requested` flags and the `wait_if_paused()` a role's own turn loop cooperates with.
+  `note_alarm`/`take_pending_alarms`/`PendingAlarm`: a small queue a tool's own call into Capping
+  (`hivemind.workers.tools.proposals.cap`, on a rollback) notes an Alarm onto, with no handle on
+  the runtime; the runtime drains it into a real `AlarmRaised` every tick.
 - `capabilities.py` -- `worker_capabilities(warden_caps, needs, scratch_root)`: a Worker's strict
   `CapabilitySet` slice, never wider than its Warden's.
 - `errors.py` -- `WorkerError` (root), `InvalidWorkerTransitionError`, `WorkerCancelledError`.
 - `runtime/` -- `WorkerRuntime`, the `waggle.loop.TickLoop` that receives `TaskAssign`, runs the
   role, sends `Heartbeat`/`TaskProgress`/`TaskResult`, honours `TaskCancel`/`TaskPause`/
-  `TaskResume`/every `Intervene` lever, checkpoints and restarts at a handoff, and raises an
-  `AlarmRaised` instead of crashing when the role does. Split internally into `deps.py`
+  `TaskResume`/every `Intervene` lever, checkpoints and restarts at a handoff, drains this
+  attempt's own pending Alarms every tick, and raises an `AlarmRaised` instead of crashing when
+  the role does -- classified by a small table (`attempt.py`'s own `_alarm_kind_for_crash`):
+  `ProviderUnavailableError`/`RateLimitedError` (`hivemind.llm.errors`) map to
+  `PROVIDER_UNAVAILABLE`, anything else to `WORKER_CRASHED`. Split internally into `deps.py`
   (`RuntimeDeps`), `mailbox.py` (the transport, the receive-or-heartbeat race, the blocking
   Question channel), `reporter.py` (this Worker's own `WorkerState` and every outgoing message)
   and `attempt.py` (starting, cancelling and interpreting one role attempt); `__init__.py` is the

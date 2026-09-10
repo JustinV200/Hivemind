@@ -15,9 +15,11 @@ its prompt from, over this Warden's own sub-bee table and memory store.
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
-    assign`'s own module docstring for why). Calls into `hivemind.cell` (HoneyClearance),
-    `hivemind.memory` (the flat hot-state summary models), `hivemind.wardens.ticks.alarms`
-    (handle_alarm_action) and `hivemind.workers.state` (WorkerState) and waggle only.
+    assign`'s own module docstring for why). Calls into `hivemind.cell` (HoneyClearance,
+    CellIdentity), `hivemind.memory` (the flat hot-state summary models), `hivemind.supervision`
+    (Alarm, record_alarm_event -- this dispatch's own alarm-reaches-the-trail fix),
+    `hivemind.wardens.ticks.alarms` (handle_alarm_action) and `hivemind.workers.state`
+    (WorkerState) and waggle only.
 
 Key invariants:
     - Sub-bee staleness is checked on this Warden's own heartbeat cadence (module docstring's
@@ -26,6 +28,9 @@ Key invariants:
       running Alarm or Question table of its own beyond what forwarding needs (flagged in this
       dispatch's report); every other category reads live from the sub-bee table or the memory
       store.
+    - `raise_stalled_alarms` records `alarm.raised` for the WORKER_STALLED Alarm it synthesises,
+      before handing it to `handle_alarm_action` (this dispatch's own fix 1: a Warden-raised Alarm
+      is now visible on the trail from its very first hop).
 
 See Also:
     - .claude/codingrules.md section 8.8 for "observe a sub-bee's terminal state from its
@@ -39,7 +44,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.memory import (
     AlarmSummary,
     DecisionSummary,
@@ -48,7 +53,7 @@ from hivemind.memory import (
     QuestionSummary,
     TaskSummary,
 )
-from hivemind.supervision import Alarm
+from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
 from hivemind.wardens.ticks.alarms import handle_alarm_action
@@ -159,6 +164,15 @@ async def raise_stalled_alarms(warden: Warden) -> None:
             clearance=HoneyClearance.C1.to_wire(),
             reason="The sub-bee's own heartbeat has not renewed within the configured limit.",
         )
+        # This Warden raises WORKER_STALLED itself (this dispatch's own fix 1: the Alarm's own
+        # chain, not just this Warden's later handling of it, belongs on the trail).
+        await record_alarm_event(
+            warden._deps.trail,
+            _cell_identity(warden),
+            warden._deps.clock,
+            Alarm.from_wire(alarm),
+            "alarm.raised",
+        )
         # sub_bee.attempt (not missed_heartbeats) is the policy-facing attempt count, for the same
         # reason table.py's own _decide_alarm docstring gives for a wire AlarmRaised: a respawn
         # replaces this SubBee with a fresh one whose own missed_heartbeats restarts at 0, so
@@ -199,6 +213,12 @@ def _empty_telemetry() -> ContextTelemetry:
     return ContextTelemetry(
         tokens_used=0, context_window=1, goal="", last_actions=(), blockers=(), spend=0.0
     )
+
+
+def _cell_identity(warden: Warden) -> CellIdentity:
+    """Build the CellIdentity `raise_stalled_alarms`'s own alarm.raised event is stamped with."""
+    identity = warden._deps.identity
+    return CellIdentity(hive_id=identity.hive_id, node_id=identity.node_id, actor=identity.actor)
 
 
 def _alarm_as_item(alarm: AlarmRaised) -> InboxItem:

@@ -13,8 +13,9 @@ and the human-readable outcome text are written once.
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Called by
     `hivemind.workers.tools.session` and `hivemind.workers.tools.http`. Calls into `hivemind.cell`,
-    `hivemind.forage.tempo`, `hivemind.supervision.capping`, `hivemind.workers.context` and
-    waggle only.
+    `hivemind.forage.tempo`, `hivemind.supervision.capping`, `hivemind.workers.context`,
+    `hivemind.workers.telemetry` (through `ctx.telemetry.note_alarm`, this dispatch's own fix 2)
+    and waggle only.
 
 Key invariants:
     - `make_proposal` never reads `ctx.capabilities` or `ctx.lease`: those are checked by
@@ -26,6 +27,9 @@ Key invariants:
       verdict and each check/postcondition's outcome (codingrules section 12's "never the diff
       text back" carried over from the trail's own payload rule, even though this is tool-result
       text rather than a trail event).
+    - `cap` notes exactly one Alarm per ROLLED_BACK outcome, never more: a Proposal only ever
+      reaches ROLLED_BACK once (`hivemind.supervision.capping.state`'s own transition table has no
+      edge back out of it).
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit `ProposalRequest` exists
@@ -47,11 +51,16 @@ from hivemind.workers.context import WorkerContext
 from waggle.ids import new_message_id
 from waggle.messages.capping import ProposedAction
 from waggle.messages.labels import Postcondition
+from waggle.messages.supervision import AlarmKind
 from waggle.messages.task import TaskAssign
 
 MIN_SPEND_ESTIMATE_USD = 0.0  # v0: no built-in tool proposes a real spend (module docstring).
+# POSTCONDITION_FAILED already names exactly this: "a proposal's declared postcondition did not
+# hold after applying" (hivemind.supervision.alarm.AlarmKind's own docstring) is ROLLED_BACK's own
+# definition (hivemind.supervision.capping.gate's module docstring); no new AlarmKind is needed.
+ROLLBACK_ALARM_KIND = AlarmKind.POSTCONDITION_FAILED
 
-__all__ = ["ProposalRequest", "cap", "describe", "make_proposal"]
+__all__ = ["ROLLBACK_ALARM_KIND", "ProposalRequest", "cap", "describe", "make_proposal"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,16 +106,26 @@ def make_proposal(ctx: WorkerContext, assignment: TaskAssign, request: ProposalR
 async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     """Propose, then run, `proposal` through this attempt's Capping gate.
 
+    A ROLLED_BACK outcome also notes an Alarm on `ctx.telemetry` (this dispatch's own fix 2):
+    `cap` is the one place a tool's own call to the gate is, so it is the one place that can see
+    both the real `GateOutcome` and this attempt's own tracker without either a tool or the gate
+    itself needing a handle on the other (`hivemind.workers.runtime.WorkerRuntime` drains the note
+    into a real `AlarmRaised` on its next tick).
+
     Args:
         ctx: This attempt's WorkerContext: supplies the gate, the capabilities to check the
-            proposal against, and the lease view for path reachability.
+            proposal against, the lease view for path reachability, and the telemetry tracker a
+            rollback is noted on.
         proposal: A freshly built Proposal, from `make_proposal`.
 
     Returns:
         The gate's terminal outcome: VERIFIED, REJECTED or ROLLED_BACK.
     """
     await ctx.capping.propose(proposal)
-    return await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease)
+    outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease)
+    if outcome.state is ProposalState.ROLLED_BACK:
+        ctx.telemetry.note_alarm(ROLLBACK_ALARM_KIND, outcome.reason)
+    return outcome
 
 
 def describe(outcome: GateOutcome) -> str:

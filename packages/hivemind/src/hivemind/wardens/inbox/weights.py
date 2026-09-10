@@ -40,6 +40,7 @@ from hivemind.supervision.attendant import Attendant, InboxItem, InboxKind, Weig
 from waggle.clock import Clock
 from waggle.envelope import Envelope
 from waggle.messages.supervision import AlarmRaised, Answer, Question
+from waggle.messages.supervision.oversight import Intervene
 from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResult, TaskResume
 
 __all__ = ["to_inbox_item", "warden_attendant"]
@@ -96,6 +97,10 @@ def _classify(payload: object) -> tuple[InboxKind, AlarmSeverity | None, object 
     if isinstance(payload, Question):
         return InboxKind.QUESTION, None, payload.task_id
     if isinstance(payload, Answer):
+        return InboxKind.WAGGLE_MESSAGE, None, payload.task_id
+    if isinstance(payload, Intervene):
+        # A Queen's lever names the task it targets; without this branch every Intervene was
+        # unclassified and the Warden could not find the sub-bee to apply it to.
         return InboxKind.WAGGLE_MESSAGE, None, payload.task_id
     if isinstance(payload, TaskAssign | TaskResult):
         return InboxKind.WAGGLE_MESSAGE, None, payload.task_id

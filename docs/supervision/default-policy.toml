@@ -37,8 +37,17 @@ action = "RESPAWN"  # Start a new bee from the last Handoff, if one exists.
 
 [[rules]]
 kind = "WORKER_CRASHED"
+min_attempts = 2
+action = "REBIND"  # One same-binding respawn already failed; try a stronger binding next, before
+# giving up on this level entirely. A Warden with no other binding in its own grant to offer (v0's
+# own grant carries only one source per slot) falls back to escalating anyway, one attempt sooner
+# than before -- the Queen's own fallback chain ([llm.slots] fallback) is the one place a genuine
+# alternative binding is actually named (roadmap step 3.22 scenario (c)).
+
+[[rules]]
+kind = "WORKER_CRASHED"
 min_attempts = 3
-action = "ESCALATE"  # Two respawns crashing again means the task itself needs a human look.
+action = "ESCALATE"  # A rebind attempt crashing again too means the task itself needs a human look.
 
 # WORKER_STALLED: no progress within its own watchdog. Same shape as a crash: respawn, then escalate.
 [[rules]]

@@ -14,7 +14,9 @@ every assignment goes to a Warden, over Waggle.
   `queen.autopilot.decide` (falling back to `queen.awake.decide_awake` for `NEEDS_JUDGEMENT`),
   checks every attached Warden's liveness and places whatever the Brood Chamber now says is ready
   -- both unconditionally, every tick, never gated behind an inbox item. Also implements
-  `hivemind.supervision.Supervisor` over her attached Wardens.
+  `hivemind.supervision.Supervisor` over her attached Wardens. `_recoverable_errors` names
+  `InvalidTransitionError`: a chamber transition failing on a stale status backs a tick off and
+  records it (`queen.decided`), rather than ending `run()` and taking the whole Hive down.
 - `QueenDeps`, `WardenLink`, `MemoryBudget` (`deps.py`): every collaborator one Queen is built
   with, and one attached Warden's own address and link; manifest *slices* only, never a
   `HiveManifest`.
@@ -28,17 +30,25 @@ every assignment goes to a Warden, over Waggle.
 - `queen.placement`: `Placement`, `PlacementError`, `decide` -- the pure v0 decision (the Hive
   Stand only).
 - `dispatch_ready` (`dispatcher.py`): place, grant and assign every ready task, never to a Worker
-  directly.
-- `handle_question`, `answer_question`, `route_answers` (`questions.py`): the Queen's own question
-  traffic; see that module's own docstring for why `answer_question` exists (the Brood Chamber's
-  public API has no way to read an already-answered Question's content back out).
+  directly; a fresh task's own `chamber.assign`/`chamber.start` and `queen.assigned` land before
+  either wire message is sent, so a fast sub-bee's own immediate Question can never reach
+  `Queen._act` while the chamber still reads ASSIGNED.
+- `handle_question`, `answer_question`, `route_answers`, `sync_answers_from_chamber`
+  (`questions.py`): the Queen's own question traffic; see that module's own docstring for why
+  `answer_question` exists (the Brood Chamber's public API has no way to read an already-answered
+  Question's content back out). `sync_answers_from_chamber` retries rather than drops its own
+  tracking when `hive inbox answer`'s own second write (the answer Note) has not landed yet.
 - `HumanInbox` (`human_inbox.py`): pending questions (read through the chamber) and Alarms (held
   in memory) awaiting the human.
 - `record_event` (`trail.py`): the one place a `queen.*` trail event is built.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`.
 - `queen.ticks`: `alarms`, `liveness`, `results` -- the tick handlers each `QueenAction` calls
-  into, split out only to stay within codingrules 5.1's size limits.
+  into, split out only to stay within codingrules 5.1's size limits. `alarms.handle_alarm` records
+  `alarm.handled`/`alarm.escalated` (`hivemind.supervision.record_alarm_event`) and, for a REBIND,
+  fills `Intervene.binding` with the fallback key it resolved, since a Warden has no other way to
+  learn it; `Queen`'s own COMPLETE_TASK handling records `alarm.resolved` once a rebound or
+  retried attempt actually succeeds.
 - `queen.cluster`, `queen.forage`, `queen.requeening`, `queen.supersedure`: placeholders,
   populated in a later roadmap phase.
 

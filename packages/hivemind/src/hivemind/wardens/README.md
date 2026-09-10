@@ -28,6 +28,10 @@ Warden never provisions Cells itself.
 - `wardens.local_pool`: `LocalPool` -- a bare sub-bee-slot counter against a grant.
 - `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat` -- one of
   `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size limits.
+  `alarms.handle_alarm_action`/`rebind_sub_bee` also record `alarm.handled`/`alarm.escalated` on
+  the Pheromone Trail (`hivemind.supervision.record_alarm_event`); `control.forward_control` turns
+  a Queen-sent `Intervene(REBIND)` into a real respawn on the binding the Queen already resolved,
+  rather than only relaying it to the sub-bee to checkpoint and stop.
 - `wardens.offline`, `wardens.watch`: placeholders; populated in phase 11.
 
 ## How to test this

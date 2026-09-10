@@ -3,10 +3,12 @@
 The one `Supervisor` protocol used at every level of the tree: human, the Queen, a Warden, a
 sub-bee. This package holds the shared shape codingrules section 8.8 describes: children,
 telemetry, inspection and intervention (`supervisor.py`); the `Alarm` an unresolved issue becomes,
-mirrored kinds/severity and its state machine (`alarm.py`); the bounded `ContextTelemetry` every bee
-reports plus pure helpers over it (`telemetry.py`); the six intervention levers
-(`intervention.py`); the escalation policy loaded from TOML (`policy.py`); and the deterministic
-`Attendant` every supervisor's inbox goes through (`attendant/`). It never imports `hivemind.llm`:
+mirrored kinds/severity and its state machine (`alarm.py`); one `alarm.*` Pheromone Trail event per
+raise/handle/escalate/resolve step of an Alarm's own chain (`alarm_trail.py`); the bounded
+`ContextTelemetry` every bee reports plus pure helpers over it (`telemetry.py`); the six
+intervention levers (`intervention.py`); the escalation policy loaded from TOML (`policy.py`); and
+the deterministic `Attendant` every supervisor's inbox goes through (`attendant/`). It never
+imports `hivemind.llm`:
 both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this package, and
 `lint-imports` forbids any path from either into `hivemind.llm`.
 
@@ -22,6 +24,9 @@ both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this pac
   `ESCALATED`, `RESOLVED`) with its `TRANSITIONS` table, `can_transition`/`assert_transition`, and
   `Alarm` (id, kind, severity, origin, attempts, context, detail, clearance, raised_at, state)
   with `from_wire`/`to_wire` against `waggle.messages.supervision.AlarmRaised`.
+- **Alarm trail** (`alarm_trail.py`): `record_alarm_event(trail, identity, clock, alarm, kind,
+  **payload)`, one `alarm.*` `hivemind.pheromone.AlarmEvent` per escalation-chain step; `identity`
+  is a `hivemind.cell.CellIdentity` (the one Layer-2 sibling this package is documented to import).
 - **Telemetry** (`telemetry.py`): `ContextTelemetry` (re-exported from waggle, not mirrored),
   `fraction_used`, `is_past_threshold`, `summarise` (a secret-free one-line render for logs).
 - **Intervention** (`intervention.py`): `Compact`, `Checkpoint`, `Handoff`, `Rebind` (carries a

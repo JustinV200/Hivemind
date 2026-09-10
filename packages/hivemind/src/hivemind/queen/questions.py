@@ -68,13 +68,15 @@ Brood Chamber's own Question id, the same id `answer_note_author` keys a Note by
 `_open_questions` (the dict `route_answers` sweeps), which is keyed by the *wire* `Question.
 question_id` instead -- and for every one whose task has left `BLOCKED`, looks for that Note: found
 one -> forward it exactly like `answer_question` would, tagged with the same `wire_question_id`/
-`correlation_id` bookkeeping; found none -> the question was resolved some other way (an in-process
-`Queen.answer_question` call, which forwards for itself, or a withdrawal), so only the bookkeeping
-is dropped. It takes the whole `Queen` (an exception to this module's own convention of taking
-explicit `deps`/`wardens` parameters, matching `hivemind.queen.ticks.alarms`/`.results`) because
-`_open_questions` and its sibling id-tracking dicts are private `Queen` instance state with no
-public accessor, and `hivemind.queen.queen` is not this dispatch's file to add one to; flagged in
-this dispatch's own report.
+`correlation_id` bookkeeping, and only then drop the bookkeeping. Found none -> this dispatch's own
+fix 4b: `hive inbox answer`'s own two writes (`chamber.answer()`, then the Note) are not atomic
+(module docstring below), so a poll landing between them must retry rather than drop tracking and
+lose the answer for good -- every one of this question's own dicts is left exactly as it was, so
+the very next sync looks again. It takes the whole `Queen` (an exception to this module's own
+convention of taking explicit `deps`/`wardens` parameters, matching `hivemind.queen.ticks.alarms`/
+`.results`) because `_open_questions` and its sibling id-tracking dicts are private `Queen`
+instance state with no public accessor, and `hivemind.queen.queen` is not this dispatch's file to
+add one to; flagged in this dispatch's own report.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -98,9 +100,13 @@ Key invariants:
       blocked sub-bee by that original id alone.
     - `route_answers` never re-sends an Answer: forwarding happens exactly once, inside
       `answer_question`, at the moment the human's answer is recorded.
-    - `sync_answers_from_chamber` never forwards twice for the same question: every entry it
-      processes is popped from `_open_questions` (and its id-tracking siblings) in the same call,
-      whether or not a matching Note was found.
+    - `sync_answers_from_chamber` never forwards twice for the same question: its own three dicts
+      are only ever popped together, in the same call, and only once a matching Note is actually
+      forwarded (this dispatch's own fix 4b). A question resolved by something other than `hive
+      inbox answer` (a withdrawal, not wired to anything in this phase) would retry forever
+      instead of ever finding a Note; `route_answers`' own sweep already drops `_open_questions`
+      for such a task, so the very next sync's own `task_id is None` branch cleans up the rest --
+      the one path that still terminates without ever needing a Note.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the Question/Answer flow this module
@@ -303,12 +309,16 @@ async def sync_answers_from_chamber(queen: Queen) -> int:
         task = await queen._deps.chamber.get(task_id)
         if task.status is TaskStatus.BLOCKED:
             continue  # Still waiting on an answer; nothing to do for this one yet.
-        if await _forward_from_note(queen, task, chamber_question_id, wire_question_id):
-            forwarded += 1
-        # Whether or not a Note was found, this question is resolved one way or another (an
-        # answer just forwarded, an in-process Queen.answer_question call that already forwarded
-        # for itself, or a withdrawal): either way, tracking it further would only re-check a
-        # RUNNING task forever.
+        if not await _forward_from_note(queen, task, chamber_question_id, wire_question_id):
+            # This dispatch's own fix 4b: `hive inbox answer` writes `chamber.answer()` (which is
+            # what moved `task.status` off BLOCKED, just observed above) and its own answer Note
+            # on two separate store connections, not atomically -- a poll landing between the two
+            # writes finds no Note yet. Dropping this question's tracking here, unconditionally,
+            # is exactly what used to lose the answer for good: the next poll would never look
+            # again. Leaving every one of this question's own dicts untouched means the very next
+            # sync retries the same Note lookup, which succeeds once the second write lands.
+            continue
+        forwarded += 1
         queen._open_questions.pop(wire_question_id, None)
         queen._question_wire_ids.pop(chamber_question_id, None)
         queen._question_envelope_ids.pop(chamber_question_id, None)

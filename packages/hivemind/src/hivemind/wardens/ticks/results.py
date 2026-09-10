@@ -13,15 +13,18 @@ sequence, and the only place `hivemind.wardens.acceptance.run_acceptance` is eve
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
-    assign`'s own module docstring for why). Calls into `hivemind.wardens.acceptance`
-    (run_acceptance), `hivemind.wardens.ticks.alarms` (retire_sub_bee, for the shared
-    close-and-release-the-slot step) and waggle only.
+    assign`'s own module docstring for why). Calls into `hivemind.cell` (CellIdentity),
+    `hivemind.supervision` (Alarm, record_alarm_event -- this dispatch's own alarm-reaches-the-
+    trail fix), `hivemind.wardens.acceptance` (run_acceptance), `hivemind.wardens.ticks.alarms`
+    (retire_sub_bee, for the shared close-and-release-the-slot step) and waggle only.
 
 Key invariants:
     - Acceptance always runs on `warden._session` -- the Warden's own -- never on any session the
       sub-bee itself held (codingrules section 8.12: "the proposer never verifies its own work").
     - `retire_sub_bee` runs exactly once per TaskResult(CLAIMED) handled, whatever the outcome, so
       the local pool slot is released and the sub-bee's link is closed either way.
+    - `_send_acceptance_failed` records `alarm.raised` for the ACCEPTANCE_FAILED Alarm it raises,
+      before sending it to the Queen (this dispatch's own fix 1).
 
 See Also:
     - .claude/codingrules.md section 8.12 for "the proposer never verifies its own work".
@@ -34,7 +37,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CellIdentity, HoneyClearance
+from hivemind.supervision import Alarm as MirroredAlarm
+from hivemind.supervision import record_alarm_event
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
 from hivemind.wardens.ticks.alarms import retire_sub_bee
 from waggle.envelope import wrap
@@ -111,6 +116,15 @@ async def _send_acceptance_failed(
         clearance=HoneyClearance.C1.to_wire(),
         reason="A sub-bee's claimed work failed its own task's acceptance criteria.",
     )
+    # This Warden raises ACCEPTANCE_FAILED itself (this dispatch's own fix 1: the same rule
+    # hivemind.wardens.ticks.heartbeat.raise_stalled_alarms follows for WORKER_STALLED).
+    await record_alarm_event(
+        warden._deps.trail,
+        _cell_identity(warden),
+        warden._deps.clock,
+        MirroredAlarm.from_wire(alarm),
+        "alarm.raised",
+    )
     await warden._deps.queen_link.send(wrap(alarm, warden._deps.hop, clock=warden._deps.clock))
     result = TaskResult(
         task_id=claim.task_id,
@@ -125,3 +139,9 @@ async def _send_acceptance_failed(
         reason="acceptance",
     )
     await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))
+
+
+def _cell_identity(warden: Warden) -> CellIdentity:
+    """Build the CellIdentity `_send_acceptance_failed`'s own alarm.raised event is stamped with."""
+    identity = warden._deps.identity
+    return CellIdentity(hive_id=identity.hive_id, node_id=identity.node_id, actor=identity.actor)

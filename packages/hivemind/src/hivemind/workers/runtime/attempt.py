@@ -16,7 +16,9 @@ its messages through one shared implementation.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Owned by exactly one `WorkerRuntime` instance (roadmap step
-    3.15), constructed in its `__init__` and driven from its `_tick`. Calls into
+    3.15), constructed in its `__init__` and driven from its `_tick`. Calls into `hivemind.llm.
+    errors` (ProviderUnavailableError, RateLimitedError -- `_alarm_kind_for_crash`'s own
+    classification table, this dispatch's own fix 3a; workers may import hivemind.llm),
     `hivemind.memory`, `hivemind.supervision.alarm` and waggle only; the `WorkerRuntime` type it
     is built with is imported under `TYPE_CHECKING` only, so no runtime import cycle exists
     between this module and `hivemind.workers.runtime.loop`.
@@ -53,12 +55,24 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.memory import Handoff, write_checkpoint
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.runtime.reports import AlarmDetails, ResultDetails
 from hivemind.workers.state import WorkerState
 from waggle.messages.supervision import AlarmKind
 from waggle.messages.task import TaskOutcome, TaskStage
+
+# A crashed role's own exception, classified into the AlarmKind its Warden's policy keys on (this
+# dispatch's own fix 3a): a table, not an isinstance chain, so a new provider-shaped error only
+# ever needs a new row here. ProviderUnavailableError/RateLimitedError name a bound provider
+# actually being unreachable or throttled; anything else (a bare RuntimeError, an assertion, a
+# provider-neutral bug) stays WORKER_CRASHED, the closed-set default for "something broke that is
+# not about the model behind this attempt."
+_CRASH_ALARM_KINDS: tuple[tuple[type[BaseException], AlarmKind], ...] = (
+    (ProviderUnavailableError, AlarmKind.PROVIDER_UNAVAILABLE),
+    (RateLimitedError, AlarmKind.PROVIDER_UNAVAILABLE),
+)
 
 if TYPE_CHECKING:
     # Type-checking only: WorkerRuntime imports AttemptManager for real, so a runtime import here
@@ -186,7 +200,7 @@ class AttemptManager:
         await runtime._reporter.record_event("worker.failed")
         await runtime._reporter.send_alarm(
             AlarmDetails(
-                kind=AlarmKind.WORKER_CRASHED,
+                kind=_alarm_kind_for_crash(error),
                 detail=str(error),
                 reason=f"{type(error).__name__} raised while running the role.",
             )
@@ -259,3 +273,19 @@ class AttemptManager:
         await runtime._reporter.record_event(
             "worker.killed", cancel_reason=(self._cancel_reason or "Cancelled.")[:200]
         )
+
+
+def _alarm_kind_for_crash(error: BaseException) -> AlarmKind:
+    """Classify a crashed role's own exception into the AlarmKind its Warden's policy keys on.
+
+    Args:
+        error: The exception `AttemptManager.on_finished` caught from the role's own task.
+
+    Returns:
+        `AlarmKind.PROVIDER_UNAVAILABLE` for a typed `_CRASH_ALARM_KINDS` match (module-level
+        table); `AlarmKind.WORKER_CRASHED` for anything else.
+    """
+    for error_type, kind in _CRASH_ALARM_KINDS:
+        if isinstance(error, error_type):
+            return kind
+    return AlarmKind.WORKER_CRASHED
