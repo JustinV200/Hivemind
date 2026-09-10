@@ -10,16 +10,21 @@ within `missed_heartbeats_before_stalled` cycles of this Warden's own heartbeat 
 synthesised `AlarmKind.WORKER_STALLED`, run through the exact same policy-mapped
 `hivemind.wardens.ticks.alarms.handle_alarm_action` path a wire `AlarmRaised` takes.
 `hot_state_sources` builds the one `hivemind.memory.HotStateSources` view an awake episode packs
-its prompt from, over this Warden's own sub-bee table and memory store.
+its prompt from, over this Warden's own sub-bee table and memory store. `send_heartbeat` also
+tolerates the Queen link already being closed (this dispatch's own fix 4): a heartbeat send that
+races `hivemind.wardens.warden.Warden.stop()`'s own teardown finds a `waggle.errors.
+TransportClosedError` recoverable, recording `warden.offline` instead of letting it end this
+Warden's own tick loop or escape `stop()` itself.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
     assign`'s own module docstring for why). Calls into `hivemind.cell` (HoneyClearance,
-    CellIdentity), `hivemind.memory` (the flat hot-state summary models), `hivemind.supervision`
-    (Alarm, record_alarm_event -- this dispatch's own alarm-reaches-the-trail fix),
-    `hivemind.wardens.ticks.alarms` (handle_alarm_action) and `hivemind.workers.state`
-    (WorkerState) and waggle only.
+    CellIdentity), `hivemind.memory` (the flat hot-state summary models), `hivemind.pheromone`
+    (WardenEvent, for `send_heartbeat`'s own `warden.offline` -- this dispatch's own fix 4),
+    `hivemind.supervision` (Alarm, record_alarm_event -- a prior dispatch's own
+    alarm-reaches-the-trail fix), `hivemind.wardens.ticks.alarms` (handle_alarm_action) and
+    `hivemind.workers.state` (WorkerState) and waggle only.
 
 Key invariants:
     - Sub-bee staleness is checked on this Warden's own heartbeat cadence (module docstring's
@@ -29,8 +34,11 @@ Key invariants:
       dispatch's report); every other category reads live from the sub-bee table or the memory
       store.
     - `raise_stalled_alarms` records `alarm.raised` for the WORKER_STALLED Alarm it synthesises,
-      before handing it to `handle_alarm_action` (this dispatch's own fix 1: a Warden-raised Alarm
-      is now visible on the trail from its very first hop).
+      before handing it to `handle_alarm_action` (a prior dispatch's own fix: a Warden-raised
+      Alarm is now visible on the trail from its very first hop).
+    - `send_heartbeat` never raises `TransportClosedError`: the one wire send it makes is wrapped,
+      so a heartbeat racing `Warden.stop()`'s own teardown can never crash this Warden's tick loop
+      (this dispatch's own fix 4).
 
 See Also:
     - .claude/codingrules.md section 8.8 for "observe a sub-bee's terminal state from its
@@ -53,13 +61,15 @@ from hivemind.memory import (
     QuestionSummary,
     TaskSummary,
 )
+from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
 from hivemind.wardens.ticks.alarms import handle_alarm_action
 from hivemind.workers.state import WorkerState
 from waggle.envelope import wrap
-from waggle.ids import WorkerId, new_alarm_id
+from waggle.errors import TransportClosedError
+from waggle.ids import WorkerId, new_alarm_id, new_event_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import (
     AlarmContext,
@@ -89,7 +99,15 @@ __all__ = [
 
 
 async def send_heartbeat(warden: Warden) -> None:
-    """Build and send this Warden's own Heartbeat, with one ChildTelemetry row per sub-bee."""
+    """Build and send this Warden's own Heartbeat, with one ChildTelemetry row per sub-bee.
+
+    Tolerates the Queen link already being closed (this dispatch's own fix 4): `Warden.stop()`
+    cancels this Warden's own heartbeat deadline before anything else, but that only stops a
+    heartbeat that has not fired yet -- a send already under way when the composition root
+    (`hivemind.cli.compose.hive.run_hive`) closes the link from a separate task can still find a
+    closed transport. That is recoverable, recorded as `warden.offline` (the connection to the
+    Queen is, in fact, gone), never an exception out of this Warden's own tick loop or `stop()`.
+    """
     own_telemetry = ContextTelemetry(
         tokens_used=0,
         context_window=warden._deps.bound.context_window,
@@ -117,7 +135,14 @@ async def send_heartbeat(warden: Warden) -> None:
         grant_spend=None,
         interval_s=warden._deps.heartbeat_interval_s,
     )
-    await warden._deps.queen_link.send(wrap(message, warden._deps.hop, clock=warden._deps.clock))
+    try:
+        envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock)
+        await warden._deps.queen_link.send(envelope)
+    except TransportClosedError:
+        # Recoverable (this dispatch's own fix 4): logged as this Warden's own connection to the
+        # Queen being gone, not raised, so a heartbeat racing Warden.stop()'s own teardown can
+        # never crash this Warden's tick loop or propagate out of stop() itself.
+        await _record_link_lost(warden)
 
 
 def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat) -> None:
@@ -219,6 +244,27 @@ def _cell_identity(warden: Warden) -> CellIdentity:
     """Build the CellIdentity `raise_stalled_alarms`'s own alarm.raised event is stamped with."""
     identity = warden._deps.identity
     return CellIdentity(hive_id=identity.hive_id, node_id=identity.node_id, actor=identity.actor)
+
+
+async def _record_link_lost(warden: Warden) -> None:
+    """Record `warden.offline` when `send_heartbeat` finds the Queen link already closed.
+
+    This dispatch's own fix 4: `pheromone.events.families.WardenEvent.KINDS` already reserves
+    `warden.offline` for exactly this ("its connection to the Queen was lost"), so a heartbeat
+    send racing `Warden.stop()`'s own teardown reuses it rather than needing a new kind added to a
+    file outside this dispatch's own list.
+    """
+    event = WardenEvent(
+        id=new_event_id(warden._deps.clock),
+        hive_id=warden._deps.identity.hive_id,
+        node_id=warden._deps.identity.node_id,
+        at=warden._deps.clock.now(),
+        actor=warden._deps.identity.actor,
+        kind="warden.offline",
+        subject_id=warden._warden_id,
+        payload={"reason": "A heartbeat send found the Queen link already closed."},
+    )
+    await warden._deps.trail.record(event)
 
 
 def _alarm_as_item(alarm: AlarmRaised) -> InboxItem:

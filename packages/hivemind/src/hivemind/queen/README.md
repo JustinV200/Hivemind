@@ -33,11 +33,13 @@ every assignment goes to a Warden, over Waggle.
   directly; a fresh task's own `chamber.assign`/`chamber.start` and `queen.assigned` land before
   either wire message is sent, so a fast sub-bee's own immediate Question can never reach
   `Queen._act` while the chamber still reads ASSIGNED.
-- `handle_question`, `answer_question`, `route_answers`, `sync_answers_from_chamber`
-  (`questions.py`): the Queen's own question traffic; see that module's own docstring for why
-  `answer_question` exists (the Brood Chamber's public API has no way to read an already-answered
-  Question's content back out). `sync_answers_from_chamber` retries rather than drops its own
-  tracking when `hive inbox answer`'s own second write (the answer Note) has not landed yet.
+- `handle_question`, `answer_question`, `sync_answers_from_chamber` (`questions.py`): the Queen's
+  own question traffic; see that module's own docstring for why `answer_question` exists (the
+  Brood Chamber's public API has no way to read an already-answered Question's content back out).
+  `sync_answers_from_chamber` is the one place an Answer routed through `hive inbox answer` is
+  forwarded and its own tracking dropped -- called by both the Queen's own tick and `hive run`'s
+  poll loop, so a tick landing between `hive inbox answer`'s own two separate writes (`chamber.
+  answer()`, then the answer Note) retries instead of losing the answer for good.
 - `HumanInbox` (`human_inbox.py`): pending questions (read through the chamber) and Alarms (held
   in memory) awaiting the human.
 - `record_event` (`trail.py`): the one place a `queen.*` trail event is built.

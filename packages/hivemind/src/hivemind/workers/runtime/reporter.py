@@ -8,11 +8,19 @@ kind needs (`hivemind.workers.runtime.reports.build_heartbeat`/`build_progress`/
 `build_alarm`) and the `hivemind.pheromone.WorkerEvent` every state change writes. It is
 `WorkerRuntime`'s own delegate, not a general-purpose class, and is used the same way by
 `hivemind.workers.runtime.attempt.AttemptManager` (through `WorkerRuntime._reporter`) so both
-classes report through the exact same state and the exact same trail events.
+classes report through the exact same state and the exact same trail events. `send_alarm` also
+records `alarm.raised` on the Pheromone Trail before the wire `AlarmRaised` leaves this Worker's
+mailbox (this dispatch's own fix 1): the shipped runtime built and sent the message but never
+called `hivemind.supervision.alarm_trail.record_alarm_event`, so a Worker-originated Alarm (a
+crash, a provider outage, a Capping rollback) never reached the trail even though a Warden's own
+later handling of it did (codingrules section 8.8: "every hop is a trail event carrying the same
+alarm id").
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Owned by exactly one `WorkerRuntime` instance (roadmap step
-    3.15), constructed in its `__init__`. Calls into `hivemind.common.errors`, `hivemind.pheromone`
+    3.15), constructed in its `__init__`. Calls into `hivemind.cell` (CellIdentity, for the
+    `alarm.raised` event's own stamp), `hivemind.common.errors`, `hivemind.memory`,
+    `hivemind.pheromone`, `hivemind.supervision.alarm`/`.alarm_trail` (this dispatch's own fix 1)
     and this package's own `mailbox`/`reports`, plus waggle.
 
 Key invariants:
@@ -20,22 +28,32 @@ Key invariants:
       state only ever moves along `hivemind.workers.state.TRANSITIONS`' edges.
     - `require_assignment` is the one place a missing TaskAssign becomes a typed
       `InvariantViolationError` rather than an `AttributeError` on `None`.
+    - `send_alarm` always records `alarm.raised` before attempting the wire send, so the trail is
+      complete for every Alarm this Worker raises even when delivery itself is later found to be
+      recoverable (`hivemind.workers.runtime.loop._send_pending_alarms`, this dispatch's own
+      fix 2).
 
 See Also:
     - .claude/codingrules.md section 5.2 for the module-split rule this class follows.
+    - .claude/codingrules.md section 8.8 for "every hop is a trail event carrying the same alarm
+      id so no level handles it twice", the rule `send_alarm` now satisfies.
     - hivemind.workers.state for WorkerState and its transition table.
     - hivemind.workers.runtime.loop for WorkerRuntime, this class's one owner.
     - hivemind.workers.runtime.attempt for AttemptManager, this class's other caller.
     - hivemind.workers.runtime.reports for the pure builders this class's `send_*` methods wrap.
+    - hivemind.supervision.alarm_trail for record_alarm_event, the call `send_alarm` now makes.
 """
 
 from __future__ import annotations
 
 from pydantic import JsonValue
 
+from hivemind.cell import CellIdentity
 from hivemind.common.errors import InvariantViolationError
 from hivemind.memory import MemoryContext
 from hivemind.pheromone import WorkerEvent
+from hivemind.supervision.alarm import Alarm
+from hivemind.supervision.alarm_trail import record_alarm_event
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.runtime.deps import RuntimeDeps
 from hivemind.workers.runtime.mailbox import Mailbox
@@ -148,6 +166,35 @@ class Reporter:
         await self._mailbox.send(message)
 
     async def send_alarm(self, details: AlarmDetails) -> None:
-        """Send an AlarmRaised escalating an issue this Worker cannot resolve itself."""
+        """Send an AlarmRaised escalating an issue this Worker cannot resolve itself.
+
+        Records `alarm.raised` on the Pheromone Trail before the message leaves this Worker's
+        mailbox (this dispatch's own fix 1; codingrules section 8.8): every Alarm this runtime
+        sends -- a crash, a provider outage classified from it, or a Capping rollback drained from
+        `hivemind.workers.telemetry.TelemetryTracker` -- goes through this one method, so this is
+        the one place that needs the call.
+        """
         message = build_alarm(self._ctx, self.require_assignment(), details)
+        await record_alarm_event(
+            self._ctx.trail,
+            _cell_identity(self._ctx),
+            self._ctx.clock,
+            Alarm.from_wire(message),
+            "alarm.raised",
+        )
         await self._mailbox.send(message)
+
+
+def _cell_identity(ctx: WorkerContext) -> CellIdentity:
+    """Build the CellIdentity `Reporter.send_alarm`'s own `alarm.raised` event is stamped with.
+
+    `ctx.identity` is a `hivemind.memory.MemoryIdentity`; `record_alarm_event` is documented to
+    want a `hivemind.cell.CellIdentity` specifically (the Layer 2 sibling `supervision` is allowed
+    to import from), and the two share the exact hive_id/node_id/actor shape
+    (`hivemind.supervision.alarm_trail`'s own module docstring), so this just retypes it. Mirrors
+    `hivemind.wardens.ticks.alarms._identity`/`hivemind.wardens.ticks.heartbeat._cell_identity`,
+    the same small conversion at the Warden's own two call sites.
+    """
+    return CellIdentity(
+        hive_id=ctx.identity.hive_id, node_id=ctx.identity.node_id, actor=ctx.identity.actor
+    )

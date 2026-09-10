@@ -15,7 +15,15 @@ blocked asking a Question never stops heartbeats or `TaskCancel` from being noti
 also drains `hivemind.workers.telemetry.TelemetryTracker.take_pending_alarms` (this dispatch's own
 fix 2: a Capping rollback several awaits deep inside the role's own tool loop has no handle on
 this runtime, so it notes the Alarm on the shared tracker instead and this is where it actually
-gets sent). This class's own state and every outgoing message go through `hivemind.workers.
+gets sent). Draining only at the top of a tick was not enough on its own: when the role's own
+natural completion (claimed, or a terminal handoff) woke the same tick that noted a pending Alarm,
+the tick moved straight to a terminal WorkerState with the Alarm still queued, and nothing drained
+it again afterwards. `hivemind.workers.runtime.attempt.AttemptManager` now flushes the queue
+before every terminal transition (DONE/FAILED/KILLED) too, and `_tick` flushes once more right
+before `run()` is about to return (the `stop()` branch below and `_on_transport_closed`), in the
+order the Alarms were noted; a transport already closed by the time a flushed Alarm tries to send
+is recoverable (`_send_pending_alarms` logs it and keeps going), never an exception out of this
+loop. This class's own state and every outgoing message go through `hivemind.workers.
 runtime.reporter.Reporter`, and starting the role, scheduling its cancel and interpreting its
 finished task go through `hivemind.workers.runtime.attempt.AttemptManager`, both split out only to
 keep this class inside codingrules 5.1's size limits.
@@ -37,6 +45,10 @@ Key invariants:
       or duplicate wire message is logged and dropped rather than ending `run()`.
     - `stop()` (TickLoop's own) always ends with `Mailbox.aclose()` having run exactly once,
       whether `stop()` was called by this runtime's owner or the transport ended on its own.
+    - Every pending Alarm noted before a terminal WorkerState transition, or before `run()` is
+      about to return, has been flushed by the time that transition or return happens (this
+      dispatch's own fix 2): `_send_pending_alarms` is the one function every flush call site
+      shares, so a rollback Alarm is never left queued once its attempt is over.
 
 See Also:
     - .claude/codingrules.md section 11 for the TickLoop shape this class specialises.
@@ -71,6 +83,7 @@ from hivemind.workers.runtime.reporter import Reporter
 from hivemind.workers.runtime.reports import AlarmDetails
 from hivemind.workers.state import WorkerState, can_transition, is_terminal
 from waggle.envelope import Envelope
+from waggle.errors import TransportClosedError
 from waggle.loop import TickLoop
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume, TaskStage
@@ -148,6 +161,9 @@ class WorkerRuntime(TickLoop):
         if stop_task not in done:
             stop_task.cancel()
         if stop_task in done:
+            # This dispatch's own fix 2: run() is about to return once this tick ends, so any
+            # Alarm still queued goes out now rather than being silently dropped with the runtime.
+            await self._drain_pending_alarms()
             await self._mailbox.aclose()
             return
         if role_task is not None and role_task in done:
@@ -217,6 +233,10 @@ class WorkerRuntime(TickLoop):
             state=self.state.value,
         )
         if not is_terminal(self.state) and can_transition(self.state, WorkerState.KILLED):
+            # This dispatch's own fix 2: flush before the terminal transition, even though the
+            # transport that just ended is exactly what makes the wire send itself recoverable
+            # (_send_pending_alarms) -- the alarm.raised trail event still needs to land.
+            await self._drain_pending_alarms()
             self._reporter.transition(WorkerState.KILLED)
             await self._reporter.record_event(
                 "worker.killed", cancel_reason="The link to this Worker's Warden ended."
@@ -283,19 +303,35 @@ async def _send_pending_alarms(runtime: WorkerRuntime) -> None:
 
     A tool's own call into Capping (`hivemind.workers.tools.proposals.cap`) runs several awaits
     deep inside the role's own tool loop, with no handle on this runtime; noting the Alarm on
-    `ctx.telemetry` (this dispatch's own fix 2) is the one seam that reaches back out to here,
-    drained once per tick (`WorkerRuntime._drain_pending_alarms`) regardless of what woke it.
-    Module-level, reading `runtime`'s private state directly, the same way `hivemind.workers.
-    runtime.attempt.AttemptManager` does (that module's own docstring), so `WorkerRuntime` itself
-    stays within codingrules 5.1's size limit.
+    `ctx.telemetry` (this dispatch's own fix 2) is the one seam that reaches back out to here.
+    Called from the top of every `_tick`, from `AttemptManager` right before every terminal
+    WorkerState transition, and from `_tick`'s own `stop()`/transport-closed branches right before
+    `run()` returns, so a noted Alarm is never more than one of those checkpoints from actually
+    being sent, in the order `take_pending_alarms` drains them. Module-level, reading `runtime`'s
+    private state directly, the same way `hivemind.workers.runtime.attempt.AttemptManager` does
+    (that module's own docstring), so `WorkerRuntime` itself stays within codingrules 5.1's size
+    limit.
     """
     if runtime._reporter.assignment is None:
         return  # Defensive: nothing to report against yet (Reporter.require_assignment).
     for pending in runtime._ctx.telemetry.take_pending_alarms():
-        await runtime._reporter.send_alarm(
-            AlarmDetails(
-                kind=pending.kind,
-                detail=pending.detail,
-                reason="A Capping proposal was rolled back after applying.",
+        try:
+            await runtime._reporter.send_alarm(
+                AlarmDetails(
+                    kind=pending.kind,
+                    detail=pending.detail,
+                    reason="A Capping proposal was rolled back after applying.",
+                )
             )
-        )
+        except TransportClosedError:
+            # Recoverable (this dispatch's own fix 2): Reporter.send_alarm already recorded
+            # alarm.raised on the trail before attempting the wire send (fix 1), so the audit
+            # record survives even when the link to this Worker's Warden is already gone -- most
+            # often because this very flush is running from _on_transport_closed. Logged, not
+            # raised, so a flush at a terminal transition or right before run() returns can never
+            # crash this Worker's own tick loop.
+            log.warning(
+                "workers.runtime.alarm_send_skipped",
+                worker_id=runtime._ctx.worker_id,
+                kind=pending.kind.value,
+            )

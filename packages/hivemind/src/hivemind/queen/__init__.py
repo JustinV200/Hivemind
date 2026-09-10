@@ -38,10 +38,11 @@ Public API (roadmap step 3.20):
     - MemoryBudget, QueenDeps, WardenLink: every collaborator the Queen is built with (deps).
     - QueenError, UnknownWardenError: this subsystem's error tree (errors).
     - HumanInbox: pending questions and Alarms awaiting the human (human_inbox).
-    - answer_question, handle_question, route_answers: the Queen's own question traffic
-      (questions). Roadmap step 3.21 (second half) adds ANSWER_NOTE_AUTHOR_PREFIX,
-      answer_note_author and sync_answers_from_chamber: the cross-process handoff `hive inbox
-      answer` and a running `hive run` share (questions).
+    - answer_question, handle_question: the Queen's own question traffic (questions).
+      ANSWER_NOTE_AUTHOR_PREFIX, answer_note_author and sync_answers_from_chamber: the one
+      retry-safe forwarding sweep both the Queen's own tick and a running `hive run`'s poll loop
+      call (roadmap step 3.21 second half; unified across both callers by this dispatch's own
+      fix 3) (questions).
     - dispatch_ready: place, grant and assign every ready task (dispatcher).
     - record_event: the one place a queen.* trail event is built (trail).
     - MAX_TIE_REASON_CHARS, ModelTieBreaker, queen_attendant, to_inbox_item: her Attendant (inbox).
@@ -105,7 +106,6 @@ from hivemind.queen.questions import (
     answer_note_author,
     answer_question,
     handle_question,
-    route_answers,
     sync_answers_from_chamber,
 )
 from hivemind.queen.ticks.liveness import WardenLiveness
@@ -159,7 +159,6 @@ __all__ = [
     "plan_goal",
     "queen_attendant",
     "record_event",
-    "route_answers",
     "sync_answers_from_chamber",
     "to_inbox_item",
 ]

@@ -8,11 +8,14 @@ Warden never provisions Cells itself.
 ## Public API (roadmap steps 3.18, 3.19)
 
 - `Warden` (`warden.py`): the `waggle.loop.TickLoop` face. `start()` leases the Warden's Cell (or
-  moves to `WATCH` on a refusal); `stop()` cancels every sub-bee, releases the lease and stops.
-  One tick drains the queen link and every sub-bee link into `InboxItem`s, orders them with this
-  Warden's own `Attendant`, dispatches each through `wardens.autopilot.decide` (falling back to
-  `wardens.awake.decide_awake` for `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval
-  elapses. Also implements `hivemind.supervision.Supervisor` over its sub-bees.
+  moves to `WATCH` on a refusal); `stop()` cancels this Warden's own heartbeat deadline first,
+  then every sub-bee, releases the lease and stops. One tick drains the queen link and every
+  sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
+  through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
+  `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the
+  Queen link already closed is recoverable (`wardens.ticks.heartbeat.send_heartbeat` records
+  `warden.offline` and moves on), never an exception out of this Warden's own loop or `stop()`.
+  Also implements `hivemind.supervision.Supervisor` over its sub-bees.
 - `WardenState`, `TRANSITIONS`, `assert_transition`, `can_transition`, `is_terminal`
   (`state.py`): the one Warden state machine (Appendix C).
 - `WardenDeps` (`deps.py`): every collaborator one Warden is built with.

@@ -1,9 +1,9 @@
-"""Define handle_question, answer_question and route_answers: the Queen's own question traffic.
+"""Define handle_question, answer_question and sync_answers_from_chamber: Queen question traffic.
 
 Roadmap step 3.20's own dispatch map: "Question from a sub-bee -> BLOCK_ON_QUESTION: chamber.ask
 (task BLOCKED, pending_question_id) -> visible in the human inbox; Answer arrives via chamber.answer
-(the CLI's `hive inbox answer`): questions.route_answers finds answered questions the Queen has not
-yet forwarded and sends an Answer envelope to the Warden that asked."
+(the CLI's `hive inbox answer`): questions.sync_answers_from_chamber finds answered questions the
+Queen has not yet forwarded and sends an Answer envelope to the Warden that asked."
 
 `handle_question` is the first half: `chamber.ask` with the *original* asker (`Question.asked_by`
 survives forwarding on the wire, so the Warden's own name never overwrites who actually asked).
@@ -13,51 +13,35 @@ is "a plain stored value with its own status machine", not the wire form, so `ch
 mints a fresh id `pending_questions` can read back after a restart) -- so a caller must remember
 both ids, plus the arriving envelope's own id (see below), to answer correctly (`queen.
 answer_question`'s own `_question_wire_ids`/`_question_envelope_ids`).
-`answer_question` is the real forwarding path: `hivemind.brood_chamber.BroodChamber`'s own public
-API exposes no way to read an already-`ANSWERED` `Question`'s content back out (no `get_question`,
-and `pending_questions` filters to `ASKED` only -- `brood_chamber/**` is outside this dispatch's
-owned files, so no method could be added there to close that gap). `answer_question` is therefore
-the one path a caller (`hive inbox answer`, roadmap step 3.21) should use instead of calling
-`chamber.answer` directly: it calls `chamber.answer` itself, then immediately forwards the answer
-content to the Warden that owns the now-resumed task (`Task.warden_id`, which placement fixed for
-the task's whole life this phase), tagged with `AnswerInput.wire_question_id` -- the *original*
-wire `Question.question_id`, never the chamber's own id -- because
-`hivemind.wardens.ticks.questions.forward_answer` matches an incoming `Answer` back to its own
-blocked sub-bee by that exact original id (`warden._questions`'s own key), not by anything the
+
+There are exactly two places an Answer is ever forwarded, and exactly one dict-popping rule each
+(this dispatch's own fix 3 -- see below for what it replaced): `answer_question`, the in-process
+path `Queen.answer_question` calls directly, and `sync_answers_from_chamber`'s own
+`_forward_from_note`, the cross-process path both `Queen`'s own tick and `hive run`'s poll loop
+call. `answer_question` exists because `hivemind.brood_chamber.BroodChamber`'s own public API
+exposes no way to read an already-`ANSWERED` `Question`'s content back out (no `get_question`, and
+`pending_questions` filters to `ASKED` only -- `brood_chamber/**` is outside this dispatch's owned
+files, so no method could be added there to close that gap): it calls `chamber.answer` itself, then
+immediately forwards the answer content to the Warden that owns the now-resumed task (`Task.
+warden_id`, which placement fixed for the task's whole life this phase), tagged with `AnswerInput.
+wire_question_id` -- the *original* wire `Question.question_id`, never the chamber's own id --
+because `hivemind.wardens.ticks.questions.forward_answer` matches an incoming `Answer` back to its
+own blocked sub-bee by that exact original id (`warden._questions`'s own key), not by anything the
 Brood Chamber ever sees; and with `AnswerInput.correlation_id` set to the Question's own arrival
 envelope id, because `waggle.envelope.wrap` refuses to build a `supervision.answer` Envelope (a
 `MessageShape.REPLY`) without one, exactly the reason `hivemind.wardens.ticks.questions.
-forward_question` remembers `_question_envelope_ids` for the hop below this one. `route_answers`
-is what its own name in the dispatch map describes as a *sweep*, kept as a light reconciliation:
-it drops bookkeeping for any question this Queen asked whose task has since left `BLOCKED` by some
-other path (a withdrawal), so `tracked` never grows unbounded.
+forward_question` remembers `_question_envelope_ids` for the hop below this one. `Queen.
+answer_question` -- the method that calls this function -- also drops this question's own
+`_open_questions` entry itself, in the same call (this function has no `Queen` to pop it from;
+only `QueenDeps`, `Sequence[WardenLink]` and the answer itself): nothing else may race it, since a
+caller calls it once, synchronously, to answer one question, so there is nothing to coordinate.
 
-Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
-    by `hivemind.queen.queen.Queen`'s tick (`handle_question`, `route_answers`) and by whichever
-    composition root wires `hive inbox answer` to the Queen (`answer_question`). Calls into
-    `hivemind.brood_chamber` (Answer, AnswerSource, Task, TaskStatus), `hivemind.cell`
-    (HoneyClearance), `hivemind.queen.deps` (QueenDeps, WardenLink) and waggle only.
-
-Key invariants:
-    - `answer_question` sends the wire Answer only when the resumed task's own `warden_id` still
-      names an attached Warden; a task whose Warden has since detached is resumed in the chamber
-      regardless (the human's answer is never lost), but nothing is sent over a link that no
-      longer exists.
-    - The wire `Answer.question_id` `answer_question` sends is always the *original* wire
-      `Question.question_id` (`AnswerInput.wire_question_id`, falling back to
-      `AnswerInput.question_id` only when the caller never learned a different one), never the
-      Brood Chamber's own internal `Question.id`: a Warden matches an Answer back to its own
-      blocked sub-bee by that original id alone.
-    - `route_answers` never re-sends an Answer: forwarding happens exactly once, inside
-      `answer_question`, at the moment the human's answer is recorded.
-
-`sync_answers_from_chamber` (roadmap step 3.21, second half) closes the gap `answer_question`'s own
-docstring names above for a *second* process: `hive inbox answer` (its own CLI command) runs in a
-separate process from a running `hive run`, so it cannot call `Queen.answer_question` directly (v0
-has no live link into the Queen process, `hivemind.cli.compose`'s own module docstring) -- it can
-only call `chamber.answer` on the same SQLite file, which resumes the task in the Brood Chamber but
-forwards nothing, since forwarding lives only inside `answer_question`. The Brood Chamber's own
+`sync_answers_from_chamber` (roadmap step 3.21, second half) is the *other* forwarding path, for a
+*second* process: `hive inbox answer` (its own CLI command) runs in a separate process from a
+running `hive run`, so it cannot call `Queen.answer_question` directly (v0 has no live link into
+the Queen process, `hivemind.cli.compose`'s own module docstring) -- it can only call
+`chamber.answer` on the same SQLite file, which resumes the task in the Brood Chamber but forwards
+nothing, since forwarding lives only inside the two functions named above. The Brood Chamber's own
 public API still exposes no way to read that recorded `Answer`'s text back out (this module's own
 docstring, above), so `hive inbox answer` also writes a `hivemind.memory.Note` -- keyed by
 `answer_note_author(question_id)`, a plain `MemoryStore.list_notes(author=...)` filter -- carrying
@@ -65,48 +49,60 @@ the answer text and clearance a *separate* process can still reach, since `hivem
 the Brood Chamber) is a store this module already holds a handle to (`QueenDeps.memory`).
 `sync_answers_from_chamber` walks this Queen's own `_question_wire_ids` bookkeeping -- keyed by the
 Brood Chamber's own Question id, the same id `answer_note_author` keys a Note by, unlike
-`_open_questions` (the dict `route_answers` sweeps), which is keyed by the *wire* `Question.
-question_id` instead -- and for every one whose task has left `BLOCKED`, looks for that Note: found
-one -> forward it exactly like `answer_question` would, tagged with the same `wire_question_id`/
-`correlation_id` bookkeeping, and only then drop the bookkeeping. Found none -> this dispatch's own
-fix 4b: `hive inbox answer`'s own two writes (`chamber.answer()`, then the Note) are not atomic
-(module docstring below), so a poll landing between them must retry rather than drop tracking and
-lose the answer for good -- every one of this question's own dicts is left exactly as it was, so
-the very next sync looks again. It takes the whole `Queen` (an exception to this module's own
-convention of taking explicit `deps`/`wardens` parameters, matching `hivemind.queen.ticks.alarms`/
-`.results`) because `_open_questions` and its sibling id-tracking dicts are private `Queen`
-instance state with no public accessor, and `hivemind.queen.queen` is not this dispatch's file to
-add one to; flagged in this dispatch's own report.
+`_open_questions`, which is keyed by the *wire* `Question.question_id` instead -- and for every one
+whose task has left `BLOCKED`, looks for that Note: found one -> forward it exactly like
+`answer_question` would, tagged with the same `wire_question_id`/`correlation_id` bookkeeping, and
+only then drop `_open_questions`/`_question_wire_ids`/`_question_envelope_ids` together. Found
+none -> retry: every one of this question's own dicts is left exactly as it was, so the very next
+call looks again -- this covers both "the Note has not landed yet" (`hive inbox answer`'s own two
+writes are not atomic, so a call landing between them must not give up) and "no Note is ever coming"
+(`answer_question` already forwarded this one itself and popped `_open_questions`, so `task_id is
+None` below short-circuits without a Note lookup at all). It takes the whole `Queen` (an exception
+to this module's own convention of taking explicit `deps`/`wardens` parameters, matching
+`hivemind.queen.ticks.alarms`/`.results`) because `_open_questions` and its sibling id-tracking
+dicts are private `Queen` instance state with no public accessor, and adding one is outside this
+dispatch's owned files.
+
+Before this dispatch, `Queen`'s own tick called a separate `route_answers` sweep instead of this
+function: it dropped `_open_questions` for *any* tracked question whose task had left BLOCKED, for
+any reason, which is exactly wrong for the cross-process case above -- a tick landing between
+`hive inbox answer`'s two writes saw the task already off BLOCKED (the first write alone moves it)
+and dropped `_open_questions` right there, so the next `sync_answers_from_chamber` poll found its
+own `_question_wire_ids` entry orphaned and read that, wrongly, as "already forwarded by some other
+path," dropping its own tracking too and losing the answer for good. `sync_answers_from_chamber`
+is now the *only* place this path's own tracking is ever dropped, called by both the tick and
+`hive run`'s poll loop, so there is exactly one rule -- "keep tracking until the Note is present,
+then forward once" -- and exactly one place it is applied.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
-    by `hivemind.queen.queen.Queen`'s tick (`handle_question`, `route_answers`) and by whichever
-    composition root wires `hive inbox answer` to the Queen (`answer_question`); `hive run`'s own
-    polling loop (`hivemind.cli.compose.run_goal`) calls `sync_answers_from_chamber` once per poll,
-    since `hivemind.queen.queen` is not this dispatch's file to add the call to `Queen`'s own tick.
-    Calls into `hivemind.brood_chamber` (Answer, AnswerSource, Task, TaskStatus), `hivemind.cell`
-    (HoneyClearance), `hivemind.memory` (MemoryStore, Note), `hivemind.queen.deps` (QueenDeps,
-    WardenLink) and waggle only.
+    by `hivemind.queen.queen.Queen`'s tick (`handle_question`, `sync_answers_from_chamber`) and by
+    whichever composition root wires `hive inbox answer` to the Queen (`answer_question`);
+    `hivemind.cli.compose.run_goal`'s own poll loop also calls `sync_answers_from_chamber`, for the
+    cross-process reason given above. Calls into `hivemind.brood_chamber` (Answer, AnswerSource,
+    Task, TaskStatus), `hivemind.cell` (HoneyClearance), `hivemind.memory` (MemoryStore, Note),
+    `hivemind.queen.deps` (QueenDeps, WardenLink) and waggle only.
 
 Key invariants:
     - `answer_question` sends the wire Answer only when the resumed task's own `warden_id` still
       names an attached Warden; a task whose Warden has since detached is resumed in the chamber
       regardless (the human's answer is never lost), but nothing is sent over a link that no
       longer exists.
-    - The wire `Answer.question_id` `answer_question` sends is always the *original* wire
+    - The wire `Answer.question_id` both forwarding paths send is always the *original* wire
       `Question.question_id` (`AnswerInput.wire_question_id`, falling back to
       `AnswerInput.question_id` only when the caller never learned a different one), never the
       Brood Chamber's own internal `Question.id`: a Warden matches an Answer back to its own
       blocked sub-bee by that original id alone.
-    - `route_answers` never re-sends an Answer: forwarding happens exactly once, inside
-      `answer_question`, at the moment the human's answer is recorded.
+    - An Answer is forwarded exactly once per question: `answer_question` and
+      `sync_answers_from_chamber` each pop `_question_wire_ids` (directly, or through
+      `_open_questions` being gone) for the question they just forwarded, so the other path can
+      never find it again (this dispatch's own fix 3).
     - `sync_answers_from_chamber` never forwards twice for the same question: its own three dicts
       are only ever popped together, in the same call, and only once a matching Note is actually
-      forwarded (this dispatch's own fix 4b). A question resolved by something other than `hive
-      inbox answer` (a withdrawal, not wired to anything in this phase) would retry forever
-      instead of ever finding a Note; `route_answers`' own sweep already drops `_open_questions`
-      for such a task, so the very next sync's own `task_id is None` branch cleans up the rest --
-      the one path that still terminates without ever needing a Note.
+      forwarded. A question resolved by something other than `hive inbox answer` or `Queen.
+      answer_question` (a withdrawal, not wired to anything in this phase) would retry forever --
+      an accepted v0 gap (flagged in this dispatch's own report), since nothing in phase 3
+      produces that case.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the Question/Answer flow this module
@@ -121,7 +117,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import MutableMapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -152,7 +148,6 @@ __all__ = [
     "answer_note_author",
     "answer_question",
     "handle_question",
-    "route_answers",
     "sync_answers_from_chamber",
 ]
 
@@ -245,20 +240,6 @@ async def answer_question(
     return task
 
 
-async def route_answers(deps: QueenDeps, tracked: MutableMapping[MessageId, TaskId]) -> None:
-    """Drop bookkeeping for any tracked question whose task has left BLOCKED by another path.
-
-    Args:
-        deps: The Queen's collaborators.
-        tracked: question_id -> task_id, populated by whatever recorded `handle_question`'s own
-            `chamber.ask` call; mutated in place.
-    """
-    for question_id, task_id in tuple(tracked.items()):
-        task = await deps.chamber.get(task_id)
-        if task.status is not TaskStatus.BLOCKED:
-            tracked.pop(question_id, None)
-
-
 def answer_note_author(question_id: MessageId) -> str:
     """Build the `Note.author` key `hive inbox answer` writes and this module reads back.
 
@@ -300,9 +281,9 @@ async def sync_answers_from_chamber(queen: Queen) -> int:
     for chamber_question_id, wire_question_id in tuple(queen._question_wire_ids.items()):
         task_id = queen._open_questions.get(wire_question_id)
         if task_id is None:
-            # Resolved by some other path already (an in-process Queen.answer_question call, or
-            # route_answers's own withdrawal sweep, both of which only ever touch
-            # _open_questions): drop this dict's own now-stale entry too.
+            # Already forwarded by the in-process path (Queen.answer_question pops
+            # _open_questions itself, module docstring's own fix 3): drop this dict's own
+            # now-stale entry too, rather than ever looking for a Note that will never exist.
             queen._question_wire_ids.pop(chamber_question_id, None)
             queen._question_envelope_ids.pop(chamber_question_id, None)
             continue

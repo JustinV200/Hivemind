@@ -29,6 +29,11 @@ Key invariants:
     - `stop()` always cancels every sub-bee, releases the lease and records `warden.stopped`
       before `waggle.loop.TickLoop.stop()` sets the stop flag, regardless of which state it was
       called from.
+    - `stop()` cancels this Warden's own heartbeat deadline before anything else (this dispatch's
+      own fix 4), so no new heartbeat send can start once shutdown has begun; a send already in
+      flight at that exact moment tolerates a Queen link the composition root closes right after
+      `stop()` returns (`hivemind.wardens.ticks.heartbeat.send_heartbeat`), so `stop()` itself
+      never raises for that reason.
     - The Hive Stand's Warden exists whenever the Queen runs: a `LeaseRefusedError` on `start()`
       moves it to `WATCH` with no lease, never prevents construction (codingrules section 8.8;
       CLAUDE.md's "Wardens never provision Cells").
@@ -189,7 +194,7 @@ class Warden(TickLoop):
         await _record_event(self, "warden.active")
 
     async def stop(self) -> None:  # type: ignore[override]
-        """Cancel every sub-bee, release the lease, record STOPPED, then end the tick loop.
+        """Stop this Warden's own heartbeats, cancel every sub-bee, release the lease, end the loop.
 
         SAFETY: widens `waggle.loop.TickLoop.stop`'s synchronous signature to async on purpose --
         a Warden's own composition root always awaits this method directly (it is never called
@@ -197,6 +202,13 @@ class Warden(TickLoop):
         cleanup this override does (cancelling every sub-bee, releasing the lease) cannot be
         expressed as a fire-and-forget synchronous call.
         """
+        # Fix 4: cancel a not-yet-fired heartbeat deadline before anything else; one already in
+        # flight tolerates a closed Queen link on its own (ticks.heartbeat.send_heartbeat).
+        if self._heartbeat_task is not None and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._heartbeat_task
+        self._heartbeat_task = None
         for sub_bee in tuple(self._sub_bees.values()):
             sub_bee.runtime_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -316,13 +328,12 @@ def _drain_items(
     """Consume every finished receive task in `done`, returning the InboxItems they carried."""
     items: list[InboxItem] = []
     for link_id, task in receive_tasks.items():
-        if task not in done:
-            continue
-        warden._receive_tasks.pop(link_id, None)
-        envelope = task.result()
-        if envelope is None:
-            continue  # The link ended; a later phase adds OFFLINE bookkeeping for this.
-        items.append(to_inbox_item(envelope, link_id))
+        if task in done:
+            warden._receive_tasks.pop(link_id, None)
+            envelope = task.result()
+            if envelope is None:
+                continue  # The link ended; a later phase adds OFFLINE bookkeeping for this.
+            items.append(to_inbox_item(envelope, link_id))
     return items
 
 
@@ -343,12 +354,10 @@ async def _next_or_none(iterator: AsyncIterator[Envelope]) -> Envelope | None:
     """Return the next decoded Envelope, or None once nothing more will ever arrive."""
     try:
         return await anext(iterator)
-    except StopAsyncIteration:
-        return None
     except InvalidPayloadError:
         # The pair stays open per the Transport contract; ask for the next frame instead.
         return await _next_or_none(iterator)
-    except (ConnectionLostError, CodecError, SignatureError):
+    except (StopAsyncIteration, ConnectionLostError, CodecError, SignatureError):
         return None
 
 

@@ -39,6 +39,12 @@ Key invariants:
       Worker, which may only claim"). `_handle_crashed`, `_finish_stopped` and `_finish_killed`
       close the attempt locally (a WorkerState transition and its trail event) and, for a crash,
       an AlarmRaised; the Warden is the only hop that ever reports FAILED or CANCELLED.
+    - Every terminal transition (`_finish_claimed`, `_handle_crashed`, `_finish_stopped`,
+      `_finish_killed`) flushes `runtime`'s own pending-Alarm queue first, via
+      `WorkerRuntime._drain_pending_alarms` (this dispatch's own fix 2): the top-of-tick drain in
+      `hivemind.workers.runtime.loop.WorkerRuntime._tick` only catches an Alarm noted before the
+      role's own task was observed done, so a role that notes one on its very last tool call and
+      then returns needs this second checkpoint or the Alarm is never sent at all.
 
 See Also:
     - .claude/codingrules.md section 5.2 for the module-split rule this class follows.
@@ -196,6 +202,7 @@ class AttemptManager:
         or escalate, and only the Warden's hop ever closes a task with a non-CLAIMED TaskResult.
         """
         runtime = self._runtime
+        await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
         runtime._reporter.transition(WorkerState.FAILED)
         await runtime._reporter.record_event("worker.failed")
         await runtime._reporter.send_alarm(
@@ -216,6 +223,7 @@ class AttemptManager:
     async def _finish_claimed(self, outcome: WorkerOutcome) -> None:
         """Move RUNNING -> DONE and report TaskResult(CLAIMED)."""
         runtime = self._runtime
+        await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
         runtime._reporter.transition(WorkerState.DONE)
         await runtime._reporter.record_event("worker.done")
         await runtime._reporter.send_result(
@@ -257,6 +265,7 @@ class AttemptManager:
         already sent carries the `HandoffRef` it needs to resume the work itself.
         """
         runtime = self._runtime
+        await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
         runtime._reporter.transition(WorkerState.DONE)
         await runtime._reporter.record_event("worker.done", stop_reason=self._stop_reason[:200])
         self._stop_after_handoff = False
@@ -269,6 +278,7 @@ class AttemptManager:
         docstring): the Warden already knows, since it is the one that asked for the cancel.
         """
         runtime = self._runtime
+        await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
         runtime._reporter.transition(WorkerState.KILLED)
         await runtime._reporter.record_event(
             "worker.killed", cancel_reason=(self._cancel_reason or "Cancelled.")[:200]

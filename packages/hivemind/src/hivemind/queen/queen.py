@@ -223,6 +223,10 @@ class Queen(TickLoop):
         """
         wire_question_id = self._question_wire_ids.pop(question_id, None)
         correlation_id = self._question_envelope_ids.pop(question_id, None)
+        # Fix 3: drop _open_questions here too, or sync_answers_from_chamber's own cross-process
+        # sweep later mistakes it for "not yet forwarded" and looks for a Note that never comes.
+        if wire_question_id is not None:
+            self._open_questions.pop(wire_question_id, None)
         answer_input = questions.AnswerInput(
             question_id=question_id,
             text=text,
@@ -340,7 +344,11 @@ async def _run_tick(queen: Queen) -> None:
         queen._deps, queen.wardens, queen._liveness, queen._human_inbox
     )
     await dispatch_ready(queen._deps, queen.wardens)
-    await questions.route_answers(queen._deps, queen._open_questions)
+    # This dispatch's own fix 3: the tick now calls the exact same retry-safe function hive run's
+    # own poll loop calls (hivemind.cli.compose.run_goal), instead of a separate sweep that used
+    # to drop _open_questions the moment a task left BLOCKED for any reason -- see
+    # hivemind.queen.questions's own module docstring for the race that closed.
+    await questions.sync_answers_from_chamber(queen)
 
 
 async def _record_recovered_tick_error(queen: Queen, error: Exception) -> None:

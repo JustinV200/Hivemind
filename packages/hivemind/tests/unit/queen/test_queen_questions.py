@@ -11,6 +11,11 @@ Fits into the Hive:
     chamber's own internal id, which is a different value on purpose (`hivemind.brood_chamber.
     questions`'s own module docstring) -- since that original id alone is what
     `hivemind.wardens.ticks.questions.forward_answer` matches back to the blocked sub-bee.
+    `test_the_queens_own_tick_forwards_an_answer_interleaved_with_the_two_writes` is this
+    dispatch's own fix 3's proof: the Queen's own tick now calls `sync_answers_from_chamber`
+    directly (a Heartbeat is what wakes the tick, purely event-driven), the same retry-safe
+    function `hive run`'s poll loop calls, instead of a separate sweep that used to drop
+    `_open_questions` the moment a task left BLOCKED for any reason.
 
 Key invariants:
     - None: this module holds tests only.
@@ -26,6 +31,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from builders.queen import make_queen_deps, plan_responder
+from builders.supervision import make_telemetry
 
 from hivemind.brood_chamber import Answer, AnswerSource, TaskStatus
 from hivemind.cell import HoneyClearance
@@ -37,7 +43,7 @@ from hivemind.queen.queen import Queen
 from waggle.clock import Clock
 from waggle.ids import MessageId, TaskId, WardenId, new_event_id, new_message_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
-from waggle.messages.supervision import Question
+from waggle.messages.supervision import Heartbeat, Question, WardenState
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -82,6 +88,33 @@ async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 200
             return
         await asyncio.sleep(0)
     raise AssertionError("Condition never became true.")
+
+
+async def _settle(rounds: int = 50) -> None:
+    """Give the event loop `rounds` scheduling turns, so an already-queued envelope is handled.
+
+    The Queen's own tick loop is purely event-driven (`hivemind.queen.queen._run_tick`'s own
+    `asyncio.wait` on the next envelope from each Warden link, never a `clock.sleep`-paced tick of
+    its own); once an envelope has been sent, this many cheap yields is enough for that one tick
+    -- including its own `sync_answers_from_chamber` call at the very end -- to run to completion
+    against the in-memory fakes `make_queen_deps` builds, with nothing else competing for the loop.
+    """
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+
+
+def _heartbeat() -> Heartbeat:
+    """Build a minimal Heartbeat: only its arrival matters, to wake the Queen's own tick."""
+    return Heartbeat(
+        telemetry=make_telemetry(),
+        task_id=None,
+        worker_state=None,
+        warden_state=WardenState.ACTIVE,
+        children=(),
+        grant_id=None,
+        grant_spend=None,
+        interval_s=5.0,
+    )
 
 
 async def test_question_blocks_the_task_and_surfaces_in_the_human_inbox() -> None:
@@ -318,4 +351,53 @@ async def test_sync_answers_from_chamber_retries_when_the_note_has_not_landed_ye
     assert second_sync == 1  # The retry found the Note this time and forwarded it.
     assert forwarded_answer.question_id == question.question_id  # The original wire id, not ours.
     assert forwarded_answer.text == "Use staging."
+    await warden_end.close()
+
+
+async def test_the_queens_own_tick_forwards_an_answer_interleaved_with_the_two_writes() -> None:
+    """Fix 3: the Queen's own tick step must not lose an answer racing the two separate writes.
+
+    The old tick called a separate `route_answers` sweep that dropped `_open_questions` the
+    moment a tracked question's task left BLOCKED for any reason, including `chamber.answer()`
+    alone landing before its own answer Note; the tick is purely event-driven, so a Heartbeat is
+    what drives it here, once before the Note exists and once after.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    question = _question(deps.clock, task_id=goal_id, warden_id=link.warden_id)
+    await warden_end.send(question)
+
+    async def _blocked() -> bool:
+        task = await deps.chamber.get(goal_id)
+        return task.status is TaskStatus.BLOCKED
+
+    await _wait_until(_blocked)
+    pending = await queen.human_inbox.pending_questions(deps.chamber)
+    chamber_question_id = pending[0].id
+
+    # Chamber write first; a Heartbeat wakes the tick's own sync step before the Note exists.
+    await _answer_only(deps, chamber_question_id, "Use staging.")
+    await warden_end.send(_heartbeat())
+    await _settle()
+    resumed = await deps.chamber.get(goal_id)
+
+    # Note lands; the tick's next wake must still forward it (an old-sweep loss would hang here).
+    await _leave_note_only(deps, chamber_question_id, "Use staging.")
+    await warden_end.send(_heartbeat())
+    forwarded_answer = await warden_end.wait_for_answer()
+
+    queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert resumed.status is TaskStatus.RUNNING
+    assert forwarded_answer.question_id == question.question_id
+    assert forwarded_answer.task_id == goal_id
+    assert forwarded_answer.text == "Use staging."
+    assert len(warden_end.answers) == 1  # Forwarded exactly once, never lost.
     await warden_end.close()

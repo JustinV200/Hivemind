@@ -24,21 +24,28 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   `handoff_requested` flags and the `wait_if_paused()` a role's own turn loop cooperates with.
   `note_alarm`/`take_pending_alarms`/`PendingAlarm`: a small queue a tool's own call into Capping
   (`hivemind.workers.tools.proposals.cap`, on a rollback) notes an Alarm onto, with no handle on
-  the runtime; the runtime drains it into a real `AlarmRaised` every tick.
+  the runtime; the runtime drains it into a real `AlarmRaised` every tick, and also right before
+  every terminal `WorkerState` transition and right before `run()` returns, so a rollback noted on
+  a role's very last tool call is never left queued once the attempt itself is over.
 - `capabilities.py` -- `worker_capabilities(warden_caps, needs, scratch_root)`: a Worker's strict
   `CapabilitySet` slice, never wider than its Warden's.
 - `errors.py` -- `WorkerError` (root), `InvalidWorkerTransitionError`, `WorkerCancelledError`.
 - `runtime/` -- `WorkerRuntime`, the `waggle.loop.TickLoop` that receives `TaskAssign`, runs the
   role, sends `Heartbeat`/`TaskProgress`/`TaskResult`, honours `TaskCancel`/`TaskPause`/
   `TaskResume`/every `Intervene` lever, checkpoints and restarts at a handoff, drains this
-  attempt's own pending Alarms every tick, and raises an `AlarmRaised` instead of crashing when
-  the role does -- classified by a small table (`attempt.py`'s own `_alarm_kind_for_crash`):
-  `ProviderUnavailableError`/`RateLimitedError` (`hivemind.llm.errors`) map to
-  `PROVIDER_UNAVAILABLE`, anything else to `WORKER_CRASHED`. Split internally into `deps.py`
-  (`RuntimeDeps`), `mailbox.py` (the transport, the receive-or-heartbeat race, the blocking
-  Question channel), `reporter.py` (this Worker's own `WorkerState` and every outgoing message)
-  and `attempt.py` (starting, cancelling and interpreting one role attempt); `__init__.py` is the
-  package's own face.
+  attempt's own pending Alarms every tick and before every terminal transition, and raises an
+  `AlarmRaised` instead of crashing when the role does -- classified by a small table (`attempt.py`'s
+  own `_alarm_kind_for_crash`): `ProviderUnavailableError`/`RateLimitedError`
+  (`hivemind.llm.errors`) map to `PROVIDER_UNAVAILABLE`, anything else to `WORKER_CRASHED`. Every
+  Alarm this runtime sends -- a crash, a provider outage, or a Capping rollback -- goes through
+  `Reporter.send_alarm`, which records `alarm.raised` on the Pheromone Trail before the wire
+  message leaves; a flush that finds the link to this Worker's Warden already closed is
+  recoverable (logged, dropped), never an exception out of this runtime. Split internally into
+  `deps.py` (`RuntimeDeps`), `mailbox.py` (the transport, the receive-or-heartbeat race, the
+  blocking Question channel), `reporter.py` (this Worker's own `WorkerState` and every outgoing
+  message, including the trail write above) and `attempt.py` (starting, cancelling and
+  interpreting one role attempt, including the pre-terminal-transition flush); `__init__.py` is
+  the package's own face.
 - `roles/` -- one module (or package) per Worker role; `hivemind.workers.roles.drone.Drone` is the
   first, added by roadmap step 3.16. See `hivemind.workers.roles`'s own README.
 - `tools/` -- the tool implementations a Worker calls while it works, each one going through its

@@ -203,6 +203,82 @@ async def test_a_raising_role_produces_an_alarm_moves_to_failed_and_the_loop_kee
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Alarms reaching the trail (fix 1), and a pending Alarm flushed at a terminal
+# transition rather than lost with it (fix 2)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_send_alarm_records_alarm_raised_on_the_trail_before_it_leaves_the_link() -> None:
+    """Fix 1: a rolled-back gate outcome ends with alarm.raised on the trail first.
+
+    It lands before the AlarmRaised leaves the link: Reporter.send_alarm now calls
+    record_alarm_event first.
+    """
+    clock = FakeClock()
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: Handoff | None
+    ) -> WorkerOutcome:
+        ctx.telemetry.note_alarm(AlarmKind.POSTCONDITION_FAILED, "postconditions failed to hold")
+        return make_outcome(summary="done")
+
+    runtime, warden_end, _worker, ctx = _build(clock, script)
+    task = asyncio.create_task(runtime.run())
+
+    await warden_end.send(make_assignment(clock=clock))
+    alarm = await warden_end.wait_for_alarm()
+
+    # record_alarm_event is awaited before the mailbox.send call inside Reporter.send_alarm
+    # (fix 1's own ordering), so by the time the wire AlarmRaised is observed here, the trail
+    # write for the exact same alarm id has already completed.
+    events = await ctx.trail.query(TrailQuery(subject_id=alarm.alarm_id))
+    assert [event.kind for event in events] == ["alarm.raised"]
+
+    runtime.stop()
+    await asyncio.wait_for(task, timeout=1)
+
+
+async def test_an_alarm_noted_on_the_last_tool_call_still_reaches_the_warden_when_claimed() -> None:
+    """Fix 2: a role that notes an Alarm then returns claimed=True still yields the AlarmRaised.
+
+    The old runtime only drained TelemetryTracker.take_pending_alarms() at the top of _tick, so a
+    pending Alarm noted just before the role's own coroutine returned was still sitting in the
+    queue when the same tick's on_finished() moved the Worker straight to DONE; nothing drained
+    it again afterwards. AttemptManager now flushes the queue before every terminal transition, so
+    the AlarmRaised goes out first.
+    """
+    clock = FakeClock()
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: Handoff | None
+    ) -> WorkerOutcome:
+        ctx.telemetry.note_alarm(AlarmKind.POSTCONDITION_FAILED, "rolled back after applying")
+        return make_outcome(claimed=True, summary="done despite the rollback")
+
+    runtime, warden_end, _worker, ctx = _build(clock, script)
+    task = asyncio.create_task(runtime.run())
+
+    await warden_end.send(make_assignment(clock=clock))
+    alarm = await warden_end.wait_for_alarm()
+    result = await warden_end.wait_for_result()
+
+    assert alarm.kind is AlarmKind.POSTCONDITION_FAILED
+    assert result.outcome is TaskOutcome.CLAIMED
+    assert result.summary == "done despite the rollback"
+    assert runtime.state is WorkerState.DONE
+
+    # The flush's own alarm.raised (fix 1) precedes worker.done in the trail this Worker itself
+    # writes; the AlarmEvent carries a different subject_id (the alarm id), so it never appears
+    # in this worker_id-scoped query, but the ordering the flush guarantees is what let the
+    # AlarmRaised reach warden_end above before this attempt closed.
+    events = await ctx.trail.query(TrailQuery(subject_id=ctx.worker_id))
+    assert [event.kind for event in events] == ["worker.started", "worker.done"]
+
+    runtime.stop()
+    await asyncio.wait_for(task, timeout=1)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # TaskCancel with grace
 # ──────────────────────────────────────────────────────────────────────────────
 
