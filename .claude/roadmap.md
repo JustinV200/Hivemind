@@ -593,7 +593,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   device's resident tools are (phase 11), so Absconding can still remove it.
   Judge review, snapshots, the flight recorder and sampled audit arrive in later phases as extra
   checks on the same gate.
-- [ ] **3.18 Acceptance criteria.** The planner (3.20) emits `acceptance` for every subtask as a
+- [x] **3.18 Acceptance criteria.** The planner (3.20) emits `acceptance` for every subtask as a
   list of postconditions plus, where nothing machine-checkable exists, a rubric for a judge. A
   task reaches `SUCCEEDED` only when its Warden has run the acceptance checks and they pass; the
   bee that did the work cannot mark itself done. Failed acceptance raises an Alarm with the
@@ -617,7 +617,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   real in phase 11). The Hive Stand's Warden runs on the Hive Stand, in the Queen's process over
   the memory transport by default, and exists whenever the Queen runs: `[hive_stand] enabled =
   false` refuses leases, it does not remove the Warden, which 11.9a and 13.2a rely on.
-- [ ] **3.20 Queen kernel.** `queen/inbox/` (the Queen's Attendant, instantiated from
+- [x] **3.20 Queen kernel.** `queen/inbox/` (the Queen's Attendant, instantiated from
   `supervision/attendant.py` with the Queen's weight table: human messages heavy but not
   absolute, and `ModelSlot.ATTENDANT` enabled for ties and unknown kinds), `queen/autopilot/` (dispatch table:
   heartbeats, progress, results, grants within headroom, Alarms per policy, lease bookkeeping;
