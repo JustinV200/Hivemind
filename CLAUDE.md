@@ -34,3 +34,8 @@ The rules that get broken most often:
   Stand's loopback listener; it logs in with its device key plus the operator's password and enters
   through the Landing Board. Approval routes never exist on the remote listener, and there is no
   public exposure mode.
+- Prefer a real task over a synthetic one wherever a phase's exit criteria can be exercised by one:
+  alongside unit/contract tests, run an actual end-to-end scenario (a real Cell, a real provider
+  call, a real Worker doing real work) through whatever the phase just landed. Bad abstractions are
+  cheap to fix when a real task finds them mid-phase, expensive once the platform is "done" and the
+  first real workload finds them instead.

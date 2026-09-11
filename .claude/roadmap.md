@@ -757,9 +757,9 @@ failing.
   the task's need to survive disconnection, and cost caps; local sources first wherever the Cell
   has them; recorded as `forage.plan_written` with the reason. `queen/forage/ceilings.py`: set
   and change a Warden's `Ceilings` (maximum sub-bees, VRAM and disk for models, scratch disk
-  per lease, loadable map entries, exportable seats), recorded as `forage.ceilings_set`. Routing
-  (phase 8) consumes the plan; a local source is only selectable once phase 8.3 can start a
-  server on a Cell.
+  per lease, resident Basket disk, loadable map entries, exportable seats), recorded as
+  `forage.ceilings_set`. Routing (phase 8) consumes the plan; a local source is only selectable
+  once phase 8.3 can start a server on a Cell.
 - [ ] **4.9 Clustering.** `queen/cluster/protocol.py`: triggered per provider by `ProviderHealth`
   failing with no fallback within Forage, by a cost cap, or by `hive cluster`: checkpoint every
   affected bee, move their tasks to `PAUSED`, keep leases and Cells alive, keep heartbeats and
@@ -881,7 +881,8 @@ role, `hive cells` CLI.
   startup sweeps orphans of both kinds from backend labels and the trail.
 - [ ] **5.9 Overwintering pool.** `hive/overwinter/policy.py` (pure, Virtual only),
   `hive/overwinter/pool.py`. Placement prefers a dormant Cell with the right image. Clustering uses
-  the pool for long outages. Night Veil Cells are excluded.
+  the pool for long outages. Night Veil Cells are excluded. A dormant Cell's volume keeps its
+  resident Basket blobs (9.2a), so a reused Cell starts with them.
 - [ ] **5.10 Snapshots for Capping.** `hive/snapshot.py`: `DockerSnapshotter` and
   `QemuSnapshotter` implementing the `Snapshotter` protocol from `cell/snapshot.py` (3.10)
   (Docker commit, QEMU snapshot; a documented no-op with a warning for backends that cannot). The
@@ -1002,6 +1003,7 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   appropriate, and avoid repetitive boilerplate transitions. Both are disabled by default and
   require explicit capability and policy opt-in. Add a Queen-controlled Cell-scope override path (`QUEEN_FORCED`) with explicit
   reason, expiry and clear semantics that the Warden must enforce while active.
+  More detailed writing instructions for pheromone mask be given will be given at time of implementation, ask me (user) for more info when you go to implement
 
 ### Exit criteria
 
@@ -1129,7 +1131,9 @@ prompt overlays, `hive llm eval`.
   an OpenAI-compatible server on a Cell that reports `can_host_model` (through its session), register
   it as a provider with a loopback-only or Cell-local base URL, add its models to the Forage map
   as new sources with measured distance from that Cell, and report its seats to the ledger as
-  part of that Cell's local pool. The Cell's Warden loads and unloads models on it autonomously
+  part of that Cell's local pool. Weights come from the Basket (9.2a) when the Hive already holds
+  them, shipped from the Hive Stand rather than downloaded again. The Cell's Warden loads and
+  unloads models on it autonomously
   within its ceilings and allowlist, reporting each as `forage.source_added` / `removed`; the
   Queen may evict a model only to reclaim seats she has exported. This is what local sources in a
   hosting plan and Nucs (phase 11) build on.
@@ -1176,7 +1180,7 @@ hive scope by the Queen or at cell scope by the requesting Warden.
 
 **Depends on.** Phases 5 and 7.
 
-**Deliverables.** `hivemind/royal_jelly`, `hive tools` CLI.
+**Deliverables.** `hivemind/royal_jelly`, `hivemind/basket`, `hive tools` and `hive basket` CLI.
 
 ### Steps
 
@@ -1184,10 +1188,40 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   schema with `additionalProperties: false`, required capabilities, entry point, dependencies,
   supported OSes, `scope = "hive" | "cell"`). `validate.py` rejects specs requesting capabilities
   beyond the requester's own.
-- [ ] **9.2 Comb Registry.** SQLite table + package dir; `CombRegistry` with `list`, `get`,
-  `promote(spec, report, scope)`, `retire`. `promote` refuses without a passing `QuarantineReport`;
+- [ ] **9.2 Comb Registry.** SQLite table + package dir, each package a Basket blob named by hash
+  (9.2a); `CombRegistry` with `list`, `get`, `promote(spec, report, scope)`, `retire`. `promote`
+  refuses without a passing `QuarantineReport`;
   hive scope requires the Queen principal; cell scope requires the owning Warden. A test asserts
   there is no bypass.
+- [ ] **9.2a The Basket.** `hivemind/basket/`, a package at Layer 2 beside `honey_store` (add it
+  to the codingrules layer table and the `import-linter` contract in the same PR): `models.py`
+  (`Blob`: content hash, size, media kind as a descriptive tag, platform tags, `HoneyClearance`
+  from provenance, origin task, bee and Cell, deposit event id; `BlobManifest`, signed by the
+  Hive key at deposit), `store/` (SQLite metadata plus a blob directory on the Hive Stand, the
+  Comb's own pattern; `deposit`, `get`, `retire`, dedupe by hash), `residency.py` (per Cell, the
+  blobs kept resident under the `basket_disk_mb` ceiling from `Ceilings` (4.8), evicted oldest
+  first, recorded with the node like resident tools on a colonized device (11.6a) and kept on
+  an Overwintered Cell's volume (5.9)), and `transfer.py` (chunked under the Waggle frame cap,
+  resumable by hash, always through the Hive Stand since nodes connect out to the Queen; the
+  receiver verifies hash and signature before keeping a byte, and a failure is a `guard.*`
+  integrity event). `basket.*` Waggle messages (`offer`, `chunk`, `ack`, `refuse`) are a waggle
+  minor bump. Every deposit writes one Honey record for the blob (9.8's pattern): a title and a
+  one-paragraph summary the proposing bee supplies with the `retain` proposal, plus the hash
+  that locates it, kind, platform tags, clearance and origin. That record is the only way a bee
+  finds a blob: retrieval (7.7) returns the few records that match under the token budget, and
+  `memory.assemble` never lists the Basket, so a Cell holding a thousand blobs costs a prompt
+  nothing; `hive basket list` is for the human. The rule, tested: **a blob is inert**. Holding
+  one grants nothing; running a script from it is a capped command, installing a program from
+  it is an outside-scratch write with its restore path (3.17), and only a Comb promotion makes
+  a blob executable as a tool, by naming its hash as the package. Nothing enters by side
+  effect: a bee proposes to keep an artefact (a `retain` proposal through the Capping gate,
+  checked and trailed like any side effect), its Warden deposits it, `basket.deposited`
+  records it.
+  Text-like blobs pass the scanner (10.6b) at deposit; binaries cannot, and so never run
+  except through the Comb. Clearance rules apply unchanged (a Real Cell origin is `C2`, so
+  nothing from a laptop ships to Night Veil), and a blob from an isolated or quarantined
+  source is tainted (10.6d). `hive basket list|show|deposit|ship|evict|retire`. Absconding
+  (13.4) removes every resident copy.
 - [ ] **9.3 Scaffolder.** From a `ToolRequest` produce spec, source and tests through
   `llm/structured.py` on `ModelSlot.SCAFFOLDER`; tests first. The request carries the target
   Cell's capability report (OS, distro, arch, package manager, shell, Python availability) so the
@@ -1214,7 +1248,8 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   updates the registry and deposits Honey (9.8); it pushes nothing into a running Worker. A
   Worker's bundle changes only when its Warden re-attenuates it, on a fulfilled `ToolRequest`
   or a smaller minimum for the next step, as an intervention. `workers/tools/invoke.py`
-  re-validates inputs, capabilities and OS before every call.
+  re-validates inputs, capabilities and OS before every call. Tool packages arrive as Basket blobs
+  (9.2a), resident on the Cell and verified by hash before load.
 - [ ] **9.8 Honey link.** Every promotion deposits Nectar describing the tool.
 - [ ] **9.9 Versioning and rollback.** Immutable versions; `retire`; `hive tools rollback`.
 - [ ] **9.10 CLI.** `hive tools list|show|request|retire|rollback|quarantine <path>`.
@@ -1227,9 +1262,15 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   after the Comb passes, and only bees on that Cell can see it.
 - A malicious scaffold (socket, `subprocess`, reads outside its dir) fails the Comb with the reason.
 - The scaffold scenario passes with `SCAFFOLDER` local in the `local_llm` job.
+- A tool promoted at hive scope reaches a second matching Cell as a Basket blob verified by
+  hash; a blob deposited from a Real Cell is refused by a Night Veil Cell; a blob with no Comb
+  entry cannot be invoked as a tool, and the refusal is on the trail.
 
 ### ADRs to write
 
+- `basket-inert-blobs-residency-and-transfer.md` (bytes travel, permission does not; Honey
+  describes, the Comb permits, the Basket stores; residency under a ceiling; verified transfer
+  through the Hive Stand).
 - `tool-spec-comb-registry-and-scopes.md`.
 - `quarantine-comb-gates-and-sandbox.md`.
 
@@ -1884,7 +1925,8 @@ borrowed device and revoking every grant.
 - [ ] **13.3 Swarming policy.** `queen/scheduler/swarming.py`: pure policy for provisioning more
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
 - [ ] **13.4 Absconding.** `hive abscond`: Virtual Cells, dormant Cells, every lease on the Hive
-  Stand and on devices, every grant, Worker processes, temp dirs; from labels and the trail alone.
+  Stand and on devices, every grant, Worker processes, temp dirs, resident Basket blobs on every
+  Cell (9.2a); from labels and the trail alone.
   Absconding is human-only: callable only by a human principal, never by Queen, Warden, Worker,
   autopilot rule, or tool. Execution requires password re-auth, an explicit typed confirmation
   phrase, and a final scope review prompt. Records actor, reason, and confirmation evidence in the
