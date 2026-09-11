@@ -635,7 +635,7 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
   `cli/inbox.py` (`hive inbox` lists pending questions and Alarms at the human; `hive inbox answer
   <id> "..."`), `cli/wardens.py` (`hive wardens list` with grant, sub-bees, telemetry),
   `cli/capping.py` (`hive capping queue|show <proposal>`).
-- [ ] **3.22 End-to-end tests.** `tests/e2e/test_kernel_on_hive_stand.py` with the fake provider:
+- [x] **3.22 End-to-end tests.** `tests/e2e/test_kernel_on_hive_stand.py` with the fake provider:
   (a) the haiku goal completes through the Warden with the trail showing decompose → placed →
   leased → granted → spawned → proposed → capped → applied → verified → accepted → released;
   (b) a Drone killed by hand is respawned by the Warden's autopilot without an awake episode on
