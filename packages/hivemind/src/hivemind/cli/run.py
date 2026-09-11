@@ -124,12 +124,31 @@ def run_command(
         # SAFETY: the command body's own broad catch (codingrules section 10's third allowed
         # site): a run that fails for any reason still ends in one clean stderr line and exit 1,
         # never a traceback dumped on an operator's terminal.
-        typer.echo(f"hive run failed: {exc}", err=True)
+        typer.echo(f"hive run failed: {_describe(exc)}", err=True)
         raise typer.Exit(code=1) from exc
     _print_summary(report, as_json)
     if report.timed_out:
         raise typer.Exit(code=2)
     raise typer.Exit(code=0 if report.succeeded else 1)
+
+
+def _describe(exc: BaseException) -> str:
+    """Flatten `exc` into the one line an operator can act on, unwrapping any ExceptionGroup.
+
+    `run_hive` runs the Queen and the Warden inside an `asyncio.TaskGroup`, so a failure anywhere
+    in the kernel arrives here wrapped in an `ExceptionGroup` whose own `str` is no more than
+    "unhandled errors in a TaskGroup (1 sub-exception)" -- accurate, and useless to whoever has to
+    fix it. The cause is what belongs on stderr: which provider refused, which path was missing.
+
+    Args:
+        exc: The exception the command body caught; possibly a group, possibly nested.
+
+    Returns:
+        Every leaf cause as "TypeName: message", joined by "; " when a group carries more than one.
+    """
+    if isinstance(exc, BaseExceptionGroup):
+        return "; ".join(_describe(inner) for inner in exc.exceptions)
+    return f"{type(exc).__name__}: {exc}"
 
 
 async def _run(

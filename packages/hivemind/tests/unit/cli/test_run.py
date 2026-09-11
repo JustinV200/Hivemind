@@ -232,3 +232,27 @@ def test_run_command_exits_2_on_a_missing_manifest(tmp_path: Path) -> None:
     result = runner.invoke(app, ["run", _GOAL, "--manifest", str(tmp_path / "missing.toml")])
 
     assert result.exit_code == 2
+
+
+def test_describe_unwraps_a_task_group_to_the_cause_an_operator_can_act_on() -> None:
+    """A kernel failure reaches `hive run` wrapped by run_hive's TaskGroup; the cause must survive.
+
+    Without this, the operator's only clue is "unhandled errors in a TaskGroup (1 sub-exception)",
+    which names neither the provider that refused nor the path that was missing.
+    """
+    group = ExceptionGroup("unhandled errors in a TaskGroup", [ValueError("model not found")])
+
+    described = run_module._describe(group)
+
+    assert described == "ValueError: model not found"
+
+
+def test_describe_joins_every_cause_in_a_nested_group() -> None:
+    inner = ExceptionGroup("inner", [KeyError("missing"), RuntimeError("stopped")])
+    outer = ExceptionGroup("outer", [inner])
+
+    described = run_module._describe(outer)
+
+    assert "KeyError" in described
+    assert "RuntimeError: stopped" in described
+    assert "; " in described
