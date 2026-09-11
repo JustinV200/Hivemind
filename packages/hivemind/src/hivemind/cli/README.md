@@ -70,8 +70,11 @@ typer layer that calls into a subsystem's public API and never contains logic of
   (codingrules section 8.2: "exactly one place per entry point"). `build_hive(manifest, *,
   environ, clock, stores=None, responders=None) -> Hive` builds every store, the LLM registry, the
   Fanner, the Hive Stand source, one Queen<->Warden Waggle link and both kernels; `run_hive(hive)
-  -> AsyncIterator[None]` is an `asynccontextmanager` that leases the Cell, runs the Queen and
-  Warden as an `asyncio.TaskGroup`, and tears both down (and closes the link) on exit; `run_goal
+  -> AsyncIterator[None]` is an `asynccontextmanager` that leases the Cell and runs the Queen and
+  Warden as an `asyncio.TaskGroup`; on exit it stops both cooperatively (their own `stop()`) and
+  awaits their `run()` tasks before the TaskGroup block itself ends, so an exception from the
+  caller's own `async with` body can never have the TaskGroup cancel a tick still in flight, then
+  closes the link; `run_goal
   (hive, goal, *, clearance, timeout_s, on_event=None) -> GoalReport` submits a goal and polls
   until every task is terminal or `timeout_s` elapses, calling `hivemind.queen.
   sync_answers_from_chamber` and streaming trail events to `on_event` each poll. Split into

@@ -49,6 +49,11 @@ Key invariants:
       about to return, has been flushed by the time that transition or return happens (this
       dispatch's own fix 2): `_send_pending_alarms` is the one function every flush call site
       shares, so a rollback Alarm is never left queued once its attempt is over.
+    - `_tick`'s own throwaway `stop_task` is reaped via `hivemind.common.tasks.reaping`, wrapped
+      around the `asyncio.wait` that races it, so a tick cancelled from outside (this runtime's
+      own `run()` task, cancelled by its owner without going through cooperative `stop()` first)
+      never abandons it destroyed pending (this dispatch's own shutdown-hygiene fix, codingrules
+      section 11).
 
 See Also:
     - .claude/codingrules.md section 11 for the TickLoop shape this class specialises.
@@ -69,7 +74,7 @@ from typing import Any
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.logging import get_logger
-from hivemind.common.tasks import reap
+from hivemind.common.tasks import reaping
 from hivemind.memory import Handoff, read_handoff
 from hivemind.supervision.intervention import Checkpoint, Compact, Rebind, Takeover
 from hivemind.supervision.intervention import Handoff as HandoffLever
@@ -158,12 +163,14 @@ class WorkerRuntime(TickLoop):
         cancel_deadline_task = self._attempt.cancel_deadline_task
         if cancel_deadline_task is not None:
             waitables.add(cancel_deadline_task)
-        done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-        await reap(stop_task)  # Discards the loser of the race without leaking it.
+        # reaping: stop_task must never be left pending even if this tick is cancelled from outside.
+        async with reaping(stop_task):
+            done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
         if stop_task in done:
-            # This dispatch's own fix 2: run() is about to return once this tick ends, so any
-            # Alarm still queued goes out now rather than being silently dropped with the runtime.
+            # Fix 2: flush any Alarm still queued rather than silently dropping it with the
+            # runtime; then reap a role still mid-attempt, never left running with no owner.
             await self._drain_pending_alarms()
+            await self._attempt.cancel_role_task()
             await self._mailbox.aclose()
             return
         if role_task is not None and role_task in done:

@@ -83,7 +83,7 @@ async def test_heartbeat_updates_the_queens_own_liveness_view() -> None:
 
     await _wait_until(_seen)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     current = queen.liveness[link.warden_id]

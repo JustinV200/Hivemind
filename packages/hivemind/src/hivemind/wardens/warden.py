@@ -26,14 +26,24 @@ Fits into the Hive:
 Key invariants:
     - Every `WardenState` change goes through `hivemind.wardens.state.assert_transition` and is
       followed, in the same call, by its own `warden.*` trail event (codingrules section 12).
-    - `stop()` always cancels every sub-bee, releases the lease and records `warden.stopped`
-      before `waggle.loop.TickLoop.stop()` sets the stop flag, regardless of which state it was
-      called from.
-    - `stop()` cancels this Warden's own heartbeat deadline before anything else (this dispatch's
-      own fix 4), so no new heartbeat send can start once shutdown has begun; a send already in
-      flight at that exact moment tolerates a Queen link the composition root closes right after
-      `stop()` returns (`hivemind.wardens.ticks.heartbeat.send_heartbeat`), so `stop()` itself
-      never raises for that reason.
+    - `stop()` always stops every sub-bee, releases the lease and records `warden.stopped`,
+      regardless of which state it was called from.
+    - `stop()` sets `waggle.loop.TickLoop`'s own stop flag first, before anything else (this
+      dispatch's own shutdown-hygiene fix, superseding this class's own earlier "flag last"
+      choice): a tick still concurrently in flight then returns via its own throwaway stop_task
+      before it can create a fresh heartbeat or receive task that nothing downstream would ever
+      reap, and a heartbeat send already in flight at that exact moment still tolerates a Queen
+      link the composition root closes right after `stop()` returns
+      (`hivemind.wardens.ticks.heartbeat.send_heartbeat`), so `stop()` itself never raises for
+      that reason.
+    - `stop()` never returns with a task it owns still pending: every sub-bee's own runtime is
+      stopped cooperatively, falling back to a bounded cancel
+      (`hivemind.wardens.spawn.spawn.stop_sub_bee`), and every receive task this Warden started
+      is reaped (`hivemind.common.tasks.reap_all`) before the method returns -- a shutdown-hygiene
+      fix so no `asyncio.Task` is ever destroyed pending once the composition root's event loop
+      closes (codingrules section 11).
+    - `_run_tick`'s own throwaway `stop_task` is reaped in a `finally`, so a tick cancelled from
+      outside (a sub-bee's `runtime_task`, `run_hive`'s `TaskGroup`, a test) never abandons it.
     - The Hive Stand's Warden exists whenever the Queen runs: a `LeaseRefusedError` on `start()`
       moves it to `WATCH` with no lease, never prevents construction (codingrules section 8.8;
       CLAUDE.md's "Wardens never provision Cells").
@@ -50,7 +60,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -64,7 +73,7 @@ from hivemind.cell import (
     RealCellLease,
 )
 from hivemind.cell import HoneyClearance as _HoneyClearance
-from hivemind.common.tasks import reap
+from hivemind.common.tasks import reap, reap_all, reaping
 from hivemind.guard import CapabilitySet, ceiling_for
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
@@ -77,7 +86,7 @@ from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import LocalPool
-from hivemind.wardens.spawn import SubBee
+from hivemind.wardens.spawn import SubBee, stop_sub_bee
 from hivemind.wardens.state import WardenState, assert_transition
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
@@ -195,33 +204,46 @@ class Warden(TickLoop):
         await _record_event(self, "warden.active")
 
     async def stop(self) -> None:  # type: ignore[override]
-        """Stop this Warden's own heartbeats, cancel every sub-bee, release the lease, end the loop.
+        """End the loop first, then stop this Warden's heartbeats, every sub-bee and its lease.
 
         SAFETY: widens `waggle.loop.TickLoop.stop`'s synchronous signature to async on purpose --
         a Warden's own composition root always awaits this method directly (it is never called
         through a bare `TickLoop` reference that would expect a synchronous call), and the async
-        cleanup this override does (cancelling every sub-bee, releasing the lease) cannot be
+        cleanup this override does (stopping every sub-bee, releasing the lease) cannot be
         expressed as a fire-and-forget synchronous call.
         """
-        # Fix 4: cancel a not-yet-fired heartbeat deadline before anything else; one already in
-        # flight tolerates a closed Queen link on its own (ticks.heartbeat.send_heartbeat).
-        if self._heartbeat_task is not None and not self._heartbeat_task.done():
-            self._heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._heartbeat_task
+        # Set first (this dispatch's shutdown-hygiene fix), not last: a tick still concurrently
+        # in flight then sees its own throwaway stop_task win the very same race and returns
+        # before ever creating a fresh heartbeat or receive task, so nothing below this line ever
+        # races a live tick over one it is concurrently reaping (mirrors hivemind.queen.queen.
+        # Queen.stop's own ordering, for the same reason -- codingrules section 11).
+        super().stop()
+        if self._heartbeat_task is not None:
+            await reap(self._heartbeat_task)
         self._heartbeat_task = None
         for sub_bee in tuple(self._sub_bees.values()):
-            sub_bee.runtime_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await sub_bee.runtime_task
+            # Cooperative first, cancel-and-reap only as stop_sub_bee's own bounded fallback:
+            # never left cancelled-but-unawaited (codingrules section 11; this dispatch's rule 2).
+            await stop_sub_bee(sub_bee, self._deps.clock)
+            # This link's own receive task is reaped BEFORE the link closes: closing a link while
+            # a task is still suspended inside its receive() generator closes that generator while
+            # it is running (codingrules section 11). The reap_all below then covers the queen
+            # link's own receive task, and any entry a respawn left behind.
+            receive_task = self._receive_tasks.pop(sub_bee.worker_id, None)
+            if receive_task is not None:
+                await reap(receive_task)
             await sub_bee.link.close()
+        # Every receive task this Warden still owns (the queen link's own, and any sub-bee's
+        # whose respawn or a slow stop_sub_bee left one outstanding): reaped before stop()
+        # returns, so none is ever destroyed pending once the event loop closes (rules 1-3).
+        await reap_all(self._receive_tasks.values())
+        self._receive_tasks.clear()
         self._sub_bees.clear()
         self._sub_bee_iters.clear()
         if self._lease is not None:
             await self._lease.release()
         self._state = WardenState.STOPPED
         await _record_event(self, "warden.stopped")
-        super().stop()  # Sets TickLoop's own stop flag last, per this method's own contract.
 
     async def _tick(self) -> None:
         """Drain the queen link and every sub-bee link, order and act, then heartbeat."""
@@ -301,8 +323,11 @@ async def _run_tick(warden: Warden) -> None:
     # Throwaway: only wakes this wait early when stop() is called mid-tick.
     stop_task: asyncio.Task[bool] = asyncio.ensure_future(warden._stop.wait())
     waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), heartbeat_task, stop_task}
-    done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-    await reap(stop_task)  # Discards the loser of the race without leaking it.
+    # reaping (not a bare reap after this line) so stop_task is never left pending even when this
+    # tick is cancelled from outside -- a sub-bee's own runtime_task, run_hive's TaskGroup tearing
+    # down, a test (codingrules section 11; this dispatch's own rule 1).
+    async with reaping(stop_task):
+        done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
     if stop_task in done:
         return
     items = _drain_items(warden, receive_tasks, done)
@@ -328,7 +353,9 @@ def _drain_items(
     """Consume every finished receive task in `done`, returning the InboxItems they carried."""
     items: list[InboxItem] = []
     for link_id, task in receive_tasks.items():
-        if task in done:
+        # A task done() only because `stop()` reaped it out from under this same tick (this
+        # dispatch's rule 2) reads as cancelled, never as a real result to drain here.
+        if task in done and not task.cancelled():
             warden._receive_tasks.pop(link_id, None)
             envelope = task.result()
             if envelope is None:

@@ -96,7 +96,7 @@ async def test_succeeded_result_completes_the_task_and_dispatches_its_dependant(
     await warden_end.send(_result(root_assignment.task_id, link.warden_id, TaskOutcome.SUCCEEDED))
     await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     root_task = await deps.chamber.get(root_assignment.task_id)
@@ -131,7 +131,7 @@ async def test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_
     await warden_end.send(_result(first_assignment.task_id, link.warden_id, TaskOutcome.FAILED))
     await _wait_until(lambda: _is_terminal(deps, first_assignment.task_id))
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     failed = await deps.chamber.get(first_assignment.task_id)

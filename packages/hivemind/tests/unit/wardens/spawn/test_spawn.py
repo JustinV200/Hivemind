@@ -14,7 +14,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import Callable
 
 from builders.cells import make_cell
@@ -25,7 +24,7 @@ from hivemind.cell import CellKind
 from hivemind.cell.lease import LeaseRequest
 from hivemind.cell.tiers import AccessLevel
 from hivemind.guard.access import ceiling_for
-from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
+from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from waggle.clock import Clock
@@ -108,7 +107,5 @@ async def test_spawn_sub_bee_never_grants_capabilities_wider_than_the_ceiling() 
     # SCRATCH never grants net/device: proves the slice is strictly narrower, not merely equal.
     assert not any(cap.family.value == "net" for cap in granted.capabilities)  # type: ignore[attr-defined]
 
-    sub_bee.runtime_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await sub_bee.runtime_task
+    await stop_sub_bee(sub_bee, deps.clock)
     await sub_bee.link.close()

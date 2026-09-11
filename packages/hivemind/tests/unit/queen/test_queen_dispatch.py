@@ -233,6 +233,6 @@ async def test_a_question_right_after_dispatch_never_raises_invalid_transition()
     else:  # pragma: no cover - defensive
         raise AssertionError("The Question never blocked its task in time.")
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
     await warden_end.close()

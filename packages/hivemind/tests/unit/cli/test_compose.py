@@ -16,6 +16,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -262,6 +263,45 @@ async def test_run_hive_starts_and_stops_cleanly_and_leaves_scratch_empty(
         hive.warden.lease is not None
     )  # release() does not forget the lease; it marks it RELEASED.
     assert list((tmp_path / "scratch").iterdir()) == []  # Left as found.
+
+
+async def test_run_hive_leaves_no_pending_tasks_after_it_exits(
+    plain_hive: tuple[Hive, FakeClock],
+) -> None:
+    """This dispatch's own shutdown-hygiene proof: run_hive's own teardown reaps every task."""
+    hive, _clock = plain_hive
+    before = asyncio.all_tasks() - {asyncio.current_task()}
+
+    async with run_hive(hive):
+        pass
+
+    after = asyncio.all_tasks() - {asyncio.current_task()}
+    assert after == before
+
+
+async def test_run_hive_leaves_no_pending_tasks_when_the_caller_raises(
+    plain_hive: tuple[Hive, FakeClock],
+) -> None:
+    """Rule 4's own proof: a caller's exception must not let the TaskGroup cancel a live tick.
+
+    Before this fix, `hive.queen.stop()` was fired-and-forgotten and neither `run()` task was
+    awaited before this contextmanager's own `asyncio.TaskGroup` block ended: an exception raised
+    here would reach `TaskGroup.__aexit__` while a tick might still be in flight, and the
+    TaskGroup would cancel it itself instead of letting the cooperative `stop()` above finish.
+    `asyncio.TaskGroup.__aexit__` always wraps a body-raised exception in an `ExceptionGroup`
+    (its own documented contract, unrelated to this fix), so that -- not the bare `RuntimeError`
+    -- is what a caller of `run_hive` actually sees.
+    """
+    hive, _clock = plain_hive
+    before = asyncio.all_tasks() - {asyncio.current_task()}
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        async with run_hive(hive):
+            raise RuntimeError("boom")
+    assert isinstance(exc_info.value.exceptions[0], RuntimeError)
+
+    after = asyncio.all_tasks() - {asyncio.current_task()}
+    assert after == before
 
 
 async def test_run_goal_completes_the_three_haiku_goal_in_the_required_trail_order(

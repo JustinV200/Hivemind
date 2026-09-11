@@ -61,6 +61,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from hivemind.common.tasks import reap
 from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.memory import Handoff, write_checkpoint
 from hivemind.workers.base import WorkerOutcome
@@ -166,6 +167,10 @@ class AttemptManager:
         if stop_after:
             self._stop_after_handoff = True
             self._stop_reason = reason
+
+    async def cancel_role_task(self) -> None:
+        """Reap the role's own task if `run()` is ending while it is still mid-attempt."""
+        await _cancel_role_task(self)
 
     async def on_finished(self) -> None:
         """Interpret the finished role task: cancelled, crashed, or a WorkerOutcome."""
@@ -283,6 +288,21 @@ class AttemptManager:
         await runtime._reporter.record_event(
             "worker.killed", cancel_reason=(self._cancel_reason or "Cancelled.")[:200]
         )
+
+
+async def _cancel_role_task(attempt: AttemptManager) -> None:
+    """Reap `attempt`'s own role task (`AttemptManager.cancel_role_task`'s own body).
+
+    Module-level, not inline, so `AttemptManager`'s own class body stays within codingrules 5.1's
+    size limit (the same reason `_alarm_kind_for_crash` below lives here rather than as a method).
+    Called from `WorkerRuntime._tick`'s own stop branch: a role gets no further tick to notice
+    `stop()` on its own, so it is cancelled and reaped here rather than left running with no owner
+    (codingrules section 11). A no-op between attempts, when there is nothing to cancel.
+    """
+    attempt._clear_cancel_deadline()
+    if attempt._role_task is not None:
+        await reap(attempt._role_task)
+    attempt._role_task = None
 
 
 def _alarm_kind_for_crash(error: BaseException) -> AlarmKind:

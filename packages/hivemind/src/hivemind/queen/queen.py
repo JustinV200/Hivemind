@@ -37,6 +37,12 @@ Key invariants:
       queen.dispatcher._dispatch_one`) is a recoverable tick failure, not one that ends `run()` and
       takes the whole Hive down with it -- `waggle.loop.TickLoop.run` backs off and retries the
       next tick, and `_on_tick_failed` records it as `queen.decided`.
+    - `stop()` sets the stop flag before reaping `_receive_tasks` (this dispatch's own shutdown-
+      hygiene fix), the opposite order from `hivemind.wardens.warden.Warden.stop`: a tick still in
+      flight when `stop()` runs sees its own throwaway `stop_task` win the very same race and
+      returns before `_drain_items` ever runs, so nothing here races that tick over a task `stop()`
+      is concurrently reaping. `_run_tick`'s own `stop_task` is reaped via `hivemind.common.tasks.
+      reaping`, never left pending when a tick is cancelled from outside.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the kernel/Attendant/autopilot/awake shape this class
@@ -57,7 +63,7 @@ from typing import Any, ClassVar
 
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
-from hivemind.common.tasks import reap
+from hivemind.common.tasks import reap_all, reaping
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory import TriggerEvent
 from hivemind.queen import questions, ticks
@@ -238,6 +244,10 @@ class Queen(TickLoop):
         )
         return await questions.answer_question(self._deps, self.wardens, answer_input)
 
+    async def stop(self) -> None:  # type: ignore[override]
+        """End the loop, then reap every attached Warden's own receive task (rules 1-3)."""
+        await _stop_queen(self)
+
     async def _tick(self) -> None:
         """Drain every attached Warden's link, order and act, then liveness and dispatch."""
         await _run_tick(self)
@@ -253,10 +263,8 @@ class Queen(TickLoop):
     async def children(self) -> tuple[ChildRef, ...]:
         """Return one ChildRef per Warden currently attached."""
         return tuple(
-            ChildRef(
-                id=warden_id, kind=ChildKind.WARDEN, task_id=None, state=self._state_of(warden_id)
-            )
-            for warden_id in self._wardens
+            ChildRef(id=w, kind=ChildKind.WARDEN, task_id=None, state=self._state_of(w))
+            for w in self._wardens
         )
 
     async def telemetry(self, child: str) -> ContextTelemetry:
@@ -284,8 +292,7 @@ class Queen(TickLoop):
         Raises:
             UnknownWardenError: `child` names no attached Warden.
         """
-        # Module-level, not inline, so this class stays within codingrules 5.1's size limit
-        # (matching _run_tick/_act's own delegate shape below).
+        # Module-level (matching _run_tick/_act's own delegate shape) for the class size limit.
         await _send_intervene(self, child, intervention)
 
     def _state_of(self, warden_id: WardenId) -> str:
@@ -302,6 +309,21 @@ class Queen(TickLoop):
 # ──────────────────────────────────────────────────────────────────────────────
 # Tick dispatch: module-level so Queen's own class body stays within codingrules 5.1
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _stop_queen(queen: Queen) -> None:
+    """End `queen`'s loop, then reap every attached Warden's own receive task (`Queen.stop`'s body).
+
+    SAFETY: widens `waggle.loop.TickLoop.stop`'s synchronous signature to async, matching
+    `hivemind.wardens.warden.Warden.stop` -- the reap below needs to await. The stop flag is set
+    first (unlike `Warden.stop`, which has sub-bees and a lease to release before it): the
+    currently in-flight tick's own `_run_tick`, if any, sees its throwaway `stop_task` win the
+    very same race and returns before ever touching `_receive_tasks`, so nothing here ever races
+    that tick's own `_drain_items` (this dispatch's own shutdown-hygiene fix).
+    """
+    TickLoop.stop(queen)  # Same as super().stop() would from inside Queen.stop's own body.
+    await reap_all(queen._receive_tasks.values())
+    queen._receive_tasks.clear()
 
 
 async def _send_intervene(queen: Queen, child: str, intervention: Intervention) -> None:
@@ -331,8 +353,10 @@ async def _run_tick(queen: Queen) -> None:
     # Throwaway: only wakes this wait early when stop() is called mid-tick.
     stop_task: asyncio.Task[bool] = asyncio.ensure_future(queen._stop.wait())
     waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), stop_task}
-    done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-    await reap(stop_task)  # Discards the loser of the race without leaking it.
+    # reaping (not a bare reap after this line) so stop_task is never left pending even when this
+    # tick is cancelled from outside (this dispatch's own rule 1).
+    async with reaping(stop_task):
+        done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
     if stop_task in done:
         return
     items = _drain_items(queen, receive_tasks, done)
@@ -381,12 +405,10 @@ async def _next_or_none(iterator: AsyncIterator[Envelope]) -> Envelope | None:
     """Return the next decoded Envelope, or None once nothing more will ever arrive."""
     try:
         return await anext(iterator)
-    except StopAsyncIteration:
-        return None
     except InvalidPayloadError:
         # The pair stays open per the Transport contract; ask for the next frame instead.
         return await _next_or_none(iterator)
-    except (ConnectionLostError, CodecError, SignatureError):
+    except (StopAsyncIteration, ConnectionLostError, CodecError, SignatureError):
         return None
 
 
@@ -398,7 +420,9 @@ def _drain_items(
     """Consume every finished receive task in `done`, returning the InboxItems they carried."""
     items: list[InboxItem] = []
     for warden_id, task in receive_tasks.items():
-        if task not in done:
+        # A task done() only because stop() reaped it out from under this same tick (this
+        # dispatch's rule 2) reads as cancelled, never as a real result to drain here.
+        if task not in done or task.cancelled():
             continue
         queen._receive_tasks.pop(warden_id, None)
         envelope = task.result()

@@ -49,10 +49,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.cell import CellIdentity, HoneyClearance
+from hivemind.common import reap
 from hivemind.forage.slots import ModelSlot
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.wardens.autopilot import WardenAction
-from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
+from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
 from waggle.envelope import wrap
 from waggle.ids import TaskId, new_alarm_id
 from waggle.messages import AlarmSeverity
@@ -255,12 +256,24 @@ async def send_alarm_to_queen(
 
 
 async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
-    """Cancel `sub_bee`'s runtime task, close its link, and drop it from the Warden's tables."""
-    if not sub_bee.runtime_task.done():
-        sub_bee.runtime_task.cancel()
+    """Stop `sub_bee`, reap what waited on its link, close the link, drop it from the tables.
+
+    The order is the whole point (codingrules section 11). A bare `runtime_task.cancel()` with no
+    await leaves that task destroyed while still pending, and closing the link while this Warden's
+    own receive task is still suspended inside the link's `receive()` generator closes that
+    generator while it is running. So: stop the runtime cooperatively and reap it (`stop_sub_bee`),
+    reap the receive task that was awaiting this link, and only then close the link.
+
+    Args:
+        warden: The owning Warden, whose sub-bee tables this drops the entry from.
+        sub_bee: The sub-bee to retire.
+    """
+    await stop_sub_bee(sub_bee, warden._deps.clock)
     warden._sub_bees.pop(sub_bee.worker_id, None)
     warden._sub_bee_iters.pop(sub_bee.worker_id, None)
-    warden._receive_tasks.pop(sub_bee.worker_id, None)
+    receive_task = warden._receive_tasks.pop(sub_bee.worker_id, None)
+    if receive_task is not None:
+        await reap(receive_task)
     warden._local_pool.release()
     await sub_bee.link.close()
 

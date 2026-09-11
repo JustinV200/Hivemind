@@ -125,6 +125,29 @@ def _flatten(value: object) -> tuple[object, ...]:
     return ()
 
 
+async def test_stop_leaves_no_pending_tasks_behind_a_concurrently_running_run_loop() -> None:
+    """This dispatch's own shutdown-hygiene proof: `stop()` reaps every task it owns.
+
+    Before this fix, `Queen.stop()` never reaped `_receive_tasks`: the attached Warden's own
+    receive task (`hivemind.queen.queen._next_or_none`) was simply abandoned, pending, once
+    `run()` returned -- exactly the `asyncio` "Task was destroyed but it is pending!" warning the
+    e2e suite's own live log showed for this class before the fix.
+    """
+    deps, link, warden_end = make_queen_deps()
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    before = asyncio.all_tasks() - {asyncio.current_task()}
+    run_task = asyncio.ensure_future(queen.run())
+    await asyncio.sleep(0)  # Let the first tick start its own receive task on the attached link.
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    after = asyncio.all_tasks() - {asyncio.current_task()}
+    assert after == before
+    await warden_end.close()
+
+
 async def test_trail_events_are_recorded_in_the_order_they_happened() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
@@ -150,7 +173,7 @@ async def test_trail_events_are_recorded_in_the_order_they_happened() -> None:
     await warden_end.send(result)
     await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     events = await deps.trail.query(TrailQuery())

@@ -19,7 +19,8 @@ Fits into the Hive:
     Layer 4 (roles that do the work). Built and owned by `hivemind.workers.runtime.loop.
     WorkerRuntime` (roadmap step 3.15); also replaces `hivemind.workers.context.WorkerContext.
     asker` on the context the runtime hands to a role, since `Mailbox.ask` already satisfies
-    `QuestionChannel`. Calls into `hivemind.common.logging` and waggle only.
+    `QuestionChannel`. Calls into `hivemind.common.logging`, `hivemind.common.tasks` (`reap`) and
+    waggle only.
 
 Key invariants:
     - `receive_task`/`heartbeat_task` each cache one in-flight `asyncio.Task` until the runtime
@@ -31,10 +32,16 @@ Key invariants:
     - `resolve_answer` never raises: an Answer with no matching pending question (a stray, or one
       whose `ask` already returned) is logged and dropped, since a peer's timing is not this
       class's contract to enforce.
+    - `aclose` reaps (cancels, then awaits) any in-flight receive/heartbeat Task before closing
+      the transport, never merely cancels: the receive Task's own coroutine is suspended inside
+      `self._inbox`'s `__anext__`, and closing the transport out from under it while it is still
+      running is exactly what raises `RuntimeError("aclose(): asynchronous generator is already
+      running")` (this dispatch's own shutdown-hygiene fix).
 
 See Also:
     - .claude/codingrules.md section 11 for the structured-concurrency rule this module's cached
       tasks follow.
+    - hivemind.common.tasks for `reap`, `aclose`'s own cancel-and-await primitive.
     - waggle.transport.base for the Transport contract this class's receive loop honours.
     - hivemind.workers.context for QuestionChannel, the Protocol `ask` satisfies structurally.
     - hivemind.workers.runtime.loop for WorkerRuntime, this class's one owner.
@@ -47,6 +54,7 @@ from collections.abc import AsyncIterator
 
 from hivemind.common.errors import InvariantViolationError
 from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reap
 from waggle.clock import Clock
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
@@ -196,15 +204,17 @@ class Mailbox:
         future.set_result(answer)
 
     async def aclose(self) -> None:
-        """Cancel any in-flight receive/heartbeat Task and close this end of the transport.
+        """Reap any in-flight receive/heartbeat Task, then close this end of the transport.
 
         Idempotent, like `Transport.close`. Called once, by the runtime, as its last act before
-        `run()` returns after `stop()`.
+        `run()` returns after `stop()`. The receive Task's own coroutine sits on `self._inbox`'s
+        `__anext__`; reaping it (cancel, then await) before the transport closes is what keeps
+        that async generator from being closed while it is still running (codingrules section 11).
         """
-        if self._receive_task is not None and not self._receive_task.done():
-            self._receive_task.cancel()
-        if self._heartbeat_task is not None and not self._heartbeat_task.done():
-            self._heartbeat_task.cancel()
+        if self._receive_task is not None:
+            await reap(self._receive_task)
+        if self._heartbeat_task is not None:
+            await reap(self._heartbeat_task)
         await self._transport.close()
 
     async def _next_envelope(self) -> Envelope | None:

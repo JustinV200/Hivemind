@@ -19,15 +19,16 @@ from __future__ import annotations
 import asyncio
 
 from builders.wardens import make_warden_deps
-from builders.workers import make_assignment
+from builders.workers import ScriptedWorker, make_assignment, make_context, make_outcome, yield_then
 
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.wardens.ticks.control import forward_control
 from hivemind.wardens.ticks.questions import forward_answer, forward_question
 from hivemind.wardens.warden import Warden
+from hivemind.workers.runtime import RuntimeDeps, WorkerRuntime
 from hivemind.workers.state import WorkerState
 from waggle.codec import Codec
-from waggle.envelope import wrap
+from waggle.envelope import Hop, wrap
 from waggle.ids import new_message_id, new_task_id, new_worker_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Answer, AnswerSource, Question
@@ -36,13 +37,31 @@ from waggle.transport.memory import MemoryTransport
 
 
 async def _make_sub_bee(warden: Warden) -> tuple[SubBee, MemoryTransport]:
-    """Build a SubBee over a real MemoryTransport pair, with no runtime behind it."""
+    """Build a SubBee over a real MemoryTransport pair, with a real, never-run runtime behind it.
+
+    The runtime is only ever inspected (never `run()`), since these tests drive `forward_control`/
+    `forward_question`/`forward_answer` directly; it exists because `SubBee.runtime` (this
+    dispatch's own field, for `hivemind.wardens.spawn.spawn.stop_sub_bee`) is not optional.
+    """
     assignment = make_assignment(clock=warden._deps.clock)
     warden_link, other_end = MemoryTransport.pair(Codec(), Codec())
+    worker_id = new_worker_id(warden._deps.clock)
+    runtime = WorkerRuntime(
+        make_context(clock=warden._deps.clock, worker_id=worker_id),
+        ScriptedWorker(yield_then(make_outcome)),
+        RuntimeDeps(
+            transport=other_end,
+            hop=Hop(
+                sender=worker_id, recipient=warden._warden_id, node_id=warden._deps.hop.node_id
+            ),
+            heartbeat_interval_s=5.0,
+            clock=warden._deps.clock,
+        ),
+    )
     dummy_task: asyncio.Task[None] = asyncio.ensure_future(_noop())
     await dummy_task
     sub_bee = SubBee(
-        worker_id=new_worker_id(warden._deps.clock),
+        worker_id=worker_id,
         task_id=assignment.task_id,
         assignment=assignment,
         attempt=1,
@@ -50,6 +69,7 @@ async def _make_sub_bee(warden: Warden) -> tuple[SubBee, MemoryTransport]:
         binding="worker",
         last_handoff=None,
         link=warden_link,
+        runtime=runtime,
         runtime_task=dummy_task,
     )
     warden._sub_bees[sub_bee.worker_id] = sub_bee

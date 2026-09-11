@@ -17,6 +17,8 @@ every assignment goes to a Warden, over Waggle.
   `hivemind.supervision.Supervisor` over her attached Wardens. `_recoverable_errors` names
   `InvalidTransitionError`: a chamber transition failing on a stale status backs a tick off and
   records it (`queen.decided`), rather than ending `run()` and taking the whole Hive down.
+  `stop()` sets the stop flag first, then reaps every attached Warden's own receive task, so none
+  is ever left pending once `run()` ends (codingrules section 11).
 - `QueenDeps`, `WardenLink`, `MemoryBudget` (`deps.py`): every collaborator one Queen is built
   with, and one attached Warden's own address and link; manifest *slices* only, never a
   `HiveManifest`.

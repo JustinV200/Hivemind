@@ -135,7 +135,7 @@ async def test_question_blocks_the_task_and_surfaces_in_the_human_inbox() -> Non
 
     await _wait_until(_blocked)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     blocked = await deps.chamber.get(goal_id)
@@ -173,7 +173,7 @@ async def test_answer_question_resumes_the_task_and_forwards_the_answer_to_its_w
     resumed = await queen.answer_question(chamber_question_id, "Use staging.")
     answer = await warden_end.wait_for_answer()
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert resumed.status is TaskStatus.RUNNING
@@ -258,7 +258,7 @@ async def test_sync_answers_from_chamber_forwards_a_note_a_separate_process_left
     forwarded = await sync_answers_from_chamber(queen)
     forwarded_answer = await warden_end.wait_for_answer()
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert forwarded == 1
@@ -296,7 +296,7 @@ async def test_sync_answers_from_chamber_is_a_no_op_while_the_task_is_still_bloc
 
     forwarded = await sync_answers_from_chamber(queen)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert forwarded == 0
@@ -343,7 +343,7 @@ async def test_sync_answers_from_chamber_retries_when_the_note_has_not_landed_ye
     second_sync = await sync_answers_from_chamber(queen)
     forwarded_answer = await warden_end.wait_for_answer()
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert first_sync == 0  # No Note yet: nothing to forward, but nothing dropped either.
@@ -392,7 +392,7 @@ async def test_the_queens_own_tick_forwards_an_answer_interleaved_with_the_two_w
     await warden_end.send(_heartbeat())
     forwarded_answer = await warden_end.wait_for_answer()
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert resumed.status is TaskStatus.RUNNING

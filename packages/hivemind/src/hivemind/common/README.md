@@ -40,6 +40,12 @@ grows domain logic of its own.
   already pending the instant it is called), `apply_migrations` gets one-transaction-per-migration
   atomicity by making each migration's own script text open its transaction as its first
   statement instead; see `_apply_one`'s docstring for the full explanation.
+- **Tasks** (`hivemind.common.tasks`): `reap(task)` cancels `task` if still pending and awaits it,
+  so a tick's own throwaway waiter is never destroyed pending once the event loop closes;
+  `reap_all(tasks)` does the same over a whole collection, for a `stop()`/`aclose()` that owns
+  several persistent waiters at once; `reaping(task)` is an async context manager wrapping the
+  same guarantee around an `asyncio.wait` race, reaping `task` in a `finally` whether the block
+  returns, raises, or is cancelled. Used by the Queen, every Warden and every Worker runtime.
 
 ## How to test this
 

@@ -5,7 +5,8 @@ Every scenario drives a real `WorkerRuntime` over an in-process `MemoryTransport
 other), running `runtime.run()` as a background task and observing it only through the wire (the
 same interface its real Warden uses) plus `runtime.state` and the runtime's own Pheromone Trail.
 No real sleeps: every wait is either a `waggle.clock.FakeClock.advance()` or an `asyncio`
-primitive (`asyncio.Event`, `asyncio.sleep(0)` to yield the loop).
+primitive (`asyncio.Event`, `asyncio.sleep(0)` to yield the loop). Split by feature (codingrules
+14.2/5.1) from `test_loop_shutdown.py`, which proves `stop()` leaves no task behind.
 """
 
 from __future__ import annotations

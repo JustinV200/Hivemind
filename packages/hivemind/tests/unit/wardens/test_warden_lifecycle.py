@@ -23,6 +23,7 @@ from typing import cast
 
 from builders.cells import make_cell
 from builders.wardens import make_warden_deps
+from builders.workers import ScriptedWorker, make_assignment, make_outcome
 
 from hivemind.cell import CellKind
 from hivemind.cell.lease import LeaseRequest
@@ -30,8 +31,41 @@ from hivemind.cell.tiers import AccessLevel
 from hivemind.pheromone.trail import TrailQuery
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
-from waggle.clock import FakeClock
-from waggle.ids import new_warden_id
+from hivemind.workers.base import WorkerOutcome
+from hivemind.workers.context import WorkerContext
+from waggle.clock import Clock, FakeClock
+from waggle.ids import GrantId, new_cell_id, new_warden_id
+from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
+from waggle.messages.forage.values import Effort as WireEffort
+from waggle.messages.task import TaskAssign, WorkerRole
+
+
+def _grant(active_clock: Clock, grant_id: GrantId) -> GrantIssued:
+    """Build a minimal GrantIssued for one sub-bee's own spawn, matching test_spawn.py's own."""
+    return GrantIssued(
+        grant_id=grant_id,
+        holder=new_warden_id(active_clock),
+        cell_id=new_cell_id(active_clock),
+        task_id=None,
+        revision=0,
+        allowed=(
+            AllowedBinding(
+                slot="WORKER",
+                source=SourceRef(
+                    source_id="local", provider="fake", model="test-model", host_cell_id=None
+                ),
+                max_effort=WireEffort.MEDIUM,
+            ),
+        ),
+        seats=(),
+        token_budget=500_000,
+        spend_budget=5.0,
+        tokens_spent=0,
+        spent=0.0,
+        max_sub_bees=1,
+        expires_at=active_clock.now(),
+        reason="test grant",
+    )
 
 
 async def test_start_leases_its_cell_and_moves_to_active() -> None:
@@ -96,6 +130,47 @@ async def test_stop_ends_a_concurrently_running_run_loop() -> None:
 
     await asyncio.wait_for(run_task, timeout=5.0)
     assert warden.state is WardenState.STOPPED
+
+
+async def test_stop_leaves_no_pending_tasks_behind_a_still_running_sub_bee() -> None:
+    """This dispatch's own shutdown-hygiene proof: stop() reaps every task, its sub-bee's too.
+
+    Before this fix, `stop()` cancelled `sub_bee.runtime_task` without awaiting it, and dropped
+    this Warden's own receive task for the sub-bee's link with a bare `dict.pop`: both were left
+    pending, exactly the `asyncio` "Task was destroyed but it is pending!" warnings the e2e
+    suite's own live log showed for this class before the fix.
+    """
+    started = asyncio.Event()
+    forever = asyncio.Event()
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: object
+    ) -> WorkerOutcome:
+        started.set()
+        await forever.wait()  # Never set; this attempt only ends by being stopped.
+        return make_outcome()  # pragma: no cover
+
+    def factory(role: WorkerRole) -> ScriptedWorker:
+        return ScriptedWorker(script, role=role)
+
+    deps, queen_end, warden_id = make_warden_deps(worker_factory=factory)
+    assignment = make_assignment(clock=deps.clock)
+    grant = _grant(deps.clock, assignment.grant_id)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    before = asyncio.all_tasks() - {asyncio.current_task()}
+    run_task = asyncio.ensure_future(warden.run())
+
+    await queen_end.send(grant)
+    await queen_end.send(assignment)
+    await started.wait()
+    assert warden.sub_bees  # Sanity: the sub-bee is still attached when stop() runs below.
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    after = asyncio.all_tasks() - {asyncio.current_task()}
+    assert after == before
 
 
 async def test_trail_shows_started_then_active_then_stopped_in_order() -> None:

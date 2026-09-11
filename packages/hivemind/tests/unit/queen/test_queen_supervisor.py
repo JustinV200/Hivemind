@@ -71,7 +71,7 @@ async def test_telemetry_and_inspect_read_the_last_reported_heartbeat() -> None:
     telemetry = await queen.telemetry(link.warden_id)
     view = await queen.inspect(link.warden_id)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert telemetry.goal == "Ship the haiku."

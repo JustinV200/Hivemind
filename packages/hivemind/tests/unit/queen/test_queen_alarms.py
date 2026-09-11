@@ -93,7 +93,7 @@ async def test_provider_unavailable_alarm_rebinds_to_the_worker_slots_own_fallba
     await warden_end.send(alarm)
     intervene = await warden_end.wait_for_intervene()
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert intervene.action is InterventionAction.REBIND
@@ -123,7 +123,7 @@ async def test_grant_exceeded_alarm_escalates_straight_to_the_human() -> None:
 
     await _wait_until(_escalated)
 
-    queen.stop()
+    await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
 
     assert not warden_end.intervenes  # Escalated, never rebound.

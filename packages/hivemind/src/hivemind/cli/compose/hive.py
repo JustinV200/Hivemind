@@ -23,8 +23,13 @@ Key invariants:
       (`hivemind.llm.registry.ProviderRegistry.provider`'s own rule), and its own one `asyncio.run`
       call (`hivemind.cell.local.HiveStandSource.cells`, to seed the Queen<->Warden link's Cell)
       only probes this host's own capacity.
-    - `run_hive` always stops the Queen, stops the Warden (releasing its lease) and closes the
-      Queen<->Warden link, in that order, whether its `async with` block exits cleanly or raises.
+    - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
+      their `run()` tasks, and closes the Queen<->Warden link, in that order, whether its
+      `async with` block exits cleanly or raises. Awaiting both tasks before its own
+      `asyncio.TaskGroup` block ends is this dispatch's own shutdown-hygiene fix: without it, an
+      exception propagating out of the caller's `async with run_hive(hive):` body would reach the
+      TaskGroup while a tick might still be in flight, and the TaskGroup would cancel it itself
+      rather than let the cooperative `stop()` above finish on its own.
     - `run_goal` never blocks past `timeout_s`: `GoalReport.timed_out` is True whenever the goal's
       own tasks are not all terminal by then, and `succeeded` is False in that case regardless of
       how far the goal got.
@@ -226,16 +231,20 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
     # asyncio.TaskGroup, which awaits them to completion when the block below exits, whether
     # cleanly or through an exception raised inside the caller's own `async with` body.
     async with asyncio.TaskGroup() as group:
-        group.create_task(hive.queen.run())
-        group.create_task(hive.warden.run())
+        queen_task = group.create_task(hive.queen.run())
+        warden_task = group.create_task(hive.warden.run())
         try:
             yield
         finally:
             # Stop the Queen first (codingrules section 8.8: she holds no session, nothing to
             # release), then the Warden, which releases its lease -- "left as found" -- before its
-            # own run() loop is allowed to end.
-            hive.queen.stop()
+            # own run() loop is allowed to end; both are cooperative signals (their own stop()),
+            # never a cancel, and awaited to completion right here -- before this TaskGroup's own
+            # __aexit__ runs -- so a caller's exception propagating through this block can never
+            # have the TaskGroup itself cancel a tick still in flight (this dispatch's own rule 4).
+            await hive.queen.stop()
             await hive.warden.stop()
+            await asyncio.gather(queen_task, warden_task)
             # Closing the Queen's own end wakes the Warden's queen_link.receive() with a clean
             # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
             # is left awaiting a link neither side will ever write to again.

@@ -1,4 +1,4 @@
-"""Define spawn_sub_bee: start one new Worker on the Warden's own Cell, within its grant.
+"""Define spawn_sub_bee and stop_sub_bee: start and stop one Worker on the Warden's own Cell.
 
 Roadmap step 3.19: "start a sub-bee on the Warden's Cell within the grant; attenuate capabilities;
 choose where the runtime process runs." `spawn_sub_bee` is that whole operation: it slices the
@@ -13,15 +13,22 @@ dropped `asyncio.create_task` handle (codingrules section 11) -- before sending 
 first `TaskAssign` over the Warden's own end of the pair. It writes the one `worker.*` trail event
 the runtime itself never does: `worker.spawned` (`hivemind.workers.runtime.reporter.Reporter`
 writes every other `worker.*` kind; this is the one transition that happens before a
-`WorkerRuntime` exists to record it itself).
+`WorkerRuntime` exists to record it itself). `stop_sub_bee` is the one place that runtime is ever
+torn down: cooperative first, cancel-and-reap only as a bounded fallback, so `spawn_sub_bee`'s own
+owned task is never left cancelled-but-unawaited by whichever caller retires it.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's spawn
-    sub-package. Called by `hivemind.wardens.ticks.assign` once a `TaskAssign` has a matching
-    `GrantIssued`, and by `hivemind.wardens.ticks.alarms` for a RETRY/REBIND respawn. Calls into
-    `hivemind.cell` (NoopSnapshotter, CellIdentity, TaskNeeds), `hivemind.forage.slots` (ModelSlot),
-    `hivemind.pheromone` (WorkerEvent), `hivemind.supervision.capping` (CappingGate, GateDeps),
-    `hivemind.workers` (everything a Worker's role may use) and waggle only.
+    sub-package. `spawn_sub_bee` is called by `hivemind.wardens.ticks.assign` once a `TaskAssign`
+    has a matching `GrantIssued`, and by `hivemind.wardens.ticks.alarms` for a RETRY/REBIND respawn;
+    `stop_sub_bee` is called by `hivemind.wardens.warden.Warden.stop` (this dispatch's own
+    shutdown-hygiene fix); `hivemind.wardens.ticks.alarms.retire_sub_bee` has the same
+    cancel-without-reaping shape on its own respawn path and would want this same helper, but that
+    module sat outside this dispatch's own file list. Calls into
+    `hivemind.cell` (NoopSnapshotter, CellIdentity, TaskNeeds), `hivemind.common.tasks` (reap),
+    `hivemind.forage.slots` (ModelSlot), `hivemind.pheromone` (WorkerEvent),
+    `hivemind.supervision.capping` (CappingGate, GateDeps), `hivemind.workers` (everything a
+    Worker's role may use) and waggle only.
 
 Key invariants:
     - Every sub-bee shares the Warden's own single `CellSession` (opened once, at `Warden.start()`)
@@ -41,11 +48,15 @@ Key invariants:
       this Warden's own tick loop cannot promise across an indefinite lifetime.
     - `worker.spawned` is recorded here, and nowhere else (`hivemind.workers.runtime` never writes
       it): the one `worker.*` trail event this package owns.
+    - `stop_sub_bee` never returns with `runtime_task` still pending: a cooperative stop that lands
+      within `grace_s` is reaped as a clean finish, one that does not is cancelled and reaped
+      instead (codingrules section 11's "never left cancelled-but-unawaited").
 
 See Also:
     - .claude/codingrules.md section 8.12 for "nothing lands uncapped", the rule this function's
       `CappingGate` upholds.
-    - .claude/codingrules.md section 11 for the owned-task rule the returned runtime task follows.
+    - .claude/codingrules.md section 11 for the owned-task rule the returned runtime task follows,
+      and the cooperative-stop-then-reap shape `stop_sub_bee` follows.
     - hivemind.wardens.spawn.sub_bee for SubBee, this function's return type.
     - hivemind.workers.context for WorkerContext, the bundle this function builds.
 """
@@ -57,6 +68,7 @@ from dataclasses import dataclass
 
 from hivemind.cell import Cell, CellSession, NoopSnapshotter, RealCellLease, TaskNeeds
 from hivemind.cell.source import CellIdentity
+from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import CapabilitySet
@@ -74,6 +86,7 @@ from hivemind.workers import (
     WorkerState,
     worker_capabilities,
 )
+from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
 from waggle.ids import WardenId, WorkerId, new_event_id, new_worker_id
@@ -82,7 +95,12 @@ from waggle.messages.supervision import Answer, Question
 from waggle.messages.task import TaskAssign
 from waggle.transport.memory import MemoryTransport
 
-__all__ = ["WardenCellContext", "spawn_sub_bee"]
+# stop_sub_bee's own default grace period: generous enough for a role's own in-flight tool call to
+# notice the runtime's stop flag, checkpoint or finish, and for the CHECKPOINTED/TaskResult wire
+# round trip that follows -- past this, the sub-bee is presumed stuck and is cancelled instead.
+_DEFAULT_STOP_GRACE_S = 2.0
+
+__all__ = ["WardenCellContext", "spawn_sub_bee", "stop_sub_bee"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +171,7 @@ async def spawn_sub_bee(
     bound = deps.rebind(binding_key)
 
     worker_ctx = _build_worker_context(ctx, worker_id, bound, grant_slice, capabilities)
-    warden_link, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
+    warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
 
     await _record_spawned(deps, worker_id, assignment)
     assign_hop = Hop(sender=ctx.warden_id, recipient=worker_id, node_id=deps.identity.node_id)
@@ -168,8 +186,34 @@ async def spawn_sub_bee(
         binding=binding_key,
         last_handoff=assignment.resume_from,
         link=warden_link,
+        runtime=runtime,
         runtime_task=runtime_task,
     )
+
+
+async def stop_sub_bee(
+    sub_bee: SubBee, clock: Clock, *, grace_s: float = _DEFAULT_STOP_GRACE_S
+) -> None:
+    """Stop `sub_bee`'s own runtime cooperatively, falling back to cancel if it overruns.
+
+    Sets `runtime`'s own stop flag (`waggle.loop.TickLoop.stop`) so its next tick notices, drains
+    its mailbox and returns on its own -- the same clean path `WorkerRuntime._tick` already takes
+    for any other stop -- then races `runtime_task` against a `grace_s` deadline on `clock`, never
+    a real timer. `reap` (codingrules section 11) is what actually discards `runtime_task` either
+    way: idempotent on a task that already finished on its own, and a genuine cancel-then-await for
+    one that has not, so this never returns with `runtime_task` left pending.
+
+    Args:
+        sub_bee: The sub-bee whose runtime to stop.
+        clock: Bounds the cooperative wait; the injected Clock, so a test drives it with a
+            FakeClock instead of a real timer.
+        grace_s: Seconds to give the runtime to stop on its own before cancelling it instead.
+    """
+    sub_bee.runtime.stop()
+    deadline = asyncio.ensure_future(clock.sleep(grace_s))
+    await asyncio.wait({sub_bee.runtime_task, deadline}, return_when=asyncio.FIRST_COMPLETED)
+    await reap(deadline)
+    await reap(sub_bee.runtime_task)
 
 
 def _build_capping_gate(ctx: WardenCellContext) -> CappingGate:
@@ -227,7 +271,7 @@ def _start_runtime(
     worker_ctx: WorkerContext,
     worker_id: WorkerId,
     assignment: TaskAssign,
-) -> tuple[MemoryTransport, asyncio.Task[None]]:
+) -> tuple[MemoryTransport, WorkerRuntime, asyncio.Task[None]]:
     """Open this sub-bee's transport pair and start its WorkerRuntime as an owned, tracked task."""
     deps = ctx.deps
     warden_link, worker_transport = MemoryTransport.pair(Codec(), Codec())
@@ -240,7 +284,7 @@ def _start_runtime(
     worker = deps.worker_factory(assignment.role)
     runtime = WorkerRuntime(worker_ctx, worker, runtime_deps)
     runtime_task: asyncio.Task[None] = asyncio.ensure_future(runtime.run())
-    return warden_link, runtime_task
+    return warden_link, runtime, runtime_task
 
 
 def _grant_slice(grant: GrantIssued) -> GrantSlice:
