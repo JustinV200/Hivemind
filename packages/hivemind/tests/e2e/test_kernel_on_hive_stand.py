@@ -238,6 +238,38 @@ def test_three_haiku_goal_completes_through_hive_run_cli(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _cancel_the_first_drone_mid_attempt(
+    hive_box: list[Hive], cancelled: dict[str, bool]
+) -> WorkerTurn:
+    """Build a WORKER script whose first call cancels the Drone that is making it.
+
+    The scenario needs the sub-bee to still be working when its task is cancelled. Polling for
+    `warden.sub_bees` on the real clock and cancelling from the test body does not guarantee that:
+    a Drone answered by a fake provider finishes the whole three-file attempt in about the same
+    time as one 20ms poll, so roughly one run in thirty (more under load) delivered the cancel
+    after `worker.done` had already been sent -- nothing left to respawn, one `worker.spawned`,
+    and a goal that legitimately succeeded. Cancelling from inside the Drone's own first model
+    call removes the race instead of widening a timeout: `Task.cancel()` on the running task
+    raises at its next await, which is always inside the attempt, so the watchdog
+    (`hivemind.wardens.ticks.heartbeat.raise_stalled_alarms`) always has a stalled sub-bee to
+    find.
+
+    Args:
+        hive_box: A one-element list holding the Hive, because the script has to be built before
+            `build_hive` can be called with it.
+        cancelled: `{"done": False}`, flipped on the first call so the respawned Drone runs the
+            ordinary script and the goal finishes.
+    """
+
+    def worker_turn(request: LLMRequest) -> LLMResponse:
+        if not cancelled["done"]:
+            cancelled["done"] = True
+            hive_box[0].warden.sub_bees[0].runtime_task.cancel()
+        return default_worker_turn(request)
+
+    return worker_turn
+
+
 @_LEVELS
 def test_a_killed_drone_is_respawned_by_warden_autopilot_with_no_queen_awake_episode(
     tmp_path: Path, capabilities: str
@@ -250,24 +282,25 @@ def test_a_killed_drone_is_respawned_by_warden_autopilot_with_no_queen_awake_epi
     Queen at all.
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
-    hive = _hive(manifest_path, HaikuScript(default_worker_turn))
+    hive_box: list[Hive] = []
+    script = HaikuScript(_cancel_the_first_drone_mid_attempt(hive_box, {"done": False}))
+    hive = _hive(manifest_path, script)
+    hive_box.append(hive)
+
     asyncio.run(_run_kill_and_respawn(hive))
 
 
 async def _run_kill_and_respawn(hive: Hive) -> None:
     """The async body `test_a_killed_drone_is_respawned_...` drives."""
     async with run_hive(hive):
-        goal_task = asyncio.ensure_future(
-            run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
-        )
-        await wait_until(lambda: bool(hive.warden.sub_bees), timeout_s=_TIMEOUT_S)
-        hive.warden.sub_bees[0].runtime_task.cancel()
-        report = await goal_task
+        report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
     assert report.succeeded, report
     events = await hive.stores.trail.query(TrailQuery())
     kinds = [event.kind for event in events]
-    assert kinds.count("worker.spawned") >= 2
-    assert "queen.awake" not in kinds
+    # Two spawns, not one: the cancelled attempt never reached `worker.done`, so the Warden's
+    # watchdog had a stalled sub-bee to respawn.
+    assert kinds.count("worker.spawned") >= 2, kinds
+    assert "queen.awake" not in kinds, kinds
 
 
 # ──────────────────────────────────────────────────────────────────────────────
