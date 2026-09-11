@@ -4,8 +4,10 @@ This is the CLI's one composition root for two related jobs. The first, from pha
 and `open_chamber` are plain synchronous functions, each running its own `asyncio.run` internally,
 that open a database file and hand back a ready `SqlitePheromoneTrail`/`BroodChamber` (a typer
 command body is sync, so this is the seam where the CLI first steps into the async code every
-store's `create` classmethod needs, codingrules section 8.2). `DbOption` is the shared `--db` typer
-annotation both `hivemind.cli.tasks` and `hivemind.cli.trail` attach to their own commands. The
+store's `create` classmethod needs, codingrules section 8.2). `resolve_db` is how every one of
+those commands decides *which* file to open: `--manifest` names a Hive and `[hive] db` names its
+database, because all configuration is a Hive Manifest (codingrules section 13), while `DbOption`'s
+`--db` stays as the direct escape hatch for a file no manifest names. The
 second, from phase 3 step 3.21: `hivemind.llm` may not import `hivemind.manifest` (codingrules
 section 4's Layer 1 "llm | manifest" independent siblings), so something above both packages has to
 turn a loaded `HiveManifest` into the Forage-side and registry-side shapes `hivemind.llm.slots.
@@ -60,8 +62,8 @@ See Also:
       straight through to slot_bindings/provider_configs.
 
 Public API:
-    - DEFAULT_DB: the database file every command falls back to.
-    - DbOption: the shared `--db` typer option annotation.
+    - DbOption: the shared, optional `--db` typer option annotation.
+    - resolve_db: pick the database file a store command opens, from `--manifest` and `--db`.
     - DEFAULT_MANIFEST, ManifestOption, JsonOption: the shared `--manifest`/`--json` typer option
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
@@ -97,15 +99,13 @@ from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
 from waggle.clock import Clock, SystemClock
 
-# A single file in the current directory: good enough before the Hive Manifest (phase 3) names
-# one explicitly.
-DEFAULT_DB = Path("hive.sqlite3")
-
-# Shared so `hive tasks` and `hive trail` declare `--db` with the exact same flag and help text;
-# each command still supplies its own default (DEFAULT_DB) at the parameter, since a typer.Option
-# built once at import time cannot see which command it will end up decorating.
+# Shared so `hive tasks`, `hive trail` and `hive capping` declare `--db` with the exact same flag
+# and help text. Optional, and defaulting to None rather than to a filename, because the manifest
+# is the normal way to name a database (see resolve_db): a value here means the caller deliberately
+# stepped around it.
 DbOption = Annotated[
-    Path, typer.Option("--db", help=f"The Hive's SQLite database file (default: {DEFAULT_DB}).")
+    Path | None,
+    typer.Option("--db", help="Read this SQLite file directly instead of the one [hive] db names."),
 ]
 
 # Every command group added from roadmap step 3.21 on takes a Hive Manifest; `hive llm` (3.21's
@@ -123,7 +123,6 @@ ManifestOption = Annotated[
 JsonOption = Annotated[bool, typer.Option("--json", help="Print JSON instead of a table.")]
 
 __all__ = [
-    "DEFAULT_DB",
     "DEFAULT_MANIFEST",
     "DbOption",
     "JsonOption",
@@ -135,6 +134,7 @@ __all__ = [
     "open_memory",
     "open_trail",
     "provider_configs",
+    "resolve_db",
     "slot_bindings",
 ]
 
@@ -239,6 +239,35 @@ def load_manifest_or_exit(path: Path) -> HiveManifest:
     except ManifestError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
+
+
+def resolve_db(manifest_path: Path, db: Path | None) -> Path:
+    """Return the SQLite file a store command should open, from its `--manifest` and `--db`.
+
+    Every command group takes `--manifest`, so an operator never has to remember which flag a
+    given command wants; `--db` remains for the two cases a manifest cannot serve: a database no
+    manifest names (merging another node's segment into it) and a Hive that has no manifest file
+    to hand.
+
+    Args:
+        manifest_path: The command's `--manifest` value. Only loaded when `db` is None, so a
+            caller passing `--db` never needs a manifest to exist at all.
+        db: The command's `--db` value, or None when the caller did not pass one.
+
+    Returns:
+        `db` unchanged when it was given; otherwise the manifest's `[hive] db`, resolved against
+        the manifest's own directory.
+
+    Raises:
+        typer.Exit: Code 2, through `load_manifest_or_exit`, when `db` is None and the manifest is
+            missing or fails validation.
+    """
+    # An explicit --db wins outright: it is the escape hatch, and loading a manifest to then
+    # ignore its db would only turn a missing hive.toml into a spurious failure.
+    if db is not None:
+        return db
+    manifest = load_manifest_or_exit(manifest_path)
+    return manifest.resolve_path(manifest.hive.db)
 
 
 def slot_bindings(manifest: HiveManifest) -> tuple[SlotBinding, ...]:

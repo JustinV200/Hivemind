@@ -14,20 +14,27 @@ typer layer that calls into a subsystem's public API and never contains logic of
 
 ## Command groups (phase 2 step 2.9)
 
-- `stores.py` -- the CLI's own store composition root, until the Hive Manifest lands (phase 3):
-  `open_trail(db) -> SqlitePheromoneTrail` and `open_chamber(db, identity) -> BroodChamber`, each
-  a sync function running its own `asyncio.run` internally; `DEFAULT_DB` (`hive.sqlite3`) and
-  `DbOption`, the shared `--db` typer option annotation both groups below attach.
-- `tasks.py` -- `hive tasks submit FILE --hive-id --node-id [--actor human] [--db]` (reads a
+- `stores.py` -- the CLI's own store composition root: `open_trail(db) -> SqlitePheromoneTrail`
+  and `open_chamber(db, identity) -> BroodChamber`, each a sync function running its own
+  `asyncio.run` internally, plus `resolve_db(manifest_path, db)`, which decides *which* file they
+  open. Every command group takes `--manifest`, so an operator never has to remember which flag a
+  given command wants; `DbOption`'s `--db` is optional and stays as the escape hatch for a
+  database no manifest names (merging another node's segment into it) or a Hive with no manifest
+  file to hand, and wins outright when it is given.
+- `tasks.py` -- `hive tasks submit FILE --hive-id --node-id [--actor human] [--manifest]` (reads a
   `TaskGraphDraft` JSON file, calls `BroodChamber.submit`, prints one `key<TAB>id<TAB>status` line
   per task in graph order; a bad file, bad JSON, a bad id or a cycle exits 2), `hive tasks list
-  [--status] [--goal] [--db]` (a fixed-width table: id, status, attempt, title), `hive tasks show
-  ID [--db]` (prints `Task.model_dump_json(indent=2)`; an unknown id exits 1).
-- `trail.py` -- `hive trail tail [-n 50] [--follow] [--interval 1.0] [--db]` (recent events, oldest
-  first, as `<at ISO>  <kind>  <subject_id>  <actor>  <payload compact JSON>`; `--follow` keeps
-  printing new ones through `hivemind.pheromone.follow` until Ctrl-C, exiting 0), `hive trail
-  export NODE_ID OUT [--db]` (writes a `TrailSegment` JSON file), `hive trail merge SEGMENT [--db]`
-  (reads one back; prints how many events were actually inserted, 0 on a re-merge).
+  [--status] [--goal] [--manifest] [--db]` (a fixed-width table: id, status, attempt, title),
+  `hive tasks show ID [--manifest] [--db]` (prints `Task.model_dump_json(indent=2)`; an unknown id
+  exits 1). `submit` is the one store command with no `--db`: it already carries the five
+  parameters codingrules 5.1 allows, and writing a task graph means writing into a Hive, which is
+  the thing a manifest names.
+- `trail.py` -- `hive trail tail [-n 50] [--follow] [--interval 1.0] [--manifest] [--db]` (recent
+  events, oldest first, as `<at ISO>  <kind>  <subject_id>  <actor>  <payload compact JSON>`;
+  `--follow` keeps printing new ones through `hivemind.pheromone.follow` until Ctrl-C, exiting 0),
+  `hive trail export NODE_ID OUT [--manifest] [--db]` (writes a `TrailSegment` JSON file), `hive
+  trail merge SEGMENT [--manifest] [--db]` (reads one back; prints how many events were actually
+  inserted, 0 on a re-merge).
 
 ## Command groups (phase 3 step 3.21, first half)
 
@@ -50,18 +57,18 @@ typer layer that calls into a subsystem's public API and never contains logic of
   sends one small completion the way `hivemind.llm.ladders.gate.DirectCallGate` would, and prints
   latency, usage and the reply's first line; exits 1 with the raised `LLMError`'s own message on
   failure).
-- `capping.py` -- `hive capping queue --trail hive.sqlite3 [--json]` (every Capping proposal whose
+- `capping.py` -- `hive capping queue [--manifest] [--db] [--json]` (every Capping proposal whose
   latest `capping.*` event is not terminal, newest latest-event first: proposal id, task id, tier,
-  state, age) and `hive capping show PROPOSAL_ID --trail hive.sqlite3 [--json]` (that proposal's
+  state, age) and `hive capping show PROPOSAL_ID [--manifest] [--db] [--json]` (that proposal's
   `capping.*` events, in order, with their payload fields). A v0 `CappingGate`'s proposal table
   lives only in the Queen process's own memory, so both commands reconstruct what they show from
   the Pheromone Trail every gate transition already writes (codingrules section 12).
 
 ## Command groups (phase 3 step 3.21, second half)
 
-- `stores.py` also holds the composition helpers every command below shares: `DEFAULT_MANIFEST`
+- `stores.py` also holds the composition helpers every command shares: `DEFAULT_MANIFEST`
   (`hive.toml`), `ManifestOption`/`JsonOption` (the `--manifest`/`--json` typer option annotations
-  every command in this section attaches), `load_manifest_or_exit(path) -> HiveManifest` (loads a
+  every command group attaches, `hive llm` included), `load_manifest_or_exit(path) -> HiveManifest` (loads a
   manifest or exits 2 with the raised `ManifestError`'s own message), and `build_registry`'s own
   signature grew two keyword-only parameters (`factories`, `forage_map`) so `hivemind.cli.compose.
   build_hive` can share one `ForageMap` across the registry, the Fanner and `QueenDeps`, and

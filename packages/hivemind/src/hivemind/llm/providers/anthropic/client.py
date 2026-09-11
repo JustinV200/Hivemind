@@ -62,8 +62,15 @@ UNAVAILABLE_STATUS_FLOOR = 500
 # Synthesizes a status for a mapped error with no real HTTP response behind it: an AnthropicError
 # subtype (a future SDK addition) this module has not special-cased.
 UNKNOWN_ERROR_STATUS_CODE = 0
+# The health detail for a provider the Hive holds no credentials for. The SDK resolves credentials
+# lazily, at header-build time, and raises a bare TypeError rather than one of its own APIError
+# types when it finds none, so probe_health reads their absence directly instead of discovering it
+# by exception (see probe_health's own "Never raises"). The test is falsiness, not `is None`:
+# `AnthropicProvider.from_config` deliberately passes an empty string for an unset key so that
+# building a provider never raises (provider.py's own "Key invariants").
+NO_CREDENTIALS_DETAIL = "no API key configured"
 
-__all__ = ["AnthropicClient", "map_error"]
+__all__ = ["NO_CREDENTIALS_DETAIL", "AnthropicClient", "map_error"]
 
 
 class AnthropicClient:
@@ -195,8 +202,17 @@ class AnthropicClient:
 
         Returns:
             HEALTHY on a 200; DEGRADED on a 429 or any 5xx-shaped status; DOWN on a connection
-            failure or any other rejection (401 included). Never raises.
+            failure or any other rejection (401 included); DOWN with `NO_CREDENTIALS_DETAIL` when
+            no credentials are configured at all. Never raises.
         """
+        # An unconfigured provider is one this Hive cannot reach, which is a reading rather than a
+        # failure: report it without a round trip, and before the SDK can raise TypeError out of a
+        # function whose contract above is that it never raises.
+        if not self._sdk.api_key and not self._sdk.auth_token:
+            return ProviderHealth(
+                state=HealthState.DOWN, detail=NO_CREDENTIALS_DETAIL, checked_at=clock.now()
+            )
+
         try:
             # codingrules section 11: this await inherits the SDK client's configured timeout.
             await self._sdk.models.list(limit=1)

@@ -5,7 +5,7 @@ cell only once the honey is ripe): a bee's work is provisional until the Capping
 it, applied it and verified its declared postconditions. `proposal.py` defines what a bee wants to
 do (`Proposal`); `state.py` its one state machine (`PROPOSED -> CHECKING -> CAPPED -> APPLIED ->
 VERIFIED`, `CHECKING -> REJECTED`, `APPLIED -> ROLLED_BACK`); `tiers.py` the risk-tier vocabulary
-and the loader for `docs/supervision/capping-tiers.toml`; `lease_view.py` the Protocol seam to a
+and the loader for `supervision/defaults/capping-tiers.toml`; `lease_view.py` the Protocol seam to a
 Real Cell's lease; `checks/` the check-ladder seam plus this phase's deterministic rungs;
 `diff.py` and `apply.py` how a DIFF or COMMAND action is actually applied; `postconditions.py` how
 one assertion is checked after applying; and `gate.py` the `CappingGate` that ties every module
@@ -35,7 +35,7 @@ See Also:
     - docs/adr/0018-capping-gate-postconditions-and-risk-tiers.md for the decisions behind tiers
       as data, fail-closed checks, `LeaseView` as a Protocol seam, and REVERSE_DIFF vs snapshot
       rollback.
-    - docs/supervision/capping-tiers.toml for the Hive's shipped v0 tier table.
+    - supervision/defaults/capping-tiers.toml for the Hive's shipped v0 tier table.
     - hivemind.supervision for the Supervisor/Alarm/Attendant shape this package's caller
       (a Warden) is built on.
 

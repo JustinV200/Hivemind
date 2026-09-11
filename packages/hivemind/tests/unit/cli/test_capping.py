@@ -29,6 +29,7 @@ from typer.testing import CliRunner
 
 import hivemind.cli.capping as capping_module
 from hivemind.cli.app import app
+from hivemind.cli.stores import open_trail
 from hivemind.pheromone import CappingEvent, MemoryPheromoneTrail
 from waggle.clock import Clock, FakeClock
 from waggle.ids import (
@@ -183,7 +184,7 @@ def test_queue_excludes_terminal_proposals_and_orders_newest_first(
 ) -> None:
     proposal_a, proposal_b, proposal_c = _seeded(monkeypatch)
 
-    result = runner.invoke(app, ["capping", "queue", "--trail", str(tmp_path / "hive.sqlite3")])
+    result = runner.invoke(app, ["capping", "queue", "--db", str(tmp_path / "hive.sqlite3")])
 
     assert result.exit_code == 0
     lines = result.output.strip().splitlines()
@@ -202,7 +203,7 @@ def test_queue_json_carries_task_id_tier_and_state(
     proposal_a, _, _ = _seeded(monkeypatch)
 
     result = runner.invoke(
-        app, ["capping", "queue", "--trail", str(tmp_path / "hive.sqlite3"), "--json"]
+        app, ["capping", "queue", "--db", str(tmp_path / "hive.sqlite3"), "--json"]
     )
 
     assert result.exit_code == 0
@@ -223,7 +224,7 @@ def test_show_prints_one_proposals_events_in_order(
     proposal_a, _, _ = _seeded(monkeypatch)
 
     result = runner.invoke(
-        app, ["capping", "show", proposal_a, "--trail", str(tmp_path / "hive.sqlite3")]
+        app, ["capping", "show", proposal_a, "--db", str(tmp_path / "hive.sqlite3")]
     )
 
     assert result.exit_code == 0
@@ -239,7 +240,7 @@ def test_show_json_carries_each_events_payload(
 
     result = runner.invoke(
         app,
-        ["capping", "show", proposal_a, "--trail", str(tmp_path / "hive.sqlite3"), "--json"],
+        ["capping", "show", proposal_a, "--db", str(tmp_path / "hive.sqlite3"), "--json"],
     )
 
     assert result.exit_code == 0
@@ -259,8 +260,32 @@ def test_show_unknown_proposal_prints_nothing(
     _seeded(monkeypatch)
 
     result = runner.invoke(
-        app, ["capping", "show", "msg_unknown", "--trail", str(tmp_path / "hive.sqlite3")]
+        app, ["capping", "show", "msg_unknown", "--db", str(tmp_path / "hive.sqlite3")]
     )
 
     assert result.exit_code == 0
     assert result.output.strip() == ""
+
+
+def test_queue_reads_a_real_sqlite_trail(tmp_path: Path) -> None:
+    # Deliberately does not monkeypatch open_trail, unlike every other test above: replacing it
+    # with an in-memory trail is exactly what hid a nested `asyncio.run` inside _capping_events
+    # until `hive capping queue` was run against a real file for the first time.
+    db = tmp_path / "hive.sqlite3"
+    open_trail(db)  # Applies the migrations, so the command opens a real, current schema.
+
+    result = runner.invoke(app, ["capping", "queue", "--db", str(db)])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[0].startswith("PROPOSAL")
+
+
+def test_show_reads_a_real_sqlite_trail(tmp_path: Path) -> None:
+    # The same guard for `show`, which opens the trail on its own line rather than inline.
+    db = tmp_path / "hive.sqlite3"
+    open_trail(db)
+
+    result = runner.invoke(app, ["capping", "show", "msg_unknown", "--db", str(db)])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == ""

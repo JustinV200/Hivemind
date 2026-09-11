@@ -5,7 +5,7 @@ and the shipped default supervision data: a `hivemind.cell.fake.FakeCellSource` 
 REAL Cell (so `Warden.start()` has something to lease), an unsigned `waggle.transport.memory.
 MemoryTransport` pair for the Queen link, `hivemind.memory.InMemoryMemoryStore`,
 `hivemind.pheromone.trail.memory.MemoryPheromoneTrail`, a `FakeClock` shared by every collaborator,
-`docs/supervision/default-policy.toml` and `capping-tiers.toml` loaded for real (the same tables
+`supervision/defaults/default-policy.toml` and `capping-tiers.toml` loaded for real (the same tables
 production loads), a `worker_factory` returning a `builders.workers.ScriptedWorker` (so a test's
 own Worker never depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate`
 (no metering), and a `hivemind.llm.BoundModel` on `ModelSlot.WARDEN` over a scriptable
@@ -69,8 +69,6 @@ from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_POLICY_PATH = _REPO_ROOT / "docs" / "supervision" / "default-policy.toml"
-_TIERS_PATH = _REPO_ROOT / "docs" / "supervision" / "capping-tiers.toml"
 
 __all__ = ["DEFAULT_PUMP_LIMIT", "QueenEnd", "make_warden_deps"]
 
@@ -204,8 +202,8 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "trail": inputs.trail,
         "identity": inputs.identity,
         "clock": inputs.clock,
-        "policy": load_policy(_POLICY_PATH),
-        "tiers": load_tiers(_TIERS_PATH),
+        "policy": load_policy(),
+        "tiers": load_tiers(),
         "checks": deterministic_checks(),
         "bound": bound,
         "call_gate": DirectCallGate(),

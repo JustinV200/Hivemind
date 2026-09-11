@@ -13,8 +13,6 @@ See Also:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
@@ -24,8 +22,11 @@ from hivemind.manifest.schema.supervision import MemorySection, SupervisionSecti
 def test_supervision_section_has_sensible_defaults() -> None:
     section = SupervisionSection()
 
-    assert section.policy_file == Path("docs/supervision/default-policy.toml")
-    assert section.capping_tiers_file == Path("docs/supervision/capping-tiers.toml")
+    # Both unset by default: a relative path default could only ever be right for a manifest
+    # in one particular directory, so unset means the table shipped in
+    # hivemind.supervision.defaults instead.
+    assert section.policy_file is None
+    assert section.capping_tiers_file is None
     assert section.heartbeat_interval_s == 5.0
     assert section.heartbeat_miss_limit == 3
     assert section.max_offline_s == 600.0

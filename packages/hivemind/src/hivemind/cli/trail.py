@@ -24,7 +24,7 @@ See Also:
     - hivemind.pheromone.trail.tail for follow, the generator `tail --follow` drives.
     - hivemind.pheromone.trail.protocol for TrailQuery and TrailSegment, the shapes this file
       reads and writes but never redefines.
-    - hivemind.cli.stores for open_trail, DbOption and DEFAULT_DB.
+    - hivemind.cli.stores for open_trail, resolve_db and the shared option annotations.
 """
 
 from __future__ import annotations
@@ -37,7 +37,13 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli.stores import DEFAULT_DB, DbOption, open_trail
+from hivemind.cli.stores import (
+    DEFAULT_MANIFEST,
+    DbOption,
+    ManifestOption,
+    open_trail,
+    resolve_db,
+)
 from hivemind.pheromone import (
     DEFAULT_POLL_INTERVAL_S,
     PheromoneEvent,
@@ -58,7 +64,8 @@ DEFAULT_TAIL_COUNT = 50  # A screenful without --follow; matches the classic `ta
 
 @app.command("tail")
 def tail_command(
-    db: DbOption = DEFAULT_DB,
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
     n: Annotated[
         int, typer.Option("-n", help="How many recent events to print without --follow.")
     ] = DEFAULT_TAIL_COUNT,
@@ -70,7 +77,7 @@ def tail_command(
     ] = DEFAULT_POLL_INTERVAL_S,
 ) -> None:
     """Print recent trail events, oldest first; with --follow, keep printing new ones."""
-    trail = open_trail(db)
+    trail = open_trail(resolve_db(manifest, db))
     if follow_flag:
         # Ctrl-C is the documented way to stop --follow: exit 0 quietly, no traceback, the same
         # way a human expects `tail -f` to stop.
@@ -102,10 +109,11 @@ def _print_event(event: PheromoneEvent) -> None:
 def export_command(
     node_id: Annotated[str, typer.Argument(help="The node id whose segment to export.")],
     out: Annotated[Path, typer.Argument(help="Where to write the segment JSON.")],
-    db: DbOption = DEFAULT_DB,
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
 ) -> None:
     """Export one node's trail segment to OUT and print how many events it holds."""
-    trail = open_trail(db)
+    trail = open_trail(resolve_db(manifest, db))
     segment = asyncio.run(trail.export_segment(NodeId(node_id)))
     out.write_text(segment.model_dump_json(indent=2), encoding="utf-8")
     typer.echo(f"exported {len(segment.events)} events to {out}")
@@ -116,7 +124,8 @@ def merge_command(
     segment: Annotated[
         Path, typer.Argument(help="A TrailSegment JSON file, from `hive trail export`.")
     ],
-    db: DbOption = DEFAULT_DB,
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
 ) -> None:
     """Merge SEGMENT into this database's trail and print how many events were inserted."""
     try:
@@ -127,6 +136,6 @@ def merge_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
 
-    trail = open_trail(db)
+    trail = open_trail(resolve_db(manifest, db))
     inserted = asyncio.run(trail.merge_segment(parsed))
     typer.echo(f"inserted {inserted} events")

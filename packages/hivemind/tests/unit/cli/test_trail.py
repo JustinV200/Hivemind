@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+from builders.cli import fake_manifest
 from typer.testing import CliRunner
 
 import hivemind.cli.trail as trail_module
@@ -45,12 +46,18 @@ _GRAPH = {
 }
 
 
-def _submit_sample(tmp_path: Path, db: Path) -> str:
-    """Submit one task through `hive tasks submit` and return the node id it used."""
+def _submit_sample(tmp_path: Path) -> tuple[str, Path]:
+    """Submit one task through `hive tasks submit`; return its node id and database.
+
+    `hive tasks submit` is the one store command with no `--db` (codingrules 5.1's
+    parameter cap), so it names a Hive and the manifest names the database; the caller
+    gets that path back to read the trail it just wrote.
+    """
     graph_file = tmp_path / "graph.json"
     graph_file.write_text(json.dumps(_GRAPH), encoding="utf-8")
     clock = FakeClock()
     hive_id, node_id = str(new_hive_id(clock)), str(new_node_id(clock))
+    manifest = fake_manifest(tmp_path)
     result = runner.invoke(
         app,
         [
@@ -61,17 +68,16 @@ def _submit_sample(tmp_path: Path, db: Path) -> str:
             hive_id,
             "--node-id",
             node_id,
-            "--db",
-            str(db),
+            "--manifest",
+            str(manifest),
         ],
     )
     assert result.exit_code == 0
-    return node_id
+    return node_id, tmp_path / "data" / "hive.sqlite3"
 
 
 def test_tail_prints_one_line_per_event_oldest_first(tmp_path: Path) -> None:
-    db = tmp_path / "hive.sqlite3"
-    _submit_sample(tmp_path, db)
+    _node_id, db = _submit_sample(tmp_path)
 
     result = runner.invoke(app, ["trail", "tail", "--db", str(db)])
 
@@ -84,8 +90,7 @@ def test_tail_prints_one_line_per_event_oldest_first(tmp_path: Path) -> None:
 
 
 def test_export_then_merge_round_trips_into_a_second_database(tmp_path: Path) -> None:
-    db = tmp_path / "hive.sqlite3"
-    node_id = _submit_sample(tmp_path, db)
+    node_id, db = _submit_sample(tmp_path)
     segment_file = tmp_path / "segment.json"
 
     exported = runner.invoke(app, ["trail", "export", node_id, str(segment_file), "--db", str(db)])

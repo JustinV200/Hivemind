@@ -118,7 +118,7 @@ HiveMind/
 │   ├── waggle/                   # Waggle protocol spec: message catalogue, transports, versioning
 │   ├── entrance/                 # Landing Board: the committed OpenAPI document, client guide, push and enrolment contracts
 │   ├── manifests/                # Annotated example Hive Manifests
-│   ├── supervision/              # Data the supervisors load: default-policy.toml, capping-tiers.toml
+│   ├── supervision/              # Operator notes on the supervisors' data; the tables themselves ship in hivemind/supervision/defaults/
 │   ├── observation/              # Design notes the Observation Hive follows
 │   ├── evals/                    # Reports written by `hive llm eval`
 │   ├── runbooks/                 # Operational how-tos (requeening, supersedure, remote access, absconding, backups)
@@ -150,7 +150,7 @@ HiveMind/
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence. task/ (model, state, graph), store/ (protocol, memory, sqlite, migrations), chamber/ (facade)
 │   │   │   ├── honey_store/      # Cold tier: nectar/ intake, ripening/ pipeline, honey/ retrieval, schema/
 │   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread, cell_wax.py (Queen-written per-Cell cautions)
-│   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state)
+│   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state), defaults/ (the shipped policy and tier TOMLs, read through importlib.resources)
 │   │   │   ├── guard/            # Policy engine, capabilities.py (CapabilitySet, built in phase 3), access.py (what each AccessLevel allows), permission checks. The security enums live in cell/tiers.py.
 │   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, needs.py (TaskNeeds), tiers.py (AccessLevel, CombShieldLevel, HoneyClearance), snapshot.py (Snapshotter protocol), local/ (the Hive Stand)
 │   │   │   ├── hive/             # VIRTUAL Cells: lifecycle.py + night_veil.py (attestation) + backends/ (docker.py, qemu.py, cloud/...) + overwinter/ + snapshot.py (Snapshotter backends)

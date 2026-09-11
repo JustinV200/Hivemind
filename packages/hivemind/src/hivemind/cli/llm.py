@@ -44,13 +44,18 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Annotated
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.cli.stores import build_registry
+from hivemind.cli.stores import (
+    DEFAULT_MANIFEST,
+    JsonOption,
+    ManifestOption,
+    build_registry,
+    load_manifest_or_exit,
+)
 from hivemind.forage import ModelSlot
 from hivemind.llm import (
     BoundModel,
@@ -63,14 +68,13 @@ from hivemind.llm import (
     Role,
     Usage,
 )
-from hivemind.manifest import HiveManifest, ManifestError, load_manifest, provider_api_key
+from hivemind.manifest import HiveManifest, provider_api_key
 from waggle.clock import SystemClock
 
 app = typer.Typer(name="llm", help="Inspect the Hive's model providers and slots, or test one.")
 
 __all__ = ["app"]
 
-DEFAULT_MANIFEST = Path("hive.toml")  # Every command's own --manifest fallback, matching DbOption.
 # A short, neutral prompt: enough for a provider to prove it answers, cheap enough to run against
 # a hosted API without worrying about spend (codingrules section 8.6's model-id rule keeps this
 # free of any real model name; it is just English text).
@@ -91,13 +95,6 @@ def _validate_slot(value: str) -> str:
     except KeyError as exc:
         raise typer.BadParameter(str(exc)) from exc
     return value
-
-
-ManifestOption = Annotated[
-    Path,
-    typer.Option("--manifest", help=f"The Hive Manifest TOML file (default: {DEFAULT_MANIFEST})."),
-]
-JsonOption = Annotated[bool, typer.Option("--json", help="Print JSON instead of a table.")]
 
 
 class _ProviderRow(BaseModel):
@@ -142,7 +139,7 @@ def providers_command(
     manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False
 ) -> None:
     """List every configured provider: kind, base URL, seats, API key presence and health."""
-    loaded = _load_manifest_or_exit(manifest)
+    loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
     rows = asyncio.run(_provider_rows(loaded, registry))
     if as_json:
@@ -154,7 +151,7 @@ def providers_command(
 @app.command("slots")
 def slots_command(manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False) -> None:
     """List every ModelSlot resolved to its current binding, price and fallback chain."""
-    loaded = _load_manifest_or_exit(manifest)
+    loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
     rows = tuple(_slot_row(registry.bound(slot)) for slot in ModelSlot)
     if as_json:
@@ -175,7 +172,7 @@ def test_command(
     ] = DEFAULT_TEST_PROMPT,
 ) -> None:
     """Resolve SLOT and send one small completion through it; print latency, usage and the reply."""
-    loaded = _load_manifest_or_exit(manifest)
+    loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
     model_slot = ModelSlot.from_manifest_key(slot)
     try:
@@ -191,19 +188,6 @@ def test_command(
         f"cost_usd={result.usage.cost_usd}"
     )
     typer.echo(f"reply: {result.first_line}")
-
-
-def _load_manifest_or_exit(path: Path) -> HiveManifest:
-    """Load the Hive Manifest at `path`, or print ManifestError's message and exit 2."""
-    try:
-        # SAFETY: top of a CLI command (codingrules section 10): a missing file, invalid TOML or
-        # a validation failure all become one clean stderr line here instead of a traceback.
-        # os.environ is read here, at the composition root's very edge, and passed down; nothing
-        # below this line reads it again (codingrules section 13).
-        return load_manifest(path, environ=os.environ)
-    except ManifestError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=2) from exc
 
 
 async def _provider_rows(

@@ -74,7 +74,7 @@ class AccuracyBar(Enum):
 
     Read by llm.routing (a minimum model grade the bound source must clear), forage.allocate
     (more parallelism for an urgent task, more spend for a thorough one) and Capping, whose check
-    ladder (docs/supervision/capping-tiers.toml) may shorten at LOW/NORMAL and lengthen at
+    ladder (supervision/defaults/capping-tiers.toml) may shorten at LOW/NORMAL and lengthen at
     HIGH/CRITICAL but never drop below the floor a risk tier fixes (codingrules section 8.14).
     """
 

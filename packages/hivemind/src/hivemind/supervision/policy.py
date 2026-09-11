@@ -8,7 +8,7 @@ through that many attempts. `decide` is the pure function every `Supervisor` imp
 once it has an Alarm in hand: it never mutates the Alarm or the policy, and the same inputs always
 produce the same action.
 
-TOML shape this module's `load_policy` validates (see `docs/supervision/default-policy.toml`)::
+TOML shape this module's `load_policy` validates (see `supervision/defaults/default-policy.toml`)::
 
     default = "ESCALATE"  # The PolicyAction used when no rule below matches.
 
@@ -42,7 +42,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.8 for "each level's EscalationPolicy is data (TOML)".
     - .claude/codingrules.md section 13 for the policy-as-data idea this module follows.
-    - docs/supervision/default-policy.toml for the Hive's shipped default policy.
+    - supervision/defaults/default-policy.toml for the Hive's shipped default policy.
     - hivemind.supervision.alarm for Alarm and AlarmKind, the model and enum decide reads.
     - hivemind.supervision.errors for PolicyError, the error load_policy raises.
 """
@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import tomllib
 from enum import Enum
+from importlib.resources import files
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -58,7 +59,19 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from hivemind.supervision.alarm import Alarm, AlarmKind
 from hivemind.supervision.errors import PolicyError
 
-__all__ = ["EscalationPolicy", "PolicyAction", "PolicyRule", "decide", "load_policy"]
+DEFAULT_POLICY_FILENAME = "default-policy.toml"  # The shipped table, inside _DEFAULTS_PACKAGE.
+# The data-only package the two shipped tables live in, addressed by dotted name so they resolve
+# the same from a checkout and from an installed wheel (see that package's own docstring).
+_DEFAULTS_PACKAGE = "hivemind.supervision.defaults"
+
+__all__ = [
+    "DEFAULT_POLICY_FILENAME",
+    "EscalationPolicy",
+    "PolicyAction",
+    "PolicyRule",
+    "decide",
+    "load_policy",
+]
 
 
 class PolicyAction(Enum):
@@ -103,30 +116,39 @@ class EscalationPolicy(BaseModel):
     )
 
 
-def load_policy(path: Path) -> EscalationPolicy:
-    """Load and validate an EscalationPolicy from a TOML file.
+def load_policy(path: Path | None = None) -> EscalationPolicy:
+    """Load and validate an EscalationPolicy from a TOML file, or from the shipped default.
 
     Args:
-        path: The policy file, typically the manifest's `[supervision] policy_file`.
+        path: The policy file, from the manifest's `[supervision] policy_file`. None, the
+            default, reads the table shipped inside `hivemind.supervision.defaults`, which is
+            what leaving that manifest field unset means: policy is data an operator may
+            override, not data every operator must supply.
 
     Returns:
         The validated EscalationPolicy.
 
     Raises:
-        PolicyError: `path` does not exist or cannot be read, is not valid TOML, or its content
-            fails EscalationPolicy's own pydantic validation.
+        PolicyError: `path` was given and does not exist or cannot be read, or the document read
+            is not valid TOML or fails EscalationPolicy's own pydantic validation.
     """
+    source = str(path) if path is not None else f"the shipped {DEFAULT_POLICY_FILENAME}"
     try:
-        with path.open("rb") as handle:
-            # tomllib wants a binary file handle; it decodes the document as UTF-8 itself.
-            raw = tomllib.load(handle)
+        raw = tomllib.loads(_read_policy_text(path))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise PolicyError(f"Could not read escalation policy from {path}: {exc}") from exc
+        raise PolicyError(f"Could not read escalation policy from {source}: {exc}") from exc
 
     try:
         return EscalationPolicy.model_validate(raw)
     except ValidationError as exc:
-        raise PolicyError(f"Escalation policy at {path} is invalid: {exc}") from exc
+        raise PolicyError(f"Escalation policy at {source} is invalid: {exc}") from exc
+
+
+def _read_policy_text(path: Path | None) -> str:
+    """Return the policy document's text, from `path` or from the shipped package resource."""
+    if path is not None:
+        return path.read_text(encoding="utf-8")
+    return (files(_DEFAULTS_PACKAGE) / DEFAULT_POLICY_FILENAME).read_text(encoding="utf-8")
 
 
 def decide(policy: EscalationPolicy, alarm: Alarm) -> PolicyAction:

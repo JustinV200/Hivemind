@@ -38,7 +38,7 @@ See Also:
       reads.
     - hivemind.supervision.capping.state for ProposalState and is_terminal, the state machine
       this module's kind-to-state table maps onto.
-    - hivemind.cli.stores for open_trail and DEFAULT_DB, reused here unchanged.
+    - hivemind.cli.stores for open_trail, resolve_db and the shared option annotations.
 """
 
 from __future__ import annotations
@@ -48,14 +48,20 @@ import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.cli.stores import DEFAULT_DB, open_trail
-from hivemind.pheromone import MAX_QUERY_LIMIT, PheromoneEvent, TrailQuery
+from hivemind.cli.stores import (
+    DEFAULT_MANIFEST,
+    DbOption,
+    JsonOption,
+    ManifestOption,
+    open_trail,
+    resolve_db,
+)
+from hivemind.pheromone import MAX_QUERY_LIMIT, PheromoneEvent, PheromoneTrail, TrailQuery
 from hivemind.supervision.capping import ProposalState, is_terminal
 from waggle.clock import SystemClock
 
@@ -76,11 +82,6 @@ _KIND_TO_STATE: Mapping[str, ProposalState] = {
     "capping.rejected": ProposalState.REJECTED,
     "capping.rolled_back": ProposalState.ROLLED_BACK,
 }
-
-TrailOption = Annotated[
-    Path, typer.Option("--trail", help=f"The Pheromone Trail SQLite file (default: {DEFAULT_DB}).")
-]
-JsonOption = Annotated[bool, typer.Option("--json", help="Print JSON instead of a table.")]
 
 
 class _QueueRow(BaseModel):
@@ -108,9 +109,13 @@ class _ProposalTrack:
 
 
 @app.command("queue")
-def queue_command(trail: TrailOption = DEFAULT_DB, as_json: JsonOption = False) -> None:
+def queue_command(
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
+    as_json: JsonOption = False,
+) -> None:
     """List every proposal whose latest capping.* event is not terminal, newest first."""
-    events = asyncio.run(_capping_events(trail))
+    events = asyncio.run(_capping_events(open_trail(resolve_db(manifest, db))))
     rows = _queue_rows(_track_proposals(events), now=SystemClock().now())
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
@@ -121,11 +126,13 @@ def queue_command(trail: TrailOption = DEFAULT_DB, as_json: JsonOption = False) 
 @app.command("show")
 def show_command(
     proposal_id: Annotated[str, typer.Argument(help="A Capping proposal id.")],
-    trail: TrailOption = DEFAULT_DB,
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
     as_json: JsonOption = False,
 ) -> None:
     """Print one proposal's capping.* events, in order, with their payload fields."""
-    events = asyncio.run(_capping_events(trail, subject_id=proposal_id))
+    store = open_trail(resolve_db(manifest, db))
+    events = asyncio.run(_capping_events(store, subject_id=proposal_id))
     if as_json:
         typer.echo(json.dumps([_event_row(event) for event in events], indent=2))
         return
@@ -133,9 +140,16 @@ def show_command(
         _print_event_line(event)
 
 
-async def _capping_events(trail: Path, subject_id: str | None = None) -> tuple[PheromoneEvent, ...]:
-    """Query every capping.* event on `trail`, oldest first, optionally for one proposal."""
-    store = open_trail(trail)
+async def _capping_events(
+    store: PheromoneTrail, subject_id: str | None = None
+) -> tuple[PheromoneEvent, ...]:
+    """Query every capping.* event on `store`, oldest first, optionally for one proposal.
+
+    Takes an opened trail rather than a path: `open_trail` runs its own `asyncio.run`, so
+    calling it from inside this coroutine nested one `asyncio.run` in another and raised
+    "cannot be called from a running event loop" for every real invocation. Opening in the
+    sync command body is what every other store command already does.
+    """
     # newest_first stays False (the default): oldest-first is what _track_proposals needs to see
     # capping.proposed before any later transition, and what `show` prints as-is.
     query = TrailQuery(family="capping", subject_id=subject_id, limit=MAX_QUERY_LIMIT)

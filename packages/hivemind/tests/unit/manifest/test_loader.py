@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 
 from hivemind.manifest import HiveManifest, ManifestError, load_manifest
+from hivemind.supervision import load_policy
+from hivemind.supervision.capping import load_tiers
 
 # The repository root, five parents up from this test file
 # (packages/hivemind/tests/unit/manifest/test_loader.py), matching test_policy.py's own pattern.
@@ -32,6 +34,28 @@ def test_load_manifest_reads_every_example(filename: str) -> None:
 
     assert manifest.source_path == _MANIFESTS_DIR / filename
     assert manifest.hive.id.startswith("hive_")
+
+
+@pytest.mark.parametrize("filename", ["minimal.toml", "local.toml", "full.toml"])
+def test_every_example_manifests_supervision_data_actually_loads(filename: str) -> None:
+    # Loading an example only proves it matches the schema. `policy_file` and `capping_tiers_file`
+    # are the two manifest paths that must reach a real table before a Hive can start (`db` and
+    # `scratch_root` are both created on demand), and an unset field means the table shipped in
+    # hivemind.supervision.defaults -- so assert both are reachable whichever way the example goes.
+    # Without this, an example can name data it cannot reach and still pass every other test, which
+    # is how all three came to point at docs/manifests/docs/supervision/.
+    manifest = load_manifest(_MANIFESTS_DIR / filename)
+
+    policy = load_policy(_resolved(manifest, manifest.supervision.policy_file))
+    tiers = load_tiers(_resolved(manifest, manifest.supervision.capping_tiers_file))
+
+    assert policy.rules
+    assert tiers.tiers
+
+
+def _resolved(manifest: HiveManifest, path: Path | None) -> Path | None:
+    """Resolve one `[supervision]` path against the manifest, passing None through unchanged."""
+    return manifest.resolve_path(path) if path is not None else None
 
 
 def test_load_manifest_local_toml_is_offline() -> None:

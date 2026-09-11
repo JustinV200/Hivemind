@@ -47,8 +47,9 @@ before every terminal `WorkerState` transition (`hivemind.workers.runtime.attemp
 four `_finish_*` methods), so it always leaves on the Worker's own mailbox before the `TaskResult`
 that closes the same attempt, on the same ordered link. Scenario (g) below asserts the whole
 chain -- `capping.rolled_back`, `alarm.raised` (kind `POSTCONDITION_FAILED`) and `alarm.handled`
-(the Warden's own policy dispatch, action `RETRY` per `docs/supervision/default-policy.toml`'s own
-`POSTCONDITION_FAILED`@1 row) -- with no xfail and no retry.
+(the Warden's own policy dispatch, action `RETRY` per the shipped
+`supervision/defaults/default-policy.toml`'s own `POSTCONDITION_FAILED`@1 row) -- with no
+xfail and no retry.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -301,7 +302,7 @@ def test_a_drone_that_crashes_repeatedly_escalates_and_the_queen_rebinds_it_to_c
 ) -> None:
     """(c) a Warden RESPAWN, two escalations, then the Queen's own REBIND finishes the goal.
 
-    The kernel fix-forward commit's own `docs/supervision/default-policy.toml` gives
+    The kernel fix-forward commit's own `supervision/defaults/default-policy.toml` gives
     `WORKER_CRASHED` a three-row ladder (RESPAWN@1, REBIND@2, ESCALATE@3), keyed on the Warden's
     own per-sub-bee attempt count (`hivemind.wardens.autopilot.table._decide_alarm`), never the
     wire `AlarmRaised.attempts` field. With `worker_fallback=True` (a second `[llm.slots.
@@ -551,8 +552,9 @@ def _failing_command_worker_turn() -> WorkerTurn:
     cap` queues an Alarm on every ROLLED_BACK outcome (`ctx.telemetry.note_alarm`), flushed and
     sent no later than this attempt's own terminal transition (`hivemind.workers.runtime.attempt.
     AttemptManager`'s `_finish_*` methods, the kernel fix-forward commit's own fix 2), and the
-    Warden's own policy (`docs/supervision/default-policy.toml`'s POSTCONDITION_FAILED@1 -> RETRY
-    row) may retire and respawn the sub-bee before or after it finishes on its own -- both are
+    Warden's own policy (`supervision/defaults/default-policy.toml`'s
+    POSTCONDITION_FAILED@1 -> RETRY row) may retire and respawn the sub-bee before or after it
+    finishes on its own -- both are
     correct outcomes, but a script that could fail on a fresh, respawned attempt's own round 0 too
     would cascade into a second rollback (attempts=2 -> ESCALATE) and race the Queen's own
     concurrent retry against the original sub-bee's own natural completion. A budget of one is
@@ -600,7 +602,7 @@ def test_a_failing_command_proposal_is_rolled_back(tmp_path: Path, capabilities:
     so the Warden always processes the Alarm first. Combined with fix 1 (`Reporter.send_alarm` now
     records `alarm.raised` before the wire send), the whole chain -- `capping.rolled_back`,
     `alarm.raised` (kind `POSTCONDITION_FAILED`) and `alarm.handled` (the Warden's own policy
-    dispatch, action `RETRY` per `docs/supervision/default-policy.toml`'s own
+    dispatch, action `RETRY` per `supervision/defaults/default-policy.toml`'s own
     `POSTCONDITION_FAILED`@1 row) -- is now asserted deterministically below.
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)

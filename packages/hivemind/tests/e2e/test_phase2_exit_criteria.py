@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 import pytest
+from builders.cli import fake_manifest
 from typer.testing import CliRunner
 
 from hivemind.brood_chamber import (
@@ -95,9 +96,15 @@ _EXPECTED_PLAN_KINDS = (
 )
 
 
-def _submit_via_cli(tmp_path: Path, db: Path, hive_id: str, node_id: str) -> dict[str, str]:
-    """Write the graph file and submit it through the CLI; return key -> minted TaskId."""
-    graph_file = tmp_path / "graph.json"
+def _submit_via_cli(hive_dir: Path, hive_id: str, node_id: str) -> dict[str, str]:
+    """Write the graph file and submit it through the CLI; return key -> minted TaskId.
+
+    `hive_dir` is one Hive's own directory: `hive tasks submit` takes no `--db`
+    (codingrules 5.1's parameter cap), so each Hive in a test needs its own manifest,
+    and fake_manifest writes one per directory with `[hive] db` under it.
+    """
+    hive_dir.mkdir(parents=True, exist_ok=True)
+    graph_file = hive_dir / "graph.json"
     graph_file.write_text(json.dumps(_GRAPH), encoding="utf-8")
 
     result = runner.invoke(
@@ -110,8 +117,8 @@ def _submit_via_cli(tmp_path: Path, db: Path, hive_id: str, node_id: str) -> dic
             hive_id,
             "--node-id",
             node_id,
-            "--db",
-            str(db),
+            "--manifest",
+            str(fake_manifest(hive_dir)),
         ],
     )
     assert result.exit_code == 0
@@ -226,11 +233,12 @@ def _assert_trail_is_complete_for_plan(db: Path, plan_id: str) -> None:
 def test_submit_advance_restart_and_see_identical_state_and_a_complete_trail(
     tmp_path: Path,
 ) -> None:
-    db = tmp_path / "hive.sqlite3"
+    # One Hive, in its own directory, so the manifest fake_manifest writes names this db.
+    db = tmp_path / "data" / "hive.sqlite3"
     system_clock = SystemClock()
     hive_id, node_id = str(new_hive_id(system_clock)), str(new_node_id(system_clock))
 
-    ids = _submit_via_cli(tmp_path, db, hive_id, node_id)
+    ids = _submit_via_cli(tmp_path, hive_id, node_id)
 
     identity = ChamberIdentity(hive_id=HiveId(hive_id), node_id=NodeId(node_id), actor="human")
     # Seeded from the real submit time so every driven event's `at` still lands after each
@@ -246,12 +254,15 @@ def test_submit_advance_restart_and_see_identical_state_and_a_complete_trail(
 
 
 def test_two_trail_segments_merge_into_one_ordered_log_with_no_duplicates(tmp_path: Path) -> None:
-    db_a, db_b = tmp_path / "a.sqlite3", tmp_path / "b.sqlite3"
+    # Two nodes of one Hive, each in its own directory with its own manifest and database,
+    # so the segments this test merges really do come from two separate trails.
+    dir_a, dir_b = tmp_path / "node_a", tmp_path / "node_b"
+    db_a, db_b = dir_a / "data" / "hive.sqlite3", dir_b / "data" / "hive.sqlite3"
     clock = SystemClock()
     hive_id = str(new_hive_id(clock))
     node_a, node_b = str(new_node_id(clock)), str(new_node_id(clock))
-    _submit_via_cli(tmp_path, db_a, hive_id, node_a)
-    _submit_via_cli(tmp_path, db_b, hive_id, node_b)
+    _submit_via_cli(dir_a, hive_id, node_a)
+    _submit_via_cli(dir_b, hive_id, node_b)
 
     segment_b_file = tmp_path / "segment_b.json"
     exported = runner.invoke(

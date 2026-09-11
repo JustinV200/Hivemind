@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from builders.cli import fake_manifest
 from typer.testing import CliRunner
 
 from hivemind.cli.app import app
@@ -24,6 +25,11 @@ from waggle.clock import SystemClock
 from waggle.ids import new_hive_id, new_node_id, new_task_id
 
 runner = CliRunner()
+
+# `hive tasks submit` is the one store command with no `--db` (codingrules 5.1's parameter
+# cap), so every test that submits names a Hive instead. fake_manifest writes hive.toml
+# with `[hive] db` pointing here, resolved against the manifest's own directory.
+_MANIFEST_DB = Path("data") / "hive.sqlite3"
 
 # A minimal two-task graph: `build` depends on `plan`. Reused by every test that needs a valid
 # TaskGraphDraft file on disk.
@@ -74,8 +80,8 @@ def test_submit_prints_one_line_per_task_in_graph_order(tmp_path: Path) -> None:
             hive_id,
             "--node-id",
             node_id,
-            "--db",
-            str(tmp_path / "hive.sqlite3"),
+            "--manifest",
+            str(fake_manifest(tmp_path)),
         ],
     )
 
@@ -100,8 +106,8 @@ def test_submit_bad_json_exits_2_with_pydantics_message(tmp_path: Path) -> None:
             hive_id,
             "--node-id",
             node_id,
-            "--db",
-            str(tmp_path / "hive.sqlite3"),
+            "--manifest",
+            str(fake_manifest(tmp_path)),
         ],
     )
 
@@ -135,7 +141,8 @@ def test_list_and_show_round_trip_through_the_same_database(tmp_path: Path) -> N
     graph_file = tmp_path / "graph.json"
     _write_graph(graph_file)
     hive_id, node_id = _fresh_ids()
-    db = tmp_path / "hive.sqlite3"
+    manifest = fake_manifest(tmp_path)
+    db = tmp_path / _MANIFEST_DB
     submitted = runner.invoke(
         app,
         [
@@ -146,8 +153,8 @@ def test_list_and_show_round_trip_through_the_same_database(tmp_path: Path) -> N
             hive_id,
             "--node-id",
             node_id,
-            "--db",
-            str(db),
+            "--manifest",
+            str(manifest),
         ],
     )
     task_id = submitted.stdout.splitlines()[0].split("\t")[1]
@@ -165,7 +172,8 @@ def test_list_filters_by_status(tmp_path: Path) -> None:
     graph_file = tmp_path / "graph.json"
     _write_graph(graph_file)
     hive_id, node_id = _fresh_ids()
-    db = tmp_path / "hive.sqlite3"
+    manifest = fake_manifest(tmp_path)
+    db = tmp_path / _MANIFEST_DB
     runner.invoke(
         app,
         [
@@ -176,8 +184,8 @@ def test_list_filters_by_status(tmp_path: Path) -> None:
             hive_id,
             "--node-id",
             node_id,
-            "--db",
-            str(db),
+            "--manifest",
+            str(manifest),
         ],
     )
 

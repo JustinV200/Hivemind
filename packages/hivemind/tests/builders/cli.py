@@ -72,8 +72,6 @@ _PUMP_YIELDS_PER_STEP = 50
 _PUMP_STEP_LIMIT = 2_000
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_POLICY_PATH = _REPO_ROOT / "docs" / "supervision" / "default-policy.toml"
-_TIERS_PATH = _REPO_ROOT / "docs" / "supervision" / "capping-tiers.toml"
 
 _MODEL_ID = "test-model"  # Neutral (codingrules 8.6); never a real vendor id.
 _STRONG_MODEL_ID = "test-model-strong"  # worker_fallback=True's own second binding's model id.
@@ -274,13 +272,15 @@ def _forage_section() -> str:
 
 
 def _supervision_section(heartbeat_interval_s: float) -> str:
-    """Build `[supervision]`: the shipped policy/tiers files, and short heartbeat cadences."""
+    """Build `[supervision]`: short heartbeat cadences, and no policy/tiers overrides.
+
+    `policy_file` and `capping_tiers_file` are left unset on purpose, which is what a real
+    Hive normally does: both loaders then read the tables shipped in
+    `hivemind.supervision.defaults`, so these tests run against the same policy and tier
+    table production does.
+    """
     return (
-        "[supervision]\n"
-        f'policy_file = "{_POLICY_PATH.as_posix()}"\n'
-        f'capping_tiers_file = "{_TIERS_PATH.as_posix()}"\n'
-        f"heartbeat_interval_s = {heartbeat_interval_s}\n"
-        "heartbeat_miss_limit = 3\n"
+        f"[supervision]\nheartbeat_interval_s = {heartbeat_interval_s}\nheartbeat_miss_limit = 3\n"
     )
 
 

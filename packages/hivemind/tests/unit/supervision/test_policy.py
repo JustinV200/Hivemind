@@ -9,8 +9,8 @@ Key invariants:
 
 See Also:
     - hivemind.supervision.policy for the module under test.
-    - docs/supervision/default-policy.toml for the file test_load_policy_reads_the_shipped_default
-      loads.
+    - supervision/defaults/default-policy.toml for the table
+      test_load_policy_reads_the_shipped_default loads.
 """
 
 from __future__ import annotations
@@ -33,11 +33,10 @@ from hivemind.supervision.policy import (
 # The repository root, five parents up from this test file
 # (packages/hivemind/tests/unit/supervision/test_policy.py).
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_DEFAULT_POLICY_PATH = _REPO_ROOT / "docs" / "supervision" / "default-policy.toml"
 
 
 def test_load_policy_reads_the_shipped_default() -> None:
-    policy = load_policy(_DEFAULT_POLICY_PATH)
+    policy = load_policy()
 
     assert policy.default is PolicyAction.ESCALATE
     assert len(policy.rules) > 0
@@ -148,7 +147,7 @@ def test_decide_falls_back_to_default_when_no_row_matches_at_all() -> None:
 def test_decide_matches_the_shipped_default_policy(
     kind: AlarmKind, attempts: int, action: PolicyAction
 ) -> None:
-    policy = load_policy(_DEFAULT_POLICY_PATH)
+    policy = load_policy()
     alarm = make_alarm(kind=kind, attempts=attempts)
 
     assert decide(policy, alarm) is action

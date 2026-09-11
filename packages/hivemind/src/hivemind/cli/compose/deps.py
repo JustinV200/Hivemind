@@ -262,8 +262,8 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         trail=parts.stores.trail,
         identity=identity,
         clock=parts.clock,
-        policy=load_policy(manifest.resolve_path(supervision.policy_file)),
-        tiers=load_tiers(manifest.resolve_path(supervision.capping_tiers_file)),
+        policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
+        tiers=load_tiers(_supervision_file(manifest, supervision.capping_tiers_file)),
         checks=deterministic_checks(),
         bound=parts.registry.bound(ModelSlot.WARDEN),
         call_gate=parts.fanner.lane(Tempo()),
@@ -298,7 +298,7 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
         trail=parts.stores.trail,
         identity=identity,
         clock=parts.clock,
-        policy=load_policy(manifest.resolve_path(supervision.policy_file)),
+        policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
         bound_for=parts.registry.bound,
         rebind=parts.registry.bound_for_key,
         bindings=slot_bindings(manifest),
@@ -361,3 +361,13 @@ def _responder_installing_fake_factory(responders: Mapping[str, Responder]) -> P
         )
 
     return factory
+
+
+def _supervision_file(manifest: HiveManifest, path: Path | None) -> Path | None:
+    """Resolve one `[supervision]` data file, or pass None through for the shipped default.
+
+    An unset `policy_file`/`capping_tiers_file` means "use the table shipped in
+    `hivemind.supervision.defaults`", which both loaders express as a None path; only a path the
+    operator actually wrote is resolved against the manifest's own directory.
+    """
+    return manifest.resolve_path(path) if path is not None else None

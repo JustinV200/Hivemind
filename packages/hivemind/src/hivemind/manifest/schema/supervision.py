@@ -20,10 +20,14 @@ Fits into the Hive:
 
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
-    - ``SupervisionSection.policy_file`` and ``capping_tiers_file`` are resolved relative to the
-      manifest's own directory by ``HiveManifest.resolve_path``, never read here: this module only
-      names the paths, since reading a file at schema-validation time would make loading a
-      manifest depend on the filesystem layout of whatever loads it next.
+    - ``SupervisionSection.policy_file`` and ``capping_tiers_file`` are both ``None`` by default,
+      meaning "use the table shipped in ``hivemind.supervision.defaults``". They have no path
+      default because a relative one can only ever be right for a manifest in one particular
+      directory, and every Hive's manifest lives somewhere different.
+    - When either *is* set it is resolved relative to the manifest's own directory by
+      ``HiveManifest.resolve_path``, never read here: this module only names the paths, since
+      reading a file at schema-validation time would make loading a manifest depend on the
+      filesystem layout of whatever loads it next.
     - ``MemorySection.budget_fraction`` and ``handoff_threshold`` are both fractions in (0, 1]: a
       value of 0 would starve the model of any context and both quantities are "portion of
       something", never a raw count.
@@ -33,6 +37,7 @@ See Also:
     - .claude/codingrules.md section 6.1 for the memory-tier vocabulary (Hot State, Handoff,
       Cell Wax) this section's field names follow.
     - hivemind.supervision.policy for load_policy, the reader of policy_file.
+    - hivemind.supervision.defaults for the two tables an unset field falls back to.
     - hivemind.manifest.schema.manifest for resolve_path, which turns these into absolute paths.
 """
 
@@ -42,8 +47,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-DEFAULT_POLICY_FILE = "docs/supervision/default-policy.toml"  # Shipped, phase-3 escalation policy.
-DEFAULT_CAPPING_TIERS_FILE = "docs/supervision/capping-tiers.toml"  # Shipped risk-tier table.
 DEFAULT_HEARTBEAT_INTERVAL_S = 5.0  # Matches [queen] heartbeat_interval_s; a Warden's own cadence.
 DEFAULT_HEARTBEAT_MISS_LIMIT = 3  # Three missed beats before a child is treated as stalled.
 DEFAULT_MAX_OFFLINE_S = (
@@ -69,7 +72,6 @@ DEFAULT_EPISODE_RETENTION_S = (
 __all__ = [
     "DEFAULT_ALARM_ATTEMPT_LIMIT",
     "DEFAULT_BUDGET_FRACTION",
-    "DEFAULT_CAPPING_TIERS_FILE",
     "DEFAULT_CELL_WAX_CAP",
     "DEFAULT_EPISODE_RETENTION_S",
     "DEFAULT_EXPIRY_S",
@@ -79,7 +81,6 @@ __all__ = [
     "DEFAULT_ITEM_CAP_CHARS",
     "DEFAULT_MAX_OFFLINE_S",
     "DEFAULT_OUTPUT_RESERVE_TOKENS",
-    "DEFAULT_POLICY_FILE",
     "MemorySection",
     "SupervisionSection",
 ]
@@ -93,14 +94,16 @@ class SupervisionSection(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    policy_file: Path = Field(
-        default=Path(DEFAULT_POLICY_FILE),
-        description="The EscalationPolicy TOML file, resolved relative to the manifest's own "
-        "directory (HiveManifest.resolve_path).",
+    policy_file: Path | None = Field(
+        default=None,
+        description="An EscalationPolicy TOML file overriding the one shipped in "
+        "hivemind.supervision.defaults, resolved relative to the manifest's own directory "
+        "(HiveManifest.resolve_path).",
     )
-    capping_tiers_file: Path = Field(
-        default=Path(DEFAULT_CAPPING_TIERS_FILE),
-        description="The Capping risk-tier TOML file, resolved the same way as policy_file.",
+    capping_tiers_file: Path | None = Field(
+        default=None,
+        description="A Capping risk-tier TOML file overriding the shipped one, resolved the same "
+        "way as policy_file.",
     )
     heartbeat_interval_s: float = Field(
         default=DEFAULT_HEARTBEAT_INTERVAL_S,

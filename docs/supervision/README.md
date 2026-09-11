@@ -5,6 +5,14 @@ Supervisor protocol) load at runtime: `default-policy.toml` for escalation rules
 `capping-tiers.toml` for the Capping gate's risk tiers. First populated alongside the supervision
 package in phase 3.
 
+**Both tables live in
+[`packages/hivemind/src/hivemind/supervision/defaults/`](../../packages/hivemind/src/hivemind/supervision/defaults/),
+not in this directory.** They are read through `importlib.resources`, which addresses a package by
+dotted name rather than by filesystem path, so a Hive resolves them identically from a checkout,
+from an installed wheel, and from a manifest in a directory that is neither. A repository-relative
+default could only ever have been correct for a manifest sitting at the root of this repository.
+This page is the operator-facing description of what is in them and who reads them.
+
 ## `default-policy.toml`
 
 Loaded by `hivemind.supervision.policy.load_policy` into an `EscalationPolicy`: a `default`
@@ -16,8 +24,10 @@ over the wildcard rows; failing that, `default`. The file's own header and per-r
 why each threshold and action were chosen; `tests/unit/supervision/test_policy.py` loads it and
 checks a table of `(kind, attempts) -> action` pairs, including the default case.
 
-The manifest's `[supervision] policy_file` (roadmap step 3.1) names this file's path by default;
-the Queen and each Warden load their own `EscalationPolicy` from it once at start-up.
+The manifest's `[supervision] policy_file` (roadmap step 3.1) is unset by default, which is what
+selects the shipped table; setting it to a path, resolved against the manifest's own directory,
+overrides it with an operator's own. The Queen and each Warden load their own `EscalationPolicy`
+once at start-up, either way.
 
 ## `capping-tiers.toml`
 
@@ -32,3 +42,6 @@ three checks (`SCHEMA`, `ALLOWLIST`, `SIZE_CAP`); a `CheckKind` a tier names tha
 check registry does not implement fails the proposal closed, reason `"check unavailable"`, never a
 silently skipped rung. `tests/unit/supervision/capping/test_tiers.py` loads the shipped file and
 checks each tier's expected check set.
+
+The manifest's `[supervision] capping_tiers_file` overrides this table the same way `policy_file`
+overrides the escalation policy: unset means the shipped one.

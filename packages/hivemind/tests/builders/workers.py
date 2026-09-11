@@ -12,7 +12,7 @@ in-process policy every phase-3 bee link uses): `send` wraps and sends an order
 `wait_for_*` read the runtime's own reports off the same pair and sort them into
 `heartbeats`/`progress`/`results`/`alarms`/`questions`. Since roadmap step 3.16, `make_context`
 also wires a real `hivemind.supervision.capping.CappingGate` (over the same `FakeSession`, a
-`NoopSnapshotter`, the shared trail and `docs/supervision/capping-tiers.toml`), a
+`NoopSnapshotter`, the shared trail and `supervision/defaults/capping-tiers.toml`), a
 `builders.capping.FakeLeaseView` and a bare `hivemind.llm.DirectCallGate`, so a Worker or a tool
 test exercises the real gate rather than a stub.
 
@@ -87,7 +87,6 @@ DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of ha
 _SCRATCH_DIR = Path("scratch")  # A FakeSession never touches a real filesystem; any path works.
 # packages/hivemind/tests/builders/workers.py -> parents[4] is the repo root (matches the same
 # climb tests/unit/supervision/capping/test_tiers.py uses, one directory shallower here).
-_TIERS_PATH = Path(__file__).resolve().parents[4] / "docs" / "supervision" / "capping-tiers.toml"
 
 __all__ = [
     "DEFAULT_PUMP_LIMIT",
@@ -270,7 +269,7 @@ def _make_capping_gate(
             session=session,
             snapshotter=NoopSnapshotter(),
             cell=cell,
-            tiers=load_tiers(_TIERS_PATH),
+            tiers=load_tiers(),
             trail=trail,
             identity=identity,
             clock=clock,

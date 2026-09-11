@@ -33,7 +33,11 @@ from hivemind.llm.errors import (
     RateLimitedError,
 )
 from hivemind.llm.models import JsonObject
-from hivemind.llm.providers.anthropic.client import AnthropicClient, map_error
+from hivemind.llm.providers.anthropic.client import (
+    NO_CREDENTIALS_DETAIL,
+    AnthropicClient,
+    map_error,
+)
 from waggle.clock import FakeClock
 
 FIXTURES_DIR = Path(__file__).resolve().parents[4] / "fixtures" / "llm" / "anthropic"
@@ -299,6 +303,27 @@ async def test_probe_health_never_raises_on_an_error_status() -> None:
     health = await client.probe_health(FakeClock())  # Must not raise.
 
     assert health.state == HealthState.DOWN
+
+
+async def test_probe_health_is_down_with_no_credentials_and_never_calls_the_api() -> None:
+    # AnthropicProvider.from_config passes an empty string for an unset key rather than None, so
+    # this is the exact shape a Hive with no HIVEMIND_ANTHROPIC_API_KEY builds. The handler proves
+    # the probe never leaves the process: reaching the transport is what made the SDK raise a bare
+    # TypeError out of a function whose contract is that it never raises.
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise AssertionError("probe_health must not send a request with no credentials set")
+
+    sdk = anthropic.AsyncAnthropic(
+        api_key="",
+        max_retries=0,
+        http_client=anthropic.DefaultAsyncHttpxClient(transport=httpx2.MockTransport(handler)),
+    )
+    client = AnthropicClient(sdk, "p", 200_000)
+
+    health = await client.probe_health(FakeClock())  # Must not raise.
+
+    assert health.state == HealthState.DOWN
+    assert health.detail == NO_CREDENTIALS_DETAIL
 
 
 # ──────────────────────────────────────────────────────────────────────────────

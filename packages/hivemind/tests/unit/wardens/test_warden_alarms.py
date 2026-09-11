@@ -11,7 +11,7 @@ Key invariants:
 
 See Also:
     - hivemind.wardens.ticks.alarms for the module under test.
-    - docs/supervision/default-policy.toml for WORKER_CRASHED's own rows: min_attempts=1 ->
+    - supervision/defaults/default-policy.toml for WORKER_CRASHED's own rows: min_attempts=1 ->
       RESPAWN, min_attempts=2 -> REBIND, min_attempts=3 -> ESCALATE. A Worker that crashes on
       every attempt (this module's own always-crashing script) only ever gets one same-binding
       respawn: its second crash already meets the REBIND row, and a Warden whose own grant (this

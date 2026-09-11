@@ -96,7 +96,7 @@ class GateDeps:
     session: CellSession  # The Cell session proposals apply and verify against.
     snapshotter: Snapshotter  # NoopSnapshotter on a Real Cell; a real one on a Virtual Cell.
     cell: Cell  # The Cell this gate's proposals run on, passed to the snapshotter.
-    tiers: TierTable  # docs/supervision/capping-tiers.toml, loaded once at start-up.
+    tiers: TierTable  # supervision/defaults/capping-tiers.toml, loaded once at start-up.
     trail: PheromoneTrail  # Where every capping.* event lands.
     identity: CellIdentity  # hive_id/node_id/actor stamped on every event this gate records.
     clock: Clock  # Source of every minted event id and timestamp.

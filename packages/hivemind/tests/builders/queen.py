@@ -79,7 +79,6 @@ from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_POLICY_PATH = _REPO_ROOT / "docs" / "supervision" / "default-policy.toml"
 _DEFAULT_PROVIDER_NAME = "fake"
 _WORKER_MODEL = "test-model"
 _WORKER_FALLBACK_MODEL = "test-model-strong"
@@ -154,7 +153,7 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "trail": inputs.trail,
         "identity": identity,
         "clock": inputs.clock,
-        "policy": load_policy(_POLICY_PATH),
+        "policy": load_policy(),
         "bound_for": _bound_for(providers, bindings_by_key),
         "rebind": _rebind(providers, bindings_by_key),
         "bindings": bindings,

@@ -270,10 +270,13 @@ memory_bytes = 536870912
 headroom_fraction = 0.1
 
 [supervision]
-# The EscalationPolicy TOML file, resolved relative to this file's own directory.
-policy_file = "docs/supervision/default-policy.toml"
-# The Capping risk-tier TOML file, resolved the same way.
-capping_tiers_file = "docs/supervision/capping-tiers.toml"
+# An EscalationPolicy TOML file overriding the one shipped in hivemind.supervision.defaults,
+# resolved relative to this file's own directory. The only two fields in this manifest left unset
+# on purpose: unset is what a Hive normally wants, and any path written here would be a path that
+# only exists in this repository. Shown as a comment so the shape is still on record.
+# policy_file = "supervision/my-policy.toml"
+# A Capping risk-tier TOML file overriding the shipped one, resolved the same way.
+# capping_tiers_file = "supervision/my-tiers.toml"
 # Seconds between a supervised child's heartbeat reports.
 heartbeat_interval_s = 5.0
 # Missed heartbeats before a child is treated as stalled.

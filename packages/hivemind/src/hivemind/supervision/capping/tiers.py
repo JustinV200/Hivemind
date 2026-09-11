@@ -8,7 +8,7 @@ behaviour of its own, just which rung to run) that tier requires, the subset of 
 run even when the tier's own list is empty (`floor`, read by a later phase's Tempo-driven
 shortening -- codingrules section 8.14: "It can never remove a check the tier table marks as a
 floor"), whether the gate snapshots the Cell before applying, and a byte cap on an inline diff.
-`load_tiers` reads `docs/supervision/capping-tiers.toml`, the operator-facing table an operator
+`load_tiers` reads `supervision/defaults/capping-tiers.toml`, the operator-facing table an operator
 edits to add or loosen a tier without touching code (codingrules section 13: "policy as data").
 
 Fits into the Hive:
@@ -33,7 +33,7 @@ See Also:
     - .claude/codingrules.md section 8.14 for why `floor` can never be removed by Tempo.
     - .claude/codingrules.md section 6.1 for the mirror-with-sync-test convention this module
       follows for RiskTier.
-    - docs/supervision/capping-tiers.toml for the Hive's shipped v0 tier table.
+    - supervision/defaults/capping-tiers.toml for the Hive's shipped v0 tier table.
     - waggle.messages.capping for RiskTier (the wire form) and CheckKind (used directly, not
       mirrored).
     - hivemind.supervision.capping.errors for CappingError, the error load_tiers raises.
@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import tomllib
 from enum import Enum
+from importlib.resources import files
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -51,7 +52,12 @@ from hivemind.supervision.capping.errors import CappingError
 from waggle.messages.capping import CheckKind
 from waggle.messages.capping import RiskTier as WireRiskTier
 
-__all__ = ["RiskTier", "TierSpec", "TierTable", "load_tiers"]
+DEFAULT_TIERS_FILENAME = "capping-tiers.toml"  # The shipped table, inside _DEFAULTS_PACKAGE.
+# The data-only package the two shipped tables live in, addressed by dotted name so they resolve
+# the same from a checkout and from an installed wheel (see that package's own docstring).
+_DEFAULTS_PACKAGE = "hivemind.supervision.defaults"
+
+__all__ = ["DEFAULT_TIERS_FILENAME", "RiskTier", "TierSpec", "TierTable", "load_tiers"]
 
 
 class RiskTier(Enum):
@@ -95,7 +101,7 @@ class TierSpec(BaseModel):
     """One risk tier's check ladder: which checks, which of those are a floor, and its apply rules.
 
     One value of `TierTable.tiers`, loaded from one `[tiers.<name>]` section of
-    `docs/supervision/capping-tiers.toml`.
+    `supervision/defaults/capping-tiers.toml`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -157,27 +163,35 @@ class TierTable(BaseModel):
         return {(key.upper() if isinstance(key, str) else key): spec for key, spec in value.items()}
 
 
-def load_tiers(path: Path) -> TierTable:
-    """Load and validate a TierTable from a TOML file.
+def load_tiers(path: Path | None = None) -> TierTable:
+    """Load and validate a TierTable from a TOML file, or from the shipped default.
 
     Args:
-        path: The tier file, typically the manifest's `[supervision] capping_tiers_file`.
+        path: The tier file, from the manifest's `[supervision] capping_tiers_file`. None, the
+            default, reads the table shipped inside `hivemind.supervision.defaults`, the same
+            way `hivemind.supervision.policy.load_policy` reads its own.
 
     Returns:
         The validated TierTable.
 
     Raises:
-        CappingError: `path` does not exist or cannot be read, is not valid TOML, or its content
-            fails TierTable's own pydantic validation.
+        CappingError: `path` was given and does not exist or cannot be read, or the document read
+            is not valid TOML or fails TierTable's own pydantic validation.
     """
+    source = str(path) if path is not None else f"the shipped {DEFAULT_TIERS_FILENAME}"
     try:
-        with path.open("rb") as handle:
-            # tomllib wants a binary file handle; it decodes the document as UTF-8 itself.
-            raw = tomllib.load(handle)
+        raw = tomllib.loads(_read_tiers_text(path))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise CappingError(f"Could not read capping tiers from {path}: {exc}") from exc
+        raise CappingError(f"Could not read capping tiers from {source}: {exc}") from exc
 
     try:
         return TierTable.model_validate(raw)
     except ValidationError as exc:
-        raise CappingError(f"Capping tiers at {path} are invalid: {exc}") from exc
+        raise CappingError(f"Capping tiers at {source} are invalid: {exc}") from exc
+
+
+def _read_tiers_text(path: Path | None) -> str:
+    """Return the tier document's text, from `path` or from the shipped package resource."""
+    if path is not None:
+        return path.read_text(encoding="utf-8")
+    return (files(_DEFAULTS_PACKAGE) / DEFAULT_TIERS_FILENAME).read_text(encoding="utf-8")

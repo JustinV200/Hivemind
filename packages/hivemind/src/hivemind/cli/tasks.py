@@ -21,7 +21,7 @@ Key invariants:
 
 See Also:
     - hivemind.brood_chamber.task for TaskGraphDraft, the file `submit` reads.
-    - hivemind.cli.stores for open_chamber, DbOption and DEFAULT_DB.
+    - hivemind.cli.stores for open_chamber, resolve_db and the shared option annotations.
     - scripts/brood_demo.py for the phase 2 exit-criteria driver built on this command group.
 """
 
@@ -40,7 +40,13 @@ from hivemind.brood_chamber import (
     TaskNotFoundError,
     TaskStatus,
 )
-from hivemind.cli.stores import DEFAULT_DB, DbOption, open_chamber
+from hivemind.cli.stores import (
+    DEFAULT_MANIFEST,
+    DbOption,
+    ManifestOption,
+    open_chamber,
+    resolve_db,
+)
 from waggle.clock import SystemClock
 from waggle.ids import HiveId, IdKind, NodeId, TaskId, new_hive_id, new_node_id
 from waggle.messages.base import check_id
@@ -94,7 +100,7 @@ def submit_command(
     hive_id: HiveIdOption,
     node_id: NodeIdOption,
     actor: Annotated[str, typer.Option("--actor", help="Who is submitting.")] = "human",
-    db: DbOption = DEFAULT_DB,
+    manifest: ManifestOption = DEFAULT_MANIFEST,
 ) -> None:
     """Submit a task graph JSON file to the Brood Chamber; print each minted id."""
     try:
@@ -107,7 +113,11 @@ def submit_command(
         raise typer.Exit(code=2) from exc
 
     identity = ChamberIdentity(hive_id=HiveId(hive_id), node_id=NodeId(node_id), actor=actor)
-    chamber = open_chamber(db, identity)
+    # The only store command with no `--db`: it already carries the four parameters codingrules
+    # 5.1 allows plus the file itself, and unlike the read commands it writes a task graph into a
+    # Hive -- which is the thing a manifest defines, so naming a loose database file to write into
+    # is not a gap worth spending the last parameter on.
+    chamber = open_chamber(resolve_db(manifest, None), identity)
     tasks = asyncio.run(chamber.submit(graph))
 
     # One line per task, in graph order, so a driver can parse the minted ids without guessing
@@ -118,7 +128,8 @@ def submit_command(
 
 @app.command("list")
 def list_command(
-    db: DbOption = DEFAULT_DB,
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
     status: Annotated[
         TaskStatus | None, typer.Option("--status", help="Only tasks in this status.")
     ] = None,
@@ -127,7 +138,7 @@ def list_command(
     ),
 ) -> None:
     """List tasks as a fixed-width table: id, status, attempt, title."""
-    chamber = open_chamber(db, _read_identity())
+    chamber = open_chamber(resolve_db(manifest, db), _read_identity())
     query = TaskFilter(status=status, goal_id=TaskId(goal) if goal is not None else None)
     tasks = asyncio.run(chamber.list(query))
 
@@ -138,10 +149,12 @@ def list_command(
 
 @app.command("show")
 def show_command(
-    task_id: Annotated[str, typer.Argument(help="The task id to show.")], db: DbOption = DEFAULT_DB
+    task_id: Annotated[str, typer.Argument(help="The task id to show.")],
+    manifest: ManifestOption = DEFAULT_MANIFEST,
+    db: DbOption = None,
 ) -> None:
     """Print one task as indented JSON."""
-    chamber = open_chamber(db, _read_identity())
+    chamber = open_chamber(resolve_db(manifest, db), _read_identity())
     try:
         task = asyncio.run(chamber.get(TaskId(task_id)))
     except TaskNotFoundError as exc:

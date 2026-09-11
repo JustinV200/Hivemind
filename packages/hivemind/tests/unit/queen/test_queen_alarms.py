@@ -5,7 +5,7 @@ Fits into the Hive:
     test_queen_dispatch.py, test_queen_results.py, test_queen_questions.py,
     test_queen_liveness.py, test_queen_supervisor.py and test_queen_invariants.py. Exercises
     hivemind.queen.ticks.alarms together with the Queen's own tick, over the *real*
-    docs/supervision/default-policy.toml `make_queen_deps` loads -- the same table
+    supervision/defaults/default-policy.toml `make_queen_deps` loads -- the same table
     `hivemind.queen.autopilot.table.decide` consults in production -- so these two tests double
     as roadmap step 3.22 scenario (c)'s own unit-level rehearsal: a PROVIDER_UNAVAILABLE Alarm
     REBINDs once, and a GRANT_EXCEEDED Alarm (or a PROVIDER_UNAVAILABLE past the Queen's own
@@ -16,7 +16,7 @@ Key invariants:
 
 See Also:
     - hivemind.queen.ticks.alarms for the module under test.
-    - docs/supervision/default-policy.toml for the real rules these two Alarm kinds exercise.
+    - supervision/defaults/default-policy.toml for the real rules these two Alarm kinds exercise.
     - .claude/roadmap.md step 3.22 scenario (c) for the rebind-then-completes e2e this rehearses.
 """
 

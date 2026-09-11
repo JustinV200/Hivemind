@@ -18,15 +18,16 @@ import asyncio
 from pathlib import Path
 
 import pytest
+import typer
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, TaskFilter
 from hivemind.cli.stores import (
-    DEFAULT_DB,
     build_forage_map,
     build_registry,
     open_chamber,
     open_trail,
     provider_configs,
+    resolve_db,
     slot_bindings,
 )
 from hivemind.forage import ModelSlot
@@ -46,8 +47,30 @@ def _identity() -> ChamberIdentity:
     return ChamberIdentity(hive_id=new_hive_id(clock), node_id=new_node_id(clock), actor="system")
 
 
-def test_default_db_is_hive_sqlite3_in_the_current_directory() -> None:
-    assert Path("hive.sqlite3") == DEFAULT_DB
+def test_resolve_db_returns_an_explicit_db_without_loading_the_manifest(tmp_path: Path) -> None:
+    # The manifest path is deliberately one that does not exist: --db is the escape hatch for a
+    # Hive with no manifest to hand, so passing it must never make a missing hive.toml matter.
+    explicit = tmp_path / "somewhere-else.sqlite3"
+
+    assert resolve_db(tmp_path / "no-such-manifest.toml", explicit) == explicit
+
+
+def test_resolve_db_falls_back_to_the_manifests_own_hive_db() -> None:
+    manifest_path = _MANIFESTS_DIR / "minimal.toml"
+
+    resolved = resolve_db(manifest_path, None)
+
+    # [hive] db resolves against the manifest's own directory, not the current one.
+    assert resolved.parent == _MANIFESTS_DIR
+
+
+def test_resolve_db_exits_2_when_the_manifest_is_missing_and_no_db_was_given(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(typer.Exit) as caught:
+        resolve_db(tmp_path / "no-such-manifest.toml", None)
+
+    assert caught.value.exit_code == 2
 
 
 def test_open_trail_returns_a_ready_sqlite_trail_on_a_fresh_file(tmp_path: Path) -> None:

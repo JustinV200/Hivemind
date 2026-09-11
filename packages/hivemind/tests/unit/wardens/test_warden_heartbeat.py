@@ -119,7 +119,7 @@ async def test_a_sub_bee_missing_its_heartbeats_raises_worker_stalled() -> None:
     # Warden's own (much shorter) cadence ever fires, and missed_heartbeats accumulates instead
     # of being reset every round by a fresh Heartbeat from the sub-bee.
     #
-    # docs/supervision/default-policy.toml's own WORKER_STALLED rows: min_attempts=1 -> RESPAWN,
+    # supervision/defaults/default-policy.toml's own WORKER_STALLED rows: min_attempts=1 -> RESPAWN,
     # min_attempts=3 -> ESCALATE -- the same two-respawns-before-escalate shape
     # test_warden_alarms.py's own module docstring documents for WORKER_CRASHED, and for the same
     # reason: `hivemind.wardens.ticks.heartbeat.raise_stalled_alarms` keys its policy lookup on
