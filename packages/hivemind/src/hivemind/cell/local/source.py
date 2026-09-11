@@ -122,19 +122,11 @@ class HiveStandSource:
         Raises:
             LeaseRefusedError: The Hive Stand is disabled, `request.cell_id` names a different
                 Cell, a lease is already OPEN, the requested access exceeds
-                `HiveStandConfig.access_level`, or free disk is under `disk_reserve_mb`.
+                `HiveStandConfig.access_level`, the scratch root cannot be created, or free disk
+                is under `disk_reserve_mb`.
         """
         self._check_refusal(request)
-        # SAFETY: shutil.disk_usage touches the filesystem; it is fine to call directly here (a
-        # single fast syscall), unlike the repeated sampling LocalProcessSession's watchdog does.
-        free_bytes = shutil.disk_usage(self._config.scratch_root).free
-        reserve_bytes = self._config.disk_reserve_mb * _BYTES_PER_MB
-        if free_bytes < reserve_bytes:
-            raise LeaseRefusedError(
-                request.cell_id,
-                f"free disk ({free_bytes} bytes) is under the configured reserve "
-                f"({reserve_bytes} bytes)",
-            )
+        self._prepare_scratch_root(request)
         lease_id = new_lease_id(self._clock)
         scratch_root = self._config.scratch_root / lease_id
         scratch_root.mkdir(parents=True, exist_ok=True)
@@ -170,6 +162,38 @@ class HiveStandSource:
         """
         quota = ScratchQuota(quota_bytes=self._config.scratch_quota_mb * _BYTES_PER_MB)
         return LocalProcessSession(lease, quota, self._clock)
+
+    def _prepare_scratch_root(self, request: LeaseRequest) -> None:
+        """Make this Hive's scratch root if it is not there yet, then enforce the disk reserve.
+
+        Args:
+            request: The lease being considered; names the Cell any refusal reports.
+
+        Raises:
+            LeaseRefusedError: The scratch root cannot be created, or free disk is under
+                `disk_reserve_mb`.
+        """
+        # The scratch root is this Hive's own directory to make, and on a brand-new Hive nothing
+        # has made it yet: both steps below assume it exists, and measuring free space against a
+        # missing path raises instead of reporting the host's real headroom (FileNotFoundError;
+        # WinError 3 on Windows), so no fresh Hive could ever take its first lease.
+        try:
+            self._config.scratch_root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise LeaseRefusedError(
+                request.cell_id,
+                f"could not create the scratch root {self._config.scratch_root}: {exc}",
+            ) from exc
+        # SAFETY: shutil.disk_usage touches the filesystem; it is fine to call directly here (a
+        # single fast syscall), unlike the repeated sampling LocalProcessSession's watchdog does.
+        free_bytes = shutil.disk_usage(self._config.scratch_root).free
+        reserve_bytes = self._config.disk_reserve_mb * _BYTES_PER_MB
+        if free_bytes < reserve_bytes:
+            raise LeaseRefusedError(
+                request.cell_id,
+                f"free disk ({free_bytes} bytes) is under the configured reserve "
+                f"({reserve_bytes} bytes)",
+            )
 
     def _check_refusal(self, request: LeaseRequest) -> None:
         """Raise LeaseRefusedError for every condition that does not need a filesystem read."""
