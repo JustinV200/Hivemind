@@ -749,7 +749,28 @@ failing.
   Warden over its grant gets an Alarm, not a crash. `queen/forage/requests.py`: `ForageRequest`
   handled by autopilot rule within headroom, by awake when contested; `forage.granted` /
   `forage.denied` with the reason. A synthetic test starts fifty Wardens against a small fake
-  capacity and asserts the sum of grants never exceeds capacity minus reserve.
+  capacity and asserts the sum of grants never exceeds capacity minus reserve. Rename
+  `hivemind.wardens.local_pool.pool.LocalPool` to `SubBeeSlots` as part of this step:
+  codingrules 6.1 gives `LocalPool` to `forage` (a Cell's cores, memory, disk, VRAM and
+  seats), the Warden's is a bare counter against a grant's `max_sub_bees`, both are exported
+  from their own package's `__init__`, and the ledger is the first module that has to read
+  both meanings in one file.
+- [ ] **4.7a Hosted headroom is measured, not assumed.** `Abundance`'s two rate fields
+  (`requests_per_minute_left`, `tokens_per_minute_left`) are written by nothing today:
+  `cli/stores.py` builds every source as `Abundance(seats_free=spec.seats)` and
+  `ForageMap.set_abundance` carries the old values forward, so 3.12a's "updates `distance` and
+  `abundance`" is half done and a hosted provider's real pressure never reaches the map. Close
+  the loop where the measurement already exists. `llm/models.py`: `LLMResponse` grows an optional
+  `RateLimitSnapshot` (requests left, tokens left, when the window resets) that each adapter
+  fills from its provider's own response headers and leaves `None` where the provider publishes
+  none, which is every local server. `ForageMap.set_abundance` takes that snapshot alongside
+  `seats_free` and writes both halves, so an unmetered source keeps its `None`s rather than being
+  handed invented numbers. A `RateLimitedError`'s `retry_after_s` feeds the same path (both
+  adapters already parse it and both drop it), putting that source's headroom at zero until the
+  window passes, so routing (8.1) and the ladders stop choosing a provider that has just said to
+  wait; recorded as `llm.throttled` with the source and the wait. `ProviderRateLimiter` prefers
+  reported figures over the manifest's configured ones once it has them, so a manifest number is
+  a starting guess and never a permanent ceiling.
 - [ ] **4.8 Hosting plans and ceilings.** `queen/forage/hosting.py`: per Cell, write a
   `HostingPlan` (per slot a primary source and a fallback chain, plus a default) from the Forage
   map and ledger: the Cell's free VRAM against each model's requirement, seat pressure on the Hive
@@ -793,6 +814,10 @@ failing.
   flight at any moment, the Fanner's queue orders them by tempo, and the Forage view (phase 12)
   would show seats at 2 of 2 throughout. A Warden whose heartbeat stops has its grant back in the
   pool after expiry.
+- A fake hosted provider that answers one call with a 429 and a `retry-after` has that
+  source's headroom at zero on the Forage map until the window passes: nothing is routed to
+  it meanwhile, the trail shows one `llm.throttled`, and the next source in the chain absorbs
+  the work. A provider that publishes no limits keeps `None` on both rate fields throughout.
 - A Warden's `CAUTION` about its own Cell is written by autopilot with no awake episode and
   appears in the planner's prompt only when that Cell is a candidate, never in any other episode;
   a `BLOCK` proposed by a Drone reaches the Queen's awake mode; an expired note leaves hot state
