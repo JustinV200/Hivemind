@@ -1,19 +1,19 @@
-"""Persist pins, notes, Handoffs and episodes: the durable half of memory v0.
+"""Persist pins, notes, Handoffs, episodes and Bee Bread entries: the durable half of memory v0/4.2.
 
 `protocol` fixes the one seam both implementations honour: every write commits its row and its
 `MemoryEvent` together (codingrules section 12). `memory` is an in-process fake for tests and
-demos; `sqlite` is the durable store, backed by four tables in the Hive's single SQLite file
+demos; `sqlite` is the durable store, backed by five tables in the Hive's single SQLite file
 (ADR-0006). `migrations` holds the numbered `.sql` series `sqlite.py` applies.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Used by hivemind.memory.pins, .notes,
-    .episodes and .checkpoint through `hivemind.memory.context.MemoryContext.store`. Calls into
-    hivemind.cell, hivemind.common, hivemind.memory (episodes, errors, handoff, notes, pins) and
-    hivemind.pheromone.
+    .episodes, .checkpoint, .demote and .bee_bread through `hivemind.memory.context.MemoryContext.
+    store`. Calls into hivemind.cell, hivemind.common, hivemind.memory (bee_bread, episodes,
+    errors, handoff, notes, pins) and hivemind.pheromone.
 
 Key invariants:
     - Whatever is not re-exported here is private to this package (codingrules 5.4).
-    - hivemind.memory.store.sqlite's only DELETE statements are remove_pin,
+    - hivemind.memory.store.sqlite's only DELETE statements are remove_pin, remove_note,
       purge_episodes_before, and the per-author note eviction inside add_note; no other write
       path ever rewrites or removes a row.
 

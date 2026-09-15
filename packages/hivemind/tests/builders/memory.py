@@ -30,6 +30,8 @@ from __future__ import annotations
 from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory import (
+    BeeBreadEntry,
+    BeeBreadEntryKind,
     Decision,
     EpisodeRecord,
     Handoff,
@@ -51,6 +53,7 @@ from waggle.ids import new_alarm_id, new_event_id, new_message_id, new_task_id
 
 __all__ = [
     "make_alarm_summary",
+    "make_bee_bread_entry",
     "make_decision_summary",
     "make_episode",
     "make_handoff",
@@ -290,6 +293,32 @@ def make_question_summary(clock: Clock | None = None, **overrides: object) -> Qu
     }
     fields.update(overrides)
     return QuestionSummary(**fields)
+
+
+def make_bee_bread_entry(clock: Clock | None = None, **overrides: object) -> BeeBreadEntry:
+    """Build a valid, C1 TASK_HISTORY BeeBreadEntry with one ref id.
+
+    Args:
+        clock: Source of the id and timestamp; a fresh FakeClock when omitted.
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated BeeBreadEntry.
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    task_id = new_task_id(active_clock)
+    fields: dict[str, object] = {
+        "id": new_event_id(active_clock),
+        "kind": BeeBreadEntryKind.TASK_HISTORY,
+        "ref_ids": (task_id,),
+        "task_id": task_id,
+        "clearance": HoneyClearance.C1,
+        "created_at": active_clock.now(),
+        "text": "Write the report",
+        "payload": None,
+    }
+    fields.update(overrides)
+    return BeeBreadEntry(**fields)
 
 
 def make_decision_summary(clock: Clock | None = None, **overrides: object) -> DecisionSummary:

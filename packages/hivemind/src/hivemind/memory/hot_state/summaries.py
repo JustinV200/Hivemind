@@ -48,14 +48,21 @@ from waggle.messages.base import AlarmIdField, MessageIdField, TaskIdField, UtcD
 
 SUMMARY_TITLE_CAP_CHARS = 200  # A one-line summary, matching TaskSpec.title's own scale.
 SUMMARY_TEXT_CAP_CHARS = 500  # A hot-state summary line is a sentence or two, not the source
-# record's own (much larger) cap; hivemind.memory.hot_state.packing's own ITEM_CAP_CHARS still
-# governs the final rendered line regardless of this per-field cap.
+# record's own (much larger) cap; ITEM_CAP_CHARS below still governs the final rendered line
+# regardless of this per-field cap.
 MAX_SUMMARY_OPTIONS = 16  # Matches brood_chamber.questions.MAX_OPTIONS's own scale.
 SUMMARY_OPTION_CAP_CHARS = 200  # Matches brood_chamber.questions.MAX_OPTION_CHARS's own scale.
 MAX_PRINCIPAL_ID_CHARS = 128  # A bee id or role name.
 MAX_PRINCIPAL_ROLE_CHARS = 64
+# A hot-state item longer than this becomes a one-line reference instead of being inlined, so one
+# bee's huge tool result or long objective never crowds out everything else (codingrules 8.9).
+# Matches the manifest's `[memory] item_cap_chars` default (manifest.schema.supervision.
+# DEFAULT_ITEM_CAP_CHARS); defined here (not in packing.py) so TokenBudget.item_cap_chars below can
+# default to it without packing.py importing back from this module's own consumer.
+ITEM_CAP_CHARS = 4_000
 
 __all__ = [
+    "ITEM_CAP_CHARS",
     "MAX_SUMMARY_OPTIONS",
     "SUMMARY_OPTION_CAP_CHARS",
     "SUMMARY_TEXT_CAP_CHARS",
@@ -93,6 +100,12 @@ class TokenBudget(BaseModel):
 
     max_input_tokens: int = Field(gt=0, description="The slot's window, times a manifest fraction.")
     output_reserve: int = Field(ge=0, description="Tokens reserved for the response.")
+    item_cap_chars: int = Field(
+        default=ITEM_CAP_CHARS,
+        gt=0,
+        description="Per-item character cap (manifest [memory] item_cap_chars); oversized items "
+        "become one-line references instead of being inlined.",
+    )
 
 
 class TriggerEvent(BaseModel):

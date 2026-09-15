@@ -20,14 +20,15 @@ See Also:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from builders.memory import make_episode, make_handoff, make_note, make_pin
+from builders.memory import make_bee_bread_entry, make_episode, make_handoff, make_note, make_pin
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.sqlite import connect
-from hivemind.memory.errors import HandoffNotFoundError
+from hivemind.memory.errors import BeeBreadEntryNotFoundError, ClearanceError, HandoffNotFoundError
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR
 from hivemind.memory.store.memory import InMemoryMemoryStore
 from hivemind.memory.store.protocol import MemoryStore
@@ -40,7 +41,7 @@ from hivemind.pheromone import (
     TrailQuery,
 )
 from waggle.clock import FakeClock
-from waggle.ids import new_event_id, new_hive_id, new_node_id
+from waggle.ids import new_event_id, new_hive_id, new_node_id, new_task_id
 
 _STORE_KINDS = ("memory", "sqlite")
 
@@ -187,6 +188,17 @@ async def test_add_note_evicts_the_oldest_past_the_per_author_bound(
     assert notes[-1].id in {note.id for note in results}
 
 
+async def test_remove_note_removes_it_and_is_idempotent(store_and_trail: _StoreAndTrail) -> None:
+    clock = FakeClock()
+    note = make_note(clock=clock)
+    await store_and_trail.store.add_note(note, _make_memory_event(clock, note.id, "memory.note"))
+
+    await store_and_trail.store.remove_note(note.id)
+    await store_and_trail.store.remove_note(note.id)  # Removing an unknown id is a no-op.
+
+    assert await store_and_trail.store.list_notes(None, HoneyClearance.C2, 10) == ()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Handoffs
 # ──────────────────────────────────────────────────────────────────────────────
@@ -296,3 +308,97 @@ async def test_purge_episodes_before_removes_older_ones_and_returns_the_count(
     assert removed == 1
     remaining = await store_and_trail.store.list_episodes(None, HoneyClearance.C2, 10)
     assert [episode.id for episode in remaining] == [recent.id]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Bee Bread entries (roadmap step 4.2)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_add_bee_bread_entry_then_get_by_id_returns_it(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    entry = make_bee_bread_entry(clock=clock)
+
+    await store_and_trail.store.add_bee_bread_entry(
+        entry, _make_memory_event(clock, entry.id, "memory.bee_bread_deposited")
+    )
+    result = await store_and_trail.store.get_bee_bread_entry(entry.id, HoneyClearance.C1)
+
+    assert result == entry
+
+
+async def test_add_bee_bread_entry_records_its_event_on_the_trail(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    entry = make_bee_bread_entry(clock=clock)
+    event = _make_memory_event(clock, entry.id, "memory.bee_bread_deposited")
+
+    await store_and_trail.store.add_bee_bread_entry(entry, event)
+
+    assert await store_and_trail.trail.query(TrailQuery(subject_id=entry.id)) == (event,)
+
+
+async def test_get_bee_bread_entry_unknown_id_raises_not_found(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+
+    with pytest.raises(BeeBreadEntryNotFoundError):
+        await store_and_trail.store.get_bee_bread_entry(new_event_id(clock), HoneyClearance.C2)
+
+
+async def test_get_bee_bread_entry_refuses_one_above_the_readers_allowance(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    entry = make_bee_bread_entry(clock=clock, clearance=HoneyClearance.C2)
+    await store_and_trail.store.add_bee_bread_entry(
+        entry, _make_memory_event(clock, entry.id, "memory.bee_bread_deposited")
+    )
+
+    with pytest.raises(ClearanceError):
+        await store_and_trail.store.get_bee_bread_entry(entry.id, HoneyClearance.C1)
+
+
+async def test_list_bee_bread_by_task_filters_by_task_and_allowance(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    task_id = new_task_id(clock)
+    mine = make_bee_bread_entry(clock=clock, task_id=task_id, ref_ids=(task_id,))
+    other_task = make_bee_bread_entry(clock=clock)
+    royal_on_mine = make_bee_bread_entry(
+        clock=clock, task_id=task_id, ref_ids=(task_id,), clearance=HoneyClearance.C2
+    )
+    for entry in (mine, other_task, royal_on_mine):
+        await store_and_trail.store.add_bee_bread_entry(
+            entry, _make_memory_event(clock, entry.id, "memory.bee_bread_deposited")
+        )
+
+    results = await store_and_trail.store.list_bee_bread_by_task(task_id, HoneyClearance.C1)
+
+    assert results == (mine,)
+
+
+async def test_list_bee_bread_between_filters_by_time_range(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    old = make_bee_bread_entry(clock=clock)
+    clock.advance(3600)
+    cutoff = clock.now()
+    clock.advance(3600)
+    recent = make_bee_bread_entry(clock=clock)
+    for entry in (old, recent):
+        await store_and_trail.store.add_bee_bread_entry(
+            entry, _make_memory_event(clock, entry.id, "memory.bee_bread_deposited")
+        )
+
+    results = await store_and_trail.store.list_bee_bread_between(
+        cutoff, cutoff + timedelta(hours=1), HoneyClearance.C2
+    )
+
+    assert results == (recent,)

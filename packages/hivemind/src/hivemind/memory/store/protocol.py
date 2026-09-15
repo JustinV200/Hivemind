@@ -6,41 +6,53 @@ memory v0 lives. This module fixes the one seam both implementations
 (`hivemind.memory.store.memory.InMemoryMemoryStore`, `hivemind.memory.store.sqlite.
 SqliteMemoryStore`) must honour: every write takes the `MemoryEvent` to record alongside it and
 commits both together, in the same transaction, exactly the way `hivemind.brood_chamber.store.
-sqlite.SqliteTaskStore` does for tasks (codingrules section 12). `remove_pin` and
-`purge_episodes_before` are this protocol's only two deletion paths named here; `SqliteMemoryStore`
-documents a third (evicting a note past `hivemind.memory.notes.MAX_NOTES_PER_AUTHOR`) as an
-internal duty of `add_note` rather than a separate method, since nothing above the store ever needs
-to trigger it directly.
+sqlite.SqliteTaskStore` does for tasks (codingrules section 12). `remove_pin`, `remove_note`
+(roadmap step 4.2, for `hivemind.memory.demote.demote`) and `purge_episodes_before` are this
+protocol's deletion paths named here; `SqliteMemoryStore` documents a fourth (evicting a note past
+`hivemind.memory.notes.MAX_NOTES_PER_AUTHOR`) as an internal duty of `add_note` rather than a
+separate method, since nothing above the store ever needs to trigger it directly. The four
+`*_bee_bread_*` methods (roadmap step 4.2) are Bee Bread's (the warm memory tier's) own persistence:
+one write, one lookup by id, one by task, one by a time range -- lookup only, no search
+(codingrules section 8.9).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by `hivemind.memory.store.
     memory` and `hivemind.memory.store.sqlite`; used by `hivemind.memory.pins`, `.notes`,
-    `.episodes` and `.checkpoint` (through `hivemind.memory.context.MemoryContext.store`) and by
-    `hivemind.memory.hot_state.summaries.HotStateSources` implementations that also need to read
-    pins and notes. Calls into hivemind.cell (HoneyClearance), hivemind.memory.episodes
-    (EpisodeRecord), hivemind.memory.handoff (Handoff), hivemind.memory.notes (Note),
-    hivemind.memory.pins (Pin), hivemind.pheromone (MemoryEvent) and waggle only.
+    `.episodes`, `.checkpoint`, `.demote` and `.bee_bread` (through `hivemind.memory.context.
+    MemoryContext.store`) and by `hivemind.memory.hot_state.summaries.HotStateSources`
+    implementations that also need to read pins and notes. Calls into hivemind.cell
+    (HoneyClearance), hivemind.memory.episodes (EpisodeRecord), hivemind.memory.handoff (Handoff),
+    hivemind.memory.notes (Note), hivemind.memory.pins (Pin), hivemind.pheromone (MemoryEvent) and
+    waggle only, plus hivemind.memory.bee_bread.entry (BeeBreadEntry) under TYPE_CHECKING (see
+    "Key invariants" for why it is not a real import).
 
 Key invariants:
     - Every mutation method's event commits together with the row it describes, or neither
       commits at all (mirrors codingrules Appendix C rule 3 for the Brood Chamber's own TaskStore).
-    - `list_pins`, `list_notes` and `list_episodes` each take an `allowance` and return only rows
-      whose own `clearance.rank` is at or below it (codingrules section 8.9: clearance filtering).
+    - `list_pins`, `list_notes`, `list_episodes` and every `list_bee_bread_*`/`get_bee_bread_entry`
+      each take an `allowance` and return only rows whose own `clearance.rank` is at or below it
+      (codingrules section 8.9: clearance filtering).
     - `get_handoff` returns the stored clearance alongside the Handoff itself, so a caller (
       `hivemind.memory.checkpoint.read_handoff`) can refuse an over-clearance read without first
       decoding the whole document.
+    - The `BeeBreadEntry` import below is TYPE_CHECKING-only: `hivemind.memory.bee_bread.index`
+      imports `MemoryStore` from this module (also TYPE_CHECKING-only, for the same reason) to
+      type `BeeBread.__init__`, so a real, eager import here would close that cycle.
+      `from __future__ import annotations` already makes every annotation in this module a string
+      at runtime, so this Protocol never needs to resolve the name; only a type checker does.
 
 See Also:
     - .claude/codingrules.md section 12 for the same-transaction rule every implementation follows.
     - .claude/codingrules.md section 8.9 for the clearance-filtering rule every list_* honours.
     - hivemind.memory.store.memory and hivemind.memory.store.sqlite for the two implementations.
+    - hivemind.memory.bee_bread for BeeBreadEntry and BeeBread, this protocol's warm-tier consumer.
     - hivemind.pheromone for MemoryEvent, the event type every write method here takes.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from hivemind.cell import HoneyClearance
 from hivemind.memory.episodes import EpisodeRecord
@@ -50,15 +62,16 @@ from hivemind.memory.pins import Pin
 from hivemind.pheromone import MemoryEvent
 from waggle.ids import EventId, TaskId
 
+if TYPE_CHECKING:
+    # Type-checking only: see the module docstring's "Key invariants" for why a real import here
+    # would be circular (hivemind.memory.bee_bread.index imports MemoryStore from this module).
+    from hivemind.memory.bee_bread.entry import BeeBreadEntry
+
 __all__ = ["MemoryStore"]
 
 
-class MemoryStore(Protocol):
-    """Persist pins, notes, Handoffs and episodes, each mutation atomic with its trail event.
-
-    Implementations (`InMemoryMemoryStore`, `SqliteMemoryStore`) must be safe to call
-    concurrently.
-    """
+class _PinsAndNotesStore(Protocol):
+    """A third of MemoryStore (pins and notes), split out only for codingrules 5.1's class size."""
 
     async def add_pin(self, pin: Pin, event: MemoryEvent) -> None:
         """Insert `pin` and record `event`, atomically.
@@ -120,6 +133,22 @@ class MemoryStore(Protocol):
             At most `limit` matching notes, ordered by `(written_at, id)`.
         """
         ...
+
+    async def remove_note(self, note_id: EventId) -> None:
+        """Remove the note with id `note_id`.
+
+        Idempotent: removing an unknown id is a no-op, not an error. Not accompanied by a trail
+        event, matching `remove_pin`. Called by `hivemind.memory.demote.demote` once a Note has
+        been archived into Bee Bread.
+
+        Args:
+            note_id: The note to remove.
+        """
+        ...
+
+
+class _HandoffsAndEpisodesStore(Protocol):
+    """A third of MemoryStore (Handoffs, episodes), split out for codingrules 5.1's class size."""
 
     async def put_handoff(
         self, event_id: EventId, handoff: Handoff, task_id: TaskId | None, event: MemoryEvent
@@ -193,3 +222,76 @@ class MemoryStore(Protocol):
             How many episodes were removed.
         """
         ...
+
+
+class _BeeBreadStore(Protocol):
+    """A third of MemoryStore (Bee Bread, the warm tier), split out for codingrules 5.1's size."""
+
+    async def add_bee_bread_entry(self, entry: BeeBreadEntry, event: MemoryEvent) -> None:
+        """Insert `entry` and record `event`, atomically.
+
+        Args:
+            entry: The Bee Bread entry to add; its id must be new to the store.
+            event: The accompanying `memory.bee_bread_deposited` trail event.
+
+        Raises:
+            hivemind.common.errors.ConflictError: `entry.id` already exists; nothing is written.
+        """
+        ...
+
+    async def get_bee_bread_entry(
+        self, entry_id: EventId, allowance: HoneyClearance
+    ) -> BeeBreadEntry:
+        """Return the entry with id `entry_id`.
+
+        Args:
+            entry_id: The entry's own id.
+            allowance: The reader's clearance ceiling.
+
+        Returns:
+            The matching BeeBreadEntry.
+
+        Raises:
+            hivemind.memory.errors.BeeBreadEntryNotFoundError: No entry with `entry_id` exists.
+            hivemind.memory.errors.ClearanceError: The entry's clearance is above `allowance`.
+        """
+        ...
+
+    async def list_bee_bread_by_task(
+        self, task_id: TaskId, allowance: HoneyClearance
+    ) -> tuple[BeeBreadEntry, ...]:
+        """Return every entry concerning `task_id`, within `allowance`, oldest first.
+
+        Args:
+            task_id: The task to look up entries for.
+            allowance: The reader's clearance ceiling.
+
+        Returns:
+            Matching entries, ordered by `(created_at, id)`.
+        """
+        ...
+
+    async def list_bee_bread_between(
+        self, start: datetime, end: datetime, allowance: HoneyClearance
+    ) -> tuple[BeeBreadEntry, ...]:
+        """Return every entry written in `[start, end]`, within `allowance`, oldest first.
+
+        Args:
+            start: Inclusive lower bound.
+            end: Inclusive upper bound.
+            allowance: The reader's clearance ceiling.
+
+        Returns:
+            Matching entries, ordered by `(created_at, id)`.
+        """
+        ...
+
+
+class MemoryStore(_PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, Protocol):
+    """Persist pins, notes, Handoffs, episodes and Bee Bread entries, atomic with their events.
+
+    Composed from the three private Protocols above, split only to keep each one under
+    codingrules 5.1's class-length limit; `MemoryStore` itself is the whole contract every caller
+    and implementation (`InMemoryMemoryStore`, `SqliteMemoryStore`) actually names.
+    Implementations must be safe to call concurrently.
+    """

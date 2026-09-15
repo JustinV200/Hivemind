@@ -1,6 +1,6 @@
 """Provide InMemoryMemoryStore, an in-process MemoryStore for tests and demos.
 
-An in-memory memory store is four plain Python dicts guarded by a lock: no SQL, no file, gone when
+An in-memory memory store is five plain Python dicts guarded by a lock: no SQL, no file, gone when
 the process exits. It exists so a unit test or a demo path can exercise everything above the store
 (codingrules 14.4: "fakes live in src/ beside the Protocol") without a SQLite file. It implements
 `hivemind.memory.store.protocol.MemoryStore` exactly like `hivemind.memory.store.sqlite.
@@ -9,8 +9,8 @@ SqliteMemoryStore` does, which is what the contract suite
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Used by tests and demos. Calls into
-    hivemind.cell (HoneyClearance), hivemind.memory (episodes, errors, handoff, notes, pins),
-    hivemind.pheromone (PheromoneTrail, MemoryEvent) and waggle only.
+    hivemind.cell (HoneyClearance), hivemind.memory (bee_bread, episodes, errors, handoff, notes,
+    pins), hivemind.pheromone (PheromoneTrail, MemoryEvent) and waggle only.
 
 Key invariants:
     - Every mutation records its event on `self._trail` before assigning the dict's new value, so
@@ -34,8 +34,9 @@ import asyncio
 from datetime import datetime
 
 from hivemind.cell import HoneyClearance
+from hivemind.memory.bee_bread.entry import BeeBreadEntry
 from hivemind.memory.episodes import EpisodeRecord
-from hivemind.memory.errors import HandoffNotFoundError
+from hivemind.memory.errors import BeeBreadEntryNotFoundError, ClearanceError, HandoffNotFoundError
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR, Note
 from hivemind.memory.pins import Pin
@@ -46,7 +47,7 @@ __all__ = ["InMemoryMemoryStore"]
 
 
 class InMemoryMemoryStore:
-    """An in-process MemoryStore: four dicts (pins, notes, handoffs, episodes) behind one lock."""
+    """An in-process MemoryStore: 5 dicts (pins, notes, handoffs, episodes, bee_bread), 1 lock."""
 
     def __init__(self, trail: PheromoneTrail) -> None:
         """Create an empty store over `trail`.
@@ -59,7 +60,8 @@ class InMemoryMemoryStore:
         self._notes: dict[str, Note] = {}
         self._handoffs: dict[str, tuple[Handoff, TaskId | None]] = {}
         self._episodes: dict[str, EpisodeRecord] = {}
-        # Guards all four dicts together, matching MemoryTaskStore's own single-lock shape.
+        self._bee_bread: dict[str, BeeBreadEntry] = {}
+        # Guards all five dicts together, matching MemoryTaskStore's own single-lock shape.
         self._lock = asyncio.Lock()
 
     async def add_pin(self, pin: Pin, event: MemoryEvent) -> None:
@@ -161,3 +163,54 @@ class InMemoryMemoryStore:
             for rid in stale_ids:
                 del self._episodes[rid]
             return len(stale_ids)
+
+    async def remove_note(self, note_id: EventId) -> None:
+        """Remove the note with id `note_id`; see `MemoryStore.remove_note`."""
+        async with self._lock:
+            self._notes.pop(note_id, None)  # Idempotent: an unknown id is a no-op, not an error.
+
+    async def add_bee_bread_entry(self, entry: BeeBreadEntry, event: MemoryEvent) -> None:
+        """Insert `entry` and record `event`; see `MemoryStore.add_bee_bread_entry`."""
+        async with self._lock:
+            await self._trail.record(event)
+            self._bee_bread[entry.id] = entry
+
+    async def get_bee_bread_entry(
+        self, entry_id: EventId, allowance: HoneyClearance
+    ) -> BeeBreadEntry:
+        """Return the entry with id `entry_id`; see `MemoryStore.get_bee_bread_entry`."""
+        async with self._lock:
+            entry = self._bee_bread.get(entry_id)
+        if entry is None:
+            raise BeeBreadEntryNotFoundError(entry_id)
+        if entry.clearance.rank > allowance.rank:
+            raise ClearanceError(entry.clearance, allowance)
+        return entry
+
+    async def list_bee_bread_by_task(
+        self, task_id: TaskId, allowance: HoneyClearance
+    ) -> tuple[BeeBreadEntry, ...]:
+        """Return entries for `task_id`; see `MemoryStore.list_bee_bread_by_task`."""
+        async with self._lock:
+            entries = list(self._bee_bread.values())
+        matches = [
+            entry
+            for entry in entries
+            if entry.task_id == task_id and entry.clearance.rank <= allowance.rank
+        ]
+        matches.sort(key=lambda entry: (entry.created_at, entry.id))
+        return tuple(matches)
+
+    async def list_bee_bread_between(
+        self, start: datetime, end: datetime, allowance: HoneyClearance
+    ) -> tuple[BeeBreadEntry, ...]:
+        """Return entries in `[start, end]`; see `MemoryStore.list_bee_bread_between`."""
+        async with self._lock:
+            entries = list(self._bee_bread.values())
+        matches = [
+            entry
+            for entry in entries
+            if start <= entry.created_at <= end and entry.clearance.rank <= allowance.rank
+        ]
+        matches.sort(key=lambda entry: (entry.created_at, entry.id))
+        return tuple(matches)

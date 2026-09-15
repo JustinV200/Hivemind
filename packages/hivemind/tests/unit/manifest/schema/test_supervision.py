@@ -43,7 +43,13 @@ def test_memory_section_has_sensible_defaults() -> None:
 
     assert section.budget_fraction == 0.6
     assert section.handoff_threshold == 0.66
+    assert section.hot_window_s == 4.0 * 3600.0
     assert section.pins == ()
+
+
+def test_memory_section_rejects_a_non_positive_hot_window() -> None:
+    with pytest.raises(ValidationError):
+        MemorySection(hot_window_s=0)
 
 
 @pytest.mark.parametrize("fraction", [0.0, -0.1, 1.1])

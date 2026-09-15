@@ -20,6 +20,7 @@ from builders.memory import make_handoff
 from builders.tasks import make_task
 
 from hivemind.cell import HoneyClearance
+from hivemind.memory.bee_bread.entry import BeeBreadEntryKind
 from hivemind.memory.checkpoint import read_handoff, write_checkpoint
 from hivemind.memory.context import MemoryContext, MemoryIdentity
 from hivemind.memory.errors import ClearanceError, HandoffNotFoundError
@@ -111,3 +112,50 @@ async def test_read_handoff_unknown_ref_raises_handoff_not_found() -> None:
     store: MemoryStore = context_and_trail.ctx.store
     with pytest.raises(HandoffNotFoundError):
         await read_handoff(store, never_written_ref, HoneyClearance.C2)
+
+
+async def test_write_checkpoint_deposits_a_handoff_ref_entry_into_bee_bread() -> None:
+    clock = FakeClock()
+    context_and_trail = _make_context(clock)
+    handoff = make_handoff(clearance=HoneyClearance.C1)
+    task = make_task(clock=clock)
+
+    ref = await write_checkpoint(handoff, task.id, context_and_trail.ctx)
+
+    entries = await context_and_trail.ctx.store.list_bee_bread_by_task(task.id, HoneyClearance.C1)
+    assert len(entries) == 1
+    assert entries[0].kind == BeeBreadEntryKind.HANDOFF
+    assert entries[0].ref_ids == (ref.event_id,)
+
+
+async def test_write_checkpoint_with_a_transcript_deposits_it_in_full() -> None:
+    clock = FakeClock()
+    context_and_trail = _make_context(clock)
+    handoff = make_handoff(clearance=HoneyClearance.C1)
+
+    ref = await write_checkpoint(
+        handoff, None, context_and_trail.ctx, transcript="the whole episode transcript"
+    )
+
+    entries = await context_and_trail.ctx.store.list_bee_bread_between(
+        clock.now(), clock.now(), HoneyClearance.C1
+    )
+    transcripts = [entry for entry in entries if entry.kind == BeeBreadEntryKind.TRANSCRIPT]
+    assert len(transcripts) == 1
+    assert transcripts[0].payload == "the whole episode transcript"
+    # The Handoff-indexing entry is deposited regardless; only the transcript is conditional.
+    handoff_entries = [entry for entry in entries if entry.kind == BeeBreadEntryKind.HANDOFF]
+    assert handoff_entries[0].ref_ids == (ref.event_id,)
+
+
+async def test_write_checkpoint_without_a_transcript_deposits_no_transcript_entry() -> None:
+    clock = FakeClock()
+    context_and_trail = _make_context(clock)
+    handoff = make_handoff()
+
+    await write_checkpoint(handoff, None, context_and_trail.ctx)
+
+    entries = await context_and_trail.ctx.store.list_bee_bread_between(
+        clock.now(), clock.now(), HoneyClearance.C2
+    )
+    assert not any(entry.kind == BeeBreadEntryKind.TRANSCRIPT for entry in entries)

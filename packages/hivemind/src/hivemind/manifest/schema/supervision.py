@@ -68,6 +68,11 @@ DEFAULT_EXPIRY_S = 604_800  # Seven days: a pin or a caution that outlives a wee
 DEFAULT_EPISODE_RETENTION_S = (
     604_800  # Seven days of episode records kept for the Observation Hive.
 )
+# Four hours: roadmap step 4.2's demotion window. An item unlinked to any active task and past no
+# Alarm resolution still earns its place in hot state for a working session or two; past this it
+# is almost certainly stale and the House Bee sweep (roadmap step 4.3) moves it to Bee Bread, where
+# it is still findable by id, time or task -- nothing is lost, only no longer always-loaded.
+DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0
 
 __all__ = [
     "DEFAULT_ALARM_ATTEMPT_LIMIT",
@@ -78,6 +83,7 @@ __all__ = [
     "DEFAULT_HANDOFF_THRESHOLD",
     "DEFAULT_HEARTBEAT_INTERVAL_S",
     "DEFAULT_HEARTBEAT_MISS_LIMIT",
+    "DEFAULT_HOT_WINDOW_S",
     "DEFAULT_ITEM_CAP_CHARS",
     "DEFAULT_MAX_OFFLINE_S",
     "DEFAULT_OUTPUT_RESERVE_TOKENS",
@@ -166,6 +172,12 @@ class MemorySection(BaseModel):
         default=DEFAULT_EPISODE_RETENTION_S,
         gt=0,
         description="Seconds an EpisodeRecord is kept before it may be purged.",
+    )
+    hot_window_s: float = Field(
+        default=DEFAULT_HOT_WINDOW_S,
+        gt=0,
+        description="Seconds an item may sit in hot state, unlinked to an active task and past no "
+        "Alarm resolution, before the House Bee sweep ages it out to Bee Bread.",
     )
     pins: tuple[str, ...] = Field(
         default=(),

@@ -11,6 +11,9 @@ silent downgrade. `HandoffNotFoundError` covers a lookup by the `memory.checkpoi
 that names no stored Handoff. `NoteTooLongError` is raised directly by `hivemind.memory.notes.Note`
 itself (not wrapped in a `pydantic.ValidationError`; see that module for why), so a bee's
 note-writing tool catches one typed error regardless of which check fires.
+`BeeBreadEntryNotFoundError` (roadmap step 4.2) covers a Bee Bread (the warm memory tier) lookup by
+id that names no stored entry, raised by `hivemind.memory.store.protocol.MemoryStore.
+get_bee_bread_entry`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by hivemind.memory.checkpoint
@@ -41,6 +44,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.common.errors import HiveMindError, NotFoundError, PermissionDeniedError
 
 __all__ = [
+    "BeeBreadEntryNotFoundError",
     "ClearanceError",
     "HandoffNotFoundError",
     "MemoryTierError",
@@ -99,6 +103,21 @@ class HandoffNotFoundError(NotFoundError):
         """
         super().__init__(f"No Handoff with event id {event_id!r} exists in the memory tables.")
         self.event_id = event_id
+
+
+class BeeBreadEntryNotFoundError(NotFoundError):
+    """Raise when a lookup by id finds no matching BeeBreadEntry in the warm memory tier."""
+
+    code: ClassVar[str] = "hivemind.memory.bee_bread_entry_not_found"
+
+    def __init__(self, entry_id: str) -> None:
+        """Build the error for a missing Bee Bread entry.
+
+        Args:
+            entry_id: The BeeBreadEntry id that was looked up and not found.
+        """
+        super().__init__(f"No BeeBreadEntry with id {entry_id!r} exists in the memory tables.")
+        self.entry_id = entry_id
 
 
 class NoteTooLongError(MemoryTierError):
