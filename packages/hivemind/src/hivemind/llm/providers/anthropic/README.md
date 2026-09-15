@@ -73,6 +73,19 @@ ordering regardless of which provider answered. A provider configured with `capa
 streaming = False` still implements `stream()`, by yielding the whole response as one chunk from
 a single `complete()` call.
 
+## Hosted headroom (roadmap step 4.7a)
+
+`AnthropicClient.create` calls `messages.with_raw_response.create` (the SDK's own "accessing raw
+response data" recipe) instead of plain `messages.create`, so it can hand `provider.py` the
+response's own headers alongside the parsed `Message`. `mapping.rate_limit_from_headers` reads
+`anthropic-ratelimit-requests-remaining`, `anthropic-ratelimit-tokens-remaining` and their
+`-reset` siblings (RFC 3339 timestamps) into an `LLMResponse.rate_limit`
+(`hivemind.llm.models.RateLimitSnapshot`), or `None` when neither remaining-count header was
+sent. A 429's `retry_after_s` (already parsed, see "Error mapping" below) feeds the Fanner's own
+`ForageMap.throttle` instead: that source's headroom reads as zero on the Forage map until the
+window passes, recorded as one `llm.throttled` trail event, with no code in this package aware
+that happens -- see `hivemind.llm.fanner.lane.FannerLane`.
+
 ## Error mapping
 
 `client.py`'s `map_error` maps every `anthropic.APIError` to a typed `hivemind.llm.errors.

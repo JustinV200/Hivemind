@@ -57,10 +57,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 
 from hivemind.forage.map import ForageMap
 from hivemind.forage.models import ModelSource
 from hivemind.forage.tempo import Tempo
+from hivemind.llm.errors import RateLimitedError
 from hivemind.llm.fanner.limiter import ProviderRateLimiter, RateLimit, estimate_tokens
 from hivemind.llm.fanner.recorder import LlmEventRecorder
 from hivemind.llm.fanner.seats import SeatMeter
@@ -74,12 +76,17 @@ DEFAULT_SEATS = 1  # A provider absent from `FannerDeps.seats`: one request at a
 # safe assumption (roadmap step 3.12a's own constant name and value).
 LLM_CALL_KIND = "llm.call"  # The LlmEvent kind FannerLane records for a completed call.
 LLM_SPILL_KIND = "llm.spill"  # The LlmEvent kind FannerLane records for a spill.
+LLM_THROTTLED_KIND = "llm.throttled"  # The LlmEvent kind FannerLane records for a throttle (4.7a).
 _LATENCY_EPSILON_S = 0.001  # Floors a near-zero measured latency so tokens/s never divides by 0.
+DEFAULT_THROTTLE_S = 60.0  # A provider's 429 with no retry-after hint: rate limits are commonly
+# per-minute, so a minute is the least-surprising default wait (roadmap step 4.7a).
 
 __all__ = [
     "DEFAULT_SEATS",
+    "DEFAULT_THROTTLE_S",
     "LLM_CALL_KIND",
     "LLM_SPILL_KIND",
+    "LLM_THROTTLED_KIND",
     "Fanner",
     "FannerDeps",
     "FannerLane",
@@ -233,13 +240,18 @@ class FannerLane:
 
         Raises:
             Whatever `current.provider.complete` raises, unchanged: the Fanner meters and spills,
-            it never retries and never converts a provider error (that is a ladder's job).
+            it never retries and never converts a provider error (that is a ladder's job) -- with
+            one addition (roadmap step 4.7a): a `RateLimitedError` first throttles the source that
+            raised it (`ForageMap.throttle`) and records `llm.throttled`, then moves to the next
+            binding in the chain if one exists, exactly like any other spill; with no binding left
+            it still re-raises, since the Fanner still never invents a call.
         """
         current = bound
         while True:
             source = self._fanner.deps.map.find(current.provider.name, current.model)
-            # A source's grade or loaded state is known without metering anything, so this check
-            # runs first and never touches a seat or the rate limiter for a binding it rejects.
+            # A source's grade, loaded state or throttle is known without metering anything, so
+            # this check runs first and never touches a seat or the rate limiter for a binding it
+            # rejects (hivemind.llm.fanner.spill.static_spill_reason checks THROTTLED first).
             static_reason = static_spill_reason(source, self._tempo)
             if static_reason is not None and current.fallback is not None:
                 await self._spill(current, current.fallback, static_reason)
@@ -251,7 +263,16 @@ class FannerLane:
                 # _meter already released the seat and recorded the spill before returning None.
                 current = current.fallback if current.fallback is not None else current
                 continue
-            return await self._call(attempt, request)
+            try:
+                return await self._call(attempt, request)
+            except RateLimitedError as exc:
+                # The provider just said "wait": mask its headroom and record the discovery
+                # before deciding what to do next, whether or not a fallback exists to absorb it.
+                await self._throttle(current, source, exc.retry_after_s)
+                if current.fallback is None:
+                    raise  # Nowhere to spill to; the caller sees the same error it would have.
+                current = current.fallback
+                continue
 
     async def _meter(
         self, current: BoundModel, request: LLMRequest, source: ModelSource | None
@@ -301,12 +322,28 @@ class FannerLane:
     async def _record_success(
         self, attempt: _Attempt, response: LLMResponse, latency_s: float
     ) -> None:
-        """Update the Forage map (when the source is known) and record the llm.call event."""
+        """Update the Forage map (when the source is known) and record the llm.call event.
+
+        Roadmap step 4.7a: `response.rate_limit`, when the provider reported one, both corrects
+        `attempt.rate_limiter`'s own guess (`ProviderRateLimiter.observe_snapshot`) and is written
+        onto the map's Abundance alongside the free-seat figure, so a hosted source's real
+        pressure reaches routing on the very next call; a `None` snapshot (every local server)
+        leaves the limiter untouched and writes `None` onto both of the map's rate fields, never
+        an invented number.
+        """
+        snapshot = response.rate_limit
+        if snapshot is not None:
+            attempt.rate_limiter.observe_snapshot(snapshot)
         if attempt.source is not None:
             tokens_per_s = response.usage.output_tokens / max(latency_s, _LATENCY_EPSILON_S)
             await self._fanner.deps.map.observe(attempt.source.source_id, latency_s, tokens_per_s)
             free_seats = max(attempt.seat_meter.capacity - attempt.seat_meter.in_flight, 0)
-            await self._fanner.deps.map.set_abundance(attempt.source.source_id, free_seats)
+            await self._fanner.deps.map.set_abundance(
+                attempt.source.source_id,
+                free_seats,
+                requests_per_minute_left=snapshot.requests_remaining if snapshot else None,
+                tokens_per_minute_left=snapshot.tokens_remaining if snapshot else None,
+            )
         await self._fanner.deps.recorder.record(
             kind=LLM_CALL_KIND,
             subject_id=new_event_id(self._fanner.deps.clock),
@@ -319,6 +356,29 @@ class FannerLane:
             kind=LLM_SPILL_KIND,
             subject_id=new_event_id(self._fanner.deps.clock),
             payload=_spill_payload(current, target, reason),
+        )
+
+    async def _throttle(
+        self, current: BoundModel, source: ModelSource | None, retry_after_s: float | None
+    ) -> None:
+        """Mask `source`'s headroom at zero and record llm.throttled, after a RateLimitedError.
+
+        Args:
+            current: The binding whose provider just rate-limited this call.
+            source: The Forage map entry `current` resolved to, or None when the map has never
+                heard of this (provider, model) pair -- there is then nothing on the map to mask,
+                but the occurrence is still recorded so the trail shows it happened.
+            retry_after_s: The provider's own wait hint (`RateLimitedError.retry_after_s`), or
+                `DEFAULT_THROTTLE_S` when it gave none.
+        """
+        wait_s = retry_after_s if retry_after_s is not None else DEFAULT_THROTTLE_S
+        if source is not None:
+            until = self._fanner.deps.clock.now() + timedelta(seconds=wait_s)
+            await self._fanner.deps.map.throttle(source.source_id, until)
+        await self._fanner.deps.recorder.record(
+            kind=LLM_THROTTLED_KIND,
+            subject_id=new_event_id(self._fanner.deps.clock),
+            payload=_throttle_payload(current, source, wait_s),
         )
 
 
@@ -348,4 +408,14 @@ def _spill_payload(current: BoundModel, target: BoundModel, reason: SpillReason)
         "from_binding": current.binding,
         "to_binding": target.binding,
         "reason": reason.value,
+    }
+
+
+def _throttle_payload(current: BoundModel, source: ModelSource | None, wait_s: float) -> JsonObject:
+    """Build the llm.throttled payload: the source and the wait (roadmap step 4.7a's own words)."""
+    return {
+        "slot": current.slot.value,
+        "provider": current.provider.name,
+        "source_id": source.source_id if source is not None else None,
+        "wait_s": wait_s,
     }

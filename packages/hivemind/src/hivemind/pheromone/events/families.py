@@ -76,7 +76,8 @@ Vocabulary (family -> kind -> when it is recorded):
     llm: call (one model call completed; carries the normalised Usage, slot and provider);
         rebound (a call was retried on the same binding after a transient failure); fallback (a
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
-        shared Forage, one of the three cases in codingrules 8.10).
+        shared Forage, one of the three cases in codingrules 8.10); throttled (a hosted source
+        was rate-limited and its headroom masked to zero on the Forage map, roadmap step 4.7a).
     worker: spawned (a Warden started a sub-bee, roadmap step 3.19); started (SPAWNED -> RUNNING,
         its first TaskAssign arrived); handing_off (RUNNING/PAUSED -> HANDING_OFF, writing a
         Handoff before a reset, rebind, takeover or stop); paused (RUNNING -> PAUSED, TaskPause);

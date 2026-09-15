@@ -2,19 +2,22 @@
 
 The Fanner (`hivemind.llm.fanner.lane.FannerLane`, roadmap step 3.12a) is the seat meter every
 model call passes through, and codingrules section 12 requires that every state-changing action --
-a completed call, a spill from one binding to the next -- write a Pheromone Trail event (the Hive's
-append-only audit log) before it counts as done. This module is that seam: `LlmEventRecorder` is a
-one-method Protocol a lane calls with a raw `(kind, subject_id, payload)` triple, so `FannerLane`
-never constructs an `LlmEvent` (`hivemind.pheromone.events.families`) directly and never knows
-whether anything is listening. `TrailLlmEventRecorder` is the implementation that actually builds
-one; `NullLlmEventRecorder` is the default that discards every occurrence, mirroring
-`hivemind.llm.ladders.observer.NullLadderObserver`'s own shape.
+a completed call, a spill from one binding to the next, a source masked after a rate limit
+(`llm.throttled`, roadmap step 4.7a) -- write a Pheromone Trail event (the Hive's append-only audit
+log) before it counts as done. This module is that seam: `LlmEventRecorder` is a one-method
+Protocol a lane calls with a raw `(kind, subject_id, payload)` triple, so `FannerLane` never
+constructs an `LlmEvent` (`hivemind.pheromone.events.families`) directly and never knows whether
+anything is listening -- a fourth occurrence kind is nothing more than a new `kind` string passed
+to the same `record` call, never a change to this module. `TrailLlmEventRecorder` is the
+implementation that actually builds one; `NullLlmEventRecorder` is the default that discards every
+occurrence, mirroring `hivemind.llm.ladders.observer.NullLadderObserver`'s own shape.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.fanner`. Called by
-    `hivemind.llm.fanner.lane.FannerLane` once per completed call (`llm.call`) and once per spill
-    (`llm.spill`). Calls into `hivemind.llm.models` (for `JsonObject`), `hivemind.pheromone` (for
-    `LlmEvent`, `LlmUsage` and `PheromoneTrail`) and `waggle` only.
+    `hivemind.llm.fanner.lane.FannerLane` once per completed call (`llm.call`), once per spill
+    (`llm.spill`) and once per throttle (`llm.throttled`). Calls into `hivemind.llm.models` (for
+    `JsonObject`), `hivemind.pheromone` (for `LlmEvent`, `LlmUsage` and `PheromoneTrail`) and
+    `waggle` only.
 
 Key invariants:
     - `LlmEvent` fixes `slot`, `provider` and `usage` as typed fields, not payload entries

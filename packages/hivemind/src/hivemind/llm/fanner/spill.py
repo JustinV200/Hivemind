@@ -1,9 +1,11 @@
 """Define SpillReason and the pure checks FannerLane.complete uses to decide whether to spill.
 
 Spill-over (codingrules section 8.10) is the Fanner moving a call from its current binding to the
-next one in `hivemind.llm.slots.BoundModel.fallback`, in exactly three cases: the current source's
-grade is below the calling tempo's floor, the model it names is not loaded there, or queueing for
-its seat has already eaten too much of the tempo's latency budget. This module holds the pure,
+next one in `hivemind.llm.slots.BoundModel.fallback`. Codingrules names three cases -- the current
+source's grade is below the calling tempo's floor, the model it names is not loaded there, or
+queueing for its seat has already eaten too much of the tempo's latency budget -- and roadmap step
+4.7a adds a fourth, checked first: the source is currently throttled, after a hosted provider
+rate-limited a call on it (`hivemind.forage.map.ForageMap.throttle`). This module holds the pure,
 synchronous half of that decision -- given a source (or none) and a tempo, which reason (if any)
 applies -- so `hivemind.llm.fanner.lane.FannerLane.complete` reads as a short walk of these checks
 rather than inlining the arithmetic. Nothing here touches a seat, a rate limiter or the trail: it
@@ -16,20 +18,23 @@ Fits into the Hive:
 
 Key invariants:
     - An unknown source (`source is None`, meaning `hivemind.forage.map.ForageMap.find` found
-      nothing for this binding's provider and model) has no grade or abundance to judge:
-      `static_spill_reason` never returns `GRADE_BELOW_FLOOR` or `MODEL_NOT_LOADED` for one, only
-      `None` -- an unknown source is still metered by the lane, just never spilled for either
-      reason (roadmap step 3.12a).
+      nothing for this binding's provider and model) has no grade, abundance or throttle to judge:
+      `static_spill_reason` never returns anything but `None` for one -- an unknown source is
+      still metered by the lane, just never spilled for any reason (roadmap step 3.12a).
     - "Loaded" is not a field `hivemind.forage.models.sources.ModelSourceSpec` carries (flagged in
       this dispatch's report): `static_spill_reason` reads a source offering zero seats
       (`spec.seats == 0`) as "not serving this model right now", the one meaning `seats` already
       supports without a new manifest field.
+    - `THROTTLED` is checked ahead of grade and loaded state: a source `ForageMap.throttle` just
+      masked is never also judged on a stale grade or seat figure the mask itself zeroed, and a
+      caller reading the reason never has to guess which one "really" applies when both would fire.
     - `queue_wait_exceeded` returns False whenever `tempo.latency_budget_s` is None: with no
       budget there is nothing to measure a queue wait against, so this reason never fires for an
       unbudgeted caller.
 
 See Also:
-    - .claude/codingrules.md section 8.10 for the three spill-over cases this module implements.
+    - .claude/codingrules.md section 8.10 for the three original spill-over cases this module
+      implements; roadmap step 4.7a's own text for the fourth, `THROTTLED`.
     - docs/adr/0015-forage-map-seats-footprints-and-the-fanner.md for the map/Fanner split this
       module's `ModelSource | None` parameter reflects.
     - hivemind.llm.fanner.lane for FannerLane, this module's one caller.
@@ -55,6 +60,7 @@ class SpillReason(Enum):
     GRADE_BELOW_FLOOR = "GRADE_BELOW_FLOOR"  # The source's grade is below the tempo's floor.
     MODEL_NOT_LOADED = "MODEL_NOT_LOADED"  # The source offers zero seats for this model.
     QUEUE_WAIT_EXCEEDED = "QUEUE_WAIT_EXCEEDED"  # Seat queueing ate too much of the latency budget.
+    THROTTLED = "THROTTLED"  # The source is masked at zero headroom (ForageMap.throttle, 4.7a).
 
 
 def static_spill_reason(source: ModelSource | None, tempo: Tempo) -> SpillReason | None:
@@ -66,13 +72,18 @@ def static_spill_reason(source: ModelSource | None, tempo: Tempo) -> SpillReason
         tempo: The calling lane's speed-against-accuracy setting.
 
     Returns:
-        `GRADE_BELOW_FLOOR` or `MODEL_NOT_LOADED` when `source` is known and fails that check;
-        `None` when `source` is known and clears both, or when `source` is `None` (an unknown
-        source is never spilled for either reason -- see the module docstring's "Key invariants").
+        `THROTTLED`, `GRADE_BELOW_FLOOR` or `MODEL_NOT_LOADED` when `source` is known and fails
+        that check, `THROTTLED` taking priority over the other two (see the module docstring's
+        "Key invariants"); `None` when `source` is known and clears every check, or when `source`
+        is `None` (an unknown source is never spilled for any reason).
     """
     if source is None:
-        # Nothing to judge a grade or a loaded state against; the caller still meters this call.
+        # Nothing to judge a grade, a loaded state or a throttle against; still metered, though.
         return None
+    if source.abundance.throttled_until is not None:
+        # ForageMap already resolved an expired throttle before handing this source back
+        # (ForageMap._effective), so a non-None value here means the mask is still in force.
+        return SpillReason.THROTTLED
     if source.spec.grade < grade_floor(tempo.accuracy):
         return SpillReason.GRADE_BELOW_FLOOR
     if source.spec.seats == _UNLOADED_SEATS:

@@ -39,6 +39,8 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import datetime
 from typing import cast
 
 import anthropic.types as at
@@ -55,6 +57,7 @@ from hivemind.llm.models import (
     LLMRequest,
     LLMResponse,
     Message,
+    RateLimitSnapshot,
     StopReason,
     TextPart,
     ToolCall,
@@ -88,7 +91,17 @@ _STOP_REASON_WIRE: dict[str, StopReason] = {
 MISSING_MODEL_STATUS_CODE = 400  # request.model was None; the call gate must stamp one first.
 UNSUPPORTED_CONTENT_STATUS_CODE = 400  # An ImagePart reached a provider with vision=False.
 
-__all__ = ["from_message", "to_count_params", "to_create_params"]
+# The Anthropic API's own rate-limit response headers (roadmap step 4.7a), verified against the
+# installed 1.4.0 SDK: the SDK itself never parses these into typed fields (only the separate
+# organization-level `rate_limits` resource gets that treatment), so their names come from
+# Anthropic's own published API docs, not from SDK source -- the same way this adapter already
+# reads `retry-after` directly (`client.py`'s `_retry_after_seconds`).
+_REQUESTS_REMAINING_HEADER = "anthropic-ratelimit-requests-remaining"
+_TOKENS_REMAINING_HEADER = "anthropic-ratelimit-tokens-remaining"
+_REQUESTS_RESET_HEADER = "anthropic-ratelimit-requests-reset"
+_TOKENS_RESET_HEADER = "anthropic-ratelimit-tokens-reset"
+
+__all__ = ["from_message", "rate_limit_from_headers", "to_count_params", "to_create_params"]
 
 
 def to_create_params(
@@ -164,13 +177,18 @@ def to_count_params(
     return params
 
 
-def from_message(message: at.Message, *, provider: str) -> LLMResponse:
+def from_message(
+    message: at.Message, *, provider: str, rate_limit: RateLimitSnapshot | None = None
+) -> LLMResponse:
     """Build an `LLMResponse` from a completed `anthropic.types.Message`.
 
     Args:
         message: The SDK's own parsed response, from `create()` or from a finished stream's
             `get_final_message()`.
         provider: The manifest provider name, for the debug log line a refusal writes.
+        rate_limit: This call's own reported headroom (`rate_limit_from_headers`), or None for a
+            streamed response (this adapter's `stream()` never reads rate-limit headers, roadmap
+            step 4.7a's own scope) or when the response carried none.
 
     Returns:
         The mapped LLMResponse. A `thinking` block's summary becomes `reasoning_summary` and is
@@ -203,7 +221,62 @@ def from_message(message: at.Message, *, provider: str) -> LLMResponse:
         usage=_usage_from_wire(message.usage),
         model=message.model,
         reasoning_summary=reasoning_summary,
+        rate_limit=rate_limit,
     )
+
+
+def rate_limit_from_headers(headers: Mapping[str, str]) -> RateLimitSnapshot | None:
+    """Build a RateLimitSnapshot from one response's Anthropic rate-limit headers.
+
+    Roadmap step 4.7a: "hosted headroom is measured, not assumed". `headers` is already a plain,
+    lower-cased mapping (`AnthropicClient.create`'s own return shape), so this function never
+    touches an `httpx2.Headers` object -- vendor types stay confined to `client.py`.
+
+    Args:
+        headers: Every response header from `AnthropicClient.create`, lower-cased.
+
+    Returns:
+        A RateLimitSnapshot with whichever of the four headers were present, or None when neither
+        remaining-count header was sent at all (a local server never sends these; a hosted call
+        that omits them entirely is treated the same way: nothing reported, nothing assumed).
+    """
+    requests_remaining = _parse_non_negative_int(headers.get(_REQUESTS_REMAINING_HEADER))
+    tokens_remaining = _parse_non_negative_int(headers.get(_TOKENS_REMAINING_HEADER))
+    if requests_remaining is None and tokens_remaining is None:
+        # Neither headline figure was reported: nothing to build, per the "never invent a number
+        # a provider did not report" rule (hivemind.llm.models.RateLimitSnapshot's docstring).
+        return None
+    return RateLimitSnapshot(
+        requests_remaining=requests_remaining,
+        tokens_remaining=tokens_remaining,
+        requests_reset_at=_parse_reset_timestamp(headers.get(_REQUESTS_RESET_HEADER)),
+        tokens_reset_at=_parse_reset_timestamp(headers.get(_TOKENS_RESET_HEADER)),
+    )
+
+
+def _parse_non_negative_int(raw: str | None) -> int | None:
+    """Parse `raw` as a non-negative int, or None when absent or not a plain non-negative number."""
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def _parse_reset_timestamp(raw: str | None) -> datetime | None:
+    """Parse an Anthropic reset header (an RFC 3339 timestamp) as a UTC datetime, or None."""
+    if raw is None:
+        return None
+    try:
+        # Anthropic's reset headers are absolute RFC 3339 timestamps (e.g. "...T12:00:00Z"),
+        # unlike the OpenAI-compatible wire's relative durations (hivemind.llm.providers.
+        # openai_compat.mapping's own _parse_reset_duration) -- fromisoformat handles the "Z"
+        # UTC suffix directly on the installed Python 3.12.
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None  # An unrecognised timestamp shape; not worth failing the whole call over.
 
 
 def _require_model(request: LLMRequest, provider: str) -> str:

@@ -132,6 +132,20 @@ def test_abundance_defaults_rate_limits_to_none() -> None:
     assert abundance.tokens_per_minute_left is None
 
 
+def test_abundance_defaults_throttled_until_to_none() -> None:
+    abundance = Abundance(seats_free=3)
+
+    assert abundance.throttled_until is None
+
+
+def test_abundance_round_trips_a_throttled_until() -> None:
+    original = Abundance(seats_free=0, throttled_until=datetime.now(UTC))
+
+    restored = Abundance.model_validate_json(original.model_dump_json())
+
+    assert restored == original
+
+
 def test_abundance_rejects_a_negative_seats_free() -> None:
     with pytest.raises(ValidationError, match="greater than or equal to 0"):
         Abundance(seats_free=-1)

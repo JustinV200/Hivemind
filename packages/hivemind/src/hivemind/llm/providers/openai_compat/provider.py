@@ -58,6 +58,7 @@ from hivemind.llm.errors import ProviderRequestError
 from hivemind.llm.models import JsonObject, LLMChunk, LLMRequest, LLMResponse, TextPart
 from hivemind.llm.providers.openai_compat import mapping
 from hivemind.llm.providers.openai_compat.client import OpenAICompatClient
+from hivemind.llm.providers.openai_compat.rate_limit import rate_limit_from_headers
 from waggle.clock import Clock
 
 # Relative to `OpenAICompatConfig.base_url`, which the manifest convention (codingrules section
@@ -215,8 +216,11 @@ class OpenAICompatProvider:
             capabilities=self._config.capabilities,
             provider=self._name,
         )
-        payload = await self._client.post_json(CHAT_COMPLETIONS_PATH, body)
-        return mapping.response_from_json(payload, provider=self._name)
+        payload, headers = await self._client.post_json_with_headers(CHAT_COMPLETIONS_PATH, body)
+        # Roadmap step 4.7a: hosted headroom is measured, not assumed. A local server (this
+        # adapter's whole reason to exist) never sends these headers, so rate_limit stays None.
+        rate_limit = rate_limit_from_headers(headers, self._clock.now())
+        return mapping.response_from_json(payload, provider=self._name, rate_limit=rate_limit)
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
         """Run `request`, yielding incremental chunks; see `LLMProvider.stream`."""

@@ -8,12 +8,17 @@ being rejected -- the Fanner never refuses a call (roadmap step 3.12a), it only 
 `estimate_tokens` is the rough, pre-call guess `ProviderRateLimiter.acquire` reserves capacity
 against; `observe_actual_tokens` corrects that guess once the real `Usage` is known, so a request
 type that is chronically over- or under-estimated does not slowly starve (or over-admit against)
-the token bucket.
+the token bucket. `observe_snapshot` (roadmap step 4.7a) is the third corrector: once a provider's
+own response headers report a real remaining figure (`hivemind.llm.models.RateLimitSnapshot`), that
+figure replaces this limiter's own refill-based guess outright, so the manifest's configured
+`RateLimit` is only ever a starting guess for a dimension, never a ceiling the truth cannot move.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.fanner`. Called by
     `hivemind.llm.fanner.lane.FannerLane.complete`, once per binding attempt, before it queues for
-    a seat. Calls into `hivemind.llm.models` (for the token estimate) and `waggle.clock` only.
+    a seat, and again after a successful call to fold in what the provider actually reported.
+    Calls into `hivemind.llm.models` (for the token estimate and `RateLimitSnapshot`) and
+    `waggle.clock` only.
 
 Key invariants:
     - A `ProviderRateLimiter`'s buckets start full: the very first call on a fresh limiter never
@@ -23,6 +28,10 @@ Key invariants:
       never makes `acquire()` wait.
     - `acquire()` only ever waits via the injected `Clock.sleep`, never `asyncio.sleep` directly
       (codingrules section 11), so a test drives it deterministically with `FakeClock`.
+    - `observe_snapshot` only ever corrects a dimension the manifest already configured a ceiling
+      for (`self._limit.requests_per_minute`/`tokens_per_minute` is not None): a reported figure
+      for a dimension the manifest left unlimited has no ceiling to refill against over time, so
+      it is left unlimited rather than starting a bucket from thin air.
 
 See Also:
     - .claude/codingrules.md section 8.10 for "a rate limiter per hosted provider".
@@ -36,7 +45,7 @@ import asyncio
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.llm.models import LLMRequest, TextPart
+from hivemind.llm.models import LLMRequest, RateLimitSnapshot, TextPart
 from waggle.clock import Clock
 
 _SECONDS_PER_MINUTE = 60.0  # RateLimit's counts are per-minute; a bucket refills on this period.
@@ -144,6 +153,27 @@ class ProviderRateLimiter:
         cap = float(tokens_per_minute)
         corrected = self._available_tokens + (estimated_tokens - actual_tokens)
         self._available_tokens = min(max(corrected, 0.0), cap)
+
+    def observe_snapshot(self, snapshot: RateLimitSnapshot) -> None:
+        """Prefer a provider's own reported headroom over this limiter's refill-based guess.
+
+        Roadmap step 4.7a: "ProviderRateLimiter prefers reported figures over the manifest's
+        configured ones once it has them, so a manifest number is a starting guess and never a
+        permanent ceiling." Called once per successful call, after `observe_actual_tokens`, from
+        whatever `RateLimitSnapshot` the response carried (`None` fields left this limiter's own
+        bucket untouched, per this method's own per-dimension guard).
+
+        Args:
+            snapshot: This call's own reported headroom. A `None` field means the provider did
+                not report that dimension on this call, so that bucket keeps whatever figure it
+                already had rather than being reset to unknown.
+        """
+        requests_per_minute = self._limit.requests_per_minute
+        if snapshot.requests_remaining is not None and requests_per_minute is not None:
+            self._available_requests = min(float(snapshot.requests_remaining), requests_per_minute)
+        tokens_per_minute = self._limit.tokens_per_minute
+        if snapshot.tokens_remaining is not None and tokens_per_minute is not None:
+            self._available_tokens = min(float(snapshot.tokens_remaining), tokens_per_minute)
 
     def _refill(self) -> None:
         """Add back capacity for the time elapsed since the last refill, capped at each ceiling."""

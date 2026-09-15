@@ -33,7 +33,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import cast
 
 import anthropic
@@ -95,14 +95,24 @@ class AnthropicClient:
         self._provider = provider
         self._context_window = context_window
 
-    async def create(self, params: JsonObject) -> at.Message:
-        """Run one non-streaming `messages.create` call.
+    async def create(self, params: JsonObject) -> tuple[at.Message, Mapping[str, str]]:
+        """Run one non-streaming `messages.create` call, keeping the raw response headers too.
+
+        Uses `messages.with_raw_response.create` (per the SDK's own "accessing raw response
+        data" recipe, verified against the installed 1.4.0 SDK: `AsyncMessagesWithRawResponse`
+        wraps `create` to return an `AsyncAPIResponse[Message]` instead of the parsed `Message`
+        directly) rather than plain `messages.create`, so `mapping.rate_limit_from_headers`
+        (roadmap step 4.7a) has the response's `anthropic-ratelimit-*` headers to read. The
+        headers are handed back as a plain `dict` (never `httpx2.Headers`, a vendor type) so this
+        is the last place in the adapter that touches the raw response object.
 
         Args:
             params: A request body built by `mapping.to_create_params`.
 
         Returns:
-            The SDK's own parsed `Message`.
+            The SDK's own parsed `Message`, paired with every response header, lower-cased (per
+            `httpx2.Headers`' own `dict()` conversion), so a caller can look one up without
+            worrying about the casing a real server happened to send.
 
         Raises:
             RateLimitedError: The API rate-limited this call.
@@ -115,11 +125,14 @@ class AnthropicClient:
             # (AnthropicProvider.from_config's timeout_s). params is built dynamically by
             # mapping.py, so it cannot be checked against messages.create's precise per-keyword
             # signature statically; mirrors tests/builders/llm.py's make_bound for the same reason.
-            result = await self._sdk.messages.create(**params)  # type: ignore[call-overload]
+            # with_raw_response still raises the same anthropic.APIError family on a non-2xx
+            # response (verified against the installed SDK): only a 2xx reaches raw.parse() below.
+            raw = await self._sdk.messages.with_raw_response.create(**params)  # type: ignore[call-overload]
         except anthropic.APIError as exc:
             raise map_error(exc, self._provider, context_window=self._context_window) from exc
+        result = await raw.parse()
         if isinstance(result, at.Message):
-            return result
+            return result, dict(raw.headers)
         # SAFETY: messages.create's overloads pick Message vs. AsyncStream by a literal `stream=`
         # kwarg; params (built dynamically) never sets one, so the SDK always returns a Message
         # in practice. A real, typed raise (not `assert`, which ruff's S101 bans outside tests

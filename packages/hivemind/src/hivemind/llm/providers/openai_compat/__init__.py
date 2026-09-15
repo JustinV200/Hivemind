@@ -6,8 +6,9 @@ Ollama, vLLM and LM Studio are the ones this package's README names as tested ag
 sub-package is the adapter roadmap step 3.7 asks for: `OpenAICompatConfig` (the manifest's
 `[llm.providers.<name>]` section, of `kind = "openai_compat"`, turned into a validated value) and
 `OpenAICompatProvider` (the `hivemind.llm.provider.LLMProvider` implementation built from it).
-`mapping.py` and `client.py`, this package's other two modules, are private: neither an OpenAI
-wire field name nor an `httpx` type is meant to be seen from outside this package.
+`mapping.py`, `client.py` and `rate_limit.py` (roadmap step 4.7a's own header-parsing sibling to
+`mapping.py`), this package's other three modules, are private: neither an OpenAI wire field name
+nor an `httpx` type is meant to be seen from outside this package.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.providers`. Imported
@@ -18,8 +19,8 @@ Fits into the Hive:
     section 8.6).
 
 Key invariants:
-    - No name beyond `OpenAICompatConfig`/`OpenAICompatProvider` is exported here; `mapping`'s and
-      `client`'s contents are this package's own implementation detail.
+    - No name beyond `OpenAICompatConfig`/`OpenAICompatProvider` is exported here; `mapping`'s,
+      `client`'s and `rate_limit`'s contents are this package's own implementation detail.
     - Importing this module has no side effect: constructing a provider (`OpenAICompatProvider.
       create`) is the composition root's job, not import time (codingrules section 5.5).
 

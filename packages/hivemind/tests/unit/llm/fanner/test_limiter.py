@@ -20,6 +20,7 @@ from builders.llm import make_request
 from pydantic import ValidationError
 
 from hivemind.llm.fanner.limiter import ProviderRateLimiter, RateLimit, estimate_tokens
+from hivemind.llm.models import RateLimitSnapshot
 from waggle.clock import FakeClock
 
 
@@ -117,4 +118,42 @@ async def test_observe_actual_tokens_is_a_no_op_when_the_limit_is_unset() -> Non
 
     limiter.observe_actual_tokens(estimated_tokens=100, actual_tokens=5)  # Does not raise.
 
+    assert clock.monotonic() == 0.0
+
+
+async def test_observe_snapshot_prefers_the_reported_figure_over_the_computed_guess() -> None:
+    # The manifest says 60 tokens/minute (a fresh bucket would never wait); the provider's own
+    # header says only 5 remain right now -- the reported figure must win, per roadmap step
+    # 4.7a's "never a permanent ceiling". 60 tokens/minute == 1/second, so 10 tokens against a
+    # 5-token bucket needs exactly 5 seconds.
+    clock = FakeClock()
+    limiter = ProviderRateLimiter(RateLimit(requests_per_minute=60, tokens_per_minute=60), clock)
+
+    limiter.observe_snapshot(RateLimitSnapshot(requests_remaining=60, tokens_remaining=5))
+
+    waiter = asyncio.ensure_future(limiter.acquire(estimated_tokens=10))
+    await asyncio.sleep(0)  # The tiny reported bucket must make this call actually wait.
+    clock.advance(5.0)
+    await waiter
+    assert clock.monotonic() == 5.0
+
+
+async def test_observe_snapshot_ignores_a_dimension_the_manifest_left_unlimited() -> None:
+    clock = FakeClock()
+    limiter = ProviderRateLimiter(RateLimit(), clock)  # Both dimensions unlimited.
+
+    limiter.observe_snapshot(RateLimitSnapshot(requests_remaining=0, tokens_remaining=0))
+
+    # A reported zero on an unmetered dimension never starts a bucket from thin air.
+    await limiter.acquire(estimated_tokens=10_000)
+    assert clock.monotonic() == 0.0
+
+
+async def test_observe_snapshot_leaves_a_bucket_untouched_when_its_field_is_none() -> None:
+    clock = FakeClock()
+    limiter = ProviderRateLimiter(RateLimit(requests_per_minute=60, tokens_per_minute=60), clock)
+
+    limiter.observe_snapshot(RateLimitSnapshot())  # Both fields None: nothing reported this call.
+
+    await limiter.acquire(estimated_tokens=10)  # The fresh bucket still has not been touched.
     assert clock.monotonic() == 0.0

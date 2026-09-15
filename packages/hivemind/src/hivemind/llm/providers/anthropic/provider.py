@@ -163,8 +163,11 @@ class AnthropicProvider:
     async def complete(self, request: LLMRequest) -> LLMResponse:
         """Run `request` to completion; see `LLMProvider.complete`."""
         params = mapping.to_create_params(request, self._config.capabilities, provider=self._name)
-        message = await self._client.create(params)
-        return mapping.from_message(message, provider=self._name)
+        message, headers = await self._client.create(params)
+        # Roadmap step 4.7a: hosted headroom is measured, not assumed. None of these headers ever
+        # arrive from a local server, so rate_limit stays None there, exactly as it always has.
+        rate_limit = mapping.rate_limit_from_headers(headers)
+        return mapping.from_message(message, provider=self._name, rate_limit=rate_limit)
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
         """Run `request`, yielding incremental chunks; see `LLMProvider.stream`."""

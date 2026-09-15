@@ -42,9 +42,12 @@ Key invariants:
       composition root's job. Only `_build_openai_compat` (`hivemind.llm.registry`) ever reads the
       field; every other kind's factory carries a populated-but-unused value.
     - `build_forage_map` gives every `[forage.map.*]` source an initial `Abundance` of its own
-      declared `seats`, since a freshly loaded manifest has never been measured yet; the Fanner
-      (`hivemind.llm.fanner`) is the only thing that ever calls `ForageMap.observe`/
-      `set_abundance` afterwards.
+      declared `seats` and both rate-limit fields left `None`, since a freshly loaded manifest has
+      never been measured yet and a hosted provider's real headroom is measured, not assumed
+      (roadmap step 4.7a): the Fanner (`hivemind.llm.fanner`) is the only thing that ever calls
+      `ForageMap.observe`/`set_abundance`/`throttle` afterwards, and only `set_abundance`/
+      `throttle` ever touch either rate field again, always from what a call's own response
+      headers (or a `RateLimitedError`) actually reported -- never an invented number.
 
 See Also:
     - docs/adr/0006-sqlite-as-the-single-hive-store.md for the "separate connections" decision.

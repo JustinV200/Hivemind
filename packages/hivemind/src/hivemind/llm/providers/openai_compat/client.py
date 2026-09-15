@@ -110,7 +110,8 @@ class OpenAICompatClient:
             ContextTooLongError: A 400 whose message describes a context-length overflow.
             ProviderRequestError: Any other 4xx response, or a 2xx body that is not a JSON object.
         """
-        return await self._request_json("GET", path, None)
+        parsed, _ = await self._request_json("GET", path, None)
+        return parsed
 
     async def post_json(self, path: str, body: JsonObject) -> JsonObject:
         """POST `body` as JSON to `path` and return the parsed JSON object response.
@@ -128,7 +129,36 @@ class OpenAICompatClient:
             ContextTooLongError: A 400 whose message describes a context-length overflow.
             ProviderRequestError: Any other 4xx response, or a 2xx body that is not a JSON object.
         """
-        return await self._request_json("POST", path, body)
+        parsed, _ = await self._request_json("POST", path, body)
+        return parsed
+
+    async def post_json_with_headers(
+        self, path: str, body: JsonObject
+    ) -> tuple[JsonObject, dict[str, str]]:
+        """POST `body` as JSON to `path`, returning both the parsed body and its response headers.
+
+        Roadmap step 4.7a: `OpenAICompatProvider.complete` needs the response's own
+        `x-ratelimit-*` headers to build a `RateLimitSnapshot`, which plain `post_json` has no way
+        to hand back. Kept as a second method (rather than changing `post_json`'s own return
+        shape) so every existing caller of `post_json` is unaffected.
+
+        Args:
+            path: A path relative to the client's `base_url` (e.g. `"/chat/completions"`).
+            body: The JSON request body.
+
+        Returns:
+            The parsed JSON object, paired with every response header, lower-cased (per
+            `httpx.Headers`' own `dict()` conversion) so a caller can look one up without worrying
+            about the casing a real server happened to send.
+
+        Raises:
+            ProviderUnavailableError: A connection failure, timeout, or 5xx response.
+            RateLimitedError: A 429 response.
+            ContextTooLongError: A 400 whose message describes a context-length overflow.
+            ProviderRequestError: Any other 4xx response, or a 2xx body that is not a JSON object.
+        """
+        parsed, response = await self._request_json("POST", path, body)
+        return parsed, dict(response.headers)
 
     async def stream_sse(self, path: str, body: JsonObject) -> AsyncIterator[JsonObject]:
         """POST `body` to `path` and yield each SSE `data:` line's parsed JSON object.
@@ -167,8 +197,16 @@ class OpenAICompatClient:
         except _CONNECTION_EXCEPTIONS as exc:
             raise ProviderUnavailableError(self._provider, _describe(exc)) from exc
 
-    async def _request_json(self, method: str, path: str, body: JsonObject | None) -> JsonObject:
-        """Send one non-streaming request and return its parsed JSON object body."""
+    async def _request_json(
+        self, method: str, path: str, body: JsonObject | None
+    ) -> tuple[JsonObject, httpx.Response]:
+        """Send one non-streaming request; return its parsed body and the raw response together.
+
+        The raw `httpx.Response` is returned alongside the parsed body (rather than only the
+        body, as every caller wanted before roadmap step 4.7a) so `post_json_with_headers` can
+        read its response headers without a second request; `get_json`/`post_json` simply discard
+        it, unaffected by this change.
+        """
         try:
             response = await self._http.request(method, path, json=body)
         except _CONNECTION_EXCEPTIONS as exc:
@@ -179,7 +217,7 @@ class OpenAICompatClient:
             raise ProviderRequestError(
                 self._provider, response.status_code, detail="response body was not a JSON object"
             )
-        return parsed
+        return parsed, response
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         """Raise the typed error matching `response`'s status, or return for a 2xx.

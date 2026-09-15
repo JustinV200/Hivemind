@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import timedelta
 
+import pytest
 from builders.forage import make_source
 from builders.llm import make_bound, make_request, make_tool, text_response
 from pydantic import BaseModel
@@ -25,9 +27,9 @@ from hivemind.forage.map import ForageMap
 from hivemind.forage.models import ModelSource
 from hivemind.forage.tempo import AccuracyBar, Tempo
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities, ProviderHealth
-from hivemind.llm.errors import ProviderUnavailableError
+from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.llm.fake import FakeLLMProvider
-from hivemind.llm.fanner.lane import Fanner, FannerDeps, FannerLane
+from hivemind.llm.fanner.lane import DEFAULT_THROTTLE_S, Fanner, FannerDeps, FannerLane
 from hivemind.llm.fanner.limiter import RateLimit
 from hivemind.llm.fanner.recorder import TrailLlmEventRecorder
 from hivemind.llm.ladders.structured import complete_structured
@@ -387,3 +389,95 @@ async def test_fanner_lane_conforms_to_callgate_via_run_tool_loop() -> None:
     )
 
     assert result.final_text == "done"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Hosted headroom is measured, not assumed (roadmap step 4.7a, phase 4 exit criteria)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_429_throttles_the_source_and_the_fallback_absorbs_the_work() -> None:
+    clock = FakeClock()
+    source = make_source(source_id="src_hosted", provider="hosted", model="hosted-model", grade=5)
+    fanner, trail = _build_fanner(sources=(source,), clock=clock)
+    hosted = FakeLLMProvider(name="hosted")
+    hosted.script(RateLimitedError("hosted", retry_after_s=30.0))
+    local = FakeLLMProvider(name="local")
+    local.script(text_response("from-fallback"), text_response("from-fallback-2"))
+    fallback = make_bound(binding="local_worker", provider=local, model="local-small")
+    bound = make_bound(
+        binding="hosted_slot", provider=hosted, model="hosted-model", fallback=fallback
+    )
+    lane = fanner.lane(_tempo(AccuracyBar.NORMAL))
+
+    # First call: the primary source answers with a 429; the Fanner throttles it and the
+    # fallback absorbs the work, exactly as the phase 4 exit criteria describe.
+    first = await lane.complete(bound, make_request())
+
+    assert first.text == "from-fallback"
+    assert len(hosted.calls) == 1  # It was actually tried once, and only once, this call.
+    abundance = fanner.deps.map.get("src_hosted").abundance
+    assert abundance.seats_free == 0
+    assert abundance.throttled_until == clock.now() + timedelta(seconds=30.0)
+    events = await trail.query(TrailQuery())
+    (throttled_event,) = [e for e in events if e.kind == "llm.throttled"]
+    assert isinstance(throttled_event, LlmEvent)
+    assert throttled_event.provider == "hosted"
+    assert throttled_event.payload["source_id"] == "src_hosted"
+    assert throttled_event.payload["wait_s"] == 30.0
+    assert all(e.kind != "llm.spill" for e in events)  # llm.throttled stands alone this call.
+
+    # Second call, same bound: nothing is routed to the throttled source meanwhile -- the static
+    # check spills before hosted.complete is ever reached again, and the fallback absorbs it too.
+    second = await lane.complete(bound, make_request())
+
+    assert second.text == "from-fallback-2"
+    assert len(hosted.calls) == 1  # Still 1: never called again while throttled.
+    events_after_second = await trail.query(TrailQuery())
+    assert len([e for e in events_after_second if e.kind == "llm.throttled"]) == 1  # No new one.
+    (spill_event,) = [e for e in events_after_second if e.kind == "llm.spill"]
+    assert spill_event.payload["reason"] == "THROTTLED"
+
+    # Once the window passes, the mask lifts itself on the very next read -- no timer anywhere.
+    clock.advance(30.0)
+    assert fanner.deps.map.get("src_hosted").abundance.seats_free == source.spec.seats
+    assert fanner.deps.map.get("src_hosted").abundance.throttled_until is None
+
+
+async def test_a_429_with_no_fallback_still_throttles_and_re_raises() -> None:
+    clock = FakeClock()
+    source = make_source(source_id="src_hosted", provider="hosted", model="hosted-model")
+    fanner, trail = _build_fanner(sources=(source,), clock=clock)
+    hosted = FakeLLMProvider(name="hosted")
+    hosted.script(RateLimitedError("hosted", retry_after_s=None))  # No hint from the provider.
+    bound = make_bound(binding="hosted_slot", provider=hosted, model="hosted-model")  # No chain.
+    lane = fanner.lane(_tempo(AccuracyBar.NORMAL))
+
+    with pytest.raises(RateLimitedError):
+        await lane.complete(bound, make_request())
+
+    # The Fanner never invents a call, but it still records what actually happened before
+    # re-raising: the source is masked, using its own default wait for the missing hint.
+    abundance = fanner.deps.map.get("src_hosted").abundance
+    assert abundance.seats_free == 0
+    assert abundance.throttled_until == clock.now() + timedelta(seconds=DEFAULT_THROTTLE_S)
+    events = await trail.query(TrailQuery())
+    (throttled_event,) = [e for e in events if e.kind == "llm.throttled"]
+    assert throttled_event.payload["wait_s"] == DEFAULT_THROTTLE_S
+
+
+async def test_an_unmetered_provider_keeps_both_rate_fields_none_throughout() -> None:
+    # A provider that publishes no limits (every local server) keeps None on both rate fields
+    # throughout: nothing in this path ever invents a number it was not actually given.
+    source = make_source(source_id="src_local", provider="local", model="local-model", seats=2)
+    fanner, _ = _build_fanner(sources=(source,))
+    provider = FakeLLMProvider(name="local")
+    provider.script(text_response("ok"))  # No rate_limit scripted: LLMResponse.rate_limit is None.
+    bound = make_bound(binding="worker", provider=provider, model="local-model")
+    lane = fanner.lane(_tempo(AccuracyBar.NORMAL))
+
+    await lane.complete(bound, make_request())
+
+    abundance = fanner.deps.map.get("src_local").abundance
+    assert abundance.requests_per_minute_left is None
+    assert abundance.tokens_per_minute_left is None

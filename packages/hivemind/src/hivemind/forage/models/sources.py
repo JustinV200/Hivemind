@@ -30,6 +30,9 @@ Key invariants:
     - ModelSource.source_ref() never reads its own `distance` or `abundance`: a SourceRef is the
       wire's *stable* reference to a source, and the receiver resolves live figures from its own
       copy of the map (docs/waggle/spec.md section 8.4).
+    - Abundance.throttled_until is written only by `hivemind.forage.map.ForageMap.throttle`, and
+      cleared only by that same map's own read methods once the clock passes it; nothing else in
+      this module enforces the mask (roadmap step 4.7a).
 
 See Also:
     - .claude/roadmap.md step 3.12 for the field-by-field description this module implements.
@@ -162,7 +165,16 @@ class Distance(BaseModel):
 
 
 class Abundance(BaseModel):
-    """How free a source is right now: seats free, or rate-limit headroom for a hosted provider."""
+    """How free a source is right now: seats free, or rate-limit headroom for a hosted provider.
+
+    Roadmap step 4.7a ("hosted headroom is measured, not assumed"): `seats_free` and the two
+    rate-limit fields are written only by `hivemind.forage.map.ForageMap.observe`/`set_abundance`,
+    from figures the Fanner actually measured (`hivemind.llm.models.RateLimitSnapshot`), never
+    invented. `throttled_until` is the one field `ForageMap.throttle` writes instead: while it
+    names a future instant, this source's headroom reads as zero everywhere (`ForageMap`'s own
+    read methods enforce that), and the mask lifts itself, with no timer, the first time any read
+    happens after that instant passes.
+    """
 
     model_config = _MODEL_CONFIG
 
@@ -178,6 +190,11 @@ class Abundance(BaseModel):
         default=None,
         description="Tokens per minute still available on a hosted provider; None when the "
         "source is not metered that way.",
+    )
+    throttled_until: UtcDatetime | None = Field(
+        default=None,
+        description="This source's headroom reads as zero until this instant; None when it is "
+        "not currently throttled. Set only by ForageMap.throttle, after a RateLimitedError.",
     )
 
 

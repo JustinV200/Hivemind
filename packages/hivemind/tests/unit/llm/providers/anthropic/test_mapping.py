@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anthropic.types as at
@@ -32,6 +33,7 @@ from hivemind.llm.models import (
     JsonObject,
     LLMRequest,
     Message,
+    RateLimitSnapshot,
     Role,
     StopReason,
     TextPart,
@@ -418,3 +420,67 @@ def test_from_message_maps_every_stop_reason(wire: str, expected: StopReason) ->
     response = mapping.from_message(message, provider="p")
 
     assert response.stop_reason == expected
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# rate_limit_from_headers (roadmap step 4.7a)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_from_message_passes_a_given_rate_limit_through_unchanged() -> None:
+    message = _load_message("message_text.json")
+    snapshot = RateLimitSnapshot(requests_remaining=10)
+
+    response = mapping.from_message(message, provider="p", rate_limit=snapshot)
+
+    assert response.rate_limit == snapshot
+
+
+def test_from_message_defaults_rate_limit_to_none() -> None:
+    message = _load_message("message_text.json")
+
+    response = mapping.from_message(message, provider="p")
+
+    assert response.rate_limit is None
+
+
+def test_rate_limit_from_headers_reads_remaining_counts_and_reset_timestamps() -> None:
+    headers = {
+        "anthropic-ratelimit-requests-remaining": "42",
+        "anthropic-ratelimit-tokens-remaining": "1000",
+        "anthropic-ratelimit-requests-reset": "2026-09-15T12:00:00Z",
+        "anthropic-ratelimit-tokens-reset": "2026-09-15T12:01:00Z",
+    }
+
+    snapshot = mapping.rate_limit_from_headers(headers)
+
+    assert snapshot == RateLimitSnapshot(
+        requests_remaining=42,
+        tokens_remaining=1_000,
+        requests_reset_at=datetime(2026, 9, 15, 12, 0, tzinfo=UTC),
+        tokens_reset_at=datetime(2026, 9, 15, 12, 1, tzinfo=UTC),
+    )
+
+
+def test_rate_limit_from_headers_is_none_when_the_provider_sent_none() -> None:
+    # Every local server (this is the OpenAI-compatible adapter's whole reason to exist, but the
+    # same rule holds here): no rate-limit headers at all means an unmeasured, not a zeroed, call.
+    assert mapping.rate_limit_from_headers({}) is None
+
+
+def test_rate_limit_from_headers_reads_only_requests_when_tokens_is_absent() -> None:
+    snapshot = mapping.rate_limit_from_headers({"anthropic-ratelimit-requests-remaining": "5"})
+
+    assert snapshot == RateLimitSnapshot(requests_remaining=5)
+
+
+def test_rate_limit_from_headers_ignores_an_unparseable_reset_timestamp() -> None:
+    headers = {
+        "anthropic-ratelimit-requests-remaining": "5",
+        "anthropic-ratelimit-requests-reset": "not-a-timestamp",
+    }
+
+    snapshot = mapping.rate_limit_from_headers(headers)
+
+    assert snapshot is not None
+    assert snapshot.requests_reset_at is None

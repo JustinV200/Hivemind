@@ -13,6 +13,8 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from builders.llm import make_request, make_response, make_tool
 from pydantic import ValidationError
@@ -25,6 +27,7 @@ from hivemind.llm.models import (
     LLMRequest,
     LLMResponse,
     Message,
+    RateLimitSnapshot,
     Role,
     StopReason,
     TextPart,
@@ -272,6 +275,64 @@ def test_llm_response_round_trips_through_json() -> None:
     restored = LLMResponse.model_validate_json(response.model_dump_json())
 
     assert restored == response
+
+
+def test_llm_response_rate_limit_defaults_to_none() -> None:
+    response = make_response()
+
+    assert response.rate_limit is None
+
+
+def test_llm_response_round_trips_a_rate_limit_snapshot() -> None:
+    response = make_response(
+        rate_limit=RateLimitSnapshot(requests_remaining=10, tokens_remaining=1_000)
+    )
+
+    restored = LLMResponse.model_validate_json(response.model_dump_json())
+
+    assert restored == response
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# RateLimitSnapshot
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_rate_limit_snapshot_defaults_every_field_to_none() -> None:
+    snapshot = RateLimitSnapshot()
+
+    assert snapshot.requests_remaining is None
+    assert snapshot.tokens_remaining is None
+    assert snapshot.requests_reset_at is None
+    assert snapshot.tokens_reset_at is None
+
+
+def test_rate_limit_snapshot_round_trips_through_json() -> None:
+    original = RateLimitSnapshot(
+        requests_remaining=42,
+        tokens_remaining=1_000,
+        requests_reset_at=datetime(2026, 9, 15, 12, tzinfo=UTC),
+        tokens_reset_at=datetime(2026, 9, 15, 12, 1, tzinfo=UTC),
+    )
+
+    restored = RateLimitSnapshot.model_validate_json(original.model_dump_json())
+
+    assert restored == original
+
+
+@pytest.mark.parametrize("field", ["requests_remaining", "tokens_remaining"])
+def test_rate_limit_snapshot_rejects_a_negative_remaining_count(field: str) -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        RateLimitSnapshot(**{field: -1})
+
+
+def test_rate_limit_snapshot_is_frozen_and_forbids_extras() -> None:
+    snapshot = RateLimitSnapshot()
+
+    with pytest.raises(ValidationError, match="frozen"):
+        snapshot.requests_remaining = 5  # type: ignore[misc]  # The assignment is the test.
+    with pytest.raises(ValidationError, match="extra"):
+        RateLimitSnapshot.model_validate({"nope": 1})
 
 
 # ──────────────────────────────────────────────────────────────────────────────

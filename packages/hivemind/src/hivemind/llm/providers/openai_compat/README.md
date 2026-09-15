@@ -38,6 +38,21 @@ narrower: when `probe_models` is `True`, it records the server's own `/models` l
 later `complete`/`stream` call refuses with a `ProviderRequestError` if `config.model` is not in
 it -- turning a manifest typo into a loud startup-time failure instead of a confusing first call.
 
+## Hosted headroom (roadmap step 4.7a)
+
+`OpenAICompatClient.post_json_with_headers` returns a completion's response headers alongside its
+parsed body, so `provider.py` can build an `LLMResponse.rate_limit`
+(`hivemind.llm.models.RateLimitSnapshot`) from `rate_limit.py`'s
+`rate_limit_from_headers` -- a sibling of `mapping.py`, split out purely by codingrules 5.1's size
+limit, not by a difference in responsibility. It reads `x-ratelimit-remaining-requests`,
+`x-ratelimit-remaining-tokens` and their `-reset` siblings (a Go-style duration like `"6m0s"`,
+resolved against the provider's own clock), or `None` when neither remaining-count header was
+sent -- which is every server this adapter is actually tested against (Ollama, vLLM, llama.cpp,
+LM Studio never send these). A 429's `retry_after_s` (already parsed, see "Error mapping" below)
+feeds the Fanner's own `ForageMap.throttle` instead: that source's headroom reads as zero on the
+Forage map until the window passes, recorded as one `llm.throttled` trail event, with no code in
+this package aware that happens -- see `hivemind.llm.fanner.lane.FannerLane`.
+
 ## Error mapping
 
 `client.py` maps every `httpx` failure to a typed `hivemind.llm.errors.LLMError`: a connection

@@ -175,6 +175,34 @@ async def test_complete_maps_a_tool_call_response() -> None:
     assert response.tool_calls[0].name == "get_weather"
 
 
+async def test_complete_carries_the_rate_limit_headers_through_to_the_response() -> None:
+    fixture = json.loads(_load_fixture_text("completion.json"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=fixture,
+            headers={"x-ratelimit-remaining-requests": "7", "x-ratelimit-remaining-tokens": "500"},
+        )
+
+    provider = _make_provider(handler)
+
+    response = await provider.complete(make_request())
+
+    assert response.rate_limit is not None
+    assert response.rate_limit.requests_remaining == 7
+    assert response.rate_limit.tokens_remaining == 500
+
+
+async def test_complete_leaves_rate_limit_none_when_no_headers_were_sent() -> None:
+    fixture = json.loads(_load_fixture_text("completion.json"))
+    provider = _make_provider(_json_handler(200, fixture))
+
+    response = await provider.complete(make_request())
+
+    assert response.rate_limit is None
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # stream()
 # ──────────────────────────────────────────────────────────────────────────────

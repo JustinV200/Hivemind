@@ -42,6 +42,7 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -65,6 +66,7 @@ __all__ = [
     "LLMRequest",
     "LLMResponse",
     "Message",
+    "RateLimitSnapshot",
     "Role",
     "StopReason",
     "TextPart",
@@ -292,6 +294,41 @@ class LLMRequest(BaseModel):
     )
 
 
+class RateLimitSnapshot(BaseModel):
+    """Hosted headroom as actually reported by a provider, read from one call's response headers.
+
+    Roadmap step 4.7a: "hosted headroom is measured, not assumed". Each provider adapter's own
+    `mapping.py` fills this from its own response headers (`anthropic-ratelimit-*` for the
+    Anthropic adapter, `x-ratelimit-*` for the OpenAI-compatible one) and leaves every field
+    `None` where the provider published nothing for that dimension on this call -- which is every
+    local server, since none of them emit these headers. Nothing here is ever invented: a `None`
+    field means "not reported this call", never "unlimited" or "zero".
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    requests_remaining: Annotated[int, Field(ge=0)] | None = Field(
+        default=None,
+        description="Requests still allowed in the provider's current window; None when this "
+        "call's response carried no such header.",
+    )
+    tokens_remaining: Annotated[int, Field(ge=0)] | None = Field(
+        default=None,
+        description="Tokens still allowed in the provider's current window; None when this "
+        "call's response carried no such header.",
+    )
+    requests_reset_at: datetime | None = Field(
+        default=None,
+        description="When the requests window resets, in UTC; None when this call's response "
+        "carried no such header.",
+    )
+    tokens_reset_at: datetime | None = Field(
+        default=None,
+        description="When the tokens window resets, in UTC; None when this call's response "
+        "carried no such header.",
+    )
+
+
 class LLMResponse(BaseModel):
     """A completed model call: its content parts, why it stopped, and its normalised usage."""
 
@@ -303,6 +340,11 @@ class LLMResponse(BaseModel):
     model: str = Field(description="The provider's own model id that served this call.")
     reasoning_summary: str | None = Field(
         default=None, description="A provider-supplied summary of hidden reasoning, if any."
+    )
+    rate_limit: RateLimitSnapshot | None = Field(
+        default=None,
+        description="The provider's own reported rate-limit headroom for this call, or None when "
+        "it published none (every local server) -- see RateLimitSnapshot.",
     )
 
     @property

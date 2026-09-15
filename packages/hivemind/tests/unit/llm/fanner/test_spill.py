@@ -13,6 +13,8 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from builders.forage import make_source
 
 from hivemind.forage.tempo import AccuracyBar, Tempo
@@ -22,12 +24,27 @@ from hivemind.llm.fanner.spill import (
     queue_wait_exceeded,
     static_spill_reason,
 )
+from waggle.clock import FakeClock
 
 
 def test_static_spill_reason_is_none_for_an_unknown_source() -> None:
     tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
 
     assert static_spill_reason(None, tempo) is None
+
+
+def test_static_spill_reason_flags_a_throttled_source_ahead_of_grade_or_loaded_state() -> None:
+    # grade=1 and seats=0 would each justify their own reason too (grade_floor(CRITICAL) == 4);
+    # THROTTLED must still win, per static_spill_reason's own documented priority.
+    clock = FakeClock()
+    source = make_source(
+        grade=1,
+        seats=0,
+        abundance={"seats_free": 0, "throttled_until": clock.now() + timedelta(seconds=1)},
+    )
+    tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
+
+    assert static_spill_reason(source, tempo) is SpillReason.THROTTLED
 
 
 def test_static_spill_reason_flags_grade_below_the_tempo_floor() -> None:

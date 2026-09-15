@@ -4,11 +4,13 @@ This is the ONE file in the whole workspace where an OpenAI wire field name (`me
 `tool_calls`, `finish_reason`, `delta`, ...) is allowed to appear (codingrules section 8.6: "each
 adapter has a mapping.py that converts in both directions and is the only file where vendor field
 names appear"). `request_to_json` builds a `/chat/completions` request body from an `LLMRequest`;
-`response_from_json` builds an `LLMResponse` from a non-streaming reply; `StreamState` accumulates
-a streamed reply's chunks (OpenAI-compatible servers split a tool call's arguments across many
-SSE events, all sharing one integer `index`, so nothing about a streamed tool call is complete
-until the event that also carries `finish_reason` arrives). Every function here is pure: no I/O,
-no httpx, so `hivemind.llm.providers.openai_compat.client` and `.provider` are the only callers.
+`response_from_json` builds an `LLMResponse` from a non-streaming reply, optionally carrying a
+`RateLimitSnapshot` its sibling `rate_limit.py` (roadmap step 4.7a) parsed from this same call's
+response headers; `StreamState` accumulates a streamed reply's chunks (OpenAI-compatible servers
+split a tool call's arguments across many SSE events, all sharing one integer `index`, so nothing
+about a streamed tool call is complete until the event that also carries `finish_reason` arrives).
+Every function here is pure: no I/O, no httpx, so `hivemind.llm.providers.openai_compat.client`
+and `.provider` are the only callers.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.providers.
@@ -51,6 +53,7 @@ from hivemind.llm.models import (
     LLMRequest,
     LLMResponse,
     Message,
+    RateLimitSnapshot,
     StopReason,
     TextPart,
     ToolCall,
@@ -284,13 +287,18 @@ def _response_format_to_wire(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def response_from_json(payload: JsonObject, *, provider: str) -> LLMResponse:
+def response_from_json(
+    payload: JsonObject, *, provider: str, rate_limit: RateLimitSnapshot | None = None
+) -> LLMResponse:
     """Build an `LLMResponse` from a non-streaming `/chat/completions` reply.
 
     Args:
-        payload: The parsed JSON body `client.post_json` returned.
+        payload: The parsed JSON body `client.post_json`/`post_json_with_headers` returned.
         provider: The manifest provider name, for a `MalformedOutputError` raised on a reply with
             no `choices` or an unparseable tool-call `arguments` string.
+        rate_limit: This call's own reported headroom (`rate_limit_from_headers`), or None for a
+            streamed response (this adapter's `stream()` never reads rate-limit headers, roadmap
+            step 4.7a's own scope) or when the response carried none.
 
     Returns:
         The mapped LLMResponse.
@@ -317,6 +325,7 @@ def response_from_json(payload: JsonObject, *, provider: str) -> LLMResponse:
         stop_reason=stop_reason,
         usage=_usage_from_wire(payload.get("usage")),
         model=model if isinstance(model, str) else "",
+        rate_limit=rate_limit,
     )
 
 

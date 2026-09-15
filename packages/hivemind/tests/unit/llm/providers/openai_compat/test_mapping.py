@@ -31,6 +31,7 @@ from hivemind.llm.models import (
     JsonObject,
     LLMChunk,
     Message,
+    RateLimitSnapshot,
     Role,
     StopReason,
     ToolCall,
@@ -305,6 +306,23 @@ def test_response_from_json_maps_a_tool_call_completion() -> None:
 def test_response_from_json_raises_on_no_choices() -> None:
     with pytest.raises(MalformedOutputError):
         mapping.response_from_json({"choices": []}, provider="p")
+
+
+def test_response_from_json_defaults_rate_limit_to_none() -> None:
+    payload = _load_fixture("completion.json")
+
+    response = mapping.response_from_json(payload, provider="p")
+
+    assert response.rate_limit is None
+
+
+def test_response_from_json_passes_a_given_rate_limit_through_unchanged() -> None:
+    payload = _load_fixture("completion.json")
+    snapshot = RateLimitSnapshot(requests_remaining=10)
+
+    response = mapping.response_from_json(payload, provider="p", rate_limit=snapshot)
+
+    assert response.rate_limit == snapshot
 
 
 def test_response_from_json_raises_on_malformed_tool_call_arguments() -> None:

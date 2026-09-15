@@ -182,6 +182,37 @@ async def test_complete_maps_a_tool_call_response() -> None:
     assert response.tool_calls[0].name == "get_weather"
 
 
+async def test_complete_carries_the_rate_limit_headers_through_to_the_response() -> None:
+    fixture = _load_fixture("message_text.json")
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json=fixture,
+            headers={
+                "anthropic-ratelimit-requests-remaining": "7",
+                "anthropic-ratelimit-tokens-remaining": "500",
+            },
+        )
+
+    provider = _make_provider(handler)
+
+    response = await provider.complete(_request())
+
+    assert response.rate_limit is not None
+    assert response.rate_limit.requests_remaining == 7
+    assert response.rate_limit.tokens_remaining == 500
+
+
+async def test_complete_leaves_rate_limit_none_when_no_headers_were_sent() -> None:
+    fixture = _load_fixture("message_text.json")
+    provider = _make_provider(_json_handler(200, fixture))
+
+    response = await provider.complete(_request())
+
+    assert response.rate_limit is None
+
+
 async def test_complete_raises_when_request_model_is_none() -> None:
     provider = _make_provider(_json_handler(200, {}))
 

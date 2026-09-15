@@ -95,6 +95,36 @@ async def test_post_json_sends_the_body_and_returns_the_parsed_response() -> Non
     assert b"local-small" in seen_bodies[0]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# post_json_with_headers: body and response headers together
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_post_json_with_headers_returns_both_the_body_and_the_headers() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": True},
+            headers={"X-RateLimit-Remaining-Requests": "10"},
+        )
+
+    client = _make_client(handler)
+
+    payload, headers = await client.post_json_with_headers("/chat/completions", {"model": "m"})
+
+    assert payload == {"ok": True}
+    # Lower-cased (httpx.Headers' own dict() conversion), regardless of the casing sent.
+    assert headers["x-ratelimit-remaining-requests"] == "10"
+
+
+async def test_post_json_with_headers_returns_an_empty_dict_when_none_were_sent() -> None:
+    client = _make_client(_json_response(200, {"ok": True}))
+
+    _payload, headers = await client.post_json_with_headers("/chat/completions", {"model": "m"})
+
+    assert "x-ratelimit-remaining-requests" not in headers
+
+
 async def test_get_json_raises_provider_request_error_when_body_is_not_an_object() -> None:
     client = _make_client(_json_response(200, [1, 2, 3]))
 

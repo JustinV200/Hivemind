@@ -88,9 +88,36 @@ def _error_body(error_type: str, message: str) -> JsonObject:
 async def test_create_returns_the_parsed_message() -> None:
     client = _make_client(_json_handler(200, _load_fixture("message_text.json")))
 
-    message = await client.create(BASE_PARAMS)
+    message, _headers = await client.create(BASE_PARAMS)
 
     assert message.content[0].text == "Hello there."  # type: ignore[union-attr]
+
+
+async def test_create_returns_the_response_headers_lower_cased() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json=_load_fixture("message_text.json"),
+            headers={
+                "Anthropic-Ratelimit-Requests-Remaining": "42",
+                "Anthropic-Ratelimit-Tokens-Remaining": "1000",
+            },
+        )
+
+    client = _make_client(handler)
+
+    _message, headers = await client.create(BASE_PARAMS)
+
+    assert headers["anthropic-ratelimit-requests-remaining"] == "42"
+    assert headers["anthropic-ratelimit-tokens-remaining"] == "1000"
+
+
+async def test_create_returns_empty_extra_headers_when_the_provider_sent_none() -> None:
+    client = _make_client(_json_handler(200, _load_fixture("message_text.json")))
+
+    _message, headers = await client.create(BASE_PARAMS)
+
+    assert "anthropic-ratelimit-requests-remaining" not in headers
 
 
 async def test_create_maps_429_with_retry_after_header() -> None:

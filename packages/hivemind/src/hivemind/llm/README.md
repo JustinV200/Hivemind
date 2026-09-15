@@ -12,8 +12,12 @@ build. No vendor SDK is imported here or anywhere else outside `llm/providers/<n
   `ToolResultPart`, `ContentPart` (a discriminated union on `kind`), `Message` (with the
   `Message.text(role, text)` helper), `JsonObject` (`dict[str, pydantic.JsonValue]`, the one
   shape for arbitrary JSON), `ToolDefinition`, `ToolCall`, `StopReason`, `Usage` (with a
-  cost-aware `__add__`), `LLMRequest`, `LLMResponse` (with `.text`/`.tool_calls` properties) and
-  `LLMChunk`, one streaming delta.
+  cost-aware `__add__`), `LLMRequest`, `LLMResponse` (with `.text`/`.tool_calls` properties and,
+  roadmap step 4.7a, an optional `rate_limit: RateLimitSnapshot`) and `LLMChunk`, one streaming
+  delta. `RateLimitSnapshot` (roadmap step 4.7a) is a hosted provider's own reported headroom --
+  requests/tokens remaining and when each window resets -- read from that call's response
+  headers by each adapter's own `mapping.py`/`client.py`, `None` field by field wherever the
+  provider (every local server) published nothing.
 - **Capabilities and health** (`hivemind.llm.capabilities`): `ProviderCapabilities`, with
   `.full()` and `.none()` classmethods for the strongest and weakest declared shapes the
   degradation ladders (a later roadmap step) are proven against; `HealthState` and
@@ -117,21 +121,32 @@ fan their wings to regulate the hive's airflow.
   introspection `hive llm` (a later roadmap step) and tests read.
 - **`FannerLane`**: implements `hivemind.llm.ladders.gate.CallGate` exactly, so a ladder can take
   a lane as its `gate=` with no code of its own aware the Fanner exists. `complete(bound, request)`
-  walks `bound`'s fallback chain, spilling to the next binding in exactly three cases -- the
-  source's grade is below the calling tempo's floor, the model is not loaded there (read as
-  `spec.seats == 0`, since `ModelSourceSpec` carries no separate "loaded" field), or seat-queueing
-  ate more than `SPILL_WAIT_FRACTION` of the tempo's latency budget -- then rate-limits per
-  provider, queues for a seat ordered by tempo, makes the call, and records an `llm.call` or
-  `llm.spill` `LlmEvent`. With no fallback left it proceeds on the current binding regardless: the
-  Fanner never refuses a call.
+  walks `bound`'s fallback chain, spilling to the next binding in one of four cases -- the source
+  is currently throttled (`SpillReason.THROTTLED`, checked first), its grade is below the calling
+  tempo's floor, the model is not loaded there (read as `spec.seats == 0`, since `ModelSourceSpec`
+  carries no separate "loaded" field), or seat-queueing ate more than `SPILL_WAIT_FRACTION` of the
+  tempo's latency budget -- then rate-limits per provider, queues for a seat ordered by tempo,
+  makes the call, and records an `llm.call` or `llm.spill` `LlmEvent`. A `RateLimitedError` from
+  the call itself (roadmap step 4.7a) throttles the source that raised it (`ForageMap.throttle`,
+  masking its headroom to zero until the window passes) and records `llm.throttled`, then moves
+  to the next binding if one exists. With no fallback left it either proceeds on the current
+  binding regardless (a static spill reason) or re-raises (a `RateLimitedError` that already
+  happened): the Fanner never invents a call, but it cannot un-happen a real failure either.
 - **`RateLimit`**: a provider's `requests_per_minute`/`tokens_per_minute` ceiling, straight from
-  its manifest row; both `None` means unlimited.
-- **`SpillReason`**: `GRADE_BELOW_FLOOR`, `MODEL_NOT_LOADED`, `QUEUE_WAIT_EXCEEDED`.
+  its manifest row; both `None` means unlimited. Roadmap step 4.7a:
+  `ProviderRateLimiter.observe_snapshot` prefers a call's own reported `RateLimitSnapshot` figures
+  over this limiter's refill-based guess once it has them, so the manifest row is only ever a
+  starting guess for an already-metered dimension, never a permanent ceiling.
+- **`SpillReason`**: `THROTTLED`, `GRADE_BELOW_FLOOR`, `MODEL_NOT_LOADED`, `QUEUE_WAIT_EXCEEDED`.
 - **`LlmEventRecorder`**, **`NullLlmEventRecorder`**, **`TrailLlmEventRecorder`**: the trail-write
   seam a lane calls with a raw `(kind, subject_id, payload)` triple, mirroring
   `hivemind.llm.ladders.observer`'s `LadderObserver` shape; `TrailLlmEventRecorder` lifts `slot`,
-  `provider` and `usage` out of `payload` into `LlmEvent`'s own typed fields.
-- **`DEFAULT_SEATS`** (`1`): what a provider absent from `FannerDeps.seats` gets.
+  `provider` and `usage` out of `payload` into `LlmEvent`'s own typed fields. `LLM_THROTTLED_KIND`
+  (`"llm.throttled"`, roadmap step 4.7a) is the third occurrence kind, alongside `LLM_CALL_KIND`
+  and `LLM_SPILL_KIND`.
+- **`DEFAULT_SEATS`** (`1`): what a provider absent from `FannerDeps.seats` gets. Roadmap step
+  4.7a's own **`DEFAULT_THROTTLE_S`** (`60.0`): how long `FannerLane` throttles a source for when
+  a `RateLimitedError` carries no `retry_after_s` hint.
 
 ## How to test this
 

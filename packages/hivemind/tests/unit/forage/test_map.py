@@ -14,6 +14,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 from builders.forage import make_source
@@ -133,7 +134,25 @@ async def test_observe_raises_on_an_unknown_id() -> None:
         await forage_map.observe("src_missing", latency_s=1.0, tokens_per_s=1.0)
 
 
-async def test_set_abundance_replaces_seats_free_and_keeps_rate_limits() -> None:
+async def test_set_abundance_writes_the_reported_rate_figures() -> None:
+    # Roadmap step 4.7a: set_abundance now writes both halves from what was actually measured,
+    # rather than carrying the map's previous rate figures forward unchanged.
+    source = make_source(source_id="src_1", abundance={"seats_free": 2})
+    forage_map = ForageMap([source], clock=FakeClock())
+
+    await forage_map.set_abundance(
+        "src_1", seats_free=0, requests_per_minute_left=30, tokens_per_minute_left=1_000
+    )
+
+    abundance = forage_map.get("src_1").abundance
+    assert abundance.seats_free == 0
+    assert abundance.requests_per_minute_left == 30
+    assert abundance.tokens_per_minute_left == 1_000
+
+
+async def test_set_abundance_defaults_rate_figures_to_none_for_an_unmetered_source() -> None:
+    # A provider that publishes no limits keeps None on both rate fields throughout: every call
+    # passes None explicitly, so the source never carries an earlier call's stale figure forward.
     source = make_source(
         source_id="src_1",
         abundance={
@@ -144,12 +163,22 @@ async def test_set_abundance_replaces_seats_free_and_keeps_rate_limits() -> None
     )
     forage_map = ForageMap([source], clock=FakeClock())
 
-    await forage_map.set_abundance("src_1", seats_free=0)
+    await forage_map.set_abundance("src_1", seats_free=1)
 
     abundance = forage_map.get("src_1").abundance
-    assert abundance.seats_free == 0
-    assert abundance.requests_per_minute_left == 30
-    assert abundance.tokens_per_minute_left == 1_000
+    assert abundance.seats_free == 1
+    assert abundance.requests_per_minute_left is None
+    assert abundance.tokens_per_minute_left is None
+
+
+async def test_set_abundance_clears_an_existing_throttle() -> None:
+    clock = FakeClock()
+    forage_map = ForageMap([make_source(source_id="src_1")], clock=clock)
+    await forage_map.throttle("src_1", clock.now() + timedelta(seconds=60))
+
+    await forage_map.set_abundance("src_1", seats_free=1)
+
+    assert forage_map.get("src_1").abundance.throttled_until is None
 
 
 async def test_set_abundance_raises_on_an_unknown_id() -> None:
@@ -157,6 +186,93 @@ async def test_set_abundance_raises_on_an_unknown_id() -> None:
 
     with pytest.raises(UnknownSourceError):
         await forage_map.set_abundance("src_missing", seats_free=1)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# throttle: masks headroom to zero until the window passes (roadmap step 4.7a)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_throttle_masks_seats_free_and_metered_rate_fields_to_zero() -> None:
+    clock = FakeClock()
+    source = make_source(
+        source_id="src_1",
+        abundance={
+            "seats_free": 4,
+            "requests_per_minute_left": 30,
+            "tokens_per_minute_left": 1_000,
+        },
+    )
+    forage_map = ForageMap([source], clock=clock)
+
+    await forage_map.throttle("src_1", clock.now() + timedelta(seconds=60))
+
+    abundance = forage_map.get("src_1").abundance
+    assert abundance.seats_free == 0
+    assert abundance.requests_per_minute_left == 0
+    assert abundance.tokens_per_minute_left == 0
+    assert abundance.throttled_until is not None
+
+
+async def test_throttle_leaves_an_unmetered_rate_field_as_none() -> None:
+    # A provider that publishes no limits keeps None on both rate fields throughout, even while
+    # throttled on the other dimension (seats): never invent a number it never reported.
+    clock = FakeClock()
+    forage_map = ForageMap([make_source(source_id="src_1")], clock=clock)
+
+    await forage_map.throttle("src_1", clock.now() + timedelta(seconds=60))
+
+    abundance = forage_map.get("src_1").abundance
+    assert abundance.seats_free == 0
+    assert abundance.requests_per_minute_left is None
+    assert abundance.tokens_per_minute_left is None
+
+
+async def test_throttle_raises_on_an_unknown_id() -> None:
+    clock = FakeClock()
+    forage_map = ForageMap([], clock=clock)
+
+    with pytest.raises(UnknownSourceError):
+        await forage_map.throttle("src_missing", clock.now() + timedelta(seconds=60))
+
+
+async def test_get_still_masks_a_source_whose_window_has_not_passed() -> None:
+    clock = FakeClock()
+    forage_map = ForageMap([make_source(source_id="src_1")], clock=clock)
+    await forage_map.throttle("src_1", clock.now() + timedelta(seconds=60))
+
+    clock.advance(59.0)
+
+    assert forage_map.get("src_1").abundance.seats_free == 0
+
+
+async def test_get_clears_the_throttle_once_the_window_passes_with_no_timer() -> None:
+    clock = FakeClock()
+    source = make_source(source_id="src_1", seats=4)
+    forage_map = ForageMap([source], clock=clock)
+    await forage_map.throttle("src_1", clock.now() + timedelta(seconds=60))
+
+    clock.advance(60.0)  # No timer anywhere: the very next read is what clears the mask.
+
+    abundance = forage_map.get("src_1").abundance
+    assert abundance.seats_free == 4  # Back to the spec's full seat count, not the old figure.
+    assert abundance.requests_per_minute_left is None
+    assert abundance.throttled_until is None
+
+
+async def test_find_and_sources_and_for_slot_all_clear_an_expired_throttle_too() -> None:
+    clock = FakeClock()
+    source = make_source(source_id="src_1", provider="acme", model="acme-model", seats=2)
+    forage_map = ForageMap([source], clock=clock)
+    await forage_map.throttle("src_1", clock.now() + timedelta(seconds=60))
+    clock.advance(60.0)
+
+    assert forage_map.find("acme", "acme-model").abundance.seats_free == 2  # type: ignore[union-attr]
+    assert forage_map.sources()[0].abundance.seats_free == 2
+    binding = _binding(key="worker", provider="acme", model="acme-model")
+    resolved = forage_map.for_slot(ModelSlot.WORKER, [binding])
+    assert resolved is not None
+    assert resolved.abundance.seats_free == 2
 
 
 async def test_observe_and_set_abundance_on_different_sources_do_not_interfere() -> None:

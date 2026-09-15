@@ -43,7 +43,7 @@ See Also:
 Public API:
     - Message shapes (`hivemind.llm.models`): Role, TextPart, ImagePart, ToolCallPart,
       ToolResultPart, ContentPart, Message, JsonObject, ToolDefinition, ToolCall, StopReason,
-      Usage, LLMRequest, LLMResponse, LLMChunk, TOOL_NAME_PATTERN.
+      Usage, LLMRequest, LLMResponse, LLMChunk, RateLimitSnapshot, TOOL_NAME_PATTERN.
     - Capabilities and health (`hivemind.llm.capabilities`): ProviderCapabilities, HealthState,
       ProviderHealth, FULL_CONTEXT_WINDOW_DEFAULT, NONE_CONTEXT_WINDOW_DEFAULT.
     - The one door (`hivemind.llm.provider`): LLMProvider.
@@ -68,6 +68,14 @@ Public API (roadmap step 3.5):
     - The call seam (`hivemind.llm.ladders.gate`): CallGate, DirectCallGate.
     - Reporting a step-down (`hivemind.llm.ladders.observer`): LadderObserver, FallbackNote,
       FallbackReason, NullLadderObserver, TrailLadderObserver.
+
+Public API (roadmap step 3.12a, extended by step 4.7a):
+    - The Fanner and its lanes (`hivemind.llm.fanner`): Fanner, FannerDeps, FannerLane,
+      DEFAULT_SEATS, DEFAULT_THROTTLE_S, LLM_CALL_KIND, LLM_SPILL_KIND, LLM_THROTTLED_KIND.
+    - Spill-over: SpillReason (now including THROTTLED), SPILL_WAIT_FRACTION.
+    - Rate limiting: RateLimit, the manifest-configured ceiling `ProviderRateLimiter` prefers a
+      provider's own reported `RateLimitSnapshot` figures over, once it has them.
+    - Trail recording: LlmEventRecorder, NullLlmEventRecorder, TrailLlmEventRecorder.
 """
 
 from hivemind.llm.capabilities import (
@@ -100,8 +108,10 @@ from hivemind.llm.fake import (
 )
 from hivemind.llm.fanner import (
     DEFAULT_SEATS,
+    DEFAULT_THROTTLE_S,
     LLM_CALL_KIND,
     LLM_SPILL_KIND,
+    LLM_THROTTLED_KIND,
     SPILL_WAIT_FRACTION,
     Fanner,
     FannerDeps,
@@ -142,6 +152,7 @@ from hivemind.llm.models import (
     LLMRequest,
     LLMResponse,
     Message,
+    RateLimitSnapshot,
     Role,
     StopReason,
     TextPart,
@@ -175,11 +186,13 @@ from hivemind.llm.slots import (
 __all__ = [
     "CHARS_PER_TOKEN_ESTIMATE",
     "DEFAULT_SEATS",
+    "DEFAULT_THROTTLE_S",
     "FAKE_MODEL_ID",
     "FULL_CONTEXT_WINDOW_DEFAULT",
     "JSON_MODE_RETRIES",
     "LLM_CALL_KIND",
     "LLM_SPILL_KIND",
+    "LLM_THROTTLED_KIND",
     "MAX_RAW_PREVIEW_CHARS",
     "MAX_TOOL_ROUNDS_DEFAULT",
     "NATIVE_SCHEMA_RETRIES",
@@ -227,6 +240,7 @@ __all__ = [
     "ProviderRequestError",
     "ProviderUnavailableError",
     "RateLimit",
+    "RateLimitSnapshot",
     "RateLimitedError",
     "RefusedError",
     "RegistryDeps",
