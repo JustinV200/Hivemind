@@ -280,7 +280,10 @@ async def run_goal(
     start = clock.monotonic()
     submitted_at = clock.now()
     goal_id = await hive.queen.submit_goal(goal, clearance=clearance)
-    timed_out = await _poll_until_terminal(hive, goal_id, timeout_s, on_event)
+    # The deadline runs from `start`, before planning: submit_goal's own model call can take
+    # minutes on a local model, and "never blocks past timeout_s" (module docstring) has to
+    # include it.
+    timed_out = await _poll_until_terminal(hive, goal_id, timeout_s, on_event, start=start)
     tasks = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
     succeeded = (
         bool(tasks) and not timed_out and all(t.status is TaskStatus.SUCCEEDED for t in tasks)
@@ -300,14 +303,23 @@ async def _poll_until_terminal(
     goal_id: TaskId,
     timeout_s: float,
     on_event: Callable[[PheromoneEvent], None] | None,
+    *,
+    start: float,
 ) -> bool:
     """Poll chamber state and forward trail events until `goal_id`'s own tasks are all terminal.
+
+    Args:
+        hive: The running Hive whose chamber and trail are polled.
+        goal_id: The goal whose tasks decide when polling stops.
+        timeout_s: The most wall time to poll, measured from `start`.
+        on_event: Called with every new trail event of interest; None to forward nothing.
+        start: `hive.clock.monotonic()` when the goal was submitted; `timeout_s` counts from it,
+            so planning time (`submit_goal`'s own model call) is inside the budget.
 
     Returns:
         True once `timeout_s` elapsed first; False once every task reached a terminal status.
     """
     clock = hive.clock
-    start = clock.monotonic()
     last_at: datetime | None = None
     last_ids: set[str] = set()
     while True:

@@ -67,7 +67,9 @@ async def record_alarm_event(
         kind: One of `hivemind.pheromone.AlarmEvent.KINDS` ("alarm.raised", "alarm.handled",
             "alarm.escalated" or "alarm.resolved").
         **payload: Extra ids or enum values for this one step (e.g. the action a Warden or the
-            Queen took); never free text (codingrules section 12).
+            Queen took); never free text (codingrules section 12). The one free-text field every
+            step carries is the Alarm's own bounded `detail`: without it a crash or a failed
+            check leaves nothing a human can read anywhere (the first local run's own lesson).
     """
     event = AlarmEvent(
         id=new_event_id(clock),
@@ -81,6 +83,8 @@ async def record_alarm_event(
             "kind": alarm.kind.value,
             "severity": alarm.severity.value,
             "attempts": alarm.attempts,
+            "task_id": alarm.context.task_id,
+            "detail": alarm.detail,
             **payload,
         },
     )

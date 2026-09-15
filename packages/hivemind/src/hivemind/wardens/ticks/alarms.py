@@ -252,6 +252,15 @@ async def send_alarm_to_queen(
         clearance=HoneyClearance.C1.to_wire(),
         reason=reason,
     )
+    # This Warden raises it, so this Warden opens its trail chain (the same rule heartbeat.py
+    # follows for WORKER_STALLED): the Queen's later alarm.escalated needs a raised to hang off.
+    await record_alarm_event(
+        warden._deps.trail,
+        _identity(warden),
+        warden._deps.clock,
+        Alarm.from_wire(alarm),
+        "alarm.raised",
+    )
     await _send_to_queen(warden, alarm)
 
 

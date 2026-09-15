@@ -74,7 +74,7 @@ from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import queen_attendant, to_inbox_item
-from hivemind.queen.planner import plan_goal
+from hivemind.queen.planner import PlanBrief, plan_goal
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
@@ -199,12 +199,12 @@ class Queen(TickLoop):
             The goal's own id (the first task minted from the plan).
         """
         bound = self._deps.bound_for(ModelSlot.QUEEN)
-        draft = await plan_goal(goal, bound, gate=self._deps.call_gate, clearance=clearance)
+        brief = PlanBrief(goal, clearance, [link.cell for link in self.wardens])
+        draft = await plan_goal(brief, bound, gate=self._deps.call_gate)
         minted = await self._deps.chamber.submit(draft)
-        goal_id = minted[0].id
-        await record_event(self._deps, "queen.planned", goal_id, task_count=len(minted))
+        await record_event(self._deps, "queen.planned", minted[0].id, task_count=len(minted))
         await dispatch_ready(self._deps, self.wardens)
-        return goal_id
+        return minted[0].id  # The goal's own id: the first task minted from the plan.
 
     async def answer_question(
         self,

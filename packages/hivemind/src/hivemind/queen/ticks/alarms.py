@@ -102,7 +102,7 @@ class AlarmHandling:
 async def handle_alarm(
     deps: QueenDeps, wardens: Sequence[WardenLink], handling: AlarmHandling
 ) -> None:
-    """Carry out REBIND, ESCALATE_TO_HUMAN, RETRY_TASK or FAIL_TASK for an escalated Alarm.
+    """Carry out RECORD, REBIND, ESCALATE_TO_HUMAN, RETRY_TASK or FAIL_TASK for an Alarm.
 
     Args:
         deps: The Queen's collaborators.
@@ -113,6 +113,15 @@ async def handle_alarm(
     """
     payload, action = handling.payload, handling.action
     task_id = payload.context.task_id
+    if action is QueenAction.RECORD:
+        # Noted on the trail, never acted on: an Alarm whose paired TaskResult carries the
+        # decision (autopilot.table's own ACCEPTANCE_FAILED rule), or one about a task already
+        # terminal. Before this branch either fell through to `_escalate` below.
+        alarm = Alarm.from_wire(payload)
+        await record_alarm_event(
+            deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="RECORD"
+        )
+        return
     if action is QueenAction.RETRY_TASK and task_id is not None:
         await _record_handled(deps, handling, task_id, "RETRY_TASK")
         next_attempt = handling.attempts.get(task_id, 1) + 1

@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
 from typing import Annotated
 
 import typer
@@ -69,7 +68,7 @@ from hivemind.cli.stores import (
 )
 from hivemind.manifest import HiveManifest
 from hivemind.memory import MemoryContext, MemoryIdentity, Note, add_note
-from hivemind.pheromone import PheromoneTrail, TrailQuery
+from hivemind.pheromone import PheromoneEvent, PheromoneTrail, TrailQuery
 from hivemind.queen import answer_note_author
 from waggle.clock import SystemClock
 from waggle.ids import MessageId, new_event_id
@@ -106,7 +105,9 @@ class _AlarmRow(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     alarm_id: str = Field(description="The Alarm's own id.")
-    task_id: str = Field(description="What this event is about (the trail's own subject_id).")
+    task_id: str = Field(description="The task concerned, or the alarm id when it names none.")
+    kind: str = Field(description="The Alarm's kind, e.g. WORKER_CRASHED.")
+    detail: str = Field(description="The Alarm's own detail: the error or failing assertion.")
     escalated_at: str = Field(description="When it was escalated, ISO 8601.")
 
 
@@ -168,21 +169,26 @@ async def _read_inbox(
 async def _escalated_alarms(trail: PheromoneTrail) -> tuple[_AlarmRow, ...]:
     """Return every `alarm.escalated` event with no later `alarm.resolved` for the same alarm.
 
-    No code in this Hive records either kind yet (`hivemind.queen.ticks.alarms` records
-    `queen.decided` for its own `ESCALATE_TO_HUMAN` instead, per that module's own docstring), so
-    this always returns empty today; it is written against the trail shape codingrules section 12
-    calls for so a later dispatch that starts recording these kinds needs no change here.
+    `hivemind.queen.ticks.alarms` records `alarm.escalated` for every ESCALATE_TO_HUMAN, with
+    the Alarm's kind, task id and detail in the payload (`hivemind.supervision.record_alarm_event`),
+    so each row here says what went wrong, not just that something did.
     """
     events = await trail.query(TrailQuery(family="alarm"))
-    escalated: dict[str, datetime] = {}
+    escalated: dict[str, PheromoneEvent] = {}
     for event in events:
         if event.kind == "alarm.escalated":
-            escalated[event.subject_id] = event.at
+            escalated[event.subject_id] = event
         elif event.kind == "alarm.resolved":
             escalated.pop(event.subject_id, None)
     return tuple(
-        _AlarmRow(alarm_id=alarm_id, task_id=alarm_id, escalated_at=at.isoformat())
-        for alarm_id, at in escalated.items()
+        _AlarmRow(
+            alarm_id=alarm_id,
+            task_id=str(event.payload.get("task_id") or alarm_id),
+            kind=str(event.payload.get("kind") or ""),
+            detail=str(event.payload.get("detail") or ""),
+            escalated_at=event.at.isoformat(),
+        )
+        for alarm_id, event in escalated.items()
     )
 
 
@@ -265,6 +271,11 @@ def _print_tables(questions: tuple[_QuestionRow, ...], alarms: tuple[_AlarmRow, 
         typer.echo(f"{row.id:<30}  {row.task_id:<30}  {row.text:<40}  {', '.join(row.options)}")
     typer.echo("")
     typer.echo("ALARMS")
-    typer.echo(f"{'ALARM ID':<30}  ESCALATED AT")
+    typer.echo(f"{'ALARM ID':<30}  {'KIND':<20}  {'TASK':<30}  ESCALATED AT")
     for alarm_row in alarms:
-        typer.echo(f"{alarm_row.alarm_id:<30}  {alarm_row.escalated_at}")
+        typer.echo(
+            f"{alarm_row.alarm_id:<30}  {alarm_row.kind:<20}  {alarm_row.task_id:<30}  "
+            f"{alarm_row.escalated_at}"
+        )
+        if alarm_row.detail:
+            typer.echo(f"    {alarm_row.detail}")

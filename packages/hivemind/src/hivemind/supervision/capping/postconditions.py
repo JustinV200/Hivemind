@@ -45,8 +45,11 @@ from waggle.messages.labels import Postcondition, PostconditionKind
 # has_held=False, observed='unsupported in v0'").
 _COMMAND_KINDS = frozenset({PostconditionKind.COMMAND_EXITS_ZERO, PostconditionKind.TEST_PASSES})
 _FILE_KINDS = frozenset({PostconditionKind.FILE_EXISTS, PostconditionKind.FILE_ABSENT})
+# Public, so the Queen's planner (queen.planner.schema) can refuse a criterion this gate would only
+# ever report as unsupported: a plan whose acceptance can never hold is a plan that always fails.
+CHECKABLE_KINDS: frozenset[PostconditionKind] = _COMMAND_KINDS | _FILE_KINDS
 
-__all__ = ["PostconditionOutcome", "check_postcondition"]
+__all__ = ["CHECKABLE_KINDS", "PostconditionOutcome", "check_postcondition"]
 
 
 class PostconditionOutcome(BaseModel):

@@ -102,6 +102,7 @@ from hivemind.llm import LLMRequest, LLMResponse, Responder
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.supervision import Checkpoint
+from hivemind.workers.telemetry import ROLLBACKS_BEFORE_ALARM
 from waggle.clock import Clock, SystemClock
 
 pytestmark = pytest.mark.e2e
@@ -577,32 +578,29 @@ def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_ap
 
 
 def _failing_command_worker_turn() -> WorkerTurn:
-    """Build a WORKER script: one `run_command` that exits non-zero, then the real writes.
+    """Build a WORKER script: threshold-many failing `run_command`s, then the real writes.
 
     See the module docstring for why a non-zero COMMAND exit, not a mismatched `write_file`
-    postcondition, is this suite's own closest real `ROLLED_BACK` trigger. The failure budget is
-    spent at most once, regardless of which attempt spends it: `hivemind.workers.tools.proposals.
-    cap` queues an Alarm on every ROLLED_BACK outcome (`ctx.telemetry.note_alarm`), flushed and
-    sent no later than this attempt's own terminal transition (`hivemind.workers.runtime.attempt.
-    AttemptManager`'s `_finish_*` methods, the kernel fix-forward commit's own fix 2), and the
-    Warden's own policy (`supervision/defaults/default-policy.toml`'s
-    POSTCONDITION_FAILED@1 -> RETRY row) may retire and respawn the sub-bee before or after it
-    finishes on its own -- both are
-    correct outcomes, but a script that could fail on a fresh, respawned attempt's own round 0 too
-    would cascade into a second rollback (attempts=2 -> ESCALATE) and race the Queen's own
-    concurrent retry against the original sub-bee's own natural completion. A budget of one is
-    what keeps this scenario deterministic regardless of which of those two equally-correct
-    outcomes actually happens.
+    postcondition, is this suite's own closest real `ROLLED_BACK` trigger. One rollback is
+    ordinary work now (`hivemind.workers.telemetry.TelemetryTracker.note_rollback`): only the
+    `ROLLBACKS_BEFORE_ALARM`-th in one attempt queues the POSTCONDITION_FAILED Alarm this scenario
+    asserts, flushed and sent no later than the attempt's own terminal transition
+    (`hivemind.workers.runtime.attempt.AttemptManager`'s `_finish_*` methods). The Warden's own
+    policy (`supervision/defaults/default-policy.toml`'s POSTCONDITION_FAILED@1 -> RETRY row) may
+    retire and respawn the sub-bee before or after it finishes on its own -- both are correct
+    outcomes. The failure budget is shared across attempts and spent exactly threshold-many times
+    in total, so a fresh, respawned attempt's own round 0 can never fail again and cascade into a
+    second Alarm (attempts=2 -> ESCALATE); that is what keeps the scenario deterministic.
     """
-    budget = {"count": 1}
+    budget = {"count": ROLLBACKS_BEFORE_ALARM}
 
     def worker_turn(request: LLMRequest) -> LLMResponse:
         count = tool_round_count(request)
-        if count == 0 and budget["count"] > 0:
+        if budget["count"] > 0:
             budget["count"] -= 1
             argv = [sys.executable, "-c", "import sys; sys.exit(1)"]
             return tool_response(request, (("fail", "run_command", {"argv": argv}),))
-        if count in (0, 1):
+        if count <= ROLLBACKS_BEFORE_ALARM:
             # count == 0: a fresh attempt after an earlier one already spent the budget (the
             # Warden's own RETRY killed and respawned it before this attempt could fail again).
             # count == 1: the failing round's own single result is round 0 of the SAME attempt (a

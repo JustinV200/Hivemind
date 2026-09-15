@@ -7,6 +7,11 @@
 > Status: early-stage / architecture & design phase. Nothing here is stable yet; this README describes the target system. The build order lives in [`.claude/roadmap.md`](.claude/roadmap.md) and the code standard in [`.claude/codingrules.md`](.claude/codingrules.md).
 
 ---
+## The first response of the first working drone:
+
+Q: "have a drone bee return a message about himself, tell me the message"
+
+A: "I am a drone bee, born in the hive with no stinger and no queen's blood, yet I fly all the same. My days are spent fanning air over the brood, keeping the comb warm, and flying out on warm afternoons to gather pollen for those who cannot leave the nest. My life is short, a single summer at most, but every wingbeat of mine belongs to something larger than myself: the colony that made me and will carry on without me when I am gone."
 
 ## Vision
 

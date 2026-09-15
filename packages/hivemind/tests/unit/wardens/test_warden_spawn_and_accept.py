@@ -156,3 +156,24 @@ async def test_acceptance_failure_raises_an_alarm_and_reports_failed() -> None:
     assert result.checked_by == warden_id
     assert alarm.kind.value == "ACCEPTANCE_FAILED"
     assert "FILE_EXISTS" in alarm.detail
+
+
+async def test_a_zero_bee_grant_raises_grant_exceeded_instead_of_parking_silently() -> None:
+    deps, queen_end, warden_id = make_warden_deps(worker_factory=_empty_claim_worker_factory())
+    assignment = make_assignment(clock=deps.clock)
+    grant = _grant(deps.clock, assignment.grant_id, max_sub_bees=0)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+
+    await queen_end.send(grant)
+    await queen_end.send(assignment)
+    alarm = await queen_end.wait_for_alarm()
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    # Nothing can spawn under a grant of zero bees; before this the assignment parked forever
+    # with nothing on the trail. GRANT_EXCEEDED's own policy row escalates straight to the Queen.
+    assert alarm.kind.value == "GRANT_EXCEEDED"
+    assert "zero sub-bees" in alarm.detail
+    assert alarm.origin == warden_id

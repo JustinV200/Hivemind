@@ -217,7 +217,13 @@ async def _record_forage_granted(
         actor=deps.identity.actor,
         kind="forage.granted",
         subject_id=fresh_grant.id,
-        payload={"task_id": task.id, "warden_id": warden_id},
+        # max_sub_bees is on the trail so a grant that allows no bee at all is visible where the
+        # assignment it covers would otherwise park silently (hivemind.wardens.ticks.assign).
+        payload={
+            "task_id": task.id,
+            "warden_id": warden_id,
+            "max_sub_bees": fresh_grant.max_sub_bees,
+        },
     )
     await deps.trail.record(event)
 

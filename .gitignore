@@ -29,3 +29,27 @@ requirements-audit.txt
 
 # import-linter's on-disk import graph cache
 .import_linter_cache/
+
+# HiveMind runtime data: a real Hive's own state never belongs in the repo.
+# The Hive's SQLite store ([hive] db, default hive.sqlite3 beside the manifest, ADR-0006) and the
+# WAL/SHM/journal sidecars SQLite writes next to it (hivemind.common.sqlite sets journal_mode=WAL).
+*.sqlite3
+*.sqlite3-*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+# The Hive Stand's scratch root ([hive_stand] scratch_root, default .hive/scratch, one lease dir
+# per Warden tenancy) and anything else the runtime parks under .hive/.
+.hive/
+# The operator's own local manifest: real hive/node ids and local model bindings. The committed
+# examples live in docs/manifests/.
+/hive.toml
+# Waggle outbox logs (waggle.outbox.log, append-only JSONL), `hive trail export` segments and any
+# other runtime logs.
+*.jsonl
+*.log
+*.trail.json
+# Local env overrides (HIVEMIND_* vars, provider API keys) beyond the bare .env above.
+.env.*
+!.env.example

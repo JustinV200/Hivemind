@@ -76,7 +76,11 @@ from hivemind.supervision.capping.errors import (
 )
 from hivemind.supervision.capping.gate import CappingGate, GateDeps, GateOutcome
 from hivemind.supervision.capping.lease_view import LeaseView
-from hivemind.supervision.capping.postconditions import PostconditionOutcome, check_postcondition
+from hivemind.supervision.capping.postconditions import (
+    CHECKABLE_KINDS,
+    PostconditionOutcome,
+    check_postcondition,
+)
 from hivemind.supervision.capping.proposal import MAX_POSTCONDITIONS, Proposal
 from hivemind.supervision.capping.state import (
     TRANSITIONS,
@@ -88,6 +92,7 @@ from hivemind.supervision.capping.state import (
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec, TierTable, load_tiers
 
 __all__ = [
+    "CHECKABLE_KINDS",
     "MAX_POSTCONDITIONS",
     "TRANSITIONS",
     "ApplyResult",

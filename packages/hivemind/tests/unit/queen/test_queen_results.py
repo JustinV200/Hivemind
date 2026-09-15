@@ -69,10 +69,12 @@ def _two_task_plan(goal: str) -> dict[str, object]:
     }
 
 
-def _result(task_id: TaskId, warden_id: WardenId, outcome: TaskOutcome) -> TaskResult:
+def _result(
+    task_id: TaskId, warden_id: WardenId, outcome: TaskOutcome, attempt: int = 1
+) -> TaskResult:
     return TaskResult(
         task_id=task_id,
-        attempt=1,
+        attempt=attempt,
         outcome=outcome,
         summary="Some outcome.",
         clearance=WireHoneyClearance.C1,
@@ -128,7 +130,11 @@ async def test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_
     assert warden_end.assignments[1].attempt == 2
 
     # Attempt 2 fails: attempts (2) now meets the limit (2), so the Queen fails the task for good.
-    await warden_end.send(_result(first_assignment.task_id, link.warden_id, TaskOutcome.FAILED))
+    # The result echoes attempt 2 (as a real Warden's does): a FAILED result for attempt 1 arriving
+    # now would be stale and only recorded (hivemind.queen.autopilot.table).
+    await warden_end.send(
+        _result(first_assignment.task_id, link.warden_id, TaskOutcome.FAILED, attempt=2)
+    )
     await _wait_until(lambda: _is_terminal(deps, first_assignment.task_id))
 
     await queen.stop()

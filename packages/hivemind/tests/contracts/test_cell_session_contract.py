@@ -39,7 +39,7 @@ from hivemind.cell.errors import CommandTimeoutError, PathNotAllowedError, Sessi
 from hivemind.cell.fake import FakeSession
 from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.releaser import HiveStandLeaseReleaser
-from hivemind.cell.local.session import LocalProcessSession
+from hivemind.cell.local.session import EXIT_COMMAND_NOT_STARTED, LocalProcessSession
 from hivemind.cell.session import CellSession, CompletedCommand, ExecSpec, ExitStatus, run
 from waggle.clock import FakeClock, SystemClock
 
@@ -48,6 +48,8 @@ _STDERR_TEXT = b"boom"
 _NONZERO_EXIT = 7
 _SHORT_TIMEOUT_S = 0.5  # The one test that actually waits for a timeout; kept short on purpose.
 _LOCAL_QUOTA_BYTES = 64 * 1024 * 1024  # Generous: this suite is about the CellSession contract.
+# An executable no host has, for the "missing" case: the local harness really tries to spawn it.
+_MISSING_EXECUTABLE = "hivemind-no-such-executable-3f9a2c"
 
 
 class SessionHarness(Protocol):
@@ -73,6 +75,12 @@ class _FakeHarness:
             ),
             "nonzero": CompletedCommand(
                 exit_code=_NONZERO_EXIT, stdout=b"", stderr=b"", duration_s=0.0
+            ),
+            "missing": CompletedCommand(
+                exit_code=EXIT_COMMAND_NOT_STARTED,
+                stdout=b"",
+                stderr=f"{_MISSING_EXECUTABLE}: not found".encode(),
+                duration_s=0.0,
             ),
         }
         return FakeSession(
@@ -119,6 +127,8 @@ class _LocalHarness:
         return LocalProcessSession(lease, ScratchQuota(quota_bytes=_LOCAL_QUOTA_BYTES), clock)
 
     def command_for(self, case: str) -> tuple[str, ...]:
+        if case == "missing":
+            return (_MISSING_EXECUTABLE,)  # Not a script: the point is that nothing can run it.
         return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
 
 
@@ -160,6 +170,20 @@ async def test_nonzero_exit_code_surfaces(harness: SessionHarness, tmp_path: Pat
     completed = await run(session, ExecSpec(argv=harness.command_for("nonzero")))
 
     assert completed.exit_code == _NONZERO_EXIT
+
+
+async def test_a_command_that_cannot_start_is_a_failed_command_not_an_exception(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+
+    completed = await run(session, ExecSpec(argv=harness.command_for("missing")))
+
+    # A shell reports a command it cannot find with exit 127 and a line on stderr; a CellSession
+    # does the same, so the bee that proposed it reads an ordinary failure it can correct, instead
+    # of an OSError escaping its tool call and crashing the bee (an Alarm, then an escalation).
+    assert completed.exit_code == EXIT_COMMAND_NOT_STARTED
+    assert completed.stderr
 
 
 async def test_put_file_then_get_file_round_trips_bytes(

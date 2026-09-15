@@ -79,7 +79,10 @@ __all__ = ["app"]
 # a hosted API without worrying about spend (codingrules section 8.6's model-id rule keeps this
 # free of any real model name; it is just English text).
 DEFAULT_TEST_PROMPT = "Reply with exactly one word: ready."
-TEST_MAX_OUTPUT_TOKENS = 32  # A one-word reply never needs more; keeps the probe call small.
+# A one-word reply needs a handful of tokens, but a thinking model spends its reasoning out of the
+# same budget (32 was exhausted before the answer started on a local reasoning model at HIGH
+# effort); 512 leaves room for that while keeping a hosted probe call cheap.
+TEST_MAX_OUTPUT_TOKENS = 512
 
 
 def _validate_slot(value: str) -> str:

@@ -28,7 +28,13 @@ Public API (roadmap step 3.20):
       (plan).
 """
 
-from hivemind.queen.planner.plan import PLANNER_MAX_OUTPUT_TOKENS, PlannerError, plan_goal
+from hivemind.queen.planner.plan import (
+    PLANNER_MAX_OUTPUT_TOKENS,
+    PlanBrief,
+    PlannerError,
+    describe_fleet,
+    plan_goal,
+)
 from hivemind.queen.planner.schema import (
     MAX_ACCEPTANCE_ITEMS,
     MAX_DEPENDS_ON,
@@ -53,9 +59,11 @@ __all__ = [
     "MIN_ACCEPTANCE_ITEMS",
     "MIN_PLAN_TASKS",
     "PLANNER_MAX_OUTPUT_TOKENS",
+    "PlanBrief",
     "PlanSchema",
     "PlannedPostcondition",
     "PlannedTask",
     "PlannerError",
+    "describe_fleet",
     "plan_goal",
 ]

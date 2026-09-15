@@ -106,7 +106,8 @@ def make_proposal(ctx: WorkerContext, assignment: TaskAssign, request: ProposalR
 async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     """Propose, then run, `proposal` through this attempt's Capping gate.
 
-    A ROLLED_BACK outcome also notes an Alarm on `ctx.telemetry` (this dispatch's own fix 2):
+    A ROLLED_BACK outcome is also counted on `ctx.telemetry`, which queues an Alarm once this
+    attempt has had `hivemind.workers.telemetry.ROLLBACKS_BEFORE_ALARM` of them (fix 2, revised):
     `cap` is the one place a tool's own call to the gate is, so it is the one place that can see
     both the real `GateOutcome` and this attempt's own tracker without either a tool or the gate
     itself needing a handle on the other (`hivemind.workers.runtime.WorkerRuntime` drains the note
@@ -124,7 +125,7 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     await ctx.capping.propose(proposal)
     outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease)
     if outcome.state is ProposalState.ROLLED_BACK:
-        ctx.telemetry.note_alarm(ROLLBACK_ALARM_KIND, outcome.reason)
+        ctx.telemetry.note_rollback(ROLLBACK_ALARM_KIND, outcome.reason)
     return outcome
 
 

@@ -342,7 +342,7 @@ async def _run_tick(warden: Warden) -> None:
         ordered = await warden._attendant.order(tuple(items))
         for item in ordered:
             await _handle_item(warden, item)
-    await _update_watch_state(warden)
+    await _settle_after_tick(warden)
 
 
 def _drain_items(
@@ -397,13 +397,18 @@ def _heartbeat_deadline_task(warden: Warden) -> asyncio.Task[None]:
     return warden._heartbeat_task
 
 
-async def _update_watch_state(warden: Warden) -> None:
-    """Move ACTIVE with zero sub-bees to WATCH, or WATCH with a spawn back to ACTIVE."""
-    has_sub_bees = bool(warden._sub_bees)
-    if has_sub_bees and warden._state is WardenState.WATCH:
+async def _settle_after_tick(warden: Warden) -> None:
+    """Hand a slot a finished bee freed to a parked assignment, then settle ACTIVE/WATCH on it.
+
+    `hivemind.wardens.ticks.assign.spawn_parked` runs first so a task parked for a full pool
+    starts the same tick the pool has room again (nothing else ever re-drove it); the
+    ACTIVE <-> WATCH move then reads the sub-bee table that spawn may just have grown.
+    """
+    await ticks.assign.spawn_parked(warden)
+    if warden._sub_bees and warden._state is WardenState.WATCH:
         warden._state = WardenState.ACTIVE
         await _record_event(warden, "warden.active")
-    elif not has_sub_bees and warden._state is WardenState.ACTIVE:
+    elif not warden._sub_bees and warden._state is WardenState.ACTIVE:
         warden._state = WardenState.WATCH
         await _record_event(warden, "warden.watch")
 

@@ -27,15 +27,21 @@ conceptually, not as a schema:
 - **A description** of what the subtask does, specific enough that whoever executes it does not
   have to guess at scope.
 - **Acceptance**: how anyone will know the subtask actually succeeded, to be checked by that
-  subtask's Warden, never by the bee that did the work. Prefer something a machine can check
-  without judgement — a file exists, a command exits zero, a named test passes — over anything
-  else. Fall back to a rubric for a judge to score only where nothing about the subtask can be
-  checked mechanically, and state that rubric as a specific, checkable question, never a vague
-  standard.
+  subtask's Warden, never by the bee that did the work. The Warden can check exactly four things
+  today: a file exists, a file is absent, a command exits zero, a named test passes. Nothing
+  else is checkable yet — no HTTP status, no on-screen text, no judge's rubric — so never plan
+  one of those. A subtask whose result is text for a human (a message, a report, an answer)
+  writes that text to a named file in its working directory and is checked by that file
+  existing; the text itself is then read back from the file, so name the file in the
+  description. A command criterion carries its command as an argument list run without a shell
+  on the Cell's own operating system: no `&&`, pipes or redirection, and no tool the fleet does
+  not show.
 - **Needs**: what the subtask requires to run — isolation (whether it needs a disposable machine,
   would prefer one, or does not care), an Exoskeleton (display, input, audio) if it drives a GUI,
   an operating system if one is required, the network destinations it must reach, and its tempo
-  (how fast it must run and how right it must be).
+  (how fast it must run and how right it must be). Fit the needs to the fleet shown in hot
+  state: name an operating system only when the goal itself requires one (the Hive Stand may
+  run Windows), and a subtask nothing there can run is a subtask that never starts.
 
 ## Hard rules
 

@@ -56,10 +56,10 @@ def _make_alarm(clock: FakeClock, *, kind: AlarmKind, task_id: object | None = N
     )
 
 
-def _make_result(clock: FakeClock, *, outcome: TaskOutcome) -> TaskResult:
+def _make_result(clock: FakeClock, *, outcome: TaskOutcome, attempt: int = 1) -> TaskResult:
     return TaskResult(
         task_id=new_task_id(clock),
-        attempt=1,
+        attempt=attempt,
         outcome=outcome,
         summary="Some outcome.",
         clearance=HoneyClearance.C1,
@@ -69,6 +69,10 @@ def _make_result(clock: FakeClock, *, outcome: TaskOutcome) -> TaskResult:
         spend=0.0,
         reason="Done.",
     )
+
+
+def _no_rules_policy() -> EscalationPolicy:
+    return EscalationPolicy(rules=(), default=PolicyAction.ESCALATE)
 
 
 def test_heartbeat_is_recorded() -> None:
@@ -114,13 +118,45 @@ def test_task_result_failed_retries_below_the_limit() -> None:
 
 def test_task_result_failed_fails_once_attempts_reach_the_limit() -> None:
     clock = FakeClock()
-    result = _make_result(clock, outcome=TaskOutcome.FAILED)
+    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=3)  # The current attempt's.
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
     action = decide(item, task, 3, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
 
     assert action is QueenAction.FAIL_TASK
+
+
+def test_failed_result_for_an_attempt_older_than_the_current_one_is_a_stale_record() -> None:
+    clock = FakeClock()
+    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=1)
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+
+    # The Queen already dispatched attempt 2 (its counter reads 2); attempt 1's own FAILED result
+    # landing afterwards must not dispatch a third attempt for the same single failure.
+    action = decide(item, None, 2, _no_rules_policy(), _DEFAULT_LIMIT)
+
+    assert action is QueenAction.RECORD
+
+
+def test_acceptance_failed_alarm_is_recorded_its_paired_failed_result_decides() -> None:
+    clock = FakeClock()
+    alarm = _make_alarm(clock, kind=AlarmKind.ACCEPTANCE_FAILED)
+    item = make_inbox_item(InboxKind.ALARM, clock=clock, payload=alarm)
+    retry_policy = EscalationPolicy(
+        rules=(
+            PolicyRule(
+                kind=HiveAlarmKind.ACCEPTANCE_FAILED, min_attempts=1, action=PolicyAction.RETRY
+            ),
+        ),
+        default=PolicyAction.ESCALATE,
+    )
+
+    # Even with a policy row that would retry, the Alarm is only recorded: the Warden that raised
+    # it reports TaskResult(FAILED) for the same attempt, and that result carries the decision.
+    action = decide(item, None, 1, retry_policy, _DEFAULT_LIMIT)
+
+    assert action is QueenAction.RECORD
 
 
 def test_task_result_for_an_already_terminal_task_is_a_stale_record() -> None:

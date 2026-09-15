@@ -44,6 +44,7 @@ from typing import Annotated
 
 import typer
 
+from hivemind.brood_chamber import Task
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import GoalReport, Hive, build_hive, run_goal, run_hive
 from hivemind.cli.stores import DEFAULT_MANIFEST, ManifestOption, load_manifest_or_exit
@@ -176,6 +177,15 @@ def _print_summary(report: GoalReport, as_json: bool) -> None:
     if as_json:
         typer.echo(_report_json(report))
         return
+    # A finished task's outcome summary is the bee's own closing text as the Warden verified it
+    # (bounded by MAX_SUMMARY_CHARS); a task still in flight has at most a progress summary. For a
+    # goal whose result is a message, this is the message. Printed before the verdict so the
+    # one-line verdict stays the last thing on the terminal.
+    for task in report.tasks:
+        typer.echo(f"  [{task.status.value}] {task.spec.title}")
+        summary = _task_summary(task)
+        if summary:
+            typer.echo(f"    {summary}")
     outcome = "timed out" if report.timed_out else ("succeeded" if report.succeeded else "failed")
     typer.echo(
         f"goal {report.goal_id} {outcome} in {report.elapsed_s:.1f}s "
@@ -183,8 +193,15 @@ def _print_summary(report: GoalReport, as_json: bool) -> None:
     )
 
 
+def _task_summary(task: Task) -> str | None:
+    """Return the text a human should read for `task`: its verified outcome, else its progress."""
+    if task.outcome is not None:
+        return task.outcome.summary
+    return task.last_summary
+
+
 def _report_json(report: GoalReport) -> str:
-    """Render `report` as one compact JSON line: ids, counts and enums, never a task's full body."""
+    """Render `report` as one compact JSON line: ids, statuses, bounded summaries; no full body."""
     return json.dumps(
         {
             "goal_id": report.goal_id,
@@ -192,6 +209,9 @@ def _report_json(report: GoalReport) -> str:
             "timed_out": report.timed_out,
             "elapsed_s": report.elapsed_s,
             "spend_usd": report.spend_usd,
-            "tasks": [{"id": task.id, "status": task.status.value} for task in report.tasks],
+            "tasks": [
+                {"id": task.id, "status": task.status.value, "summary": _task_summary(task)}
+                for task in report.tasks
+            ],
         }
     )

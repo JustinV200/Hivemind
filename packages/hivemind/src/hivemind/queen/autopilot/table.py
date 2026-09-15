@@ -51,7 +51,7 @@ from hivemind.queen.autopilot.actions import QueenAction
 from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
-from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Question
+from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
 from waggle.messages.task import TaskOutcome, TaskResult
 
 __all__ = ["decide"]
@@ -97,7 +97,13 @@ def decide(
     if isinstance(payload, TaskResult):
         return QueenAction.RECORD if stale else _decide_task_result(payload, attempts, limit)
     if isinstance(payload, AlarmRaised):
-        return QueenAction.RECORD if stale else _decide_alarm(payload, attempts, policy, limit)
+        if stale or payload.kind is AlarmKind.ACCEPTANCE_FAILED:
+            # A Warden raises ACCEPTANCE_FAILED and then reports TaskResult(FAILED) for the very
+            # same attempt (hivemind.wardens.ticks.results): the result is the one report that
+            # retries or fails the task, so the Alarm is recorded, never acted on. Acting on both
+            # dispatched two attempts, two grants and two Drones for one failure.
+            return QueenAction.RECORD
+        return _decide_alarm(payload, attempts, policy, limit)
     if isinstance(payload, Question):
         return QueenAction.BLOCK_ON_QUESTION
     if isinstance(payload, Answer):
@@ -113,6 +119,11 @@ def _decide_task_result(payload: TaskResult, attempts: int, limit: int) -> Queen
     if payload.outcome is TaskOutcome.SUCCEEDED:
         return QueenAction.COMPLETE_TASK
     if payload.outcome is TaskOutcome.FAILED:
+        if payload.attempt < attempts:
+            # A FAILED report about an attempt older than the one the Queen already dispatched
+            # (attempt 1's result landing after attempt 2 went out) is history, not a decision:
+            # retrying on it would run two attempts for one failure.
+            return QueenAction.RECORD
         # roadmap 3.22's own exit criteria: retries with attempt+1 up to the limit, then FAIL_TASK.
         return QueenAction.RETRY_TASK if attempts < limit else QueenAction.FAIL_TASK
     # CLAIMED never reaches the Queen (the Warden intercepts it); CANCELLED is the echo of a

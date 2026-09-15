@@ -38,12 +38,14 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import ClassVar
 
 from pydantic import ValidationError
 
 from hivemind.brood_chamber import TaskDraft, TaskGraphDraft
-from hivemind.cell import HoneyClearance
+from hivemind.cell import Cell, HoneyClearance
 from hivemind.common.errors import ConfigurationError
 from hivemind.llm import (
     CallGate,
@@ -63,7 +65,7 @@ from waggle.messages import Postcondition
 PLANNER_MAX_OUTPUT_TOKENS = 8_192  # A whole task graph as JSON: generous, still bounded.
 _PLANNER_USER_TURN = "Decompose the goal above into a task graph, following the rules given."
 
-__all__ = ["PLANNER_MAX_OUTPUT_TOKENS", "PlannerError", "plan_goal"]
+__all__ = ["PLANNER_MAX_OUTPUT_TOKENS", "PlanBrief", "PlannerError", "describe_fleet", "plan_goal"]
 
 
 class PlannerError(ConfigurationError):
@@ -76,22 +78,37 @@ class PlannerError(ConfigurationError):
     code: ClassVar[str] = "hivemind.queen.planner_error"
 
 
+@dataclass(frozen=True, slots=True)
+class PlanBrief:
+    """What `plan_goal` is asked to plan: the goal, its clearance ceiling and the fleet it has.
+
+    One value rather than three parameters (codingrules 5.1's parameter limit), and the natural
+    unit to hand a planner: the text as the human stated it, the data-sensitivity ceiling every
+    subtask inherits, and the Cells placement will match the plan's needs against.
+    """
+
+    goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
+    clearance: HoneyClearance  # Every planned subtask's own clearance label (the goal's ceiling).
+    cells: Sequence[Cell] | None = None  # The attached Wardens' Cells; None omits hot state.
+
+
 async def plan_goal(
-    goal: str,
+    brief: PlanBrief,
     bound: BoundModel,
     *,
     gate: CallGate,
     observer: LadderObserver | None = None,
-    clearance: HoneyClearance,
 ) -> TaskGraphDraft:
-    """Decompose `goal` into a validated TaskGraphDraft, through `bound`.
+    """Decompose `brief.goal` into a validated TaskGraphDraft, through `bound`.
 
     Args:
-        goal: The goal text, as the human (or a bee on the human's behalf) stated it.
+        brief: The goal, its clearance ceiling and, when known, the Cells the Hive can place
+            work on; the last is rendered by `describe_fleet` into the prompt's hot-state
+            section so the plan's needs fit a Cell that exists (None omits the section; an
+            empty sequence says so to the model).
         bound: The model binding to plan with; typically `deps.bound_for(ModelSlot.QUEEN)`.
         gate: The seat meter the call passes through.
         observer: Who to tell about a ladder step-down; `NullLadderObserver()` when omitted.
-        clearance: Every planned subtask's own clearance label (the goal's own ceiling).
 
     Returns:
         A validated TaskGraphDraft: acyclic, unique keys, every subtask carrying acceptance.
@@ -102,7 +119,12 @@ async def plan_goal(
         hivemind.llm.errors.MalformedOutputError: Every rung of the structured-output ladder was
             exhausted without a schema-valid reply.
     """
-    system = render(PromptName.DECOMPOSE_GOAL, sections={SectionLabel.USER: goal})
+    sections: dict[SectionLabel, str] = {SectionLabel.USER: brief.goal}
+    if brief.cells is not None:
+        # decompose_goal.md promises "a rough summary of the fleet's capacity" under hot state;
+        # without it a model guesses (a Linux-only plan on a Windows Hive Stand never places).
+        sections[SectionLabel.HOT_STATE] = describe_fleet(brief.cells)
+    system = render(PromptName.DECOMPOSE_GOAL, sections=sections)
     request = LLMRequest(
         slot=bound.slot,
         system=system,
@@ -113,9 +135,40 @@ async def plan_goal(
     # the ladder itself retries and steps down rungs on a malformed reply.
     result = await complete_structured(bound, request, PlanSchema, gate=gate, observer=observer)
     try:
-        return _to_graph_draft(result.value, clearance)
+        return _to_graph_draft(result.value, brief.clearance)
     except ValidationError as exc:
-        raise PlannerError(f"The planned graph for {goal[:80]!r} is invalid: {exc}") from exc
+        raise PlannerError(f"The planned graph for {brief.goal[:80]!r} is invalid: {exc}") from exc
+
+
+def describe_fleet(cells: Sequence[Cell]) -> str:
+    """Summarise the Cells the Hive can place work on, for the planner's hot-state section.
+
+    One line per Cell with the facts a plan is judged against: the OS family
+    `queen.placement.decide` matches `TaskNeeds.os` on, and the architecture, shell and Python a
+    command criterion may assume. An empty fleet is said plainly, so the model keeps needs at
+    their defaults instead of guessing.
+
+    Args:
+        cells: The Cells behind every attached Warden, in any order.
+
+    Returns:
+        A short block of text; `plan_goal` puts it in the hot-state section when given `cells`.
+    """
+    if not cells:
+        return (
+            "Fleet: no Cell is attached yet. Set no os and leave every other need at its default."
+        )
+    lines = [
+        "Fleet: the Cells the Hive can place work on right now. A subtask's needs must fit one of "
+        "them, and a command criterion must run on it as a plain argument list, without a shell."
+    ]
+    for cell in cells:
+        caps = cell.capabilities
+        python = f"python {caps.python_version}" if caps.python_version else "no python"
+        lines.append(
+            f"- {cell.name}: os {caps.os.value}, {caps.arch}, shell {caps.shell}, {python}"
+        )
+    return "\n".join(lines)
 
 
 def _to_graph_draft(plan: PlanSchema, clearance: HoneyClearance) -> TaskGraphDraft:

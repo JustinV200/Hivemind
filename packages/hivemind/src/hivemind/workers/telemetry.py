@@ -64,7 +64,12 @@ from waggle.messages.supervision.telemetry import (
     ContextTelemetry,
 )
 
-__all__ = ["PendingAlarm", "TelemetryTracker"]
+# How many Capping rollbacks one attempt absorbs as ordinary tool results before the next one is
+# also an Alarm (see TelemetryTracker.note_rollback). Three: one failed command is normal work,
+# two may be a correction that also missed, three in a row is a bee going round in circles.
+ROLLBACKS_BEFORE_ALARM = 3
+
+__all__ = ["ROLLBACKS_BEFORE_ALARM", "PendingAlarm", "TelemetryTracker"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +115,7 @@ class TelemetryTracker:
         # Grows on note_alarm (a tool-level failure the role never sees as an exception, e.g. a
         # Capping rollback) and drains on take_pending_alarms, this dispatch's own fix 2.
         self._pending_alarms: list[PendingAlarm] = []
+        self._rollbacks = 0  # Capping rollbacks this attempt; see note_rollback.
         # Starts "not paused": a role's first wait_if_paused() call returns at once unless a
         # TaskPause has already landed by then.
         self._pause_event = asyncio.Event()
@@ -217,6 +223,29 @@ class TelemetryTracker:
         no-op).
         """
         self._pause_event.set()
+
+    def note_rollback(self, kind: AlarmKind, detail: str) -> bool:
+        """Count one Capping rollback; queue an Alarm once this attempt has had enough of them.
+
+        One rolled-back proposal is ordinary work: the tool result already told the role what did
+        not hold, and the role is the one best placed to try differently. Alarming on every one
+        had the Warden's policy retire and respawn a bee mid-loop for a single failed command,
+        losing its context and, on the first local run, escalating a task to the human for it. A
+        role that keeps proposing actions whose own postconditions fail is stuck, and that is
+        what the Alarm says.
+
+        Args:
+            kind: The AlarmKind a rollback maps to (`hivemind.workers.tools.proposals`).
+            detail: The gate's own reason for the rollback.
+
+        Returns:
+            Whether an Alarm was queued (only at and past `ROLLBACKS_BEFORE_ALARM`).
+        """
+        self._rollbacks += 1
+        if self._rollbacks < ROLLBACKS_BEFORE_ALARM:
+            return False
+        self.note_alarm(kind, detail)
+        return True
 
     def note_alarm(self, kind: AlarmKind, detail: str) -> None:
         """Queue an Alarm a tool-level failure raised, for the runtime to send on its next tick.

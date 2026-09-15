@@ -42,7 +42,7 @@ from waggle.messages.task import TaskAssign
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
 
-__all__ = ["handle_assign", "handle_grant"]
+__all__ = ["handle_assign", "handle_grant", "spawn_parked"]
 
 
 async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
@@ -84,10 +84,44 @@ async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
     """
     warden._grants[grant.grant_id] = grant
     warden._local_pool.resize(grant.max_sub_bees)
+    if grant.max_sub_bees == 0:
+        # Nothing can ever spawn under this grant, so every assignment it covers would park in
+        # `_pending` with no trace on the trail (the first local run sat that way for minutes).
+        # Only the Queen divides Forage (GRANT_EXCEEDED's own policy row: escalate, never retry),
+        # so say so up the chain rather than wait for a larger grant that may never come.
+        await send_alarm_to_queen(
+            warden,
+            kind=AlarmKind.GRANT_EXCEEDED,
+            detail=f"Grant {grant.grant_id} allows zero sub-bees; no assignment under it can "
+            "start (check the Forage map's seats against [forage.reserve]).",
+            reason="A zero-bee grant needs a larger grant from the Queen; a Warden cannot "
+            "enlarge its own.",
+            task_id=grant.task_id,
+        )
     waiting = [a for a in warden._pending.values() if a.grant_id == grant.grant_id]
     for assignment in waiting:
         warden._pending.pop(assignment.task_id, None)
         await handle_assign(warden, assignment)
+
+
+async def spawn_parked(warden: Warden) -> None:
+    """Spawn every parked assignment whose grant is known once the local pool has room again.
+
+    `handle_grant` re-drives an assignment parked for a missing grant; this re-drives one parked
+    for a full pool, which nothing else did: a bee finishing (`retire_sub_bee`'s own `release`)
+    freed a slot that no later event ever handed to the assignment still waiting for it. Called
+    once per Warden tick, so the cost is one scan of a normally-empty dict.
+
+    Args:
+        warden: The owning Warden.
+    """
+    pool = warden._local_pool
+    for assignment in tuple(warden._pending.values()):
+        if pool.in_use >= pool.capacity:
+            return
+        if assignment.grant_id in warden._grants:
+            warden._pending.pop(assignment.task_id, None)
+            await handle_assign(warden, assignment)
 
 
 async def _retry_lease_or_escalate(warden: Warden, assignment: TaskAssign) -> None:

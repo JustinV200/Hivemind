@@ -649,9 +649,14 @@ provisioned. The LLM layer is built provider-agnostic here, with two adapters.
 
 ### Exit criteria
 
-- `hive run "write three haiku about bees to separate files"` completes on the Hive Stand through
+- [x] `hive run "write three haiku about bees to separate files"` completes on the Hive Stand through
   its Warden, with **both** `docs/manifests/minimal.toml` (Claude) and `docs/manifests/local.toml`
   (a local server), the scratch root is empty afterwards and no process the run started is alive.
+  **Met 2026-09-15** on the local-server leg: a file-writing goal ran end to end against LM Studio
+  (Heretic Qwen3.8-27B, the operator's own `hive.toml`) through the Hive Stand's Warden; the lease's
+  scratch directory was removed on release and no process survived the run. The Claude leg
+  (`minimal.toml`) is not yet exercised. Note for later phases: the same cleanup deletes every file
+  a Drone produces, so until the Basket (9.2a) lands, a task's only durable output is its summary.
 - All eight e2e scenarios pass in CI in under 20 seconds at both capability levels, on Windows
   and Ubuntu.
 - The hygiene scripts pass: no model ids or vendor imports outside their homes, no `subprocess`

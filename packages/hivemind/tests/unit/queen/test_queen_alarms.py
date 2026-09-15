@@ -29,12 +29,15 @@ from builders.queen import make_queen_deps, plan_responder
 
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
+from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.clock import Clock
 from waggle.ids import TaskId, new_alarm_id, new_worker_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised, InterventionAction
+from waggle.messages.task import TaskOutcome, TaskResult
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -141,3 +144,51 @@ async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 200
             return
         await asyncio.sleep(0)
     raise AssertionError("Condition never became true.")
+
+
+async def test_acceptance_failed_alarm_plus_failed_result_dispatch_exactly_one_retry() -> None:
+    """The Warden's ACCEPTANCE_FAILED Alarm and its TaskResult(FAILED) describe one failure.
+
+    Before this fix the Queen retried on each: two grants, two assignments, two Drones on the
+    same task. Now the Alarm is recorded (alarm.handled, action RECORD) and the result decides.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider, alarm_attempt_limit=3)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    first = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    await warden_end.send(
+        _alarm(deps.clock, kind=AlarmKind.ACCEPTANCE_FAILED, task_id=first.task_id)
+    )
+    await warden_end.send(
+        TaskResult(
+            task_id=first.task_id,
+            attempt=1,
+            outcome=TaskOutcome.FAILED,
+            summary="Acceptance did not hold.",
+            clearance=WireHoneyClearance.C1,
+            artifacts=(),
+            checked_by=link.warden_id,
+            handoff=None,
+            spend=0.0,
+            reason="acceptance",
+        )
+    )
+    await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
+    await _wait_until(lambda: _alarm_recorded(deps, "RECORD"))
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    granted = [e for e in await deps.trail.query(TrailQuery()) if e.kind == "forage.granted"]
+    assert len(granted) == 2, [e.payload for e in granted]  # The first dispatch and one retry.
+    assert warden_end.assignments[1].attempt == 2
+    await warden_end.close()
+
+
+async def _alarm_recorded(deps: QueenDeps, action: str) -> bool:
+    events = await deps.trail.query(TrailQuery(family="alarm"))
+    return any(e.kind == "alarm.handled" and e.payload.get("action") == action for e in events)

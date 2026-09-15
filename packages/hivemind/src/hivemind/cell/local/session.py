@@ -26,6 +26,9 @@ Fits into the Hive:
     `hivemind.cell.local.quota` and `hivemind.cell.local.releaser` only.
 
 Key invariants:
+    - A command that cannot start (no such executable, not executable, a missing cwd) is an
+      ordinary failed command -- one stderr chunk and `ExitStatus(EXIT_COMMAND_NOT_STARTED)` --
+      never an OSError out of `exec`; a bee's tool call must see a shell-shaped failure, not crash.
     - `exec` streams `OutputChunk`s in arrival order across both pipes, ending in exactly one
       `ExitStatus`, unless it raises `CommandTimeoutError` or `ScratchQuotaExceededError` first,
       matching the `CellSession.exec` contract exactly.
@@ -76,7 +79,12 @@ if sys.platform != "win32":
 
 _READ_CHUNK_BYTES = 65536  # 64 KiB per pipe read: efficient without holding output back long.
 
-__all__ = ["LocalProcessSession"]
+# The exit code a POSIX shell gives a command it cannot find. A command this session cannot
+# even start (no such executable on this OS, not executable, a missing cwd) is reported with
+# it and the reason on stderr, so the bee that proposed it reads an ordinary failed command.
+EXIT_COMMAND_NOT_STARTED = 127
+
+__all__ = ["EXIT_COMMAND_NOT_STARTED", "LocalProcessSession"]
 
 
 class _Violation(Enum):
@@ -136,7 +144,9 @@ class LocalProcessSession:
             spec: The command to run.
 
         Yields:
-            OutputChunk as output arrives across both stdout and stderr, then one ExitStatus.
+            OutputChunk as output arrives across both stdout and stderr, then one ExitStatus. A
+            command that cannot start at all yields one stderr chunk naming the reason, then an
+            ExitStatus of `EXIT_COMMAND_NOT_STARTED`; an OSError from the spawn never escapes.
 
         Raises:
             SessionClosedError: This session is closed.
@@ -148,7 +158,18 @@ class LocalProcessSession:
         cwd = _resolve_cwd(self._scratch_dir, spec.cwd)
         env = {**os.environ, **spec.env}
         start = self._clock.monotonic()  # never datetime.now(): only the elapsed span matters.
-        process = await _spawn(spec, cwd, env, self._quota.quota_bytes)
+        try:
+            process = await _spawn(spec, cwd, env, self._quota.quota_bytes)
+        except OSError as error:
+            # Reported the way a shell reports a command it cannot find, not raised: to the bee
+            # that proposed it this is one more failed command to read and correct (a `python3`
+            # that is `python` on this host), whereas an exception escaping its tool call is a
+            # crash of the bee itself, an Alarm, and an escalation nobody needed.
+            reason = f"{spec.argv[0]}: {error.strerror or error}".encode()
+            yield OutputChunk(stream=OutputStream.STDERR, data=reason)
+            duration_s = self._clock.monotonic() - start
+            yield ExitStatus(code=EXIT_COMMAND_NOT_STARTED, duration_s=duration_s)
+            return
         # Recorded before anything else touches the child, so a crash mid-exec still leaves the
         # pid where close()/release() can find and kill it (codingrules section 8.7).
         self._lease.note_started_process(process.pid)
