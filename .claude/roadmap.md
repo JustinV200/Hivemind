@@ -760,7 +760,7 @@ failing.
   seats), the Warden's is a bare counter against a grant's `max_sub_bees`, both are exported
   from their own package's `__init__`, and the ledger is the first module that has to read
   both meanings in one file.
-- [ ] **4.7a Hosted headroom is measured, not assumed.** `Abundance`'s two rate fields
+- [x] **4.7a Hosted headroom is measured, not assumed.** `Abundance`'s two rate fields
   (`requests_per_minute_left`, `tokens_per_minute_left`) are written by nothing today:
   `cli/stores.py` builds every source as `Abundance(seats_free=spec.seats)` and
   `ForageMap.set_abundance` carries the old values forward, so 3.12a's "updates `distance` and
