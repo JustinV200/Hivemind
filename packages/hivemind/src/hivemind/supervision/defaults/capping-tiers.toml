@@ -11,23 +11,35 @@
 #                        them cheapest-first, per waggle.messages.capping.CheckKind's own
 #                        declaration order: SCHEMA, LINT, TYPES, ALLOWLIST, SIZE_CAP,
 #                        SANDBOX_TESTS, JUDGE, HUMAN).
-#   floor             -- checks that still run even when `checks` is empty, and that a later
-#                         phase's Tempo-driven shortening may never remove (codingrules section
-#                         8.14: "It can never remove a check the tier table marks as a floor").
+#   floor             -- checks that still run even when `checks` is empty, and that a task's
+#                         tempo may never remove (codingrules section 8.14: "It can never remove
+#                         a check the tier table marks as a floor";
+#                         hivemind.supervision.capping.tiers.checks_for).
 #   snapshot_before   -- whether the gate snapshots the Cell before applying this tier's action,
 #                         so a failed postcondition can restore the whole Cell rather than one
 #                         file at a time (codingrules section 8.12). Real Cells get a documented
 #                         no-op (hivemind.cell.NoopSnapshotter) and fall back to REVERSE_DIFF.
 #   max_diff_bytes    -- the largest inline unified diff this tier's DiffSizeCapCheck allows;
 #                         omit (or leave unset) for a tier whose actions never carry a diff.
+#   judge             -- roadmap step 4.10: whether CheckKind.JUDGE belongs in this tier's
+#                         real-time ladder, even without naming JUDGE in `checks`/`floor` by hand
+#                         (hivemind.supervision.capping.tiers.checks_for). Omit for false (v0's
+#                         default for every tier below: no Warden has a JudgeReviewer wired into
+#                         its Mapping[CheckKind, Check] yet, so turning this on before then would
+#                         fail every proposal closed with "check unavailable").
+#   audit_rate        -- roadmap step 4.10: the fraction (0.0 to 1.0) of this tier's completed
+#                         proposals hivemind.supervision.capping.audit.AuditSampler samples for
+#                         after-the-fact judge review, for a tier judge does not gate live. Omit
+#                         for 0.0 (no sampling); set it back to 0.0 once `judge` becomes true for
+#                         a tier, since a live review already covers every proposal there.
 #
-# v0 implements exactly three checks (SCHEMA, ALLOWLIST, SIZE_CAP; hivemind.supervision.capping.
-# checks.deterministic.deterministic_checks()). Every tier below names only those three. The
-# check ladder's remaining rungs -- SANDBOX_TESTS (a sandbox Cell runs the proposed tests),
-# JUDGE (an independent model reviews the diff against a rubric) and HUMAN (the operator approves)
-# -- join this table in a later roadmap phase (roadmap step 3.17: "Judge review, snapshots, the
-# flight recorder and sampled audit arrive in later phases as extra checks on the same gate.");
-# each tier's own comment below repeats which of those it will eventually add.
+# v0 implements exactly three real-time checks (SCHEMA, ALLOWLIST, SIZE_CAP; hivemind.supervision.
+# capping.checks.deterministic.deterministic_checks()) plus, as of roadmap step 4.10, an
+# independent-review rung (JUDGE; hivemind.supervision.capping.checks.judge.JudgeCheck) that ships
+# ready to wire in but that no tier below turns on yet -- see `judge` above. The check ladder's
+# remaining rungs -- SANDBOX_TESTS (a sandbox Cell runs the proposed tests) and HUMAN (the operator
+# approves) -- join this table in a later roadmap phase; each tier's own comment below repeats
+# which of those it will eventually add.
 
 [tiers.read_only]
 # A bee reading a file or listing a directory. No write, no command; SCHEMA still runs (via
@@ -35,6 +47,8 @@
 checks = []
 floor = ["SCHEMA"]
 snapshot_before = false
+judge = false
+audit_rate = 0.0  # A read has no side effect; nothing here for a post-hoc audit to catch.
 # Adds SANDBOX_TESTS never (a read has nothing to sandbox-test); JUDGE and HUMAN stay unneeded
 # for this tier even after the later phase lands.
 
@@ -45,6 +59,8 @@ checks = ["SCHEMA", "SIZE_CAP"]
 floor = ["SCHEMA"]
 snapshot_before = false
 max_diff_bytes = 1048576  # 1 MiB: generous for hand-written source changes in one proposal.
+judge = false
+audit_rate = 0.02  # Low risk, confined to scratch; light sampling as a defence-in-depth check.
 # A later phase adds SANDBOX_TESTS here (run the touched tests in a sandbox Cell before applying).
 
 [tiers.outside_scratch_write]
@@ -54,8 +70,10 @@ checks = ["SCHEMA", "ALLOWLIST", "SIZE_CAP"]
 floor = ["SCHEMA"]
 snapshot_before = false
 max_diff_bytes = 1048576
-# A later phase adds SANDBOX_TESTS and JUDGE here: touching outside scratch is exactly the case
-# an independent review matters most for.
+judge = false
+audit_rate = 0.1  # Touches outside scratch: the case an independent review matters most for.
+# A later phase adds SANDBOX_TESTS and turns judge on above: touching outside scratch is exactly
+# the case an independent review matters most for.
 
 [tiers.network_egress]
 # A command or tool call that reaches the network. No diff to size; the allowlist check still
@@ -63,7 +81,9 @@ max_diff_bytes = 1048576
 checks = ["SCHEMA", "ALLOWLIST"]
 floor = ["SCHEMA"]
 snapshot_before = false
-# A later phase adds JUDGE here (an independent review of what was sent and to whom).
+judge = false
+audit_rate = 0.1  # Reaches the network; sampled until judge turns on below.
+# A later phase turns judge on above (an independent review of what was sent and to whom).
 
 [tiers.spend]
 # A proposal that spends money (a paid API call, a purchase). Snapshotted so a Cell-wide rollback
@@ -71,7 +91,9 @@ snapshot_before = false
 checks = ["SCHEMA", "ALLOWLIST"]
 floor = ["SCHEMA"]
 snapshot_before = true
-# A later phase adds JUDGE and, above the manifest's step-up spend threshold, HUMAN.
+judge = false
+audit_rate = 0.2  # Spends money and cannot be undone by any snapshot; sampled more heavily.
+# A later phase turns judge on above and, above the manifest's step-up spend threshold, adds HUMAN.
 
 [tiers.device_command]
 # A command that reaches a Real Cell device beyond the lease's own scratch (installing a service,
@@ -79,7 +101,9 @@ snapshot_before = true
 checks = ["SCHEMA", "ALLOWLIST"]
 floor = ["SCHEMA"]
 snapshot_before = true
-# A later phase adds SANDBOX_TESTS (where the command has a dry-run form) and JUDGE.
+judge = false
+audit_rate = 0.2  # Reaches a device beyond scratch; sampled as heavily as spend.
+# A later phase adds SANDBOX_TESTS (where the command has a dry-run form) and turns judge on above.
 
 [tiers.irreversible]
 # Anything the Hive cannot undo by any means (a destructive command, a message actually sent).
@@ -89,5 +113,8 @@ snapshot_before = true
 checks = ["SCHEMA", "ALLOWLIST"]
 floor = ["SCHEMA"]
 snapshot_before = true
-# A later phase adds SANDBOX_TESTS, JUDGE and HUMAN here, all as floor checks Tempo may never
-# shorten away.
+judge = false
+audit_rate = 0.5  # No rollback at all; sampled heavily until judge turns on and floors JUDGE too.
+# A later phase adds SANDBOX_TESTS, turns judge on above and adds HUMAN, all named in `floor` too
+# once they land, so no tempo -- however urgent the task claims to be -- ever shortens this tier's
+# ladder (codingrules section 8.14: "irreversible always gets its full ladder").

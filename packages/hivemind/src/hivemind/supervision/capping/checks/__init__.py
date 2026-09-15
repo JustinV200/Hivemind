@@ -1,10 +1,13 @@
-"""Provide the Capping gate's check-ladder seam and this phase's deterministic checks.
+"""Provide the Capping gate's check-ladder seam, this phase's deterministic checks and the judge.
 
 `Check` and `CheckContext` (`base.py`) are the seam every rung of a risk tier's ladder implements
 (codingrules section 8.1); `deterministic.py` supplies this phase's autopilot rungs -- schema,
 path and command allowlists, diff size cap -- and the registry `deterministic_checks()` a
-composition root wires into `hivemind.supervision.capping.gate.GateDeps`. A later phase adds
-sandbox-test, judge and human rungs behind the same `Check` Protocol without touching the gate.
+composition root wires into `hivemind.supervision.capping.gate.GateDeps`. `judge.py` supplies the
+independent-review rung (`JudgeCheck`, `CheckKind.JUDGE`) behind the same `Check` Protocol, plus
+the `JudgeReviewer` seam a Warden-layer dispatch satisfies with a real model call later; `rubrics.
+py` loads the per-tier rubric a judge reviews against; `fake.py` a scripted `JudgeReviewer` for
+tests. A later phase adds a sandbox-test and human rung the same way, without touching the gate.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.supervision.capping`.
@@ -17,13 +20,19 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.1 for the Protocol-at-every-seam rule this sub-package
       follows.
+    - .claude/codingrules.md section 8.12 for the judge-independence rule judge.py implements.
     - hivemind.supervision.capping.checks.base for Check and CheckContext.
     - hivemind.supervision.capping.checks.deterministic for this phase's four concrete checks.
+    - hivemind.supervision.capping.checks.judge for JudgeCheck, JudgeReviewer and JudgeVerdict.
 
 Public API:
     - Check, CheckContext, CheckResultRecord: the check-ladder seam (base).
     - SchemaCheck, PathAllowlistCheck, CommandAllowlistCheck, DiffSizeCapCheck,
       deterministic_checks: this phase's autopilot rungs (deterministic).
+    - JudgeCheck, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict, judge_checks: the
+      independent-review rung and deterministic_checks()'s sibling registry (judge).
+    - JudgeRubric, load_judge_rubrics: the per-tier rubric a judge reviews against (rubrics).
+    - FakeJudgeReviewer: a scripted JudgeReviewer for tests and demo paths (fake).
 """
 
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
@@ -34,6 +43,16 @@ from hivemind.supervision.capping.checks.deterministic import (
     SchemaCheck,
     deterministic_checks,
 )
+from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
+from hivemind.supervision.capping.checks.judge import (
+    JudgeCheck,
+    JudgeOutcome,
+    JudgeRequest,
+    JudgeReviewer,
+    JudgeVerdict,
+    judge_checks,
+)
+from hivemind.supervision.capping.checks.rubrics import JudgeRubric, load_judge_rubrics
 
 __all__ = [
     "Check",
@@ -41,7 +60,16 @@ __all__ = [
     "CheckResultRecord",
     "CommandAllowlistCheck",
     "DiffSizeCapCheck",
+    "FakeJudgeReviewer",
+    "JudgeCheck",
+    "JudgeOutcome",
+    "JudgeRequest",
+    "JudgeReviewer",
+    "JudgeRubric",
+    "JudgeVerdict",
     "PathAllowlistCheck",
     "SchemaCheck",
     "deterministic_checks",
+    "judge_checks",
+    "load_judge_rubrics",
 ]

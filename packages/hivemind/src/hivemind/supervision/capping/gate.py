@@ -71,7 +71,7 @@ from hivemind.supervision.capping.lease_view import LeaseView
 from hivemind.supervision.capping.postconditions import PostconditionOutcome, check_postcondition
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.state import ProposalState, assert_transition, is_terminal
-from hivemind.supervision.capping.tiers import TierTable
+from hivemind.supervision.capping.tiers import TierTable, checks_for
 from waggle.clock import Clock
 from waggle.ids import MessageId, new_event_id
 from waggle.messages.capping import CheckKind, CheckOutcome, RollbackMethod
@@ -287,9 +287,10 @@ async def _run_checks(
         The results run so far, the failing check's kind (None if all passed or none ran), and a
         failure reason (None if all passed).
     """
-    required = tuple(
-        kind for kind in CheckKind if kind in (set(context.tier.checks) | set(context.tier.floor))
-    )
+    # checks_for (codingrules 8.14) folds the tier's own checks/floor/judge configuration together
+    # with the proposal's own task tempo, so a required check may be shortened or lengthened
+    # (JUDGE only, and never below a tier's floor) before the walk below ever runs.
+    required = checks_for(context.tier, context.proposal.tempo)
     results: list[CheckResultRecord] = []
     for kind in required:
         check = deps.checks.get(kind)

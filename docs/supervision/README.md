@@ -1,9 +1,11 @@
 # Supervision policy data
 
 Data the Hive's supervisors (a human, the Queen, a Warden, or a sub-bee, all implementing the same
-Supervisor protocol) load at runtime: `default-policy.toml` for escalation rules and
-`capping-tiers.toml` for the Capping gate's risk tiers. First populated alongside the supervision
-package in phase 3.
+Supervisor protocol) load at runtime: `default-policy.toml` for escalation rules,
+`capping-tiers.toml` for the Capping gate's risk tiers, and `judge-rubrics.toml` for what an
+independent judge checks a proposal against, per risk tier. First populated alongside the
+supervision package in phase 3; `judge-rubrics.toml` and the `judge`/`audit_rate` tier columns
+added in roadmap step 4.10.
 
 **Both tables live in
 [`packages/hivemind/src/hivemind/supervision/defaults/`](../../packages/hivemind/src/hivemind/supervision/defaults/),
@@ -34,14 +36,45 @@ once at start-up, either way.
 Loaded by `hivemind.supervision.capping.tiers.load_tiers` into a `TierTable`: one
 `[tiers.<name>]` section per `RiskTier` (`read_only`, `scratch_write`, `outside_scratch_write`,
 `network_egress`, `spend`, `device_command`, `irreversible` -- the lowercase manifest-key form of
-each `RiskTier` member), each a `TierSpec` with `checks` (the `CheckKind`s
-`hivemind.supervision.capping.gate.CappingGate` runs, cheapest first), `floor` (the subset that
-still runs even when `checks` is empty, and that a later phase's Tempo-driven shortening may never
-remove -- codingrules section 8.14), `snapshot_before` and `max_diff_bytes`. v0 implements exactly
-three checks (`SCHEMA`, `ALLOWLIST`, `SIZE_CAP`); a `CheckKind` a tier names that the gate's own
-check registry does not implement fails the proposal closed, reason `"check unavailable"`, never a
-silently skipped rung. `tests/unit/supervision/capping/test_tiers.py` loads the shipped file and
-checks each tier's expected check set.
+each `RiskTier` member), each a `TierSpec` with these columns:
+
+- `checks` -- the `CheckKind`s `hivemind.supervision.capping.gate.CappingGate` runs, cheapest
+  first.
+- `floor` -- the subset that still runs even when `checks` is empty, and that a task's tempo may
+  never remove (codingrules section 8.14; `hivemind.supervision.capping.tiers.checks_for`).
+- `snapshot_before` -- whether the gate snapshots the Cell before applying this tier's action.
+- `max_diff_bytes` -- the largest inline diff this tier's `DiffSizeCapCheck` allows.
+- `judge` (roadmap step 4.10) -- whether `CheckKind.JUDGE` belongs in this tier's real-time
+  ladder, without needing to be named in `checks`/`floor` by hand.
+- `audit_rate` (roadmap step 4.10) -- the fraction (0.0 to 1.0) of this tier's completed
+  proposals `hivemind.supervision.capping.audit.AuditSampler` samples for after-the-fact judge
+  review, for a tier `judge` does not gate live (codingrules section 8.12: "What cannot be gated
+  is sampled").
+
+v0 implements exactly three real-time checks (`SCHEMA`, `ALLOWLIST`, `SIZE_CAP`) plus, as of
+roadmap step 4.10, an independent-review rung (`JUDGE`) that ships ready to wire in but that no
+tier's shipped table turns on yet (`judge = false` everywhere; every tier above `read_only`
+instead carries a nonzero `audit_rate`). A `CheckKind` a tier names that the gate's own check
+registry does not implement fails the proposal closed, reason `"check unavailable"`, never a
+silently skipped rung -- which is exactly why `judge` stays `false` until a Warden's composition
+root actually wires a `JudgeReviewer` in. `tests/unit/supervision/capping/test_tiers.py` loads the
+shipped file and checks each tier's expected checks, `judge` and `audit_rate`.
 
 The manifest's `[supervision] capping_tiers_file` overrides this table the same way `policy_file`
 overrides the escalation policy: unset means the shipped one.
+
+## `judge-rubrics.toml`
+
+Loaded by `hivemind.supervision.capping.checks.rubrics.load_judge_rubrics` into a mapping keyed by
+`RiskTier`: one `[rubrics.<name>]` section per tier, each a `JudgeRubric` with a `rubric_id` (a
+short, stable slug echoed on every verdict scored against it) and `text` (the rubric body, folded
+into the judge's own prompt). `hivemind.supervision.capping.checks.judge.JudgeCheck` carries the
+matching rubric, plus a proposal's content and postconditions, to a `JudgeReviewer` -- never the
+proposer's transcript or hot state (codingrules section 8.12: "no shared context with the
+proposing bee"). `tests/unit/supervision/capping/checks/test_rubrics.py` loads the shipped file and
+checks every tier has a rubric.
+
+The manifest may pin `ModelSlot.JUDGE` to a different `[llm.providers.*]` entry than
+`ModelSlot.WORKER` in `[llm.slots]`, so the same blind spot in one provider does not correlate
+between the bee that proposes and the bee that reviews it; that pin already works today and is not
+part of this file.

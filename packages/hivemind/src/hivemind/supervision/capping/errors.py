@@ -12,8 +12,9 @@ on purpose (codingrules section 10).
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Raised
     by `hivemind.supervision.capping.state` (the transition table), `hivemind.supervision.capping.
-    gate` (an unknown proposal id) and `hivemind.supervision.capping.diff` (a diff that does not
-    apply cleanly). Imported by every module in this package that raises on purpose.
+    gate` (an unknown proposal id), `hivemind.supervision.capping.diff` (a diff that does not apply
+    cleanly) and `hivemind.supervision.capping.checks.fake` (a scripted judge with nothing left to
+    answer with). Imported by every module in this package that raises on purpose.
 
 Key invariants:
     - Every CappingError subclass sets its own `code`; none shares a code with another.
@@ -46,6 +47,7 @@ __all__ = [
     "CappingError",
     "DiffApplyError",
     "InvalidProposalTransitionError",
+    "JudgeUnavailableError",
     "UnknownProposalError",
 ]
 
@@ -129,3 +131,18 @@ class DiffApplyError(CappingError):
         super().__init__(f"Could not apply diff to {path!r}: {reason}.")
         self.path = path
         self.reason = reason
+
+
+class JudgeUnavailableError(CappingError):
+    """Raise when a scripted JudgeReviewer has nothing left in its queue to answer with.
+
+    Raised by `hivemind.supervision.capping.checks.fake.FakeJudgeReviewer.review`; a caller that
+    forgot to script enough verdicts gets a typed error shaped like a real reviewer's own
+    unavailability would be, never a bare `IndexError`.
+    """
+
+    code: ClassVar[str] = "hivemind.supervision.capping.judge_unavailable"
+
+    def __init__(self) -> None:
+        """Build the error for an exhausted scripted verdict queue."""
+        super().__init__("FakeJudgeReviewer has no scripted verdicts left to answer with.")

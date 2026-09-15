@@ -1,22 +1,35 @@
-"""Mirror waggle's RiskTier, and define TierSpec/TierTable: risk tiers as data.
+"""Mirror waggle's RiskTier, define TierSpec/TierTable, and fold a task's tempo into the ladder.
 
 Codingrules section 8.12: "Tiers are data, checks are layered, cheapest first." Every proposal
 declares a `RiskTier` (this module's mirror of `waggle.messages.capping.RiskTier`, member for
 member, with `from_wire`/`to_wire` and a sync test per codingrules section 6.1); a `TierTable`
 maps each tier to a `TierSpec` -- the `CheckKind`s (waggle's own enum, not mirrored: it names no
 behaviour of its own, just which rung to run) that tier requires, the subset of those that must
-run even when the tier's own list is empty (`floor`, read by a later phase's Tempo-driven
-shortening -- codingrules section 8.14: "It can never remove a check the tier table marks as a
-floor"), whether the gate snapshots the Cell before applying, and a byte cap on an inline diff.
-`load_tiers` reads `supervision/defaults/capping-tiers.toml`, the operator-facing table an operator
-edits to add or loosen a tier without touching code (codingrules section 13: "policy as data").
+run even when the tier's own list is empty (`floor`, which a task's tempo may never remove --
+codingrules section 8.14: "It can never remove a check the tier table marks as a floor"), whether
+the gate snapshots the Cell before applying, and a byte cap on an inline diff. Roadmap step 4.10
+(judge review and sampled audit) adds two more columns: `judge`, whether `CheckKind.JUDGE` belongs
+in this tier's real-time ladder at all (an operator toggle, independent of listing `JUDGE` in
+`checks`/`floor` by hand), and `audit_rate`, the fraction of this tier's completed proposals
+`hivemind.supervision.capping.audit.AuditSampler` samples for after-the-fact judge review when
+`judge` is False (codingrules section 8.12: "What cannot be gated is sampled"). `load_tiers` reads
+`supervision/defaults/capping-tiers.toml`, the operator-facing table an operator edits to add or
+loosen a tier without touching code (codingrules section 13: "policy as data").
+
+`checks_for`, at the bottom of this module, is the other half of roadmap step 4.10: codingrules
+section 8.14's "Capping reads tempo, within floors" rule, combining one `TierSpec` with one task's
+`Tempo` (`hivemind.forage.tempo`) into the actual check ladder `CappingGate.run` walks for one
+proposal. It lives beside `TierSpec` rather than in a separate module because the two are one
+concept read together at exactly one call site (`hivemind.supervision.capping.gate`) and splitting
+them only pushed this package's directory over codingrules 5.6's fan-out limit for no benefit
+(5.2: "a split made only for size... folds back once 5.1 allows it").
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Loaded
     once by whichever composition root builds a `hivemind.supervision.capping.gate.GateDeps`
-    (a Warden, roadmap step 3.19) from `[supervision] capping_tiers_file`; read by
-    `hivemind.supervision.capping.gate.CappingGate` to decide which checks a proposal's tier
-    requires. Calls into `hivemind.supervision.capping.errors` and waggle only.
+    (a Warden, roadmap step 3.19) from `[supervision] capping_tiers_file`; `checks_for` is read by
+    `hivemind.supervision.capping.gate.CappingGate` (`_run_checks`) once per proposal. Calls into
+    `hivemind.forage.tempo`, `hivemind.supervision.capping.errors` and waggle only.
 
 Key invariants:
     - RiskTier's member names and values are identical to waggle.messages.capping.RiskTier's
@@ -27,16 +40,20 @@ Key invariants:
     - A TOML `[tiers.<name>]` section name is the RiskTier member name lowercased
       ("outside_scratch_write" for OUTSIDE_SCRATCH_WRITE), matching the manifest-key convention
       (codingrules section 13) other Hive Manifest sections already use for enum keys.
+    - checks_for never removes a floor check (a member of `tier.floor`), whatever tempo says, and
+      never introduces `JUDGE` into a ladder that never carried it through `checks`/`floor`/`judge`
+      in the first place; it only shortens or lengthens what a tier already names.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "Tiers are data, checks are layered, cheapest first."
-    - .claude/codingrules.md section 8.14 for why `floor` can never be removed by Tempo.
+    - .claude/codingrules.md section 8.14 for the tempo-reads-capping rule checks_for implements.
     - .claude/codingrules.md section 6.1 for the mirror-with-sync-test convention this module
       follows for RiskTier.
     - supervision/defaults/capping-tiers.toml for the Hive's shipped v0 tier table.
     - waggle.messages.capping for RiskTier (the wire form) and CheckKind (used directly, not
       mirrored).
     - hivemind.supervision.capping.errors for CappingError, the error load_tiers raises.
+    - hivemind.supervision.capping.gate for CappingGate, checks_for's one caller.
 """
 
 from __future__ import annotations
@@ -48,6 +65,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from hivemind.forage.tempo import AccuracyBar, Tempo
 from hivemind.supervision.capping.errors import CappingError
 from waggle.messages.capping import CheckKind
 from waggle.messages.capping import RiskTier as WireRiskTier
@@ -56,8 +74,20 @@ DEFAULT_TIERS_FILENAME = "capping-tiers.toml"  # The shipped table, inside _DEFA
 # The data-only package the two shipped tables live in, addressed by dotted name so they resolve
 # the same from a checkout and from an installed wheel (see that package's own docstring).
 _DEFAULTS_PACKAGE = "hivemind.supervision.defaults"
+# Below this many seconds of latency budget, an urgent proposal cannot afford a judge review's own
+# turnaround (a model call, typically seconds to tens of seconds); checks_for may drop JUDGE
+# (unless it is a floor check) once the task's budget falls under this, alongside a plain LOW bar.
+SHORTEN_LATENCY_BUDGET_S = 60.0
 
-__all__ = ["DEFAULT_TIERS_FILENAME", "RiskTier", "TierSpec", "TierTable", "load_tiers"]
+__all__ = [
+    "DEFAULT_TIERS_FILENAME",
+    "SHORTEN_LATENCY_BUDGET_S",
+    "RiskTier",
+    "TierSpec",
+    "TierTable",
+    "checks_for",
+    "load_tiers",
+]
 
 
 class RiskTier(Enum):
@@ -128,6 +158,22 @@ class TierSpec(BaseModel):
         description="The largest inline diff this tier's DiffSizeCapCheck allows; None means no "
         "cap (a tier whose actions never carry a diff).",
     )
+    judge: bool = Field(
+        default=False,
+        description="Whether CheckKind.JUDGE belongs in this tier's real-time ladder. True adds "
+        "it even when `checks`/`floor` do not name it by hand (hivemind.supervision.capping."
+        "ladder.checks_for); an operator flips this on once a JudgeReviewer is wired in. False "
+        "(v0's shipped default for every tier) is what makes a tier a candidate for `audit_rate`.",
+    )
+    audit_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="The fraction of this tier's completed proposals sampled for after-the-fact "
+        "judge review (hivemind.supervision.capping.audit.AuditSampler) when `judge` is False. "
+        "0.0 (no sampling) is the sensible default once `judge` is True: a live review already "
+        "covers every proposal, so nothing is left ungated to sample.",
+    )
 
 
 class TierTable(BaseModel):
@@ -195,3 +241,54 @@ def _read_tiers_text(path: Path | None) -> str:
     if path is not None:
         return path.read_text(encoding="utf-8")
     return (files(_DEFAULTS_PACKAGE) / DEFAULT_TIERS_FILENAME).read_text(encoding="utf-8")
+
+
+def checks_for(tier: TierSpec, tempo: Tempo) -> tuple[CheckKind, ...]:
+    """Compute the check ladder one proposal actually walks, from its tier and its task's tempo.
+
+    Args:
+        tier: The proposal's risk tier's configured checks, floor and judge flag.
+        tempo: The task's speed-against-accuracy setting.
+
+    Returns:
+        `CheckKind` members in cheapest-first order (`waggle.messages.capping.CheckKind`'s own
+        declaration order); `JUDGE` may appear twice, for a CRITICAL bar's second pass.
+    """
+    ladder = list(_base_ladder(tier))
+    has_judge = CheckKind.JUDGE in ladder
+    removable = has_judge and CheckKind.JUDGE not in tier.floor
+    if removable and _wants_shorter(tempo):
+        # An urgent or low-bar task skips the judge on a tier where it is not a floor check.
+        ladder.remove(CheckKind.JUDGE)
+    elif has_judge and tempo.accuracy is AccuracyBar.CRITICAL:
+        # A CRITICAL bar asks for extra scrutiny: a second, independent pass through the same
+        # JUDGE rung, on top of whatever the tier's own ladder already ran.
+        ladder.append(CheckKind.JUDGE)
+    return tuple(ladder)
+
+
+def _base_ladder(tier: TierSpec) -> tuple[CheckKind, ...]:
+    """Return `tier`'s checks, floor and judge flag, unioned, in CheckKind's own declared order.
+
+    `tier.judge` adds `CheckKind.JUDGE` to that union when `checks`/`floor` do not already carry
+    it, so an operator can turn a tier's real-time judge on with one boolean rather than editing
+    its `checks` list by hand.
+    """
+    members = set(tier.checks) | set(tier.floor)
+    if tier.judge:
+        members = members | {CheckKind.JUDGE}
+    return tuple(kind for kind in CheckKind if kind in members)
+
+
+def _wants_shorter(tempo: Tempo) -> bool:
+    """Return whether `tempo` asks for a shorter ladder: a low bar, or a tight latency budget.
+
+    A CRITICAL bar never shortens, even alongside a tight budget: it asks for more scrutiny, not
+    less, so it always takes the lengthening branch above instead.
+    """
+    if tempo.accuracy is AccuracyBar.CRITICAL:
+        return False
+    tight_budget = (
+        tempo.latency_budget_s is not None and tempo.latency_budget_s < SHORTEN_LATENCY_BUDGET_S
+    )
+    return tempo.accuracy is AccuracyBar.LOW or tight_budget

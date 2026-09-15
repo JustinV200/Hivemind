@@ -23,6 +23,7 @@ See Also:
     - hivemind.supervision.capping.proposal for Proposal.
     - hivemind.supervision.capping.tiers for TierSpec, TierTable.
     - hivemind.supervision.capping.lease_view for the LeaseView Protocol FakeLeaseView implements.
+    - hivemind.supervision.capping.checks.judge for JudgeRubric, JudgeRequest, JudgeVerdict.
     - waggle.messages.capping for ProposedAction, ActionKind.
     - waggle.messages.labels for Postcondition, PostconditionKind.
 """
@@ -33,6 +34,12 @@ from pathlib import Path
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.tempo import AccuracyBar, Tempo
+from hivemind.supervision.capping.checks.judge import (
+    JudgeOutcome,
+    JudgeRequest,
+    JudgeVerdict,
+)
+from hivemind.supervision.capping.checks.rubrics import JudgeRubric
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.state import ProposalState
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec, TierTable
@@ -50,7 +57,16 @@ _COMPARISON_POSTCONDITION_KINDS = frozenset(
     {PostconditionKind.HTTP_STATUS, PostconditionKind.ELEMENT_TEXT, PostconditionKind.JUDGE_RUBRIC}
 )
 
-__all__ = ["FakeLeaseView", "make_action", "make_postcondition", "make_proposal", "make_tier_table"]
+__all__ = [
+    "FakeLeaseView",
+    "make_action",
+    "make_judge_request",
+    "make_judge_rubric",
+    "make_judge_verdict",
+    "make_postcondition",
+    "make_proposal",
+    "make_tier_table",
+]
 
 
 def make_action(kind: ActionKind = ActionKind.DIFF, **overrides: object) -> ProposedAction:
@@ -159,6 +175,71 @@ def make_tier_table(**overrides: object) -> TierTable:
     }
     fields.update(overrides)
     return TierTable(**fields)
+
+
+def make_judge_rubric(
+    risk_tier: RiskTier = RiskTier.SCRATCH_WRITE, **overrides: object
+) -> JudgeRubric:
+    """Build a valid JudgeRubric: a short scratch_write rubric, by default.
+
+    Args:
+        risk_tier: The tier this rubric applies to; SCRATCH_WRITE by default.
+        **overrides: Field values that replace the defaults below, including `risk_tier` itself.
+
+    Returns:
+        A validated JudgeRubric.
+    """
+    fields: dict[str, object] = {
+        "rubric_id": f"{risk_tier.value.lower()}-test",
+        "risk_tier": risk_tier,
+        "text": "Approve only when the diff matches its summary and stays in scope.",
+    }
+    fields.update(overrides)
+    return JudgeRubric(**fields)
+
+
+def make_judge_verdict(
+    outcome: JudgeOutcome = JudgeOutcome.APPROVE, **overrides: object
+) -> JudgeVerdict:
+    """Build a valid JudgeVerdict: an APPROVE with one reason, by default.
+
+    Args:
+        outcome: The judge's decision; APPROVE by default.
+        **overrides: Field values that replace the defaults below, including `outcome` itself.
+
+    Returns:
+        A validated JudgeVerdict.
+    """
+    fields: dict[str, object] = {
+        "outcome": outcome,
+        "reasons": ("Matches its stated summary.",),
+        "rubric_id": "scratch_write-test",
+        "notes": "",
+    }
+    fields.update(overrides)
+    return JudgeVerdict(**fields)
+
+
+def make_judge_request(
+    risk_tier: RiskTier = RiskTier.SCRATCH_WRITE, **overrides: object
+) -> JudgeRequest:
+    """Build a valid JudgeRequest: a scratch_write DIFF with its rubric, by default.
+
+    Args:
+        risk_tier: The proposal's declared tier; SCRATCH_WRITE by default.
+        **overrides: Field values that replace the defaults below, including `risk_tier` itself.
+
+    Returns:
+        A validated JudgeRequest.
+    """
+    fields: dict[str, object] = {
+        "risk_tier": risk_tier,
+        "action": make_action(),
+        "acceptance_criteria": (make_postcondition(),),
+        "rubric": make_judge_rubric(risk_tier=risk_tier),
+    }
+    fields.update(overrides)
+    return JudgeRequest(**fields)
 
 
 class FakeLeaseView:
