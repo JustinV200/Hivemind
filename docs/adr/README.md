@@ -113,3 +113,15 @@ ADRs that exist today, in numeric order:
   (taking over through a fresh bee, never in the Queen's process) and rebinding within the
   grant, with the Queen answering an escalated Alarm by `Intervene(REBIND)` to the manifest's
   fallback binding, and the human inbox last.
+- `0022-memory-tiers-relevance-and-compaction.md`: one pure relevance score orders hot state,
+  Bee Bread is lookup-only and is where every dropped item lands, Cell Wax is a capped hot-state
+  item only the Queen writes, compaction summarises source records one level deep, and overflow
+  shrinks and retries.
+- `0023-forage-ledger-and-model-hosting-decisions.md`: the Forage ledger is a persisted store of
+  reports and grants with headroom derived on read, local pools are reported never granted,
+  grants are leases on one state table, hosting plans and ceilings are written by the Queen with
+  a reason, and hosted rate limits are measured from provider headers with a 429 throttling the
+  source on the map.
+- `0024-clustering-protocol.md`: Clustering pauses per provider through the checkpoint-and-Handoff
+  path, keeps leases and Cells alive, resumes from Handoffs without redoing work, and takes
+  `hive cluster` / `hive wake` orders through a durable table the running Queen polls.
