@@ -120,6 +120,12 @@ def test_family_event_rejects_a_malformed_kind(event_cls: type[PheromoneEvent]) 
         event_cls(kind="NotAValidKindAtAll", **_base_kwargs(clock))
 
 
+def test_capping_event_kinds_include_audited() -> None:
+    # Roadmap step 4.10: sampled, after-the-fact judge review of an already-terminal proposal
+    # records capping.audited, alongside the gate's own real-time-check kinds.
+    assert "capping.audited" in CappingEvent.KINDS
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # LlmEvent's extra fields
 # ──────────────────────────────────────────────────────────────────────────────
@@ -145,7 +151,7 @@ def test_llm_event_call_accepts_slot_provider_and_usage() -> None:
     assert event.usage == usage
 
 
-@pytest.mark.parametrize("kind", ["llm.rebound", "llm.fallback", "llm.spill"])
+@pytest.mark.parametrize("kind", ["llm.rebound", "llm.fallback", "llm.spill", "llm.throttled"])
 def test_llm_event_non_call_kinds_do_not_require_slot_provider_or_usage(kind: str) -> None:
     clock = FakeClock()
 
@@ -156,6 +162,12 @@ def test_llm_event_non_call_kinds_do_not_require_slot_provider_or_usage(kind: st
     assert event.usage is None
 
 
+def test_llm_event_kinds_include_throttled() -> None:
+    # Roadmap step 4.7a: the Fanner records llm.throttled after a RateLimitedError masks a
+    # source's headroom to zero on the Forage map (hivemind.forage.map.ForageMap.throttle).
+    assert "llm.throttled" in LlmEvent.KINDS
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # EVENT_FAMILIES and event_class_for
 # ──────────────────────────────────────────────────────────────────────────────
@@ -164,6 +176,11 @@ def test_llm_event_non_call_kinds_do_not_require_slot_provider_or_usage(kind: st
 def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
     # roadmap step 3.14 (memory v0): added alongside the store that first needs them.
     assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS
+
+
+def test_memory_event_kinds_include_the_phase_4_2_addition() -> None:
+    # roadmap step 4.2 (Bee Bread, the warm tier): added alongside the table that first needs it.
+    assert {"memory.bee_bread_deposited"} <= MemoryEvent.KINDS
 
 
 def test_queen_event_kinds_include_the_phase_3_20_additions() -> None:

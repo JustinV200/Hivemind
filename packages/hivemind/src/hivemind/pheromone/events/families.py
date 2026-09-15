@@ -39,7 +39,9 @@ Vocabulary (family -> kind -> when it is recorded):
         expiry passed unrenewed); episode (an EpisodeRecord was written for an awake episode or an
         autopilot decision, roadmap step 3.14); note (a bee wrote a short note directly into hot
         state, bounded per author); pinned (a Pin was added to hot state, from the manifest or at
-        runtime).
+        runtime); bee_bread_deposited (a BeeBreadEntry was written to the warm tier: an index over
+        Brood Chamber/the trail, a Handoff reference, a deposited transcript, or an oversized tool
+        result, roadmap step 4.2).
     queen: started (the Queen process came up); placed (a Placement decision was made for a task);
         woke (an awake episode ran); clustered (Clustering paused affected bees); resumed (bees
         resumed from Clustering); stopped (the Queen process is shutting down); decided (the Queen
@@ -65,9 +67,12 @@ Vocabulary (family -> kind -> when it is recorded):
     capping: proposed (a Proposal entered CHECKING); checked (one tier check ran, pass or fail);
         capped (every required check passed, CAPPED); applied (the proposal's side effect ran);
         verified (postconditions held after applying); rejected (a check failed, before applying);
-        rolled_back (postconditions failed after applying, and the effect was undone); summary
-        (a per-tier rollup of approved/rejected/rolled_back counts, the only capping.* record kept
-        through a Night Veil teardown, codingrules section 12).
+        rolled_back (postconditions failed after applying, and the effect was undone); audited (a
+        sampled, already-terminal proposal was reviewed after the fact by the judge -- roadmap
+        step 4.10's AuditSampler, for a tier the table marks as not judge-gated in real time;
+        findings become Nectar and an AUDIT_FAILED Alarm on a REJECT verdict); summary (a per-tier
+        rollup of approved/rejected/rolled_back counts, the only capping.* record kept through a
+        Night Veil teardown, codingrules section 12).
     llm: call (one model call completed; carries the normalised Usage, slot and provider);
         rebound (a call was retried on the same binding after a transient failure); fallback (a
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
@@ -228,6 +233,8 @@ class MemoryEvent(PheromoneEvent):
             "memory.episode",
             "memory.note",
             "memory.pinned",
+            # roadmap step 4.2 (Bee Bread, the warm tier): every write into it.
+            "memory.bee_bread_deposited",
         }
     )
 
@@ -317,6 +324,7 @@ class CappingEvent(PheromoneEvent):
             "capping.verified",
             "capping.rejected",
             "capping.rolled_back",
+            "capping.audited",
             "capping.summary",
         }
     )
@@ -327,12 +335,13 @@ class LlmEvent(PheromoneEvent):
 
     Carries three extra fields no other family has: `slot`, `provider` and `usage`. All three are
     required together exactly when `kind == "llm.call"` (`_call_requires_usage_fields` below); the
-    other three kinds (`rebound`, `fallback`, `spill`) may set them or leave them `None`.
+    other four kinds (`rebound`, `fallback`, `spill`, `throttled` -- roadmap step 4.7a's own
+    headroom-masked-at-zero event) may set them or leave them `None`.
     """
 
     FAMILY: ClassVar[str] = "llm"
     KINDS: ClassVar[frozenset[str]] = frozenset(
-        {"llm.call", "llm.rebound", "llm.fallback", "llm.spill"}
+        {"llm.call", "llm.rebound", "llm.fallback", "llm.spill", "llm.throttled"}
     )
 
     slot: str | None = Field(
