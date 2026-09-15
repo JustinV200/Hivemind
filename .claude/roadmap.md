@@ -699,13 +699,13 @@ failing.
 
 ### Steps
 
-- [ ] **4.1 Relevance scoring and budget packing.** `memory/relevance.py`: pure `score(item,
+- [x] **4.1 Relevance scoring and budget packing.** `memory/relevance.py`: pure `score(item,
   now, active_tasks, pins)` from recency decay, task linkage, Alarm severity and pins that never
   decay; property-tested for monotonicity. `memory/hot_state.py` packs by score to the budget,
   counts tokens through the provider or the estimate, drops lowest-scored first, replaces
   oversized items with references. Per-item cap from the manifest; large tool results become
   Nectar with a reference.
-- [ ] **4.2 Bee Bread (warm tier).** `memory/bee_bread.py`: an index over Brood Chamber history
+- [x] **4.2 Bee Bread (warm tier).** `memory/bee_bread.py`: an index over Brood Chamber history
   and the trail by id, time and task, plus stored Handoffs and deposited transcripts; lookup only,
   no search; every entry carries its `HoneyClearance` and lookups filter by the reader's
   allowance. `memory/demote.py`: pure rules for what leaves hot state (task closed, Alarm resolved,
