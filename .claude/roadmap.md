@@ -792,7 +792,7 @@ failing.
   watchdogs, poll health with backoff, resume from Handoffs on `hive wake` or recovery, record
   `queen.clustered` / `queen.resumed`. Bees on other providers continue. The Queen's own awake mode
   being unavailable is handled by her autopilot running the same protocol.
-- [ ] **4.10 Judge review and sampled audit.** `supervision/capping/checks/judge.py`: an
+- [x] **4.10 Judge review and sampled audit.** `supervision/capping/checks/judge.py`: an
   independent review on `ModelSlot.JUDGE` with no shared context with the proposing bee, a rubric
   per risk tier, and a structured verdict (approve, request changes, reject) with reasons; the
   manifest may pin `JUDGE` to a different provider than `WORKER` so blind spots do not correlate.
