@@ -63,6 +63,7 @@ from hivemind.cli.compose.deps import (
     HiveStores,
     build_fanner,
     build_hive_stand_source,
+    build_ledger,
     build_provider_registry,
     build_queen_deps,
     build_warden_deps,
@@ -74,7 +75,7 @@ from hivemind.forage import ForageMap
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
-from hivemind.queen import Queen, WardenLink, sync_answers_from_chamber
+from hivemind.queen import ForageLedger, Queen, WardenLink, sync_answers_from_chamber
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
@@ -173,14 +174,18 @@ def build_hive(
     """
     hive_stores = stores if stores is not None else open_default_stores(manifest)
     forage_map = build_forage_map(manifest, clock)
+    # Roadmap step 4.8's own wiring step: built ahead of its usual place in build_queen_deps, so
+    # build_fanner can chain a LedgerRecorder onto the same ledger (a completed llm.call then
+    # updates the ledger's own seat and spend books the moment it happens, not only on the trail).
+    ledger = build_ledger(manifest, manifest.forage.reserve)
     registry = build_provider_registry(manifest, environ, clock, forage_map, responders)
-    fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock)
+    fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
     source = build_hive_stand_source(manifest, hive_stores.trail, clock)
     links = _build_links(manifest, source, clock)
     parts = HiveParts(
         manifest=manifest, registry=registry, fanner=fanner, stores=hive_stores, clock=clock
     )
-    return _assemble_hive(parts, forage_map, source, links)
+    return _assemble_hive(parts, forage_map, source, links, ledger)
 
 
 def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) -> HiveLinks:
@@ -196,11 +201,15 @@ def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) 
 
 
 def _assemble_hive(
-    parts: HiveParts, forage_map: ForageMap, source: HiveStandSource, links: HiveLinks
+    parts: HiveParts,
+    forage_map: ForageMap,
+    source: HiveStandSource,
+    links: HiveLinks,
+    ledger: ForageLedger,
 ) -> Hive:
     """Build the Warden and Queen from `parts`, attach the link, and wrap it all as a Hive."""
     warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
-    queen = Queen(build_queen_deps(parts, forage_map))
+    queen = Queen(build_queen_deps(parts, forage_map, ledger))
     queen.attach_warden(links.queen_link)
     return Hive(
         manifest=parts.manifest,

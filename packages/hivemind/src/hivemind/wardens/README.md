@@ -21,9 +21,12 @@ Warden never provisions Cells itself.
   (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
   `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`; any one no
-  longer in that set moves it back. No `warden.clustered` trail kind exists yet (outside this
-  dispatch's own files; `hivemind.queen.cluster.protocol.cluster`'s own `queen.clustered` is the
-  auditable record of the pause until that gap is closed).
+  longer in that set moves it back, recording `warden.clustered`/`warden.active`
+  (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's own wiring step: `_record_routine`
+  also handles a Queen-sent `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/
+  `_hosting_plan` (`wardens.ticks.control.handle_ceilings_set`/`.handle_plan_written`) with no
+  fresh trail event -- the Queen already recorded `forage.ceilings_set`/`forage.plan_written`
+  before sending either.
 - `WardenState`, `TRANSITIONS`, `assert_transition`, `can_transition`, `is_terminal`
   (`state.py`): the one Warden state machine (Appendix C). `settled_state`, `clustering_update`
   (roadmap step 4.9): the pure ACTIVE/WATCH/CLUSTERED decision and clustered-task-set update
@@ -44,6 +47,18 @@ Warden never provisions Cells itself.
   never imports `hivemind.llm`.
 - `wardens.awake`: `WardenDecision`, `decide_awake` -- one stateless episode on `ModelSlot.WARDEN`.
 - `wardens.spawn`: `SubBee`, `WardenCellContext`, `spawn_sub_bee` -- starting a new sub-bee.
+  Roadmap step 4.8's own wiring step: each sub-bee's own `call_gate` is a fresh Fanner lane from
+  `WardenDeps.lane_for_grant(grant.grant_id, assignment.goal_id)`, so every `llm.call` it makes
+  carries its own grant and goal id; `WardenDeps.call_gate` stays this Warden's own unattributed
+  lane, used only for its own awake episodes. `spawn.audited_gate.AuditingCappingGate` (roadmap
+  step 4.10) is the `CappingGate` `_build_capping_gate` actually builds: it samples a terminal
+  proposal for after-the-fact judge review (`hivemind.supervision.capping.audit.audit_completed`)
+  at tiers the table marks ungated in real time.
+- `judge.py` (roadmap step 4.10): `ModelJudgeReviewer`, the model-backed `JudgeReviewer`
+  (`hivemind.supervision.capping.checks.judge.JudgeReviewer`) a Warden's `CappingGate` calls
+  through -- `complete_structured` on `ModelSlot.JUDGE`, a prompt built from the tier's rubric and
+  the `JudgeRequest` alone (no proposer transcript, no hot state), through the Warden's own
+  `CallGate`.
 - `wardens.inbox`: `to_inbox_item`, `warden_attendant` -- the Warden's own Attendant.
 - `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
   codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter

@@ -49,6 +49,7 @@ from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen import ForageLedger, SqliteOrderStore
 from hivemind.wardens import WardenState
 from waggle.clock import FakeClock
+from waggle.ids import GrantId
 from waggle.messages.task import WorkerRole
 
 _FAKE_MODEL_ID = "test-model"
@@ -373,6 +374,94 @@ async def test_run_goal_completes_the_three_haiku_goal_in_the_required_trail_ord
     kinds = [event.kind for event in events]
     _assert_kinds_in_order(kinds, _REQUIRED_TRAIL_ORDER)
     assert list((tmp_path / "scratch").iterdir()) == []  # Left as found, even after real writes.
+
+
+def _priced_three_haiku_responder() -> Responder:
+    """Script the same plan/tool-loop shape as `_three_haiku_responder`, but with real cost_usd.
+
+    Every response in this module's own shared helpers (`_text_response`, `_tool_call_response`)
+    stamps `Usage(input_tokens=0, output_tokens=0)`, `cost_usd` defaulting to `None` -- a
+    `FakeLLMProvider` never computes a price from `[forage.map.<source>].cost` itself (unlike a
+    real provider adapter, pricing is this fake's own scripted `Usage`, verbatim), so `cost_usd`
+    is stamped directly here rather than relying on the manifest.
+    """
+    rounds = {"worker": 0}
+    write_calls = tuple(
+        (f"call_{i}", "write_file", {"path": f"haiku_{i}.txt", "content": f"bees hum {i}"})
+        for i in (1, 2, 3)
+    )
+
+    def responder(request: LLMRequest) -> LLMResponse:
+        if request.slot is ModelSlot.QUEEN:
+            return _plan_response(request)
+        if request.slot is ModelSlot.WORKER:
+            rounds["worker"] += 1
+            base = (
+                _write_files_response(request, write_calls)
+                if rounds["worker"] == 1
+                else _text_response("Three haiku written.")
+            )
+            # A real, priced Usage, so this lane's own llm.call carries a non-zero cost_usd for
+            # the ledger to attribute (module docstring); every other field stays `base`'s own.
+            usage = Usage(input_tokens=100, output_tokens=50, cost_usd=0.05)
+            return base.model_copy(update={"usage": usage})
+        return _text_response("{}")  # A Warden/Queen awake episode, never expected to fire here.
+
+    return responder
+
+
+@pytest.fixture
+def priced_three_haiku_hive(tmp_path: Path) -> tuple[Hive, FakeClock]:
+    """A three-haiku Hive whose Drone calls carry a real, priced `cost_usd`.
+
+    A plain `def` fixture, not a fixture-factory closure, for the same reason `plain_hive` is
+    (this module's own docstring on `plain_hive`): `build_hive` must run before pytest-asyncio's
+    own event loop starts, since it makes its own `asyncio.run` call internally
+    (`hivemind.cli.compose.deps.build_ledger`); calling it from inside an `async def` test body
+    raises `RuntimeError: asyncio.run() cannot be called from a running event loop`.
+    """
+    return _build_test_hive(tmp_path, responder=_priced_three_haiku_responder())
+
+
+async def test_a_sub_bees_llm_call_carries_its_grant_id_and_moves_the_ledgers_spend(
+    priced_three_haiku_hive: tuple[Hive, FakeClock],
+) -> None:
+    """Roadmap step 4.8's own wiring step: per-grant lane attribution, proven end to end.
+
+    `hivemind.wardens.spawn.spawn.spawn_sub_bee` builds each sub-bee's own `call_gate` from
+    `WardenDeps.lane_for_grant`, so every `llm.call` it makes on that lane carries the grant id
+    (`hivemind.llm.fanner.lane.FannerLane._call_payload`); `build_fanner`'s own `LedgerRecorder`
+    (chained through `CompositeLlmEventRecorder`) then attributes that call's cost to the same
+    grant in the ledger. A priced source is needed to prove spend actually moves, not just that
+    the id rides along -- `fake_manifest`'s own default source is free (see `_price_the_fake_
+    source`), so `priced_three_haiku_hive` patches one in rather than reusing `three_haiku_hive`.
+    """
+    hive, clock = priced_three_haiku_hive
+
+    async def _scenario() -> GoalReport:
+        async with run_hive(hive):
+            return await run_goal(
+                hive,
+                "write three haiku about bees to separate files",
+                clearance=HoneyClearance.C1,
+                timeout_s=60.0,
+            )
+
+    report = await pump_until_done(clock, _scenario())
+    assert report.succeeded is True
+
+    events = await hive.stores.trail.query(TrailQuery(family="llm", kind="llm.call"))
+    # A sub-bee's own call carries its grant id (hivemind.wardens.deps.WardenDeps.lane_for_grant);
+    # the Queen's own planning call, on her unattributed call_gate, carries none -- both are
+    # expected, so this asserts at least one attributed call happened, not that every call was.
+    grant_ids = {event.payload.get("grant_id") for event in events if "grant_id" in event.payload}
+    assert grant_ids
+
+    (grant_id,) = grant_ids
+    assert isinstance(grant_id, str)
+    grant = hive.queen._deps.ledger.grant(GrantId(grant_id))
+    assert grant is not None
+    assert grant.spent > 0.0  # The ledger's own spend for that grant actually moved.
 
 
 async def test_run_goal_times_out_cleanly(three_haiku_hive: tuple[Hive, FakeClock]) -> None:

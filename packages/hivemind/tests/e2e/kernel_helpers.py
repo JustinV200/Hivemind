@@ -39,6 +39,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import subprocess
@@ -48,9 +49,17 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
+from builders.cells import make_cell
+from builders.forage import make_source
+from builders.queen import make_queen_deps, plan_responder
+from builders.wardens import make_warden_deps
 
+from hivemind.brood_chamber import TaskFilter, TaskStatus
+from hivemind.cell import Cell, CellKind
+from hivemind.forage import ForageMap
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
+    FakeLLMProvider,
     LLMRequest,
     LLMResponse,
     StopReason,
@@ -60,8 +69,17 @@ from hivemind.llm import (
     ToolResultPart,
     Usage,
 )
+from hivemind.pheromone.trail import TrailQuery
+from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.queen import Queen
+from hivemind.wardens.warden import Warden
+from hivemind.workers.base import Worker
+from waggle.clock import SystemClock
 from waggle.codec import Codec
-from waggle.envelope import Envelope
+from waggle.envelope import Envelope, Hop
+from waggle.ids import TaskId, new_hive_id, new_node_id, new_warden_id
+from waggle.messages.task import WorkerRole
+from waggle.transport.memory import MemoryTransport
 
 _FAKE_MODEL_ID = "test-model"  # Neutral (codingrules 8.6); never a real vendor id.
 _DEFAULT_FILES: tuple[str, ...] = ("haiku_1.txt", "haiku_2.txt", "haiku_3.txt")
@@ -71,16 +89,22 @@ _FINAL_TEXT = "Three haiku written."
 WorkerTurn = Callable[[LLMRequest], LLMResponse]
 
 __all__ = [
+    "ClusterPair",
     "HaikuScript",
     "WorkerTurn",
     "assert_kinds_in_order",
+    "build_cluster_pair",
     "capture_encoded_envelope_sizes",
+    "checkpoint_recorded",
     "default_worker_turn",
+    "find_task_by_title",
+    "judge_approve_response",
     "pid_alive",
     "plan_response",
     "set_budget_fraction",
     "single_task_plan",
     "snapshot_tree",
+    "task_status_is",
     "text_response",
     "tool_response",
     "tool_round_count",
@@ -238,6 +262,23 @@ def plan_response(request: LLMRequest, plan: Mapping[str, object]) -> LLMRespons
     return text_response(f"```json\n{plan_json}\n```")  # PROMPTED: one fenced block expected.
 
 
+def judge_approve_response(request: LLMRequest) -> LLMResponse:
+    """Answer a JUDGE-slot review call with an unconditional APPROVE, on whichever rung.
+
+    Roadmap step 4.10's own wiring step: every Warden this suite builds now carries a real
+    `hivemind.wardens.judge.ModelJudgeReviewer`, so the one `FakeLLMProvider` this suite scripts
+    (`HaikuScript.responder`) must answer `ModelSlot.JUDGE` requests too, in the shape
+    `hivemind.wardens.judge._JudgeModelOutput` expects, or the CappingGate's own JUDGE check would
+    exhaust its ladder and fail closed the moment a scenario's own tier turns `judge = true` on
+    (`hivemind.supervision.defaults.capping-tiers.toml`: outside_scratch_write, spend,
+    device_command, irreversible). Mirrors `plan_response`'s own rung-detection shape.
+    """
+    verdict = {"outcome": "APPROVE", "reasons": [], "notes": ""}
+    if request.response_schema is not None:
+        return text_response(json.dumps(verdict))  # NATIVE or JSON_MODE: schema travelled with it.
+    return text_response(f"```json\n{json.dumps(verdict)}\n```")  # PROMPTED: one fenced block.
+
+
 def single_task_plan(
     *filenames: str, key: str = "haikus", title: str = "Write three haiku about bees"
 ) -> dict[str, object]:
@@ -285,6 +326,10 @@ class HaikuScript:
             return plan_response(request, self._plan)
         if request.slot is ModelSlot.WORKER:
             return self._worker_turn(request)
+        if request.slot is ModelSlot.JUDGE:
+            # Roadmap step 4.10's own wiring step: every Warden's real CappingGate now carries a
+            # model-backed JudgeReviewer, so a proposal at a judge=true tier reaches this slot.
+            return judge_approve_response(request)
         # A Warden/Queen awake episode is never expected to fire in this suite's own scripted
         # scenarios (autopilot alone resolves every one); an empty object is a harmless answer
         # if one ever were routed here.
@@ -399,3 +444,85 @@ def pid_alive(pid: int) -> bool:
         except PermissionError:
             return True
         return True
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ClusterPair:
+    """One real Queen wired to one real Warden over one real (in-process) Waggle link.
+
+    Built by `build_cluster_pair`, factoring out `tests.e2e.test_clustering`'s own wiring
+    (roadmap step 4.9) for `tests.e2e.test_phase4_exit_criteria`'s own clustering scenario.
+    """
+
+    deps: QueenDeps
+    queen: Queen
+    warden: Warden
+    provider: FakeLLMProvider
+    cell: Cell
+
+
+def build_cluster_pair(
+    clock: SystemClock,
+    plan: dict[str, object],
+    worker_factory: Callable[[WorkerRole], Worker],
+    *,
+    seats: int = 8,
+) -> ClusterPair:
+    """Wire one real Queen to one real Warden, sharing identity/memory, scripted with `plan`.
+
+    Mirrors `test_clustering.py`'s own private `_build_scenario`: a real Cell, leased for real at
+    `Warden.start()`, and a Queen attached over one real `MemoryTransport` pair -- never the
+    wire-capturing `WardenEnd`/`QueenEnd` stubs -- so a checkpoint the Warden writes sorts before
+    its own PAUSED and a later WAKE can resume it for real. `clock` should be a real `SystemClock`
+    (module docstring): a FakeClock that never advances ties every event's `at`, which a
+    "checkpoint before PAUSED" trail-order assertion cannot tolerate. `seats` defaults to 8 so
+    roadmap-4.7's own headroom math never floors a REAL Cell's `max_sub_bees` to 0.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(lambda _goal: plan))
+    cell = make_cell(kind=CellKind.REAL, clock=clock)
+    hive_id, node_id, warden_id = new_hive_id(clock), new_node_id(clock), new_warden_id(clock)
+    queen_transport, warden_transport = MemoryTransport.pair(Codec(), Codec())
+    queen_hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
+    warden_hop = Hop(sender=warden_id, recipient=hive_id, node_id=node_id)
+
+    forage_map = ForageMap(
+        [make_source(source_id="fake-worker", provider="fake", model="test-model", seats=seats)],
+        clock=clock,
+    )
+    deps, _unused_link, _unused_end = make_queen_deps(
+        clock=clock, fake_provider=provider, cell=cell, map=forage_map
+    )
+    warden_deps, _unused_queen_end, _ = make_warden_deps(
+        clock=clock,
+        cells=(cell,),
+        warden_id=warden_id,
+        worker_factory=worker_factory,
+        fake_provider=provider,
+        queen_link=warden_transport,
+        hop=warden_hop,
+        identity=deps.identity,
+        memory=deps.memory,
+    )
+    link = WardenLink(warden_id=warden_id, cell=cell, transport=queen_transport, hop=queen_hop)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    warden = Warden(warden_id, warden_deps)
+    return ClusterPair(deps=deps, queen=queen, warden=warden, provider=provider, cell=cell)
+
+
+async def task_status_is(deps: QueenDeps, task_id: TaskId, status: TaskStatus) -> bool:
+    """True once the task `task_id` reaches `status` (a `wait_until` condition, once bound)."""
+    task = await deps.chamber.get(task_id)
+    return task.status is status
+
+
+async def find_task_by_title(deps: QueenDeps, goal_id: TaskId, title: str) -> TaskId:
+    """Return the id of the one task under `goal_id` whose title is `title`."""
+    tasks = await deps.chamber.list(TaskFilter(goal_id=goal_id))
+    return next(task.id for task in tasks if task.spec.title == title)
+
+
+async def checkpoint_recorded(deps: QueenDeps) -> bool:
+    """True once at least one `memory.checkpoint` trail event exists."""
+    kinds = [event.kind for event in await deps.trail.query(TrailQuery())]
+    return "memory.checkpoint" in kinds

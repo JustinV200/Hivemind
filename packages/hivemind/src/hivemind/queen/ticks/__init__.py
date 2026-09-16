@@ -15,7 +15,11 @@ decide`, not through it: a `waggle.messages.forage.ForageRequest` needs its own
 within-headroom-or-contested rule (`hivemind.queen.autopilot.forage.decide_forage_request`), and a
 `waggle.messages.cell.CellWaxProposed` needs its own within-the-per-Cell-cap rule (`hivemind.queen.
 autopilot.wax.decide_wax_proposal`); `decide`'s own fallback for an unrecognised payload
-(`NEEDS_JUDGEMENT`) would otherwise reach for every single one of either.
+(`NEEDS_JUDGEMENT`) would otherwise reach for every single one of either. `housekeeping` (roadmap
+step 4.3's own wiring step) is `run_housekeeping`, the single call `queen.py`'s own tick makes in
+place of the Clustering-only `run_cluster_tick` it used to call directly: it still runs
+`run_cluster_tick` first, then a House Bee sweep (demotion, Cell Wax expiry, compaction) whenever
+the manifest's own `sweep_interval_s` is due.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -33,10 +37,10 @@ See Also:
       for `forage` and liveness's own grant renewal and expiry sweep; step 4.2a for `wax`.
     - hivemind.queen.queen for Queen, the one caller of every module here.
 
-Public API (roadmap steps 3.20, 4.7, 4.2a):
-    - alarms, liveness, results, forage, wax: the tick-handler modules.
+Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3):
+    - alarms, liveness, results, forage, wax, housekeeping: the tick-handler modules.
 """
 
-from hivemind.queen.ticks import alarms, forage, liveness, results, wax
+from hivemind.queen.ticks import alarms, forage, housekeeping, liveness, results, wax
 
-__all__ = ["alarms", "forage", "liveness", "results", "wax"]
+__all__ = ["alarms", "forage", "housekeeping", "liveness", "results", "wax"]

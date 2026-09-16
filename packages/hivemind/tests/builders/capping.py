@@ -59,6 +59,7 @@ _COMPARISON_POSTCONDITION_KINDS = frozenset(
 
 __all__ = [
     "FakeLeaseView",
+    "RepeatingJudgeReviewer",
     "make_action",
     "make_judge_request",
     "make_judge_rubric",
@@ -287,3 +288,30 @@ class FakeLeaseView:
     def note_restore_path(self, path: Path, prior: bytes | None) -> None:
         """Record `(path, prior)` on `restore_records`."""
         self.restore_records.append((path, prior))
+
+
+class RepeatingJudgeReviewer:
+    """A JudgeReviewer that always answers with the same verdict (test-only infra).
+
+    Unlike `hivemind.supervision.capping.checks.fake.FakeJudgeReviewer` (a FIFO queue that raises
+    once exhausted), this never runs out: roadmap step 4.10's own wiring turns `judge = true` on
+    for several tiers, so `tests.builders.wardens.make_warden_deps`'s own default `checks` now
+    needs a reviewer that can answer an unbounded number of proposals across a test run without
+    every test having to script one verdict per call. Records every request it saw on `calls`,
+    mirroring `FakeJudgeReviewer`'s own convention.
+    """
+
+    def __init__(self, verdict: JudgeVerdict | None = None) -> None:
+        """Build a RepeatingJudgeReviewer that always answers with `verdict`.
+
+        Args:
+            verdict: The verdict every call answers with; `make_judge_verdict()`'s own APPROVE
+                default when omitted.
+        """
+        self.verdict = verdict if verdict is not None else make_judge_verdict()
+        self.calls: list[JudgeRequest] = []
+
+    async def review(self, request: JudgeRequest) -> JudgeVerdict:
+        """Record `request` on `calls` and return `self.verdict`, unconditionally."""
+        self.calls.append(request)
+        return self.verdict

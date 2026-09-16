@@ -43,8 +43,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
 from hivemind.wardens.ticks.alarms import rebind_sub_bee
 from waggle.envelope import Hop, wrap
+from waggle.messages.forage import CeilingsSet, PlanWritten
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.task import TaskCancel, TaskPause, TaskResume
 
@@ -52,7 +54,7 @@ if TYPE_CHECKING:
     from hivemind.wardens.spawn.sub_bee import SubBee
     from hivemind.wardens.warden import Warden
 
-__all__ = ["forward_control"]
+__all__ = ["forward_control", "handle_ceilings_set", "handle_plan_written"]
 
 _Control = TaskCancel | TaskPause | TaskResume | Intervene
 
@@ -81,3 +83,43 @@ async def _handle_queen_rebind(warden: Warden, sub_bee: SubBee, intervene: Inter
     if intervene.binding is None:
         return  # Defensive: the Queen always fills this before sending REBIND (module docstring).
     await rebind_sub_bee(warden, sub_bee, intervene.binding)
+
+
+def handle_ceilings_set(warden: Warden, payload: CeilingsSet) -> None:
+    """Store the Queen's own Ceilings and resize this Warden's own sub-bee slot pool to match.
+
+    Roadmap step 4.8's own wiring step: nothing here records a fresh trail event (the Queen's own
+    `hivemind.queen.forage.ceilings.set_ceilings`/`change_ceilings` already recorded
+    `forage.ceilings_set` before sending this). `SubBeeSlots` resizes to the smaller of what the
+    Warden's own standing grant already allows and what these ceilings now allow -- a ceiling is a
+    bound on top of a grant, never a grant of its own (codingrules section 8.10: "ceilings, not
+    approvals").
+
+    Args:
+        warden: The owning Warden (read and written directly; see this package's own module
+            docstring for why these are plain functions, not Warden methods).
+        payload: The Queen's own CeilingsSet.
+    """
+    ceilings = Ceilings.from_wire(payload.ceilings)
+    warden._ceilings = ceilings
+    warden._sub_bee_slots.resize(min(warden._sub_bee_slots.capacity, ceilings.max_sub_bees))
+
+
+def handle_plan_written(warden: Warden, payload: PlanWritten) -> None:
+    """Store the Queen's own HostingPlan for this Warden's Cell.
+
+    Nothing here records a fresh trail event: `hivemind.queen.forage.hosting.write_hosting_plan`
+    already recorded `forage.plan_written` before sending this (module docstring of
+    `handle_ceilings_set`, the same reasoning).
+
+    Args:
+        warden: The owning Warden.
+        payload: The Queen's own PlanWritten.
+    """
+    warden._hosting_plan = HostingPlan(
+        cell_id=payload.cell_id,
+        revision=payload.revision,
+        slots=tuple(SlotPlan.from_wire(slot) for slot in payload.slots),
+        default=SourceChain.from_wire(payload.default),
+        reason=payload.reason,
+    )

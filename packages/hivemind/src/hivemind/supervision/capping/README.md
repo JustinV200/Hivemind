@@ -67,22 +67,37 @@ task's tempo may never remove, `tiers.checks_for`). A `CheckKind` the gate's own
 unavailable"` -- never a silently skipped rung. `judge` (bool) adds `CheckKind.JUDGE` to a tier's
 real-time ladder without naming it in `checks`/`floor` by hand; `audit_rate` (0.0 to 1.0) is how
 much of that tier's completed work `AuditSampler` samples for after-the-fact review when `judge`
-is false. v0's shipped table leaves every tier's `judge` false (no Warden has a `JudgeReviewer`
-wired into its check registry yet) and gives every tier above `read_only` a nonzero `audit_rate`.
+is false. The wiring pass (roadmap step 4.10) turned `judge` on for `outside_scratch_write`,
+`spend`, `device_command` and `irreversible` -- the tiers an independent review matters most for
+-- and set their own `audit_rate` back to `0.0` (a live review already covers every proposal
+there); `irreversible` also floors `JUDGE`, so no tempo ever drops it (codingrules 8.14).
+`scratch_write` and `network_egress` stay audit-sampled only, as defence in depth, until a later
+phase turns their own `judge` on too.
 
-### Wiring the judge into a Warden (for the orchestrator; not built by this package)
+### Wiring the judge into a Warden
 
 `hivemind.supervision.capping` never imports `hivemind.llm` (codingrules section 4: this package
-sits under both autopilot packages), so the model-backed `JudgeReviewer` -- the one that calls
-`complete_structured` on `ModelSlot.JUDGE` -- is built at the Warden layer. Once it exists, a
-composition root (`cli/compose/deps.py`) merges this package's own `judge_checks(reviewer,
+sits under both autopilot packages), so the model-backed `JudgeReviewer` is built at the Warden
+layer: `hivemind.wardens.judge.ModelJudgeReviewer` runs `complete_structured` on `ModelSlot.JUDGE`
+through the Warden's own `CallGate`, from a prompt built out of the tier's rubric text and the
+`JudgeRequest` alone (`hivemind.llm.prompts.judge_review`). The composition root
+(`cli/compose/deps.py::build_warden_deps`) merges this package's own `judge_checks(reviewer,
 rubrics) -> Mapping[CheckKind, Check]` (`{CheckKind.JUDGE: JudgeCheck(reviewer, rubrics)}`) into
-the `Mapping[CheckKind, Check]` a Warden's `GateDeps.checks` is already built from
-`deterministic_checks()`: `checks={**deterministic_checks(), **judge_checks(reviewer, rubrics)}`.
-The manifest may pin `ModelSlot.JUDGE` to a different
-`[llm.providers.*]` entry than `ModelSlot.WORKER` in `[llm.slots]` so the same blind spot in one
-provider does not correlate between the bee that proposes and the bee that reviews; that pin
-already works through the manifest today and needs no code in this package.
+the `Mapping[CheckKind, Check]` a Warden's `GateDeps.checks` is built from:
+`checks={**deterministic_checks(), **judge_checks(reviewer, rubrics)}`; the same `reviewer` and
+`rubrics` also land on `WardenDeps.judge_reviewer`/`.judge_rubrics`, additive fields
+`hivemind.wardens.spawn.audited_gate.AuditingCappingGate` reads for its own after-the-fact
+sampling (the `AuditSampler`/`FindingsSink`/`AuditRates` half of this wiring: that class
+subclasses `CappingGate` and calls `audit_completed` once a proposal reaches a terminal state,
+since this package's own `gate.py` is where a `Proposal` actually becomes `VERIFIED`/
+`ROLLED_BACK` and lives outside `hivemind.wardens`'s own file list to edit directly). The manifest
+may pin `ModelSlot.JUDGE` to a different `[llm.providers.*]` entry than `ModelSlot.WORKER` in
+`[llm.slots]` so the same blind spot in one provider does not correlate between the bee that
+proposes and the bee that reviews; that pin already works through the manifest and needs no code
+in this package. Every test that runs the gate at a `judge = true` tier registers a
+`hivemind.supervision.capping.checks.fake.FakeJudgeReviewer` (a scripted FIFO queue) or the
+test-only `RepeatingJudgeReviewer` (`tests/builders/capping.py`, which never runs dry, for a
+default `checks` mapping shared across many proposals in one test run).
 
 ## How to test this
 

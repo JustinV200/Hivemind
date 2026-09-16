@@ -64,12 +64,14 @@ from hivemind.forage import HostingPlan, ModelSource, SlotPlan, SourceChain, Tem
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import ModelSlot
 from hivemind.queen.trail import record_forage_event
+from waggle.envelope import wrap
 from waggle.messages.base import MAX_REASON_CHARS
+from waggle.messages.forage import PlanWritten
 
 if TYPE_CHECKING:
     # Only for the type hint below: see hivemind.queen.forage.grants's own module docstring note
-    # on why QueenDeps cannot be a real import inside hivemind.queen.forage.
-    from hivemind.queen.deps import QueenDeps
+    # on why QueenDeps/WardenLink cannot be real imports inside hivemind.queen.forage.
+    from hivemind.queen.deps import QueenDeps, WardenLink
 
 __all__ = ["PlanReason", "write_hosting_plan"]
 
@@ -110,20 +112,27 @@ class PlanReason:
         return text[:MAX_REASON_CHARS]
 
 
-async def write_hosting_plan(cell: Cell, deps: QueenDeps) -> HostingPlan:
+async def write_hosting_plan(
+    cell: Cell, deps: QueenDeps, warden: WardenLink | None = None
+) -> HostingPlan:
     """Write, store and record a Cell's HostingPlan (the effectful edge; see module docstring).
 
     Args:
         cell: The Cell this plan is for.
         deps: The Queen's collaborators; `map` and `ledger` are this decision's own inputs.
+        warden: The Cell's own attached Warden, when known; its own `PlanWritten` is sent over
+            this link before the plan is recorded (mirroring `hivemind.queen.forage.ceilings.
+            set_ceilings`'s own write-then-send-then-record order). `None` (every pre-4.10-wiring
+            caller, and any test that only cares about the decision itself) skips the send.
 
     Returns:
         The written plan, already recorded in the ledger and on the trail.
     """
     existing = deps.ledger.decisions.plan_for(cell.id)
     revision = 0 if existing is None else existing.revision + 1
+    sources = deps.map.sources()
     inputs = _PlanInputs(
-        sources=deps.map.sources(),
+        sources=sources,
         bindings=deps.bindings,
         seat_headroom=deps.ledger.headroom().shared_seats,
         spend_cap_usd=deps.budgets.spend_cap_usd,
@@ -131,10 +140,27 @@ async def write_hosting_plan(cell: Cell, deps: QueenDeps) -> HostingPlan:
     )
     plan, _reason = _decide_plan(cell, inputs)
     await deps.ledger.decisions.record_plan(plan)
+    if warden is not None:
+        await _send_plan(warden, plan, sources, deps)
     await record_forage_event(
         deps, "forage.plan_written", cell.id, revision=plan.revision, slots=len(plan.slots)
     )
     return plan
+
+
+async def _send_plan(
+    warden: WardenLink, plan: HostingPlan, sources: tuple[ModelSource, ...], deps: QueenDeps
+) -> None:
+    """Send `plan` to `warden` as a PlanWritten (the send `write_hosting_plan` used to skip)."""
+    by_id = {source.source_id: source for source in sources}
+    message = PlanWritten(
+        cell_id=plan.cell_id,
+        revision=plan.revision,
+        slots=tuple(slot_plan.to_wire(by_id) for slot_plan in plan.slots),
+        default=plan.default.to_wire(by_id),
+        reason=plan.reason,
+    )
+    await warden.transport.send(wrap(message, warden.hop, clock=deps.clock))
 
 
 @dataclass(frozen=True, slots=True)

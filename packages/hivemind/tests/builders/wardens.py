@@ -41,6 +41,7 @@ import dataclasses
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from builders.capping import RepeatingJudgeReviewer
 from builders.cells import make_cell
 from builders.workers import ScriptedWorker, make_outcome, yield_then
 
@@ -52,7 +53,7 @@ from hivemind.llm import BoundModel, DirectCallGate, FakeLLMProvider
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.supervision import load_policy
-from hivemind.supervision.capping.checks import deterministic_checks
+from hivemind.supervision.capping import deterministic_checks, judge_checks, load_judge_rubrics
 from hivemind.supervision.capping.tiers import load_tiers
 from hivemind.wardens import WardenDeps
 from hivemind.workers import Worker
@@ -194,6 +195,14 @@ class _FieldInputs:
 def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
     """Build the default WardenDeps field values, before `make_warden_deps` applies any override."""
     bound = inputs.bound
+    # Roadmap step 4.10: several shipped tiers now turn `judge = true` on
+    # (hivemind.supervision.defaults.capping-tiers.toml), so the default `checks` mapping needs a
+    # JUDGE entry too, or a proposal at one of those tiers would fail closed with "check
+    # unavailable" the moment any test reaches that tier's ladder -- an
+    # unconditionally-approving RepeatingJudgeReviewer (never exhausted, unlike
+    # FakeJudgeReviewer's own FIFO queue) keeps every pre-4.10 test's own behaviour unchanged.
+    judge_reviewer = RepeatingJudgeReviewer()
+    judge_rubrics = load_judge_rubrics()
     return {
         "source": inputs.source,
         "queen_link": inputs.queen_link,
@@ -204,7 +213,7 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "clock": inputs.clock,
         "policy": load_policy(),
         "tiers": load_tiers(),
-        "checks": deterministic_checks(),
+        "checks": {**deterministic_checks(), **judge_checks(judge_reviewer, judge_rubrics)},
         "bound": bound,
         "call_gate": DirectCallGate(),
         "worker_factory": inputs.worker_factory,
@@ -213,6 +222,8 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "heartbeat_interval_s": 5.0,
         "worker_heartbeat_interval_s": 5.0,
         "missed_heartbeats_before_stalled": 3,
+        "judge_reviewer": judge_reviewer,
+        "judge_rubrics": judge_rubrics,
     }
 
 

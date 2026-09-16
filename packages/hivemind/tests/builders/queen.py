@@ -74,7 +74,7 @@ from waggle.ids import (
 )
 from waggle.messages.base import WaggleMessage
 from waggle.messages.cell import CellWaxWritten
-from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued
+from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued, PlanWritten
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
@@ -266,8 +266,8 @@ class WardenEnd:
     """Wrap the Warden side of one attached link: send reports, collect orders.
 
     Owns its own mutable state in place (codingrules section 8.5): `grants`, `assignments`,
-    `answers`, `intervenes`, `forage_replies` and `ceilings_sets` (roadmap step 4.8) grow as
-    envelopes are pumped off the transport.
+    `answers`, `intervenes`, `forage_replies`, `ceilings_sets` and `plans_written` (roadmap step
+    4.8) grow as envelopes are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -289,6 +289,7 @@ class WardenEnd:
         self.intervenes: list[Intervene] = []
         self.forage_replies: list[ForageReply] = []
         self.ceilings_sets: list[CeilingsSet] = []  # Roadmap step 4.8.
+        self.plans_written: list[PlanWritten] = []  # Roadmap step 4.8's own wiring step (4.10).
         self.wax_written: list[CellWaxWritten] = []  # Roadmap step 4.2a.
         self.task_pauses: list[TaskPause] = []  # Roadmap step 4.9 (Clustering).
         self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
@@ -351,6 +352,11 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.ceilings_sets), limit=limit)
         return self.ceilings_sets[-1]
 
+    async def wait_for_plan_written(self, limit: int = DEFAULT_PUMP_LIMIT) -> PlanWritten:
+        """Pump until at least one PlanWritten has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.plans_written), limit=limit)
+        return self.plans_written[-1]
+
     async def wait_for_wax_written(self, limit: int = DEFAULT_PUMP_LIMIT) -> CellWaxWritten:
         """Pump until at least one CellWaxWritten has arrived, and return the latest one."""
         await self.pump_until(lambda: bool(self.wax_written), limit=limit)
@@ -373,6 +379,8 @@ class WardenEnd:
     def _sort(self, envelope: Envelope) -> None:
         """Append `envelope`'s payload to the matching bucket; unrecognised kinds are ignored."""
         payload = envelope.payload
+        if self._sort_forage(payload):
+            return  # Roadmap step 4.8's own three kinds; split out to stay under C901's limit.
         if isinstance(payload, GrantIssued):
             self.grants.append(payload)
             self.received_kinds.append("grant")
@@ -385,13 +393,6 @@ class WardenEnd:
         elif isinstance(payload, Intervene):
             self.intervenes.append(payload)
             self.received_kinds.append("intervene")
-        elif isinstance(payload, ForageReply):
-            self.forage_replies.append(payload)
-            self.received_kinds.append("forage_reply")
-        elif isinstance(payload, CeilingsSet):
-            self.ceilings_sets.append(payload)
-            self.received_kinds.append("ceilings_set")
-            self.received_kinds.append("forage_reply")
         elif isinstance(payload, CellWaxWritten):
             self.wax_written.append(payload)
             self.received_kinds.append("wax_written")
@@ -401,6 +402,25 @@ class WardenEnd:
         elif isinstance(payload, TaskResume):
             self.task_resumes.append(payload)
             self.received_kinds.append("task_resume")
+
+    def _sort_forage(self, payload: object) -> bool:
+        """Sort a Forage-family payload (ForageReply/CeilingsSet/PlanWritten); True if it matched.
+
+        Split out of `_sort` (codingrules 5.1: cyclomatic complexity) purely by which Waggle
+        message family a kind belongs to, not by any behaviour of its own.
+        """
+        if isinstance(payload, ForageReply):
+            self.forage_replies.append(payload)
+            self.received_kinds.append("forage_reply")
+        elif isinstance(payload, CeilingsSet):
+            self.ceilings_sets.append(payload)
+            self.received_kinds.append("ceilings_set")
+        elif isinstance(payload, PlanWritten):
+            self.plans_written.append(payload)
+            self.received_kinds.append("plan_written")
+        else:
+            return False
+        return True
 
 
 def plan_responder(

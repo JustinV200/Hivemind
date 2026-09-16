@@ -72,10 +72,12 @@ from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import CapabilitySet
+from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
-from hivemind.supervision.capping import CappingGate, GateDeps
+from hivemind.supervision.capping import GateDeps
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
     GrantSlice,
@@ -125,6 +127,19 @@ class WardenCellContext:
     session: CellSession
 
 
+@dataclass(frozen=True, slots=True)
+class _SubBeeGrant:
+    """Bundles one sub-bee's GrantSlice and its grant-attributed CallGate (codingrules 5.1).
+
+    Keeps `_build_worker_context` within the 5-parameter limit: `slice` and `call_gate` are
+    always built together, from the same `GrantIssued` and `deps.lane_for_grant` call, in
+    `spawn_sub_bee`.
+    """
+
+    slice: GrantSlice
+    call_gate: CallGate
+
+
 class _NullAsker:
     """A placeholder QuestionChannel; `WorkerRuntime.__init__` always replaces it with its own.
 
@@ -166,11 +181,11 @@ async def spawn_sub_bee(
     worker_id = new_worker_id(deps.clock)
     needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
     capabilities = worker_capabilities(ctx.ceiling, needs, ctx.lease.scratch_root)
-    grant_slice = _grant_slice(grant)
     binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
     bound = deps.rebind(binding_key)
+    sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
 
-    worker_ctx = _build_worker_context(ctx, worker_id, bound, grant_slice, capabilities)
+    worker_ctx = _build_worker_context(ctx, worker_id, bound, sub_bee_grant, capabilities)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
 
     await _record_spawned(deps, worker_id, assignment)
@@ -216,10 +231,16 @@ async def stop_sub_bee(
     await reap(sub_bee.runtime_task)
 
 
-def _build_capping_gate(ctx: WardenCellContext) -> CappingGate:
-    """Build this sub-bee's own CappingGate (codingrules section 8.12: nothing lands uncapped)."""
+def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
+    """Build this sub-bee's own CappingGate (codingrules section 8.12: nothing lands uncapped).
+
+    Roadmap step 4.10: an `AuditingCappingGate`, not a plain `CappingGate`, so a terminal proposal
+    at a tier the table marks ungated in real time is still sampled for after-the-fact judge
+    review, using this Warden's own `WardenDeps.judge_reviewer`/`.judge_rubrics`/`.audit_sampler`/
+    `.findings_sink`/`.audit_rates`.
+    """
     deps = ctx.deps
-    return CappingGate(
+    return AuditingCappingGate(
         GateDeps(
             session=ctx.session,
             snapshotter=NoopSnapshotter(),
@@ -233,7 +254,28 @@ def _build_capping_gate(ctx: WardenCellContext) -> CappingGate:
             ),
             clock=deps.clock,
             checks=deps.checks,
-        )
+        ),
+        AuditWiring(
+            reviewer=deps.judge_reviewer,
+            rubrics=dict(deps.judge_rubrics),
+            sampler=deps.audit_sampler,
+            sink=deps.findings_sink,
+            rates=deps.audit_rates,
+        ),
+    )
+
+
+def _build_sub_bee_grant(
+    deps: WardenDeps, grant: GrantIssued, assignment: TaskAssign
+) -> _SubBeeGrant:
+    """Build one sub-bee's own GrantSlice and grant-attributed CallGate (roadmap step 4.8).
+
+    One lane per grant, so every `llm.call` this sub-bee makes carries its own grant and goal id
+    (`hivemind.wardens.deps.WardenDeps.lane_for_grant`'s own docstring); `deps.call_gate`, this
+    Warden's own unattributed lane, is untouched, used only for its own awake episodes.
+    """
+    return _SubBeeGrant(
+        slice=_grant_slice(grant), call_gate=deps.lane_for_grant(grant.grant_id, assignment.goal_id)
     )
 
 
@@ -241,7 +283,7 @@ def _build_worker_context(
     ctx: WardenCellContext,
     worker_id: WorkerId,
     bound: BoundModel,
-    grant_slice: GrantSlice,
+    sub_bee_grant: _SubBeeGrant,
     capabilities: CapabilitySet,
 ) -> WorkerContext:
     """Assemble the WorkerContext one sub-bee runs its role inside."""
@@ -251,7 +293,7 @@ def _build_worker_context(
         cell=ctx.cell,
         session=ctx.session,
         bound=bound,
-        grant=grant_slice,
+        grant=sub_bee_grant.slice,
         capabilities=capabilities,
         memory=deps.memory,
         trail=deps.trail,
@@ -262,7 +304,7 @@ def _build_worker_context(
         handoff_threshold=deps.handoff_threshold,
         capping=_build_capping_gate(ctx),
         lease=ctx.lease,
-        call_gate=deps.call_gate,
+        call_gate=sub_bee_grant.call_gate,
     )
 
 

@@ -51,6 +51,10 @@ Public API (roadmap steps 3.18, 3.19):
     - to_inbox_item, warden_attendant: the Warden's own Attendant (inbox).
     - SubBeeSlots: a bare sub-bee-slot counter against a grant, renamed from LocalPool in roadmap
       step 4.7 (local_pool).
+    - ModelJudgeReviewer, JUDGE_OUTPUT_TOKENS: the model-backed JudgeReviewer a Warden's
+      CappingGate calls through (roadmap step 4.10; judge).
+    - AuditingCappingGate: the CappingGate that samples a terminal proposal for after-the-fact
+      judge review (roadmap step 4.10; spawn.audited_gate).
 """
 
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
@@ -64,6 +68,7 @@ from hivemind.wardens.errors import (
     WardenError,
 )
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
+from hivemind.wardens.judge import JUDGE_OUTPUT_TOKENS, ModelJudgeReviewer
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.requests import (
     CellRequestInputs,
@@ -74,6 +79,7 @@ from hivemind.wardens.requests import (
     tool_request,
 )
 from hivemind.wardens.spawn import SubBee, WardenCellContext, spawn_sub_bee
+from hivemind.wardens.spawn.audited_gate import AuditingCappingGate
 from hivemind.wardens.state import (
     TRANSITIONS,
     WardenState,
@@ -84,12 +90,15 @@ from hivemind.wardens.state import (
 from hivemind.wardens.warden import Warden
 
 __all__ = [
+    "JUDGE_OUTPUT_TOKENS",
     "TRANSITIONS",
     "AcceptanceReport",
+    "AuditingCappingGate",
     "CellRequestInputs",
     "ForageRequestInputs",
     "InvalidWardenTransitionError",
     "LocalPoolExhaustedError",
+    "ModelJudgeReviewer",
     "SubBee",
     "SubBeeSlots",
     "SubBeeView",

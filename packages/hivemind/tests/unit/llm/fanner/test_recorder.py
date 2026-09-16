@@ -13,7 +13,11 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.llm.fanner.recorder import NullLlmEventRecorder, TrailLlmEventRecorder
+from hivemind.llm.fanner.recorder import (
+    CompositeLlmEventRecorder,
+    NullLlmEventRecorder,
+    TrailLlmEventRecorder,
+)
 from hivemind.pheromone import LlmEvent, MemoryPheromoneTrail, TrailQuery
 from waggle.clock import Clock, FakeClock
 from waggle.ids import new_event_id, new_hive_id, new_node_id
@@ -145,3 +149,44 @@ async def test_trail_llm_event_recorder_call_started_and_finished_write_nothing_
     await recorder.call_finished("src_1", "fake")
 
     assert await trail.query(TrailQuery()) == ()
+
+
+class _RecordingRecorder:
+    """A minimal, hand-written LlmEventRecorder that logs every call it saw, in order."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+
+    async def record(self, kind: str, subject_id: str, payload: object) -> None:
+        self.calls.append(("record", kind, subject_id))
+
+    async def call_started(self, source_id: str | None, provider: str) -> None:
+        self.calls.append(("call_started", source_id or "", provider))
+
+    async def call_finished(self, source_id: str | None, provider: str) -> None:
+        self.calls.append(("call_finished", source_id or "", provider))
+
+
+async def test_composite_recorder_fans_record_out_to_every_wrapped_recorder_in_order() -> None:
+    # Roadmap step 4.8's own wiring step: build_fanner chains a LedgerRecorder with a
+    # TrailLlmEventRecorder through this class; FannerLane itself still calls exactly one
+    # LlmEventRecorder, unaware more than one is listening underneath.
+    first, second = _RecordingRecorder(), _RecordingRecorder()
+    composite = CompositeLlmEventRecorder(first, second)
+    clock = FakeClock()
+
+    await composite.record(LLM_CALL_KIND, new_event_id(clock), {"slot": "WORKER"})
+
+    assert first.calls == [("record", LLM_CALL_KIND, first.calls[0][2])]
+    assert second.calls == [("record", LLM_CALL_KIND, second.calls[0][2])]
+
+
+async def test_composite_recorder_fans_call_started_and_finished_out_too() -> None:
+    first, second = _RecordingRecorder(), _RecordingRecorder()
+    composite = CompositeLlmEventRecorder(first, second)
+
+    await composite.call_started("src_1", "fake")
+    await composite.call_finished("src_1", "fake")
+
+    assert first.calls == [("call_started", "src_1", "fake"), ("call_finished", "src_1", "fake")]
+    assert second.calls == first.calls

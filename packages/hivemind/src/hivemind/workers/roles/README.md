@@ -20,8 +20,14 @@ Undertaker, Drone and HouseBee, each implementing the shared Worker protocol.
   `sweep.py` (`run_sweep`, `SweepDeps`/`SweepWindow`/`SweepOutcome`, decoupled from the Worker
   protocol so a future timer-driven supervisor can call it directly), `schedule.py`
   (`SweepSchedule`, the pure timer a supervisor checks first), `role.py` (`HouseBee`, the
-  Worker-protocol adapter around one sweep). See `hivemind.workers.roles.house_bee`'s own
-  docstring for the full shape.
+  Worker-protocol adapter around one sweep). Roadmap step 4.3's own wiring step:
+  `hivemind.queen.ticks.housekeeping.run_housekeeping` is the other caller `run_sweep` was always
+  meant for -- the Queen runs a sweep directly on her own tick timer, over her own memory store,
+  never through a `TaskAssign` (she has no Cell of her own to spawn a Worker on). `SweepDeps.bound`
+  /`.gate` are now optional (`None` when the caller could not resolve a `ModelSlot.RIPENER`
+  binding): `_compact_closed_tasks` skips compaction alone for that sweep rather than failing the
+  whole thing, since demotion and Cell Wax expiry need no model call. See `hivemind.workers.roles.
+  house_bee`'s own docstring for the full shape.
 
 ## Public API (roadmap 3.16, extended by 4.3)
 

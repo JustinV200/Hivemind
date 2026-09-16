@@ -106,16 +106,20 @@ class SweepDeps:
         memory: Where demotion and compaction write; also read directly for Notes (module
             docstring).
         bee_bread: The lookup surface a sweep reads old, closed-task entries from.
-        bound: The `ModelSlot.RIPENER` binding `compact` calls on.
-        gate: The seam that call passes through.
+        bound: The `ModelSlot.RIPENER` binding `compact` calls on. `None` when the caller could
+            not resolve one (a manifest or test fixture with no `ripener` slot bound, roadmap
+            step 4.3's own wiring step): compaction is then skipped for this sweep -- demotion and
+            Cell Wax expiry still run, since neither needs a model call -- rather than the whole
+            sweep failing closed.
+        gate: The seam that call passes through; `None` exactly when `bound` is.
         sources: A broader `HotStateSources` view for demotion, when the caller has one (module
             docstring); `None` demotes Notes only.
     """
 
     memory: MemoryContext
     bee_bread: BeeBread
-    bound: BoundModel
-    gate: CallGate
+    bound: BoundModel | None = None
+    gate: CallGate | None = None
     sources: HotStateSources | None = None
 
 
@@ -248,8 +252,12 @@ async def _compact_closed_tasks(deps: SweepDeps, window: SweepWindow) -> tuple[i
     """Compact Bee Bread entries older than `window.hot_window`, for tasks not in `active_tasks`.
 
     Returns:
-        `(entries_compacted, batches_written, spend_usd)`.
+        `(entries_compacted, batches_written, spend_usd)`, all zero when `deps.bound` is `None`
+        (module docstring: no RIPENER binding to compact on, so this phase is skipped rather than
+        the whole sweep failing).
     """
+    if deps.bound is None or deps.gate is None:
+        return 0, 0, 0.0  # No RIPENER binding for this sweep; demotion/wax expiry still ran.
     cutoff = window.now - window.hot_window
     candidates = await deps.bee_bread.between(_EPOCH, cutoff, window.allowance)
     closed = [

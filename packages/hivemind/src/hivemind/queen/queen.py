@@ -73,7 +73,7 @@ from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
 from hivemind.queen.awake import QueenSources, decide_awake
-from hivemind.queen.cluster import awake_available, run_cluster_tick
+from hivemind.queen.cluster import awake_available
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
@@ -372,9 +372,9 @@ async def _run_tick(queen: Queen) -> None:
     await ticks.liveness.check_liveness(
         queen._deps, queen.wardens, queen._liveness, queen._human_inbox
     )
-    # Roadmap step 4.9: drain hive cluster/wake orders and probe clustered providers, on the
-    # same cadence as liveness and dispatch (docs/adr/0024).
-    await run_cluster_tick(queen._deps, queen._deps.cluster_state, queen.wardens)
+    # Roadmap step 4.9: drain hive cluster/wake orders and probe clustered providers, on the same
+    # cadence as liveness and dispatch (docs/adr/0024); also runs the House Bee sweep (4.3).
+    await ticks.housekeeping.run_housekeeping(queen._deps, queen.wardens, queen._deps.cluster_state)
     await dispatch_ready(queen._deps, queen.wardens)
     # This dispatch's own fix 3: the tick now calls the exact same retry-safe function hive run's
     # own poll loop calls (hivemind.cli.compose.run_goal), instead of a separate sweep that used

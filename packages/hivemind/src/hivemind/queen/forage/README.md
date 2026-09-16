@@ -57,16 +57,22 @@ handling, hosting plans and Ceilings per Warden.
   mutate nothing. The function keeps its roadmap-4.7 name, `handle_sub_bee_request`, because
   `hivemind.queen.ticks.forage` (outside this package's own file list) imports it by that exact
   name; see this package's own dispatch report for the rename a future edit there should make.
-- **`hosting`**: `PlanReason`, `write_hosting_plan(cell, deps) -> HostingPlan` (roadmap step 4.8)
-  -- per Cell, ranks every `[llm.slots]` slot's candidate Forage map sources (local-first,
-  VRAM-checked, seat-headroom-aware, cost-capped, sorted by measured distance) and writes the
-  result: `_decide_plan` is pure, `write_hosting_plan` is the effectful edge (ledger write, then
-  `forage.plan_written`). Reads `cell.capabilities.can_host_model` as the disconnection-survival
-  proxy roadmap step 4.8 asks for (`hivemind.cell.needs.TaskNeeds` carries no such field, and
-  codingrules forbids branching on `cell.kind` directly); when true, or when the shared pool has
-  no seat headroom, every non-local candidate is excluded outright rather than merely ranked
-  behind, so the plan's own chain never names a source the Cell cannot reach while genuinely
-  disconnected.
+- **`hosting`**: `PlanReason`, `write_hosting_plan(cell, deps, warden=None) -> HostingPlan`
+  (roadmap step 4.8) -- per Cell, ranks every `[llm.slots]` slot's candidate Forage map sources
+  (local-first, VRAM-checked, seat-headroom-aware, cost-capped, sorted by measured distance) and
+  writes the result: `_decide_plan` is pure, `write_hosting_plan` is the effectful edge (ledger
+  write, then, when `warden` is given, a `waggle.messages.forage.PlanWritten` send over its own
+  link, then `forage.plan_written`). The wiring pass (roadmap step 4.10) added the `warden`
+  parameter and its send -- mirroring `ceilings.set_ceilings`'s own write-then-send-then-record
+  order -- since the module originally recorded the plan but never sent it; `None` (every
+  pre-wiring caller and any test that only cares about the decision itself) skips the send. Reads
+  `cell.capabilities.can_host_model` as the disconnection-survival proxy roadmap step 4.8 asks for
+  (`hivemind.cell.needs.TaskNeeds` carries no such field, and codingrules forbids branching on
+  `cell.kind` directly); when true, or when the shared pool has no seat headroom, every non-local
+  candidate is excluded outright rather than merely ranked behind, so the plan's own chain never
+  names a source the Cell cannot reach while genuinely disconnected. `hivemind.queen.dispatcher.
+  _ensure_warden_provisioned` is the one production caller that passes `warden`, on a newly
+  attached Warden's first dispatch.
 - **`ceilings`**: `set_ceilings`, `change_ceilings` (roadmap step 4.8) -- write a Warden's
   `hivemind.forage.Ceilings` to the ledger (`ledger.decisions.record_ceilings`, which numbers the
   revision), send `waggle.messages.forage.CeilingsSet` over its `WardenLink`, and record

@@ -46,7 +46,8 @@ Public API:
     - Spill-over (`hivemind.llm.fanner.spill`): `SpillReason`, `SPILL_WAIT_FRACTION`.
     - Rate limiting (`hivemind.llm.fanner.limiter`): `RateLimit`.
     - Trail recording (`hivemind.llm.fanner.recorder`): `LlmEventRecorder`, `NullLlmEventRecorder`,
-      `TrailLlmEventRecorder`.
+      `TrailLlmEventRecorder`, `CompositeLlmEventRecorder` (roadmap step 4.8's own wiring step:
+      fans one occurrence out to several recorders, e.g. a ledger recorder alongside the trail).
 """
 
 from hivemind.llm.fanner.lane import (
@@ -61,6 +62,7 @@ from hivemind.llm.fanner.lane import (
 )
 from hivemind.llm.fanner.limiter import RateLimit
 from hivemind.llm.fanner.recorder import (
+    CompositeLlmEventRecorder,
     LlmEventRecorder,
     NullLlmEventRecorder,
     TrailLlmEventRecorder,
@@ -74,6 +76,7 @@ __all__ = [
     "LLM_SPILL_KIND",
     "LLM_THROTTLED_KIND",
     "SPILL_WAIT_FRACTION",
+    "CompositeLlmEventRecorder",
     "Fanner",
     "FannerDeps",
     "FannerLane",

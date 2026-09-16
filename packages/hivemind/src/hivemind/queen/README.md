@@ -19,9 +19,12 @@ every assignment goes to a Warden, over Waggle.
   records it (`queen.decided`), rather than ending `run()` and taking the whole Hive down.
   `stop()` sets the stop flag first, then reaps every attached Warden's own receive task, so none
   is ever left pending once `run()` ends (codingrules section 11).
-- `QueenDeps`, `WardenLink`, `MemoryBudget` (`deps.py`): every collaborator one Queen is built
-  with, and one attached Warden's own address and link; manifest *slices* only, never a
-  `HiveManifest`.
+- `QueenDeps`, `WardenLink`, `MemoryBudget`, `Housekeeping` (`deps.py`): every collaborator one
+  Queen is built with, and one attached Warden's own address and link; manifest *slices* only,
+  never a `HiveManifest`. `Housekeeping` (roadmap step 4.3's own wiring step) is the Queen's own
+  `last_sweep_at` bookkeeping for `queen.ticks.housekeeping.run_housekeeping`, defined here (not
+  in that ticks module) so a real import of it never has to run that whole sub-package's own
+  `__init__` first -- every `queen.ticks` module already imports `QueenDeps` from here at runtime.
 - `queen.autopilot`: `QueenAction` (now including `WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX`, roadmap
   step 4.2a), `decide`, `effort_for`, `decide_forage_request`, `decide_wax_proposal` -- the
   deterministic dispatch tables; never imports `hivemind.llm`.
@@ -39,7 +42,12 @@ every assignment goes to a Warden, over Waggle.
 - `dispatch_ready` (`dispatcher.py`): place, grant and assign every ready task, never to a Worker
   directly; a fresh task's own `chamber.assign`/`chamber.start` and `queen.assigned` land before
   either wire message is sent, so a fast sub-bee's own immediate Question can never reach
-  `Queen._act` while the chamber still reads ASSIGNED.
+  `Queen._act` while the chamber still reads ASSIGNED. Roadmap step 4.8's own wiring step: before
+  the first grant a Warden ever receives, `_ensure_warden_provisioned` sets its first `Ceilings`
+  (`queen.forage.ceilings.set_ceilings`, from the Cell's own capacity report) and writes its
+  Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
+  over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
+  attached" means, so every later dispatch to the same Warden is a no-op here.
 - `handle_question`, `answer_question`, `sync_answers_from_chamber` (`questions.py`): the Queen's
   own question traffic; see that module's own docstring for why `answer_question` exists (the
   Brood Chamber's public API has no way to read an already-answered Question's content back out).
@@ -56,7 +64,8 @@ every assignment goes to a Warden, over Waggle.
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A
   `CellWaxProposed` classifies as a routine `WAGGLE_MESSAGE` (roadmap step 4.2a: "scores low"),
   never its own `InboxKind`.
-- `queen.ticks`: `alarms`, `liveness`, `results`, `forage`, `wax` -- the tick handlers each
+- `queen.ticks`: `alarms`, `liveness`, `results`, `forage`, `wax`, `housekeeping` -- the tick
+  handlers each
   `QueenAction` (or, for `forage`/`wax`, each received `ForageRequest`/`CellWaxProposed`) calls
   into, split out only to stay within codingrules 5.1's size limits. `alarms.handle_alarm` records
   `alarm.handled`/`alarm.escalated` (`hivemind.supervision.record_alarm_event`) and, for a REBIND,
@@ -91,7 +100,9 @@ every assignment goes to a Warden, over Waggle.
   holds no action to shrink another grant; see that package's own report); BINDING stays denied,
   routing's own job from phase 8 on. `hosting.write_hosting_plan` and `ceilings.set_ceilings`/
   `.change_ceilings` (4.8) write a Cell's `HostingPlan` and a Warden's `Ceilings`, each a pure
-  decision plus an effectful trail-and-ledger (and, for ceilings, Waggle) edge.
+  decision plus an effectful trail-and-ledger-and-Waggle edge: `write_hosting_plan` now also
+  sends `PlanWritten` to the Cell's own Warden when given one (roadmap step 4.8's own wiring step,
+  `dispatcher._ensure_warden_provisioned`'s one caller), mirroring `set_ceilings`'s own send.
 - `queen.cluster` (roadmap step 4.9, docs/adr/0024-clustering-protocol.md): Clustering, the
   pause-and-preserve protocol for a provider outage. `protocol.cluster`/`.resume` find every bee
   bound to a provider through `deps.ledger.live_grants()` filtered against `deps.map` (the
@@ -110,6 +121,15 @@ every assignment goes to a Warden, over Waggle.
   her own `ModelSlot.QUEEN` provider is itself clustered. The Queen's own mode
   (`RUNNING <-> CLUSTERED`, per provider set) lives in `hivemind.queen.state.QueenMode`/
   `ClusterState`, held on the `Queen` instance, not in `QueenDeps`.
+  `run_housekeeping` (roadmap step 4.3's own wiring step) is the one call `Queen`'s own tick
+  makes in place of the bare `run_cluster_tick(...)` it used to call directly: it still runs
+  Clustering's own check first, then, once `[memory] sweep_interval_s` is due
+  (`hivemind.workers.roles.house_bee.SweepSchedule`), runs one House Bee sweep directly over the
+  Queen's own memory store -- demotion, Cell Wax expiry, then compaction on `ModelSlot.RIPENER` --
+  never through a `TaskAssign`, since the Queen has no Cell of her own. A missing RIPENER binding
+  never raises out of the tick: compaction is skipped for that sweep (demotion and wax expiry
+  still run), logged once via `deps.housekeeping.ripener_unbound_warned`. The very first tick only
+  seeds `deps.housekeeping.last_sweep_at` rather than sweeping immediately.
 - `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
 ## How to test this

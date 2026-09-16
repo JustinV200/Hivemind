@@ -314,6 +314,10 @@ async def _send_denial(deps: QueenDeps, reply: _Reply, reason: str, *, contested
         # Effort.HIGH.value only on the contested branch: codingrules 8.14's own "contested
         # Forage at high [effort]" -- a plain denial never reaches queen.awake, so it has none.
         effort=Effort.HIGH.value if contested else None,
+        # This dispatch's own fix: the wire ForageReply already carries `reason`; the trail event
+        # needs it too, or "denied with a reason on the trail" (roadmap 4.8's own exit criterion)
+        # has nothing to show.
+        reason=reason,
     )
 
 

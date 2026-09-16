@@ -74,6 +74,7 @@ from hivemind.cell import (
 )
 from hivemind.cell import HoneyClearance as _HoneyClearance
 from hivemind.common.tasks import reap, reap_all, reaping
+from hivemind.forage import Ceilings, HostingPlan
 from hivemind.guard import CapabilitySet, ceiling_for
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
@@ -92,7 +93,7 @@ from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
-from waggle.messages.forage import GrantIssued
+from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
 from waggle.messages.supervision import (
     AlarmRaised,
     Answer,
@@ -159,6 +160,9 @@ class Warden(TickLoop):
         # own emptiness
         # already decides ACTIVE <-> WATCH.
         self._clustered_tasks: set[TaskId] = set()
+        # Roadmap 4.8: the Queen's own CeilingsSet/PlanWritten (ticks.control), None until sent.
+        self._ceilings: Ceilings | None = None
+        self._hosting_plan: HostingPlan | None = None
 
     @property
     def state(self) -> WardenState:
@@ -461,13 +465,21 @@ async def _act(
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
-    """Handle a RECORD-only item: a grant, a heartbeat, or routine progress."""
+    """Handle a RECORD-only item: a grant, a heartbeat, routine progress, ceilings or a plan."""
     if isinstance(payload, GrantIssued):
         await ticks.assign.handle_grant(warden, payload)
     elif isinstance(payload, Heartbeat):
         ticks.heartbeat.record_heartbeat(warden, item.principal, payload)
     elif isinstance(payload, TaskProgress):
         ticks.heartbeat.record_progress(warden, item.principal, payload)
+    elif isinstance(payload, CeilingsSet):
+        # Roadmap step 4.8's own wiring step: the Queen's own ceilings never record a fresh trail
+        # event here (module docstring of hivemind.queen.forage.ceilings: she already recorded
+        # forage.ceilings_set on her own side before sending it).
+        ticks.control.handle_ceilings_set(warden, payload)
+    elif isinstance(payload, PlanWritten):
+        # Same reasoning: hivemind.queen.forage.hosting already recorded forage.plan_written.
+        ticks.control.handle_plan_written(warden, payload)
 
 
 async def _record_event(warden: Warden, kind: str, **payload: JsonValue) -> None:

@@ -75,7 +75,12 @@ from waggle.ids import HiveId, NodeId, new_event_id
 # payload dict on the way to building the event, leaving the rest as that event's own payload.
 _TYPED_FIELD_KEYS = ("slot", "provider", "usage")
 
-__all__ = ["LlmEventRecorder", "NullLlmEventRecorder", "TrailLlmEventRecorder"]
+__all__ = [
+    "CompositeLlmEventRecorder",
+    "LlmEventRecorder",
+    "NullLlmEventRecorder",
+    "TrailLlmEventRecorder",
+]
 
 
 class LlmEventRecorder(Protocol):
@@ -192,6 +197,47 @@ class TrailLlmEventRecorder:
     async def call_finished(self, source_id: str | None, provider: str) -> None:
         """No-op; see `LlmEventRecorder.call_finished`."""
         return None
+
+
+class CompositeLlmEventRecorder:
+    """Fan every LlmEventRecorder call out to several recorders, in the order given.
+
+    Roadmap step 4.8's own wiring step: `hivemind.cli.compose.deps.build_fanner` chains a
+    `hivemind.queen.forage.ledger.recorder.LedgerRecorder` with a `TrailLlmEventRecorder` through
+    this class, so one Fanner occurrence both updates the Forage ledger's live seat and spend
+    books and lands on the Pheromone Trail -- `FannerLane` itself still calls exactly one
+    `LlmEventRecorder`, never aware more than one is listening underneath.
+    """
+
+    def __init__(self, *recorders: LlmEventRecorder) -> None:
+        """Build a CompositeLlmEventRecorder over `recorders`, called in the order given.
+
+        Args:
+            *recorders: Every recorder this composite fans out to; each of `record`,
+                `call_started` and `call_finished` awaits them in order, one at a time.
+        """
+        self._recorders = recorders
+
+    async def record(self, kind: str, subject_id: str, payload: JsonObject) -> None:
+        """Call `record` on every wrapped recorder, in order; see `LlmEventRecorder.record`."""
+        for recorder in self._recorders:
+            await recorder.record(kind, subject_id, payload)
+
+    async def call_started(self, source_id: str | None, provider: str) -> None:
+        """Call `call_started` on every wrapped recorder, in order.
+
+        See `LlmEventRecorder.call_started` for the full contract.
+        """
+        for recorder in self._recorders:
+            await recorder.call_started(source_id, provider)
+
+    async def call_finished(self, source_id: str | None, provider: str) -> None:
+        """Call `call_finished` on every wrapped recorder, in order.
+
+        See `LlmEventRecorder.call_finished` for the full contract.
+        """
+        for recorder in self._recorders:
+            await recorder.call_finished(source_id, provider)
 
 
 def _split_typed_fields(payload: JsonObject) -> tuple[JsonObject, JsonObject]:

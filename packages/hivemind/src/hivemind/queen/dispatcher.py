@@ -73,11 +73,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from hivemind.brood_chamber import Task
-from hivemind.forage import ForageGrant, GrantInputs, ModelSlot, grant
+from hivemind.cell import Cell
+from hivemind.forage import Ceilings, ForageGrant, GrantInputs, ModelSlot, grant
 from hivemind.forage.models.sources import ModelSource
 from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage import grants as forage_grants
+from hivemind.queen.forage.ceilings import set_ceilings
+from hivemind.queen.forage.hosting import write_hosting_plan
 from hivemind.queen.placement import Placement, PlacementError, decide
 from hivemind.queen.trail import record_event
 from waggle.envelope import wrap
@@ -242,6 +245,10 @@ async def _send_grant_and_assign(
 ) -> ForageGrant:
     """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign."""
     cell_id, warden_id = placement.cell_id, placement.warden_id
+    # Roadmap step 4.8's own wiring step: the first dispatch ever sent to a Warden sets its
+    # ceilings and writes its Cell's hosting plan first (hivemind.wardens.ticks.control handles
+    # both on arrival); every later dispatch to the same Warden is a no-op here.
+    await _ensure_warden_provisioned(deps, link)
     fresh_grant = grant(_grant_inputs(deps, link, warden_id, cell_id, task))
     # roadmap step 4.7: the ledger is the live book of every shared grant, not only the ones a
     # ForageRequest later grows; activate() moves it past ISSUED (grant() always starts a fresh
@@ -340,3 +347,40 @@ def _task_assign(
 def _link_for(wardens: Sequence[WardenLink], warden_id: WardenId) -> WardenLink | None:
     """Return the WardenLink named by `warden_id`, or None when it names no attached Warden."""
     return next((link for link in wardens if link.warden_id == warden_id), None)
+
+
+async def _ensure_warden_provisioned(deps: QueenDeps, link: WardenLink) -> None:
+    """Set `link`'s first Ceilings and write its Cell's HostingPlan, once per attachment.
+
+    `Queen.attach_warden` only records an already-built link (queen/queen.py is outside this
+    dispatch's own file list beyond the one housekeeping-call replacement it reports separately),
+    so this runs here instead, at the first dispatch that ever reaches this Warden -- the fallback
+    roadmap step 4.8's own wiring note names. `deps.ledger.decisions.ceilings_for` already
+    distinguishes "never set" (None) from "set once" for exactly this reason
+    (`hivemind.queen.forage.ceilings.set_ceilings`'s own docstring).
+    """
+    if deps.ledger.decisions.ceilings_for(link.warden_id) is not None:
+        return  # Already provisioned on an earlier dispatch to this same Warden.
+    await set_ceilings(link, _initial_ceilings(link.cell), deps)
+    await write_hosting_plan(link.cell, deps, link)
+
+
+def _initial_ceilings(cell: Cell) -> Ceilings:
+    """Build a newly attached Warden's first Ceilings from its Cell's own capacity report.
+
+    `max_sub_bees` is the Cell's own cap (`ForageCapacity.max_sub_bees`, already resolved from
+    `[hive_stand] capacity.max_sub_bees` or the Cell's own probed default -- roadmap step 4.8's
+    own wording, "from [hive_stand] capacity.max_sub_bees or the Cell's cap"); VRAM and disk start
+    at the Cell's own free figures, so a Warden can load a model at all before the Queen ever
+    tightens either. Nothing is exported or allowlisted yet: the Queen raises `exportable_seats`
+    and `loadable_sources` later, once a model is actually worth sharing or loading
+    (codingrules section 8.10: "ceilings, not approvals" -- these start conservative, on purpose).
+    """
+    free_vram = sum(gpu.vram_free_bytes for gpu in cell.capacity.host.gpus)
+    return Ceilings(
+        max_sub_bees=cell.capacity.max_sub_bees,
+        model_vram_bytes=free_vram,
+        model_disk_bytes=cell.capacity.host.disk_free_bytes,
+        loadable_sources=(),
+        exportable_seats=0,
+    )

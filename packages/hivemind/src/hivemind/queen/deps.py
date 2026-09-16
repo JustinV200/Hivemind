@@ -46,6 +46,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from hivemind.brood_chamber import BroodChamber
 from hivemind.cell import Cell
@@ -91,8 +92,13 @@ _DEFAULT_GRANT_TTL_S = 300.0  # Matches the manifest's own [forage] grant_ttl_s 
 # before it is forced to hand off entirely.
 _DEFAULT_COMPACT_AT = 0.5
 _DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT_HANDOFF_THRESHOLD.
+# roadmap step 4.3's own wiring step: mirrors manifest.schema.supervision's own
+# DEFAULT_SWEEP_INTERVAL_S/DEFAULT_HOT_WINDOW_S so a QueenDeps built without naming either field
+# (every pre-housekeeping test) still runs a House Bee sweep on a sensible cadence.
+_DEFAULT_SWEEP_INTERVAL_S = 3_600.0  # One hour.
+_DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
 
-__all__ = ["MemoryBudget", "QueenDeps", "WardenLink"]
+__all__ = ["Housekeeping", "MemoryBudget", "QueenDeps", "WardenLink"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +147,31 @@ class MemoryBudget:
     output_reserve_tokens: int
     compact_at: float = _DEFAULT_COMPACT_AT
     handoff_threshold: float = _DEFAULT_HANDOFF_THRESHOLD
+
+
+@dataclass(slots=True)
+class Housekeeping:
+    """The Queen's own tiny mutable bookkeeping for `hivemind.queen.ticks.housekeeping`'s timer.
+
+    Held on `QueenDeps.housekeeping`, one per Queen: the same "owns its own mutable state in
+    place, documented" shape `hivemind.queen.state.ClusterState` already uses for Clustering
+    (codingrules section 8.5). Defined here, not in `hivemind.queen.ticks.housekeeping` itself, so
+    a real (non-TYPE_CHECKING) import of it from this module never has to run that whole `ticks`
+    sub-package's own `__init__` first (every `hivemind.queen.ticks` module already imports
+    `QueenDeps` from here at runtime; the reverse edge would cycle).
+
+    Attributes:
+        last_sweep_at: When the last House Bee sweep this Queen ran finished, or the Queen's own
+            first tick's timestamp before any sweep has actually run (`hivemind.queen.ticks.
+            housekeeping.run_housekeeping` seeds this on its very first call rather than running
+            a sweep immediately, so a fresh Hive's first tick is never made to pay for one).
+        ripener_unbound_warned: Whether `run_housekeeping` has already logged that no
+            `ModelSlot.RIPENER` binding could be resolved for a sweep; logged once, not every
+            tick, once it first happens.
+    """
+
+    last_sweep_at: datetime | None = field(default=None)
+    ripener_unbound_warned: bool = field(default=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +230,15 @@ class QueenDeps:
             `HealthPoller.probe`; `ProviderRegistry.provider` bound to an instance in production.
             None (the default) skips health probing entirely rather than raising, since a caller
             that never names this field has no registry to probe with in the first place.
+        housekeeping: The Queen's own `last_sweep_at` bookkeeping (roadmap step 4.3's own wiring
+            step); read and advanced by `hivemind.queen.ticks.housekeeping.run_housekeeping`.
+            Defaults to a fresh `Housekeeping()` (no sweep run yet), matching every field here.
+        sweep_interval_s: The manifest's own `[memory] sweep_interval_s`, the cadence
+            `hivemind.workers.roles.house_bee.SweepSchedule` reads to decide when the next sweep
+            is due. Defaults to `DEFAULT_SWEEP_INTERVAL_S`'s own value (one hour).
+        hot_window_s: The manifest's own `[memory] hot_window_s`, the compaction cutoff a
+            Queen-run sweep measures entry age against. Defaults to `DEFAULT_HOT_WINDOW_S`'s own
+            value (four hours).
     """
 
     chamber: BroodChamber
@@ -232,3 +272,9 @@ class QueenDeps:
     # can read her mode without reaching into the kernel, and so queen.py stays inside its
     # size cap (codingrules 5.1); exactly one per Queen, like every other mutable store here.
     cluster_state: ClusterState = field(default_factory=ClusterState)
+    # Roadmap step 4.3's own wiring step (the House Bee sweep on the Queen's own timer): additive
+    # fields, every one defaulted so a QueenDeps built before this dispatch (every existing test)
+    # keeps building unchanged.
+    housekeeping: Housekeeping = field(default_factory=Housekeeping)
+    sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S
+    hot_window_s: float = _DEFAULT_HOT_WINDOW_S

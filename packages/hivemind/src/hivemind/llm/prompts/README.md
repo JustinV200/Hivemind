@@ -33,7 +33,10 @@ text can always tell durable state and retrieved content apart from an instructi
 
 - **`PromptName`** (`hivemind.llm.prompts.loader`): one member per shipped `.md` file
   (`QUEEN_SYSTEM`, `DECOMPOSE_GOAL`, `WARDEN_SYSTEM`, `DRONE_SYSTEM`, `ATTENDANT_TRIAGE`,
-  `COMPACT_RECORDS` -- roadmap step 4.3, `hivemind.memory.compact`'s one structured call).
+  `COMPACT_RECORDS` -- roadmap step 4.3, `hivemind.memory.compact`'s one structured call;
+  `JUDGE_REVIEW` -- roadmap step 4.10, `hivemind.wardens.judge.ModelJudgeReviewer`'s one
+  structured call, built from a tier's rubric and the `JudgeRequest` alone, no proposer transcript
+  or hot state).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works

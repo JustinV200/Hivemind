@@ -36,13 +36,14 @@ from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from waggle.clock import Clock, FakeClock
 from waggle.ids import GrantId, new_cell_id, new_warden_id
-from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
+from waggle.messages.forage import AllowedBinding, CeilingsSet, GrantIssued, PlanWritten, SourceRef
+from waggle.messages.forage.capacity import CeilingsReport, SourceChain
 from waggle.messages.forage.values import Effort as WireEffort
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.task import TaskAssign, TaskResume, WorkerRole
 
 
-def _grant(active_clock: Clock, grant_id: GrantId) -> GrantIssued:
+def _grant(active_clock: Clock, grant_id: GrantId, *, max_sub_bees: int = 1) -> GrantIssued:
     """Build a minimal GrantIssued for one sub-bee's own spawn, matching test_spawn.py's own."""
     return GrantIssued(
         grant_id=grant_id,
@@ -64,7 +65,7 @@ def _grant(active_clock: Clock, grant_id: GrantId) -> GrantIssued:
         spend_budget=5.0,
         tokens_spent=0,
         spent=0.0,
-        max_sub_bees=1,
+        max_sub_bees=max_sub_bees,
         expires_at=active_clock.now(),
         reason="test grant",
     )
@@ -293,6 +294,9 @@ async def test_warden_moves_to_clustered_once_its_only_sub_bee_is_handed_off() -
     await _settle(cycles=40)  # Let the sub-bee notice, hand off, and the Warden settle.
 
     assert _current_state(warden) is WardenState.CLUSTERED
+    # Roadmap step 4.10's own wiring-pass test: settling into CLUSTERED records warden.clustered.
+    events = await deps.trail.query(TrailQuery(subject_id=warden_id))
+    assert "warden.clustered" in [event.kind for event in events]
 
     await warden.stop()
     await asyncio.wait_for(run_task, timeout=5.0)
@@ -338,6 +342,83 @@ async def test_warden_moves_back_to_active_on_a_queen_sent_task_resume() -> None
     await _settle()
 
     assert _current_state(warden) is WardenState.ACTIVE
+    # Roadmap step 4.10's own wiring-pass test: settling back into ACTIVE records warden.active.
+    events = await deps.trail.query(TrailQuery(subject_id=warden_id))
+    assert "warden.active" in [event.kind for event in events]
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+
+async def test_ceilings_set_is_stored_and_resizes_the_sub_bee_slot_pool() -> None:
+    """Roadmap step 4.8's own wiring step: a Queen-sent CeilingsSet is stored, never re-recorded.
+
+    `handle_ceilings_set` resizes `SubBeeSlots` to the smaller of the Warden's own standing grant
+    (what its current capacity already is) and the new ceilings' own `max_sub_bees`.
+    """
+    deps, queen_end, warden_id = make_warden_deps()
+    assignment = make_assignment(clock=deps.clock)
+    grant = _grant(deps.clock, assignment.grant_id, max_sub_bees=5)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    await queen_end.send(grant)
+    await _settle()
+    assert warden._sub_bee_slots.capacity == 5  # Sanity: the grant alone set this.
+
+    await queen_end.send(
+        CeilingsSet(
+            cell_id=new_cell_id(deps.clock),
+            holder=warden_id,
+            revision=0,
+            ceilings=CeilingsReport(
+                max_sub_bees=2,
+                model_vram_bytes=0,
+                model_disk_bytes=0,
+                loadable_sources=(),
+                exportable_seats=0,
+            ),
+            reason="First ceilings set for this Warden.",
+        )
+    )
+    await _settle()
+
+    assert warden._ceilings is not None
+    assert warden._ceilings.max_sub_bees == 2
+    assert warden._sub_bee_slots.capacity == 2  # min(5, 2): the ceiling now binds.
+    # No fresh trail event: the Queen already recorded forage.ceilings_set on her own side.
+    events = await deps.trail.query(TrailQuery(subject_id=warden_id))
+    assert "forage.ceilings_set" not in [event.kind for event in events]
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+
+async def test_plan_written_is_stored_on_the_warden() -> None:
+    """Roadmap step 4.8's own wiring step: a Queen-sent PlanWritten is stored on the Warden."""
+    deps, queen_end, warden_id = make_warden_deps()
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    cell_id = new_cell_id(deps.clock)
+    default_source = SourceRef(
+        source_id="src_default", provider="fake", model="test-model", host_cell_id=None
+    )
+
+    await queen_end.send(
+        PlanWritten(
+            cell_id=cell_id,
+            revision=0,
+            slots=(),
+            default=SourceChain(primary=default_source, fallbacks=()),
+            reason="Local sources first.",
+        )
+    )
+    await _settle()
+
+    assert warden._hosting_plan is not None
+    assert warden._hosting_plan.cell_id == cell_id
+    assert warden._hosting_plan.default.primary == "src_default"
 
     await warden.stop()
     await asyncio.wait_for(run_task, timeout=5.0)

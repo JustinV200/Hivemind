@@ -42,7 +42,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +63,8 @@ from hivemind.cli.stores import (
 )
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
 from hivemind.llm import (
+    CallGate,
+    CompositeLlmEventRecorder,
     FakeLLMProvider,
     Fanner,
     FannerDeps,
@@ -81,9 +83,11 @@ from hivemind.manifest import ForageSection, HiveManifest
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
+from hivemind.queen.forage.ledger.recorder import LedgerRecorder
 from hivemind.supervision import load_policy
-from hivemind.supervision.capping import deterministic_checks, load_tiers
-from hivemind.wardens import WardenDeps
+from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
+from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
+from hivemind.wardens import ModelJudgeReviewer, WardenDeps
 from hivemind.workers import Worker
 from hivemind.workers.roles import Drone
 from waggle.clock import Clock
@@ -94,6 +98,7 @@ __all__ = [
     "HiveStores",
     "build_fanner",
     "build_hive_stand_source",
+    "build_ledger",
     "build_provider_registry",
     "build_queen_deps",
     "build_warden_deps",
@@ -214,7 +219,11 @@ def build_provider_registry(
 
 
 def build_fanner(
-    manifest: HiveManifest, forage_map: ForageMap, trail: PheromoneTrail, clock: Clock
+    manifest: HiveManifest,
+    forage_map: ForageMap,
+    trail: PheromoneTrail,
+    clock: Clock,
+    ledger: ForageLedger | None = None,
 ) -> Fanner:
     """Build the one Fanner every bee's `CallGate` in this Hive shares.
 
@@ -228,6 +237,13 @@ def build_fanner(
         forage_map: The same live map `build_provider_registry` gave the registry.
         trail: Where every `llm.call`/`llm.spill` occurrence is recorded.
         clock: Injected time source for every wait and every recorded event.
+        ledger: The Queen's live book of Forage (roadmap step 4.8's own wiring step), built by
+            `build_ledger` before this call in `hivemind.cli.compose.hive.build_hive` (ahead of
+            its usual place in `build_queen_deps`, so it exists in time for this call). When
+            given, every recorded occurrence also feeds `hivemind.queen.forage.ledger.recorder.
+            LedgerRecorder`, so an `llm.call`'s own seat and spend land in the ledger the moment
+            it happens, not only on the trail. `None` (every pre-4.8-wiring caller) keeps this
+            Fanner recording to the trail alone.
 
     Returns:
         A Fanner ready to hand out `Fanner.lane(tempo)` `CallGate`s.
@@ -239,8 +255,13 @@ def build_fanner(
         )
         for name, spec in manifest.llm.providers.items()
     }
-    recorder = TrailLlmEventRecorder(
+    trail_recorder = TrailLlmEventRecorder(
         trail, manifest.hive.id, manifest.hive.node_id, "system", clock
+    )
+    recorder = (
+        CompositeLlmEventRecorder(LedgerRecorder(ledger), trail_recorder)
+        if ledger is not None
+        else trail_recorder
     )
     deps = FannerDeps(map=forage_map, seats=seats, limits=limits, clock=clock, recorder=recorder)
     return Fanner(deps)
@@ -264,6 +285,11 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     identity = MemoryIdentity(
         hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
     )
+    # Roadmap step 4.10's own one-line registration: a model-backed JudgeReviewer, merged into
+    # the deterministic check registry so CheckKind.JUDGE is available wherever a tier's own
+    # `judge` flag turns it on (hivemind.supervision.defaults.capping-tiers.toml).
+    judge_rubrics = load_judge_rubrics()
+    judge_reviewer = _build_judge_reviewer(parts)
     return WardenDeps(
         source=source,
         queen_link=links.warden_transport,
@@ -274,7 +300,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         clock=parts.clock,
         policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
         tiers=load_tiers(_supervision_file(manifest, supervision.capping_tiers_file)),
-        checks=deterministic_checks(),
+        checks={**deterministic_checks(), **judge_checks(judge_reviewer, judge_rubrics)},
         bound=parts.registry.bound(ModelSlot.WARDEN),
         call_gate=parts.fanner.lane(Tempo()),
         worker_factory=_build_drone,
@@ -283,15 +309,36 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         heartbeat_interval_s=supervision.heartbeat_interval_s,
         worker_heartbeat_interval_s=supervision.heartbeat_interval_s,
         missed_heartbeats_before_stalled=supervision.heartbeat_miss_limit,
+        judge_reviewer=judge_reviewer,
+        judge_rubrics=judge_rubrics,
+        # Roadmap step 4.8: one Fanner lane per grant, so every sub-bee's own llm.call carries
+        # its own grant and goal id (hivemind.wardens.deps.WardenDeps.lane_for_grant's own
+        # docstring); `call_gate` above stays this Warden's own unattributed lane.
+        lane_for_grant=_lane_for_grant(parts),
     )
 
 
-def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
+def _build_judge_reviewer(parts: HiveParts) -> ModelJudgeReviewer:
+    """Build the Warden-layer JudgeReviewer on `ModelSlot.JUDGE`, through its own Fanner lane."""
+    return ModelJudgeReviewer(
+        bound=parts.registry.bound(ModelSlot.JUDGE), gate=parts.fanner.lane(Tempo())
+    )
+
+
+def _lane_for_grant(parts: HiveParts) -> Callable[[str, str], CallGate]:
+    """Return `WardenDeps.lane_for_grant`: a fresh Fanner lane per (grant_id, goal_id) pair."""
+    return lambda grant_id, goal_id: parts.fanner.lane(Tempo(), grant_id=grant_id, goal_id=goal_id)
+
+
+def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedger) -> QueenDeps:
     """Build the Queen's own QueenDeps from `[forage]`/`[supervision]`/`[memory]` and shared parts.
 
     Args:
         parts: This Hive's shared collaborators.
         forage_map: The same live map `build_provider_registry`/`build_fanner` share.
+        ledger: The Queen's live book of Forage, built by `build_ledger` ahead of `build_fanner`
+            (roadmap step 4.8's own wiring step: `build_fanner` needs it too, before `QueenDeps`
+            itself can exist to carry it).
 
     Returns:
         A QueenDeps ready for `hivemind.queen.Queen(deps)`.
@@ -319,18 +366,16 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,
-        # roadmap step 4.8: a SqliteLedgerStore over the Hive's own [hive] db file, restored from
-        # whatever it already held (Appendix C: "Forage ledger (SQLite) | Yes... Reconciled
-        # against fresh capacity reports on Requeening"). InMemoryLedgerStore stays available for
-        # a test that builds a QueenDeps by hand instead of through this function.
-        ledger=_build_ledger(manifest, forage.reserve),
-        # Roadmap step 4.9 (Clustering): a SqliteOrderStore over the same [hive] db file, so
-        # `hive cluster`/`hive wake` (roadmap step 4.11, a later dispatch) and this running
-        # Queen's own tick share one durable table; `provider_lookup` is the registry's own
-        # `provider(name)` bound method, satisfying `hivemind.llm.ProviderLookup` without a new
-        # collaborator (`hivemind.queen.cluster.health.HealthPoller.probe`'s one caller).
+        # roadmap step 4.8: the same ForageLedger build_hive already built (see this function's
+        # own docstring), restored from whatever its SqliteLedgerStore already held.
+        ledger=ledger,
+        # Roadmap step 4.9: a SqliteOrderStore over the same [hive] db file (hive cluster/wake
+        # share it); provider_lookup satisfies HealthPoller.probe's one collaborator.
         orders=open_cluster_orders(manifest.resolve_path(manifest.hive.db)),
         provider_lookup=parts.registry.provider,
+        # Roadmap step 4.3: the manifest's own sweep cadence for the Queen's House Bee sweep.
+        sweep_interval_s=manifest.memory.sweep_interval_s,
+        hot_window_s=manifest.memory.hot_window_s,
     )
 
 
@@ -356,7 +401,7 @@ def _awake_memory_budget(manifest: HiveManifest) -> MemoryBudget:
     )
 
 
-def _build_ledger(manifest: HiveManifest, reserve: RoyalReserve) -> ForageLedger:
+def build_ledger(manifest: HiveManifest, reserve: RoyalReserve) -> ForageLedger:
     """Build a ForageLedger over a SqliteLedgerStore on `manifest`'s own `[hive] db` file.
 
     Roadmap step 4.8: opening the store and restoring the ledger from it both need
@@ -364,6 +409,9 @@ def _build_ledger(manifest: HiveManifest, reserve: RoyalReserve) -> ForageLedger
     `hivemind.cli.stores.open_trail` already uses (codingrules section 8.2) -- `open_ledger`
     itself already does this for the open; `restore` needs its own call since it is a method on
     an already-built `ForageLedger`, not a classmethod `open_ledger` could return in one step.
+    Public (not `_build_ledger`, this function's own pre-4.8-wiring name): `hivemind.cli.compose.
+    hive.build_hive` now calls this ahead of both `build_fanner` and `build_queen_deps`, since the
+    Fanner's own recorder needs the ledger too (roadmap step 4.8's own wiring step).
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[hive] db` names

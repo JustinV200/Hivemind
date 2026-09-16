@@ -116,9 +116,12 @@ fan their wings to regulate the hive's airflow.
 
 - **`Fanner`**: owns every provider's `SeatMeter` and `ProviderRateLimiter` for one Hive
   process, built once from a `FannerDeps` (`map`, `seats`, `limits`, `clock`, `recorder`).
-  Seats are one budget per provider, shared by every binding on it. `Fanner.lane(tempo)` hands
-  one bee or call site a `FannerLane`; `in_flight(provider)` and `queued(provider)` are the
-  introspection `hive llm` (a later roadmap step) and tests read.
+  Seats are one budget per provider, shared by every binding on it. `Fanner.lane(tempo, grant_id=,
+  goal_id=)` hands one bee or call site a `FannerLane`, attributed to a grant and goal when the
+  caller names one (roadmap step 4.8's own wiring step: `hivemind.wardens.spawn.spawn.
+  spawn_sub_bee` builds one fresh lane per sub-bee from `WardenDeps.lane_for_grant`, so every
+  `llm.call` it makes carries its own grant and goal id); `in_flight(provider)` and
+  `queued(provider)` are the introspection `hive llm` (a later roadmap step) and tests read.
 - **`FannerLane`**: implements `hivemind.llm.ladders.gate.CallGate` exactly, so a ladder can take
   a lane as its `gate=` with no code of its own aware the Fanner exists. `complete(bound, request)`
   walks `bound`'s fallback chain, spilling to the next binding in one of four cases -- the source
@@ -144,6 +147,12 @@ fan their wings to regulate the hive's airflow.
   `provider` and `usage` out of `payload` into `LlmEvent`'s own typed fields. `LLM_THROTTLED_KIND`
   (`"llm.throttled"`, roadmap step 4.7a) is the third occurrence kind, alongside `LLM_CALL_KIND`
   and `LLM_SPILL_KIND`.
+- **`CompositeLlmEventRecorder`** (roadmap step 4.8's own wiring step): fans every
+  `LlmEventRecorder` call out to several recorders, in the order given, so `FannerLane` still
+  calls exactly one recorder while more than one actually listens.
+  `hivemind.cli.compose.deps.build_fanner` chains `hivemind.queen.forage.ledger.recorder.
+  LedgerRecorder` with a `TrailLlmEventRecorder` through this class, so a completed `llm.call`
+  both updates the Forage ledger's live seat and spend books and lands on the trail.
 - **`DEFAULT_SEATS`** (`1`): what a provider absent from `FannerDeps.seats` gets. Roadmap step
   4.7a's own **`DEFAULT_THROTTLE_S`** (`60.0`): how long `FannerLane` throttles a source for when
   a `RateLimitedError` carries no `retry_after_s` hint.

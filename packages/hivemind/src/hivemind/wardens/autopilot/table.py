@@ -48,7 +48,7 @@ from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
-from waggle.messages.forage import GrantIssued
+from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
 from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Intervene, Question
 from waggle.messages.task import (
     TaskAssign,
@@ -135,7 +135,7 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
         return WardenAction.FORWARD_ANSWER
     if isinstance(payload, TaskCancel | TaskPause | TaskResume | Intervene):
         return WardenAction.FORWARD_CONTROL
-    if isinstance(payload, TaskProgress | Heartbeat):
+    if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
         return WardenAction.RECORD
     # A kind this table has never seen: hand off to wardens.awake rather than silently dropping it.
     return WardenAction.NEEDS_JUDGEMENT

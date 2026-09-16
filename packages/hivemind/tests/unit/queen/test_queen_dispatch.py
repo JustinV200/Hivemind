@@ -83,7 +83,9 @@ async def test_submit_goal_dispatches_the_ready_task_grant_then_assignment_in_or
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
 
     assignment = await warden_end.wait_for_assignment()
-    assert warden_end.received_kinds == ["grant", "assignment"]
+    # Roadmap step 4.8's own wiring step: the first dispatch to a newly attached Warden also sets
+    # its ceilings and writes its Cell's hosting plan, both ahead of the grant they gate nothing.
+    assert warden_end.received_kinds == ["ceilings_set", "plan_written", "grant", "assignment"]
     assert assignment.task_id == goal_id
     task = await deps.chamber.get(goal_id)
     assert task.status is TaskStatus.RUNNING

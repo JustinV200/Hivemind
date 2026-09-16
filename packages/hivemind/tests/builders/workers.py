@@ -48,7 +48,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
 
-from builders.capping import FakeLeaseView
+from builders.capping import FakeLeaseView, RepeatingJudgeReviewer
 from builders.cells import make_cell
 from builders.llm import make_bound
 
@@ -58,7 +58,14 @@ from hivemind.guard import CapabilitySet
 from hivemind.llm import DirectCallGate
 from hivemind.memory import Handoff, InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.supervision.capping import CappingGate, GateDeps, deterministic_checks, load_tiers
+from hivemind.supervision.capping import (
+    CappingGate,
+    GateDeps,
+    deterministic_checks,
+    judge_checks,
+    load_judge_rubrics,
+    load_tiers,
+)
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import GrantSlice, WorkerContext
 from hivemind.workers.telemetry import TelemetryTracker
@@ -263,7 +270,14 @@ def _make_capping_gate(
     clock: Clock,
     identity: CellIdentity,
 ) -> CappingGate:
-    """Build the real CappingGate `make_context` wires by default (module docstring)."""
+    """Build the real CappingGate `make_context` wires by default (module docstring).
+
+    Roadmap step 4.10: several shipped tiers now turn `judge = true` on
+    (hivemind.supervision.defaults.capping-tiers.toml), so `checks` needs a JUDGE entry too, or a
+    proposal at one of those tiers fails closed with "check unavailable" -- an
+    unconditionally-approving RepeatingJudgeReviewer (never exhausted, unlike FakeJudgeReviewer's
+    own FIFO queue) keeps every pre-4.10 test's own behaviour unchanged.
+    """
     return CappingGate(
         GateDeps(
             session=session,
@@ -273,7 +287,10 @@ def _make_capping_gate(
             trail=trail,
             identity=identity,
             clock=clock,
-            checks=deterministic_checks(),
+            checks={
+                **deterministic_checks(),
+                **judge_checks(RepeatingJudgeReviewer(), load_judge_rubrics()),
+            },
         )
     )
 

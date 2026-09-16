@@ -90,17 +90,31 @@ _EXPECTED_SNAPSHOT_BEFORE = {
     RiskTier.DEVICE_COMMAND: True,
     RiskTier.IRREVERSIBLE: True,
 }
-# Roadmap step 4.10: v0's shipped table turns no tier's real-time judge on yet (no Warden has a
-# JudgeReviewer wired into its Mapping[CheckKind, Check]), but every tier above READ_ONLY samples
-# completed work at some rate (codingrules section 8.12: "What cannot be gated is sampled").
+# Roadmap step 4.10: every Warden now builds a model-backed JudgeReviewer and merges it into its
+# own Mapping[CheckKind, Check] (hivemind.cli.compose.deps.build_warden_deps), so the shipped
+# table turns the real-time judge on for outside_scratch_write, spend, device_command and
+# irreversible -- the tiers an independent review matters most for -- and sets their own
+# audit_rate back to 0.0 (a live review already covers every proposal there; codingrules section
+# 8.12: "What cannot be gated is sampled" -- nothing is left ungated at those four tiers anymore).
+# scratch_write and network_egress still sample as defence-in-depth until a later phase turns
+# their own `judge` on too.
+_EXPECTED_JUDGE = {
+    RiskTier.READ_ONLY: False,
+    RiskTier.SCRATCH_WRITE: False,
+    RiskTier.OUTSIDE_SCRATCH_WRITE: True,
+    RiskTier.NETWORK_EGRESS: False,
+    RiskTier.SPEND: True,
+    RiskTier.DEVICE_COMMAND: True,
+    RiskTier.IRREVERSIBLE: True,
+}
 _EXPECTED_AUDIT_RATES = {
     RiskTier.READ_ONLY: 0.0,
     RiskTier.SCRATCH_WRITE: 0.02,
-    RiskTier.OUTSIDE_SCRATCH_WRITE: 0.1,
+    RiskTier.OUTSIDE_SCRATCH_WRITE: 0.0,
     RiskTier.NETWORK_EGRESS: 0.1,
-    RiskTier.SPEND: 0.2,
-    RiskTier.DEVICE_COMMAND: 0.2,
-    RiskTier.IRREVERSIBLE: 0.5,
+    RiskTier.SPEND: 0.0,
+    RiskTier.DEVICE_COMMAND: 0.0,
+    RiskTier.IRREVERSIBLE: 0.0,
 }
 
 
@@ -113,13 +127,21 @@ def test_each_tier_has_the_expected_checks(tier: RiskTier) -> None:
 
 
 @pytest.mark.parametrize("tier", list(RiskTier))
-def test_no_shipped_v0_tier_turns_judge_on_yet(tier: RiskTier) -> None:
-    # v0 ships JudgeCheck ready to wire in (hivemind.supervision.capping.checks.judge) but no
-    # composition root's Mapping[CheckKind, Check] carries one yet; judge=true here would fail
-    # every proposal at that tier closed with "check unavailable" (docs/adr/0018).
+def test_each_tier_has_the_expected_judge_flag(tier: RiskTier) -> None:
+    # Roadmap step 4.10: outside_scratch_write, spend, device_command and irreversible turn the
+    # real-time judge on now that every Warden's own Mapping[CheckKind, Check] carries one
+    # (hivemind.cli.compose.deps.build_warden_deps); every other tier stays audit-sampled instead.
     table = load_tiers()
 
-    assert table.tiers[tier].judge is False
+    assert table.tiers[tier].judge is _EXPECTED_JUDGE[tier]
+
+
+def test_irreversible_floors_judge_so_no_tempo_ever_drops_it() -> None:
+    # Codingrules section 8.14: "irreversible always gets its full ladder however urgent the task
+    # claims to be" -- JUDGE must be a floor check here, unlike the other three judge=true tiers.
+    table = load_tiers()
+
+    assert CheckKind.JUDGE in table.tiers[RiskTier.IRREVERSIBLE].floor
 
 
 @pytest.mark.parametrize("tier", list(RiskTier))

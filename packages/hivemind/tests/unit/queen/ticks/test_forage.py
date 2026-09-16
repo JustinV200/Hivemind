@@ -110,6 +110,9 @@ async def test_a_request_over_capacity_is_denied_with_a_reason() -> None:
     events = await deps.trail.query(TrailQuery())
     assert [e.kind for e in events] == ["forage.requested", "forage.denied"]
     assert events[-1].payload["contested"] is False
+    # This dispatch's own fix: the trail's own forage.denied payload carries the same reason the
+    # wire ForageReply does, so "denied with a reason on the trail" (roadmap 4.8) actually holds.
+    assert events[-1].payload["reason"] == reply.reason
 
 
 async def test_a_contested_request_denied_by_the_awake_episode_records_the_effort_and_reason() -> (
@@ -145,6 +148,7 @@ async def test_a_contested_request_denied_by_the_awake_episode_records_the_effor
     assert events[-1].kind == "forage.denied"
     assert events[-1].payload["contested"] is True
     assert events[-1].payload["effort"] == "HIGH"
+    assert events[-1].payload["reason"] == reason
 
 
 async def test_a_contested_request_grants_by_shrinking_and_notifies_the_holder() -> None:

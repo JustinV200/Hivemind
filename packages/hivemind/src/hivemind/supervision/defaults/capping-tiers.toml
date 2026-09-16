@@ -23,23 +23,28 @@
 #                         omit (or leave unset) for a tier whose actions never carry a diff.
 #   judge             -- roadmap step 4.10: whether CheckKind.JUDGE belongs in this tier's
 #                         real-time ladder, even without naming JUDGE in `checks`/`floor` by hand
-#                         (hivemind.supervision.capping.tiers.checks_for). Omit for false (v0's
-#                         default for every tier below: no Warden has a JudgeReviewer wired into
-#                         its Mapping[CheckKind, Check] yet, so turning this on before then would
-#                         fail every proposal closed with "check unavailable").
+#                         (hivemind.supervision.capping.tiers.checks_for). true for
+#                         outside_scratch_write, spend, device_command and irreversible: every
+#                         Warden now builds a model-backed JudgeReviewer (hivemind.wardens.judge.
+#                         ModelJudgeReviewer) and merges it into its own Mapping[CheckKind, Check]
+#                         (hivemind.cli.compose.deps.build_warden_deps), so CheckKind.JUDGE is
+#                         always available wherever this flag turns it on.
 #   audit_rate        -- roadmap step 4.10: the fraction (0.0 to 1.0) of this tier's completed
 #                         proposals hivemind.supervision.capping.audit.AuditSampler samples for
-#                         after-the-fact judge review, for a tier judge does not gate live. Omit
-#                         for 0.0 (no sampling); set it back to 0.0 once `judge` becomes true for
-#                         a tier, since a live review already covers every proposal there.
+#                         after-the-fact judge review, for a tier judge does not gate live. 0.0
+#                         for every tier `judge` already covers live (a live review already sees
+#                         every proposal there, so nothing is left ungated to sample); still > 0
+#                         for scratch_write and network_egress, sampled as defence-in-depth until
+#                         a later phase turns their own `judge` on too.
 #
-# v0 implements exactly three real-time checks (SCHEMA, ALLOWLIST, SIZE_CAP; hivemind.supervision.
-# capping.checks.deterministic.deterministic_checks()) plus, as of roadmap step 4.10, an
-# independent-review rung (JUDGE; hivemind.supervision.capping.checks.judge.JudgeCheck) that ships
-# ready to wire in but that no tier below turns on yet -- see `judge` above. The check ladder's
-# remaining rungs -- SANDBOX_TESTS (a sandbox Cell runs the proposed tests) and HUMAN (the operator
-# approves) -- join this table in a later roadmap phase; each tier's own comment below repeats
-# which of those it will eventually add.
+# v0 implements three real-time checks (SCHEMA, ALLOWLIST, SIZE_CAP; hivemind.supervision.capping.
+# checks.deterministic.deterministic_checks()) plus, as of roadmap step 4.10, a model-backed
+# independent-review rung (JUDGE; hivemind.wardens.judge.ModelJudgeReviewer, called through
+# hivemind.supervision.capping.checks.judge.JudgeCheck) and after-the-fact sampled audit
+# (hivemind.supervision.capping.audit.AuditSampler, run by hivemind.wardens.spawn.audited_gate.
+# AuditingCappingGate) for whatever `judge` leaves ungated. The check ladder's remaining rungs --
+# SANDBOX_TESTS (a sandbox Cell runs the proposed tests) and HUMAN (the operator approves) -- join
+# this table in a later roadmap phase; each tier's own comment below repeats which it will add.
 
 [tiers.read_only]
 # A bee reading a file or listing a directory. No write, no command; SCHEMA still runs (via
@@ -70,10 +75,9 @@ checks = ["SCHEMA", "ALLOWLIST", "SIZE_CAP"]
 floor = ["SCHEMA"]
 snapshot_before = false
 max_diff_bytes = 1048576
-judge = false
-audit_rate = 0.1  # Touches outside scratch: the case an independent review matters most for.
-# A later phase adds SANDBOX_TESTS and turns judge on above: touching outside scratch is exactly
-# the case an independent review matters most for.
+judge = true  # Roadmap step 4.10: a real-time review now wired into every Warden's own checks.
+audit_rate = 0.0  # A live review already covers every proposal here; nothing left to sample.
+# A later phase adds SANDBOX_TESTS above.
 
 [tiers.network_egress]
 # A command or tool call that reaches the network. No diff to size; the allowlist check still
@@ -91,9 +95,9 @@ audit_rate = 0.1  # Reaches the network; sampled until judge turns on below.
 checks = ["SCHEMA", "ALLOWLIST"]
 floor = ["SCHEMA"]
 snapshot_before = true
-judge = false
-audit_rate = 0.2  # Spends money and cannot be undone by any snapshot; sampled more heavily.
-# A later phase turns judge on above and, above the manifest's step-up spend threshold, adds HUMAN.
+judge = true  # Roadmap step 4.10: a real-time review now wired into every Warden's own checks.
+audit_rate = 0.0  # A live review already covers every proposal here; nothing left to sample.
+# A later phase adds HUMAN above the manifest's own step-up spend threshold.
 
 [tiers.device_command]
 # A command that reaches a Real Cell device beyond the lease's own scratch (installing a service,
@@ -101,9 +105,9 @@ audit_rate = 0.2  # Spends money and cannot be undone by any snapshot; sampled m
 checks = ["SCHEMA", "ALLOWLIST"]
 floor = ["SCHEMA"]
 snapshot_before = true
-judge = false
-audit_rate = 0.2  # Reaches a device beyond scratch; sampled as heavily as spend.
-# A later phase adds SANDBOX_TESTS (where the command has a dry-run form) and turns judge on above.
+judge = true  # Roadmap step 4.10: a real-time review now wired into every Warden's own checks.
+audit_rate = 0.0  # A live review already covers every proposal here; nothing left to sample.
+# A later phase adds SANDBOX_TESTS (where the command has a dry-run form).
 
 [tiers.irreversible]
 # Anything the Hive cannot undo by any means (a destructive command, a message actually sent).
@@ -111,10 +115,10 @@ audit_rate = 0.2  # Reaches a device beyond scratch; sampled as heavily as spend
 # first, because roadmap 3.17 fixes that this tier "always gets its full ladder however urgent
 # the task claims to be" (codingrules section 8.14).
 checks = ["SCHEMA", "ALLOWLIST"]
-floor = ["SCHEMA"]
+floor = ["SCHEMA", "JUDGE"]  # Never skips the judge, however urgent the task claims to be (8.14).
 snapshot_before = true
-judge = false
-audit_rate = 0.5  # No rollback at all; sampled heavily until judge turns on and floors JUDGE too.
-# A later phase adds SANDBOX_TESTS, turns judge on above and adds HUMAN, all named in `floor` too
-# once they land, so no tempo -- however urgent the task claims to be -- ever shortens this tier's
-# ladder (codingrules section 8.14: "irreversible always gets its full ladder").
+judge = true  # Roadmap step 4.10: a real-time review now wired into every Warden's own checks.
+audit_rate = 0.0  # A live review already covers every proposal here; nothing left to sample.
+# A later phase adds SANDBOX_TESTS and HUMAN, both named in `floor` too once they land, so no
+# tempo -- however urgent the task claims to be -- ever shortens this tier's ladder (codingrules
+# section 8.14: "irreversible always gets its full ladder").
