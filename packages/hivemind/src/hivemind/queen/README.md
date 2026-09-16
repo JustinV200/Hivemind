@@ -47,14 +47,31 @@ every assignment goes to a Warden, over Waggle.
 - `record_event` (`trail.py`): the one place a `queen.*` trail event is built.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`.
-- `queen.ticks`: `alarms`, `liveness`, `results` -- the tick handlers each `QueenAction` calls
-  into, split out only to stay within codingrules 5.1's size limits. `alarms.handle_alarm` records
-  `alarm.handled`/`alarm.escalated` (`hivemind.supervision.record_alarm_event`) and, for a REBIND,
-  fills `Intervene.binding` with the fallback key it resolved, since a Warden has no other way to
-  learn it; `Queen`'s own COMPLETE_TASK handling records `alarm.resolved` once a rebound or
-  retried attempt actually succeeds.
-- `queen.cluster`, `queen.forage`, `queen.requeening`, `queen.supersedure`: placeholders,
-  populated in a later roadmap phase.
+- `queen.ticks`: `alarms`, `liveness`, `results`, `forage` -- the tick handlers each `QueenAction`
+  (or, for `forage`, each received `ForageRequest`) calls into, split out only to stay within
+  codingrules 5.1's size limits. `alarms.handle_alarm` records `alarm.handled`/`alarm.escalated`
+  (`hivemind.supervision.record_alarm_event`) and, for a REBIND, fills `Intervene.binding` with the
+  fallback key it resolved, since a Warden has no other way to learn it; `Queen`'s own
+  COMPLETE_TASK handling records `alarm.resolved` once a rebound or retried attempt actually
+  succeeds. `liveness.handle_infrastructure_item` (roadmap step 4.7) is where a Heartbeat and a
+  ForageRequest both land, ahead of `queen.autopilot.table.decide`: a Heartbeat renews the sending
+  Warden's own live grants (`liveness.renew_grants_on_heartbeat`) the same tick it resets liveness,
+  and `check_liveness`'s own sweep now also returns any grant whose lease lapsed
+  (`hivemind.queen.forage.grants.sweep_expired`) to the pool, unconditionally, every tick.
+- `queen.forage` (roadmap step 4.7): `ForageLedger` -- the Queen's live book of Forage: every
+  Cell's latest capacity, every Warden's own local-pool report (reported, never granted --
+  codingrules 8.10), every live shared grant and the headroom they leave, backed by a
+  `LedgerStore` (`InMemoryLedgerStore`, `SqliteLedgerStore`). `grants` drives every grant edge
+  (`activate`, `revise`, `renew_grants_for_warden`, `revoke`, `sweep_expired`) through
+  `hivemind.forage.grant_state`'s own transition table, with a `forage.*` trail event
+  (`hivemind.queen.trail.record_forage_event`) for every one that changes state. `requests`
+  (`handle_sub_bee_request`) answers a `SUB_BEES` `ForageRequest` against the ledger's own
+  headroom, through the autopilot rule in `queen.autopilot.forage.decide_forage_request` --
+  granted at once within headroom, denied (with a reason) otherwise, contested (could be met by
+  shrinking another live grant) recorded as `NEEDS_JUDGEMENT` at `Effort.HIGH` but not yet
+  resolved (`queen.awake` holds no action to shrink another grant; see that package's own report).
+- `queen.cluster`, `queen.requeening`, `queen.supersedure`: placeholders, populated in a later
+  roadmap phase.
 
 ## How to test this
 

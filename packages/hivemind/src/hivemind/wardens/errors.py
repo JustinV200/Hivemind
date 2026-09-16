@@ -4,17 +4,20 @@ The Warden (the per-Cell supervisor, `hivemind.wardens.warden.Warden`) can fail 
 package raises on purpose: its own `WardenState` machine (`hivemind.wardens.state`) is asked for an
 edge it does not have (`InvalidWardenTransitionError`), a `Supervisor.telemetry`/`inspect`/
 `intervene` call names a sub-bee the Warden does not currently supervise
-(`UnknownSubBeeError`), or its local pool (`hivemind.wardens.local_pool.pool.LocalPool`) is asked to
-acquire a slot it has none of left (`LocalPoolExhaustedError`). Every subsystem roots its own error
-tree at `hivemind.common.errors.HiveMindError` (codingrules section 10); this module is
+(`UnknownSubBeeError`), or its local pool (`hivemind.wardens.local_pool.sub_bee_slots.
+SubBeeSlots`, renamed from `LocalPool` in roadmap step 4.7) is asked to acquire a slot it has none
+of left (`LocalPoolExhaustedError`; the error class keeps its own name -- it names the failure, not
+the class that raises it). Every subsystem roots its own error tree at
+`hivemind.common.errors.HiveMindError` (codingrules section 10); this module is
 `hivemind.wardens`'s own root plus its specific subclasses.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Raised by
     `hivemind.wardens.state.assert_transition`, `hivemind.wardens.warden.Warden` (the `Supervisor`
-    methods) and `hivemind.wardens.local_pool.pool.LocalPool.acquire`; caught by whichever caller
-    can recover (the Warden's own tick handlers convert a `LocalPoolExhaustedError` into "park the
-    assignment" rather than letting it propagate). Calls into `hivemind.common.errors` only.
+    methods) and `hivemind.wardens.local_pool.sub_bee_slots.SubBeeSlots.acquire`; caught by
+    whichever caller can recover (the Warden's own tick handlers convert a
+    `LocalPoolExhaustedError` into "park the assignment" rather than letting it propagate). Calls
+    into `hivemind.common.errors` only.
 
 Key invariants:
     - Every WardenError subclass sets its own `code`; none shares a code with another.
@@ -27,7 +30,8 @@ See Also:
       descend from.
     - hivemind.wardens.state for TRANSITIONS and assert_transition, InvalidWardenTransitionError's
       one caller.
-    - hivemind.wardens.local_pool.pool for LocalPool, LocalPoolExhaustedError's one caller.
+    - hivemind.wardens.local_pool.sub_bee_slots for SubBeeSlots, LocalPoolExhaustedError's one
+      caller.
 """
 
 from __future__ import annotations
@@ -118,10 +122,11 @@ class UnknownSubBeeError(NotFoundError):
 class LocalPoolExhaustedError(WardenError):
     """Raise when the Warden's local pool has no sub-bee slot left to acquire.
 
-    Raised by `hivemind.wardens.local_pool.pool.LocalPool.acquire` only through the boolean it
-    returns in production code; this exception exists for a caller (a test, or a future dispatch)
-    that wants to fail loudly instead of checking the boolean, and is never raised by the Warden's
-    own tick handlers, which treat a full pool as "park the assignment", not a failure.
+    Raised by `hivemind.wardens.local_pool.sub_bee_slots.SubBeeSlots.acquire` only through the
+    boolean it returns in production code; this exception exists for a caller (a test, or a
+    future dispatch) that wants to fail loudly instead of checking the boolean, and is never
+    raised by the Warden's own tick handlers, which treat a full pool as "park the assignment",
+    not a failure.
     """
 
     code: ClassVar[str] = "hivemind.wardens.local_pool_exhausted"

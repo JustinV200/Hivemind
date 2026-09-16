@@ -30,7 +30,9 @@ Warden never provisions Cells itself.
 - `wardens.awake`: `WardenDecision`, `decide_awake` -- one stateless episode on `ModelSlot.WARDEN`.
 - `wardens.spawn`: `SubBee`, `WardenCellContext`, `spawn_sub_bee` -- starting a new sub-bee.
 - `wardens.inbox`: `to_inbox_item`, `warden_attendant` -- the Warden's own Attendant.
-- `wardens.local_pool`: `LocalPool` -- a bare sub-bee-slot counter against a grant.
+- `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
+  codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter
+  against a grant.
 - `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat` -- one of
   `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size limits.
   `alarms.handle_alarm_action`/`rebind_sub_bee` also record `alarm.handled`/`alarm.escalated` on

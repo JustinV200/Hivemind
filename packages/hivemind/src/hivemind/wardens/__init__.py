@@ -49,7 +49,8 @@ Public API (roadmap steps 3.18, 3.19):
     - WardenDecision, decide_awake: one stateless awake episode (awake).
     - SubBee, WardenCellContext, spawn_sub_bee: starting a new sub-bee (spawn).
     - to_inbox_item, warden_attendant: the Warden's own Attendant (inbox).
-    - LocalPool: a bare sub-bee-slot counter against a grant (local_pool).
+    - SubBeeSlots: a bare sub-bee-slot counter against a grant, renamed from LocalPool in roadmap
+      step 4.7 (local_pool).
 """
 
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
@@ -63,7 +64,7 @@ from hivemind.wardens.errors import (
     WardenError,
 )
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
-from hivemind.wardens.local_pool import LocalPool
+from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.requests import (
     CellRequestInputs,
     ForageRequestInputs,
@@ -88,9 +89,9 @@ __all__ = [
     "CellRequestInputs",
     "ForageRequestInputs",
     "InvalidWardenTransitionError",
-    "LocalPool",
     "LocalPoolExhaustedError",
     "SubBee",
+    "SubBeeSlots",
     "SubBeeView",
     "ToolRequestInputs",
     "UnknownSubBeeError",

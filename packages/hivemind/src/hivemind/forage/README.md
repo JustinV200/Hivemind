@@ -51,11 +51,20 @@ from `hivemind.forage.models` and this package's own `__init__.py`:
 - **`ForageMap`** (`hivemind.forage.map`): owns the map's live figures under one `asyncio.Lock`;
   `get`, `sources` and `for_slot` are synchronous reads, `observe` and `set_abundance` are the
   async writers. `SlotBinding` is the forage-side view of one `[llm.slots]` manifest row.
-- **`grant`** (`hivemind.forage.allocate`): the pure v0 allocator, `grant(inputs: GrantInputs) ->
+- **`grant`** (`hivemind.forage.allocate`): the pure allocator, `grant(inputs: GrantInputs) ->
   ForageGrant`. `GrantInputs` groups every input (cell capacity, role, footprint, tempo, the map,
-  the reserve, `GoalBudgets`, holder, cell id, task id, a minted grant id, `now` and a TTL) into
-  one frozen dataclass. Property-tested with hypothesis: a grant never exceeds capacity minus the
-  Royal Reserve, and every allowed binding's grade clears `tempo.grade_floor`.
+  the reserve, `GoalBudgets`, holder, cell id, task id, a minted grant id, `now`, a TTL, and
+  roadmap step 4.7's v1 additions -- `goal_sub_bees_used`, `goal_spend_used`,
+  `reachable_source_ids`, each defaulted so v0 callers are unaffected) into one frozen dataclass.
+  v1 turns the goal's caps into genuinely *remaining* caps, narrows the headroom margin on
+  `max_sub_bees` for an urgent tempo (a tight `latency_budget_s`) and on `spend_budget` for a
+  thorough one (`HIGH`/`CRITICAL` accuracy), and filters allowed sources by
+  `reachable_source_ids` when the caller supplies it. `should_recompute(previous, current,
+  threshold)` is v1's other addition: a pure comparison of two `ForageCapacity` readings (free
+  memory, free cores) against `[forage] measurement_drift_threshold`, read by the Queen's ledger
+  (`hivemind.queen.forage.ledger`) to decide when a live grant needs recomputing. Property-tested
+  with hypothesis: a grant never exceeds capacity minus the Royal Reserve, and every allowed
+  binding's grade clears `tempo.grade_floor`, under every tempo v1 can draw.
 - **`GrantState`** (`hivemind.forage.grant_state`): `ISSUED -> ACTIVE -> REVOKED`;
   `ACTIVE -> EXHAUSTED -> ACTIVE` (top-up). `can_transition`/`assert_transition` are the only way
   to check or enforce an edge (codingrules Appendix C, "Forage grant" row).

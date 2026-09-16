@@ -24,11 +24,12 @@ import pytest
 from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_outcome
 
+from hivemind.wardens.ticks.assign import handle_grant
 from hivemind.wardens.warden import Warden
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from waggle.clock import Clock
-from waggle.ids import GrantId, new_cell_id, new_warden_id
+from waggle.ids import GrantId, new_cell_id, new_grant_id, new_warden_id
 from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
 from waggle.messages.forage.values import Effort as WireEffort
 from waggle.messages.labels import Postcondition, PostconditionKind
@@ -177,3 +178,30 @@ async def test_a_zero_bee_grant_raises_grant_exceeded_instead_of_parking_silentl
     assert alarm.kind.value == "GRANT_EXCEEDED"
     assert "zero sub-bees" in alarm.detail
     assert alarm.origin == warden_id
+
+
+async def test_a_grant_shrunk_below_current_usage_raises_grant_exceeded() -> None:
+    # roadmap step 4.7: "a Warden over its grant gets an Alarm, not a crash." Drives
+    # hivemind.wardens.ticks.assign.handle_grant directly (rather than the whole tick loop) so two
+    # sub-bees can be simulated as already running without racing real worker completions.
+    deps, queen_end, warden_id = make_warden_deps(worker_factory=_empty_claim_worker_factory())
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    grant_id = new_grant_id(deps.clock)
+    roomy_grant = _grant(deps.clock, grant_id, max_sub_bees=2)
+    await handle_grant(warden, roomy_grant)
+    assert warden._sub_bee_slots.acquire() is True
+    assert warden._sub_bee_slots.acquire() is True  # Two sub-bees now "in use".
+
+    shrunk_grant = _grant(deps.clock, grant_id, max_sub_bees=1)
+    await handle_grant(warden, shrunk_grant)
+    alarm = await queen_end.wait_for_alarm()
+
+    await warden.stop()
+
+    assert alarm.kind.value == "GRANT_EXCEEDED"
+    assert "shrank max_sub_bees to 1" in alarm.detail
+    assert "2 sub-bees already running" in alarm.detail
+    assert alarm.origin == warden_id
+    # The pool itself still refuses a fresh acquire until enough sub-bees drain below the new cap.
+    assert warden._sub_bee_slots.acquire() is False

@@ -6,10 +6,13 @@ data): the per-goal ceilings every grant respects (``grant_ttl_s``, ``spend_cap_
 role costs its Cell, keyed by the lowercase ``waggle.messages.task.WorkerRole`` member name --
 ``hivemind.forage.RoleFootprint`` embedded as-is, since the field-by-field shape is already fixed
 there), ``[forage.map.<source_id>]`` (every source that can serve a model --
-``hivemind.forage.ModelSourceSpec`` embedded as-is), and ``[forage.reserve]`` (what the Queen holds
+``hivemind.forage.ModelSourceSpec`` embedded as-is), ``[forage.reserve]`` (what the Queen holds
 back before any grant -- ``hivemind.forage.RoyalReserve`` embedded as-is, whose own defaults are
-already sensible for local development). This module's own validator covers only what those three
-embedded models cannot check themselves: that every role key actually names a
+already sensible for local development), and ``measurement_drift_threshold`` (roadmap step 4.7: how
+far a Cell's reported figures -- free memory, free cores, free seats -- must move, as a fraction of
+the previous reading, before the Queen's ledger, ``hivemind.queen.forage.ledger``, recomputes a
+grant rather than trusting the one it already issued). This module's own validator covers only what
+the three embedded models cannot check themselves: that every role key actually names a
 ``WorkerRole`` member and that ``drone`` (the one role phase 3 implements) is always bound. The one
 cross-section check the roadmap also calls for -- that every ``[forage.map]`` entry's provider is
 declared in ``[llm.providers]`` -- cannot live here, because this section has no visibility into
@@ -54,10 +57,15 @@ DEFAULT_SPEND_CAP_PER_GOAL_USD = 5.0  # A conservative per-goal ceiling for loca
 DEFAULT_TOKEN_BUDGET_PER_GOAL = 2_000_000  # Generous for a multi-step goal without being unbounded.
 DEFAULT_MAX_SUB_BEES_PER_GOAL = 4  # Matches the Hive Stand's own typical max_sub_bees default.
 REQUIRED_ROLE = "drone"  # The only Worker role phase 3 implements; every manifest must bind it.
+# roadmap step 4.7: a 15% move in a reported figure is enough to be worth a fresh grant computation
+# (RoyalReserve's own default headroom_fraction is 10%, so this sits just above the margin a grant
+# already absorbs); the ledger reads this to decide when to recompute rather than reuse a grant.
+DEFAULT_MEASUREMENT_DRIFT_THRESHOLD = 0.15
 
 __all__ = [
     "DEFAULT_GRANT_TTL_S",
     "DEFAULT_MAX_SUB_BEES_PER_GOAL",
+    "DEFAULT_MEASUREMENT_DRIFT_THRESHOLD",
     "DEFAULT_SPEND_CAP_PER_GOAL_USD",
     "DEFAULT_TOKEN_BUDGET_PER_GOAL",
     "REQUIRED_ROLE",
@@ -101,6 +109,13 @@ class ForageSection(BaseModel):
     reserve: RoyalReserve = Field(
         default_factory=RoyalReserve,
         description="What the Queen holds back from the shared pool before any grant.",
+    )
+    measurement_drift_threshold: float = Field(
+        default=DEFAULT_MEASUREMENT_DRIFT_THRESHOLD,
+        gt=0,
+        description="Fraction a Cell's reported free memory, free cores or free seats must move, "
+        "relative to the reading a live grant was computed from, before the ledger recomputes "
+        "that grant instead of reusing it.",
     )
 
     @model_validator(mode="after")

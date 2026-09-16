@@ -43,6 +43,7 @@ from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.memory import InMemoryMemoryStore
 from hivemind.pheromone import PheromoneTrail, TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen import ForageLedger
 from hivemind.wardens import WardenState
 from waggle.clock import FakeClock
 from waggle.messages.task import WorkerRole
@@ -220,6 +221,10 @@ def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_p
     )
     assert deps.reserve == RoyalReserve()
     assert deps.grant_ttl_s == 300.0
+    # roadmap step 4.7: build_queen_deps constructs a ForageLedger sharing the manifest's own
+    # reserve, rather than falling back to QueenDeps's own default-constructed one.
+    assert isinstance(deps.ledger, ForageLedger)
+    assert deps.ledger.reserve == deps.reserve
 
 
 @pytest.fixture

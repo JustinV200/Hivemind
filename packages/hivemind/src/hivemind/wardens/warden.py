@@ -85,7 +85,7 @@ from hivemind.wardens.awake import decide_awake
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
-from hivemind.wardens.local_pool import LocalPool
+from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
 from hivemind.wardens.state import WardenState, assert_transition
 from waggle.envelope import Envelope, Hop, wrap
@@ -144,7 +144,7 @@ class Warden(TickLoop):
         self._ceiling: CapabilitySet = CapabilitySet.empty()
         self._sub_bees: dict[WorkerId, SubBee] = {}
         self._sub_bee_iters: dict[WorkerId, AsyncIterator[Envelope]] = {}
-        self._local_pool = LocalPool(0)
+        self._sub_bee_slots = SubBeeSlots(0)
         self._grants: dict[str, GrantIssued] = {}
         self._pending: dict[str, TaskAssign] = {}
         self._questions: dict[str, WorkerId] = {}

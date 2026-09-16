@@ -1,44 +1,61 @@
-"""Define GrantInputs and grant(): the pure v0 Forage allocator.
+"""Define GrantInputs and grant(): the pure Forage allocator, v0 plus roadmap step 4.7's v1.
 
 `grant` is pure in the sense codingrules section 8.3 asks of a decision function: plain data in,
 a plain `ForageGrant` out, no I/O, and the same inputs always produce the same grant. It computes
 `max_sub_bees` as the minimum of the Cell's own cap, free memory over the role's footprint memory,
 free cores over its cpu, reachable model seats, and the goal's remaining bee cap (roadmap step
 3.12); `allowed` bindings are the Forage map sources whose grade clears the task's tempo floor
-(`hivemind.forage.tempo.grade_floor`) and whose cost fits the spend budget; the Royal Reserve is
-subtracted before any of that, and a further headroom margin shaves a percentage off whatever
-remains, so a grant never runs right up to the edge of what a capacity report might be slightly
-stale about. `GrantInputs` groups every input into one frozen dataclass (codingrules section
-8.2's four-collaborator rule and section 5.1's five-parameter limit both push a function with this
-many inputs toward one grouping value rather than a long parameter list); `GoalBudgets` is the
-small slice of the manifest's `[forage]` section (spend cap, token budget, sub-bee cap per goal)
-`grant` needs, defined here rather than imported from `hivemind.manifest` because Layer 1 may not
-import Layer 2 (codingrules section 4).
+(`hivemind.forage.tempo.grade_floor`), whose cost fits the spend budget and, when
+`GrantInputs.reachable_source_ids` narrows the map, whose id is in that set (roadmap step 4.7:
+"reachability under the Cell's network policy and hosting decision" -- computed by the caller, a
+Layer-2-and-above concern this Layer-1 module may not read for itself, and handed in as plain ids).
+The Royal Reserve is subtracted before any of that, and a further headroom margin shaves a
+percentage off whatever remains, so a grant never runs right up to the edge of what a capacity
+report might be slightly stale about; v1 narrows that margin for an urgent task's parallelism and
+widens the usable share of spend for a thorough one (roadmap step 4.7: "urgent work may get more
+parallelism, thorough work more spend"), while never letting either exceed the hard ceilings below
+-- the property test that a grant never exceeds capacity minus reserve holds under every tempo.
+`GrantInputs` groups every input into one frozen dataclass (codingrules section 8.2's
+four-collaborator rule and section 5.1's five-parameter limit both push a function with this many
+inputs toward one grouping value rather than a long parameter list); v1 adds `goal_spend_used` and
+`goal_sub_bees_used`, so `GoalBudgets`' own per-goal ceilings become genuinely *remaining* caps
+(spend and bees the goal has already drawn, tracked by the Queen's ledger,
+`hivemind.queen.forage.ledger`, are subtracted here rather than by every caller). `should_recompute`
+is v1's other addition: a pure comparison of two `ForageCapacity` readings against the manifest's
+`[forage] measurement_drift_threshold`, so the ledger knows when a live grant should be recomputed
+rather than reused. `GoalBudgets` is the small slice of the manifest's `[forage]` section (spend
+cap, token budget, sub-bee cap per goal) `grant` needs, defined here rather than imported from
+`hivemind.manifest` because Layer 1 may not import Layer 2 (codingrules section 4).
 
 Fits into the Hive:
     Layer 1 (forage; foundational services, capacity as data). Called by the Queen's dispatcher
-    (`hivemind.queen.dispatcher`, a later phase 3 step) when it issues a grant to a Warden. Calls
-    into `hivemind.forage.errors`, `hivemind.forage.grant_state`, `hivemind.forage.map`,
-    `hivemind.forage.models`, `hivemind.forage.slots`, `hivemind.forage.tempo` and
-    `waggle.messages.task` (`WorkerRole`) only.
+    (`hivemind.queen.dispatcher`) and by `hivemind.queen.forage.requests` when it answers a
+    `ForageRequest`. Calls into `hivemind.forage.errors`, `hivemind.forage.grant_state`,
+    `hivemind.forage.map`, `hivemind.forage.models`, `hivemind.forage.slots`,
+    `hivemind.forage.tempo` and `waggle.messages.task` (`WorkerRole`) only.
 
 Key invariants:
     - grant() never mutates `inputs.map`; it only reads `ForageMap.sources()`.
     - The returned ForageGrant's max_sub_bees never exceeds `inputs.cell_capacity.max_sub_bees`,
-      `inputs.budgets.max_sub_bees`, or what the Cell's free memory allows once
-      `inputs.reserve.memory_bytes` is subtracted (property-tested with hypothesis).
+      `inputs.budgets.max_sub_bees - inputs.goal_sub_bees_used`, or what the Cell's free memory
+      allows once `inputs.reserve.memory_bytes` is subtracted (property-tested with hypothesis),
+      under every Tempo v1 can draw.
     - Every AllowedBinding grant() returns names a source whose grade is at least
-      `grade_floor(inputs.tempo.accuracy)`.
+      `grade_floor(inputs.tempo.accuracy)` and, when `inputs.reachable_source_ids` is not None,
+      whose id is a member of it.
     - v0 names every allowed binding under `ModelSlot.WORKER`; per-role slot mapping and per-slot
       hosting plans (`hivemind.forage.models.pools.HostingPlan`) are the Queen's job, a later
-      phase 3 step this allocator does not attempt.
+      phase this allocator does not attempt.
 
 See Also:
-    - .claude/roadmap.md step 3.12 for the allocator's exact formula.
+    - .claude/roadmap.md step 3.12 for the v0 allocator's exact formula and step 4.7 for v1's.
     - .claude/codingrules.md section 8.10 for grants, the Royal Reserve and the two pools.
+    - .claude/codingrules.md section 8.14 for tempo's role in Forage allocation.
     - hivemind.forage.tempo for grade_floor, the grade-floor-by-accuracy-bar table.
     - hivemind.forage.map for ForageMap, one of GrantInputs' fields.
     - hivemind.forage.grant_state for GrantState, the state every fresh grant starts in.
+    - hivemind.queen.forage.ledger for the live book that supplies goal_spend_used,
+      goal_sub_bees_used and reachable_source_ids, and that calls should_recompute.
 """
 
 from __future__ import annotations
@@ -80,7 +97,21 @@ _EFFORT_CEILINGS: dict[AccuracyBar, Effort] = {
     AccuracyBar.CRITICAL: Effort.HIGH,
 }
 
-__all__ = ["GoalBudgets", "GrantInputs", "grant"]
+# v1 (roadmap step 4.7): a task whose latency budget is this tight or tighter counts as "urgent"
+# for parallelism purposes; chosen well below the manifest's own default grant_ttl_s (300s) so a
+# task that merely wants to finish before the grant would expire anyway does not count.
+_URGENT_LATENCY_THRESHOLD_S = 30.0
+# Urgent work keeps only half the usual headroom margin on max_sub_bees, trading a little of the
+# safety buffer for parallelism; never the whole margin, so a burst of urgent grants still leaves
+# some slack against measurement drift.
+_URGENT_HEADROOM_RELIEF_FACTOR = 0.5
+# HIGH and CRITICAL accuracy bars are "thorough" for spend purposes (the same two bars already get
+# Effort.HIGH above); thorough work keeps a smaller spend margin, so more of what remains of the
+# goal's own cap is actually usable, never more than the cap itself.
+_THOROUGH_ACCURACY_BARS = frozenset({AccuracyBar.HIGH, AccuracyBar.CRITICAL})
+_THOROUGH_HEADROOM_RELIEF_FACTOR = 0.5
+
+__all__ = ["GoalBudgets", "GrantInputs", "grant", "should_recompute"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +153,17 @@ class GrantInputs:
             fresh id needs and remains a pure function of its inputs.
         now: The current time, for `expires_at`.
         ttl_s: How many seconds until the grant expires unless renewed by heartbeat.
+        goal_sub_bees_used: Sub-bees the goal's other live grants already account for (roadmap
+            step 4.7); subtracted from `budgets.max_sub_bees` so the cap this computation applies
+            is what remains, not the goal's whole allowance. Defaults to 0 (v0's own behaviour:
+            the whole allowance is still available).
+        goal_spend_used: Spend the goal's other live grants already account for; subtracted from
+            `budgets.spend_cap_usd` the same way. Defaults to 0.0.
+        reachable_source_ids: Forage map source ids reachable under the Cell's network policy and
+            hosting decision (a Layer-2-and-above computation the caller supplies, since this
+            Layer-1 module may not read `hivemind.cell` or `hivemind.forage.models.pools.
+            HostingPlan` for itself); None means every source the grade floor and cost already
+            allow is reachable, v0's own behaviour.
     """
 
     cell_capacity: ForageCapacity
@@ -137,6 +179,9 @@ class GrantInputs:
     grant_id: GrantId
     now: datetime
     ttl_s: float
+    goal_sub_bees_used: int = 0
+    goal_spend_used: float = 0.0
+    reachable_source_ids: frozenset[str] | None = None
 
 
 def grant(inputs: GrantInputs) -> ForageGrant:
@@ -156,11 +201,22 @@ def grant(inputs: GrantInputs) -> ForageGrant:
     if inputs.ttl_s <= 0:
         raise AllocationError(f"GrantInputs.ttl_s must be positive, got {inputs.ttl_s}.")
 
+    # v1: the goal's own caps become *remaining* caps once what its other live grants already hold
+    # is subtracted (roadmap step 4.7); clamped at zero so a goal already at or past its cap never
+    # goes negative and turns a min() below into a false "unbounded" reading.
+    remaining_bees = max(0, inputs.budgets.max_sub_bees - inputs.goal_sub_bees_used)
+    remaining_spend = max(0.0, inputs.budgets.spend_cap_usd - inputs.goal_spend_used)
+
     floor = grade_floor(inputs.tempo.accuracy)
-    allowed_sources = _sources_clearing_floor(inputs.map, floor, inputs.budgets.spend_cap_usd)
-    max_sub_bees = _max_sub_bees(inputs, allowed_sources)
+    allowed_sources = _sources_clearing_floor(inputs, floor, remaining_spend)
+    max_sub_bees = _max_sub_bees(inputs, allowed_sources, remaining_bees)
     max_effort = _EFFORT_CEILINGS[inputs.tempo.accuracy]
-    usable = 1 - inputs.reserve.headroom_fraction  # The same margin applied to every budget below.
+    # v1: a thorough task (HIGH/CRITICAL accuracy) keeps a smaller spend margin, so more of what
+    # remains of the goal's own cap is actually usable; every other bar keeps v0's full margin.
+    # Either way `spend_usable <= 1`, so spend_budget can never exceed remaining_spend itself.
+    thorough_factor = _THOROUGH_HEADROOM_RELIEF_FACTOR if _is_thorough(inputs) else 1.0
+    spend_usable = 1 - inputs.reserve.headroom_fraction * thorough_factor
+    token_usable = 1 - inputs.reserve.headroom_fraction  # Unchanged from v0: tokens read no tempo.
 
     return ForageGrant(
         id=inputs.grant_id,
@@ -169,8 +225,8 @@ def grant(inputs: GrantInputs) -> ForageGrant:
         task_id=inputs.task_id,
         allowed=_allowed_bindings(allowed_sources, max_effort),
         seats=_seat_reservations(allowed_sources, max_sub_bees),
-        token_budget=int(inputs.budgets.token_budget * usable),
-        spend_budget=inputs.budgets.spend_cap_usd * usable,
+        token_budget=int(inputs.budgets.token_budget * token_usable),
+        spend_budget=remaining_spend * spend_usable,
         max_sub_bees=max_sub_bees,
         expires_at=inputs.now + timedelta(seconds=inputs.ttl_s),
         reason=_reason(inputs, allowed_sources, max_sub_bees, floor),
@@ -178,18 +234,56 @@ def grant(inputs: GrantInputs) -> ForageGrant:
     )
 
 
+def should_recompute(previous: ForageCapacity, current: ForageCapacity, threshold: float) -> bool:
+    """Return whether `current` has drifted from `previous` enough to recompute a live grant.
+
+    Roadmap step 4.7: "recomputation when measurements drift past a manifest threshold"
+    (`hivemind.manifest.schema.forage.ForageSection.measurement_drift_threshold`). Compares the
+    two dimensions `_max_sub_bees` actually reads off `ForageCapacity.host`: free memory and the
+    free-cores figure `_free_cores` derives from cpu_load. A dimension whose previous reading was
+    zero counts as drifted the moment the new reading is not also zero, since a relative change is
+    undefined at zero and "went from nothing to something" is itself worth a fresh computation.
+
+    Args:
+        previous: The capacity a live grant was last computed from.
+        current: The Cell's latest reported capacity.
+        threshold: The fraction a dimension must move by, relative to its previous reading, to
+            count as drifted (`ForageSection.measurement_drift_threshold`).
+
+    Returns:
+        True if either dimension moved by more than `threshold` (or from zero to non-zero).
+    """
+    return _drifted(
+        previous.host.memory_free_bytes, current.host.memory_free_bytes, threshold
+    ) or _drifted(_free_cores(previous.host), _free_cores(current.host), threshold)
+
+
+def _drifted(previous: float, current: float, threshold: float) -> bool:
+    """Return whether `current` moved from `previous` by more than `threshold`, relatively."""
+    if previous == 0:
+        return current != 0
+    return abs(current - previous) / previous > threshold
+
+
 def _sources_clearing_floor(
-    forage_map: ForageMap, floor: int, spend_cap_usd: float
+    inputs: GrantInputs, floor: int, remaining_spend: float
 ) -> tuple[ModelSource, ...]:
-    """Return every map source whose grade clears `floor` and whose seat-hour cost fits the cap."""
+    """Return every map source clearing the grade floor, the spend cap and reachability."""
+    reachable = inputs.reachable_source_ids
     return tuple(
         source
-        for source in forage_map.sources()
-        if source.spec.grade >= floor and source.spec.cost.cost_per_seat_hour_usd <= spend_cap_usd
+        for source in inputs.map.sources()
+        if source.spec.grade >= floor
+        and source.spec.cost.cost_per_seat_hour_usd <= remaining_spend
+        # None means "no narrowing": every source the two checks above already allow is reachable
+        # (v0's own behaviour, unchanged when a caller never supplies inputs.reachable_source_ids).
+        and (reachable is None or source.source_id in reachable)
     )
 
 
-def _max_sub_bees(inputs: GrantInputs, allowed_sources: Sequence[ModelSource]) -> int:
+def _max_sub_bees(
+    inputs: GrantInputs, allowed_sources: Sequence[ModelSource], remaining_bees: int
+) -> int:
     """Compute the sub-bee ceiling: the tightest of five limits, less the headroom margin."""
     host = inputs.cell_capacity.host
     by_cpu = _bound_by_rate(_free_cores(host), inputs.footprint.cpu_cores)
@@ -198,17 +292,25 @@ def _max_sub_bees(inputs: GrantInputs, allowed_sources: Sequence[ModelSource]) -
     reachable_seats = _reachable_seats(allowed_sources, inputs.reserve.seats)
 
     # roadmap step 3.12: "the minimum of the Cell's cap, free memory over the footprint's memory,
-    # free cores over its cpu, reachable seats, and the goal's remaining bee cap."
-    raw = min(
-        inputs.cell_capacity.max_sub_bees,
-        by_cpu,
-        by_memory,
-        reachable_seats,
-        inputs.budgets.max_sub_bees,
-    )
-    # Headroom shaves a further margin off whatever the hard limits above allow, absorbing drift
-    # between capacity reports (RoyalReserve.headroom_fraction, codingrules section 8.10).
-    return int(raw * (1 - inputs.reserve.headroom_fraction))
+    # free cores over its cpu, reachable seats, and the goal's remaining bee cap" -- v1 passes the
+    # already-reduced remaining_bees in place of the goal's whole allowance.
+    raw = min(inputs.cell_capacity.max_sub_bees, by_cpu, by_memory, reachable_seats, remaining_bees)
+    # v1: an urgent task (a tight latency budget) keeps only half the usual headroom margin here,
+    # trading some safety buffer for parallelism; every other task keeps v0's full margin. Either
+    # way the margin is never negative, so this can never exceed `raw` itself.
+    urgent_factor = _URGENT_HEADROOM_RELIEF_FACTOR if _is_urgent(inputs) else 1.0
+    return int(raw * (1 - inputs.reserve.headroom_fraction * urgent_factor))
+
+
+def _is_urgent(inputs: GrantInputs) -> bool:
+    """Return whether `inputs.tempo` counts as urgent for parallelism relief (module docstring)."""
+    budget = inputs.tempo.latency_budget_s
+    return budget is not None and budget <= _URGENT_LATENCY_THRESHOLD_S
+
+
+def _is_thorough(inputs: GrantInputs) -> bool:
+    """Return whether `inputs.tempo.accuracy` counts as thorough for spend relief."""
+    return inputs.tempo.accuracy in _THOROUGH_ACCURACY_BARS
 
 
 def _free_cores(host: HostCapacity) -> float:

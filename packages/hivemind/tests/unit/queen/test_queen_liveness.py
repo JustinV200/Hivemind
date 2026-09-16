@@ -21,9 +21,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
+from builders.forage import make_grant
 from builders.queen import make_queen_deps, plan_responder
 from builders.supervision import make_telemetry
 
+from hivemind.forage.grant_state import GrantState
 from hivemind.llm import FakeLLMProvider
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.queen import Queen
@@ -130,6 +132,55 @@ def test_check_liveness_marks_a_warden_offline_exactly_once() -> None:
     # A second sweep with nothing changed must never raise a second Alarm for the same outage.
     asyncio.run(check_liveness(deps, (link,), liveness, human_inbox))
     assert human_inbox.alarms == first_pass_alarms
+
+
+async def test_heartbeat_renews_live_grants_for_that_warden() -> None:
+    # roadmap step 4.7: "renewed on the Warden's heartbeat."
+    clock = FakeClock()
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(clock, fake_provider=provider)
+    grant = make_grant(clock=clock, holder=link.warden_id, state=GrantState.ACTIVE)
+    await deps.ledger.record_grant(grant)
+    original_expiry = grant.expires_at
+    clock.advance(120.0)  # Time passes before the heartbeat arrives.
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    run_task = asyncio.ensure_future(queen.run())
+
+    await warden_end.send(_heartbeat())
+
+    async def _renewed() -> bool:
+        current = deps.ledger.grant(grant.id)
+        return current is not None and current.expires_at > original_expiry
+
+    await _wait_until(_renewed)
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+    await warden_end.close()
+
+
+def test_check_liveness_returns_an_expired_grant_to_the_pool() -> None:
+    # roadmap step 4.7's own exit criterion: "A Warden whose heartbeat stops has its grant back
+    # in the pool after expiry."
+    clock = FakeClock()
+    deps, link, _warden_end = make_queen_deps(clock)
+    grant = make_grant(
+        clock=clock, holder=link.warden_id, state=GrantState.ACTIVE, expires_at=clock.now()
+    )
+    asyncio.run(deps.ledger.record_grant(grant))
+    human_inbox = HumanInbox()
+    liveness = {
+        link.warden_id: WardenLiveness(
+            last_heartbeat_at=clock.now(), missed_heartbeats=0, is_offline=False
+        )
+    }
+    clock.advance(1.0)  # Past the grant's own expiry, with no renewal in between.
+
+    asyncio.run(check_liveness(deps, (link,), liveness, human_inbox))
+
+    assert deps.ledger.grant(grant.id) is None
+    assert grant.id not in {g.id for g in deps.ledger.live_grants()}
 
 
 async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 200) -> None:

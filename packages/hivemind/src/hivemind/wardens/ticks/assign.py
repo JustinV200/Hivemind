@@ -59,7 +59,7 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
     if grant is None:
         warden._pending[assignment.task_id] = assignment
         return
-    if not warden._local_pool.acquire():
+    if not warden._sub_bee_slots.acquire():
         warden._pending[assignment.task_id] = assignment
         return
     ctx = WardenCellContext(
@@ -76,14 +76,18 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
 
 
 async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
-    """Record `grant` and spawn whichever parked assignment was waiting for exactly this grant.
+    """Record `grant`, alarm if it now sits below usage, and spawn whatever it unparks.
 
     Args:
         warden: The owning Warden.
         grant: The GrantIssued to record.
     """
     warden._grants[grant.grant_id] = grant
-    warden._local_pool.resize(grant.max_sub_bees)
+    # Read before resize(): SubBeeSlots.resize's own docstring leaves in_use as-is even when the
+    # new capacity is smaller, so this is the one place that still knows what it used to allow
+    # (roadmap step 4.7: "a Warden over its grant gets an Alarm, not a crash").
+    in_use_before_resize = warden._sub_bee_slots.in_use
+    warden._sub_bee_slots.resize(grant.max_sub_bees)
     if grant.max_sub_bees == 0:
         # Nothing can ever spawn under this grant, so every assignment it covers would park in
         # `_pending` with no trace on the trail (the first local run sat that way for minutes).
@@ -96,6 +100,19 @@ async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
             "start (check the Forage map's seats against [forage.reserve]).",
             reason="A zero-bee grant needs a larger grant from the Queen; a Warden cannot "
             "enlarge its own.",
+            task_id=grant.task_id,
+        )
+    elif in_use_before_resize > grant.max_sub_bees:
+        # A shrink (queen.forage.grants) landed below what is already running: the pool refuses
+        # every new acquire() until enough sub-bees finish on their own, but nothing said so on
+        # the trail until now.
+        await send_alarm_to_queen(
+            warden,
+            kind=AlarmKind.GRANT_EXCEEDED,
+            detail=f"Grant {grant.grant_id} shrank max_sub_bees to {grant.max_sub_bees}, below "
+            f"the {in_use_before_resize} sub-bees already running under it.",
+            reason="A shrunk grant put this Warden over its own ceiling; only the Queen can "
+            "grow it back, and no new sub-bee can start meanwhile.",
             task_id=grant.task_id,
         )
     waiting = [a for a in warden._pending.values() if a.grant_id == grant.grant_id]
@@ -115,7 +132,7 @@ async def spawn_parked(warden: Warden) -> None:
     Args:
         warden: The owning Warden.
     """
-    pool = warden._local_pool
+    pool = warden._sub_bee_slots
     for assignment in tuple(warden._pending.values()):
         if pool.in_use >= pool.capacity:
             return

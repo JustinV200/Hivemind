@@ -44,8 +44,9 @@ Fits into the Hive:
     `hivemind.queen.ticks.results.retry_task` and `hivemind.queen.ticks.alarms` for a REBIND.
     Calls into `hivemind.brood_chamber` (Task), `hivemind.forage` (ForageGrant, GrantInputs,
     ModelSlot, grant), `hivemind.pheromone` (ForageEvent), `hivemind.queen.deps` (QueenDeps,
-    WardenLink), `hivemind.queen.placement` (PlacementError, decide), `hivemind.queen.trail`
-    (record_event) and waggle only.
+    WardenLink), `hivemind.queen.forage.grants` (activate, roadmap step 4.7: every dispatch-issued
+    grant now also lands in the ledger), `hivemind.queen.placement` (PlacementError, decide),
+    `hivemind.queen.trail` (record_event) and waggle only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task,
@@ -75,6 +76,7 @@ from hivemind.forage import ForageGrant, GrantInputs, ModelSlot, grant
 from hivemind.forage.models.sources import ModelSource
 from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.placement import Placement, PlacementError, decide
 from hivemind.queen.trail import record_event
 from waggle.envelope import wrap
@@ -172,9 +174,17 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
 async def _send_grant_and_assign(
     deps: QueenDeps, link: WardenLink, task: Task, placement: Placement, attempt: int
 ) -> ForageGrant:
-    """Mint a fresh grant and send it, then a TaskAssign at `attempt`, in that order."""
+    """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign."""
     cell_id, warden_id = placement.cell_id, placement.warden_id
     fresh_grant = grant(_grant_inputs(deps, link, warden_id, cell_id, task))
+    # roadmap step 4.7: the ledger is the live book of every shared grant, not only the ones a
+    # ForageRequest later grows; activate() moves it past ISSUED (grant() always starts a fresh
+    # grant there) since a task dispatch means the Warden is about to draw on it at once, the same
+    # reasoning hivemind.queen.forage.requests uses for a request-driven grant. The Cell's own
+    # capacity is reported here too, from the same Cell object placement already resolved, so the
+    # ledger's headroom has real figures to compute from without a separate capacity-report path.
+    await deps.ledger.report_capacity(cell_id, link.cell.capacity)
+    await deps.ledger.record_grant(forage_grants.activate(fresh_grant))
     sources: dict[str, ModelSource] = {
         binding.source_id: deps.map.get(binding.source_id) for binding in fresh_grant.allowed
     }

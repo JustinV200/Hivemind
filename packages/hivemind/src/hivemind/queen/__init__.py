@@ -57,6 +57,9 @@ Public API (roadmap step 3.20):
       function itself is reached as `hivemind.queen.placement.decide`, not re-exported here, since
       the name would collide with `hivemind.queen.autopilot.decide` above.
     - WardenLiveness: one attached Warden's own pulse, as `Queen.liveness` reports it (ticks).
+    - ForageLedger: the Queen's live book of Forage, roadmap step 4.7 (forage.ledger); reached at
+      `hivemind.queen.forage.grants`/`.requests` for the grant-lease and ForageRequest logic
+      themselves, the same module-access convention `ticks.alarms`/`ticks.liveness` already use.
 """
 
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
@@ -76,6 +79,7 @@ from hivemind.queen.awake import (
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import QueenError, UnknownWardenError
+from hivemind.queen.forage import ForageLedger
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import (
     MAX_TIE_REASON_CHARS,
@@ -131,6 +135,7 @@ __all__ = [
     "NOTES_LIMIT",
     "PLANNER_MAX_OUTPUT_TOKENS",
     "RECENT_DECISIONS_LIMIT",
+    "ForageLedger",
     "HumanInbox",
     "MemoryBudget",
     "ModelTieBreaker",

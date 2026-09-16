@@ -20,7 +20,10 @@ Fits into the Hive:
     queen.make_queen_deps` plus one or more `WardenLink`s in tests. Calls into `hivemind.brood_
     chamber`, `hivemind.cell`, `hivemind.forage.slots`, `hivemind.memory`, `hivemind.queen.*` and
     `hivemind.supervision` and waggle only; never `hivemind.wardens` or `hivemind.workers` (the
-    Queen never provisions or spawns, only assigns to a Warden over Waggle).
+    Queen never provisions or spawns, only assigns to a Warden over Waggle). Roadmap step 4.7
+    adds `hivemind.queen.ticks.forage` (a `waggle.messages.forage.ForageRequest`, reached ahead of
+    `hivemind.queen.autopilot.table.decide`) and `hivemind.queen.ticks.liveness.
+    renew_grants_on_heartbeat` (every Heartbeat) to this class's own tick dispatch.
 
 Key invariants:
     - The Queen holds no `hivemind.cell.CellSession` and no Comb Registry, anywhere in her own
@@ -434,10 +437,12 @@ def _drain_items(
 
 async def _handle_item(queen: Queen, item: InboxItem) -> None:
     """Decide and act on one ordered InboxItem, waking a model only for NEEDS_JUDGEMENT."""
-    if isinstance(item.payload, Heartbeat):
-        warden_id = WardenId(item.principal)
-        queen._last_heartbeat[warden_id] = item.payload
-        ticks.liveness.record_heartbeat(queen._liveness, warden_id, item.received_at)
+    # A Heartbeat or a ForageRequest is handled directly (hivemind.queen.ticks.liveness.
+    # handle_infrastructure_item's own docstring explains why the two share this one dispatch).
+    handled = await ticks.liveness.handle_infrastructure_item(
+        queen._deps, queen._wardens, item, queen._last_heartbeat, queen._liveness
+    )
+    if handled:
         return
     task = await _task_for_item(queen._deps, item)
     # Read from the Queen's own counter, never Task.attempt: see hivemind.queen.dispatcher.

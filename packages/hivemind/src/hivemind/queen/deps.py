@@ -7,10 +7,11 @@ the Queen's tick touches: her task store (`chamber`), her hot-state and durable 
 (`memory`, `identity`, `clock`), her audit sink (`trail`), her escalation playbook
 (`policy`, `alarm_attempt_limit`), how she resolves and rebinds a model slot without ever holding
 a `HiveManifest` (`bound_for`, `rebind`, `bindings`, `call_gate`, `map`), her share of Forage
-(`budgets`), her liveness cadence (`heartbeat_interval_s`, `heartbeat_miss_limit`) and the slice of
-`[memory]` an awake episode's prompt is budgeted against (`memory_budget`). `WardenLink` is the
-Queen-side half of one attached Warden's own Waggle link: `hivemind.wardens.deps.WardenDeps.
-queen_link`/`.hop` is the Warden's own end of the exact same pair.
+(`budgets`), her live book of it (`ledger`, roadmap step 4.7), her liveness cadence
+(`heartbeat_interval_s`, `heartbeat_miss_limit`) and the slice of `[memory]` an awake episode's
+prompt is budgeted against (`memory_budget`). `WardenLink` is the Queen-side half of one attached
+Warden's own Waggle link: `hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own
+end of the exact same pair.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -18,7 +19,7 @@ Fits into the Hive:
     `tests.builders.queen.make_queen_deps` in tests -- which attaches each `WardenLink` with
     `Queen.attach_warden` before `run()`. Calls into `hivemind.brood_chamber`, `hivemind.forage`,
     `hivemind.llm.ladders.gate`, `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
-    `hivemind.supervision` and waggle only.
+    `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.supervision` and waggle only.
 
 Key invariants:
     - `QueenDeps` and `WardenLink` are frozen and slotted (codingrules section 8.5): neither is
@@ -57,6 +58,7 @@ from hivemind.forage import (
 from hivemind.llm import BoundModel, CallGate
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
+from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
 from waggle.envelope import Hop
@@ -158,6 +160,10 @@ class QueenDeps:
             prior module constant.
         grant_ttl_s: The `[forage] grant_ttl_s` every fresh grant expires after. Defaults to
             300.0, matching the dispatcher's prior module constant.
+        ledger: The Queen's live book of Forage (roadmap step 4.7): every Cell's latest
+            capacity, every live shared grant and the headroom they leave. Defaults to a fresh,
+            in-memory-only `ForageLedger()` sharing `reserve`'s own default, so a caller that
+            never names this field (every pre-4.7 test) still builds a valid QueenDeps.
     """
 
     chamber: BroodChamber
@@ -181,3 +187,4 @@ class QueenDeps:
     )
     reserve: RoyalReserve = field(default_factory=RoyalReserve)
     grant_ttl_s: float = _DEFAULT_GRANT_TTL_S
+    ledger: ForageLedger = field(default_factory=ForageLedger)

@@ -1,21 +1,24 @@
-"""Tests for hivemind.forage.allocate: GoalBudgets, GrantInputs and grant().
+"""Tests for hivemind.forage.allocate v0: GoalBudgets, GrantInputs and grant().
+
+v1's own tests (roadmap step 4.7: remaining goal caps, tempo headroom relief, reachability,
+drift recomputation, and the property test) live in test_allocate_v1.py -- split out once this
+module's own line count passed codingrules 5.1's test-file limit; see that module's docstring.
 
 Fits into the Hive:
     Mirrors src/hivemind/forage/allocate.py (codingrules section 3: tests/unit mirrors src/
-    one-to-one).
+    one-to-one), for the v0 half specifically.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
     - hivemind.forage.allocate for the module under test.
-    - .claude/codingrules.md section 14.3: property-based tests for the pure-core decision
-      functions ("a grant never exceeds capacity minus reserve").
+    - packages/hivemind/tests/unit/forage/test_allocate_v1.py for v1's own tests.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 import pytest
 from builders.forage import (
@@ -25,24 +28,14 @@ from builders.forage import (
     make_reserve,
     make_source,
 )
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from hivemind.forage.allocate import GoalBudgets, GrantInputs, grant
 from hivemind.forage.errors import AllocationError
 from hivemind.forage.grant_state import GrantState
 from hivemind.forage.map import ForageMap
-from hivemind.forage.models import (
-    Abundance,
-    ForageCapacity,
-    HostCapacity,
-    ModelCost,
-    ModelSource,
-    RoleFootprint,
-    RoyalReserve,
-)
+from hivemind.forage.models import Abundance, ModelCost
 from hivemind.forage.slots import Effort, ModelSlot
-from hivemind.forage.tempo import AccuracyBar, Tempo, grade_floor
+from hivemind.forage.tempo import AccuracyBar, Tempo
 from waggle.clock import Clock, FakeClock
 from waggle.ids import new_cell_id, new_grant_id, new_task_id, new_warden_id
 from waggle.messages.forage.values import MAX_MODEL_GRADE, MIN_MODEL_GRADE
@@ -268,164 +261,3 @@ def test_grant_max_effort_follows_the_tempo_accuracy_bar(
     result = grant(inputs)
 
     assert result.allowed[0].max_effort is expected_effort
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Property-based tests (codingrules 14.3 and 8.10): a grant never exceeds capacity minus
-# reserve, and every allowed binding's grade clears the tempo floor.
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@st.composite
-def _host_capacities(draw: st.DrawFn) -> HostCapacity:
-    memory_bytes = draw(st.integers(min_value=0, max_value=8 * _GIB))
-    disk_bytes = draw(st.integers(min_value=0, max_value=8 * _GIB))
-    return make_host_capacity(
-        cores=draw(st.integers(min_value=1, max_value=32)),
-        memory_bytes=memory_bytes,
-        memory_free_bytes=draw(st.integers(min_value=0, max_value=memory_bytes)),
-        disk_bytes=disk_bytes,
-        disk_free_bytes=draw(st.integers(min_value=0, max_value=disk_bytes)),
-        cpu_load=draw(
-            st.floats(min_value=0.0, max_value=2.0, allow_nan=False, allow_infinity=False)
-        ),
-    )
-
-
-@st.composite
-def _footprints(draw: st.DrawFn) -> RoleFootprint:
-    return make_footprint(
-        cpu_cores=draw(
-            st.floats(min_value=0.0, max_value=8.0, allow_nan=False, allow_infinity=False)
-        ),
-        memory_bytes=draw(st.integers(min_value=0, max_value=2 * _GIB)),
-    )
-
-
-@st.composite
-def _reserves(draw: st.DrawFn) -> RoyalReserve:
-    return make_reserve(
-        seats=draw(st.integers(min_value=0, max_value=4)),
-        memory_bytes=draw(st.integers(min_value=0, max_value=_GIB)),
-        headroom_fraction=draw(
-            st.floats(min_value=0.0, max_value=0.9, allow_nan=False, allow_infinity=False)
-        ),
-    )
-
-
-@st.composite
-def _budget_strategy(draw: st.DrawFn) -> GoalBudgets:
-    return _budgets(
-        spend_cap_usd=draw(
-            st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False)
-        ),
-        token_budget=draw(st.integers(min_value=0, max_value=1_000_000)),
-        max_sub_bees=draw(st.integers(min_value=0, max_value=16)),
-    )
-
-
-@st.composite
-def _source_lists(draw: st.DrawFn) -> tuple[ModelSource, ...]:
-    count = draw(st.integers(min_value=0, max_value=4))
-    sources: list[ModelSource] = []
-    for index in range(count):
-        seats = draw(st.integers(min_value=0, max_value=8))
-        sources.append(
-            make_source(
-                source_id=f"src_{index}",
-                grade=draw(st.integers(min_value=MIN_MODEL_GRADE, max_value=MAX_MODEL_GRADE)),
-                seats=seats,
-                cost=ModelCost(
-                    cost_per_seat_hour_usd=draw(
-                        st.floats(
-                            min_value=0.0, max_value=50.0, allow_nan=False, allow_infinity=False
-                        )
-                    )
-                ),
-                abundance=Abundance(
-                    seats_free=draw(st.integers(min_value=0, max_value=seats)),
-                    requests_per_minute_left=None,
-                    tokens_per_minute_left=None,
-                ),
-            )
-        )
-    return tuple(sources)
-
-
-@dataclass(frozen=True, slots=True)
-class _GrantScenario:
-    """One hypothesis-drawn case for the property test below, bundled into one value.
-
-    codingrules 5.1 caps a function at 5 parameters; `@given` would otherwise need one keyword
-    per drawn value, so every draw is bundled into this one dataclass instead.
-    """
-
-    host: HostCapacity
-    footprint: RoleFootprint
-    reserve: RoyalReserve
-    budgets: GoalBudgets
-    sources: tuple[ModelSource, ...]
-    accuracy: AccuracyBar
-    cell_cap: int
-
-
-@st.composite
-def _scenarios(draw: st.DrawFn) -> _GrantScenario:
-    """Draw one complete, self-consistent set of grant() inputs."""
-    return _GrantScenario(
-        host=draw(_host_capacities()),
-        footprint=draw(_footprints()),
-        reserve=draw(_reserves()),
-        budgets=draw(_budget_strategy()),
-        sources=draw(_source_lists()),
-        accuracy=draw(st.sampled_from(list(AccuracyBar))),
-        cell_cap=draw(st.integers(min_value=0, max_value=16)),
-    )
-
-
-@settings(max_examples=100, deadline=None)
-@given(scenario=_scenarios())
-def test_grant_never_exceeds_capacity_minus_reserve_and_clears_the_grade_floor(
-    scenario: _GrantScenario,
-) -> None:
-    clock = FakeClock()
-    capacity = ForageCapacity(host=scenario.host, local_seats=(), max_sub_bees=scenario.cell_cap)
-    forage_map = ForageMap(scenario.sources, clock=clock)
-    inputs = GrantInputs(
-        cell_capacity=capacity,
-        role=WorkerRole.DRONE,
-        footprint=scenario.footprint,
-        tempo=Tempo(accuracy=scenario.accuracy),
-        map=forage_map,
-        reserve=scenario.reserve,
-        budgets=scenario.budgets,
-        holder=new_warden_id(clock),
-        cell_id=new_cell_id(clock),
-        task_id=None,
-        grant_id=new_grant_id(clock),
-        now=clock.now(),
-        ttl_s=300.0,
-    )
-
-    result = grant(inputs)
-
-    # Never exceeds the Cell's own cap or the goal's cap.
-    assert 0 <= result.max_sub_bees <= scenario.cell_cap
-    assert result.max_sub_bees <= scenario.budgets.max_sub_bees
-    # Never exceeds what free memory allows once the Royal Reserve is subtracted.
-    if scenario.footprint.memory_bytes > 0:
-        memory_after_reserve = max(
-            0, scenario.host.memory_free_bytes - scenario.reserve.memory_bytes
-        )
-        assert result.max_sub_bees * scenario.footprint.memory_bytes <= memory_after_reserve
-    # Never exceeds the budgets' spend and token caps.
-    assert result.spend_budget <= scenario.budgets.spend_cap_usd + 1e-9
-    assert result.token_budget <= scenario.budgets.token_budget
-    # Every allowed binding clears the tempo's grade floor, and never reserves more seats than
-    # the source has free.
-    floor = grade_floor(scenario.accuracy)
-    by_id = {source.source_id: source for source in scenario.sources}
-    for binding in result.allowed:
-        assert by_id[binding.source_id].spec.grade >= floor
-    for reservation in result.seats:
-        assert reservation.seats <= by_id[reservation.source_id].abundance.seats_free

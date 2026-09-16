@@ -53,14 +53,16 @@ Public API:
       (hivemind.forage.models.pools).
     - ForageMap, SlotBinding: the catalogue of Forage map sources and its live figures
       (hivemind.forage.map).
-    - GrantInputs, GoalBudgets, grant: the pure v0 allocator (hivemind.forage.allocate).
+    - GrantInputs, GoalBudgets, grant, should_recompute: the pure allocator, v0 plus roadmap step
+      4.7's v1 (remaining goal caps, tempo headroom relief, reachability, drift recomputation)
+      (hivemind.forage.allocate).
     - GrantState, can_transition, assert_transition, is_terminal: the Forage grant state machine
       (hivemind.forage.grant_state).
     - ForageError, UnknownSourceError, AllocationError, InvalidGrantTransitionError: this
       package's error tree (hivemind.forage.errors).
 """
 
-from hivemind.forage.allocate import GoalBudgets, GrantInputs, grant
+from hivemind.forage.allocate import GoalBudgets, GrantInputs, grant, should_recompute
 from hivemind.forage.errors import (
     AllocationError,
     ForageError,
@@ -135,4 +137,5 @@ __all__ = [
     "grade_floor",
     "grant",
     "is_terminal",
+    "should_recompute",
 ]

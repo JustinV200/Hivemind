@@ -62,6 +62,19 @@ def test_forage_section_map_and_reserve_default_to_empty_and_sensible() -> None:
     assert section.reserve.seats == 1
 
 
+def test_forage_section_measurement_drift_threshold_defaults_and_overrides() -> None:
+    default_section = ForageSection(roles={"drone": _DRONE_FOOTPRINT})
+    overridden = ForageSection(roles={"drone": _DRONE_FOOTPRINT}, measurement_drift_threshold=0.3)
+
+    assert default_section.measurement_drift_threshold == 0.15
+    assert overridden.measurement_drift_threshold == 0.3
+
+
+def test_forage_section_rejects_a_non_positive_measurement_drift_threshold() -> None:
+    with pytest.raises(ValidationError, match="measurement_drift_threshold"):
+        ForageSection(roles={"drone": _DRONE_FOOTPRINT}, measurement_drift_threshold=0.0)
+
+
 def test_forage_section_is_frozen_and_forbids_extras() -> None:
     section = ForageSection(roles={"drone": _DRONE_FOOTPRINT})
 

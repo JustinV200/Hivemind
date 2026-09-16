@@ -1,13 +1,17 @@
-"""Define LocalPool: the Warden's own count of how many sub-bee slots are in use.
+"""Define SubBeeSlots: the Warden's own count of how many sub-bee slots are in use.
 
 Codingrules section 8.10: "A local pool is everything physically on one Cell... The Cell's Warden
-owns its local pool outright... it never asks." `LocalPool` is the v0 slice of that: a bare
+owns its local pool outright... it never asks." `SubBeeSlots` is the v0 slice of that: a bare
 capacity counter over the grant's `max_sub_bees` (`GrantIssued.max_sub_bees`, the minimum the
 Queen's allocator already computed from the Cell's cores, memory and seats). It owns nothing about
 memory, VRAM or seats itself yet -- that is a later roadmap phase's `hosting.py` -- but it is the
 one gate `hivemind.wardens.ticks.assign` calls before starting a new sub-bee, so "a Warden refuses
 when `max_sub_bees` is reached" is a property of this class, not of scattered counting at every
-call site.
+call site. Named `SubBeeSlots`, not `LocalPool` (roadmap step 4.7's rename): codingrules 6.1 gives
+`LocalPool` to `hivemind.forage` (a Cell's cores, memory, disk, VRAM and seats, the thing the
+Queen's ledger reads as "reported, not granted"); this class is only ever a bare counter against a
+grant's `max_sub_bees`, a narrower thing that needed its own name once the ledger
+(`hivemind.queen.forage.ledger`) became the first module to read both meanings in one file.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Owned
@@ -26,15 +30,17 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.10 for "a Warden divides its local pool under ceilings the
       Queen set once".
+    - .claude/codingrules.md section 6.1 for the LocalPool/SubBeeSlots naming split this rename
+      follows.
     - hivemind.wardens.ticks.assign for the one caller that gates a spawn on `acquire()`.
 """
 
 from __future__ import annotations
 
-__all__ = ["LocalPool"]
+__all__ = ["SubBeeSlots"]
 
 
-class LocalPool:
+class SubBeeSlots:
     """A bare counter of sub-bee slots in use against a fixed capacity.
 
     Owns its own mutable state in place (codingrules section 8.5): `_in_use` grows on `acquire`
@@ -42,7 +48,7 @@ class LocalPool:
     """
 
     def __init__(self, max_sub_bees: int) -> None:
-        """Build a LocalPool with `max_sub_bees` slots, none in use yet.
+        """Build a SubBeeSlots with `max_sub_bees` slots, none in use yet.
 
         Args:
             max_sub_bees: The most sub-bees this Warden may run at once, from its current grant's

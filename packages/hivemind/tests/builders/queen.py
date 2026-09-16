@@ -12,7 +12,8 @@ scriptable `FakeLLMProvider`, resolving four `[llm.slots]` rows: `"queen"`, `"at
 `waggle.transport.memory.MemoryTransport` pair, and `WardenEnd`, the Warden-side half of that same
 pair: it wraps the Warden's own end, mirroring `builders.wardens.QueenEnd` with the direction
 reversed -- it sends `Heartbeat`/`TaskResult`/`AlarmRaised`/`Question` (what a Warden reports) and
-sorts what it receives into `grants`/`assignments`/`answers`/`intervenes` (what a Warden is sent).
+sorts what it receives into `grants`/`assignments`/`answers`/`intervenes`/`forage_replies` (what a
+Warden is sent).
 `plan_responder` builds a `FakeLLMProvider` `Responder` for a test that only exercises
 `hivemind.queen.planner.plan_goal`/`Queen.submit_goal`: it pulls the goal text back out of the
 rendered `decompose_goal` system prompt's own `<<<user>>>` section and answers with
@@ -72,7 +73,7 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.base import WaggleMessage
-from waggle.messages.forage import GrantIssued
+from waggle.messages.forage import ForageReply, GrantIssued
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign
 from waggle.transport.memory import MemoryTransport
@@ -264,7 +265,7 @@ class WardenEnd:
     """Wrap the Warden side of one attached link: send reports, collect orders.
 
     Owns its own mutable state in place (codingrules section 8.5): `grants`, `assignments`,
-    `answers` and `intervenes` grow as envelopes are pumped off the transport.
+    `answers`, `intervenes` and `forage_replies` grow as envelopes are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -284,6 +285,7 @@ class WardenEnd:
         self.assignments: list[TaskAssign] = []
         self.answers: list[Answer] = []
         self.intervenes: list[Intervene] = []
+        self.forage_replies: list[ForageReply] = []
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -333,6 +335,11 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.intervenes), limit=limit)
         return self.intervenes[-1]
 
+    async def wait_for_forage_reply(self, limit: int = DEFAULT_PUMP_LIMIT) -> ForageReply:
+        """Pump until at least one ForageReply has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.forage_replies), limit=limit)
+        return self.forage_replies[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Queen's own receive() ends cleanly."""
         await self._transport.close()
@@ -352,6 +359,9 @@ class WardenEnd:
         elif isinstance(payload, Intervene):
             self.intervenes.append(payload)
             self.received_kinds.append("intervene")
+        elif isinstance(payload, ForageReply):
+            self.forage_replies.append(payload)
+            self.received_kinds.append("forage_reply")
 
 
 def plan_responder(

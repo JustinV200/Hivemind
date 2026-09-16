@@ -283,7 +283,7 @@ async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
     receive_task = warden._receive_tasks.pop(sub_bee.worker_id, None)
     if receive_task is not None:
         await reap(receive_task)
-    warden._local_pool.release()
+    warden._sub_bee_slots.release()
     await sub_bee.link.close()
 
 

@@ -15,8 +15,9 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.brood_chamber`,
     `hivemind.cell.local`, `hivemind.cli.stores`, `hivemind.forage`, `hivemind.llm`,
-    `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen`,
-    `hivemind.supervision`, `hivemind.wardens`, `hivemind.workers` and waggle only.
+    `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen`
+    (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`, `hivemind.wardens`,
+    `hivemind.workers` and waggle only.
 
 Key invariants:
     - Every identity this module builds (`MemoryIdentity`, `ChamberIdentity`, `CellIdentity`)
@@ -70,7 +71,7 @@ from hivemind.llm import (
 from hivemind.manifest import HiveManifest
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
-from hivemind.queen import MemoryBudget, QueenDeps
+from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
 from hivemind.supervision import load_policy
 from hivemind.supervision.capping import deterministic_checks, load_tiers
 from hivemind.wardens import WardenDeps
@@ -319,6 +320,11 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,
+        # roadmap step 4.7: an in-memory-only ledger for now (ForageLedger(store=...) durability
+        # needs a raw sqlite3.Connection this function has no access to -- HiveStores only ever
+        # hands back the three already-wrapped stores; wiring a LedgerStore onto the Hive's own
+        # database file is a hivemind.cli.stores change, outside this dispatch's own file list).
+        ledger=ForageLedger(reserve=forage.reserve),
     )
 
 

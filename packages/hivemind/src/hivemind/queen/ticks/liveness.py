@@ -8,15 +8,20 @@ every received `Heartbeat`; `check_liveness` is the sweep: for every attached Wa
 one heartbeat on record, it recomputes how many whole `heartbeat_interval_s` intervals have elapsed
 since the last one (never an incremental per-tick counter, so calling it more often than once per
 interval never over-counts), and raises one Alarm at the human the moment a Warden first crosses
-`heartbeat_miss_limit`.
+`heartbeat_miss_limit`. Roadmap step 4.7 adds two more moves that ride the exact same cadence:
+`renew_grants_on_heartbeat` extends every live grant a Heartbeat's own Warden holds (a grant is a
+lease, roadmap step 4.7: "renewed on the Warden's heartbeat"), and `check_liveness`'s own sweep now
+also calls `hivemind.queen.forage.grants.sweep_expired`, so a grant whose lease lapses -- whether
+its own Warden went offline or simply stopped renewing it -- returns to the pool the same tick.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick, once per Heartbeat received
-    (`record_heartbeat`) and unconditionally once per tick (`check_liveness`). Calls into
-    `hivemind.cell` (HoneyClearance), `hivemind.queen.deps` (QueenDeps, WardenLink),
-    `hivemind.queen.human_inbox` (HumanInbox), `hivemind.supervision` (Alarm, AlarmKind,
-    AlarmSeverity, AlarmState) and waggle only.
+    (`record_heartbeat`, `renew_grants_on_heartbeat`) and unconditionally once per tick
+    (`check_liveness`). Calls into `hivemind.cell` (HoneyClearance), `hivemind.queen.deps`
+    (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (renew_grants_for_warden,
+    sweep_expired), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.supervision` (Alarm,
+    AlarmKind, AlarmSeverity, AlarmState) and waggle only.
 
 Key invariants:
     - `check_liveness` re-derives `missed_heartbeats` from elapsed wall-clock time on every call,
@@ -25,28 +30,44 @@ Key invariants:
     - A newly-offline transition raises exactly one Alarm: the `offline and not current.is_offline`
       guard fires only the tick a Warden first crosses the limit, never on every later check while
       it stays offline.
+    - `check_liveness`'s own expiry sweep runs every call, regardless of whether any Warden's own
+      liveness changed this tick: a grant's `expires_at` is a wall-clock deadline independent of
+      the Warden-by-Warden loop above it.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the Heartbeat/liveness rule this module
-      implements.
+      implements; step 4.7 for the grant-lease renewal and expiry it now also drives.
     - hivemind.queen.human_inbox for HumanInbox, where an offline Warden's Alarm lands.
+    - hivemind.queen.forage.grants for renew_grants_for_warden and sweep_expired themselves.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import MutableMapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from hivemind.cell import HoneyClearance
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.ticks import forage as forage_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
+from hivemind.supervision.attendant import InboxItem
 from waggle.ids import WardenId, new_alarm_id
-from waggle.messages.supervision import AlarmContext
+from waggle.messages.forage import ForageRequest as WireForageRequest
+from waggle.messages.supervision import AlarmContext, Heartbeat
 
-__all__ = ["WardenLiveness", "check_liveness", "record_heartbeat"]
+__all__ = [
+    "WardenLiveness",
+    "check_liveness",
+    "handle_heartbeat_item",
+    "handle_infrastructure_item",
+    "record_heartbeat",
+    "renew_grants_on_heartbeat",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +92,80 @@ def record_heartbeat(
     liveness[warden_id] = WardenLiveness(
         last_heartbeat_at=at, missed_heartbeats=0, is_offline=False
     )
+
+
+async def renew_grants_on_heartbeat(deps: QueenDeps, warden_id: WardenId) -> None:
+    """Extend every live grant `warden_id` holds, on its own Heartbeat (roadmap step 4.7).
+
+    A separate async call, not folded into `record_heartbeat`: that function's own callers treat
+    it as synchronous liveness bookkeeping, and changing its signature to `async` would touch
+    every one of them for a concern (grant leases) this module did not previously have.
+
+    Args:
+        deps: The Queen's collaborators; `ledger` and `grant_ttl_s` are what this renews with.
+        warden_id: The Warden whose Heartbeat just arrived.
+    """
+    await forage_grants.renew_grants_for_warden(deps.ledger, deps, warden_id, deps.grant_ttl_s)
+
+
+async def handle_infrastructure_item(
+    deps: QueenDeps,
+    wardens: Mapping[WardenId, WardenLink],
+    item: InboxItem,
+    last_heartbeat: MutableMapping[WardenId, Heartbeat],
+    liveness: MutableMapping[WardenId, WardenLiveness],
+) -> bool:
+    """Handle a Heartbeat or ForageRequest InboxItem directly; report whether it did either.
+
+    The two payload kinds `hivemind.queen.autopilot.table.decide` must never see fall to its own
+    `NEEDS_JUDGEMENT` (an unrecognised payload) -- a routine Heartbeat is not a judgement call,
+    and roadmap step 4.7 requires a ForageRequest within headroom to be granted "with no awake
+    episode" -- so `hivemind.queen.queen.Queen`'s own tick reaches this ahead of `decide` for
+    both, sharing the one dispatch rather than repeating the same two `isinstance` checks there.
+
+    Args:
+        deps: The Queen's collaborators.
+        wardens: Every Warden currently attached, keyed by id.
+        item: The ordered InboxItem to check.
+        last_heartbeat: The Queen's own `warden_id -> Heartbeat` mirror; mutated in place.
+        liveness: The Queen's own `warden_id -> WardenLiveness` table; mutated in place.
+
+    Returns:
+        True if `item.payload` was a Heartbeat or a ForageRequest (either way, fully handled);
+        False otherwise, so the caller falls through to its own ordinary dispatch.
+    """
+    if isinstance(item.payload, Heartbeat):
+        await handle_heartbeat_item(deps, item, last_heartbeat, liveness)
+        return True
+    if isinstance(item.payload, WireForageRequest):
+        await forage_tick.handle_forage_request_for_item(deps, wardens, item)
+        return True
+    return False
+
+
+async def handle_heartbeat_item(
+    deps: QueenDeps,
+    item: InboxItem,
+    last_heartbeat: MutableMapping[WardenId, Heartbeat],
+    liveness: MutableMapping[WardenId, WardenLiveness],
+) -> None:
+    """Record one Heartbeat InboxItem and renew its own Warden's live grants.
+
+    `hivemind.queen.queen.Queen`'s own tick calls this directly for a received Heartbeat, so the
+    three things a Heartbeat causes (mirror it, reset liveness, renew grants) live in one place
+    instead of split across that call site and this module.
+
+    Args:
+        deps: The Queen's collaborators.
+        item: The ordered InboxItem; `item.payload` must be a `Heartbeat` (the one caller already
+            checked this with `isinstance`; `cast` below trusts that rather than re-checking it).
+        last_heartbeat: The Queen's own `warden_id -> Heartbeat` mirror; mutated in place.
+        liveness: The Queen's own `warden_id -> WardenLiveness` table; mutated in place.
+    """
+    warden_id = WardenId(item.principal)
+    last_heartbeat[warden_id] = cast(Heartbeat, item.payload)
+    record_heartbeat(liveness, warden_id, item.received_at)
+    await renew_grants_on_heartbeat(deps, warden_id)
 
 
 async def check_liveness(
@@ -103,6 +198,11 @@ async def check_liveness(
         if offline and not current.is_offline:
             # The transition only: one Alarm per Warden per outage, not one per later check.
             human_inbox.add_alarm(_offline_alarm(deps, link))
+    # roadmap step 4.7's own exit criterion: "A Warden whose heartbeat stops has its grant back in
+    # the pool after expiry." Unconditional, like the loop above: a grant's own expires_at is a
+    # wall-clock deadline independent of any one Warden's liveness state, so this runs every tick
+    # regardless of whether any Warden just went offline this time.
+    await forage_grants.sweep_expired(deps.ledger, deps)
 
 
 def _offline_alarm(deps: QueenDeps, link: WardenLink) -> Alarm:
