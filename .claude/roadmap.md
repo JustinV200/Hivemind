@@ -808,25 +808,36 @@ failing.
 
 ### Exit criteria
 
-- The flood test holds the budget; the handoff eval passes; the phase 3 scenarios still pass with
+- [x] The flood test holds the budget; the handoff eval passes; the phase 3 scenarios still pass with
   a hot-state budget deliberately set to a quarter of the default.
-- Kill the fake provider mid-run: the trail shows checkpoint → `PAUSED` for every affected bee,
+- [x] Kill the fake provider mid-run: the trail shows checkpoint → `PAUSED` for every affected bee,
   leases stay open, `hive wake` after restoring the provider resumes every task from its Handoff
   and the goal completes with no duplicated work.
-- A Warden asking for more sub-bees than the Hive Stand can bear is denied with a reason on the
+- [x] A Warden asking for more sub-bees than the Hive Stand can bear is denied with a reason on the
   trail; the same request under headroom is granted by autopilot with no awake episode.
-- With the fake provider limited to two seats, six Drones run with at most two model calls in
+- [x] With the fake provider limited to two seats, six Drones run with at most two model calls in
   flight at any moment, the Fanner's queue orders them by tempo, and the Forage view (phase 12)
   would show seats at 2 of 2 throughout. A Warden whose heartbeat stops has its grant back in the
   pool after expiry.
-- A fake hosted provider that answers one call with a 429 and a `retry-after` has that
+- [x] A fake hosted provider that answers one call with a 429 and a `retry-after` has that
   source's headroom at zero on the Forage map until the window passes: nothing is routed to
   it meanwhile, the trail shows one `llm.throttled`, and the next source in the chain absorbs
   the work. A provider that publishes no limits keeps `None` on both rate fields throughout.
-- A Warden's `CAUTION` about its own Cell is written by autopilot with no awake episode and
+- [x] A Warden's `CAUTION` about its own Cell is written by autopilot with no awake episode and
   appears in the planner's prompt only when that Cell is a candidate, never in any other episode;
   a `BLOCK` proposed by a Drone reaches the Queen's awake mode; an expired note leaves hot state
   on the next sweep.
+
+**Met 2026-09-16.** Every bullet is a test in `tests/e2e/test_phase4_exit_criteria.py` and
+`test_phase4_exit_criteria_forage.py` (13 tests, all passing; the eight phase 3 scenarios also run
+at a quarter of the default `budget_fraction`). The real-task rule was exercised three times against
+LM Studio (Heretic Qwen3.8-27B, the operator's `hive.toml`): a mixed run with fake planning and
+real Drones, an instrumented full run, and the plain `hive run` command; each planned a multi-task
+graph, ran three Drones in parallel on the real server (one proposal rolled back and retried), and
+completed with the scratch root removed. One earlier full run timed out with both Drone requests
+cancelled client-side within a second of being sent and nothing on the trail afterwards; it did not
+recur in the three runs that followed and its cause is unknown. Not yet exercised for real: a live
+provider outage through `hive cluster`/`hive wake` (covered by the fake-provider e2e only).
 
 ### ADRs to write
 
