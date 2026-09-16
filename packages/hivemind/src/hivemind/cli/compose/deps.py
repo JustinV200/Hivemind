@@ -319,15 +319,19 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
 
 
 def _build_judge_reviewer(parts: HiveParts) -> ModelJudgeReviewer:
-    """Build the Warden-layer JudgeReviewer on `ModelSlot.JUDGE`, through its own Fanner lane."""
+    """Build the Warden-layer JudgeReviewer on `ModelSlot.JUDGE`, one Fanner lane per review."""
+    # `Fanner.lane` itself is the lane factory: each review gets a lane on the proposal's own
+    # tempo, so an urgent task's judge call queues ahead of a thorough one's.
     return ModelJudgeReviewer(
-        bound=parts.registry.bound(ModelSlot.JUDGE), gate=parts.fanner.lane(Tempo())
+        bound=parts.registry.bound(ModelSlot.JUDGE), lane_for=parts.fanner.lane
     )
 
 
-def _lane_for_grant(parts: HiveParts) -> Callable[[str, str], CallGate]:
-    """Return `WardenDeps.lane_for_grant`: a fresh Fanner lane per (grant_id, goal_id) pair."""
-    return lambda grant_id, goal_id: parts.fanner.lane(Tempo(), grant_id=grant_id, goal_id=goal_id)
+def _lane_for_grant(parts: HiveParts) -> Callable[[str, str, Tempo], CallGate]:
+    """Return `WardenDeps.lane_for_grant`: one Fanner lane per (grant, goal) on the task's tempo."""
+    return lambda grant_id, goal_id, tempo: parts.fanner.lane(
+        tempo, grant_id=grant_id, goal_id=goal_id
+    )
 
 
 def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedger) -> QueenDeps:

@@ -58,6 +58,7 @@ from typing import Annotated, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivemind.forage.tempo import Tempo
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
 from hivemind.supervision.capping.tiers import RiskTier
@@ -133,6 +134,11 @@ class JudgeRequest(BaseModel):
         description="The task's acceptance criteria: the proposal's own stated postconditions."
     )
     rubric: JudgeRubric = Field(description="What to check for, at this proposal's risk tier.")
+    tempo: Tempo = Field(
+        default_factory=Tempo,
+        description="The proposing task's speed-against-accuracy setting: orders the judge's own "
+        "model call in the Fanner's queues; never changes what is reviewed.",
+    )
 
 
 class JudgeReviewer(Protocol):
@@ -199,6 +205,7 @@ class JudgeCheck:
             action=context.proposal.action,
             acceptance_criteria=context.proposal.postconditions,
             rubric=rubric,
+            tempo=context.proposal.tempo,
         )
         # Latency class: one model call, typically seconds to tens of seconds; a timeout and
         # retry policy belong to the model-backed JudgeReviewer implementation, not this rung.

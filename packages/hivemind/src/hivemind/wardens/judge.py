@@ -48,8 +48,11 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivemind.forage.tempo import Tempo
 from hivemind.llm import (
     BoundModel,
     CallGate,
@@ -96,16 +99,18 @@ class _JudgeModelOutput(BaseModel):
 class ModelJudgeReviewer:
     """A JudgeReviewer that runs `complete_structured` on `ModelSlot.JUDGE` through a CallGate."""
 
-    def __init__(self, bound: BoundModel, gate: CallGate) -> None:
-        """Bind this reviewer to a JUDGE binding and the call gate it runs through.
+    def __init__(self, bound: BoundModel, lane_for: Callable[[Tempo], CallGate]) -> None:
+        """Bind this reviewer to a JUDGE binding and the lane factory its calls run through.
 
         Args:
             bound: The `ModelSlot.JUDGE` binding to call; typically pinned to a different provider
                 than `ModelSlot.WORKER` so blind spots do not correlate (codingrules section 8.12).
-            gate: The Warden's own `CallGate` (the seat meter every model call passes through).
+            lane_for: Builds the `CallGate` one review runs through, from the proposing task's
+                own `Tempo` (`hivemind.llm.fanner.Fanner.lane` in production), so the judge's
+                call queues at the task's urgency rather than a default one.
         """
         self._bound = bound
-        self._gate = gate
+        self._lane_for = lane_for
 
     async def review(self, request: JudgeRequest) -> JudgeVerdict:
         """Score `request` against its rubric and return a structured verdict.
@@ -122,7 +127,7 @@ class ModelJudgeReviewer:
         # rung retries and fallback chain (hivemind.llm.complete_structured) cover a timeout or a
         # malformed reply, so no further retry logic lives here.
         result = await complete_structured(
-            self._bound, llm_request, _JudgeModelOutput, gate=self._gate
+            self._bound, llm_request, _JudgeModelOutput, gate=self._lane_for(request.tempo)
         )
         output = result.value
         return JudgeVerdict(

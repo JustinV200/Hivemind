@@ -45,6 +45,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from hivemind.cell import RealCellSource
+from hivemind.forage.tempo import Tempo
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.memory import MemoryIdentity, MemoryStore
@@ -125,10 +126,12 @@ class WardenDeps:
             (phase 10). Defaults to a fresh `AuditRates()`.
         lane_for_grant: Builds a grant-attributed `CallGate` for one sub-bee
             (`hivemind.llm.fanner.Fanner.lane(tempo, grant_id=, goal_id=)`, closed over this
-            Warden's own Fanner and tempo choice); `hivemind.wardens.spawn.spawn_sub_bee` calls
-            it once per spawn so every `llm.call` a sub-bee makes carries its own grant and goal
-            id. `call_gate` above stays the Warden's own unattributed lane, used for its own
-            awake episodes and by any test that never names this field.
+            Warden's own Fanner); `hivemind.wardens.spawn.spawn_sub_bee` calls it once per
+            spawn with the assignment's own `Tempo`, so every `llm.call` a sub-bee makes
+            carries its grant and goal id and its task's urgency reaches the Fanner's queue
+            ordering and spill threshold (codingrules section 8.14). `call_gate` above stays
+            the Warden's own unattributed lane, used for its own awake episodes and by any
+            test that never names this field.
     """
 
     source: RealCellSource
@@ -160,18 +163,18 @@ class WardenDeps:
     # unmetered DirectCallGate that ignores grant_id/goal_id (matching `call_gate`'s own default
     # in every builder that never names either field), so a WardenDeps built before this dispatch
     # keeps today's single-lane behaviour.
-    lane_for_grant: Callable[[str, str], CallGate] = field(
+    lane_for_grant: Callable[[str, str, Tempo], CallGate] = field(
         default_factory=lambda: _default_lane_for_grant
     )
 
 
-def _default_lane_for_grant(grant_id: str, goal_id: str) -> CallGate:
-    """Return an unmetered DirectCallGate, ignoring `grant_id`/`goal_id` (WardenDeps's own default).
+def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:
+    """Return an unmetered DirectCallGate, ignoring every argument (WardenDeps's own default).
 
     A composition root that wants real per-grant Fanner attribution overrides `lane_for_grant`
     with a closure over its own `Fanner` (`hivemind.cli.compose.deps.build_warden_deps`); this
     default keeps every WardenDeps built without one behaving exactly like `call_gate`'s own
     default (`DirectCallGate()`, no metering).
     """
-    del grant_id, goal_id  # Unused: this default carries no attribution at all.
+    del grant_id, goal_id, tempo  # Unused: this default carries no attribution or queue.
     return DirectCallGate()

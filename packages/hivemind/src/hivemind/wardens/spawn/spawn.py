@@ -271,11 +271,14 @@ def _build_sub_bee_grant(
     """Build one sub-bee's own GrantSlice and grant-attributed CallGate (roadmap step 4.8).
 
     One lane per grant, so every `llm.call` this sub-bee makes carries its own grant and goal id
-    (`hivemind.wardens.deps.WardenDeps.lane_for_grant`'s own docstring); `deps.call_gate`, this
+    (`hivemind.wardens.deps.WardenDeps.lane_for_grant`'s own docstring), ordered in the Fanner's
+    queues by the assignment's own tempo rather than a default one; `deps.call_gate`, this
     Warden's own unattributed lane, is untouched, used only for its own awake episodes.
     """
+    tempo = Tempo.from_wire(assignment.tempo)
     return _SubBeeGrant(
-        slice=_grant_slice(grant), call_gate=deps.lane_for_grant(grant.grant_id, assignment.goal_id)
+        slice=_grant_slice(grant),
+        call_gate=deps.lane_for_grant(grant.grant_id, assignment.goal_id, tempo),
     )
 
 

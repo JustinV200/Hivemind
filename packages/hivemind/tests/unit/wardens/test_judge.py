@@ -48,7 +48,7 @@ async def test_review_builds_a_verdict_with_the_requests_own_rubric_id() -> None
     provider = FakeLLMProvider(name="judge-provider")
     provider.script(_verdict_response("APPROVE", reasons=["Matches its stated summary."]))
     bound = make_bound(slot=ModelSlot.JUDGE, provider=provider)
-    reviewer = ModelJudgeReviewer(bound=bound, gate=DirectCallGate())
+    reviewer = ModelJudgeReviewer(bound=bound, lane_for=lambda _tempo: DirectCallGate())
     request = make_judge_request()
 
     verdict = await reviewer.review(request)
@@ -63,7 +63,7 @@ async def test_review_never_shares_the_proposers_transcript_or_hot_state() -> No
     provider = FakeLLMProvider(name="judge-provider")
     provider.script(_verdict_response("REJECT", reasons=["Touches an undeclared path."]))
     bound = make_bound(slot=ModelSlot.JUDGE, provider=provider)
-    reviewer = ModelJudgeReviewer(bound=bound, gate=DirectCallGate())
+    reviewer = ModelJudgeReviewer(bound=bound, lane_for=lambda _tempo: DirectCallGate())
     request = make_judge_request()
 
     verdict = await reviewer.review(request)

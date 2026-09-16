@@ -271,6 +271,7 @@ async def _review(deps: AuditDeps, proposal: Proposal) -> JudgeVerdict:
         action=proposal.action,
         acceptance_criteria=proposal.postconditions,
         rubric=rubric,
+        tempo=proposal.tempo,
     )
     # Latency class: one model call, typically seconds to tens of seconds; audit sampling runs
     # after a proposal's own terminal state, so this await never blocks the gate itself.
