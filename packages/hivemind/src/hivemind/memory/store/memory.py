@@ -35,19 +35,80 @@ from datetime import datetime
 
 from hivemind.cell import HoneyClearance
 from hivemind.memory.bee_bread.entry import BeeBreadEntry
+from hivemind.memory.cell_wax import CellWax, WaxState
 from hivemind.memory.episodes import EpisodeRecord
-from hivemind.memory.errors import BeeBreadEntryNotFoundError, ClearanceError, HandoffNotFoundError
+from hivemind.memory.errors import (
+    BeeBreadEntryNotFoundError,
+    ClearanceError,
+    HandoffNotFoundError,
+    WaxNotFoundError,
+)
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR, Note
 from hivemind.memory.pins import Pin
 from hivemind.pheromone import MemoryEvent, PheromoneTrail
-from waggle.ids import EventId, TaskId
+from waggle.ids import CellId, EventId, TaskId
 
 __all__ = ["InMemoryMemoryStore"]
 
 
-class InMemoryMemoryStore:
-    """An in-process MemoryStore: 5 dicts (pins, notes, handoffs, episodes, bee_bread), 1 lock."""
+class _WaxMemoryStore:
+    """The Cell Wax quarter of InMemoryMemoryStore, split out for codingrules 5.1's class size.
+
+    Reads `self._wax`, `self._lock` and `self._trail`, set by `InMemoryMemoryStore.__init__`; this
+    class is never instantiated on its own. The three annotations below declare that shared state
+    for mypy --strict, which cannot see across a subclass's own `__init__` otherwise.
+    """
+
+    _wax: dict[str, CellWax]
+    _lock: asyncio.Lock
+    _trail: PheromoneTrail
+
+    async def put_wax(self, wax: CellWax, event: MemoryEvent) -> None:
+        """Insert `wax` and record `event`; see `MemoryStore.put_wax`."""
+        async with self._lock:
+            await self._trail.record(event)
+            self._wax[wax.id] = wax
+
+    async def get_wax(self, wax_id: str) -> CellWax:
+        """Return the note with id `wax_id`; see `MemoryStore.get_wax`."""
+        async with self._lock:
+            wax = self._wax.get(wax_id)
+        if wax is None:
+            raise WaxNotFoundError(wax_id)
+        return wax
+
+    async def list_wax(
+        self, cell_id: CellId | None, states: frozenset[WaxState], allowance: HoneyClearance
+    ) -> tuple[CellWax, ...]:
+        """Return notes in `states`, within `allowance`; see `MemoryStore.list_wax`."""
+        async with self._lock:
+            waxes = list(self._wax.values())
+        matches = [
+            wax
+            for wax in waxes
+            if (cell_id is None or wax.cell_id == cell_id)
+            and wax.state in states
+            and wax.clearance.rank <= allowance.rank
+        ]
+        matches.sort(key=lambda wax: (wax.proposed_at, wax.id), reverse=True)
+        return tuple(matches)
+
+    async def update_wax_state(self, wax: CellWax, event: MemoryEvent) -> None:
+        """Overwrite the row for `wax.id` and record `event`; see `MemoryStore.update_wax_state`."""
+        async with self._lock:
+            if wax.id not in self._wax:
+                raise WaxNotFoundError(wax.id)
+            await self._trail.record(event)
+            self._wax[wax.id] = wax
+
+
+class InMemoryMemoryStore(_WaxMemoryStore):
+    """An in-process MemoryStore: 6 dicts (pins/notes/handoffs/episodes/bee_bread/wax), 1 lock.
+
+    Composed with `_WaxMemoryStore` (Cell Wax's own quarter, split out purely for codingrules
+    5.1's class-length limit); `InMemoryMemoryStore` itself is the whole class every caller names.
+    """
 
     def __init__(self, trail: PheromoneTrail) -> None:
         """Create an empty store over `trail`.
@@ -61,7 +122,8 @@ class InMemoryMemoryStore:
         self._handoffs: dict[str, tuple[Handoff, TaskId | None]] = {}
         self._episodes: dict[str, EpisodeRecord] = {}
         self._bee_bread: dict[str, BeeBreadEntry] = {}
-        # Guards all five dicts together, matching MemoryTaskStore's own single-lock shape.
+        self._wax: dict[str, CellWax] = {}
+        # Guards all six dicts together, matching MemoryTaskStore's own single-lock shape.
         self._lock = asyncio.Lock()
 
     async def add_pin(self, pin: Pin, event: MemoryEvent) -> None:

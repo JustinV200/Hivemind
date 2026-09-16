@@ -3,11 +3,12 @@
 The autopilot package is the Queen's Autopilot: deterministic fallback behaviour that never
 awaits a model. Nothing under this package may import hivemind.llm.
 
-## Public API (roadmap steps 3.20, 4.7)
+## Public API (roadmap steps 3.20, 4.7, 4.2a)
 
 - `QueenAction` (`actions.py`): the closed set of moves the dispatch table can pick -- `RECORD`,
   `DISPATCH`, `COMPLETE_TASK`, `RETRY_TASK`, `FAIL_TASK`, `REBIND`, `ESCALATE_TO_HUMAN`,
-  `BLOCK_ON_QUESTION`, `ROUTE_ANSWER`, `MARK_WARDEN_OFFLINE`, `NEEDS_JUDGEMENT`.
+  `BLOCK_ON_QUESTION`, `ROUTE_ANSWER`, `MARK_WARDEN_OFFLINE`, `WRITE_WAX`, `REJECT_WAX`,
+  `CLEAR_WAX`, `NEEDS_JUDGEMENT`.
 - `decide` (`table.py`): the pure dispatch table itself, keyed by the wrapped payload's own type
   (and the task's own status, where it matters); an escalated Alarm is mapped through
   `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling.
@@ -19,6 +20,15 @@ awaits a model. Nothing under this package may import hivemind.llm.
   does not but shrinking another live grant could, `DENY` otherwise. `hivemind.queen.ticks.forage`
   is this rule's one caller, reached ahead of `decide` for exactly the same reason `decide`'s own
   `NEEDS_JUDGEMENT` fallback would otherwise catch every ForageRequest.
+- `WaxAutopilotOutcome`, `WaxProposalSignal`, `decide_wax_proposal` (`wax.py`, roadmap step 4.2a):
+  the deterministic rule for one `CellWaxProposed` -- `AUTOPILOT_WRITE` only for a Warden's own
+  NOTE or CAUTION about its own Cell, strictly within the manifest's per-Cell cap; `NEEDS_JUDGEMENT`
+  for every BLOCK, every other proposer, or one at or over the cap. Reads the wire
+  `waggle.messages.cell.wax.WaxSeverity` directly, not the mirrored domain one in
+  `hivemind.memory.cell_wax`, because that package's own `__init__` transitively reaches
+  `hivemind.llm` (through `hivemind.memory.hot_state.packing`'s `SectionLabel`) and this directory
+  may never import it. `hivemind.queen.ticks.wax` is this rule's one caller, reached ahead of
+  `decide` the same way `forage.py`'s own rule is.
 
 ## How to test this
 

@@ -41,6 +41,7 @@ from hivemind.memory.bee_bread import BeeBreadEntry, deposit_hot_state_item
 from hivemind.memory.context import MemoryContext
 from hivemind.memory.hot_state.summaries import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     QuestionSummary,
     TaskSummary,
@@ -81,11 +82,18 @@ def should_demote(
 
     Returns:
         The first reason that applies, checked in the order TASK_CLOSED, ALARM_RESOLVED, AGED_OUT;
-        `None` when none applies and `item` should stay in hot state. Always `None` for a Pin.
+        `None` when none applies and `item` should stay in hot state. Always `None` for a Pin or a
+        CellWaxSummary.
     """
     if isinstance(item, Pin):
         # Pins never decay (codingrules section 8.9); a House Bee sweep must never call demote()
         # for one, but should_demote itself stays total and safe regardless of what asks.
+        return None
+    if isinstance(item, CellWaxSummary):
+        # Cell Wax has its own lifecycle (hivemind.memory.cell_wax.writes, driven by a Queen
+        # decision or the House Bee sweep's own wax-expiry hook), never the generic hot-state
+        # demotion path a Note or a summary walks; see hivemind.memory.bee_bread.deposit's own
+        # matching refusal for why demote() must never be called with one.
         return None
 
     linked_task = _linked_task(item)
@@ -129,7 +137,7 @@ def _linked_task(item: Scorable) -> TaskId | None:
             return item.task_id
         case QuestionSummary():
             return item.task_id
-        case DecisionSummary() | Note() | Pin():
+        case DecisionSummary() | CellWaxSummary() | Note() | Pin():
             return None
         case _ as unreachable:
             assert_never(unreachable)

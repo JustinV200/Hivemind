@@ -13,6 +13,10 @@ interval never over-counts), and raises one Alarm at the human the moment a Ward
 lease, roadmap step 4.7: "renewed on the Warden's heartbeat"), and `check_liveness`'s own sweep now
 also calls `hivemind.queen.forage.grants.sweep_expired`, so a grant whose lease lapses -- whether
 its own Warden went offline or simply stopped renewing it -- returns to the pool the same tick.
+`handle_infrastructure_item` (this module's own dispatch point) also reaches `hivemind.queen.
+ticks.wax.handle_wax_item` for a `waggle.messages.cell.CellWaxProposed` (roadmap step 4.2a), the
+same "ahead of `decide`, so a within-cap case needs no awake episode" shape as its ForageRequest
+neighbour.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -20,8 +24,9 @@ Fits into the Hive:
     (`record_heartbeat`, `renew_grants_on_heartbeat`) and unconditionally once per tick
     (`check_liveness`). Calls into `hivemind.cell` (HoneyClearance), `hivemind.queen.deps`
     (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (renew_grants_for_warden,
-    sweep_expired), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.supervision` (Alarm,
-    AlarmKind, AlarmSeverity, AlarmState) and waggle only.
+    sweep_expired), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.queen.ticks.wax`
+    (handle_wax_item), `hivemind.supervision` (Alarm, AlarmKind, AlarmSeverity, AlarmState) and
+    waggle only.
 
 Key invariants:
     - `check_liveness` re-derives `missed_heartbeats` from elapsed wall-clock time on every call,
@@ -54,6 +59,7 @@ from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.ticks import forage as forage_tick
+from hivemind.queen.ticks import wax as wax_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from hivemind.supervision.attendant import InboxItem
 from waggle.ids import WardenId, new_alarm_id
@@ -115,13 +121,14 @@ async def handle_infrastructure_item(
     last_heartbeat: MutableMapping[WardenId, Heartbeat],
     liveness: MutableMapping[WardenId, WardenLiveness],
 ) -> bool:
-    """Handle a Heartbeat or ForageRequest InboxItem directly; report whether it did either.
+    """Handle a Heartbeat, ForageRequest or CellWaxProposed InboxItem; report whether it did any.
 
-    The two payload kinds `hivemind.queen.autopilot.table.decide` must never see fall to its own
+    The payload kinds `hivemind.queen.autopilot.table.decide` must never see fall to its own
     `NEEDS_JUDGEMENT` (an unrecognised payload) -- a routine Heartbeat is not a judgement call,
-    and roadmap step 4.7 requires a ForageRequest within headroom to be granted "with no awake
-    episode" -- so `hivemind.queen.queen.Queen`'s own tick reaches this ahead of `decide` for
-    both, sharing the one dispatch rather than repeating the same two `isinstance` checks there.
+    roadmap step 4.7 requires a ForageRequest within headroom to be granted "with no awake
+    episode", and roadmap step 4.2a requires the same for a Warden's own NOTE/CAUTION within its
+    per-Cell cap -- so `hivemind.queen.queen.Queen`'s own tick reaches this ahead of `decide` for
+    all three, sharing the one dispatch rather than repeating the same `isinstance` checks there.
 
     Args:
         deps: The Queen's collaborators.
@@ -131,8 +138,8 @@ async def handle_infrastructure_item(
         liveness: The Queen's own `warden_id -> WardenLiveness` table; mutated in place.
 
     Returns:
-        True if `item.payload` was a Heartbeat or a ForageRequest (either way, fully handled);
-        False otherwise, so the caller falls through to its own ordinary dispatch.
+        True if `item.payload` was a Heartbeat, a ForageRequest or a CellWaxProposed (either way,
+        fully handled); False otherwise, so the caller falls through to its own ordinary dispatch.
     """
     if isinstance(item.payload, Heartbeat):
         await handle_heartbeat_item(deps, item, last_heartbeat, liveness)
@@ -140,7 +147,7 @@ async def handle_infrastructure_item(
     if isinstance(item.payload, WireForageRequest):
         await forage_tick.handle_forage_request_for_item(deps, wardens, item)
         return True
-    return False
+    return await wax_tick.handle_wax_item(deps, wardens, item)
 
 
 async def handle_heartbeat_item(

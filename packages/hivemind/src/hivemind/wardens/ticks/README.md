@@ -14,7 +14,9 @@ dispatch calls into these; none of them is a general-purpose module on its own).
 - `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back.
 - `control`: forward `TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` from the Queen unchanged.
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports, watch for a stall,
-  and build the `HotStateSources` an awake episode reads.
+  and build the `HotStateSources` an awake episode reads -- including `wax(cells)` (roadmap step
+  4.2a), WRITTEN Cell Wax for the given Cells, capped per Cell the same way
+  `hivemind.queen.awake.episode.QueenSources.wax` is.
 
 ## How to test this
 

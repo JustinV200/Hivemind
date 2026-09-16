@@ -5,10 +5,14 @@ table but on the very same layer as both (codingrules section 4); with no ADR li
 memory may not import either directly. So instead of packing real `Task`, `Alarm` and `Question`
 objects, `hivemind.memory.hot_state.packing.assemble` packs these flat summary models, which the
 layer above (queen, wardens) fills in from its own `Task`/`Alarm`/`Question` records before calling
-`assemble`. `Principal` (who is reading), `TokenBudget` (how much room there is) and `TriggerEvent`
-(what triggered this episode) are the other inputs `assemble` needs; `HotStateSources` is the
-Protocol a caller implements over its own stores to hand all of the above to `assemble` without
-memory ever reading brood_chamber or supervision itself.
+`assemble`. `CellWaxSummary` (roadmap step 4.2a) is the one flat summary this module owns the
+source model of (`hivemind.memory.cell_wax.CellWax`) rather than mirroring an out-of-layer record;
+`HotStateSources.wax` returns it only for a Cell in `AssembleRequest.cells_in_play`, so a caution
+about a Cell not currently a placement or assignment candidate never becomes a hot-state
+candidate at all (docs/adr/0022). `Principal` (who is reading), `TokenBudget` (how much room there
+is) and `TriggerEvent` (what triggered this episode) are the other inputs `assemble` needs;
+`HotStateSources` is the Protocol a caller implements over its own stores to hand all of the above
+to `assemble` without memory ever reading brood_chamber or supervision itself.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read by hivemind.memory.hot_state.
@@ -44,7 +48,8 @@ from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
-from waggle.messages.base import AlarmIdField, MessageIdField, TaskIdField, UtcDatetime
+from waggle.ids import CellId
+from waggle.messages.base import AlarmIdField, CellIdField, MessageIdField, TaskIdField, UtcDatetime
 
 SUMMARY_TITLE_CAP_CHARS = 200  # A one-line summary, matching TaskSpec.title's own scale.
 SUMMARY_TEXT_CAP_CHARS = 500  # A hot-state summary line is a sentence or two, not the source
@@ -68,6 +73,7 @@ __all__ = [
     "SUMMARY_TEXT_CAP_CHARS",
     "SUMMARY_TITLE_CAP_CHARS",
     "AlarmSummary",
+    "CellWaxSummary",
     "DecisionSummary",
     "HotStateSources",
     "Principal",
@@ -195,6 +201,30 @@ class DecisionSummary(BaseModel):
     clearance: HoneyClearance = Field(description="The decision's data-sensitivity label.")
 
 
+class CellWaxSummary(BaseModel):
+    """A flat summary of one WRITTEN Cell Wax note, for hot-state packing (roadmap step 4.2a).
+
+    Only ever a candidate for a Cell in `hivemind.memory.hot_state.packing.AssembleRequest.
+    cells_in_play`: `HotStateSources.wax` below is called with exactly that set, and a caller
+    (`hivemind.queen.awake.episode.QueenSources.wax`) that queries no Cell returns none of these,
+    so a caution about a Cell not in play never becomes a candidate at all (docs/adr/0022).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(description="The note's own id (a wax_-prefixed ULID).")
+    cell_id: CellIdField = Field(description="The Cell this note is about.")
+    severity: str = Field(
+        description="NOTE, CAUTION or BLOCK, as a plain string (memory does not mirror "
+        "hivemind.memory.cell_wax.WaxSeverity here, matching AlarmSummary.severity's own shape)."
+    )
+    text: str = Field(
+        max_length=SUMMARY_TEXT_CAP_CHARS, description="A capped summary of the caution."
+    )
+    clearance: HoneyClearance = Field(description="The note's data-sensitivity label.")
+    written_at: UtcDatetime = Field(description="When the Queen wrote it; its recency key.")
+
+
 class HotStateSources(Protocol):
     """What `assemble` reads: the Queen and a Warden each implement this over their own stores."""
 
@@ -208,6 +238,22 @@ class HotStateSources(Protocol):
 
     async def pending_questions(self) -> tuple[QuestionSummary, ...]:
         """Return every pending question, as flat summaries."""
+        ...
+
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        """Return WRITTEN Cell Wax for `cells` only, capped per Cell, as flat summaries.
+
+        Args:
+            cells: The Cells currently a candidate for placement or assignment
+                (`AssembleRequest.cells_in_play`); empty means none, and this must then return
+                nothing (docs/adr/0022: "wax scores into hot state only while its Cell is a
+                candidate").
+
+        Returns:
+            Every WRITTEN, unexpired note for a Cell in `cells`, already bounded by the manifest's
+            own per-Cell cap (`hivemind.memory.cell_wax.cap_wax_for_hot_state`); a Cell not named
+            in `cells` never appears here at all.
+        """
         ...
 
     async def recent_decisions(self, limit: int) -> tuple[DecisionSummary, ...]:

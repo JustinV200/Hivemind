@@ -22,6 +22,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider, ProviderCapabilities, text_response
 from hivemind.memory import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     Note,
     Pin,
@@ -31,6 +32,7 @@ from hivemind.memory import (
 )
 from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.awake import decide_awake
+from waggle.ids import CellId
 
 
 class _EmptyHotState:
@@ -52,6 +54,9 @@ class _EmptyHotState:
         return ()
 
     async def notes(self) -> tuple[Note, ...]:
+        return ()
+
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
         return ()
 
 

@@ -17,7 +17,11 @@ get_bee_bread_entry`. `SummaryOfSummaryError`, `EmptyCompactionError` and `TooMa
 (roadmap step 4.3) are `hivemind.memory.compact.compact`'s own three refusals: a source that is
 itself already a `BeeBreadEntryKind.SUMMARY` (compaction is one level only, docs/adr/0022), no
 sources at all, and more sources than one entry may reference (`hivemind.memory.bee_bread.entry.
-MAX_REF_IDS`).
+MAX_REF_IDS`). `InvalidWaxTransitionError` (roadmap step 4.2a) is `hivemind.memory.cell_wax.state.
+assert_transition`'s own refusal, mirroring `hivemind.forage.errors.InvalidGrantTransitionError`
+exactly; `WaxTextTooLongError` is `hivemind.memory.cell_wax.writes.propose_wax`'s refusal of a
+proposal whose text exceeds the manifest's own (possibly lower than the wire shape's)
+`[memory] wax_text_cap_chars`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by hivemind.memory.checkpoint
@@ -42,20 +46,35 @@ See Also:
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from hivemind.cell import HoneyClearance
-from hivemind.common.errors import HiveMindError, NotFoundError, PermissionDeniedError
+from hivemind.common.errors import (
+    ConflictError,
+    HiveMindError,
+    NotFoundError,
+    PermissionDeniedError,
+)
+
+if TYPE_CHECKING:
+    # Type-checking only: hivemind.memory.cell_wax.state imports this module (for
+    # InvalidWaxTransitionError), so a real, eager import of WaxState here would be circular.
+    # from __future__ import annotations already makes every annotation below a string at
+    # runtime, so InvalidWaxTransitionError.__init__ never needs to resolve the name.
+    from hivemind.memory.cell_wax.state import WaxState
 
 __all__ = [
     "BeeBreadEntryNotFoundError",
     "ClearanceError",
     "EmptyCompactionError",
     "HandoffNotFoundError",
+    "InvalidWaxTransitionError",
     "MemoryTierError",
     "NoteTooLongError",
     "SummaryOfSummaryError",
     "TooManySourcesError",
+    "WaxNotFoundError",
+    "WaxTextTooLongError",
 ]
 
 
@@ -205,5 +224,73 @@ class NoteTooLongError(MemoryTierError):
             limit: The cap it exceeded.
         """
         super().__init__(f"Note text is {length} chars, over the {limit}-char limit.")
+        self.length = length
+        self.limit = limit
+
+
+class WaxNotFoundError(NotFoundError):
+    """Raise when a lookup by id finds no matching Cell Wax note in the memory tables."""
+
+    code: ClassVar[str] = "hivemind.memory.wax_not_found"
+
+    def __init__(self, wax_id: str) -> None:
+        """Build the error for a missing Cell Wax note.
+
+        Args:
+            wax_id: The note id that was looked up and not found.
+        """
+        super().__init__(f"No Cell Wax note with id {wax_id!r} exists in the memory tables.")
+        self.wax_id = wax_id
+
+
+class InvalidWaxTransitionError(ConflictError):
+    """Raise when `hivemind.memory.cell_wax.state.assert_transition` is asked for an illegal edge.
+
+    Mirrors `hivemind.forage.errors.InvalidGrantTransitionError` exactly: a Cell Wax note's state
+    machine (Appendix C, "Cell Wax note" row) has exactly one legal set of edges, and every other
+    move -- a REJECTED note moved anywhere, PROPOSED straight to EXPIRED -- raises this instead of
+    silently applying.
+    """
+
+    code: ClassVar[str] = "hivemind.memory.invalid_wax_transition"
+
+    def __init__(
+        self, from_state: WaxState, to_state: WaxState, *, subject_id: str | None = None
+    ) -> None:
+        """Build the error for an illegal Cell Wax transition.
+
+        Args:
+            from_state: The note's state before the attempted move.
+            to_state: The state the caller asked to move it to.
+            subject_id: The note's own id, when the caller has it.
+        """
+        subject = f" ({subject_id})" if subject_id is not None else ""
+        super().__init__(
+            f"Cell Wax note{subject} cannot move from {from_state.value} to {to_state.value}: "
+            "no such edge in WaxState.TRANSITIONS."
+        )
+        self.from_state = from_state
+        self.to_state = to_state
+
+
+class WaxTextTooLongError(MemoryTierError):
+    """Raise when a Cell Wax proposal's text is longer than the manifest's own wax_text_cap_chars.
+
+    Raised by `hivemind.memory.cell_wax.writes.propose_wax` before a `CellWax` is even
+    constructed: the manifest's `[memory] wax_text_cap_chars` may be lower than the wire shape's
+    own hard ceiling (`waggle.messages.cell.wax.MAX_WAX_TEXT_CHARS`), and a runtime manifest value
+    cannot be expressed as a pydantic `Field(max_length=...)` fixed at import time.
+    """
+
+    code: ClassVar[str] = "hivemind.memory.wax_text_too_long"
+
+    def __init__(self, length: int, limit: int) -> None:
+        """Build the error for an oversized Cell Wax proposal.
+
+        Args:
+            length: How long the offending text was, in characters.
+            limit: The manifest's own cap it exceeded.
+        """
+        super().__init__(f"Cell Wax text is {length} chars, over the {limit}-char manifest cap.")
         self.length = length
         self.limit = limit

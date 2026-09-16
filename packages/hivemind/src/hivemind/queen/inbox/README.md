@@ -9,7 +9,9 @@ Unlike `hivemind.wardens.inbox`, this package MAY import `hivemind.llm`: only an
 
 - `queen_attendant`, `to_inbox_item` (`weights.py`): build the Queen's own
   `hivemind.supervision.attendant.Attendant` over `WeightTable.queen_default()`, and classify one
-  received envelope into the `InboxItem` shape it scores.
+  received envelope into the `InboxItem` shape it scores. A `CellWaxProposed` (roadmap step 4.2a)
+  classifies as `WAGGLE_MESSAGE`, the same low base weight as any other routine bee traffic --
+  deliberately not its own `InboxKind`.
 - `ModelTieBreaker` (`tie_breaker.py`): the model-backed arbiter, on `ModelSlot.ATTENDANT`, for
   an exact score tie -- the seam `hivemind.supervision.attendant.Attendant.order` calls only when
   deterministic scoring cannot separate two or more items.

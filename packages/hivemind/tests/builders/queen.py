@@ -73,6 +73,7 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.base import WaggleMessage
+from waggle.messages.cell import CellWaxWritten
 from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign
@@ -288,6 +289,7 @@ class WardenEnd:
         self.intervenes: list[Intervene] = []
         self.forage_replies: list[ForageReply] = []
         self.ceilings_sets: list[CeilingsSet] = []  # Roadmap step 4.8.
+        self.wax_written: list[CellWaxWritten] = []  # Roadmap step 4.2a.
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -347,6 +349,11 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.ceilings_sets), limit=limit)
         return self.ceilings_sets[-1]
 
+    async def wait_for_wax_written(self, limit: int = DEFAULT_PUMP_LIMIT) -> CellWaxWritten:
+        """Pump until at least one CellWaxWritten has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.wax_written), limit=limit)
+        return self.wax_written[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Queen's own receive() ends cleanly."""
         await self._transport.close()
@@ -373,6 +380,9 @@ class WardenEnd:
             self.ceilings_sets.append(payload)
             self.received_kinds.append("ceilings_set")
             self.received_kinds.append("forage_reply")
+        elif isinstance(payload, CellWaxWritten):
+            self.wax_written.append(payload)
+            self.received_kinds.append("wax_written")
 
 
 def plan_responder(

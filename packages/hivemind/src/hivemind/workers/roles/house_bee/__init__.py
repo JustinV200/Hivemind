@@ -2,10 +2,13 @@
 
 A House Bee keeps memory from growing without bound: its one duty, a **sweep**, first demotes
 whatever `hivemind.memory.should_demote` says has left hot state's own window into Bee Bread (the
-warm tier), then folds Bee Bread entries older than that same window, for closed tasks, into new
-`SUMMARY` entries through `hivemind.memory.compact` -- never from a previous summary (docs/adr/0022,
-"one level"). A third phase, ripening Bee Bread into Honey (the cold tier), is a named no-op hook
-until phase 7's Honey Store exists. This package is split by responsibility (codingrules section
+warm tier), expires every WRITTEN Cell Wax note (a Queen-written caution about one Cell) whose own
+`expires_at` has passed (`hivemind.memory.cell_wax.expire_wax`, roadmap step 4.2a's own named
+wax-expiry hook), then folds Bee Bread entries older than that same window, for closed tasks, into
+new `SUMMARY` entries through `hivemind.memory.compact` -- never from a previous summary
+(docs/adr/0022, "one level"). A fourth phase, ripening Bee Bread (and cleared/expired Cell Wax)
+into Honey (the cold tier), is a named no-op hook until phase 7's Honey Store exists. This package
+is split by responsibility (codingrules section
 5.2): `sweep.py` holds `run_sweep` and the pure counts/bundles it works over
 (`SweepDeps`/`SweepWindow`/`SweepOutcome`), decoupled from the Worker protocol so a future
 timer-driven supervisor can call it directly; `schedule.py` holds `SweepSchedule`, the pure timer a

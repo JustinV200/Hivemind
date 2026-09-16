@@ -55,12 +55,14 @@ from typing import TYPE_CHECKING
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.memory import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     Note,
     Pin,
     QuestionSummary,
     TaskSummary,
 )
+from hivemind.memory.cell_wax import WaxState, cap_wax_for_hot_state
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
@@ -69,7 +71,7 @@ from hivemind.wardens.ticks.alarms import handle_alarm_action
 from hivemind.workers.state import WorkerState
 from waggle.envelope import wrap
 from waggle.errors import TransportClosedError
-from waggle.ids import WorkerId, new_alarm_id, new_event_id
+from waggle.ids import CellId, WorkerId, new_alarm_id, new_event_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import (
     AlarmContext,
@@ -87,6 +89,11 @@ if TYPE_CHECKING:
 
 RECENT_DECISIONS_LIMIT = 20  # Matches hivemind.memory.hot_state.packing's own default.
 NOTES_LIMIT = 50  # Generous: notes are already bounded per author on write.
+# Matches hivemind.manifest.schema.supervision.DEFAULT_CELL_WAX_CAP: WardenDeps carries no manifest
+# slice for [memory] cell_wax_cap (this dispatch's own files stop at hivemind.wardens; the manifest
+# section lives in hivemind.manifest, outside them), so this mirrors that default the same way
+# hivemind.memory.hot_state.summaries.ITEM_CAP_CHARS mirrors [memory] item_cap_chars's own default.
+_WAX_CAP_PER_CELL = 20
 
 __all__ = [
     "compact_view",
@@ -337,3 +344,29 @@ class _WardenHotState:
     async def notes(self) -> tuple[Note, ...]:
         """Return this Warden's own recent notes."""
         return await self.warden._deps.memory.list_notes(None, HoneyClearance.C1, NOTES_LIMIT)
+
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        """Return WRITTEN Cell Wax for `cells`, capped per Cell (roadmap step 4.2a).
+
+        No caller passes a non-empty `cells` this dispatch (`hivemind.wardens.awake.episode.
+        decide_awake`, outside this dispatch's own files, never sets `AssembleRequest.
+        cells_in_play`); implemented fully regardless, matching `hivemind.queen.awake.episode.
+        QueenSources.wax`, so a future caller only has to pass the set, not build this method.
+        """
+        items: list[CellWaxSummary] = []
+        for cell_id in cells:
+            written = await self.warden._deps.memory.list_wax(
+                cell_id, frozenset({WaxState.WRITTEN}), HoneyClearance.C1
+            )
+            for wax in cap_wax_for_hot_state(written, _WAX_CAP_PER_CELL):
+                items.append(
+                    CellWaxSummary(
+                        id=wax.id,
+                        cell_id=wax.cell_id,
+                        severity=wax.severity.value,
+                        text=wax.text[:500],
+                        clearance=wax.clearance,
+                        written_at=wax.decided_at or wax.proposed_at,
+                    )
+                )
+        return tuple(items)

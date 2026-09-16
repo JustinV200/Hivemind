@@ -3,13 +3,17 @@
 Hot state (codingrules section 8.9) must pack the highest-value items into a bounded budget, not
 just the newest ones. `score` is the one function that decides value: it combines an exponential
 recency decay (an item's usefulness fades the longer it has sat unread), a flat bonus when the item
-names a task that is still active ("task linkage"), a bonus that grows with an Alarm's severity, and
-a large, non-decaying floor for anything pinned (codingrules section 8.9: "pins that never decay").
-`Scorable` is the tagged union every hot-state candidate belongs to -- the same flat summary models
-`hivemind.memory.hot_state.summaries` already defines (`hivemind.memory` may not import
-`hivemind.brood_chamber` or `hivemind.supervision`, so there is no `Task`/`Alarm` object to score
-here, only their flat summaries), plus `Note` and `Pin` (the two memory-owned hot-state rows).
-`item_id` and `item_timestamp` are this module's own per-type dispatch, exported so
+names a task that is still active ("task linkage"), a bonus that grows with an Alarm's severity or
+a Cell Wax note's own severity (roadmap step 4.2a: "wax for a Cell in play scores like a note with
+a severity bonus"), and a large, non-decaying floor for anything pinned (codingrules section 8.9:
+"pins that never decay"). `Scorable` is the tagged union every hot-state candidate belongs to --
+the same flat summary models `hivemind.memory.hot_state.summaries` already defines (`hivemind.
+memory` may not import `hivemind.brood_chamber` or `hivemind.supervision`, so there is no
+`Task`/`Alarm` object to score here, only their flat summaries), plus `Note` and `Pin` (the two
+memory-owned hot-state rows). A `CellWaxSummary` only ever reaches this module already filtered to
+a Cell in play (`hivemind.memory.hot_state.summaries.HotStateSources.wax`'s own contract), so
+`score` itself needs no `cells_in_play` argument of its own: candidacy is decided before scoring,
+never by it. `item_id` and `item_timestamp` are this module's own per-type dispatch, exported so
 `hivemind.memory.hot_state.packing` and `hivemind.memory.demote` share one place that knows how to
 read an id or a recency key off any Scorable, instead of each re-deriving it.
 
@@ -27,15 +31,16 @@ Key invariants:
       later (recency only ever decays, never grows).
     - A pinned item's score is always `PIN_FLOOR` or higher, which is always greater than the
       maximum reachable score of an unpinned item (`1.0 + TASK_LINKAGE_BONUS + max(_SEVERITY_
-      BONUS.values())`), so a pin always sorts before every non-pin regardless of age, linkage or
-      severity.
+      BONUS.values() | _WAX_SEVERITY_BONUS.values())`), so a pin always sorts before every non-pin
+      regardless of age, linkage or severity.
 
 See Also:
     - .claude/codingrules.md section 8.9 for the recency-decay, linkage, severity and pin rules
       this module implements.
     - .claude/roadmap.md step 4.1 for score's signature and the property tests it names.
-    - .claude/roadmap.md step 4.2a for Cell Wax, the linkage extension this module leaves room for
-      but does not implement.
+    - .claude/roadmap.md step 4.2a for the Cell Wax severity bonus this module implements.
+    - docs/adr/0022-memory-tiers-relevance-and-compaction.md for "wax scores into hot state only
+      while its Cell is a candidate".
     - hivemind.memory.hot_state.packing for assemble, the main caller.
     - hivemind.memory.demote for should_demote, the other caller.
 """
@@ -49,6 +54,7 @@ from typing import assert_never
 
 from hivemind.memory.hot_state.summaries import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     QuestionSummary,
     TaskSummary,
@@ -82,6 +88,15 @@ PIN_FLOOR = 100.0
 # never scores below an INFO one, all else equal.
 _SEVERITY_BONUS: dict[str, float] = {"INFO": 0.0, "WARNING": 1.0, "CRITICAL": 2.5}
 
+# Bonus by CellWaxSummary.severity's own wire string (mirrors hivemind.memory.cell_wax.WaxSeverity,
+# itself mirrored from waggle.messages.cell.wax.WaxSeverity). Roadmap step 4.2a: "wax for a Cell in
+# play scores like a note with a severity bonus (BLOCK > CAUTION > NOTE)" -- a bare Note scores no
+# severity bonus at all, so NOTE's own bonus here is 0.0, exactly a plain note's floor, and CAUTION/
+# BLOCK step up from there. Kept in the same scale as _SEVERITY_BONUS (an Alarm and a BLOCK wax
+# should weigh comparably) without reusing that dict directly: the two wire vocabularies are
+# unrelated and a future change to one must never silently move the other.
+_WAX_SEVERITY_BONUS: dict[str, float] = {"NOTE": 0.0, "CAUTION": 1.0, "BLOCK": 2.5}
+
 __all__ = [
     "PIN_FLOOR",
     "RECENCY_HALF_LIFE_S",
@@ -95,7 +110,9 @@ __all__ = [
 
 # Every hot-state candidate `score` and its callers know how to read: the flat summaries
 # hivemind.memory.hot_state.summaries defines, plus the two rows hivemind.memory itself writes.
-Scorable = TaskSummary | AlarmSummary | QuestionSummary | DecisionSummary | Note | Pin
+Scorable = (
+    TaskSummary | AlarmSummary | QuestionSummary | DecisionSummary | CellWaxSummary | Note | Pin
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +130,7 @@ class RelevanceScore:
 def score(
     item: Scorable, now: datetime, active_tasks: frozenset[TaskId], pins: frozenset[str]
 ) -> RelevanceScore:
-    """Score `item`'s relevance from recency decay, task linkage, Alarm severity and pin status.
+    """Score `item`'s relevance: recency decay, task linkage, Alarm/Cell-Wax severity, pin status.
 
     Args:
         item: The candidate to score.
@@ -133,11 +150,11 @@ def score(
     age_s = max((now - item_timestamp(item)).total_seconds(), 0.0)
     recency = math.exp(-age_s / RECENCY_HALF_LIFE_S)
 
+    # _severity_bonus covers both AlarmSummary and CellWaxSummary (roadmap step 4.2a): a
+    # CellWaxSummary only ever reaches here already filtered to a Cell in play (module docstring),
+    # so no separate `cells_in_play` term is needed in this function at all.
     total = recency + _linkage_bonus(item, active_tasks) + _severity_bonus(item)
     if _is_pinned(item, pins):
-        # Extension point (roadmap step 4.2a, Cell Wax): a later step adds a `cells_in_play`-style
-        # linkage term here, scored the same additive way, so a caution about a Cell only raises
-        # relevance while that Cell is a placement/assignment candidate. Not implemented in 4.1/4.2.
         return RelevanceScore(PIN_FLOOR + total)
     return RelevanceScore(total)
 
@@ -154,7 +171,7 @@ def item_id(item: Scorable) -> str:
     match item:
         case DecisionSummary():
             return item.episode_id
-        case TaskSummary() | AlarmSummary() | QuestionSummary() | Note() | Pin():
+        case TaskSummary() | AlarmSummary() | QuestionSummary() | CellWaxSummary() | Note() | Pin():
             return item.id
         case _ as unreachable:
             assert_never(unreachable)
@@ -169,7 +186,7 @@ def item_timestamp(item: Scorable) -> datetime:
     Returns:
         The field each Scorable variant calls its own recency key: `updated_at` for a TaskSummary,
         `raised_at` for an AlarmSummary, `asked_at` for a QuestionSummary, `at` for a
-        DecisionSummary, `written_at` for a Note, `created_at` for a Pin.
+        DecisionSummary, `written_at` for a CellWaxSummary or a Note, `created_at` for a Pin.
     """
     match item:
         case TaskSummary():
@@ -180,6 +197,8 @@ def item_timestamp(item: Scorable) -> datetime:
             return item.asked_at
         case DecisionSummary():
             return item.at
+        case CellWaxSummary():
+            return item.written_at
         case Note():
             return item.written_at
         case Pin():
@@ -206,8 +225,11 @@ def _linkage_bonus(item: Scorable, active_tasks: frozenset[TaskId]) -> float:
             linked = item.task_id is not None and item.task_id in active_tasks
         case QuestionSummary():
             linked = item.task_id in active_tasks
-        case DecisionSummary() | Note() | Pin():
-            # None of these carry a task_id field: no linkage to score either way.
+        case DecisionSummary() | CellWaxSummary() | Note() | Pin():
+            # None of these carry a task_id field: no linkage to score either way. A CellWaxSummary
+            # is linked to its Cell, not a task; that linkage already gates whether it is a
+            # candidate at all (hivemind.memory.hot_state.summaries.HotStateSources.wax), so it
+            # earns no further bonus here.
             linked = False
         case _ as unreachable:
             assert_never(unreachable)
@@ -215,7 +237,9 @@ def _linkage_bonus(item: Scorable, active_tasks: frozenset[TaskId]) -> float:
 
 
 def _severity_bonus(item: Scorable) -> float:
-    """Return the Alarm-severity bonus: only AlarmSummary carries a severity to score."""
+    """Return the Alarm- or Cell-Wax-severity bonus; every other Scorable variant scores 0.0."""
     if isinstance(item, AlarmSummary):
         return _SEVERITY_BONUS.get(item.severity, 0.0)
+    if isinstance(item, CellWaxSummary):
+        return _WAX_SEVERITY_BONUS.get(item.severity, 0.0)
     return 0.0

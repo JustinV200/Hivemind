@@ -1,12 +1,15 @@
-"""Define run_sweep: one House Bee pass over hot state and Bee Bread (roadmap step 4.3).
+"""Define run_sweep: one House Bee pass over hot state, Cell Wax and Bee Bread (roadmap step 4.3).
 
 A sweep is routine maintenance, not an emergency response (codingrules section 8.9): it moves items
 that no longer belong in hot state (the always-loaded, bounded slice of memory) into Bee Bread (the
-warm tier), the same `hivemind.memory.demote` rule the ADR fixes, then folds Bee Bread entries older
-than the sweep's own window into one new summary per closed task, through `hivemind.memory.compact`
-(never a previous summary -- docs/adr/0022's "one level" rule, enforced by `compact` itself). A
-third phase, ripening Bee Bread into Honey (the cold tier), is a named no-op hook until phase 7's
-Honey Store exists. `run_sweep` is deliberately decoupled from the Worker protocol
+warm tier), the same `hivemind.memory.demote` rule the ADR fixes; expires every WRITTEN Cell Wax
+note (a Queen-written caution about one Cell) whose own `expires_at` has passed
+(`hivemind.memory.cell_wax.expire_wax`, roadmap step 4.2a's own named wax-expiry hook); then folds
+Bee Bread entries older than the sweep's own window into one new summary per closed task, through
+`hivemind.memory.compact` (never a previous summary -- docs/adr/0022's "one level" rule, enforced
+by `compact` itself). A fourth phase, ripening Bee Bread (and cleared/expired Cell Wax) into Honey
+(the cold tier), is a named no-op hook until phase 7's Honey Store exists. `run_sweep` is
+deliberately decoupled from the Worker protocol
 (`hivemind.workers.base.Worker`) and from `hivemind.workers.context.WorkerContext`: it takes
 `SweepDeps`/`SweepWindow`, two plain bundles, so a future composition root (a Warden or the Queen,
 on a timer driven by `hivemind.workers.roles.house_bee.schedule.SweepSchedule`) can call it directly
@@ -31,13 +34,16 @@ Fits into the Hive:
     supervisor directly (module docstring). Calls into `hivemind.cell` (HoneyClearance),
     `hivemind.llm` (BoundModel, CallGate), `hivemind.memory` (BeeBread, BeeBreadEntry,
     BeeBreadEntryKind, HotStateSources, MemoryContext, Scorable, compact/CompactionRequest/
-    CompactionDeps, demote, should_demote, MAX_REF_IDS) and waggle only.
+    CompactionDeps, demote, expire_wax, should_demote, MAX_REF_IDS), `hivemind.memory.cell_wax`
+    (WaxState) and waggle only.
 
 Key invariants:
     - Compaction never sees a `BeeBreadEntryKind.SUMMARY` entry as a source (filtered out before
       `compact` is ever called), and never a batch larger than `hivemind.memory.bee_bread.entry.
       MAX_REF_IDS` (chunked): both are also `compact`'s own refusals, enforced here first so a
       sweep never has to catch and recover from either.
+    - `_expire_wax_past_deadline` only ever moves a note WRITTEN -> EXPIRED; a note without an
+      `expires_at` (standing wax) is never touched by a sweep.
     - `_ripen_bee_bread_into_honey` always returns 0: phase 7's Honey Store does not exist yet, so
       `SweepOutcome.ripened` is honest about doing nothing rather than pretending to.
     - `run_sweep` never marks a task SUCCEEDED and never raises for "nothing to do": an empty sweep
@@ -73,9 +79,11 @@ from hivemind.memory import (
     Scorable,
     compact,
     demote,
+    expire_wax,
     should_demote,
 )
 from hivemind.memory.bee_bread import MAX_REF_IDS
+from hivemind.memory.cell_wax import WaxState
 from waggle.ids import AlarmId, TaskId
 
 # Generous ceilings for one sweep's own Note/decision reads: a sweep runs often (the manifest's
@@ -143,6 +151,8 @@ class SweepOutcome:
         compacted_entries: Bee Bread source entries folded into a summary this sweep.
         compacted_batches: New `SUMMARY` entries written this sweep (each at most `MAX_REF_IDS`
             sources).
+        expired_wax: WRITTEN Cell Wax notes past their own `expires_at`, moved to EXPIRED this
+            sweep (roadmap step 4.2a; the House Bee sweep's own named wax-expiry hook).
         ripened: Always 0 until phase 7's Honey Store exists (module docstring).
         spend_usd: What compaction's own model calls cost this sweep, summed.
     """
@@ -150,27 +160,31 @@ class SweepOutcome:
     demoted: int
     compacted_entries: int
     compacted_batches: int
+    expired_wax: int = 0
     ripened: int = 0
     spend_usd: float = 0.0
 
 
 async def run_sweep(deps: SweepDeps, window: SweepWindow) -> SweepOutcome:
-    """Run one House Bee sweep: demote, then compact, then (a no-op today) ripen.
+    """Run one House Bee sweep: demote, expire Cell Wax, compact, then (a no-op today) ripen.
 
     Args:
         deps: The memory access and RIPENER binding this sweep writes and calls with.
         window: The timing and task-closure facts this sweep measures against.
 
     Returns:
-        A SweepOutcome summarising what moved, what was folded together, and what ripened.
+        A SweepOutcome summarising what moved, what expired, what was folded together, and what
+        ripened.
     """
     demoted = await _demote_candidates(deps, window)
+    expired_wax = await _expire_wax_past_deadline(deps, window)
     compacted_entries, compacted_batches, spend_usd = await _compact_closed_tasks(deps, window)
     ripened = _ripen_bee_bread_into_honey(deps)
     return SweepOutcome(
         demoted=demoted,
         compacted_entries=compacted_entries,
         compacted_batches=compacted_batches,
+        expired_wax=expired_wax,
         ripened=ripened,
         spend_usd=spend_usd,
     )
@@ -202,6 +216,30 @@ async def _demote_matching(items: Sequence[Scorable], deps: SweepDeps, window: S
         )
         if reason is not None:
             await demote(item, deps.memory)
+            count += 1
+    return count
+
+
+async def _expire_wax_past_deadline(deps: SweepDeps, window: SweepWindow) -> int:
+    """Expire every WRITTEN Cell Wax note whose own `expires_at` has passed (roadmap step 4.2a).
+
+    The House Bee sweep's own named wax-expiry hook: `hivemind.memory.cell_wax.expire_wax` moves
+    each one WRITTEN -> EXPIRED and records its `memory.wax_expired` event; an expired note stops
+    being a `hivemind.memory.hot_state.summaries.HotStateSources.wax` candidate at once, since that
+    query only ever asks for the WRITTEN state (docs/adr/0022 exit criterion: "an expired note
+    leaves hot state on the next sweep"). `cell_id=None` scans every Cell in one pass, matching
+    `list_wax`'s own contract for the sweep's use case (module docstring's "Store" bullet).
+
+    Cleared and expired wax "hands to ripening once phase 7 lands" (roadmap step 4.2a): that hand-
+    off is `_ripen_bee_bread_into_honey`'s own named no-op today, not repeated here.
+    """
+    written = await deps.memory.store.list_wax(
+        None, frozenset({WaxState.WRITTEN}), window.allowance
+    )
+    count = 0
+    for wax in written:
+        if wax.expires_at is not None and wax.expires_at <= window.now:
+            await expire_wax(wax, deps.memory)
             count += 1
     return count
 

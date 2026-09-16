@@ -31,6 +31,7 @@ from __future__ import annotations
 from hivemind.cell import HoneyClearance
 from hivemind.memory import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     Handoff,
     Note,
@@ -39,6 +40,7 @@ from hivemind.memory import (
     TaskSummary,
 )
 from hivemind.workers.context import WorkerContext
+from waggle.ids import CellId
 from waggle.messages.task import TaskAssign
 
 # Mirror hivemind.memory.hot_state.summaries' own per-field caps (a non-init submodule this
@@ -115,3 +117,15 @@ class DroneSources:
     async def notes(self) -> tuple[Note, ...]:
         """Return up to `DRONE_NOTES_LIMIT` recent notes within this attempt's clearance."""
         return await self._ctx.memory.list_notes(None, self._clearance, DRONE_NOTES_LIMIT)
+
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        """Return no Cell Wax: placement already chose this attempt's Cell before it ever ran.
+
+        Roadmap step 4.2a's own relevance rule (`hivemind.memory.hot_state.summaries.
+        HotStateSources.wax`) only matters while a Cell is a placement or assignment *candidate*;
+        by the time a Drone is running an attempt, that decision is already made, so there is
+        nothing left for a caution to weigh in on here -- matching `open_alarms`/
+        `pending_questions`'s own "not this attempt's concern" shape above.
+        """
+        del cells  # Unused: always empty, for the reason in this method's own docstring.
+        return ()

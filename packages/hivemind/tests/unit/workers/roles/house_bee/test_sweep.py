@@ -17,7 +17,12 @@ import json
 from datetime import timedelta
 
 from builders.llm import make_bound, text_response
-from builders.memory import make_bee_bread_entry, make_note, make_task_summary
+from builders.memory import (
+    make_bee_bread_entry,
+    make_note,
+    make_task_summary,
+    make_wax_proposal_input,
+)
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
@@ -25,6 +30,7 @@ from hivemind.llm import DirectCallGate, FakeLLMProvider
 from hivemind.memory import (
     AlarmSummary,
     BeeBread,
+    CellWaxSummary,
     DecisionSummary,
     MemoryContext,
     MemoryIdentity,
@@ -34,11 +40,13 @@ from hivemind.memory import (
     TaskSummary,
 )
 from hivemind.memory.bee_bread.entry import BeeBreadEntryKind
+from hivemind.memory.cell_wax import WaxState, propose_wax, write_wax
 from hivemind.memory.store.memory import InMemoryMemoryStore
 from hivemind.pheromone import MemoryEvent, MemoryPheromoneTrail, PheromoneTrail
 from hivemind.workers.roles.house_bee.sweep import SweepDeps, SweepOutcome, SweepWindow, run_sweep
 from waggle.clock import FakeClock
-from waggle.ids import new_event_id, new_hive_id, new_node_id, new_task_id
+from waggle.ids import CellId, new_event_id, new_hive_id, new_node_id, new_task_id
+from waggle.messages.cell.wax import WaxDecision
 
 _HOT_WINDOW = timedelta(hours=4)  # Matches DEFAULT_HOT_WINDOW_S's scale.
 _SCRIPTED_REPLY = {"summary": "A closed task's history.", "key_facts": [], "open_threads": []}
@@ -118,6 +126,9 @@ class _FakeSources:
     async def notes(self) -> tuple[Note, ...]:
         return ()
 
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        return ()
+
 
 async def test_run_sweep_demotes_an_aged_out_note_into_bee_bread() -> None:
     clock = FakeClock()
@@ -135,6 +146,64 @@ async def test_run_sweep_demotes_an_aged_out_note_into_bee_bread() -> None:
     assert note.id not in {n.id for n in remaining}
     archived = await deps.bee_bread.between(note.written_at, now, HoneyClearance.C2)
     assert any(e.kind == BeeBreadEntryKind.NOTE and e.ref_ids == (note.id,) for e in archived)
+
+
+async def test_run_sweep_expires_a_written_wax_note_past_its_deadline() -> None:
+    """Roadmap step 4.2a exit criterion: "an expired note leaves hot state on the next sweep"."""
+    clock = FakeClock()
+    ctx, _trail = _ctx_and_trail(clock)
+    expires_at = clock.now() + timedelta(hours=1)
+    proposed = await propose_wax(
+        make_wax_proposal_input(clock=clock, expires_at=expires_at), 4_000, ctx
+    )
+    written = await write_wax(proposed, WaxDecision.AUTOPILOT, "Within the Warden's own cap.", ctx)
+    deps = _unscripted_deps(ctx)
+    now = expires_at + timedelta(seconds=1)  # Past the deadline.
+    window = SweepWindow(now=now, hot_window=_HOT_WINDOW, allowance=HoneyClearance.C2)
+
+    outcome = await run_sweep(deps, window)
+
+    assert outcome.expired_wax == 1
+    # Gone from hot state: a WRITTEN-only query no longer finds it.
+    still_written = await ctx.store.list_wax(
+        written.cell_id, frozenset({WaxState.WRITTEN}), HoneyClearance.C2
+    )
+    assert written.id not in {w.id for w in still_written}
+    reloaded = await ctx.store.get_wax(written.id)
+    assert reloaded.state is WaxState.EXPIRED
+
+
+async def test_run_sweep_never_expires_a_wax_note_not_yet_due() -> None:
+    clock = FakeClock()
+    ctx, _trail = _ctx_and_trail(clock)
+    expires_at = clock.now() + timedelta(hours=1)
+    proposed = await propose_wax(
+        make_wax_proposal_input(clock=clock, expires_at=expires_at), 4_000, ctx
+    )
+    await write_wax(proposed, WaxDecision.AUTOPILOT, "Within the Warden's own cap.", ctx)
+    deps = _unscripted_deps(ctx)
+    now = expires_at - timedelta(seconds=1)  # Still within its own deadline.
+    window = SweepWindow(now=now, hot_window=_HOT_WINDOW, allowance=HoneyClearance.C2)
+
+    outcome = await run_sweep(deps, window)
+
+    assert outcome.expired_wax == 0
+
+
+async def test_run_sweep_never_expires_standing_wax_with_no_deadline() -> None:
+    clock = FakeClock()
+    ctx, _trail = _ctx_and_trail(clock)
+    proposed = await propose_wax(make_wax_proposal_input(clock=clock, expires_at=None), 4_000, ctx)
+    await write_wax(proposed, WaxDecision.AUTOPILOT, "Within the Warden's own cap.", ctx)
+    deps = _unscripted_deps(ctx)
+    # Far in the future: only expires_at (unset here) could ever expire standing wax.
+    window = SweepWindow(
+        now=clock.now() + timedelta(days=365), hot_window=_HOT_WINDOW, allowance=HoneyClearance.C2
+    )
+
+    outcome = await run_sweep(deps, window)
+
+    assert outcome.expired_wax == 0
 
 
 async def test_run_sweep_keeps_a_note_still_within_the_hot_window() -> None:

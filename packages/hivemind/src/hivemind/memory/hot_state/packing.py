@@ -2,9 +2,10 @@
 
 `assemble` is the core of codingrules section 8.9's memory model: "What a model sees is assembled
 per episode from the tiers below; nothing accumulates." It filters every candidate item (pins,
-notes, tasks, Alarms, questions, decisions) by the principal's clearance allowance first, then packs
-by relevance (`hivemind.memory.relevance.score`, roadmap step 4.1: recency decay, task linkage,
-Alarm severity, and a pin's own non-decaying floor) -- highest score first, in one pass, stopping
+notes, tasks, Alarms, questions, decisions, Cell Wax) by the principal's clearance allowance
+first, then packs by relevance (`hivemind.memory.relevance.score`, roadmap step 4.1: recency
+decay, task linkage, Alarm/Cell-Wax severity, and a pin's own non-decaying floor) -- highest score
+first, in one pass, stopping
 the moment the running total would exceed the budget, so whatever is left over is by construction
 the lowest-scored candidates (codingrules section 8.9: "on overflow the lowest-scored items are
 dropped first"). Any item whose rendered text is longer than `request.budget.item_cap_chars` is
@@ -63,6 +64,7 @@ from hivemind.memory.counter import TokenCounter
 from hivemind.memory.hot_state.summaries import (
     ITEM_CAP_CHARS,
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     HotStateSources,
     Principal,
@@ -74,7 +76,7 @@ from hivemind.memory.hot_state.summaries import (
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from hivemind.memory.relevance import RelevanceScore, Scorable, item_id, score
-from waggle.ids import TaskId
+from waggle.ids import CellId, TaskId
 from waggle.messages.base import UtcDatetime
 
 RECENT_DECISIONS_LIMIT = 20  # Generous default; packing still drops whichever ones do not fit.
@@ -89,6 +91,7 @@ _CATEGORY_RANK: dict[type, int] = {
     QuestionSummary: 2,
     DecisionSummary: 3,
     Note: 4,
+    CellWaxSummary: 5,
 }
 
 __all__ = ["ITEM_CAP_CHARS", "RECENT_DECISIONS_LIMIT", "AssembleRequest", "Prompt", "assemble"]
@@ -110,6 +113,13 @@ class AssembleRequest(BaseModel):
         default=None,
         description="Reference time relevance decay is scored against; the wall clock at call "
         "time when unset (existing callers that predate roadmap step 4.1 never set this).",
+    )
+    cells_in_play: frozenset[CellId] = Field(
+        default_factory=frozenset,
+        description="Cells this episode is currently a placement or assignment candidate for "
+        "(roadmap step 4.2a). Cell Wax for a Cell not in this set is never even fetched as a "
+        "candidate (hivemind.memory.hot_state.summaries.HotStateSources.wax); empty means no "
+        "Cell's wax appears in this prompt at all.",
     )
 
 
@@ -158,7 +168,7 @@ async def assemble(
     target_tokens = request.budget.max_input_tokens - request.budget.output_reserve
     now = request.now if request.now is not None else datetime.now(UTC)
 
-    candidates = await _gather_candidates(sources, allowance)
+    candidates = await _gather_candidates(sources, allowance, request.cells_in_play)
     active_tasks = frozenset(item.id for item in candidates if isinstance(item, TaskSummary))
     pin_ids = frozenset(item_id(item) for item in candidates if isinstance(item, Pin))
 
@@ -176,17 +186,25 @@ async def assemble(
     )
 
 
-async def _gather_candidates(sources: HotStateSources, allowance: HoneyClearance) -> list[Scorable]:
-    """Fetch every candidate (pins included) and filter by clearance; unsorted."""
+async def _gather_candidates(
+    sources: HotStateSources, allowance: HoneyClearance, cells_in_play: frozenset[CellId]
+) -> list[Scorable]:
+    """Fetch every candidate (pins included) and filter by clearance; unsorted.
+
+    `sources.wax(cells_in_play)` is always called, even with an empty set: its own contract
+    (`HotStateSources.wax`) is to return nothing for no Cells, so an empty `cells_in_play` still
+    yields an empty `wax` tuple rather than needing a special case here.
+    """
     tasks = await sources.active_tasks()
     alarms = await sources.open_alarms()
     questions = await sources.pending_questions()
     decisions = await sources.recent_decisions(RECENT_DECISIONS_LIMIT)
     notes = await sources.notes()
     pins = await sources.pins()
-    # Name the pool's union type explicitly: mypy widens a splat of six different tuple types to
+    wax = await sources.wax(cells_in_play)
+    # Name the pool's union type explicitly: mypy widens a splat of seven different tuple types to
     # BaseModel otherwise, losing the `clearance` every candidate carries.
-    pool: tuple[Scorable, ...] = (*pins, *tasks, *alarms, *questions, *decisions, *notes)
+    pool: tuple[Scorable, ...] = (*pins, *tasks, *alarms, *questions, *decisions, *notes, *wax)
     return [item for item in pool if item.clearance.rank <= allowance.rank]
 
 
@@ -269,7 +287,7 @@ def _sort_key(entry: tuple[Scorable, RelevanceScore]) -> tuple[float, int, str]:
 
 
 def _render_line(
-    item: TaskSummary | AlarmSummary | QuestionSummary | DecisionSummary | Note,
+    item: TaskSummary | AlarmSummary | QuestionSummary | DecisionSummary | CellWaxSummary | Note,
 ) -> str:
     """Render one non-pin hot-state item to a single labelled line of plain text."""
     if isinstance(item, TaskSummary):
@@ -283,4 +301,6 @@ def _render_line(
     if isinstance(item, DecisionSummary):
         at = item.at.isoformat()
         return f"Decision {item.episode_id} at {at}: {item.decision} -> {item.action}"
+    if isinstance(item, CellWaxSummary):
+        return f"Cell Wax {item.id} [{item.severity}] cell={item.cell_id}: {item.text}"
     return f"Note by {item.author}: {item.text}"

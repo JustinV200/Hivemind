@@ -22,15 +22,20 @@ every assignment goes to a Warden, over Waggle.
 - `QueenDeps`, `WardenLink`, `MemoryBudget` (`deps.py`): every collaborator one Queen is built
   with, and one attached Warden's own address and link; manifest *slices* only, never a
   `HiveManifest`.
-- `queen.autopilot`: `QueenAction`, `decide`, `effort_for` -- the deterministic dispatch table;
-  never imports `hivemind.llm`.
-- `queen.awake`: `QueenDecision`, `QueenSources`, `decide_awake` -- one stateless episode on
-  `ModelSlot.QUEEN`, at the `Effort` autopilot chose for the event class.
+- `queen.autopilot`: `QueenAction` (now including `WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX`, roadmap
+  step 4.2a), `decide`, `effort_for`, `decide_forage_request`, `decide_wax_proposal` -- the
+  deterministic dispatch tables; never imports `hivemind.llm`.
+- `queen.awake`: `QueenDecision`, `QueenSources` (its `wax(cells)` returns WRITTEN Cell Wax
+  capped per Cell, `cap_wax_for_hot_state`), `decide_awake` (now takes an optional
+  `cells_in_play`, roadmap step 4.2a) -- one stateless episode on `ModelSlot.QUEEN`, at the
+  `Effort` autopilot chose for the event class.
 - `queen.planner`: `PlanSchema`, `PlannedTask`, `PlannedPostcondition`, `plan_goal` -- decomposing
   a goal into a validated `hivemind.brood_chamber.TaskGraphDraft`; every subtask carries at least
   one acceptance postcondition (roadmap step 3.18).
 - `queen.placement`: `Placement`, `PlacementError`, `decide` -- the pure v0 decision (the Hive
-  Stand only).
+  Stand only); roadmap step 4.2a adds `blocked_cells`/`cautioned_cells` keyword args, both
+  optional and empty by default: a candidate carrying a WRITTEN `BLOCK` Cell Wax note is excluded
+  outright, one carrying a WRITTEN `CAUTION` is kept but ranked behind every clean candidate.
 - `dispatch_ready` (`dispatcher.py`): place, grant and assign every ready task, never to a Worker
   directly; a fresh task's own `chamber.assign`/`chamber.start` and `queen.assigned` land before
   either wire message is sent, so a fast sub-bee's own immediate Question can never reach
@@ -42,22 +47,31 @@ every assignment goes to a Warden, over Waggle.
   forwarded and its own tracking dropped -- called by both the Queen's own tick and `hive run`'s
   poll loop, so a tick landing between `hive inbox answer`'s own two separate writes (`chamber.
   answer()`, then the answer Note) retries instead of losing the answer for good.
-- `HumanInbox` (`human_inbox.py`): pending questions (read through the chamber) and Alarms (held
-  in memory) awaiting the human.
+- `HumanInbox`, `ChatWaxProposal`, `propose_wax_from_chat` (`human_inbox.py`): pending questions
+  (read through the chamber) and Alarms (held in memory) awaiting the human; `propose_wax_from_chat`
+  (roadmap step 4.2a) is the smallest hook for a human-typed Cell Wax proposal, building the same
+  wire `CellWaxProposed` shape (`origin=HUMAN`, `proposer=None`) `queen.ticks.wax` judges either way.
 - `record_event` (`trail.py`): the one place a `queen.*` trail event is built.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
-  Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`.
-- `queen.ticks`: `alarms`, `liveness`, `results`, `forage` -- the tick handlers each `QueenAction`
-  (or, for `forage`, each received `ForageRequest`) calls into, split out only to stay within
-  codingrules 5.1's size limits. `alarms.handle_alarm` records `alarm.handled`/`alarm.escalated`
-  (`hivemind.supervision.record_alarm_event`) and, for a REBIND, fills `Intervene.binding` with the
-  fallback key it resolved, since a Warden has no other way to learn it; `Queen`'s own
-  COMPLETE_TASK handling records `alarm.resolved` once a rebound or retried attempt actually
-  succeeds. `liveness.handle_infrastructure_item` (roadmap step 4.7) is where a Heartbeat and a
-  ForageRequest both land, ahead of `queen.autopilot.table.decide`: a Heartbeat renews the sending
-  Warden's own live grants (`liveness.renew_grants_on_heartbeat`) the same tick it resets liveness,
-  and `check_liveness`'s own sweep now also returns any grant whose lease lapsed
-  (`hivemind.queen.forage.grants.sweep_expired`) to the pool, unconditionally, every tick.
+  Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A
+  `CellWaxProposed` classifies as a routine `WAGGLE_MESSAGE` (roadmap step 4.2a: "scores low"),
+  never its own `InboxKind`.
+- `queen.ticks`: `alarms`, `liveness`, `results`, `forage`, `wax` -- the tick handlers each
+  `QueenAction` (or, for `forage`/`wax`, each received `ForageRequest`/`CellWaxProposed`) calls
+  into, split out only to stay within codingrules 5.1's size limits. `alarms.handle_alarm` records
+  `alarm.handled`/`alarm.escalated` (`hivemind.supervision.record_alarm_event`) and, for a REBIND,
+  fills `Intervene.binding` with the fallback key it resolved, since a Warden has no other way to
+  learn it; `Queen`'s own COMPLETE_TASK handling records `alarm.resolved` once a rebound or
+  retried attempt actually succeeds. `liveness.handle_infrastructure_item` (roadmap steps 4.7,
+  4.2a) is where a Heartbeat, a ForageRequest and a CellWaxProposed all land, ahead of
+  `queen.autopilot.table.decide`: a Heartbeat renews the sending Warden's own live grants
+  (`liveness.renew_grants_on_heartbeat`) the same tick it resets liveness, `check_liveness`'s own
+  sweep now also returns any grant whose lease lapsed (`hivemind.queen.forage.grants.
+  sweep_expired`) to the pool unconditionally every tick, and `wax.handle_wax_proposed` records the
+  proposal, writes it by autopilot within the per-Cell cap (no awake episode), or runs one awake
+  episode with `cells_in_play = {the Cell in question}` and applies its `WRITE_WAX`/`REJECT_WAX`
+  decision -- either way sending a `CellWaxWritten` back to the proposing Warden's own link once
+  written.
 - `queen.forage` (roadmap steps 4.7-4.8): `ForageLedger` -- the Queen's live book of Forage: every
   Cell's latest capacity, every Warden's own local-pool report (reported, never granted --
   codingrules 8.10), every live shared grant and the headroom they leave, backed by a

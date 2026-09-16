@@ -7,16 +7,27 @@ nothing accumulates as a conversation.
 ## Modules
 
 - `hot_state/` -- flat summary models (`TaskSummary`, `AlarmSummary`, `QuestionSummary`,
-  `DecisionSummary`), `Principal`, `TokenBudget`, `TriggerEvent`, the `HotStateSources` protocol a
-  caller implements over its own stores, and `assemble`, the packing algorithm that turns all of
-  that plus pins and notes into a token-budgeted `Prompt`, ordered by `relevance.score` (roadmap
-  step 4.1).
+  `DecisionSummary`, `CellWaxSummary`), `Principal`, `TokenBudget`, `TriggerEvent`, the
+  `HotStateSources` protocol a caller implements over its own stores (its `wax(cells)` method
+  returns WRITTEN Cell Wax only for a Cell in `cells`), and `assemble`, the packing algorithm that
+  turns all of that plus pins and notes into a token-budgeted `Prompt`, ordered by
+  `relevance.score` (roadmap step 4.1), gated by `AssembleRequest.cells_in_play` for wax (roadmap
+  step 4.2a).
 - `relevance.py` -- `RelevanceScore`, `Scorable` and `score`: pure recency-decay/task-linkage/
-  Alarm-severity/pin-floor scoring (roadmap step 4.1), plus `item_id`/`item_timestamp`, the shared
-  per-type dispatch `hot_state.packing` and `demote` both read candidates through.
+  Alarm-or-Cell-Wax-severity/pin-floor scoring (roadmap steps 4.1, 4.2a), plus `item_id`/
+  `item_timestamp`, the shared per-type dispatch `hot_state.packing` and `demote` both read
+  candidates through.
 - `demote.py` -- `DemotionReason`, `should_demote` and `demote`: the pure rule for what leaves hot
   state (task closed, Alarm resolved, aged past the manifest's `hot_window_s`) and the one write
-  path that archives an item into Bee Bread (roadmap step 4.2).
+  path that archives an item into Bee Bread (roadmap step 4.2); never returns a reason for a Pin
+  or a `CellWaxSummary` (Cell Wax has its own lifecycle, in `cell_wax/`).
+- `cell_wax/` -- `CellWax` (a Queen-written caution about one Cell, roadmap step 4.2a),
+  `WaxSeverity` (mirrored from `waggle.messages.cell.wax` member for member), `WaxState` and its
+  `TRANSITIONS` (`PROPOSED -> WRITTEN -> CLEARED | EXPIRED`, `PROPOSED -> REJECTED`, Appendix C),
+  and the five functions that walk it: `propose_wax`, `write_wax`, `reject_wax`, `clear_wax`,
+  `expire_wax`, plus `retire_wax_for_cell` (phase 5's own forward-looking hook) and
+  `cap_wax_for_hot_state` (the per-Cell hot-state cap, highest severity then newest,
+  docs/adr/0022).
 - `compact.py` -- `CompactionSchema`, `CompactionRequest`, `CompactionDeps`, `CompactionResult` and
   `compact`: folds a batch of Bee Bread entries into one new `SUMMARY` entry on `ModelSlot.RIPENER`,
   never from a previous summary, with every pin copied verbatim (roadmap step 4.3, docs/adr/0022).
@@ -40,11 +51,12 @@ nothing accumulates as a conversation.
 - `context.py` -- `MemoryContext`/`MemoryIdentity`: the store, identity and clock every writer
   function in this package shares.
 - `store/` -- `MemoryStore` (the persistence protocol), `InMemoryMemoryStore` and
-  `SqliteMemoryStore` (its two implementations), and the numbered SQL migration series (five
-  tables: pins, notes, handoffs, episodes, bee_bread).
+  `SqliteMemoryStore` (its two implementations), and the numbered SQL migration series (six
+  tables: pins, notes, handoffs, episodes, bee_bread, cell_wax).
 - `errors.py` -- `MemoryTierError` (root), `ClearanceError`, `HandoffNotFoundError`,
   `NoteTooLongError`, `BeeBreadEntryNotFoundError`, `SummaryOfSummaryError`,
-  `EmptyCompactionError`, `TooManySourcesError`.
+  `EmptyCompactionError`, `TooManySourcesError`, `InvalidWaxTransitionError`,
+  `WaxTextTooLongError`, `WaxNotFoundError`.
 
 ## Public API
 

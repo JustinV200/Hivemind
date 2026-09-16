@@ -22,11 +22,13 @@ See Also:
     - .claude/codingrules.md section 8.8 for the awake-episode shape this package implements.
     - .claude/roadmap.md phase 3 step 3.20 for the work that first populates it.
 
-Public API (roadmap step 3.20):
+Public API (roadmap step 3.20; WAX_CAP_PER_CELL, cells_in_play at step 4.2a):
     - MAX_BINDING_CHARS, MAX_REASON_CHARS, MAX_TASK_ID_CHARS, QueenDecision: the one structured
       decision (decision).
     - ACTIVE_TASKS_LIMIT, AWAKE_MAX_OUTPUT_TOKENS, AWAKE_OUTPUT_RESERVE_TOKENS, NOTES_LIMIT,
-      RECENT_DECISIONS_LIMIT, QueenSources, decide_awake: the episode itself (episode).
+      RECENT_DECISIONS_LIMIT, WAX_CAP_PER_CELL, QueenSources, decide_awake: the episode itself
+      (episode); `decide_awake` takes an optional `cells_in_play` and `QueenSources.wax(cells)`
+      returns WRITTEN Cell Wax only for a Cell in it, capped by `WAX_CAP_PER_CELL`.
 """
 
 from hivemind.queen.awake.decision import (
@@ -41,6 +43,7 @@ from hivemind.queen.awake.episode import (
     AWAKE_OUTPUT_RESERVE_TOKENS,
     NOTES_LIMIT,
     RECENT_DECISIONS_LIMIT,
+    WAX_CAP_PER_CELL,
     QueenSources,
     decide_awake,
 )
@@ -54,6 +57,7 @@ __all__ = [
     "MAX_TASK_ID_CHARS",
     "NOTES_LIMIT",
     "RECENT_DECISIONS_LIMIT",
+    "WAX_CAP_PER_CELL",
     "QueenDecision",
     "QueenSources",
     "decide_awake",

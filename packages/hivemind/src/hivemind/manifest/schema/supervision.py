@@ -48,6 +48,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from waggle.messages.cell.wax import MAX_WAX_TEXT_CHARS
+
 DEFAULT_HEARTBEAT_INTERVAL_S = 5.0  # Matches [queen] heartbeat_interval_s; a Warden's own cadence.
 DEFAULT_HEARTBEAT_MISS_LIMIT = 3  # Three missed beats before a child is treated as stalled.
 DEFAULT_MAX_OFFLINE_S = (
@@ -80,6 +82,10 @@ DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0
 # accumulating a large backlog between runs, which matters once compaction batches are bounded by
 # hivemind.memory.bee_bread.entry.MAX_REF_IDS.
 DEFAULT_SWEEP_INTERVAL_S = 3_600.0
+# Matches waggle.messages.cell.wax.MAX_WAX_TEXT_CHARS: the wire shape's own ceiling on a Cell Wax
+# note's text, reused as this section's own default so a manifest that never sets
+# wax_text_cap_chars gets exactly the wire limit, never a silently different number.
+DEFAULT_WAX_TEXT_CAP_CHARS = MAX_WAX_TEXT_CHARS
 
 __all__ = [
     "DEFAULT_ALARM_ATTEMPT_LIMIT",
@@ -95,6 +101,7 @@ __all__ = [
     "DEFAULT_MAX_OFFLINE_S",
     "DEFAULT_OUTPUT_RESERVE_TOKENS",
     "DEFAULT_SWEEP_INTERVAL_S",
+    "DEFAULT_WAX_TEXT_CAP_CHARS",
     "MemorySection",
     "SupervisionSection",
 ]
@@ -170,6 +177,13 @@ class MemorySection(BaseModel):
     )
     cell_wax_cap: int = Field(
         default=DEFAULT_CELL_WAX_CAP, gt=0, description="Cell Wax cautions kept per Cell."
+    )
+    wax_text_cap_chars: int = Field(
+        default=DEFAULT_WAX_TEXT_CAP_CHARS,
+        gt=0,
+        description="The most characters one Cell Wax note's text holds; a Hive may cap this "
+        "lower than waggle's own MAX_WAX_TEXT_CHARS ceiling, never higher (the wire shape itself "
+        "refuses more).",
     )
     default_expiry_s: float = Field(
         default=DEFAULT_EXPIRY_S,

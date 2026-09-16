@@ -3,7 +3,7 @@
 The ticks package holds `Queen`'s own tick handlers, split out only so `queen.py` and its `Queen`
 class stay within codingrules 5.1's size limits.
 
-## Public API (roadmap steps 3.20, 4.7)
+## Public API (roadmap steps 3.20, 4.7, 4.2a)
 
 - `alarms.handle_alarm`: `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an escalated
   Alarm; `REBIND` is sent as a real `hivemind.supervision.intervention.Rebind`, converted through
@@ -23,6 +23,14 @@ class stay within codingrules 5.1's size limits.
   `forage.granted`/`forage.denied` on the trail.
 - `results.complete_task`, `.retry_task`, `.fail_task`: `COMPLETE_TASK`/`RETRY_TASK`/`FAIL_TASK`,
   shared by a `TaskResult` and an escalated Alarm alike.
+- `wax.handle_wax_item`, `.handle_wax_proposed` (roadmap step 4.2a): the other entry point
+  `handle_infrastructure_item` reaches ahead of `decide`, for a `CellWaxProposed`. Records the
+  proposal (`hivemind.memory.cell_wax.propose_wax`), judges it with
+  `hivemind.queen.autopilot.wax.decide_wax_proposal`, writes it at once within the per-Cell cap
+  (`decided_by=AUTOPILOT`, no awake episode) or runs one awake episode with
+  `cells_in_play = {the Cell in question}` and applies its `WRITE_WAX`/`REJECT_WAX` decision
+  (anything else, including `CLEAR_WAX`, falls back to a rejection). Sends a `CellWaxWritten` back
+  to the proposing Warden's own link once written, when it is still attached.
 
 ## How to test this
 

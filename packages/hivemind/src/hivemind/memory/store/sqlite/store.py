@@ -42,15 +42,22 @@ from hivemind.cell import HoneyClearance
 from hivemind.common.errors import MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.memory.bee_bread.entry import BeeBreadEntry
+from hivemind.memory.cell_wax import CellWax, WaxState
 from hivemind.memory.episodes import EpisodeRecord
-from hivemind.memory.errors import BeeBreadEntryNotFoundError, ClearanceError, HandoffNotFoundError
+from hivemind.memory.errors import (
+    BeeBreadEntryNotFoundError,
+    ClearanceError,
+    HandoffNotFoundError,
+    WaxNotFoundError,
+)
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from hivemind.memory.store.sqlite import bee_bread, records
+from hivemind.memory.store.sqlite import wax as wax_sql
 from hivemind.pheromone import MemoryEvent
 from waggle.clock import Clock
-from waggle.ids import EventId, TaskId
+from waggle.ids import CellId, EventId, TaskId
 
 SUBSYSTEM = "memory"  # Keys this subsystem's rows in the shared schema_migrations table.
 # Dotted package path importlib.resources.files() reads the numbered .sql files from; a string,
@@ -248,6 +255,39 @@ class SqliteMemoryStore:
                 bee_bread.select_between_rows, self._connection, start, end, allowance
             )
         return tuple(BeeBreadEntry.model_validate_json(row["body"]) for row in rows)
+
+    async def put_wax(self, wax: CellWax, event: MemoryEvent) -> None:
+        """Insert `wax` and record `event`; see `MemoryStore.put_wax`."""
+        async with self._lock:
+            await asyncio.to_thread(wax_sql.put_wax_transaction, self._connection, wax, event)
+
+    async def get_wax(self, wax_id: str) -> CellWax:
+        """Return the note with id `wax_id`; see `MemoryStore.get_wax`."""
+        async with self._lock:
+            row = await asyncio.to_thread(wax_sql.select_by_id_row, self._connection, wax_id)
+        if row is None:
+            raise WaxNotFoundError(wax_id)
+        return CellWax.model_validate_json(row["body"])
+
+    async def list_wax(
+        self, cell_id: CellId | None, states: frozenset[WaxState], allowance: HoneyClearance
+    ) -> tuple[CellWax, ...]:
+        """Return notes in `states`, within `allowance`; see `MemoryStore.list_wax`."""
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                wax_sql.select_wax_rows, self._connection, cell_id, states, allowance
+            )
+        return tuple(CellWax.model_validate_json(row["body"]) for row in rows)
+
+    async def update_wax_state(self, wax: CellWax, event: MemoryEvent) -> None:
+        """Overwrite the row for `wax.id` and record `event`; see `MemoryStore.update_wax_state`."""
+        async with self._lock:
+            existing = await asyncio.to_thread(wax_sql.select_by_id_row, self._connection, wax.id)
+            if existing is None:
+                raise WaxNotFoundError(wax.id)
+            await asyncio.to_thread(
+                wax_sql.update_wax_state_transaction, self._connection, wax, event
+            )
 
 
 def _pheromone_table_exists(connection: sqlite3.Connection) -> bool:

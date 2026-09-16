@@ -53,6 +53,7 @@ from hivemind.memory.bee_bread.entry import BeeBreadEntry, BeeBreadEntryKind
 from hivemind.memory.context import MemoryContext
 from hivemind.memory.hot_state.summaries import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     QuestionSummary,
     TaskSummary,
@@ -204,6 +205,12 @@ def _archive_shape(
             # Pins never demote (hivemind.memory.demote.should_demote never returns a reason for
             # one); a caller reaching here regardless has broken that invariant.
             raise InvariantViolationError("bee_bread cannot archive a Pin: pins never demote")
+        case CellWaxSummary():
+            # Cell Wax has its own lifecycle (hivemind.memory.cell_wax.writes: WRITTEN -> CLEARED
+            # or EXPIRED, driven by a Queen decision or the House Bee sweep's own expiry hook),
+            # never the generic hot-state demotion path; should_demote never returns a reason for
+            # one (roadmap step 4.2a), matching Pin's own invariant above.
+            raise InvariantViolationError("bee_bread cannot archive Cell Wax: it has its own life")
         case _ as unreachable:
             assert_never(unreachable)
 

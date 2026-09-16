@@ -20,13 +20,18 @@ fact enters hot state without going through a whole episode (`Pin`, `Note`); `ep
 every awake episode's or autopilot
 decision's thinking, streamable live to the Observation Hive (`EpisodeRecord`, `EpisodeStream`);
 `counter` estimates or counts tokens before a call is made (`TokenCounter`); `context` bundles the
-collaborators every write shares (`MemoryContext`); `store` is the durable half, five SQLite tables
-plus an in-memory fake for tests. Bee terms used here: a **Handoff** is a structured document a bee
-writes to resume its own work later (possibly on a different model or host); **hot state** is the
+collaborators every write shares (`MemoryContext`); `cell_wax` (roadmap step 4.2a) holds `CellWax`,
+a Queen-written caution about one Cell, its state machine (`PROPOSED -> WRITTEN ->
+CLEARED | EXPIRED`, `PROPOSED -> REJECTED`) and the five functions that walk it; it enters hot
+state, through `hot_state`'s own `CellWaxSummary` and `HotStateSources.wax`, only while its Cell is
+in `AssembleRequest.cells_in_play`. `store` is the durable half, six SQLite tables plus an
+in-memory fake for tests. Bee terms used here: a **Handoff** is a structured document a bee writes
+to resume its own work later (possibly on a different model or host); **hot state** is the
 always-loaded, bounded slice of memory an episode's prompt is built from; **Bee Bread** is the warm
 tier bees ferment pollen into so it keeps until needed -- what leaves hot state, findable by id,
-time or task; a **Pin** is a fact that never decays out of hot state; **Honey clearance**
-(`hivemind.cell.HoneyClearance`) is the data-sensitivity label every row in this package carries.
+time or task; a **Pin** is a fact that never decays out of hot state; **Cell Wax** marks a Cell (it
+is not the honey inside); **Honey clearance** (`hivemind.cell.HoneyClearance`) is the
+data-sensitivity label every row in this package carries.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by queen.awake and wardens.awake
@@ -55,8 +60,12 @@ See Also:
 Public API:
     - MemoryTierError, ClearanceError, HandoffNotFoundError, NoteTooLongError,
       BeeBreadEntryNotFoundError, SummaryOfSummaryError, EmptyCompactionError,
-      TooManySourcesError: this subsystem's error tree (errors).
+      TooManySourcesError, InvalidWaxTransitionError, WaxTextTooLongError, WaxNotFoundError: this
+      subsystem's error tree (errors).
     - MemoryContext, MemoryIdentity: the collaborators every write function shares (context).
+    - CellWax, WaxSeverity, WaxState, WaxProposalInput, MAX_WAX_REASON_CHARS, MAX_WAX_TEXT_CHARS,
+      propose_wax, write_wax, reject_wax, clear_wax, expire_wax, retire_wax_for_cell,
+      cap_wax_for_hot_state: Cell Wax, the note and its state machine (cell_wax).
     - TokenCounter, EstimateCounter, ProviderCounter: token counting before a call (counter).
     - Decision, Handoff: the checkpoint document (handoff).
     - Pin, PinSource, add_pin: facts that never decay (pins).
@@ -66,8 +75,8 @@ Public API:
       and its live feed (episodes).
     - write_checkpoint, read_handoff: the write and read paths for a Handoff (checkpoint).
     - Principal, TokenBudget, TriggerEvent, TaskSummary, AlarmSummary, QuestionSummary,
-      DecisionSummary, HotStateSources, AssembleRequest, Prompt, assemble, ITEM_CAP_CHARS: hot
-      state packing (hot_state).
+      DecisionSummary, CellWaxSummary, HotStateSources, AssembleRequest, Prompt, assemble,
+      ITEM_CAP_CHARS: hot state packing (hot_state).
     - RelevanceScore, Scorable, score, item_id, item_timestamp, RECENCY_HALF_LIFE_S,
       TASK_LINKAGE_BONUS, PIN_FLOOR: relevance scoring (relevance).
     - DemotionReason, should_demote, demote: what leaves hot state, and the write path (demote).
@@ -89,6 +98,21 @@ from hivemind.memory.bee_bread import (
     deposit_hot_state_item,
     deposit_tool_result,
     deposit_transcript,
+)
+from hivemind.memory.cell_wax import (
+    MAX_WAX_REASON_CHARS,
+    MAX_WAX_TEXT_CHARS,
+    CellWax,
+    WaxProposalInput,
+    WaxSeverity,
+    WaxState,
+    cap_wax_for_hot_state,
+    clear_wax,
+    expire_wax,
+    propose_wax,
+    reject_wax,
+    retire_wax_for_cell,
+    write_wax,
 )
 from hivemind.memory.checkpoint import read_handoff, write_checkpoint
 from hivemind.memory.compact import (
@@ -118,16 +142,20 @@ from hivemind.memory.errors import (
     ClearanceError,
     EmptyCompactionError,
     HandoffNotFoundError,
+    InvalidWaxTransitionError,
     MemoryTierError,
     NoteTooLongError,
     SummaryOfSummaryError,
     TooManySourcesError,
+    WaxNotFoundError,
+    WaxTextTooLongError,
 )
 from hivemind.memory.handoff import Decision, Handoff
 from hivemind.memory.hot_state import (
     ITEM_CAP_CHARS,
     AlarmSummary,
     AssembleRequest,
+    CellWaxSummary,
     DecisionSummary,
     HotStateSources,
     Principal,
@@ -169,6 +197,8 @@ __all__ = [
     "MAX_OPEN_THREADS",
     "MAX_OPEN_THREAD_CHARS",
     "MAX_SUMMARY_CHARS",
+    "MAX_WAX_REASON_CHARS",
+    "MAX_WAX_TEXT_CHARS",
     "MIGRATIONS_PACKAGE",
     "PIN_FLOOR",
     "RECENCY_HALF_LIFE_S",
@@ -181,6 +211,8 @@ __all__ = [
     "BeeBreadEntry",
     "BeeBreadEntryKind",
     "BeeBreadEntryNotFoundError",
+    "CellWax",
+    "CellWaxSummary",
     "ClearanceError",
     "CompactionDeps",
     "CompactionRequest",
@@ -197,6 +229,7 @@ __all__ = [
     "HandoffNotFoundError",
     "HotStateSources",
     "InMemoryMemoryStore",
+    "InvalidWaxTransitionError",
     "MemoryContext",
     "MemoryIdentity",
     "MemoryStore",
@@ -218,21 +251,33 @@ __all__ = [
     "TokenCounter",
     "TooManySourcesError",
     "TriggerEvent",
+    "WaxNotFoundError",
+    "WaxProposalInput",
+    "WaxSeverity",
+    "WaxState",
+    "WaxTextTooLongError",
     "add_note",
     "add_pin",
     "apply_memory_migrations",
     "assemble",
+    "cap_wax_for_hot_state",
+    "clear_wax",
     "compact",
     "demote",
     "deposit_handoff_ref",
     "deposit_hot_state_item",
     "deposit_tool_result",
     "deposit_transcript",
+    "expire_wax",
     "item_id",
     "item_timestamp",
+    "propose_wax",
     "read_handoff",
     "record_episode",
+    "reject_wax",
+    "retire_wax_for_cell",
     "score",
     "should_demote",
     "write_checkpoint",
+    "write_wax",
 ]

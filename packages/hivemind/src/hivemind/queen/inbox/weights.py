@@ -7,7 +7,9 @@ of that: `queen_attendant` builds an `hivemind.supervision.attendant.Attendant` 
 `hivemind.supervision.attendant.TieBreaker` (`hivemind.queen.inbox.tie_breaker.ModelTieBreaker` in
 production), and `to_inbox_item` classifies one received `waggle.envelope.Envelope`'s payload into
 the `InboxKind`, severity and task linkage `hivemind.supervision.attendant.score_item` needs,
-without the Queen having to know each payload's exact wire shape beyond an `isinstance` check.
+without the Queen having to know each payload's exact wire shape beyond an `isinstance` check. A
+`waggle.messages.cell.CellWaxProposed` (roadmap step 4.2a) classifies the same as any other
+routine Waggle message, so it is scored low by construction rather than through a dedicated rule.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's inbox
@@ -37,6 +39,7 @@ from hivemind.supervision import Alarm, AlarmSeverity
 from hivemind.supervision.attendant import Attendant, InboxItem, InboxKind, TieBreaker, WeightTable
 from waggle.clock import Clock
 from waggle.envelope import Envelope
+from waggle.messages.cell import CellWaxProposed
 from waggle.messages.supervision import AlarmRaised, Answer, Question
 from waggle.messages.task import TaskResult
 
@@ -94,6 +97,10 @@ def _classify(payload: object) -> tuple[InboxKind, AlarmSeverity | None, object 
         return InboxKind.ALARM, alarm.severity, payload.context.task_id
     if isinstance(payload, Question):
         return InboxKind.QUESTION, None, payload.task_id
-    if isinstance(payload, Answer | TaskResult):
+    if isinstance(payload, Answer | TaskResult | CellWaxProposed):
+        # CellWaxProposed (roadmap step 4.2a) is deliberately not its own InboxKind: it scores
+        # like any other routine Waggle message (WAGGLE_MESSAGE's base weight sits well below
+        # ALARM/HUMAN_MESSAGE/QUESTION in WeightTable.queen_default), matching "a proposal is an
+        # inbox item the Attendant scores low".
         return InboxKind.WAGGLE_MESSAGE, None, payload.task_id
     return InboxKind.WAGGLE_MESSAGE, None, None

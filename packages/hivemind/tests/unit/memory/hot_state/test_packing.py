@@ -19,6 +19,7 @@ from datetime import timedelta
 
 from builders.memory import (
     make_alarm_summary,
+    make_cell_wax_summary,
     make_note,
     make_pin,
     make_principal,
@@ -33,6 +34,7 @@ from hivemind.memory.counter import EstimateCounter
 from hivemind.memory.hot_state.packing import AssembleRequest, assemble
 from hivemind.memory.hot_state.summaries import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     QuestionSummary,
     TaskSummary,
@@ -40,6 +42,7 @@ from hivemind.memory.hot_state.summaries import (
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from waggle.clock import FakeClock
+from waggle.ids import CellId, new_cell_id
 
 
 @dataclass
@@ -52,6 +55,7 @@ class _FakeSources:
     decisions: tuple[DecisionSummary, ...] = ()
     pins_: tuple[Pin, ...] = field(default_factory=tuple)
     notes_: tuple[Note, ...] = ()
+    wax_: tuple[CellWaxSummary, ...] = ()
 
     async def active_tasks(self) -> tuple[TaskSummary, ...]:
         return self.tasks
@@ -70,6 +74,13 @@ class _FakeSources:
 
     async def notes(self) -> tuple[Note, ...]:
         return self.notes_
+
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        # A real HotStateSources.wax only ever returns notes about `cells`; this fake mirrors
+        # that same contract, rather than returning `self.wax_` unconditionally, so a test that
+        # forgets to set `cells_in_play` on its AssembleRequest is caught here, not silently
+        # passed.
+        return tuple(item for item in self.wax_ if item.cell_id in cells)
 
 
 def _request(clock: FakeClock, **overrides: object) -> AssembleRequest:
@@ -167,3 +178,42 @@ async def test_assemble_grants_a_task_linked_alarm_priority_over_an_unlinked_one
     prompt = await assemble(_request(clock), sources, EstimateCounter())
 
     assert prompt.included.index(linked.id) < prompt.included.index(unlinked.id)
+
+
+async def test_assemble_includes_cell_wax_only_when_its_cell_is_in_play() -> None:
+    """Roadmap step 4.2a: a CAUTION appears only when its Cell is a candidate (cells_in_play)."""
+    clock = FakeClock()
+    caution = make_cell_wax_summary(clock=clock)
+    sources = _FakeSources(wax_=(caution,))
+
+    in_play = await assemble(
+        _request(clock, cells_in_play=frozenset({caution.cell_id})), sources, EstimateCounter()
+    )
+    not_in_play = await assemble(_request(clock), sources, EstimateCounter())
+
+    assert caution.id in in_play.included
+    assert SectionLabel.HOT_STATE in in_play.sections
+    assert caution.text in in_play.sections[SectionLabel.HOT_STATE]
+    assert caution.id not in not_in_play.included
+    assert caution.id not in not_in_play.dropped  # Never even fetched: HotStateSources.wax's own
+    # contract (module docstring) is to return nothing for a Cell not in `cells_in_play`.
+
+
+async def test_assemble_ranks_a_block_wax_note_above_a_note_severity_one() -> None:
+    """Roadmap step 4.2a: BLOCK > CAUTION > NOTE for Cell Wax's own severity bonus."""
+    clock = FakeClock()
+    now = clock.now()
+    cell_id = new_cell_id(clock)
+    block = make_cell_wax_summary(
+        clock=clock, id="wax-block", cell_id=cell_id, severity="BLOCK", written_at=now
+    )
+    note = make_cell_wax_summary(
+        clock=clock, id="wax-note", cell_id=cell_id, severity="NOTE", written_at=now
+    )
+    sources = _FakeSources(wax_=(note, block))
+
+    prompt = await assemble(
+        _request(clock, cells_in_play=frozenset({cell_id})), sources, EstimateCounter()
+    )
+
+    assert prompt.included.index(block.id) < prompt.included.index(note.id)

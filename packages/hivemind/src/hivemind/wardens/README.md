@@ -23,8 +23,14 @@ Warden never provisions Cells itself.
 - `WardenDeps` (`deps.py`): every collaborator one Warden is built with.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.
-- `cell_request`, `forage_request`, `tool_request` (`requests.py`): the three requests a Warden
-  sends the Queen when it needs something beyond its grant.
+- `cell_request`, `forage_request`, `tool_request`, `propose_wax` (`requests.py`): the requests a
+  Warden sends the Queen when it needs something beyond its grant. `propose_wax` (roadmap step
+  4.2a) builds a `CellWaxProposed` about the Warden's own Cell, `origin=BEE` and `proposer` the
+  Warden's own id; a Drone (a Worker role) has no request path of its own here (a Worker never
+  holds a Waggle link, codingrules section 4) and raises a caution up the chain through
+  `hivemind.workers.tools.ask` today, since the Worker tool registry's `ctx` carries no
+  fire-and-forget channel a `propose_wax` tool could use -- see `requests.py`'s own module
+  docstring for what a future one would need.
 - `wardens.autopilot`: `WardenAction`, `SubBeeView`, `decide` -- the deterministic dispatch table;
   never imports `hivemind.llm`.
 - `wardens.awake`: `WardenDecision`, `decide_awake` -- one stateless episode on `ModelSlot.WARDEN`.

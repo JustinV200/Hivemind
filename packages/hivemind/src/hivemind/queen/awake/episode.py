@@ -13,7 +13,11 @@ view into a token-budgeted `Prompt`
 at `effort`, renders it under `queen_system.md`, walks the degradation ladder to get a
 `hivemind.queen.awake.decision.QueenDecision` back -- a plain-text model at
 `ProviderCapabilities.none()` still owes a decision, on the PROMPTED rung -- and records it as an
-`EpisodeRecord` before the transcript itself is discarded.
+`EpisodeRecord` before the transcript itself is discarded. `decide_awake` also takes
+`cells_in_play` (roadmap step 4.2a, default empty): `hivemind.queen.ticks.wax` passes `{the Cell
+in question}` when a Cell Wax proposal needs judgement, so `QueenSources.wax` (itself capped per
+Cell by `hivemind.memory.cell_wax.cap_wax_for_hot_state`) surfaces that Cell's existing wax in the
+prompt without changing anything for every other caller, whose `cells_in_play` stays empty.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's awake
@@ -24,6 +28,7 @@ Fits into the Hive:
     `hivemind.llm` (LLMRequest, Message, PromptName, Role, complete_structured, render),
     `hivemind.memory` (assemble, AssembleRequest, EstimateCounter, HotStateSources, MemoryContext,
     Principal, TokenBudget, TriggerEvent, record_episode, EpisodeRecord),
+    `hivemind.memory.cell_wax` (WaxState, cap_wax_for_hot_state),
     `hivemind.memory.hot_state` (the summary models and their char caps) and
     `hivemind.queen.human_inbox` (HumanInbox) only.
 
@@ -78,10 +83,12 @@ from hivemind.memory import (
     assemble,
     record_episode,
 )
+from hivemind.memory.cell_wax import WaxState, cap_wax_for_hot_state
 from hivemind.memory.hot_state import (
     SUMMARY_TEXT_CAP_CHARS,
     SUMMARY_TITLE_CAP_CHARS,
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     QuestionSummary,
     TaskSummary,
@@ -89,13 +96,18 @@ from hivemind.memory.hot_state import (
 from hivemind.queen.awake.decision import QueenDecision
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.human_inbox import HumanInbox
-from waggle.ids import new_event_id
+from waggle.ids import CellId, new_event_id
 
 AWAKE_OUTPUT_RESERVE_TOKENS = 512  # Room for the model's own reply within the packed budget.
 AWAKE_MAX_OUTPUT_TOKENS = 1_024  # A QueenDecision is short; generous but bounded.
 ACTIVE_TASKS_LIMIT = 100  # A generous slice; packing itself still drops whatever does not fit.
 RECENT_DECISIONS_LIMIT = 20  # Matches hivemind.memory.hot_state.packing's own default.
 NOTES_LIMIT = 50  # Generous: notes are already bounded per author on write.
+# Matches hivemind.manifest.schema.supervision.DEFAULT_CELL_WAX_CAP: QueenDeps carries no manifest
+# slice for [memory] cell_wax_cap yet (a QueenDeps field is outside this dispatch's own files --
+# queen/deps.py belongs to a parallel dispatch), so this mirrors that default the same way
+# hivemind.memory.hot_state.summaries.ITEM_CAP_CHARS mirrors [memory] item_cap_chars's own default.
+WAX_CAP_PER_CELL = 20
 _QUEEN_ROLE = "queen"
 
 __all__ = [
@@ -104,6 +116,7 @@ __all__ = [
     "AWAKE_OUTPUT_RESERVE_TOKENS",
     "NOTES_LIMIT",
     "RECENT_DECISIONS_LIMIT",
+    "WAX_CAP_PER_CELL",
     "QueenSources",
     "decide_awake",
 ]
@@ -186,9 +199,43 @@ class QueenSources:
         """Return the Queen's own recent notes."""
         return await self.memory.list_notes(None, HoneyClearance.C2, NOTES_LIMIT)
 
+    async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        """Return WRITTEN Cell Wax for `cells`, capped per Cell (roadmap step 4.2a).
+
+        Args:
+            cells: The Cells this episode is currently a candidate for (`AssembleRequest.
+                cells_in_play`); empty returns nothing, matching `HotStateSources.wax`'s own
+                contract.
+
+        Returns:
+            Every WRITTEN, unexpired note for a Cell in `cells`, ranked highest-severity-then-
+            newest and bounded to `WAX_CAP_PER_CELL` per Cell (`cap_wax_for_hot_state`).
+        """
+        items: list[CellWaxSummary] = []
+        for cell_id in cells:
+            written = await self.memory.list_wax(
+                cell_id, frozenset({WaxState.WRITTEN}), HoneyClearance.C2
+            )
+            for wax in cap_wax_for_hot_state(written, WAX_CAP_PER_CELL):
+                items.append(
+                    CellWaxSummary(
+                        id=wax.id,
+                        cell_id=wax.cell_id,
+                        severity=wax.severity.value,
+                        text=wax.text[:SUMMARY_TEXT_CAP_CHARS],
+                        clearance=wax.clearance,
+                        written_at=wax.decided_at or wax.proposed_at,
+                    )
+                )
+        return tuple(items)
+
 
 async def decide_awake(
-    deps: QueenDeps, event: TriggerEvent, sources: HotStateSources, effort: Effort
+    deps: QueenDeps,
+    event: TriggerEvent,
+    sources: HotStateSources,
+    effort: Effort,
+    cells_in_play: frozenset[CellId] = frozenset(),
 ) -> QueenDecision:
     """Run one stateless awake episode at `effort` and return its one QueenDecision.
 
@@ -199,6 +246,10 @@ async def decide_awake(
         sources: A view of the Queen's own hot state, typically a `QueenSources`.
         effort: The Effort `hivemind.queen.autopilot.effort.effort_for` chose for this event
             class; overrides the Queen's own standing binding's effort for this call only.
+        cells_in_play: Cells this episode is currently a placement or assignment candidate for
+            (roadmap step 4.2a); default empty, matching every awake episode before this one.
+            `hivemind.queen.ticks.wax` passes `{the Cell in question}` when judging a Cell Wax
+            proposal, so the Cell's own existing wax is visible in the prompt.
 
     Returns:
         The one QueenDecision the model produced.
@@ -209,7 +260,7 @@ async def decide_awake(
     """
     bound = deps.bound_for(ModelSlot.QUEEN)
     effort_bound = dataclasses.replace(bound, effort=effort)
-    prompt = await _assemble_prompt(deps, event, sources, effort_bound)
+    prompt = await _assemble_prompt(deps, event, sources, effort_bound, cells_in_play)
 
     system = render(PromptName.QUEEN_SYSTEM, sections=prompt.sections)
     llm_request = LLMRequest(
@@ -229,7 +280,11 @@ async def decide_awake(
 
 
 async def _assemble_prompt(
-    deps: QueenDeps, event: TriggerEvent, sources: HotStateSources, effort_bound: BoundModel
+    deps: QueenDeps,
+    event: TriggerEvent,
+    sources: HotStateSources,
+    effort_bound: BoundModel,
+    cells_in_play: frozenset[CellId],
 ) -> Prompt:
     """Pack the Queen's own hot state into a token-budgeted Prompt, sized for `effort_bound`."""
     principal = Principal(
@@ -244,7 +299,9 @@ async def _assemble_prompt(
         ),
         output_reserve=deps.memory_budget.output_reserve_tokens,
     )
-    request = AssembleRequest(principal=principal, event=event, budget=budget)
+    request = AssembleRequest(
+        principal=principal, event=event, budget=budget, cells_in_play=cells_in_play
+    )
     return await assemble(request, sources, EstimateCounter())
 
 

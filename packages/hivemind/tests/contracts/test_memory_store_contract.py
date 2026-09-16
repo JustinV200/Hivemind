@@ -24,11 +24,24 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from builders.memory import make_bee_bread_entry, make_episode, make_handoff, make_note, make_pin
+from builders.memory import (
+    make_bee_bread_entry,
+    make_cell_wax,
+    make_episode,
+    make_handoff,
+    make_note,
+    make_pin,
+)
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.sqlite import connect
-from hivemind.memory.errors import BeeBreadEntryNotFoundError, ClearanceError, HandoffNotFoundError
+from hivemind.memory.cell_wax import WaxState
+from hivemind.memory.errors import (
+    BeeBreadEntryNotFoundError,
+    ClearanceError,
+    HandoffNotFoundError,
+    WaxNotFoundError,
+)
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR
 from hivemind.memory.store.memory import InMemoryMemoryStore
 from hivemind.memory.store.protocol import MemoryStore
@@ -41,7 +54,7 @@ from hivemind.pheromone import (
     TrailQuery,
 )
 from waggle.clock import FakeClock
-from waggle.ids import new_event_id, new_hive_id, new_node_id, new_task_id
+from waggle.ids import new_cell_id, new_event_id, new_hive_id, new_node_id, new_task_id
 
 _STORE_KINDS = ("memory", "sqlite")
 
@@ -402,3 +415,110 @@ async def test_list_bee_bread_between_filters_by_time_range(
     )
 
     assert results == (recent,)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Cell Wax (roadmap step 4.2a)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_put_wax_then_get_wax_returns_it(store_and_trail: _StoreAndTrail) -> None:
+    clock = FakeClock()
+    wax = make_cell_wax(clock=clock)
+
+    await store_and_trail.store.put_wax(
+        wax, _make_memory_event(clock, wax.cell_id, "memory.wax_proposed")
+    )
+    result = await store_and_trail.store.get_wax(wax.id)
+
+    assert result == wax
+
+
+async def test_put_wax_records_its_event_on_the_trail(store_and_trail: _StoreAndTrail) -> None:
+    clock = FakeClock()
+    wax = make_cell_wax(clock=clock)
+    event = _make_memory_event(clock, wax.cell_id, "memory.wax_proposed")
+
+    await store_and_trail.store.put_wax(wax, event)
+
+    assert await store_and_trail.trail.query(TrailQuery(subject_id=wax.cell_id)) == (event,)
+
+
+async def test_get_wax_unknown_id_raises_wax_not_found(store_and_trail: _StoreAndTrail) -> None:
+    with pytest.raises(WaxNotFoundError):
+        await store_and_trail.store.get_wax("wax_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+
+
+async def test_list_wax_filters_by_cell_state_and_allowance(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    cell_id = new_cell_id(clock)
+    other_cell_id = new_cell_id(clock)
+    written = make_cell_wax(clock=clock, cell_id=cell_id, state=WaxState.WRITTEN)
+    rejected = make_cell_wax(clock=clock, cell_id=cell_id, state=WaxState.REJECTED)
+    other_cell = make_cell_wax(clock=clock, cell_id=other_cell_id, state=WaxState.WRITTEN)
+    royal = make_cell_wax(
+        clock=clock, cell_id=cell_id, state=WaxState.WRITTEN, clearance=HoneyClearance.C2
+    )
+    for wax in (written, rejected, other_cell, royal):
+        await store_and_trail.store.put_wax(
+            wax, _make_memory_event(clock, wax.cell_id, "memory.wax_proposed")
+        )
+
+    results = await store_and_trail.store.list_wax(
+        cell_id, frozenset({WaxState.WRITTEN}), HoneyClearance.C1
+    )
+
+    assert results == (written,)
+
+
+async def test_list_wax_with_no_cell_id_returns_every_cells_matching_wax(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    first = make_cell_wax(clock=clock, state=WaxState.WRITTEN)
+    clock.advance(1)
+    second = make_cell_wax(clock=clock, state=WaxState.WRITTEN)
+    for wax in (first, second):
+        await store_and_trail.store.put_wax(
+            wax, _make_memory_event(clock, wax.cell_id, "memory.wax_proposed")
+        )
+
+    results = await store_and_trail.store.list_wax(
+        None, frozenset({WaxState.WRITTEN}), HoneyClearance.C2
+    )
+
+    assert {item.id for item in results} == {first.id, second.id}
+
+
+async def test_update_wax_state_overwrites_the_row_and_records_its_event(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    wax = make_cell_wax(clock=clock, state=WaxState.PROPOSED, decided_by=None)
+    await store_and_trail.store.put_wax(
+        wax, _make_memory_event(clock, wax.cell_id, "memory.wax_proposed")
+    )
+    clock.advance(1)  # Distinct `at` from the proposal event, so trail order is unambiguous.
+    written = wax.model_copy(update={"state": WaxState.WRITTEN})
+    event = _make_memory_event(clock, wax.cell_id, "memory.wax_written")
+
+    await store_and_trail.store.update_wax_state(written, event)
+
+    result = await store_and_trail.store.get_wax(wax.id)
+    assert result.state is WaxState.WRITTEN
+    events = await store_and_trail.trail.query(TrailQuery(subject_id=wax.cell_id))
+    assert [e.kind for e in events] == ["memory.wax_proposed", "memory.wax_written"]
+
+
+async def test_update_wax_state_on_an_unknown_id_raises_wax_not_found(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    wax = make_cell_wax(clock=clock)
+
+    with pytest.raises(WaxNotFoundError):
+        await store_and_trail.store.update_wax_state(
+            wax, _make_memory_event(clock, wax.cell_id, "memory.wax_written")
+        )

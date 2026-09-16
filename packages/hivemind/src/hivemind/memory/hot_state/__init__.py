@@ -29,7 +29,8 @@ See Also:
 
 Public API:
     - Principal, TokenBudget, TriggerEvent: assemble's inputs about the reader and the trigger.
-    - TaskSummary, AlarmSummary, QuestionSummary, DecisionSummary: the flat hot-state candidates.
+    - TaskSummary, AlarmSummary, QuestionSummary, DecisionSummary, CellWaxSummary: the flat
+      hot-state candidates.
     - HotStateSources: the Protocol a caller implements to supply every candidate.
     - AssembleRequest, Prompt, assemble: the packing entry point and its request/result shapes.
     - ITEM_CAP_CHARS, RECENT_DECISIONS_LIMIT: packing's own tunable constants.
@@ -48,6 +49,7 @@ from hivemind.memory.hot_state.summaries import (
     SUMMARY_TEXT_CAP_CHARS,
     SUMMARY_TITLE_CAP_CHARS,
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     HotStateSources,
     Principal,
@@ -66,6 +68,7 @@ __all__ = [
     "SUMMARY_TITLE_CAP_CHARS",
     "AlarmSummary",
     "AssembleRequest",
+    "CellWaxSummary",
     "DecisionSummary",
     "HotStateSources",
     "Principal",

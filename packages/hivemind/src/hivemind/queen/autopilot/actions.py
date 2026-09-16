@@ -10,6 +10,11 @@ though the live Queen tick (`hivemind.queen.queen`) runs both unconditionally ev
 through a synthetic timer `InboxItem` -- see that module's own docstring for why; `COMPLETE_TASK`/
 `RETRY_TASK`/`FAIL_TASK`/`REBIND`/`ESCALATE_TO_HUMAN` are the five ways a `TaskResult` or an
 escalated `AlarmRaised` resolves; `BLOCK_ON_QUESTION`/`ROUTE_ANSWER` are the Question/Answer moves;
+`WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX` (roadmap step 4.2a) are the three ways a Cell Wax note's own
+life resolves -- reached by `hivemind.queen.autopilot.wax.decide_wax_proposal` for `WRITE_WAX`
+alone (a Warden's NOTE/CAUTION about its own Cell, within the per-Cell cap), and by
+`hivemind.queen.awake.decision.QueenDecision.action` for all three, since an awake episode judging
+a BLOCK, a Worker's proposal, a proposal about another Cell, or a clear may pick any of them;
 `NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.queen.awake` instead.
 
 Fits into the Hive:
@@ -51,4 +56,7 @@ class QueenAction(Enum):
     BLOCK_ON_QUESTION = "BLOCK_ON_QUESTION"  # A Warden's Question: chamber.ask, task BLOCKED.
     ROUTE_ANSWER = "ROUTE_ANSWER"  # An Answer reaching the Queen's own inbox directly.
     MARK_WARDEN_OFFLINE = "MARK_WARDEN_OFFLINE"  # A Warden missed too many heartbeats.
+    WRITE_WAX = "WRITE_WAX"  # cell_wax.write_wax: PROPOSED -> WRITTEN, by autopilot or awake.
+    REJECT_WAX = "REJECT_WAX"  # cell_wax.reject_wax: PROPOSED -> REJECTED, an awake decision.
+    CLEAR_WAX = "CLEAR_WAX"  # cell_wax.clear_wax: WRITTEN -> CLEARED, an awake decision.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to queen.awake.

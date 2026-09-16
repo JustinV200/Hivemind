@@ -22,7 +22,8 @@ See Also:
     - hivemind.memory.notes for Note.
     - hivemind.memory.episodes for EpisodeRecord.
     - hivemind.memory.hot_state for Principal, TokenBudget, TriggerEvent, TaskSummary,
-      AlarmSummary, QuestionSummary, DecisionSummary.
+      AlarmSummary, QuestionSummary, DecisionSummary, CellWaxSummary.
+    - hivemind.memory.cell_wax for CellWax, WaxProposalInput, WaxSeverity, WaxState.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from hivemind.forage.slots import ModelSlot
 from hivemind.memory import (
     BeeBreadEntry,
     BeeBreadEntryKind,
+    CellWax,
     CompactionRequest,
     Decision,
     EpisodeRecord,
@@ -39,9 +41,14 @@ from hivemind.memory import (
     Note,
     Pin,
     PinSource,
+    WaxProposalInput,
+    WaxSeverity,
+    WaxState,
 )
+from hivemind.memory.cell_wax import new_wax_id
 from hivemind.memory.hot_state import (
     AlarmSummary,
+    CellWaxSummary,
     DecisionSummary,
     Principal,
     QuestionSummary,
@@ -50,11 +57,14 @@ from hivemind.memory.hot_state import (
     TriggerEvent,
 )
 from waggle.clock import Clock, FakeClock
-from waggle.ids import new_alarm_id, new_event_id, new_message_id, new_task_id
+from waggle.ids import new_alarm_id, new_cell_id, new_event_id, new_message_id, new_task_id
+from waggle.messages.cell.wax import WaxDecision, WaxOrigin
 
 __all__ = [
     "make_alarm_summary",
     "make_bee_bread_entry",
+    "make_cell_wax",
+    "make_cell_wax_summary",
     "make_compaction_request",
     "make_decision_summary",
     "make_episode",
@@ -66,6 +76,7 @@ __all__ = [
     "make_task_summary",
     "make_token_budget",
     "make_trigger_event",
+    "make_wax_proposal_input",
 ]
 
 
@@ -365,3 +376,86 @@ def make_decision_summary(clock: Clock | None = None, **overrides: object) -> De
     }
     fields.update(overrides)
     return DecisionSummary(**fields)
+
+
+def make_wax_proposal_input(clock: Clock | None = None, **overrides: object) -> WaxProposalInput:
+    """Build a valid WaxProposalInput: a CAUTION about a fresh Cell, proposed by a bee.
+
+    Args:
+        clock: Source of the default Cell id; a fresh FakeClock when omitted.
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A WaxProposalInput ready for `hivemind.memory.cell_wax.propose_wax`.
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "cell_id": new_cell_id(active_clock),
+        "severity": WaxSeverity.CAUTION,
+        "text": "This Cell's disk fills up under heavy load; watch free space.",
+        "reason": "Saw two ENOSPC failures in a row on this Cell.",
+        "clearance": HoneyClearance.C1,
+        "origin": WaxOrigin.BEE,
+        "proposer": "warden_test",
+        "task_id": None,
+        "expires_at": None,
+    }
+    fields.update(overrides)
+    return WaxProposalInput(**fields)  # type: ignore[arg-type]
+
+
+def make_cell_wax(clock: Clock | None = None, **overrides: object) -> CellWax:
+    """Build a valid, WRITTEN, C1 CAUTION CellWax note about a fresh Cell.
+
+    Args:
+        clock: Source of the id, Cell id and timestamps; a fresh FakeClock when omitted.
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated CellWax, already WRITTEN (most tests want one past PROPOSED; pass
+        `state=WaxState.PROPOSED, decided_by=None, decided_at=None` to build a fresh proposal).
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "id": new_wax_id(active_clock),
+        "cell_id": new_cell_id(active_clock),
+        "state": WaxState.WRITTEN,
+        "severity": WaxSeverity.CAUTION,
+        "text": "This Cell's disk fills up under heavy load; watch free space.",
+        "proposer": "warden_test",
+        "origin": WaxOrigin.BEE,
+        "reason": "Saw two ENOSPC failures in a row on this Cell.",
+        "clearance": HoneyClearance.C1,
+        "task_id": None,
+        "expires_at": None,
+        "proposed_at": active_clock.now(),
+        "decided_by": WaxDecision.AUTOPILOT,
+        "decided_at": active_clock.now(),
+        "clear_cause": None,
+        "cleared_at": None,
+    }
+    fields.update(overrides)
+    return CellWax(**fields)
+
+
+def make_cell_wax_summary(clock: Clock | None = None, **overrides: object) -> CellWaxSummary:
+    """Build a valid, C1 CellWaxSummary for a CAUTION about a fresh Cell.
+
+    Args:
+        clock: Source of the id, Cell id and timestamp; a fresh FakeClock when omitted.
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated CellWaxSummary.
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "id": new_wax_id(active_clock),
+        "cell_id": new_cell_id(active_clock),
+        "severity": "CAUTION",
+        "text": "This Cell's disk fills up under heavy load; watch free space.",
+        "clearance": HoneyClearance.C1,
+        "written_at": active_clock.now(),
+    }
+    fields.update(overrides)
+    return CellWaxSummary(**fields)

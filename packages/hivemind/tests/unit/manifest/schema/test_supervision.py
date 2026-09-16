@@ -16,7 +16,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
+from hivemind.manifest.schema.supervision import (
+    DEFAULT_WAX_TEXT_CAP_CHARS,
+    MemorySection,
+    SupervisionSection,
+)
+from waggle.messages.cell.wax import MAX_WAX_TEXT_CHARS
 
 
 def test_supervision_section_has_sensible_defaults() -> None:
@@ -46,6 +51,22 @@ def test_memory_section_has_sensible_defaults() -> None:
     assert section.hot_window_s == 4.0 * 3600.0
     assert section.pins == ()
     assert section.sweep_interval_s == 3_600.0
+    assert section.cell_wax_cap == 20
+    assert section.wax_text_cap_chars == DEFAULT_WAX_TEXT_CAP_CHARS
+
+
+def test_memory_section_wax_text_cap_chars_matches_waggles_own_ceiling() -> None:
+    """The manifest's own default never silently drifts from the wire shape's hard ceiling."""
+    assert DEFAULT_WAX_TEXT_CAP_CHARS == MAX_WAX_TEXT_CHARS
+
+
+def test_memory_section_rejects_a_non_positive_wax_text_cap_chars() -> None:
+    with pytest.raises(ValidationError):
+        MemorySection(wax_text_cap_chars=0)
+
+
+def test_memory_section_accepts_a_wax_text_cap_chars_lower_than_the_wire_ceiling() -> None:
+    assert MemorySection(wax_text_cap_chars=500).wax_text_cap_chars == 500
 
 
 def test_memory_section_rejects_a_non_positive_sweep_interval() -> None:

@@ -75,3 +75,46 @@ def test_a_matching_os_need_is_accepted() -> None:
     placement = decide(needs, (link,))
 
     assert placement.cell_id == link.cell.id
+
+
+def test_a_blocked_cell_is_excluded_even_as_the_only_candidate() -> None:
+    """Roadmap step 4.2a: "placement treats BLOCK as exclusion"."""
+    clock = FakeClock()
+    link = _make_link(clock)
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(), (link,), blocked_cells=frozenset({link.cell.id}))
+
+
+def test_a_blocked_cell_is_skipped_in_favour_of_a_clean_one() -> None:
+    clock = FakeClock()
+    blocked = _make_link(clock)
+    clean = _make_link(clock)
+
+    placement = decide(TaskNeeds(), (blocked, clean), blocked_cells=frozenset({blocked.cell.id}))
+
+    assert placement.cell_id == clean.cell.id
+
+
+def test_a_cautioned_cell_is_still_a_candidate_when_it_is_the_only_one() -> None:
+    """Roadmap step 4.2a: "CAUTION as a penalty" -- never an exclusion."""
+    clock = FakeClock()
+    link = _make_link(clock)
+
+    placement = decide(TaskNeeds(), (link,), cautioned_cells=frozenset({link.cell.id}))
+
+    assert placement.cell_id == link.cell.id
+
+
+def test_a_cautioned_cell_ranks_behind_an_uncautioned_one() -> None:
+    """Roadmap step 4.2a: "CAUTION is a penalty in ordering"."""
+    clock = FakeClock()
+    cautioned = _make_link(clock)
+    clean = _make_link(clock)
+
+    placement = decide(
+        TaskNeeds(), (cautioned, clean), cautioned_cells=frozenset({cautioned.cell.id})
+    )
+
+    # cautioned is attached first, yet the clean candidate wins the ranking.
+    assert placement.cell_id == clean.cell.id

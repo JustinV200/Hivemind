@@ -13,7 +13,11 @@ protocol's deletion paths named here; `SqliteMemoryStore` documents a fourth (ev
 separate method, since nothing above the store ever needs to trigger it directly. The four
 `*_bee_bread_*` methods (roadmap step 4.2) are Bee Bread's (the warm memory tier's) own persistence:
 one write, one lookup by id, one by task, one by a time range -- lookup only, no search
-(codingrules section 8.9).
+(codingrules section 8.9). The four `*_wax` methods (roadmap step 4.2a) are Cell Wax's own
+persistence: `put_wax` inserts a fresh proposal, `update_wax_state` overwrites an already-
+transitioned row (`hivemind.memory.cell_wax.writes` is the only caller of either, and it always
+validates the edge with `hivemind.memory.cell_wax.state.assert_transition` first), `get_wax` and
+`list_wax` are the two reads.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by `hivemind.memory.store.
@@ -55,12 +59,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from hivemind.cell import HoneyClearance
+from hivemind.memory.cell_wax import CellWax, WaxState
 from hivemind.memory.episodes import EpisodeRecord
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from hivemind.pheromone import MemoryEvent
-from waggle.ids import EventId, TaskId
+from waggle.ids import CellId, EventId, TaskId
 
 if TYPE_CHECKING:
     # Type-checking only: see the module docstring's "Key invariants" for why a real import here
@@ -287,11 +292,78 @@ class _BeeBreadStore(Protocol):
         ...
 
 
-class MemoryStore(_PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, Protocol):
-    """Persist pins, notes, Handoffs, episodes and Bee Bread entries, atomic with their events.
+class _WaxStore(Protocol):
+    """A fifth of MemoryStore (Cell Wax, roadmap 4.2a), split out for codingrules 5.1's size."""
 
-    Composed from the three private Protocols above, split only to keep each one under
-    codingrules 5.1's class-length limit; `MemoryStore` itself is the whole contract every caller
-    and implementation (`InMemoryMemoryStore`, `SqliteMemoryStore`) actually names.
-    Implementations must be safe to call concurrently.
+    async def put_wax(self, wax: CellWax, event: MemoryEvent) -> None:
+        """Insert `wax` and record `event`, atomically.
+
+        Args:
+            wax: The note to add; its id must be new to the store. Always state PROPOSED: only
+                `hivemind.memory.cell_wax.writes.propose_wax` calls this.
+            event: The accompanying `memory.wax_proposed` trail event.
+
+        Raises:
+            hivemind.common.errors.ConflictError: `wax.id` already exists; nothing is written.
+        """
+        ...
+
+    async def get_wax(self, wax_id: str) -> CellWax:
+        """Return the note with id `wax_id`, in whatever state it currently holds.
+
+        Args:
+            wax_id: The note's own id.
+
+        Returns:
+            The matching CellWax.
+
+        Raises:
+            hivemind.memory.errors.WaxNotFoundError: No note with `wax_id` exists.
+        """
+        ...
+
+    async def list_wax(
+        self, cell_id: CellId | None, states: frozenset[WaxState], allowance: HoneyClearance
+    ) -> tuple[CellWax, ...]:
+        """Return every note in `states`, within `allowance`, newest first.
+
+        Args:
+            cell_id: Only notes about this Cell; `None` returns every Cell's (the House Bee
+                sweep's own expiry scan, which has no one Cell to filter by).
+            states: Only notes currently in one of these states.
+            allowance: The reader's clearance ceiling.
+
+        Returns:
+            Matching notes, ordered by `(proposed_at, id)` descending (newest first); a caller
+            that wants the per-Cell severity-then-recency order re-ranks with
+            `hivemind.memory.cell_wax.model.cap_wax_for_hot_state`.
+        """
+        ...
+
+    async def update_wax_state(self, wax: CellWax, event: MemoryEvent) -> None:
+        """Overwrite the stored row for `wax.id` with `wax`, and record `event`, atomically.
+
+        `wax` is always the already-transitioned row (`hivemind.memory.cell_wax.writes` builds it
+        via `model_copy` and calls `hivemind.memory.cell_wax.state.assert_transition` first); this
+        method trusts the caller and only persists it.
+
+        Args:
+            wax: The note's new state, already validated by the caller.
+            event: The accompanying `memory.wax_*` trail event for this transition.
+
+        Raises:
+            hivemind.memory.errors.WaxNotFoundError: No note with `wax.id` exists yet.
+        """
+        ...
+
+
+class MemoryStore(
+    _PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, _WaxStore, Protocol
+):
+    """Persist pins, notes, Handoffs, episodes, Bee Bread entries and Cell Wax, atomic with events.
+
+    Composed from the four private Protocols above, split only to keep each one under codingrules
+    5.1's class-length limit; `MemoryStore` itself is the whole contract every caller and
+    implementation (`InMemoryMemoryStore`, `SqliteMemoryStore`) actually names. Implementations
+    must be safe to call concurrently.
     """
