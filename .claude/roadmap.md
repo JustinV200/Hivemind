@@ -728,14 +728,14 @@ failing.
   never from a previous summary; pins verbatim; one level of summary; records `memory.compacted`.
   A House Bee **sweep** duty (`workers/roles/house_bee.py`, first version) runs demotion and
   compaction on a timer, and ripens Bee Bread into Honey once phase 7 lands.
-- [ ] **4.4 Overflow recovery.** `ContextTooLong` from any provider shrinks the budget for that
+- [x] **4.4 Overflow recovery.** `ContextTooLong` from any provider shrinks the budget for that
   episode and retries, recording `memory.overflow`; three overflows raise an Alarm. A synthetic
   flood test pushes ten thousand events through the Queen and asserts the assembled prompt never
   exceeds the budget and every dropped item is findable in Bee Bread.
-- [ ] **4.5 Handoff quality eval.** `tests/evals/handoff/`: a bee is stopped mid-task, a fresh bee
+- [x] **4.5 Handoff quality eval.** `tests/evals/handoff/`: a bee is stopped mid-task, a fresh bee
   resumes from the Handoff alone and must complete; graded on completion and on not repeating
   do-not-redo steps. Run with the fake in CI and with real providers under `live_llm`.
-- [ ] **4.6 Context interventions end to end.** The Queen watches Warden telemetry and orders
+- [x] **4.6 Context interventions end to end.** The Queen watches Warden telemetry and orders
   `compact` or `handoff` past thresholds; Wardens do the same to sub-bees; `inspect` returns a
   compacted view under a size cap. A test asserts no full transcript ever appears in a Waggle
   message.
@@ -786,7 +786,7 @@ failing.
   per lease, resident Basket disk, loadable map entries, exportable seats), recorded as
   `forage.ceilings_set`. Routing (phase 8) consumes the plan; a local source is only selectable
   once phase 8.3 can start a server on a Cell.
-- [ ] **4.9 Clustering.** `queen/cluster/protocol.py`: triggered per provider by `ProviderHealth`
+- [x] **4.9 Clustering.** `queen/cluster/protocol.py`: triggered per provider by `ProviderHealth`
   failing with no fallback within Forage, by a cost cap, or by `hive cluster`: checkpoint every
   affected bee, move their tasks to `PAUSED`, keep leases and Cells alive, keep heartbeats and
   watchdogs, poll health with backoff, resume from Handoffs on `hive wake` or recovery, record
