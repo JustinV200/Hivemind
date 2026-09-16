@@ -46,7 +46,7 @@ from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.memory import InMemoryMemoryStore
 from hivemind.pheromone import PheromoneTrail, TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.queen import ForageLedger
+from hivemind.queen import ForageLedger, SqliteOrderStore
 from hivemind.wardens import WardenState
 from waggle.clock import FakeClock
 from waggle.messages.task import WorkerRole
@@ -248,6 +248,22 @@ def test_build_hive_wires_the_queen_deps_ledger_over_sqlite_and_restores_it(
     asyncio.run(restored.restore())
 
     assert restored.grant(grant.id) == grant
+
+
+def test_build_hive_wires_the_queen_deps_cluster_orders_over_sqlite(tmp_path: Path) -> None:
+    """Roadmap step 4.9 (Clustering): build_queen_deps opens a SqliteOrderStore on [hive] db."""
+    hive, _clock = _build_test_hive(tmp_path)
+
+    assert isinstance(hive.queen._deps.orders, SqliteOrderStore)
+
+
+def test_build_hive_wires_the_queen_deps_provider_lookup_to_the_registry(tmp_path: Path) -> None:
+    """Roadmap step 4.9: provider_lookup resolves the same instance the registry does."""
+    hive, _clock = _build_test_hive(tmp_path)
+
+    deps = hive.queen._deps
+    assert deps.provider_lookup is not None
+    assert deps.provider_lookup("fake") is hive.registry.provider("fake")
 
 
 @pytest.fixture

@@ -19,7 +19,9 @@ Fits into the Hive:
     `tests.builders.queen.make_queen_deps` in tests -- which attaches each `WardenLink` with
     `Queen.attach_warden` before `run()`. Calls into `hivemind.brood_chamber`, `hivemind.forage`,
     `hivemind.llm.ladders.gate`, `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
-    `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.supervision` and waggle only.
+    `hivemind.queen.cluster.health`/`.orders` (HealthPoller, OrderStore, InMemoryOrderStore --
+    roadmap step 4.9), `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.supervision` and
+    waggle only.
 
 Key invariants:
     - `QueenDeps` and `WardenLink` are frozen and slotted (codingrules section 8.5): neither is
@@ -55,9 +57,11 @@ from hivemind.forage import (
     RoyalReserve,
     SlotBinding,
 )
-from hivemind.llm import BoundModel, CallGate
+from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
+from hivemind.queen.cluster.health import HealthPoller
+from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
@@ -80,6 +84,12 @@ _DEFAULT_DRONE_FOOTPRINT = RoleFootprint(
     exoskeleton_extra_memory_bytes=0,
 )
 _DEFAULT_GRANT_TTL_S = 300.0  # Matches the manifest's own [forage] grant_ttl_s default.
+# roadmap step 4.6: MemoryBudget's own two threshold defaults, additive (module docstring on the
+# class itself explains why they are not yet read from a manifest slice). 0.5 leaves real room
+# before handoff_threshold's own two-thirds mark, so a bee that only needs compacting is caught
+# before it is forced to hand off entirely.
+_DEFAULT_COMPACT_AT = 0.5
+_DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT_HANDOFF_THRESHOLD.
 
 __all__ = ["MemoryBudget", "QueenDeps", "WardenLink"]
 
@@ -115,10 +125,21 @@ class MemoryBudget:
             content (`[memory] budget_fraction`).
         output_reserve_tokens: Tokens reserved for the model's own reply, never spent on
             assembled content (`[memory] output_reserve_tokens`).
+        compact_at: Fraction of the context window past which `hivemind.queen.ticks.context.
+            intervention_for` orders `COMPACT` (roadmap step 4.6). Additive: `QueenDeps` carries
+            no manifest slice naming this field yet (`hivemind.manifest.schema.supervision.
+            MemorySection` has no `compact_at` field to read it from), so this mirrors a sensible
+            manifest default the way `hivemind.queen.awake.episode.WAX_CAP_PER_CELL` already
+            mirrors `[memory] cell_wax_cap`'s own default.
+        handoff_threshold: Fraction past which `intervention_for` orders `HANDOFF` instead;
+            defaults to `hivemind.manifest.schema.supervision.DEFAULT_HANDOFF_THRESHOLD`'s own
+            value (two thirds of the window, codingrules section 8.9's "threshold reset").
     """
 
     budget_fraction: float
     output_reserve_tokens: int
+    compact_at: float = _DEFAULT_COMPACT_AT
+    handoff_threshold: float = _DEFAULT_HANDOFF_THRESHOLD
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +185,16 @@ class QueenDeps:
             capacity, every live shared grant and the headroom they leave. Defaults to a fresh,
             in-memory-only `ForageLedger()` sharing `reserve`'s own default, so a caller that
             never names this field (every pre-4.7 test) still builds a valid QueenDeps.
+        orders: Roadmap step 4.9 (Clustering): the durable `hive cluster`/`hive wake` rows
+            `hivemind.queen.cluster.tick.run_cluster_tick` polls every tick. Defaults to a fresh
+            `InMemoryOrderStore()`, matching every other roadmap-4.9-and-earlier test.
+        health_poller: The clustered-provider health-probe schedule (`hivemind.queen.cluster.
+            health.HealthPoller`), on its own backoff. Defaults to a fresh instance over the
+            module's own default `ClusterBackoff`.
+        provider_lookup: Resolves a `[llm.providers.<name>]` key to a live `LLMProvider`, for
+            `HealthPoller.probe`; `ProviderRegistry.provider` bound to an instance in production.
+            None (the default) skips health probing entirely rather than raising, since a caller
+            that never names this field has no registry to probe with in the first place.
     """
 
     chamber: BroodChamber
@@ -188,3 +219,8 @@ class QueenDeps:
     reserve: RoyalReserve = field(default_factory=RoyalReserve)
     grant_ttl_s: float = _DEFAULT_GRANT_TTL_S
     ledger: ForageLedger = field(default_factory=ForageLedger)
+    # Roadmap step 4.9 (Clustering): additive fields, every one defaulted so a QueenDeps built
+    # before this dispatch (every existing test) keeps building unchanged.
+    orders: OrderStore = field(default_factory=InMemoryOrderStore)
+    health_poller: HealthPoller = field(default_factory=HealthPoller)
+    provider_lookup: ProviderLookup | None = None

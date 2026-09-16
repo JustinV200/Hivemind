@@ -101,6 +101,7 @@ from hivemind.llm import (
 from hivemind.manifest import HiveManifest, ManifestError, load_manifest
 from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
+from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.forage.ledger import SqliteLedgerStore
 from waggle.clock import Clock, SystemClock
 
@@ -136,6 +137,7 @@ __all__ = [
     "build_registry",
     "load_manifest_or_exit",
     "open_chamber",
+    "open_cluster_orders",
     "open_ledger",
     "open_memory",
     "open_trail",
@@ -236,6 +238,28 @@ def open_ledger(db: Path) -> SqliteLedgerStore:
     async def _open() -> SqliteLedgerStore:
         connection = connect(db)
         return await SqliteLedgerStore.create(connection, SystemClock())
+
+    return asyncio.run(_open())
+
+
+def open_cluster_orders(db: Path) -> SqliteOrderStore:
+    """Open `db` and return a ready SqliteOrderStore, applying its migration first.
+
+    Roadmap step 4.9 (Clustering): `hivemind.cli.compose.deps.build_queen_deps` calls this so
+    `hivemind.queen.deps.QueenDeps.orders` is backed by durable SQLite in production, the same
+    table `hive cluster`/`hive wake` (roadmap step 4.11, a later dispatch) will write into;
+    `hivemind.queen.cluster.InMemoryOrderStore` stays the store a test builds directly.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteOrderStore whose `cluster_orders` table exists and is current.
+    """
+
+    async def _open() -> SqliteOrderStore:
+        connection = connect(db)
+        return await SqliteOrderStore.create(connection, SystemClock())
 
     return asyncio.run(_open())
 

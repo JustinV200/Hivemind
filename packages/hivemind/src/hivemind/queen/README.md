@@ -92,8 +92,25 @@ every assignment goes to a Warden, over Waggle.
   routing's own job from phase 8 on. `hosting.write_hosting_plan` and `ceilings.set_ceilings`/
   `.change_ceilings` (4.8) write a Cell's `HostingPlan` and a Warden's `Ceilings`, each a pure
   decision plus an effectful trail-and-ledger (and, for ceilings, Waggle) edge.
-- `queen.cluster`, `queen.requeening`, `queen.supersedure`: placeholders, populated in a later
-  roadmap phase.
+- `queen.cluster` (roadmap step 4.9, docs/adr/0024-clustering-protocol.md): Clustering, the
+  pause-and-preserve protocol for a provider outage. `protocol.cluster`/`.resume` find every bee
+  bound to a provider through `deps.ledger.live_grants()` filtered against `deps.map` (the
+  cheapest honest source, module docstring of `protocol.py`), send each Warden an
+  `Intervene(HANDOFF)` then a `TaskPause`, move the task to `PAUSED` in the Brood Chamber and
+  record one `queen.clustered`; `resume` finds a Handoff through Bee Bread
+  (`MemoryStore.list_bee_bread_by_task`) and re-assigns through `hivemind.queen.dispatcher.
+  resume_paused`, so no work is redone, recording one `queen.resumed`. Neither ever awaits a
+  model. `health.HealthPoller` polls a clustered provider's own `LLMProvider.health()` on an
+  exponential backoff (`ClusterBackoff`, `next_probe_at`); `orders` is the durable table
+  `hive cluster`/`hive wake` (roadmap step 4.11) write into and `tick.run_cluster_tick` polls
+  every tick, the same durable-row-polled-each-tick shape `queen.questions.
+  sync_answers_from_chamber` already uses; `triggers.check_cost_caps` clusters a goal's own
+  provider once its spend headroom hits zero. `tick.awake_available` is the pure check the
+  orchestrator's own `_run_awake` consults so the Queen's autopilot runs this same protocol when
+  her own `ModelSlot.QUEEN` provider is itself clustered. The Queen's own mode
+  (`RUNNING <-> CLUSTERED`, per provider set) lives in `hivemind.queen.state.QueenMode`/
+  `ClusterState`, held on the `Queen` instance, not in `QueenDeps`.
+- `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
 ## How to test this
 

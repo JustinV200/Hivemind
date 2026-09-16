@@ -76,7 +76,7 @@ from waggle.messages.base import WaggleMessage
 from waggle.messages.cell import CellWaxWritten
 from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued
 from waggle.messages.supervision import Answer, Intervene
-from waggle.messages.task import TaskAssign
+from waggle.messages.task import TaskAssign, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging.
@@ -290,6 +290,8 @@ class WardenEnd:
         self.forage_replies: list[ForageReply] = []
         self.ceilings_sets: list[CeilingsSet] = []  # Roadmap step 4.8.
         self.wax_written: list[CellWaxWritten] = []  # Roadmap step 4.2a.
+        self.task_pauses: list[TaskPause] = []  # Roadmap step 4.9 (Clustering).
+        self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -354,6 +356,16 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.wax_written), limit=limit)
         return self.wax_written[-1]
 
+    async def wait_for_task_pause(self, limit: int = DEFAULT_PUMP_LIMIT) -> TaskPause:
+        """Pump until at least one TaskPause has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.task_pauses), limit=limit)
+        return self.task_pauses[-1]
+
+    async def wait_for_task_resume(self, limit: int = DEFAULT_PUMP_LIMIT) -> TaskResume:
+        """Pump until at least one TaskResume has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.task_resumes), limit=limit)
+        return self.task_resumes[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Queen's own receive() ends cleanly."""
         await self._transport.close()
@@ -383,6 +395,12 @@ class WardenEnd:
         elif isinstance(payload, CellWaxWritten):
             self.wax_written.append(payload)
             self.received_kinds.append("wax_written")
+        elif isinstance(payload, TaskPause):
+            self.task_pauses.append(payload)
+            self.received_kinds.append("task_pause")
+        elif isinstance(payload, TaskResume):
+            self.task_resumes.append(payload)
+            self.received_kinds.append("task_resume")
 
 
 def plan_responder(

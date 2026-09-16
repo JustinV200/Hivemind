@@ -60,6 +60,18 @@ Public API (roadmap step 3.20):
     - ForageLedger: the Queen's live book of Forage, roadmap step 4.7 (forage.ledger); reached at
       `hivemind.queen.forage.grants`/`.requests` for the grant-lease and ForageRequest logic
       themselves, the same module-access convention `ticks.alarms`/`ticks.liveness` already use.
+    - QueenMode, ClusterState, InvalidQueenModeTransitionError: the Queen's own mode machine and
+      the small state (mode plus clustered-provider set) tracked on a `Queen` instance for
+      Clustering (state).
+    - cluster, resume, ClusterOutcome, ResumeOutcome: pause and resume one provider's bees
+      (roadmap step 4.9, docs/adr/0024); HealthPoller, ClusterBackoff, next_probe_at:
+      backoff-scheduled provider health polling; ClusterOrder, OrderKind, OrderStore,
+      InMemoryOrderStore, SqliteOrderStore, apply_order_migrations, new_order_id: the durable
+      `hive cluster`/`hive wake` rows the running Queen polls; run_cluster_tick, awake_available:
+      the two hooks a running Queen's tick wires in; check_cost_caps: the cost-cap trigger
+      (cluster).
+    - resume_paused: the dispatcher-path entry point a Clustering resume goes through so no work
+      is redone (dispatcher).
 """
 
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
@@ -76,8 +88,27 @@ from hivemind.queen.awake import (
     QueenSources,
     decide_awake,
 )
+from hivemind.queen.cluster import (
+    ClusterBackoff,
+    ClusterOrder,
+    ClusterOutcome,
+    HealthPoller,
+    InMemoryOrderStore,
+    OrderKind,
+    OrderStore,
+    ResumeOutcome,
+    SqliteOrderStore,
+    apply_order_migrations,
+    awake_available,
+    check_cost_caps,
+    cluster,
+    new_order_id,
+    next_probe_at,
+    resume,
+    run_cluster_tick,
+)
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready
+from hivemind.queen.dispatcher import dispatch_ready, resume_paused
 from hivemind.queen.errors import QueenError, UnknownWardenError
 from hivemind.queen.forage import ForageLedger
 from hivemind.queen.human_inbox import HumanInbox
@@ -112,6 +143,7 @@ from hivemind.queen.questions import (
     handle_question,
     sync_answers_from_chamber,
 )
+from hivemind.queen.state import ClusterState, InvalidQueenModeTransitionError, QueenMode
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
 
@@ -135,10 +167,19 @@ __all__ = [
     "NOTES_LIMIT",
     "PLANNER_MAX_OUTPUT_TOKENS",
     "RECENT_DECISIONS_LIMIT",
+    "ClusterBackoff",
+    "ClusterOrder",
+    "ClusterOutcome",
+    "ClusterState",
     "ForageLedger",
+    "HealthPoller",
     "HumanInbox",
+    "InMemoryOrderStore",
+    "InvalidQueenModeTransitionError",
     "MemoryBudget",
     "ModelTieBreaker",
+    "OrderKind",
+    "OrderStore",
     "Placement",
     "PlacementError",
     "PlanSchema",
@@ -150,20 +191,32 @@ __all__ = [
     "QueenDecision",
     "QueenDeps",
     "QueenError",
+    "QueenMode",
     "QueenSources",
+    "ResumeOutcome",
+    "SqliteOrderStore",
     "UnknownWardenError",
     "WardenLink",
     "WardenLiveness",
     "answer_note_author",
     "answer_question",
+    "apply_order_migrations",
+    "awake_available",
+    "check_cost_caps",
+    "cluster",
     "decide",
     "decide_awake",
     "dispatch_ready",
     "effort_for",
     "handle_question",
+    "new_order_id",
+    "next_probe_at",
     "plan_goal",
     "queen_attendant",
     "record_event",
+    "resume",
+    "resume_paused",
+    "run_cluster_tick",
     "sync_answers_from_chamber",
     "to_inbox_item",
 ]

@@ -17,9 +17,18 @@ Warden never provisions Cells itself.
   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the
   Queen link already closed is recoverable (`wardens.ticks.heartbeat.send_heartbeat` records
   `warden.offline` and moves on), never an exception out of this Warden's own loop or `stop()`.
-  Also implements `hivemind.supervision.Supervisor` over its sub-bees.
+  Also implements `hivemind.supervision.Supervisor` over its sub-bees. Roadmap step 4.9
+  (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
+  own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
+  `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`; any one no
+  longer in that set moves it back. No `warden.clustered` trail kind exists yet (outside this
+  dispatch's own files; `hivemind.queen.cluster.protocol.cluster`'s own `queen.clustered` is the
+  auditable record of the pause until that gap is closed).
 - `WardenState`, `TRANSITIONS`, `assert_transition`, `can_transition`, `is_terminal`
-  (`state.py`): the one Warden state machine (Appendix C).
+  (`state.py`): the one Warden state machine (Appendix C). `settled_state`, `clustering_update`
+  (roadmap step 4.9): the pure ACTIVE/WATCH/CLUSTERED decision and clustered-task-set update
+  `warden.py`'s own `_settle_after_tick`/`_act` call, split out here to stay within codingrules
+  5.1's file-size limit.
 - `WardenDeps` (`deps.py`): every collaborator one Warden is built with.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.

@@ -70,6 +70,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from hivemind.brood_chamber import Task
 from hivemind.forage import ForageGrant, GrantInputs, ModelSlot, grant
@@ -81,9 +82,10 @@ from hivemind.queen.placement import Placement, PlacementError, decide
 from hivemind.queen.trail import record_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
+from waggle.messages import HandoffRef
 from waggle.messages.task import TaskAssign, WorkerRole
 
-__all__ = ["dispatch_ready", "redispatch"]
+__all__ = ["dispatch_ready", "redispatch", "resume_paused"]
 
 
 async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
@@ -140,7 +142,56 @@ async def redispatch(
     if link is None:
         return  # Its Warden is no longer attached; nothing to resend to.
     placement = Placement(cell_id=task.cell_id, warden_id=task.warden_id)
-    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, attempt)
+    fresh_grant = await _send_grant_and_assign(
+        deps, link, task, placement, _AssignmentTerms(attempt=attempt)
+    )
+    await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
+
+
+async def resume_paused(
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    task_id: TaskId,
+    resume_from: HandoffRef | None,
+    reason: str,
+) -> None:
+    """Resume a PAUSED task from `resume_from` (or fresh), through the grant-then-assign path.
+
+    Roadmap step 4.9 (Clustering): `hivemind.queen.cluster.protocol.resume`'s one dispatcher-path
+    entry point, so a resumed task is re-assigned exactly the way a fresh dispatch is (a fresh
+    grant, `GrantIssued` before `TaskAssign`), never a hand-rolled wire send -- "through the
+    existing dispatcher path so no work is redone" (this dispatch's own deliverable). Unlike
+    `redispatch` (a RUNNING task's own retry, which never touches chamber status), this always
+    moves the task PAUSED -> RUNNING first, through `hivemind.brood_chamber.chamber.lifecycle.
+    _LifecycleMixin.resume`, the one legal edge back from PAUSED (Appendix C's "Task" row).
+
+    Args:
+        deps: The Queen's collaborators.
+        wardens: Every Warden currently attached.
+        task_id: The PAUSED task to resume; must already be placed (have a `warden_id`/`cell_id`
+            from before it was paused -- Clustering never unassigns, module docstring of
+            `hivemind.queen.cluster.protocol`).
+        resume_from: The Handoff to resume from, or None to start the fresh attempt without one
+            (docs/adr/0024: "a bee whose Handoff cannot be read resumes from the task's last
+            acceptance state instead").
+        reason: Why it resumes now, for the chamber's own trail event.
+
+    Returns:
+        None, once resumed, or silently if the task is somehow not placed or its Warden is no
+        longer attached (nothing to resume it through).
+    """
+    task = await deps.chamber.get(task_id)
+    if task.warden_id is None or task.cell_id is None:
+        return  # Not placed; Clustering never unassigns, so this should not happen in practice.
+    link = _link_for(wardens, task.warden_id)
+    if link is None:
+        return  # Its Warden is no longer attached; nothing to resume it through.
+    await deps.chamber.resume(task_id, reason)
+    placement = Placement(cell_id=task.cell_id, warden_id=task.warden_id)
+    # A fresh bee (module docstring: TaskAssign.resume_from's own field docstring, "a fresh one
+    # for a fresh bee"); the Queen owns the attempt number on every Queen-to-Warden hop.
+    terms = _AssignmentTerms(attempt=task.attempt + 1, resume_from=resume_from)
+    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, terms)
     await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
 
 
@@ -164,15 +215,30 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     await record_event(
         deps, "queen.assigned", task.id, cell_id=placement.cell_id, warden_id=placement.warden_id
     )
-    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, task.attempt)
+    terms = _AssignmentTerms(attempt=task.attempt)
+    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, terms)
     # "placed" (queen.assigned, just above) precedes "granted" on the trail (module docstring's
     # own required order): this Queen-side record only exists because nothing else writes
     # forage.granted at all.
     await _record_forage_granted(deps, task, fresh_grant, placement.warden_id)
 
 
+@dataclass(frozen=True, slots=True)
+class _AssignmentTerms:
+    """Bundles `attempt`/`resume_from` so `_send_grant_and_assign` stays within codingrules 5.1.
+
+    Attributes:
+        attempt: The attempt number to stamp on the fresh TaskAssign.
+        resume_from: The Handoff to resume from (roadmap step 4.9's own `resume_paused`); None
+            for a fresh dispatch or an ordinary retry (`dispatch_ready`/`redispatch`'s own calls).
+    """
+
+    attempt: int
+    resume_from: HandoffRef | None = None
+
+
 async def _send_grant_and_assign(
-    deps: QueenDeps, link: WardenLink, task: Task, placement: Placement, attempt: int
+    deps: QueenDeps, link: WardenLink, task: Task, placement: Placement, terms: _AssignmentTerms
 ) -> ForageGrant:
     """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign."""
     cell_id, warden_id = placement.cell_id, placement.warden_id
@@ -188,7 +254,9 @@ async def _send_grant_and_assign(
     sources: dict[str, ModelSource] = {
         binding.source_id: deps.map.get(binding.source_id) for binding in fresh_grant.allowed
     }
-    assign = _task_assign(task, cell_id, fresh_grant.id, attempt)
+    assign = _task_assign(
+        task, cell_id, fresh_grant.id, terms.attempt, resume_from=terms.resume_from
+    )
     await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
     await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
     return fresh_grant
@@ -238,8 +306,20 @@ async def _record_forage_granted(
     await deps.trail.record(event)
 
 
-def _task_assign(task: Task, cell_id: CellId, grant_id: GrantId, attempt: int) -> TaskAssign:
+def _task_assign(
+    task: Task,
+    cell_id: CellId,
+    grant_id: GrantId,
+    attempt: int,
+    *,
+    resume_from: HandoffRef | None = None,
+) -> TaskAssign:
     """Build the TaskAssign a task's Warden receives, at `attempt`."""
+    reason = (
+        "Resumed by the Queen's dispatcher (Clustering)."
+        if resume_from is not None
+        else "Placed on the Hive Stand by the Queen's dispatcher."
+    )
     return TaskAssign(
         task_id=task.id,
         goal_id=task.goal_id,
@@ -252,8 +332,8 @@ def _task_assign(task: Task, cell_id: CellId, grant_id: GrantId, attempt: int) -
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,
         attempt=attempt,
-        resume_from=None,
-        reason="Placed on the Hive Stand by the Queen's dispatcher.",
+        resume_from=resume_from,
+        reason=reason,
     )
 
 

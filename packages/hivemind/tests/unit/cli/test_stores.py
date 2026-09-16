@@ -26,6 +26,7 @@ from hivemind.cli.stores import (
     build_forage_map,
     build_registry,
     open_chamber,
+    open_cluster_orders,
     open_ledger,
     open_trail,
     provider_configs,
@@ -37,6 +38,8 @@ from hivemind.common.sqlite import connect
 from hivemind.forage import ModelSlot
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
+from hivemind.queen.cluster import SqliteOrderStore
+from hivemind.queen.cluster.orders import SUBSYSTEM as ORDERS_SUBSYSTEM
 from hivemind.queen.forage.ledger import SqliteLedgerStore
 from hivemind.queen.forage.ledger.store_sqlite import SUBSYSTEM as LEDGER_SUBSYSTEM
 from waggle.clock import FakeClock, SystemClock
@@ -136,6 +139,25 @@ def test_open_ledger_applies_0002_on_a_db_that_already_has_0001(tmp_path: Path) 
 
     reopened = connect(db)
     assert applied_versions(reopened, LEDGER_SUBSYSTEM) == (1, 2)
+
+
+def test_open_cluster_orders_returns_a_ready_sqlite_order_store_on_a_fresh_file(
+    tmp_path: Path,
+) -> None:
+    # Roadmap step 4.9 (Clustering): open_cluster_orders mirrors open_ledger's own seam.
+    store = open_cluster_orders(tmp_path / "hive.sqlite3")
+
+    assert isinstance(store, SqliteOrderStore)
+    assert asyncio.run(store.pending()) == ()
+
+
+def test_open_cluster_orders_applies_its_migration_on_a_fresh_file(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+
+    open_cluster_orders(db)
+
+    connection = connect(db)
+    assert applied_versions(connection, ORDERS_SUBSYSTEM) == (1,)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -87,10 +87,10 @@ from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
-from hivemind.wardens.state import WardenState, assert_transition
+from hivemind.wardens.state import WardenState, assert_transition, clustering_update, settled_state
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
-from waggle.ids import MessageId, WardenId, WorkerId, new_event_id
+from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
 from waggle.messages.forage import GrantIssued
 from waggle.messages.supervision import (
@@ -153,6 +153,11 @@ class Warden(TickLoop):
         self._queen_iter: AsyncIterator[Envelope] = deps.queen_link.receive()
         self._receive_tasks: dict[str, asyncio.Task[Envelope | None]] = {}
         self._heartbeat_task: asyncio.Task[None] | None = None
+        # Roadmap step 4.9 (Clustering): every task id a Queen-sent Intervene(HANDOFF) told this
+        # Warden to pause, dropped again on a Queen-sent TaskResume for the same task; read by
+        # _settle_after_tick to decide ACTIVE <-> CLUSTERED, the same way _sub_bees' own emptiness
+        # already decides ACTIVE <-> WATCH.
+        self._clustered_tasks: set[TaskId] = set()
 
     @property
     def state(self) -> WardenState:
@@ -282,10 +287,7 @@ class Warden(TickLoop):
         Raises:
             UnknownSubBeeError: `child` names no current sub-bee, or none has reported yet.
         """
-        sub_bee = self._sub_bees.get(WorkerId(child))
-        if sub_bee is None or sub_bee.last_telemetry is None:
-            raise UnknownSubBeeError(child)
-        return ticks.heartbeat.compact_view(sub_bee.last_telemetry)
+        return ticks.heartbeat.compact_view(await self.telemetry(child))
 
     async def intervene(self, child: str, intervention: Intervention) -> None:
         """Send `intervention` to `child` over its own link.
@@ -398,24 +400,37 @@ def _heartbeat_deadline_task(warden: Warden) -> asyncio.Task[None]:
 
 
 async def _settle_after_tick(warden: Warden) -> None:
-    """Hand a slot a finished bee freed to a parked assignment, then settle ACTIVE/WATCH on it.
+    """Hand a slot a finished bee freed to a parked assignment, then settle ACTIVE/WATCH/CLUSTERED.
 
     `hivemind.wardens.ticks.assign.spawn_parked` runs first so a task parked for a full pool
-    starts the same tick the pool has room again (nothing else ever re-drove it); the
-    ACTIVE <-> WATCH move then reads the sub-bee table that spawn may just have grown.
+    starts the same tick the pool has room again (nothing else ever re-drove it); `hivemind.
+    wardens.state.settled_state` then reads the sub-bee table (and, roadmap step 4.9, `warden.
+    _clustered_tasks`) that spawn may just have grown, through `assert_transition` -- unlike the
+    pre-4.9 ACTIVE <-> WATCH-only version of this function, so a state this pair can never legally
+    reach (e.g. CLUSTERED with no sub-bees left) raises loudly rather than being written silently.
+    No `warden.clustered` kind exists yet in `hivemind.pheromone.events.families.WardenEvent.
+    KINDS` (outside this dispatch's own files to add one to; flagged in its report), so entering
+    CLUSTERED records no trail event of its own; the Queen's own `queen.clustered` is the
+    auditable record until that gap is closed.
     """
     await ticks.assign.spawn_parked(warden)
-    if warden._sub_bees and warden._state is WardenState.WATCH:
-        warden._state = WardenState.ACTIVE
-        await _record_event(warden, "warden.active")
-    elif not warden._sub_bees and warden._state is WardenState.ACTIVE:
-        warden._state = WardenState.WATCH
-        await _record_event(warden, "warden.watch")
+    target = settled_state((s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks)
+    if target is not warden._state:  # Something changed since the last check.
+        assert_transition(warden._state, target, warden_id=warden._warden_id)
+        warden._state = target
+        if target is not WardenState.CLUSTERED:
+            kind = "warden.active" if target is WardenState.ACTIVE else "warden.watch"
+            await _record_event(warden, kind)
 
 
 async def _handle_item(warden: Warden, item: InboxItem) -> None:
     """Decide and act on one ordered InboxItem, waking a model only for NEEDS_JUDGEMENT."""
-    sub_bee = _sub_bee_for_item(warden, item)
+    # The sub-bee `item` concerns: by sender for a sub-bee link, by task for the Queen's own
+    # (her link carries no sub-bee sender; a None item.task_id matches no real SubBee.task_id).
+    if item.principal != _QUEEN_LINK:
+        sub_bee = warden._sub_bees.get(WorkerId(item.principal))
+    else:
+        sub_bee = next((sb for sb in warden._sub_bees.values() if sb.task_id == item.task_id), None)
     view = SubBeeView(state=sub_bee.state, attempt=sub_bee.attempt) if sub_bee is not None else None
     action = decide(item, view, warden._deps.policy)
     binding: str | None = None
@@ -424,19 +439,6 @@ async def _handle_item(warden: Warden, item: InboxItem) -> None:
         decision = await decide_awake(warden._deps, _trigger_event(item), sources)
         action, binding = decision.action, decision.binding
     await _act(warden, action, item, sub_bee, binding)
-
-
-def _sub_bee_for_item(warden: Warden, item: InboxItem) -> SubBee | None:
-    """Return the sub-bee `item` concerns: by sender for a sub-bee link, by task for the Queen's.
-
-    The Queen's link carries no sub-bee sender, so her TaskCancel/Pause/Resume and Intervene
-    items resolve through the task id the inbox classifier read off the payload.
-    """
-    if item.principal != _QUEEN_LINK:
-        return warden._sub_bees.get(WorkerId(item.principal))
-    # A None task_id matches no real SubBee.task_id, so this falls through to None on its own.
-    task_id = item.task_id
-    return next((sb for sb in warden._sub_bees.values() if sb.task_id == task_id), None)
 
 
 def _trigger_event(item: InboxItem) -> TriggerEvent:
@@ -473,6 +475,10 @@ async def _act(
     elif action is WardenAction.FORWARD_CONTROL and isinstance(
         payload, TaskCancel | TaskPause | TaskResume | Intervene
     ):
+        # Roadmap step 4.9 (Clustering): read by `_settle_after_tick`'s own ACTIVE <-> CLUSTERED
+        # move; `clustering_update`'s own docstring explains the decision this applies.
+        if item.principal == _QUEEN_LINK:
+            clustering_update(item.task_id, payload, warden._clustered_tasks)
         await ticks.control.forward_control(warden, sub_bee, payload)
 
 

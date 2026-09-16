@@ -22,6 +22,7 @@ import asyncio
 from typing import cast
 
 from builders.cells import make_cell
+from builders.memory import make_handoff
 from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_outcome
 
@@ -37,7 +38,8 @@ from waggle.clock import Clock, FakeClock
 from waggle.ids import GrantId, new_cell_id, new_warden_id
 from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
 from waggle.messages.forage.values import Effort as WireEffort
-from waggle.messages.task import TaskAssign, WorkerRole
+from waggle.messages.supervision import Intervene, InterventionAction
+from waggle.messages.task import TaskAssign, TaskResume, WorkerRole
 
 
 def _grant(active_clock: Clock, grant_id: GrantId) -> GrantIssued:
@@ -201,6 +203,18 @@ async def _settle(cycles: int = 20) -> None:
         await asyncio.sleep(0)
 
 
+def _current_state(warden: Warden) -> WardenState:
+    """Read `warden.state` through a plain-`WardenState`-returning boundary.
+
+    mypy's binder narrows a `warden.state is WardenState.X` identity check's own attribute
+    expression to `Literal[WardenState.X]` and (since `_settle` above never mentions `warden`)
+    never sees a reason to invalidate it -- so a later, differently-valued assert in the same
+    test function reads as a stale, "non-overlapping" literal comparison. A function call
+    resets that: its return is declared as the plain `WardenState`, not a carried-over literal.
+    """
+    return warden.state
+
+
 async def test_stop_tolerates_a_heartbeat_that_raced_an_already_closed_queen_link() -> None:
     """Fix 4: close the queen link, then stop the Warden with a heartbeat due.
 
@@ -228,3 +242,102 @@ async def test_stop_tolerates_a_heartbeat_that_raced_an_already_closed_queen_lin
 
     events = await deps.trail.query(TrailQuery(subject_id=warden_id))
     assert "warden.stopped" in [event.kind for event in events]
+
+
+async def _handoff_aware_script(
+    ctx: WorkerContext, assignment: TaskAssign, resume_from: object
+) -> WorkerOutcome:
+    """Roadmap step 4.9: wait for a Queen-sent Intervene(HANDOFF), then hand off (never claim).
+
+    Mirrors a real role's own cooperative checkpoint check (`hivemind.workers.roles.drone.outcome.
+    _RecordingExecutor.execute`'s own `ctx.telemetry.handoff_requested` read) without depending on
+    the Drone role itself, matching this test file's own `ScriptedWorker` convention.
+    """
+    while not ctx.telemetry.handoff_requested:  # noqa: ASYNC110 -- cooperative poll, not a timer.
+        await asyncio.sleep(0)  # Yield: let the runtime's own tick process the Intervene first.
+    return make_outcome(claimed=False, handoff=make_handoff())
+
+
+async def test_warden_moves_to_clustered_once_its_only_sub_bee_is_handed_off() -> None:
+    """Roadmap step 4.9: a Queen-sent Intervene(HANDOFF) moves the sole sub-bee's Warden CLUSTERED.
+
+    `hivemind.wardens.state.clustering_update` records the paused task in `warden._clustered_
+    tasks`; `_settle_after_tick`'s own `hivemind.wardens.state.settled_state` check then finds
+    every current sub-bee's task in that set and moves ACTIVE -> CLUSTERED.
+    """
+
+    def factory(role: WorkerRole) -> ScriptedWorker:
+        return ScriptedWorker(_handoff_aware_script, role=role)
+
+    deps, queen_end, warden_id = make_warden_deps(worker_factory=factory)
+    assignment = make_assignment(clock=deps.clock)
+    grant = _grant(deps.clock, assignment.grant_id)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    await queen_end.send(grant)
+    await queen_end.send(assignment)
+    await _settle()
+    assert warden.state is WardenState.ACTIVE  # Sanity: spawned and running, not yet clustered.
+
+    await queen_end.send(
+        Intervene(
+            action=InterventionAction.HANDOFF,
+            subject=None,
+            task_id=assignment.task_id,
+            slot=None,
+            alarm_id=None,
+            reason="Clustering: provider unavailable.",
+        )
+    )
+    await _settle(cycles=40)  # Let the sub-bee notice, hand off, and the Warden settle.
+
+    assert _current_state(warden) is WardenState.CLUSTERED
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+
+async def test_warden_moves_back_to_active_on_a_queen_sent_task_resume() -> None:
+    """Roadmap step 4.9: a Queen-sent TaskResume drops the task and moves CLUSTERED -> ACTIVE."""
+
+    def factory(role: WorkerRole) -> ScriptedWorker:
+        return ScriptedWorker(_handoff_aware_script, role=role)
+
+    deps, queen_end, warden_id = make_warden_deps(worker_factory=factory)
+    assignment = make_assignment(clock=deps.clock)
+    grant = _grant(deps.clock, assignment.grant_id)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    await queen_end.send(grant)
+    await queen_end.send(assignment)
+    await _settle()
+    await queen_end.send(
+        Intervene(
+            action=InterventionAction.HANDOFF,
+            subject=None,
+            task_id=assignment.task_id,
+            slot=None,
+            alarm_id=None,
+            reason="Clustering: provider unavailable.",
+        )
+    )
+    await _settle(cycles=40)
+    assert _current_state(warden) is WardenState.CLUSTERED  # Sanity: this test's own start.
+
+    await queen_end.send(
+        TaskResume(
+            task_id=assignment.task_id,
+            attempt=assignment.attempt + 1,
+            resume_from=None,
+            slot=None,
+            reason="Clustering resumed.",
+        )
+    )
+    await _settle()
+
+    assert _current_state(warden) is WardenState.ACTIVE
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)

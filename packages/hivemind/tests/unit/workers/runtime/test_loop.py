@@ -94,6 +94,15 @@ def _build(
     return runtime, warden_end, worker, ctx
 
 
+def _intervene(
+    action: InterventionAction, *, reason: str, task_id: str | None = None, slot: str | None = None
+) -> Intervene:
+    """Build an Intervene for a WorkerRuntime test; `subject`/`alarm_id` are never set here."""
+    return Intervene(
+        action=action, subject=None, task_id=task_id, slot=slot, alarm_id=None, reason=reason
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Assign, run, claim
 # ──────────────────────────────────────────────────────────────────────────────
@@ -414,16 +423,7 @@ async def test_intervene_compact_sets_handoff_requested_and_continues_after_the_
     await warden_end.send(make_assignment(clock=clock))
     await reached.wait()
 
-    await warden_end.send(
-        Intervene(
-            action=InterventionAction.COMPACT,
-            subject=None,
-            task_id=None,
-            slot=None,
-            alarm_id=None,
-            reason="compact now",
-        )
-    )
+    await warden_end.send(_intervene(InterventionAction.COMPACT, reason="compact now"))
     result = await warden_end.wait_for_result()
 
     assert result.outcome is TaskOutcome.CLAIMED
@@ -461,11 +461,7 @@ async def test_intervene_handoff_rebind_takeover_stop_the_attempt_after_the_chec
     await reached.wait()
 
     slot = "WORKER" if action is InterventionAction.REBIND else None
-    await warden_end.send(
-        Intervene(
-            action=action, subject=None, task_id=None, slot=slot, alarm_id=None, reason="stop now"
-        )
-    )
+    await warden_end.send(_intervene(action, reason="stop now", slot=slot))
     checkpoint = await warden_end.wait_for_progress(TaskStage.CHECKPOINTED)
 
     # No TaskResult follows: the Warden pulled this lever itself, so it already knows to stop,
@@ -475,6 +471,45 @@ async def test_intervene_handoff_rebind_takeover_stop_the_attempt_after_the_chec
     assert attempts["n"] == 1  # Never restarted.
 
     runtime.stop()
+    await asyncio.wait_for(task, timeout=1)
+
+
+async def test_task_pause_after_a_handoff_checkpoint_leaves_the_process_alive() -> None:
+    """Roadmap step 4.9 (Clustering): a TaskPause sent right after a checkpoint is harmless.
+
+    `queen.cluster.protocol` sends `Intervene(HANDOFF)` then `TaskPause` to the same task; by the
+    time a real Warden relays the second one this attempt is already DONE (a resume goes through
+    a fresh sub-bee, never this runtime), so `_handle_pause`'s DONE -> PAUSED is rejected
+    (`InvalidWorkerTransitionError`, no such Appendix C edge) and `_dispatch` drops it harmlessly.
+    """
+    clock = FakeClock()
+    reached = asyncio.Event()
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: Handoff | None
+    ) -> WorkerOutcome:
+        reached.set()
+        while not ctx.telemetry.handoff_requested:  # noqa: ASYNC110
+            await asyncio.sleep(0)
+        return make_outcome(claimed=False, handoff=make_handoff())
+
+    runtime, warden_end, _worker, _ctx = _build(clock, script)
+    task = asyncio.create_task(runtime.run())
+    assignment = make_assignment(clock=clock)
+    await warden_end.send(assignment)
+    await reached.wait()
+    reason = "Clustering: provider unavailable."
+    await warden_end.send(_intervene(InterventionAction.HANDOFF, reason=reason))
+    await warden_end.wait_for_progress(TaskStage.CHECKPOINTED)
+    await _wait_until_state(runtime, WorkerState.DONE)
+
+    # The Warden's own generic relay (hivemind.wardens.ticks.control.forward_control) would send
+    # this unchanged; sent directly here since this test drives WorkerRuntime on its own wire.
+    await warden_end.send(TaskPause(task_id=assignment.task_id, reason="pause"))
+    await _settle()
+
+    assert runtime.state is WorkerState.DONE  # Unchanged: the illegal transition was dropped.
+    runtime.stop()  # The process is still alive and stoppable, not stuck or crashed.
     await asyncio.wait_for(task, timeout=1)
 
 
@@ -498,16 +533,7 @@ async def test_intervene_cancel_force_cancels_immediately_with_no_grace() -> Non
     await warden_end.wait_for_progress(TaskStage.STARTED)
     await started.wait()
 
-    await warden_end.send(
-        Intervene(
-            action=InterventionAction.CANCEL,
-            subject=None,
-            task_id=None,
-            slot=None,
-            alarm_id=None,
-            reason="abort",
-        )
-    )
+    await warden_end.send(_intervene(InterventionAction.CANCEL, reason="abort"))
     await _wait_until_state(runtime, WorkerState.KILLED)
 
     runtime.stop()

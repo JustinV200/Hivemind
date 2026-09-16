@@ -37,13 +37,24 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Container, Iterable, Mapping
 from enum import Enum
 
 from hivemind.wardens.errors import InvalidWardenTransitionError
+from waggle.ids import TaskId
+from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.supervision import WardenState as WireWardenState
+from waggle.messages.task import TaskResume
 
-__all__ = ["TRANSITIONS", "WardenState", "assert_transition", "can_transition", "is_terminal"]
+__all__ = [
+    "TRANSITIONS",
+    "WardenState",
+    "assert_transition",
+    "can_transition",
+    "clustering_update",
+    "is_terminal",
+    "settled_state",
+]
 
 
 class WardenState(Enum):
@@ -186,3 +197,51 @@ def is_terminal(state: WardenState) -> bool:
         True for STOPPED (TRANSITIONS maps it to an empty frozenset); False otherwise.
     """
     return not TRANSITIONS[state]
+
+
+def settled_state(task_ids: Iterable[TaskId | None], clustered: Container[TaskId]) -> WardenState:
+    """Decide which of ACTIVE/WATCH/CLUSTERED a Warden belongs in, from its own sub-bees.
+
+    Roadmap step 4.9 (Clustering): the pure half of `hivemind.wardens.warden.Warden`'s own
+    ACTIVE <-> CLUSTERED decision, split out here (rather than inline in `warden.py`) purely to
+    keep that module within codingrules 5.1's own file-size limit -- a Warden's sub-bee table and
+    its own Queen-tracked clustered-task set are both plain data this machine's own file may read
+    without adding a `hivemind.wardens.spawn`/`.warden` import.
+
+    Args:
+        task_ids: One entry per current sub-bee, its own task id (None never matches `clustered`).
+        clustered: Every task id a Queen-sent Intervene(HANDOFF) currently has paused.
+
+    Returns:
+        CLUSTERED when `task_ids` is non-empty and every id in it is in `clustered`; ACTIVE when
+        `task_ids` is non-empty but not every id is; WATCH when `task_ids` is empty.
+    """
+    ids = tuple(task_ids)
+    if ids and all(task_id in clustered for task_id in ids):
+        return WardenState.CLUSTERED
+    return WardenState.ACTIVE if ids else WardenState.WATCH
+
+
+def clustering_update(
+    task_id: TaskId | None, payload: object, clustered_tasks: set[TaskId]
+) -> None:
+    """Mutate `clustered_tasks` in place from one already-Queen-sourced control message.
+
+    Roadmap step 4.9: the pure-in-effect-shape half of `hivemind.wardens.warden.Warden`'s own
+    bookkeeping for `warden._clustered_tasks`, split out for the same file-size reason
+    `settled_state`'s own docstring gives. The one call site (`_act`'s own `FORWARD_CONTROL`
+    branch) checks `item.principal == _QUEEN_LINK` itself before calling this at all: a sub-bee's
+    own link never sends an `Intervene(HANDOFF)`/`TaskResume` to its own Warden, so nothing here
+    re-checks the sender.
+
+    Args:
+        task_id: The InboxItem's own task id (`item.task_id`); a no-op when None.
+        payload: The control message this item carried.
+        clustered_tasks: `warden._clustered_tasks`, mutated in place.
+    """
+    if task_id is None:
+        return
+    if isinstance(payload, Intervene) and payload.action is InterventionAction.HANDOFF:
+        clustered_tasks.add(task_id)
+    elif isinstance(payload, TaskResume):
+        clustered_tasks.discard(task_id)

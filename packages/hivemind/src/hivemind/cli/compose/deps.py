@@ -55,6 +55,7 @@ from hivemind.cli.compose.links import HiveLinks
 from hivemind.cli.stores import (
     build_registry,
     open_chamber,
+    open_cluster_orders,
     open_ledger,
     open_memory,
     open_trail,
@@ -76,7 +77,7 @@ from hivemind.llm import (
     apply_overrides,
     default_factories,
 )
-from hivemind.manifest import HiveManifest
+from hivemind.manifest import ForageSection, HiveManifest
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
@@ -298,14 +299,11 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
     manifest = parts.manifest
     supervision = manifest.supervision
     forage = manifest.forage
-    identity = MemoryIdentity(
-        hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
-    )
     return QueenDeps(
         chamber=parts.stores.chamber,
         memory=parts.stores.memory,
         trail=parts.stores.trail,
-        identity=identity,
+        identity=_system_identity(manifest),
         clock=parts.clock,
         policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
         bound_for=parts.registry.bound,
@@ -313,18 +311,11 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
         bindings=slot_bindings(manifest),
         call_gate=parts.fanner.lane(Tempo()),
         map=forage_map,
-        budgets=GoalBudgets(
-            spend_cap_usd=forage.spend_cap_per_goal_usd,
-            token_budget=forage.token_budget_per_goal,
-            max_sub_bees=forage.max_sub_bees_per_goal,
-        ),
+        budgets=_goal_budgets(forage),
         heartbeat_interval_s=supervision.heartbeat_interval_s,
         heartbeat_miss_limit=supervision.heartbeat_miss_limit,
         alarm_attempt_limit=supervision.alarm_attempt_limit,
-        memory_budget=MemoryBudget(
-            budget_fraction=manifest.memory.budget_fraction,
-            output_reserve_tokens=manifest.memory.output_reserve_tokens,
-        ),
+        memory_budget=_awake_memory_budget(manifest),
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,
@@ -333,6 +324,35 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
         # against fresh capacity reports on Requeening"). InMemoryLedgerStore stays available for
         # a test that builds a QueenDeps by hand instead of through this function.
         ledger=_build_ledger(manifest, forage.reserve),
+        # Roadmap step 4.9 (Clustering): a SqliteOrderStore over the same [hive] db file, so
+        # `hive cluster`/`hive wake` (roadmap step 4.11, a later dispatch) and this running
+        # Queen's own tick share one durable table; `provider_lookup` is the registry's own
+        # `provider(name)` bound method, satisfying `hivemind.llm.ProviderLookup` without a new
+        # collaborator (`hivemind.queen.cluster.health.HealthPoller.probe`'s one caller).
+        orders=open_cluster_orders(manifest.resolve_path(manifest.hive.db)),
+        provider_lookup=parts.registry.provider,
+    )
+
+
+def _system_identity(manifest: HiveManifest) -> MemoryIdentity:
+    """Build the `actor="system"` identity `build_queen_deps` stamps every write with."""
+    return MemoryIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
+
+
+def _goal_budgets(forage: ForageSection) -> GoalBudgets:
+    """Build the `[forage]` goal-level caps `build_queen_deps`'s own `budgets` field carries."""
+    return GoalBudgets(
+        spend_cap_usd=forage.spend_cap_per_goal_usd,
+        token_budget=forage.token_budget_per_goal,
+        max_sub_bees=forage.max_sub_bees_per_goal,
+    )
+
+
+def _awake_memory_budget(manifest: HiveManifest) -> MemoryBudget:
+    """Build the `[memory]` slice `build_queen_deps`'s own `memory_budget` field carries."""
+    return MemoryBudget(
+        budget_fraction=manifest.memory.budget_fraction,
+        output_reserve_tokens=manifest.memory.output_reserve_tokens,
     )
 
 
