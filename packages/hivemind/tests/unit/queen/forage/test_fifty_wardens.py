@@ -4,8 +4,8 @@ Roadmap step 4.7: "A synthetic test starts fifty Wardens against a small fake ca
 asserts the sum of grants never exceeds capacity minus reserve." Each Warden here is a "fake
 link" in the sense the roadmap allows: a `WardenId` and a standing `ForageGrant` at zero
 sub-bees, with no real Waggle transport or Queen tick loop -- `hivemind.queen.forage.requests.
-handle_sub_bee_request` is the same production code path `hivemind.queen.ticks.forage` calls, so
-this exercises the real allocator-plus-ledger machinery, not a re-implementation of it.
+handle_forage_request_for_kind` is the same production code path `hivemind.queen.ticks.forage`
+calls, so this exercises the real allocator-plus-ledger machinery, not a re-implementation of it.
 
 Fits into the Hive:
     Integration-style unit test for hivemind.queen.forage.ledger and .requests together
@@ -27,7 +27,7 @@ from builders.queen import make_queen_deps
 
 from hivemind.forage.grant_state import GrantState
 from hivemind.queen.autopilot import ForageAutopilotOutcome
-from hivemind.queen.forage.requests import handle_sub_bee_request
+from hivemind.queen.forage.requests import handle_forage_request_for_kind
 from waggle.ids import new_cell_id, new_warden_id
 from waggle.messages.forage import ForageDelta
 from waggle.messages.forage import ForageRequest as WireForageRequest
@@ -80,7 +80,7 @@ async def test_fifty_wardens_never_collectively_exceed_capacity_minus_reserve() 
     outcomes = set()
     for grant in grants:
         request = _request(grant.id, sub_bees=_ASK_PER_WARDEN)
-        outcome = await handle_sub_bee_request(deps.ledger, deps, request)
+        outcome = await handle_forage_request_for_kind(deps.ledger, deps, request)
         outcomes.add(outcome.autopilot_outcome)
         # Checked after every single request, not only at the end: the invariant must hold at
         # every moment, never only in the final tally.

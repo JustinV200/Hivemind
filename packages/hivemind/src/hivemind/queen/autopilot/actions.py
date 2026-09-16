@@ -15,6 +15,10 @@ life resolves -- reached by `hivemind.queen.autopilot.wax.decide_wax_proposal` f
 alone (a Warden's NOTE/CAUTION about its own Cell, within the per-Cell cap), and by
 `hivemind.queen.awake.decision.QueenDecision.action` for all three, since an awake episode judging
 a BLOCK, a Worker's proposal, a proposal about another Cell, or a clear may pick any of them;
+`GRANT_BY_SHRINKING`/`DENY_REQUEST` (roadmap step 4.7's leftover) are the two ways a contested
+`ForageRequest` resolves once `hivemind.queen.awake` judges it: shrink another live grant (named
+by `QueenDecision.shrink_grant_id`/`.shrink_amount`) to free the headroom the request needs, or
+deny it with a reason; `hivemind.queen.ticks.forage` is the one place either is acted on.
 `NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.queen.awake` instead.
 
 Fits into the Hive:
@@ -59,4 +63,6 @@ class QueenAction(Enum):
     WRITE_WAX = "WRITE_WAX"  # cell_wax.write_wax: PROPOSED -> WRITTEN, by autopilot or awake.
     REJECT_WAX = "REJECT_WAX"  # cell_wax.reject_wax: PROPOSED -> REJECTED, an awake decision.
     CLEAR_WAX = "CLEAR_WAX"  # cell_wax.clear_wax: WRITTEN -> CLEARED, an awake decision.
+    GRANT_BY_SHRINKING = "GRANT_BY_SHRINKING"  # Shrink QueenDecision.shrink_grant_id, then grant.
+    DENY_REQUEST = "DENY_REQUEST"  # A contested ForageRequest denied, with QueenDecision.reason.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to queen.awake.

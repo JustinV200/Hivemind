@@ -19,11 +19,15 @@ Key invariants:
       itself declares `token_counting`; every other binding gets a plain
       `hivemind.memory.EstimateCounter` (codingrules section 8.9: "provider count where available,
       else an estimate with margin").
-    - The budget fraction and output reserve here are fixed constants, not read from a manifest:
-      `hivemind.workers.context.WorkerContext` carries no manifest reference (codingrules section
-      8.6's ladders already isolate `workers` from `hivemind.manifest`), so these mirror the
-      manifest's own `[memory] budget_fraction`/`output_reserve_tokens` defaults rather than
-      reading them.
+    - The budget fraction and output reserve `initial_drone_budget` uses are fixed constants, not
+      read from a manifest: `hivemind.workers.context.WorkerContext` carries no manifest reference
+      (codingrules section 8.6's ladders already isolate `workers` from `hivemind.manifest`), so
+      these mirror the manifest's own `[memory] budget_fraction`/`output_reserve_tokens` defaults
+      rather than reading them.
+    - `assemble_drone_prompt` takes its budget explicitly (roadmap step 4.4): `hivemind.workers.
+      roles.drone.role.Drone.run` calls `initial_drone_budget` once, then re-calls
+      `assemble_drone_prompt` with a smaller budget on each `hivemind.memory.overflow.
+      run_with_overflow_retry` retry, so a `ContextTooLongError` never crashes a Drone.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "awake episodes are stateless."
@@ -50,13 +54,16 @@ from hivemind.memory import (
     AssembleRequest,
     EstimateCounter,
     HotStateSources,
+    MemoryContext,
     Principal,
     Prompt,
     ProviderCounter,
+    Scorable,
     TokenBudget,
     TokenCounter,
     TriggerEvent,
     assemble,
+    deposit_dropped_items,
 )
 from hivemind.workers.context import WorkerContext
 from waggle.messages import Postcondition, PostconditionKind
@@ -78,26 +85,44 @@ __all__ = [
     "assemble_drone_prompt",
     "brief_for",
     "build_request",
+    "initial_drone_budget",
     "select_counter",
 ]
 
 
-async def assemble_drone_prompt(
-    ctx: WorkerContext, assignment: TaskAssign, sources: HotStateSources
-) -> Prompt:
-    """Assemble this attempt's hot-state prompt, budgeted against the bound model's window.
+def initial_drone_budget(ctx: WorkerContext) -> TokenBudget:
+    """Return this attempt's starting TokenBudget, before any overflow ever shrinks it.
 
     Args:
-        ctx: This attempt's WorkerContext; supplies `worker_id`, `bound` (for the slot and context
-            window) and the counter selection.
+        ctx: This attempt's WorkerContext; supplies `bound.context_window`.
+
+    Returns:
+        A `TokenBudget` at `DRONE_BUDGET_FRACTION` of `ctx.bound.context_window`, minus
+        `DRONE_OUTPUT_RESERVE_TOKENS`.
+    """
+    return TokenBudget(
+        max_input_tokens=int(ctx.bound.context_window * DRONE_BUDGET_FRACTION),
+        output_reserve=DRONE_OUTPUT_RESERVE_TOKENS,
+    )
+
+
+async def assemble_drone_prompt(
+    ctx: WorkerContext, assignment: TaskAssign, sources: HotStateSources, budget: TokenBudget
+) -> Prompt:
+    """Assemble this attempt's hot-state prompt at `budget`, depositing every dropped item.
+
+    Args:
+        ctx: This attempt's WorkerContext; supplies `worker_id`, `bound` (for the slot) and the
+            counter selection.
         assignment: The task this attempt is working; becomes the Principal's clearance and the
             TriggerEvent's summary.
         sources: Where every hot-state candidate comes from (`hivemind.workers.roles.drone.
             sources.DroneSources` in production).
+        budget: How much room the assembled sections have; `initial_drone_budget(ctx)` on the
+            first attempt, a smaller one on each overflow retry (roadmap step 4.4).
 
     Returns:
-        A `hivemind.memory.Prompt`, packed to `DRONE_BUDGET_FRACTION` of `ctx.bound.context_window`
-        minus `DRONE_OUTPUT_RESERVE_TOKENS`.
+        A `hivemind.memory.Prompt` packed to `budget`.
     """
     clearance = HoneyClearance.from_wire(assignment.clearance)
     principal = Principal(
@@ -106,12 +131,14 @@ async def assemble_drone_prompt(
     event = TriggerEvent(
         kind=TASK_ASSIGN_EVENT_KIND, summary=assignment.objective, clearance=clearance
     )
-    budget = TokenBudget(
-        max_input_tokens=int(ctx.bound.context_window * DRONE_BUDGET_FRACTION),
-        output_reserve=DRONE_OUTPUT_RESERVE_TOKENS,
-    )
     request = AssembleRequest(principal=principal, event=event, budget=budget)
-    return await assemble(request, sources, select_counter(ctx))
+    dropped: list[Scorable] = []
+    prompt = await assemble(request, sources, select_counter(ctx), on_drop=dropped.append)
+    if dropped:
+        # Roadmap step 4.4: "every dropped item is findable in Bee Bread by id."
+        mem_ctx = MemoryContext(store=ctx.memory, identity=ctx.identity, clock=ctx.clock)
+        await deposit_dropped_items(dropped, mem_ctx)
+    return prompt
 
 
 def build_request(

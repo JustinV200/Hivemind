@@ -9,10 +9,11 @@ nothing accumulates as a conversation.
 - `hot_state/` -- flat summary models (`TaskSummary`, `AlarmSummary`, `QuestionSummary`,
   `DecisionSummary`, `CellWaxSummary`), `Principal`, `TokenBudget`, `TriggerEvent`, the
   `HotStateSources` protocol a caller implements over its own stores (its `wax(cells)` method
-  returns WRITTEN Cell Wax only for a Cell in `cells`), and `assemble`, the packing algorithm that
-  turns all of that plus pins and notes into a token-budgeted `Prompt`, ordered by
-  `relevance.score` (roadmap step 4.1), gated by `AssembleRequest.cells_in_play` for wax (roadmap
-  step 4.2a).
+  returns WRITTEN Cell Wax only for a Cell in `cells`; its `handoff()` method returns the Handoff
+  the episode is resuming from, or None, rendered by `assemble` into its own delimited, bounded
+  block of `HOT_STATE` regardless of budget), and `assemble`, the packing algorithm that turns all
+  of that plus pins and notes into a token-budgeted `Prompt`, ordered by `relevance.score` (roadmap
+  step 4.1), gated by `AssembleRequest.cells_in_play` for wax (roadmap step 4.2a).
 - `relevance.py` -- `RelevanceScore`, `Scorable` and `score`: pure recency-decay/task-linkage/
   Alarm-or-Cell-Wax-severity/pin-floor scoring (roadmap steps 4.1, 4.2a), plus `item_id`/
   `item_timestamp`, the shared per-type dispatch `hot_state.packing` and `demote` both read

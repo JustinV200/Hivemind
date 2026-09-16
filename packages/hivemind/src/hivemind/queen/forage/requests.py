@@ -1,4 +1,4 @@
-"""Define ForageRequestOutcome and handle_sub_bee_request: answer a Warden's ForageRequest.
+"""Define ForageRequestOutcome and handle_forage_request_for_kind: answer a Warden's ForageRequest.
 
 Roadmap step 4.7: "`ForageRequest` handled by an autopilot rule within headroom, by awake when
 contested; `forage.granted`/`forage.denied` with the reason." This module is the business logic
@@ -24,8 +24,8 @@ Fits into the Hive:
     (ForageLedger) only.
 
 Key invariants:
-    - `handle_sub_bee_request` never mutates the ledger on a DENY or NEEDS_JUDGEMENT verdict:
-      only `ForageAutopilotOutcome.GRANT` calls `grants.revise`.
+    - `handle_forage_request_for_kind` never mutates the ledger on a DENY or NEEDS_JUDGEMENT
+      verdict: only `ForageAutopilotOutcome.GRANT` calls `grants.revise`.
     - Every dimension this module grants only ever grows the existing grant: `max_sub_bees`,
       `spend_budget` and the named source's `SeatReservation.seats` are all incremented by the
       wanted delta (`waggle.messages.forage.values.ForageDelta`'s own docstring: "wanted", never a
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     # on why QueenDeps cannot be a real import inside hivemind.queen.forage.
     from hivemind.queen.deps import QueenDeps
 
-__all__ = ["ForageRequestOutcome", "handle_sub_bee_request"]
+__all__ = ["ForageRequestOutcome", "grant_wanted", "handle_forage_request_for_kind"]
 
 # BINDING stays out of scope through phase 8's own routing (module docstring).
 _BINDING_OUT_OF_SCOPE_REASON = (
@@ -77,7 +77,7 @@ _SEATS_NEED_SOURCE_REASON = "SHARED_SEATS requests must name a source_id."
 
 @dataclass(frozen=True, slots=True)
 class ForageRequestOutcome:
-    """What `handle_sub_bee_request` decided, and the grant if it granted one.
+    """What `handle_forage_request_for_kind` decided, and the grant if it granted one.
 
     Attributes:
         autopilot_outcome: GRANT, DENY or NEEDS_JUDGEMENT
@@ -93,15 +93,14 @@ class ForageRequestOutcome:
     reason: str
 
 
-async def handle_sub_bee_request(
+async def handle_forage_request_for_kind(
     ledger: ForageLedger, deps: QueenDeps, wire_request: WireForageRequest
 ) -> ForageRequestOutcome:
     """Decide, and if granted commit, one Warden's ForageRequest.
 
-    Named for the dimension roadmap step 4.7 shipped first; kept under this name across step 4.8
-    because `hivemind.queen.ticks.forage` (outside this dispatch's own file list) already imports
-    it by exactly this name -- see this dispatch's own report for the rename
-    (`handle_forage_request_for_kind`, say) a future dispatch touching that file should make.
+    Renamed from `handle_sub_bee_request` (roadmap step 4.7's own leftover, flagged in that
+    dispatch's report): the name it shipped under named only the dimension step 4.7 shipped first,
+    which step 4.8's SHARED_SEATS/SPEND additions already outgrew.
 
     Args:
         ledger: The Queen's live book.
@@ -232,6 +231,53 @@ async def _handle_spend(
         f"${wanted:.2f} more spend for goal {goal_id} granted from headroom (${headroom:.2f} "
         "free before this).",
     )
+
+
+async def grant_wanted(
+    ledger: ForageLedger, existing: ForageGrant, wire_request: WireForageRequest
+) -> ForageGrant:
+    """Grow `existing` by `wire_request.wanted`, in the request's own dimension, and commit it.
+
+    Unconditional: no headroom check. Roadmap step 4.7's own leftover: `hivemind.queen.ticks.
+    forage` calls this to actually grant a contested request once the Queen's awake episode has
+    decided `GRANT_BY_SHRINKING` and another live grant has already been shrunk to free the
+    headroom this call draws on -- the same per-dimension growth shape
+    `handle_forage_request_for_kind`'s own three private handlers already apply after their own
+    headroom check passes.
+
+    Args:
+        ledger: The Queen's live book.
+        existing: The grant to grow; must already be known to the ledger.
+        wire_request: The Warden's own request; `wire_request.kind` selects which dimension grows.
+
+    Returns:
+        The revised grant, already committed to the ledger.
+
+    Raises:
+        ValueError: `wire_request.kind` is BINDING (no ledger-side growth exists for it), or
+            SHARED_SEATS with no `source_id` named.
+    """
+    revised = _grown_grant(existing, wire_request)
+    await grants.revise(ledger, revised)
+    return revised
+
+
+def _grown_grant(existing: ForageGrant, wire_request: WireForageRequest) -> ForageGrant:
+    """Return `existing` grown by `wire_request.wanted`, in the request's own dimension (pure)."""
+    update: dict[str, object]
+    if wire_request.kind is WireForageRequestKind.SUB_BEES:
+        update = {"max_sub_bees": existing.max_sub_bees + wire_request.wanted.sub_bees}
+    elif wire_request.kind is WireForageRequestKind.SHARED_SEATS:
+        source_id = wire_request.wanted.source_id
+        if source_id is None:
+            raise ValueError(_SEATS_NEED_SOURCE_REASON)
+        seats = _grow_seat_reservation(existing.seats, source_id, wire_request.wanted.seats)
+        update = {"seats": seats}
+    elif wire_request.kind is WireForageRequestKind.SPEND:
+        update = {"spend_budget": existing.spend_budget + wire_request.wanted.spend}
+    else:
+        raise ValueError(_BINDING_OUT_OF_SCOPE_REASON)
+    return existing.model_copy(update={**update, "revision": existing.revision + 1})
 
 
 def _grow_seat_reservation(

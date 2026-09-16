@@ -34,9 +34,9 @@ HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 
 The `live_llm`/`local_llm` variants are gated exactly like `tests/contracts/
 test_llm_provider_contract.py`'s own `live_llm` suite, and skip cleanly when unset. They grade
-completion and Handoff shape strictly; they do not hard-assert no-redo (`handoff/scenario.py`'s
-`run_live_handoff_scenario` docstring explains the real production gap that makes doing so
-unreliable: a resumed Handoff's `do_not_redo` never reaches a real model's own prompt today).
+completion, Handoff shape and no-redo, all strictly: `hivemind.workers.roles.drone.sources.
+DroneSources.handoff` surfaces the whole resumed Handoff -- `do_not_redo` rendered as an explicit
+instruction list included -- into a resuming bee's own prompt.
 
 Set `HIVEMIND_EVAL_REPORT_DIR` to also write each run's `HandoffEvalReport` as JSON under
 `docs/evals/` (see that directory's own README); unset (the default, and always the case in CI),

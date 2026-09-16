@@ -23,9 +23,11 @@ Key invariants:
     - `grade_handoff_shape`'s "mandatory fields non-empty" checks only the fields a real Drone
       attempt always populates today (`goal`, `progress`, `written_by`, `decisions`,
       `next_steps` -- see `hivemind.workers.roles.drone.outcome.build_handoff_outcome`); the
-      optional list fields a Drone attempt never populates (`tried_and_failed`, `constraints`,
-      `open_threads`, `pinned_facts`) are legitimately empty on a short task and are not graded
-      as a failure for being so (the Handoff pydantic model itself has no `min_length` on them).
+      optional list fields (`tried_and_failed`, `constraints`, `open_threads`, `pinned_facts`) are
+      derived from what an attempt actually did (`hivemind.workers.roles.drone.outcome.fields`)
+      and so are legitimately empty on a task with nothing to say for one of them (no failed call,
+      no pin in scope, ...); not graded as a failure for being so (the Handoff pydantic model
+      itself has no `min_length` on them).
 
 See Also:
     - .claude/roadmap.md step 4.5 for this eval's own exit condition.
@@ -136,9 +138,9 @@ def grade_no_redo(handoff: Handoff, later_calls: Sequence[str]) -> NoRedoGrade:
     """Grade (b): no call in `later_calls` may repeat a step `handoff.do_not_redo` names.
 
     A do_not_redo entry is "violated" when its own text contains one of `later_calls`' own
-    recorded effects as a substring (`tests.evals.handoff.scenario._augment_do_not_redo` builds
-    every entry from exactly such a path, so this is an exact match in practice, not a fuzzy
-    heuristic).
+    recorded effects as a substring (`hivemind.workers.roles.drone.outcome.fields.
+    do_not_redo_lines` names the exact path/command/url each entry is about, so this is an exact
+    match in practice, not a fuzzy heuristic).
 
     Args:
         handoff: The Handoff the second bee resumed from; `do_not_redo` is what it must respect.

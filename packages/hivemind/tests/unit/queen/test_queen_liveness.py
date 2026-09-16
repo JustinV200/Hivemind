@@ -94,6 +94,38 @@ async def test_heartbeat_updates_the_queens_own_liveness_view() -> None:
     await warden_end.close()
 
 
+async def test_a_heartbeat_past_the_handoff_threshold_orders_an_intervene() -> None:
+    # Roadmap step 4.6: "The Queen watches Warden telemetry and orders compact or handoff past
+    # thresholds." deps.memory_budget's own defaults (compact_at=0.5, handoff_threshold=0.66,
+    # hivemind.queen.deps._DEFAULT_COMPACT_AT/_DEFAULT_HANDOFF_THRESHOLD) are what this Heartbeat's
+    # own telemetry is built to cross.
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    run_task = asyncio.ensure_future(queen.run())
+    full_telemetry = make_telemetry(tokens_used=7_500, context_window=8_192)  # ~92% full.
+    heartbeat = Heartbeat(
+        telemetry=full_telemetry,
+        task_id=None,
+        worker_state=None,
+        warden_state=WardenState.ACTIVE,
+        children=(),
+        grant_id=None,
+        grant_spend=None,
+        interval_s=5.0,
+    )
+
+    await warden_end.send(heartbeat)
+    intervene = await warden_end.wait_for_intervene()
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert intervene.action.value == "HANDOFF"
+    await warden_end.close()
+
+
 def test_check_liveness_never_flags_a_warden_before_its_first_heartbeat() -> None:
     clock = FakeClock()
     deps, link, _warden_end = make_queen_deps(clock)

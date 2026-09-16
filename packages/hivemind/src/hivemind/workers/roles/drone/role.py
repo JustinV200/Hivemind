@@ -6,7 +6,13 @@ capabilities allow, and lets `hivemind.llm.run_tool_loop` drive the turns; every
 that has a side effect goes through the Capping gate before it lands (codingrules 8.12). The
 class lives here rather than in the package face because a face only re-exports (codingrules
 5.4); the sibling modules hold the prompt assembly, the hot-state sources and the outcome
-builders this module composes.
+builders this module composes. Roadmap step 4.4: the whole "assemble a prompt, then call the
+model" step runs through `hivemind.memory.run_with_overflow_retry`, so a provider's own
+`ContextTooLongError` shrinks `hivemind.workers.roles.drone.prompt.initial_drone_budget`'s own
+starting budget and retries, rather than crashing this attempt; past `MAX_OVERFLOWS` it raises
+`hivemind.memory.overflow.ContextOverflowError`, which this class lets propagate uncaught, exactly
+like any other role bug -- `hivemind.workers.runtime.attempt.AttemptManager`'s own existing
+crash-to-Alarm path is "the Drone's existing path" roadmap step 4.4 asks it to use.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Instantiated by a Warden's `worker_factory` (roadmap
@@ -18,6 +24,9 @@ Key invariants:
     - A Drone never marks its own work SUCCEEDED: it returns `WorkerOutcome(claimed=True)` and
       the Warden's acceptance decides (codingrules 8.12).
     - It holds no conversation between attempts; a handoff carries what the next attempt needs.
+    - A `ContextTooLongError` never crashes this attempt (roadmap step 4.4): it is caught and
+      retried, with a shrunk budget, inside `run_with_overflow_retry`; only `ContextOverflowError`
+      (after `MAX_OVERFLOWS` retries) ever escapes `run`.
 
 See Also:
     - .claude/codingrules.md sections 5.4, 8.8, 8.9 and 8.12.
@@ -28,17 +37,21 @@ See Also:
 from __future__ import annotations
 
 from hivemind.llm import ToolLoopOptions, ToolLoopResult, TrailLadderObserver, run_tool_loop
-from hivemind.memory import Handoff
+from hivemind.memory import Handoff, TokenBudget, run_with_overflow_retry
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.roles.drone.outcome import (
     HandoffRequestedError,
-    _RecordingExecutor,
     build_claimed_outcome,
     build_handoff_outcome,
     collect_artifacts,
 )
-from hivemind.workers.roles.drone.prompt import assemble_drone_prompt, build_request
+from hivemind.workers.roles.drone.outcome.executor import _RecordingExecutor
+from hivemind.workers.roles.drone.prompt import (
+    assemble_drone_prompt,
+    build_request,
+    initial_drone_budget,
+)
 from hivemind.workers.roles.drone.sources import DroneSources
 from hivemind.workers.tools import ToolInvocation, build_registry
 from waggle.messages.task import TaskAssign, WorkerRole
@@ -88,8 +101,6 @@ class Drone:
         """
         registry = build_registry(ctx)
         sources = DroneSources(ctx, assignment, resume_from)
-        prompt = await assemble_drone_prompt(ctx, assignment, sources)
-        request = build_request(ctx, prompt, assignment, registry.definitions())
         invocation = ToolInvocation(ctx=ctx, assignment=assignment)
         executor = _RecordingExecutor(registry, invocation, ctx.telemetry, ctx.handoff_threshold)
         observer = TrailLadderObserver(
@@ -98,14 +109,26 @@ class Drone:
         options = ToolLoopOptions(
             max_rounds=self._max_rounds, gate=ctx.call_gate, observer=observer
         )
-        try:
-            result = await run_tool_loop(
+
+        async def _attempt(budget: TokenBudget) -> ToolLoopResult:
+            """Assemble this attempt's prompt at `budget` and run the tool loop once."""
+            prompt = await assemble_drone_prompt(ctx, assignment, sources, budget)
+            request = build_request(ctx, prompt, assignment, registry.definitions())
+            return await run_tool_loop(
                 ctx.bound, request, registry.definitions(), executor, options
+            )
+
+        try:
+            # A ContextTooLongError here is caught and retried, with a shrunk budget, inside
+            # run_with_overflow_retry (roadmap step 4.4); only ContextOverflowError (after
+            # MAX_OVERFLOWS retries) or HandoffRequestedError ever escape this try.
+            result = await run_with_overflow_retry(
+                _attempt, initial_drone_budget(ctx), ctx.trail, ctx.identity, ctx.clock
             )
         except HandoffRequestedError:
             # This attempt's own telemetry asked to checkpoint; hand back a Handoff instead of a
             # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it.
-            return build_handoff_outcome(ctx, assignment, executor.records)
+            return await build_handoff_outcome(ctx, assignment, executor)
         _record_usage(ctx, result)
         artifacts = await collect_artifacts(ctx, executor.records)
         return build_claimed_outcome(assignment, result, artifacts)

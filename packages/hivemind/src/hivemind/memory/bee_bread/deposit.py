@@ -15,10 +15,19 @@ names it, so `hivemind.memory.bee_bread.index.BeeBread.by_task`/`.between` surfa
 a second store-level search path. `deposit_hot_state_item` is what
 `hivemind.memory.demote.demote` calls to archive a hot-state candidate that is leaving hot state.
 
+`deposit_dropped_items` (roadmap step 4.4) is the flood test's own bridge: `hivemind.memory.
+hot_state.packing.assemble`'s optional `on_drop` callback lets a caller collect every candidate the
+packer left out of a budgeted prompt (`Prompt.dropped` already carries their ids; `on_drop` hands
+the caller the items themselves), and this function archives each one the same way `demote` does,
+so "every dropped item is findable in Bee Bread by id" (roadmap step 4.4) holds for hot state that
+never even made it into one episode's prompt, not only for items a House Bee sweep later demotes.
+
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). `deposit_transcript` and
     `deposit_handoff_ref` are called by hivemind.memory.checkpoint.write_checkpoint;
-    `deposit_hot_state_item` is called by hivemind.memory.demote.demote; `deposit_tool_result` is
+    `deposit_hot_state_item` is called by hivemind.memory.demote.demote; `deposit_dropped_items` is
+    called by hivemind.queen.awake.episode.decide_awake and hivemind.wardens.awake.episode.
+    decide_awake, after hivemind.memory.hot_state.packing.assemble; `deposit_tool_result` is
     exposed for a future Worker tool-loop caller. Calls into hivemind.cell (HoneyClearance),
     hivemind.common.errors (InvariantViolationError), hivemind.memory.bee_bread.entry,
     hivemind.memory.context (MemoryContext), hivemind.memory.relevance (Scorable), hivemind.
@@ -32,6 +41,11 @@ Key invariants:
       never returns a reason for one; pins never decay). Called with one anyway, it raises
       `InvariantViolationError` rather than silently archiving something that should never leave
       hot state.
+    - `deposit_dropped_items` skips a Pin or a CellWaxSummary rather than raising: unlike
+      `deposit_hot_state_item`'s own callers (which never pass one, by construction), packing's
+      `on_drop` callback can in principle collect either under an extreme budget, and both have
+      their own lifecycle that this function must not interrupt (see `_archive_shape`'s own two
+      refusals for why).
 
 See Also:
     - .claude/codingrules.md section 8.9 for "one mechanism, many names" and the transcript-deposit
@@ -45,6 +59,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import assert_never
 
 from hivemind.cell import HoneyClearance
@@ -65,6 +80,7 @@ from hivemind.pheromone import MemoryEvent
 from waggle.ids import EventId, TaskId, new_event_id
 
 __all__ = [
+    "deposit_dropped_items",
     "deposit_handoff_ref",
     "deposit_hot_state_item",
     "deposit_tool_result",
@@ -166,6 +182,31 @@ async def deposit_hot_state_item(item: Scorable, ctx: MemoryContext) -> BeeBread
     )
     await _deposit(entry, ctx)
     return entry
+
+
+async def deposit_dropped_items(
+    dropped: Sequence[Scorable], ctx: MemoryContext
+) -> tuple[BeeBreadEntry, ...]:
+    """Archive every dropped hot-state candidate `assemble`'s own `on_drop` collected.
+
+    Roadmap step 4.4: "every dropped item is findable in Bee Bread by id." A Pin or a
+    CellWaxSummary in `dropped` is skipped, never archived (module docstring): both have their own
+    lifecycle, and `deposit_hot_state_item` would raise `InvariantViolationError` for either.
+
+    Args:
+        dropped: Items `hivemind.memory.hot_state.packing.assemble`'s `on_drop` callback collected
+            for one episode's prompt.
+        ctx: The store, identity and clock to write with.
+
+    Returns:
+        One `BeeBreadEntry` per archivable item, in `dropped`'s own order.
+    """
+    entries: list[BeeBreadEntry] = []
+    for item in dropped:
+        if isinstance(item, (Pin, CellWaxSummary)):
+            continue  # Neither ever demotes; see this function's own docstring.
+        entries.append(await deposit_hot_state_item(item, ctx))
+    return tuple(entries)
 
 
 def _build_payload_entry(

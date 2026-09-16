@@ -5,35 +5,49 @@ episode; contested (cannot be met from headroom alone, but could be by shrinking
 grant), the request needs judgement, run at `Effort.HIGH` (codingrules section 8.14, "contested
 Forage" at the Queen's own highest effort); otherwise, denied, with a reason either way. This
 module is the wire-and-trail half of that: it records `forage.requested` on receipt, calls
-`hivemind.queen.forage.requests.handle_sub_bee_request` for the decision (and, on a grant, the
-ledger update), then sends the wire reply -- a fresh `GrantIssued` plus a `ForageReply(GRANTED)`
+`hivemind.queen.forage.requests.handle_forage_request_for_kind` for the decision (and, on a grant,
+the ledger update), then sends the wire reply -- a fresh `GrantIssued` plus a `ForageReply(GRANTED)`
 on a grant, or a `ForageReply(DENIED)` otherwise -- and records `forage.granted`/`forage.denied`.
-The contested case is recorded as `forage.denied` too, with `contested=True` and the effort class
-in its payload: no `forage.*` kind for "needs judgement" exists in
-`hivemind.pheromone.ForageEvent.KINDS`, and that file is outside this dispatch's own list to add
-one to (flagged in this dispatch's own report, alongside the larger gap: `hivemind.queen.awake`
-holds no action to shrink another live grant, so this module does not run an awake episode for
-the contested case at all -- roadmap step 4.7 asks only that it "go to NEEDS_JUDGEMENT with an
-effort class", which the trail payload alone already satisfies, not that queen.awake resolve it).
+
+Roadmap step 4.7's own leftover closes the contested gap a prior dispatch's report flagged:
+`_resolve_contested` runs one awake episode (`hivemind.queen.awake.decide_awake`, at
+`Effort.HIGH`) whose prompt names the request's own contested amount and every other live grant in
+the same dimension (`EpisodeExtras.system_hint`, rather than a whole new hot-state category for a
+handful of lines specific to one decision). The model returns `GRANT_BY_SHRINKING` (naming a grant
+to shrink and by how much) or `DENY_REQUEST`; a shrink applies `hivemind.queen.forage.grants.
+revise` to the named grant first (which the shrunk holder's own Warden may in turn report
+`AlarmKind.GRANT_EXCEEDED` for, on its next assignment check, if the shrink put it over what it
+already runs -- `hivemind.wardens.ticks.assign`'s own existing rule, unaffected by this module),
+then `hivemind.queen.forage.requests.grant_wanted` grows the requester's own grant from the
+headroom the shrink freed.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s tick for every received
     `waggle.messages.forage.ForageRequest`, ahead of `hivemind.queen.autopilot.table.decide` (whose
     own fallback for an unrecognised payload type is `NEEDS_JUDGEMENT` outright -- exactly what
-    "within headroom, no awake episode" must not become). Calls into `hivemind.forage.slots`
-    (Effort), `hivemind.queen.autopilot` (ForageAutopilotOutcome), `hivemind.queen.deps`
-    (QueenDeps, WardenLink), `hivemind.queen.forage.requests` (ForageRequestOutcome,
-    handle_sub_bee_request), `hivemind.queen.trail` (record_forage_event) and waggle only.
+    "within headroom, no awake episode" must not become). Calls into `hivemind.cell`
+    (HoneyClearance), `hivemind.forage.slots` (Effort), `hivemind.memory` (TriggerEvent),
+    `hivemind.queen.autopilot` (ForageAutopilotOutcome, QueenAction), `hivemind.queen.awake`
+    (EpisodeExtras, QueenSources, decide_awake), `hivemind.queen.deps` (QueenDeps, WardenLink),
+    `hivemind.queen.forage.grants` (revise), `hivemind.queen.forage.requests`
+    (ForageRequestOutcome, grant_wanted, handle_forage_request_for_kind), `hivemind.queen.
+    human_inbox` (HumanInbox), `hivemind.queen.trail` (record_forage_event) and waggle only.
 
 Key invariants:
     - Every branch sends exactly one wire reply and records exactly one `forage.*` trail event;
       neither a grant nor a denial is ever left silent.
     - A GRANT always sends the fresh `GrantIssued` before the `ForageReply` that names its
       revision, mirroring `hivemind.queen.dispatcher`'s own "grant before assignment" ordering.
+    - `ForageReply.granted` always matches `wire_request.kind`'s own dimension (sub_bees, seats or
+      spend), never the SUB_BEES-only shape this module shipped with (roadmap step 4.7's leftover).
+    - `_resolve_contested` never shrinks the requester's own grant, and never grants the requester
+      without first committing the shrink: `grant_wanted` only runs once `grants.revise` on the
+      shrink target has already returned.
 
 See Also:
-    - .claude/roadmap.md step 4.7 for the dispatch map this module implements.
+    - .claude/roadmap.md step 4.7 for the dispatch map this module implements, and its leftover
+      for the GRANT_BY_SHRINKING/DENY_REQUEST resolution this dispatch adds.
     - .claude/codingrules.md section 8.14 for "the Queen tunes her own effort... contested Forage
       at high".
     - hivemind.queen.forage.requests for the decision and ledger-update logic this module wires.
@@ -43,25 +57,46 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import cast
 
+from hivemind.cell import HoneyClearance
+from hivemind.forage import ForageGrant
 from hivemind.forage.slots import Effort
-from hivemind.queen.autopilot import ForageAutopilotOutcome
+from hivemind.memory import TriggerEvent
+from hivemind.queen.autopilot import ForageAutopilotOutcome, QueenAction
+from hivemind.queen.awake import EpisodeExtras, QueenSources, decide_awake
+from hivemind.queen.awake.decision import QueenDecision
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.forage.requests import ForageRequestOutcome, handle_sub_bee_request
+from hivemind.queen.forage import grants as forage_grants
+from hivemind.queen.forage.requests import (
+    ForageRequestOutcome,
+    grant_wanted,
+    handle_forage_request_for_kind,
+)
+from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.trail import record_forage_event
 from hivemind.supervision.attendant import InboxItem
 from waggle.envelope import wrap
-from waggle.ids import MessageId, WardenId
-from waggle.messages.forage import ForageOutcome, ForageReply
+from waggle.ids import GrantId, MessageId, WardenId
+from waggle.messages.forage import ForageDelta, ForageOutcome, ForageReply
 from waggle.messages.forage import ForageRequest as WireForageRequest
-from waggle.messages.forage.values import ForageDelta
+from waggle.messages.forage.values import ForageRequestKind as WireForageRequestKind
 
 __all__ = ["handle_forage_request", "handle_forage_request_for_item"]
 
 _EMPTY_DELTA = ForageDelta(
     seats=0, source_id=None, spend=0.0, tokens=0, sub_bees=0, slot=None, minimum_grade=None
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _Reply:
+    """One request's own link, request and correlation id, grouped for codingrules 5.1's limit."""
+
+    link: WardenLink
+    wire_request: WireForageRequest
+    request_id: MessageId
 
 
 async def handle_forage_request_for_item(
@@ -85,16 +120,22 @@ async def handle_forage_request_for_item(
     link = wardens.get(WardenId(item.principal))
     if link is not None:
         wire_request = cast(WireForageRequest, item.payload)
-        await handle_forage_request(deps, link, wire_request, MessageId(item.id))
+        await handle_forage_request(deps, wardens, link, wire_request, MessageId(item.id))
 
 
 async def handle_forage_request(
-    deps: QueenDeps, link: WardenLink, wire_request: WireForageRequest, request_id: MessageId
+    deps: QueenDeps,
+    wardens: Mapping[WardenId, WardenLink],
+    link: WardenLink,
+    wire_request: WireForageRequest,
+    request_id: MessageId,
 ) -> None:
-    """Answer one Warden's ForageRequest: grant within headroom, deny (or defer) otherwise.
+    """Answer one Warden's ForageRequest: grant within headroom, deny (or resolve) otherwise.
 
     Args:
         deps: The Queen's collaborators.
+        wardens: Every Warden currently attached, keyed by id; needed only for the contested path,
+            to reach the shrunk grant's own holder with a fresh `GrantIssued`.
         link: The requesting Warden's own link; the reply and any fresh GrantIssued go here.
         wire_request: The Warden's own request.
         request_id: The request's own envelope id: `ForageReply` is a reply
@@ -104,61 +145,166 @@ async def handle_forage_request(
     await record_forage_event(
         deps, "forage.requested", wire_request.grant_id, request_kind=wire_request.kind.value
     )
-    outcome = await handle_sub_bee_request(deps.ledger, deps, wire_request)
+    reply = _Reply(link=link, wire_request=wire_request, request_id=request_id)
+    outcome = await handle_forage_request_for_kind(deps.ledger, deps, wire_request)
     if outcome.autopilot_outcome is ForageAutopilotOutcome.GRANT and outcome.grant is not None:
-        await _send_grant(deps, link, wire_request, outcome, request_id)
+        await _send_grant(deps, reply, outcome.grant, outcome.reason)
         return
-    await _send_denial(deps, link, wire_request, outcome, request_id)
+    if outcome.autopilot_outcome is ForageAutopilotOutcome.NEEDS_JUDGEMENT:
+        await _resolve_contested(deps, wardens, reply, outcome)
+        return
+    await _send_denial(deps, reply, outcome.reason, contested=False)
 
 
-async def _send_grant(
+async def _resolve_contested(
     deps: QueenDeps,
-    link: WardenLink,
-    wire_request: WireForageRequest,
+    wardens: Mapping[WardenId, WardenLink],
+    reply: _Reply,
     outcome: ForageRequestOutcome,
-    request_id: MessageId,
 ) -> None:
+    """Judge a contested ForageRequest with an awake episode; grant by shrinking, or deny."""
+    wire_request = reply.wire_request
+    live = [g for g in deps.ledger.live_grants() if g.id != wire_request.grant_id]
+    sources = QueenSources(deps.chamber, deps.memory, HumanInbox())
+    event = TriggerEvent(
+        kind="forage.contested",
+        summary=f"ForageRequest {wire_request.grant_id} ({wire_request.kind.value}) is contested: "
+        f"{outcome.reason}",
+        clearance=HoneyClearance.C2,
+    )
+    extras = EpisodeExtras(system_hint=_grants_hint(wire_request, live))
+    decision = await decide_awake(deps, event, sources, Effort.HIGH, extras)
+    granted = await _apply_shrink_decision(deps, wardens, wire_request, decision)
+    if granted is not None:
+        await _send_grant(deps, reply, granted, decision.reason)
+        return
+    reason = decision.reason if decision.reason else outcome.reason
+    await _send_denial(deps, reply, reason, contested=True)
+
+
+async def _apply_shrink_decision(
+    deps: QueenDeps,
+    wardens: Mapping[WardenId, WardenLink],
+    wire_request: WireForageRequest,
+    decision: QueenDecision,
+) -> ForageGrant | None:
+    """Shrink the named grant and grow the requester's, or None to deny (module docstring)."""
+    if (
+        decision.action is not QueenAction.GRANT_BY_SHRINKING
+        or decision.shrink_grant_id is None
+        or decision.shrink_amount is None
+    ):
+        return None
+    target = deps.ledger.grant(GrantId(decision.shrink_grant_id))
+    requester = deps.ledger.grant(wire_request.grant_id)
+    if target is None or requester is None or target.id == wire_request.grant_id:
+        return None  # Nothing sane to shrink, or the model named the requester's own grant.
+    await _shrink_and_notify(deps, wardens, target, decision.shrink_amount, wire_request.kind)
+    return await grant_wanted(deps.ledger, requester, wire_request)
+
+
+async def _shrink_and_notify(
+    deps: QueenDeps,
+    wardens: Mapping[WardenId, WardenLink],
+    target: ForageGrant,
+    amount: float,
+    kind: WireForageRequestKind,
+) -> None:
+    """Shrink `target` by `amount` in `kind`'s own dimension, commit it, and notify its holder."""
+    revised = _shrunk(target, amount, kind)
+    await forage_grants.revise(deps.ledger, revised)
+    await record_forage_event(
+        deps, "forage.granted", revised.id, holder=revised.holder, shrunk_by=amount
+    )
+    holder_link = wardens.get(revised.holder)
+    if holder_link is None:
+        return  # Unreachable: the shrink is still committed (mirrors this module's own rule).
+    sources = {b.source_id: deps.map.get(b.source_id) for b in revised.allowed}
+    await holder_link.transport.send(
+        wrap(revised.to_wire(sources), holder_link.hop, clock=deps.clock)
+    )
+
+
+def _shrunk(target: ForageGrant, amount: float, kind: WireForageRequestKind) -> ForageGrant:
+    """Return `target` with `amount` subtracted from `kind`'s own dimension, floored at zero."""
+    if kind is WireForageRequestKind.SUB_BEES:
+        new_value = max(0, target.max_sub_bees - int(amount))
+        return target.model_copy(
+            update={"max_sub_bees": new_value, "revision": target.revision + 1}
+        )
+    if kind is WireForageRequestKind.SPEND:
+        new_spend = max(0.0, target.spend_budget - amount)
+        return target.model_copy(
+            update={"spend_budget": new_spend, "revision": target.revision + 1}
+        )
+    # SHARED_SEATS: shrink every reservation proportionally is out of scope for a first cut;
+    # shrinking max_sub_bees by the same amount still frees real headroom for a seats request,
+    # since a Warden with fewer sub-bees needs fewer seats too.
+    new_value = max(0, target.max_sub_bees - int(amount))
+    return target.model_copy(update={"max_sub_bees": new_value, "revision": target.revision + 1})
+
+
+def _grants_hint(wire_request: WireForageRequest, live: list[ForageGrant]) -> str:
+    """Render the live grants in `wire_request`'s own dimension, for the awake episode's prompt."""
+    lines = [
+        f"Contested {wire_request.kind.value} request on grant {wire_request.grant_id}, wants "
+        f"{_wanted_amount(wire_request)}. Other live grants in this dimension:"
+    ]
+    for grant in live:
+        lines.append(
+            f"- grant {grant.id} held by {grant.holder}: max_sub_bees={grant.max_sub_bees}, "
+            f"spend_budget={grant.spend_budget}"
+        )
+    return "\n".join(lines)
+
+
+def _wanted_amount(wire_request: WireForageRequest) -> float:
+    """Return the one number `wire_request.wanted` actually asks for, by its own kind."""
+    if wire_request.kind is WireForageRequestKind.SUB_BEES:
+        return float(wire_request.wanted.sub_bees)
+    if wire_request.kind is WireForageRequestKind.SHARED_SEATS:
+        return float(wire_request.wanted.seats)
+    if wire_request.kind is WireForageRequestKind.SPEND:
+        return wire_request.wanted.spend
+    return 0.0
+
+
+async def _send_grant(deps: QueenDeps, reply: _Reply, grant: ForageGrant, reason: str) -> None:
     """Send the fresh GrantIssued, then the matching ForageReply, and record forage.granted."""
-    grant = outcome.grant
-    if grant is None:
-        # Unreachable: handle_forage_request only calls this branch once it has already checked
-        # outcome.grant is not None. A plain raise, not assert (never stripped under -O).
-        raise RuntimeError("_send_grant called with no grant on the outcome.")
+    link = reply.link
     sources = {binding.source_id: deps.map.get(binding.source_id) for binding in grant.allowed}
     await link.transport.send(wrap(grant.to_wire(sources), link.hop, clock=deps.clock))
-    granted_delta = _EMPTY_DELTA.model_copy(update={"sub_bees": wire_request.wanted.sub_bees})
-    reply = ForageReply(
+    wire_reply = ForageReply(
         grant_id=grant.id,
         outcome=ForageOutcome.GRANTED,
-        granted=granted_delta,
+        granted=_granted_delta_for(reply.wire_request),
         revision=grant.revision,
         expires_at=grant.expires_at,
-        reason=outcome.reason,
+        reason=reason,
     )
-    await link.transport.send(wrap(reply, link.hop, clock=deps.clock, correlation_id=request_id))
+    await link.transport.send(
+        wrap(wire_reply, link.hop, clock=deps.clock, correlation_id=reply.request_id)
+    )
     await record_forage_event(
         deps, "forage.granted", grant.id, holder=grant.holder, max_sub_bees=grant.max_sub_bees
     )
 
 
-async def _send_denial(
-    deps: QueenDeps,
-    link: WardenLink,
-    wire_request: WireForageRequest,
-    outcome: ForageRequestOutcome,
-    request_id: MessageId,
-) -> None:
+async def _send_denial(deps: QueenDeps, reply: _Reply, reason: str, *, contested: bool) -> None:
     """Send a ForageReply(DENIED), and record forage.denied (contested or not)."""
-    reply = ForageReply(
+    link = reply.link
+    wire_request = reply.wire_request
+    wire_reply = ForageReply(
         grant_id=wire_request.grant_id,
         outcome=ForageOutcome.DENIED,
         granted=_EMPTY_DELTA,
         revision=None,
         expires_at=None,
-        reason=outcome.reason,
+        reason=reason,
     )
-    await link.transport.send(wrap(reply, link.hop, clock=deps.clock, correlation_id=request_id))
-    contested = outcome.autopilot_outcome is ForageAutopilotOutcome.NEEDS_JUDGEMENT
+    await link.transport.send(
+        wrap(wire_reply, link.hop, clock=deps.clock, correlation_id=reply.request_id)
+    )
     await record_forage_event(
         deps,
         "forage.denied",
@@ -169,3 +315,16 @@ async def _send_denial(
         # Forage at high [effort]" -- a plain denial never reaches queen.awake, so it has none.
         effort=Effort.HIGH.value if contested else None,
     )
+
+
+def _granted_delta_for(wire_request: WireForageRequest) -> ForageDelta:
+    """Build the ForageReply.granted delta actually granted, matching wire_request's own kind."""
+    if wire_request.kind is WireForageRequestKind.SUB_BEES:
+        return _EMPTY_DELTA.model_copy(update={"sub_bees": wire_request.wanted.sub_bees})
+    if wire_request.kind is WireForageRequestKind.SHARED_SEATS:
+        return _EMPTY_DELTA.model_copy(
+            update={"seats": wire_request.wanted.seats, "source_id": wire_request.wanted.source_id}
+        )
+    if wire_request.kind is WireForageRequestKind.SPEND:
+        return _EMPTY_DELTA.model_copy(update={"spend": wire_request.wanted.spend})
+    return _EMPTY_DELTA

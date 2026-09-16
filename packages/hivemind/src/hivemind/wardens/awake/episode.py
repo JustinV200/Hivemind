@@ -13,7 +13,11 @@ rung `deps.bound`'s declared capabilities support -- a plain-text model at `Prov
 none()` still owes a decision, on the PROMPTED rung; `hivemind.memory.record_episode` writes the
 decision back as an `EpisodeRecord`
 (`is_autopilot=False`) before the transcript itself is discarded, exactly as codingrules 8.8
-prescribes.
+prescribes. Roadmap step 4.4: the whole "assemble a prompt, then call the model" step runs through
+`hivemind.memory.run_with_overflow_retry`, so a provider's own `ContextTooLongError` shrinks the
+budget and retries rather than crashing this Warden's tick, and every dropped hot-state candidate
+is archived into Bee Bread before the retry (`hivemind.memory.deposit_dropped_items`), matching
+`hivemind.queen.awake.episode.decide_awake`'s own shape.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's awake
@@ -55,10 +59,14 @@ from hivemind.memory import (
     HotStateSources,
     MemoryContext,
     Principal,
+    Prompt,
+    Scorable,
     TokenBudget,
     TriggerEvent,
     assemble,
+    deposit_dropped_items,
     record_episode,
+    run_with_overflow_retry,
 )
 from hivemind.wardens.awake.decision import WardenDecision
 from hivemind.wardens.deps import WardenDeps
@@ -99,32 +107,55 @@ async def decide_awake(
     Raises:
         hivemind.llm.errors.MalformedOutputError: Every rung of the structured-output ladder, on
             every binding in `deps.bound`'s fallback chain, was exhausted.
+        hivemind.memory.overflow.ContextOverflowError: The assembled prompt overflowed the bound
+            model's context `MAX_OVERFLOWS` times in a row, even after shrinking the budget each
+            time (roadmap step 4.4).
     """
+    budget = TokenBudget(
+        max_input_tokens=max(1, int(deps.bound.context_window * WARDEN_BUDGET_FRACTION)),
+        output_reserve=AWAKE_OUTPUT_RESERVE_TOKENS,
+    )
+
+    async def _episode(budget: TokenBudget) -> WardenDecision:
+        """One assemble-and-call attempt at `budget`; the unit run_with_overflow_retry retries."""
+        prompt = await _assemble_prompt(deps, event, sources, budget)
+        system = render(PromptName.WARDEN_SYSTEM, sections=prompt.sections)
+        llm_request = LLMRequest(
+            slot=ModelSlot.WARDEN,
+            system=system,
+            messages=(Message.text(Role.USER, prompt.event_text),),
+            max_output_tokens=AWAKE_MAX_OUTPUT_TOKENS,
+        )
+        # External await: one model call, latency class seconds; the ladder itself retries and
+        # steps down rungs on a malformed reply, and falls back along deps.bound's own chain on
+        # an outage. A ContextTooLongError propagates unchanged to run_with_overflow_retry below.
+        result = await complete_structured(
+            deps.bound, llm_request, WardenDecision, gate=deps.call_gate
+        )
+        await _record(deps, event, result.value)
+        return result.value
+
+    return await run_with_overflow_retry(_episode, budget, deps.trail, deps.identity, deps.clock)
+
+
+async def _assemble_prompt(
+    deps: WardenDeps, event: TriggerEvent, sources: HotStateSources, budget: TokenBudget
+) -> Prompt:
+    """Pack this Warden's own hot state into a Prompt at `budget`, archiving every dropped item."""
     principal = Principal(
         id=_WARDEN_PRINCIPAL_ID,
         slot=ModelSlot.WARDEN,
         clearance=HoneyClearance.C1,
         role=_WARDEN_ROLE,
     )
-    budget = TokenBudget(
-        max_input_tokens=max(1, int(deps.bound.context_window * WARDEN_BUDGET_FRACTION)),
-        output_reserve=AWAKE_OUTPUT_RESERVE_TOKENS,
-    )
     request = AssembleRequest(principal=principal, event=event, budget=budget)
-    prompt = await assemble(request, sources, EstimateCounter())
-
-    system = render(PromptName.WARDEN_SYSTEM, sections=prompt.sections)
-    llm_request = LLMRequest(
-        slot=ModelSlot.WARDEN,
-        system=system,
-        messages=(Message.text(Role.USER, prompt.event_text),),
-        max_output_tokens=AWAKE_MAX_OUTPUT_TOKENS,
-    )
-    # External await: one model call, latency class seconds; the ladder itself retries and steps
-    # down rungs on a malformed reply, and falls back along deps.bound's own chain on an outage.
-    result = await complete_structured(deps.bound, llm_request, WardenDecision, gate=deps.call_gate)
-    await _record(deps, event, result.value)
-    return result.value
+    dropped: list[Scorable] = []
+    prompt = await assemble(request, sources, EstimateCounter(), on_drop=dropped.append)
+    if dropped:
+        # Roadmap step 4.4: "every dropped item is findable in Bee Bread by id."
+        ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+        await deposit_dropped_items(dropped, ctx)
+    return prompt
 
 
 async def _record(deps: WardenDeps, event: TriggerEvent, decision: WardenDecision) -> None:

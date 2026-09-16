@@ -69,6 +69,7 @@ from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.common.tasks import reap_all, reaping
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory import TriggerEvent
+from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
 from hivemind.queen.awake import QueenSources, decide_awake
@@ -557,10 +558,5 @@ async def _resolve_pending_alarm(queen: Queen, task_id: TaskId) -> None:
 
 
 def _compact_view(telemetry: ContextTelemetry) -> CompactView:
-    """Build the CompactView a Supervisor.inspect() reply carries, from one ContextTelemetry."""
-    return CompactView(
-        goal=telemetry.goal,
-        progress=f"{telemetry.tokens_used}/{telemetry.context_window} tokens used.",
-        decisions=tuple(telemetry.last_actions),
-        open_threads=tuple(telemetry.blockers),
-    )
+    """Build the size-capped CompactView a Supervisor.inspect() reply carries (roadmap 4.6)."""
+    return capped_compact_view(telemetry)

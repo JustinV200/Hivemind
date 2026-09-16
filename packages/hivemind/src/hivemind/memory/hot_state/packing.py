@@ -15,14 +15,21 @@ state, never inlined" -- until the Honey Store exists in phase 7, that reference
 `hivemind.memory.bee_bread.deposit.deposit_tool_result` entry id, deposited by a caller, never by
 this module itself, which stays pure). The result's `sections` are keyed only `PINS` and
 `HOT_STATE` (never `RETRIEVED`, which stays empty in memory v0), ready to hand straight to
-`hivemind.llm.prompts.render`.
+`hivemind.llm.prompts.render`. A resumed `hivemind.memory.Handoff` (`HotStateSources.handoff`) is
+rendered unconditionally into its own delimited block inside `HOT_STATE` (`_render_handoff`) --
+never scored or dropped for budget the way the candidates above are, only bounded by
+`item_cap_chars` -- because what a prior attempt already did and must not repeat is safety-critical
+context a resuming bee cannot afford to lose to relevance ranking (defect 2 this dispatch fixes:
+before this, only a resumed Handoff's `decisions` reached the model at all, through
+`recent_decisions`).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by queen.awake and wardens.awake
     to build the prompt for an awake episode. Calls into hivemind.llm (for SectionLabel, to key its
     result the way render() expects), hivemind.memory.counter (TokenCounter), hivemind.memory.
-    hot_state.summaries, hivemind.memory.notes, hivemind.memory.pins and hivemind.memory.relevance
-    (RelevanceScore, Scorable, item_id, score) only.
+    handoff (Handoff, for the resumed-Handoff block), hivemind.memory.hot_state.summaries,
+    hivemind.memory.notes, hivemind.memory.pins and hivemind.memory.relevance (RelevanceScore,
+    Scorable, item_id, score) only.
 
 Key invariants:
     - Every candidate is filtered by `item.clearance.rank <= principal.clearance.rank` before
@@ -34,9 +41,13 @@ Key invariants:
       (`hivemind.memory.relevance.PIN_FLOOR`) means every pin sorts before every non-pin, so this
       matches pins' old "never dropped except for its own size" behaviour in every realistic
       budget (an oversized pin is already replaced by a small reference before it is counted).
-    - `assemble` is pure apart from its three injected effects, `sources`, `counter` and (when
-      `request.now` is unset) the wall clock: given the same request, sources and counter answers,
-      it always packs the same Prompt.
+    - `assemble` is pure apart from its four injected effects, `sources`, `counter`, `on_drop` and
+      (when `request.now` is unset) the wall clock: given the same request, sources and counter
+      answers, it always packs the same Prompt. `on_drop` (roadmap step 4.4) is a synchronous
+      callback invoked once per dropped candidate; unset, it changes nothing.
+    - A resumed Handoff's own `do_not_redo` and `next_steps` render as explicit instruction lists
+      ("Already done, do not repeat: ...", "Next: ...") and `pinned_facts` renders verbatim,
+      never re-summarised (codingrules section 8.9: "compaction... copies pins verbatim").
 
 See Also:
     - .claude/codingrules.md section 8.9 for the packing, budget and clearance rules this module
@@ -45,6 +56,7 @@ See Also:
     - hivemind.memory.relevance for score, RelevanceScore, Scorable and item_id, this module's
       ranking half.
     - hivemind.memory.counter for TokenCounter, the injected effect this module counts through.
+    - hivemind.memory.handoff for Handoff, the resumed-Handoff shape `_render_handoff` renders.
     - hivemind.memory.hot_state.summaries for the summary models, HotStateSources and TokenBudget
       this module reads.
     - hivemind.llm.prompts for render, the function a caller passes `Prompt.sections` to.
@@ -52,7 +64,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -61,6 +73,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.cell import HoneyClearance
 from hivemind.llm import SectionLabel
 from hivemind.memory.counter import TokenCounter
+from hivemind.memory.handoff import Handoff
 from hivemind.memory.hot_state.summaries import (
     ITEM_CAP_CHARS,
     AlarmSummary,
@@ -80,6 +93,11 @@ from waggle.ids import CellId, TaskId
 from waggle.messages.base import UtcDatetime
 
 RECENT_DECISIONS_LIMIT = 20  # Generous default; packing still drops whichever ones do not fit.
+# A resumed Handoff's own list fields (do_not_redo, next_steps, ...) can hold up to Handoff's own
+# MAX_LIST_ITEMS (64, a storage cap); a prompt section only needs enough for a resuming bee to act
+# on, so this is a separate, much smaller render budget -- oversized lists are truncated with a
+# count (module docstring's own "Key invariants" on the handoff section, added below).
+MAX_HANDOFF_LIST_ITEMS_SHOWN = 10
 
 # Pins sort before every category at equal relevance score (PIN_FLOOR already guarantees that in
 # practice); the rest follow codingrules section 8.9's old tie-break order. Only ever breaks a tie
@@ -94,7 +112,14 @@ _CATEGORY_RANK: dict[type, int] = {
     CellWaxSummary: 5,
 }
 
-__all__ = ["ITEM_CAP_CHARS", "RECENT_DECISIONS_LIMIT", "AssembleRequest", "Prompt", "assemble"]
+__all__ = [
+    "ITEM_CAP_CHARS",
+    "MAX_HANDOFF_LIST_ITEMS_SHOWN",
+    "RECENT_DECISIONS_LIMIT",
+    "AssembleRequest",
+    "Prompt",
+    "assemble",
+]
 
 
 class AssembleRequest(BaseModel):
@@ -151,7 +176,10 @@ class _PackResult:
 
 
 async def assemble(
-    request: AssembleRequest, sources: HotStateSources, counter: TokenCounter
+    request: AssembleRequest,
+    sources: HotStateSources,
+    counter: TokenCounter,
+    on_drop: Callable[[Scorable], None] | None = None,
 ) -> Prompt:
     """Pack hot state into a token-budgeted Prompt for one episode.
 
@@ -159,6 +187,11 @@ async def assemble(
         request: The principal, trigger, budget and (optionally) reference time this prompt is for.
         sources: Where every candidate item comes from.
         counter: How each candidate's rendered text is token-counted.
+        on_drop: Called once, synchronously, for every candidate left out of the budget (roadmap
+            step 4.4: "the packer must report drops"). `Prompt.dropped` already carries each one's
+            id; this is for a caller that needs the item itself, e.g. to archive it into Bee Bread
+            (`hivemind.memory.bee_bread.deposit.deposit_dropped_items`). Unset (the default) costs
+            nothing extra: `assemble` stays pure apart from its three other injected effects.
 
     Returns:
         A Prompt whose `sections` carries at most PINS and HOT_STATE, packed to
@@ -173,17 +206,36 @@ async def assemble(
     pin_ids = frozenset(item_id(item) for item in candidates if isinstance(item, Pin))
 
     ranked = _rank(candidates, now, active_tasks, pin_ids)
-    packed = await _pack(ranked, target_tokens, request.budget.item_cap_chars, counter)
+    packed = await _pack(ranked, target_tokens, request.budget.item_cap_chars, counter, on_drop)
+    handoff_text, handoff_tokens = await _handoff_section(sources, request.budget, counter)
 
     event_text = _event_text(request)
     event_tokens = await counter.count(event_text)
     return Prompt(
-        sections=_render_sections(packed.included),
+        sections=_render_sections(packed.included, handoff_text),
         event_text=event_text,
-        token_count=packed.total_tokens + event_tokens,
+        token_count=packed.total_tokens + handoff_tokens + event_tokens,
         included=tuple(item_id(item) for item, _text in packed.included),
         dropped=tuple(packed.dropped),
     )
+
+
+async def _handoff_section(
+    sources: HotStateSources, budget: TokenBudget, counter: TokenCounter
+) -> tuple[str, int]:
+    """Fetch, render and token-count a resumed Handoff, or return ("", 0) when there is none.
+
+    Defect 2 (this dispatch's own report): a resumed Handoff used to reach a resuming bee's
+    prompt only through `recent_decisions`; every other field (`do_not_redo`, `next_steps`, ...)
+    never appeared at all. Rendered unconditionally into its own delimited block inside
+    `HOT_STATE` -- never scored or dropped for budget, only bounded by `item_cap_chars` -- because
+    what a prior attempt already did and must not be redone is safety-critical, not a
+    relevance-ranked nice-to-have.
+    """
+    handoff = await sources.handoff()
+    text = _render_handoff(handoff, budget.item_cap_chars)
+    tokens = await counter.count(text) if text else 0
+    return text, tokens
 
 
 async def _gather_candidates(
@@ -221,7 +273,11 @@ def _rank(
 
 
 async def _pack(
-    ranked: Sequence[Scorable], target_tokens: int, item_cap: int, counter: TokenCounter
+    ranked: Sequence[Scorable],
+    target_tokens: int,
+    item_cap: int,
+    counter: TokenCounter,
+    on_drop: Callable[[Scorable], None] | None,
 ) -> _PackResult:
     """Pack `ranked` (highest score first) until the budget fills, then drop the rest."""
     result = _PackResult()
@@ -230,11 +286,15 @@ async def _pack(
         iid = item_id(item)
         if stopped:
             result.dropped.append(iid)
+            if on_drop is not None:
+                on_drop(item)
             continue
         text, tokens = await _sized_text(iid, _raw_text(item), item_cap, counter)
         if result.total_tokens + tokens > target_tokens:
             stopped = True  # Packing stops here: everything after this item is dropped too.
             result.dropped.append(iid)
+            if on_drop is not None:
+                on_drop(item)
             continue
         result.included.append((item, text))
         result.total_tokens += tokens
@@ -254,10 +314,21 @@ def _reference(iid: str, raw_text: str) -> str:
     return f"[ref {iid}: {len(raw_text)} chars, fetch by id]"
 
 
-def _render_sections(included: Sequence[tuple[Scorable, str]]) -> dict[SectionLabel, str]:
-    """Split packed (item, text) pairs back into PINS and HOT_STATE, preserving pack order."""
+def _render_sections(
+    included: Sequence[tuple[Scorable, str]], handoff_text: str
+) -> dict[SectionLabel, str]:
+    """Split packed (item, text) pairs back into PINS and HOT_STATE, preserving pack order.
+
+    Args:
+        included: Every scored candidate `_pack` kept, with its own rendered text.
+        handoff_text: The resumed Handoff's own rendered block (`_render_handoff`), or "" when
+            this episode is not resuming one; appended after the scored hot-state lines so it
+            reads after pins and hot state, before the event (codingrules 8.9's "stable prefix").
+    """
     pin_lines = [text for item, text in included if isinstance(item, Pin)]
     hot_lines = [text for item, text in included if not isinstance(item, Pin)]
+    if handoff_text:
+        hot_lines.append(handoff_text)
     sections: dict[SectionLabel, str] = {}
     if pin_lines:
         sections[SectionLabel.PINS] = "\n".join(pin_lines)
@@ -304,3 +375,69 @@ def _render_line(
     if isinstance(item, CellWaxSummary):
         return f"Cell Wax {item.id} [{item.severity}] cell={item.cell_id}: {item.text}"
     return f"Note by {item.author}: {item.text}"
+
+
+def _render_handoff(handoff: Handoff | None, item_cap: int) -> str:
+    """Render a resumed Handoff into its own delimited block, or "" when there is none.
+
+    Every field renders (goal, progress, decisions already reach the model through
+    `recent_decisions`/`DecisionSummary`, so only the fields defect 2's report named as missing
+    are rendered here): `do_not_redo` and `next_steps` as explicit instruction lists ("Already
+    done, do not repeat: ...", "Next: ..."), `pinned_facts` verbatim, the rest as labelled lists
+    or lines. Bounded by `item_cap` (an oversized list is truncated with a count first; if the
+    whole block is still oversized even then, it is hard-truncated with a trailing char count,
+    mirroring `_reference`'s own oversized-item convention -- a Handoff cannot be replaced by a
+    small id lookup the way a scored item can, since a resuming bee needs at least the truncated
+    do_not_redo/goal to be safe).
+
+    Args:
+        handoff: The Handoff this episode is resuming from, or None for a fresh episode.
+        item_cap: `AssembleRequest.budget.item_cap_chars`, the same per-item char cap every other
+            hot-state candidate is bounded by.
+
+    Returns:
+        The delimited `<<<handoff>>> ... <<<end handoff>>>` block, or "" when `handoff` is None.
+    """
+    if handoff is None:
+        return ""
+    lines = ["<<<handoff>>>", f"Goal: {handoff.goal}", f"Progress: {handoff.progress}"]
+    lines += _handoff_list("Already done, do not repeat:", handoff.do_not_redo)
+    lines += _handoff_list("Next:", handoff.next_steps)
+    lines += _handoff_list("Tried and failed:", handoff.tried_and_failed)
+    lines += _handoff_list("Constraints discovered:", handoff.constraints)
+    lines += _handoff_list("Open threads:", handoff.open_threads)
+    lines += _handoff_list("Pinned facts (verbatim):", handoff.pinned_facts)
+    if handoff.notes:
+        lines.append(f"Notes: {handoff.notes}")
+    lines.append("<<<end handoff>>>")
+    text = "\n".join(lines)
+    if len(text) <= item_cap:
+        return text
+    # Still oversized after the per-list item cap below: hard-truncate the whole block, noting
+    # how many characters were cut, rather than silently overflowing item_cap (module docstring).
+    cut = len(text) - item_cap
+    return f"{text[:item_cap]}\n...[handoff truncated, {cut} more chars]"
+
+
+def _handoff_list(label: str, items: Sequence[str]) -> list[str]:
+    """Render one labelled bullet list from a Handoff field, truncated to a fixed item count.
+
+    Args:
+        label: The instruction-style header this list renders under (e.g. "Next:").
+        items: The Handoff field's own tuple; already capped at the source by
+            `hivemind.memory.handoff.MAX_LIST_ITEMS`, a storage cap far larger than a prompt
+            section needs (module-level `MAX_HANDOFF_LIST_ITEMS_SHOWN`).
+
+    Returns:
+        [] when `items` is empty (no header for an empty list); otherwise the header, one `- `
+        bullet per shown item, and a trailing "(+N more, truncated)" count when `items` held more
+        than `MAX_HANDOFF_LIST_ITEMS_SHOWN`.
+    """
+    if not items:
+        return []
+    shown = items[:MAX_HANDOFF_LIST_ITEMS_SHOWN]
+    lines = [label] + [f"- {item}" for item in shown]
+    hidden = len(items) - len(shown)
+    if hidden > 0:
+        lines.append(f"(+{hidden} more, truncated)")
+    return lines

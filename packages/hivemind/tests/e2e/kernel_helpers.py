@@ -47,6 +47,8 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 
+import pytest
+
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
     LLMRequest,
@@ -58,6 +60,8 @@ from hivemind.llm import (
     ToolResultPart,
     Usage,
 )
+from waggle.codec import Codec
+from waggle.envelope import Envelope
 
 _FAKE_MODEL_ID = "test-model"  # Neutral (codingrules 8.6); never a real vendor id.
 _DEFAULT_FILES: tuple[str, ...] = ("haiku_1.txt", "haiku_2.txt", "haiku_3.txt")
@@ -70,9 +74,11 @@ __all__ = [
     "HaikuScript",
     "WorkerTurn",
     "assert_kinds_in_order",
+    "capture_encoded_envelope_sizes",
     "default_worker_turn",
     "pid_alive",
     "plan_response",
+    "set_budget_fraction",
     "single_task_plan",
     "snapshot_tree",
     "text_response",
@@ -81,6 +87,58 @@ __all__ = [
     "wait_until",
     "write_call",
 ]
+
+
+def set_budget_fraction(manifest_path: Path, fraction: float) -> None:
+    """Patch `[memory] budget_fraction` onto an already-written manifest (roadmap 4.4 exit bar).
+
+    `builders.cli.fake_manifest` writes no `[memory]` section at all unless its own
+    `ManifestTuning.handoff_threshold` is given (that builder is outside this dispatch's own file
+    list to extend with a `budget_fraction` knob of its own), so this patches the file directly:
+    the exit criterion "the phase 3 scenarios still pass with a hot-state budget deliberately set
+    to a quarter of the default" needs a smaller `budget_fraction`, not a smaller `handoff_
+    threshold`, and the two are independent manifest fields.
+
+    Args:
+        manifest_path: The manifest `fake_manifest` already wrote.
+        fraction: The `[memory] budget_fraction` value to install.
+    """
+    text = manifest_path.read_text(encoding="utf-8")
+    if "[memory]" in text:
+        # A [memory] section already exists (e.g. ManifestTuning.handoff_threshold was set):
+        # insert the new key right after the header so both keys land in the same table.
+        text = text.replace("[memory]\n", f"[memory]\nbudget_fraction = {fraction}\n", 1)
+    else:
+        text = f"{text}\n[memory]\nbudget_fraction = {fraction}\n"
+    manifest_path.write_text(text, encoding="utf-8")
+
+
+def capture_encoded_envelope_sizes(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Monkeypatch `Codec.encode` to record every envelope's own encoded byte length.
+
+    Roadmap step 4.6: "no envelope payload serialised on the memory transport exceeds a byte cap."
+    `waggle.transport.memory.MemoryTransport.send` (the transport every scenario in this suite
+    runs over) calls `Codec.encode` on every envelope it sends, Queen<->Warden and Warden<->sub-bee
+    alike, so patching the one method here captures the whole Hive's own wire traffic for one
+    scenario run with no transport-specific hook needed.
+
+    Args:
+        monkeypatch: The test's own fixture; the patch is undone automatically at teardown.
+
+    Returns:
+        A list this function appends one encoded byte length to, per envelope sent, in send order.
+        The caller reads it after the scenario has run.
+    """
+    sizes: list[int] = []
+    original_encode = Codec.encode
+
+    def _wrapped(self: Codec, envelope: Envelope) -> bytes:
+        encoded = original_encode(self, envelope)
+        sizes.append(len(encoded))
+        return encoded
+
+    monkeypatch.setattr(Codec, "encode", _wrapped)
+    return sizes
 
 
 def text_response(text: str) -> LLMResponse:

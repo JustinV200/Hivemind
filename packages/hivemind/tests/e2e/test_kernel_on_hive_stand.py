@@ -81,8 +81,10 @@ from e2e.kernel_helpers import (
     HaikuScript,
     WorkerTurn,
     assert_kinds_in_order,
+    capture_encoded_envelope_sizes,
     default_worker_turn,
     pid_alive,
+    set_budget_fraction,
     snapshot_tree,
     text_response,
     tool_response,
@@ -100,6 +102,7 @@ from hivemind.cli.compose import GoalReport, Hive, HiveStores, build_hive, run_g
 from hivemind.cli.compose import build_hive as real_build_hive
 from hivemind.llm import LLMRequest, LLMResponse, Responder
 from hivemind.manifest import HiveManifest, load_manifest
+from hivemind.manifest.schema.supervision import DEFAULT_BUDGET_FRACTION
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.supervision import Checkpoint
 from hivemind.workers.telemetry import ROLLBACKS_BEFORE_ALARM
@@ -108,6 +111,12 @@ from waggle.clock import Clock, SystemClock
 pytestmark = pytest.mark.e2e
 
 _LEVELS = pytest.mark.parametrize("capabilities", ("full", "none"))
+# Roadmap 4.4's exit bar: "the phase 3 scenarios still pass with a hot-state budget deliberately
+# set to a quarter of the default." Applied to scenario (a) (the plain goal-completion path) and
+# scenario (e) (checkpoint-and-resume, the scenario most sensitive to a shrunk hot-state budget);
+# the same `quarter_budget` axis is available to any other scenario in this file that wants it.
+_QUARTER_BUDGET_FRACTION = DEFAULT_BUDGET_FRACTION / 4
+_BUDGETS = pytest.mark.parametrize("quarter_budget", (False, True))
 _GOAL = "write three haiku about bees to separate files"
 _TIMEOUT_S = 10.0  # Generous: every scenario here actually finishes in well under a second.
 _DEFAULT_FILES = ("haiku_1.txt", "haiku_2.txt", "haiku_3.txt")
@@ -157,8 +166,9 @@ async def _run_goal_to_completion(
 
 
 @_LEVELS
+@_BUDGETS
 def test_three_haiku_goal_completes_in_the_required_trail_order(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(a) plan -> lease -> grant -> spawn -> the Capping QA cycle -> accept (module docstring).
 
@@ -167,8 +177,14 @@ def test_three_haiku_goal_completes_in_the_required_trail_order(
     hands the async scenario to `asyncio.run` itself -- exactly `hivemind.cli.run.run_command`'s
     own "build_hive must run before its own asyncio.run" rule, and `tests.unit.cli.test_compose`'s
     own reason for a plain, non-async `plain_hive`/`three_haiku_hive` fixture.
+
+    `quarter_budget` (roadmap 4.4's exit bar): a quarter of the default `[memory] budget_fraction`
+    still leaves enough room for this scenario's own small hot state (one task, a handful of
+    trail-derived decisions) to assemble and finish exactly the same way.
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(default_worker_turn))
     asyncio.run(_run_three_haiku_goal(tmp_path, hive))
 
@@ -191,6 +207,30 @@ async def _run_three_haiku_goal(tmp_path: Path, hive: Hive) -> None:
     for kind in _ALSO_EXPECTED_KINDS:
         assert kind in kinds, f"{kind!r} never appeared on the trail: {kinds}"
     assert snapshot_tree(tmp_path / "scratch") == {}
+
+
+_MAX_ENVELOPE_BYTES = 65_536  # Generous (64 KiB): a byte cap, not a tight budget (roadmap 4.6).
+
+
+def test_no_envelope_on_the_wire_exceeds_the_byte_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """(no-transcript, part b) an envelope byte cap, proven against a real run of scenario (a).
+
+    Roadmap step 4.6: "no envelope payload serialised on the memory transport exceeds a byte cap"
+    -- Queen<->Warden and Warden<->sub-bee alike.
+    """
+    sizes = capture_encoded_envelope_sizes(monkeypatch)
+    manifest_path = fake_manifest(tmp_path, capabilities="full")
+    hive = _hive(manifest_path, HaikuScript(default_worker_turn))
+
+    asyncio.run(_run_three_haiku_goal(tmp_path, hive))
+
+    assert sizes, "no envelope was ever encoded; the capture hook is not wired to the real path"
+    over_cap = [size for size in sizes if size > _MAX_ENVELOPE_BYTES]
+    assert not over_cap, (
+        f"{len(over_cap)} of {len(sizes)} envelopes exceeded {_MAX_ENVELOPE_BYTES} bytes"
+    )
 
 
 def _patch_build_hive(monkeypatch: pytest.MonkeyPatch, script: HaikuScript) -> None:
@@ -479,10 +519,15 @@ async def _send_checkpoint(hive: Hive) -> None:
 
 
 @_LEVELS
+@_BUDGETS
 def test_a_drone_that_checkpoints_resumes_and_finishes_from_its_handoff(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(e) a scripted checkpoint resumes and finishes from its own Handoff.
+
+    `quarter_budget` (roadmap 4.4's exit bar): the scenario most sensitive to a shrunk hot-state
+    budget, since the resumed attempt's own prompt must still fit the resumed Handoff plus the
+    triggering event at a quarter of the ordinary room.
 
     An `Intervene(Checkpoint)`, scheduled the moment the very first WORKER-slot call is answered,
     is this suite's own closest true trigger: `hivemind.workers.telemetry.TelemetryTracker.
@@ -517,6 +562,8 @@ def test_a_drone_that_checkpoints_resumes_and_finishes_from_its_handoff(
         return text_response("Three haiku written.")
 
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(worker_turn))
     hive_holder["hive"] = hive
     asyncio.run(_run_checkpoint_and_resume(hive))

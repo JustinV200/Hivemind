@@ -19,6 +19,7 @@ from builders.memory import make_alarm_summary, make_pin, make_task_summary
 from hivemind.cell import HoneyClearance
 from hivemind.common.errors import InvariantViolationError
 from hivemind.memory.bee_bread.deposit import (
+    deposit_dropped_items,
     deposit_handoff_ref,
     deposit_hot_state_item,
     deposit_tool_result,
@@ -129,3 +130,33 @@ async def test_deposit_hot_state_item_raises_for_a_pin() -> None:
 
     with pytest.raises(InvariantViolationError):
         await deposit_hot_state_item(pin, ctx)
+
+
+async def test_deposit_dropped_items_archives_every_archivable_item_findable_by_id() -> None:
+    # Roadmap step 4.4: "every dropped item is findable in Bee Bread by id."
+    clock = FakeClock()
+    ctx = _ctx(clock)
+    task = make_task_summary(clock=clock)
+    alarm = make_alarm_summary(clock=clock)
+
+    entries = await deposit_dropped_items((task, alarm), ctx)
+
+    assert {e.kind for e in entries} == {
+        BeeBreadEntryKind.TASK_HISTORY,
+        BeeBreadEntryKind.TRAIL_EVENT,
+    }
+    for entry in entries:
+        fetched = await ctx.store.get_bee_bread_entry(entry.id, HoneyClearance.C2)
+        assert fetched.id == entry.id
+
+
+async def test_deposit_dropped_items_skips_a_pin_without_raising() -> None:
+    clock = FakeClock()
+    ctx = _ctx(clock)
+    pin = make_pin(clock=clock)
+    task = make_task_summary(clock=clock)
+
+    entries = await deposit_dropped_items((pin, task), ctx)
+
+    assert len(entries) == 1
+    assert entries[0].ref_ids == (task.id,)

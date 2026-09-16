@@ -85,15 +85,22 @@ Public API:
       MAX_OPEN_THREAD_CHARS, RIPENER_OUTPUT_TOKENS: summarise Bee Bread entries into one summary
       (compact).
     - BeeBreadEntry, BeeBreadEntryKind, BeeBread, deposit_transcript, deposit_tool_result,
-      deposit_handoff_ref, deposit_hot_state_item: the warm tier (bee_bread).
+      deposit_handoff_ref, deposit_hot_state_item, deposit_dropped_items: the warm tier
+      (bee_bread).
     - MemoryStore, InMemoryMemoryStore, SqliteMemoryStore, apply_memory_migrations, SUBSYSTEM,
       MIGRATIONS_PACKAGE: the durable half (store).
+    - MAX_OVERFLOWS, SHRINK_FACTOR, MIN_BUDGET_TOKENS, ContextOverflowError, shrink,
+      run_with_overflow_retry: overflow recovery (overflow, roadmap step 4.4).
+    - MAX_COMPACT_VIEW_CHARS, InterventionKind, Thresholds, intervention_kind_for,
+      capped_compact_view: the compact/handoff threshold rule and capped inspection view
+      (thresholds, roadmap step 4.6).
 """
 
 from hivemind.memory.bee_bread import (
     BeeBread,
     BeeBreadEntry,
     BeeBreadEntryKind,
+    deposit_dropped_items,
     deposit_handoff_ref,
     deposit_hot_state_item,
     deposit_tool_result,
@@ -167,6 +174,14 @@ from hivemind.memory.hot_state import (
     assemble,
 )
 from hivemind.memory.notes import MAX_NOTE_CHARS, MAX_NOTES_PER_AUTHOR, Note, add_note
+from hivemind.memory.overflow import (
+    MAX_OVERFLOWS,
+    MIN_BUDGET_TOKENS,
+    SHRINK_FACTOR,
+    ContextOverflowError,
+    run_with_overflow_retry,
+    shrink,
+)
 from hivemind.memory.pins import Pin, PinSource, add_pin
 from hivemind.memory.relevance import (
     PIN_FLOOR,
@@ -186,23 +201,34 @@ from hivemind.memory.store import (
     SqliteMemoryStore,
     apply_memory_migrations,
 )
+from hivemind.memory.thresholds import (
+    MAX_COMPACT_VIEW_CHARS,
+    InterventionKind,
+    Thresholds,
+    capped_compact_view,
+    intervention_kind_for,
+)
 
 __all__ = [
     "DEFAULT_QUEUE_SIZE",
     "ITEM_CAP_CHARS",
+    "MAX_COMPACT_VIEW_CHARS",
     "MAX_KEY_FACTS",
     "MAX_KEY_FACT_CHARS",
     "MAX_NOTES_PER_AUTHOR",
     "MAX_NOTE_CHARS",
     "MAX_OPEN_THREADS",
     "MAX_OPEN_THREAD_CHARS",
+    "MAX_OVERFLOWS",
     "MAX_SUMMARY_CHARS",
     "MAX_WAX_REASON_CHARS",
     "MAX_WAX_TEXT_CHARS",
     "MIGRATIONS_PACKAGE",
+    "MIN_BUDGET_TOKENS",
     "PIN_FLOOR",
     "RECENCY_HALF_LIFE_S",
     "RIPENER_OUTPUT_TOKENS",
+    "SHRINK_FACTOR",
     "SUBSYSTEM",
     "TASK_LINKAGE_BONUS",
     "AlarmSummary",
@@ -218,6 +244,7 @@ __all__ = [
     "CompactionRequest",
     "CompactionResult",
     "CompactionSchema",
+    "ContextOverflowError",
     "Decision",
     "DecisionSummary",
     "DemotionReason",
@@ -229,6 +256,7 @@ __all__ = [
     "HandoffNotFoundError",
     "HotStateSources",
     "InMemoryMemoryStore",
+    "InterventionKind",
     "InvalidWaxTransitionError",
     "MemoryContext",
     "MemoryIdentity",
@@ -247,6 +275,7 @@ __all__ = [
     "SqliteMemoryStore",
     "SummaryOfSummaryError",
     "TaskSummary",
+    "Thresholds",
     "TokenBudget",
     "TokenCounter",
     "TooManySourcesError",
@@ -261,14 +290,17 @@ __all__ = [
     "apply_memory_migrations",
     "assemble",
     "cap_wax_for_hot_state",
+    "capped_compact_view",
     "clear_wax",
     "compact",
     "demote",
+    "deposit_dropped_items",
     "deposit_handoff_ref",
     "deposit_hot_state_item",
     "deposit_tool_result",
     "deposit_transcript",
     "expire_wax",
+    "intervention_kind_for",
     "item_id",
     "item_timestamp",
     "propose_wax",
@@ -276,8 +308,10 @@ __all__ = [
     "record_episode",
     "reject_wax",
     "retire_wax_for_cell",
+    "run_with_overflow_retry",
     "score",
     "should_demote",
+    "shrink",
     "write_checkpoint",
     "write_wax",
 ]

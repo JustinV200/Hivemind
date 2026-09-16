@@ -7,7 +7,12 @@ decision back, and discards the transcript." `QueenDecision` is that one decisio
 `hivemind.queen.autopilot.actions.QueenAction` to take (the same closed set autopilot itself
 returns, so the Queen's tick handles an awake decision through the exact same action-dispatch code
 as a deterministic one), which task (if any) it concerns, why, and an optional `binding` -- the
-`[llm.slots]` key to note for a REBIND, set only when `action` is `REBIND`.
+`[llm.slots]` key to note for a REBIND, set only when `action` is `REBIND`. Roadmap step 4.7's own
+leftover adds `shrink_grant_id`/`shrink_amount`, set only when `action` is `GRANT_BY_SHRINKING`: a
+contested `ForageRequest`'s own episode (`hivemind.queen.ticks.forage`) hands the model the live
+grants for that request's dimension in its prompt (`hivemind.queen.awake.episode.EpisodeExtras.
+system_hint`), and the model names which one to shrink, and by how much, to free the headroom the
+requester needs.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's awake
@@ -38,8 +43,15 @@ from hivemind.queen.autopilot import QueenAction
 MAX_REASON_CHARS = 500  # A sentence or two; never a transcript (codingrules section 12).
 MAX_BINDING_CHARS = 64  # A [llm.slots] manifest key; generous for any named binding.
 MAX_TASK_ID_CHARS = 64  # A TaskId's own textual length; generous for any prefixed ULID.
+MAX_GRANT_ID_CHARS = 64  # A GrantId's own textual length; generous for any prefixed ULID.
 
-__all__ = ["MAX_BINDING_CHARS", "MAX_REASON_CHARS", "MAX_TASK_ID_CHARS", "QueenDecision"]
+__all__ = [
+    "MAX_BINDING_CHARS",
+    "MAX_GRANT_ID_CHARS",
+    "MAX_REASON_CHARS",
+    "MAX_TASK_ID_CHARS",
+    "QueenDecision",
+]
 
 
 class QueenDecision(BaseModel):
@@ -58,4 +70,15 @@ class QueenDecision(BaseModel):
         default=None,
         max_length=MAX_BINDING_CHARS,
         description="The [llm.slots] key to note for a REBIND; set only when action is REBIND.",
+    )
+    shrink_grant_id: str | None = Field(
+        default=None,
+        max_length=MAX_GRANT_ID_CHARS,
+        description="The GrantId to shrink; set only when action is GRANT_BY_SHRINKING.",
+    )
+    shrink_amount: float | None = Field(
+        default=None,
+        ge=0,
+        description="How much to shrink shrink_grant_id by, in the contested request's own "
+        "dimension; set only when action is GRANT_BY_SHRINKING.",
     )

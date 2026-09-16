@@ -34,7 +34,8 @@ Public API (roadmap steps 4.7-4.8):
       its three sub-books, its Fanner-facing feed and its persistence (ledger).
     - activate, revise, renew_grants_for_warden, revoke, sweep_expired: a grant's own lease
       (grants).
-    - ForageRequestOutcome, handle_sub_bee_request: ForageRequest handling (requests).
+    - ForageRequestOutcome, grant_wanted, handle_forage_request_for_kind: ForageRequest handling
+      (requests; renamed from handle_sub_bee_request, roadmap step 4.7's own leftover).
     - PlanReason, write_hosting_plan: a Cell's HostingPlan (hosting).
     - set_ceilings, change_ceilings: a Warden's local-pool bounds (ceilings).
 """
@@ -61,7 +62,11 @@ from hivemind.queen.forage.ledger import (
     SqliteLedgerStore,
     apply_ledger_migrations,
 )
-from hivemind.queen.forage.requests import ForageRequestOutcome, handle_sub_bee_request
+from hivemind.queen.forage.requests import (
+    ForageRequestOutcome,
+    grant_wanted,
+    handle_forage_request_for_kind,
+)
 
 __all__ = [
     "DecisionBook",
@@ -79,7 +84,8 @@ __all__ = [
     "activate",
     "apply_ledger_migrations",
     "change_ceilings",
-    "handle_sub_bee_request",
+    "grant_wanted",
+    "handle_forage_request_for_kind",
     "renew_grants_for_warden",
     "revise",
     "revoke",

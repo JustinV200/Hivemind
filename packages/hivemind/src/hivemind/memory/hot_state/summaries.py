@@ -46,6 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
+from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from waggle.ids import CellId
@@ -266,4 +267,24 @@ class HotStateSources(Protocol):
 
     async def notes(self) -> tuple[Note, ...]:
         """Return every note visible to this source, from the memory store."""
+        ...
+
+    async def handoff(self) -> Handoff | None:
+        """Return the Handoff this episode is resuming from, or None when it is not a resume.
+
+        Defect 2 (this dispatch's own report): before this method existed, a resuming Drone's
+        prompt only ever saw a resumed Handoff's `decisions` (`hivemind.workers.roles.drone.
+        sources.DroneSources.recent_decisions`); `goal`, `progress`, `next_steps`, `do_not_redo`
+        and every other field never reached the model at all. `hivemind.memory.hot_state.packing.
+        assemble` renders whatever this returns into its own delimited section of `HOT_STATE`
+        (`packing._render_handoff`), unconditionally -- never scored, never dropped for budget,
+        only bounded by `AssembleRequest.budget.item_cap_chars` -- so a resuming bee always sees
+        what a prior attempt already did and must not redo.
+
+        Returns:
+            The resumed Handoff, verbatim, or None for an episode that is not resuming one at all
+            (most callers: `hivemind.queen.awake.episode.QueenSources` and `hivemind.wardens.
+            ticks.heartbeat._WardenHotState` always return None here, since neither ever resumes
+            from a Worker's own Handoff).
+        """
         ...

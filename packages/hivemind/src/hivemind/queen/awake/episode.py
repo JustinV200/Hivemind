@@ -13,11 +13,22 @@ view into a token-budgeted `Prompt`
 at `effort`, renders it under `queen_system.md`, walks the degradation ladder to get a
 `hivemind.queen.awake.decision.QueenDecision` back -- a plain-text model at
 `ProviderCapabilities.none()` still owes a decision, on the PROMPTED rung -- and records it as an
-`EpisodeRecord` before the transcript itself is discarded. `decide_awake` also takes
-`cells_in_play` (roadmap step 4.2a, default empty): `hivemind.queen.ticks.wax` passes `{the Cell
-in question}` when a Cell Wax proposal needs judgement, so `QueenSources.wax` (itself capped per
-Cell by `hivemind.memory.cell_wax.cap_wax_for_hot_state`) surfaces that Cell's existing wax in the
-prompt without changing anything for every other caller, whose `cells_in_play` stays empty.
+`EpisodeRecord` before the transcript itself is discarded. `decide_awake`'s own extra, rarer inputs
+(roadmap steps 4.2a and 4.7's own leftover) are grouped into one `EpisodeExtras` (codingrules 5.1:
+a frozen dataclass for the argument group, once a function's own parameter count would otherwise
+grow past the limit): `cells_in_play` (roadmap step 4.2a, default empty) is what `hivemind.queen.
+ticks.wax` sets to `{the Cell in question}` when a Cell Wax proposal needs judgement, so
+`QueenSources.wax` (itself capped per Cell by `hivemind.memory.cell_wax.cap_wax_for_hot_state`)
+surfaces that Cell's existing wax in the prompt; `system_hint` (roadmap step 4.7's leftover) is
+what `hivemind.queen.ticks.forage` sets to a short summary of the other live grants a contested
+`ForageRequest` could be resolved by shrinking, folded onto the triggering event's own text
+(`hivemind.memory.hot_state.packing.AssembleRequest.system_hint`) rather than becoming a whole new
+hot-state category, since it is a handful of lines specific to one decision, not a durable fact.
+Every episode's whole "assemble a prompt, then call the model" step also now runs through
+`hivemind.memory.run_with_overflow_retry` (roadmap step 4.4): a provider's own
+`ContextTooLongError` shrinks the budget and retries rather than crashing the Queen's tick, and
+every dropped hot-state candidate is archived into Bee Bread before the retry (`hivemind.memory.
+deposit_dropped_items`), so it stays findable by id even though it never made this prompt.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's awake
@@ -71,6 +82,7 @@ from hivemind.memory import (
     AssembleRequest,
     EpisodeRecord,
     EstimateCounter,
+    Handoff,
     HotStateSources,
     MemoryContext,
     MemoryStore,
@@ -78,10 +90,13 @@ from hivemind.memory import (
     Pin,
     Principal,
     Prompt,
+    Scorable,
     TokenBudget,
     TriggerEvent,
     assemble,
+    deposit_dropped_items,
     record_episode,
+    run_with_overflow_retry,
 )
 from hivemind.memory.cell_wax import WaxState, cap_wax_for_hot_state
 from hivemind.memory.hot_state import (
@@ -117,9 +132,25 @@ __all__ = [
     "NOTES_LIMIT",
     "RECENT_DECISIONS_LIMIT",
     "WAX_CAP_PER_CELL",
+    "EpisodeExtras",
     "QueenSources",
     "decide_awake",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class EpisodeExtras:
+    """`decide_awake`'s own rarer inputs, grouped so the function stays within 5.1's param limit.
+
+    Attributes:
+        cells_in_play: Cells this episode is currently a placement or assignment candidate for
+            (roadmap step 4.2a); empty by default, matching every awake episode before this one.
+        system_hint: Extra guidance folded onto the triggering event's own text (roadmap step
+            4.7's leftover: a contested ForageRequest's own live grants); None by default.
+    """
+
+    cells_in_play: frozenset[CellId] = frozenset()
+    system_hint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,13 +260,17 @@ class QueenSources:
                 )
         return tuple(items)
 
+    async def handoff(self) -> Handoff | None:
+        """Return None: the Queen never resumes an awake episode from a Worker's own Handoff."""
+        return None
+
 
 async def decide_awake(
     deps: QueenDeps,
     event: TriggerEvent,
     sources: HotStateSources,
     effort: Effort,
-    cells_in_play: frozenset[CellId] = frozenset(),
+    extras: EpisodeExtras | None = None,
 ) -> QueenDecision:
     """Run one stateless awake episode at `effort` and return its one QueenDecision.
 
@@ -246,10 +281,8 @@ async def decide_awake(
         sources: A view of the Queen's own hot state, typically a `QueenSources`.
         effort: The Effort `hivemind.queen.autopilot.effort.effort_for` chose for this event
             class; overrides the Queen's own standing binding's effort for this call only.
-        cells_in_play: Cells this episode is currently a placement or assignment candidate for
-            (roadmap step 4.2a); default empty, matching every awake episode before this one.
-            `hivemind.queen.ticks.wax` passes `{the Cell in question}` when judging a Cell Wax
-            proposal, so the Cell's own existing wax is visible in the prompt.
+        extras: This episode's rarer inputs (`cells_in_play`, `system_hint`); both empty
+            (`EpisodeExtras()`) when omitted, for every ordinary episode.
 
     Returns:
         The one QueenDecision the model produced.
@@ -257,52 +290,97 @@ async def decide_awake(
     Raises:
         hivemind.llm.errors.MalformedOutputError: Every rung of the structured-output ladder, on
             every binding in the Queen's own fallback chain, was exhausted.
+        hivemind.memory.overflow.ContextOverflowError: The assembled prompt overflowed the bound
+            model's context `MAX_OVERFLOWS` times in a row, even after shrinking the budget each
+            time (roadmap step 4.4).
     """
     bound = deps.bound_for(ModelSlot.QUEEN)
     effort_bound = dataclasses.replace(bound, effort=effort)
-    prompt = await _assemble_prompt(deps, event, sources, effort_bound, cells_in_play)
+    call = _EpisodeCall(
+        deps=deps,
+        event=event,
+        sources=sources,
+        extras=extras if extras is not None else EpisodeExtras(),
+        effort_bound=effort_bound,
+        effort=effort,
+    )
+    budget = _initial_budget(deps, effort_bound)
+    return await run_with_overflow_retry(
+        lambda b: _run_episode(call, b), budget, deps.trail, deps.identity, deps.clock
+    )
 
+
+@dataclass(frozen=True, slots=True)
+class _EpisodeCall:
+    """One `decide_awake` call's own fixed inputs, closed over by each overflow-retry attempt."""
+
+    deps: QueenDeps
+    event: TriggerEvent
+    sources: HotStateSources
+    extras: EpisodeExtras
+    effort_bound: BoundModel
+    effort: Effort
+
+
+async def _run_episode(call: _EpisodeCall, budget: TokenBudget) -> QueenDecision:
+    """One assemble-and-call attempt at `budget`; the unit `run_with_overflow_retry` retries."""
+    prompt = await _assemble_prompt(call.deps, call.event, call.sources, call.extras, budget)
     system = render(PromptName.QUEEN_SYSTEM, sections=prompt.sections)
     llm_request = LLMRequest(
         slot=ModelSlot.QUEEN,
         system=system,
         messages=(Message.text(Role.USER, prompt.event_text),),
         max_output_tokens=AWAKE_MAX_OUTPUT_TOKENS,
-        effort=effort,
+        effort=call.effort,
     )
     # External await: one model call, latency class seconds; the ladder itself retries and steps
     # down rungs on a malformed reply, and falls back along the binding's own chain on an outage.
+    # A ContextTooLongError propagates unchanged to run_with_overflow_retry's own caller.
     result = await complete_structured(
-        effort_bound, llm_request, QueenDecision, gate=deps.call_gate
+        call.effort_bound, llm_request, QueenDecision, gate=call.deps.call_gate
     )
-    await _record(deps, event, result.value)
+    await _record(call.deps, call.event, result.value)
     return result.value
+
+
+def _initial_budget(deps: QueenDeps, effort_bound: BoundModel) -> TokenBudget:
+    """Return this episode's starting TokenBudget, sized for `effort_bound`'s own window."""
+    return TokenBudget(
+        max_input_tokens=max(
+            1, int(effort_bound.context_window * deps.memory_budget.budget_fraction)
+        ),
+        output_reserve=deps.memory_budget.output_reserve_tokens,
+    )
 
 
 async def _assemble_prompt(
     deps: QueenDeps,
     event: TriggerEvent,
     sources: HotStateSources,
-    effort_bound: BoundModel,
-    cells_in_play: frozenset[CellId],
+    extras: EpisodeExtras,
+    budget: TokenBudget,
 ) -> Prompt:
-    """Pack the Queen's own hot state into a token-budgeted Prompt, sized for `effort_bound`."""
+    """Pack the Queen's own hot state into a Prompt at `budget`, archiving every dropped item."""
     principal = Principal(
         id=deps.identity.hive_id,
         slot=ModelSlot.QUEEN,
         clearance=HoneyClearance.C2,
         role=_QUEEN_ROLE,
     )
-    budget = TokenBudget(
-        max_input_tokens=max(
-            1, int(effort_bound.context_window * deps.memory_budget.budget_fraction)
-        ),
-        output_reserve=deps.memory_budget.output_reserve_tokens,
-    )
     request = AssembleRequest(
-        principal=principal, event=event, budget=budget, cells_in_play=cells_in_play
+        principal=principal,
+        event=event,
+        budget=budget,
+        system_hint=extras.system_hint,
+        cells_in_play=extras.cells_in_play,
     )
-    return await assemble(request, sources, EstimateCounter())
+    dropped: list[Scorable] = []
+    prompt = await assemble(request, sources, EstimateCounter(), on_drop=dropped.append)
+    if dropped:
+        # Roadmap step 4.4: "every dropped item is findable in Bee Bread by id."
+        ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+        await deposit_dropped_items(dropped, ctx)
+    return prompt
 
 
 async def _record(deps: QueenDeps, event: TriggerEvent, decision: QueenDecision) -> None:

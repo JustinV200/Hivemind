@@ -2,10 +2,11 @@
 
 `hivemind.memory.hot_state.summaries.HotStateSources` is the Protocol `hivemind.memory.assemble`
 reads from; a Drone has no task graph, no Alarm list and no question inbox of its own -- it is a
-single-task sub-bee -- so `DroneSources` answers each of that Protocol's six methods from exactly
+single-task sub-bee -- so `DroneSources` answers each of that Protocol's seven methods from exactly
 what one `Worker.run` call already holds: the current `TaskAssign` as its one active task, no open
-Alarms, no pending questions of its own (its Warden owns those), the `resume_from` Handoff's own
-decisions when resuming, and pins/notes read straight through `ctx.memory`.
+Alarms, no pending questions of its own (its Warden owns those), the `resume_from` Handoff itself
+(both its own decisions, for `recent_decisions`, and the whole thing, for `handoff`), and
+pins/notes read straight through `ctx.memory`.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.drone`. Built fresh by
@@ -117,6 +118,19 @@ class DroneSources:
     async def notes(self) -> tuple[Note, ...]:
         """Return up to `DRONE_NOTES_LIMIT` recent notes within this attempt's clearance."""
         return await self._ctx.memory.list_notes(None, self._clearance, DRONE_NOTES_LIMIT)
+
+    async def handoff(self) -> Handoff | None:
+        """Return the Handoff this attempt resumes from, verbatim, or None for a fresh attempt.
+
+        Defect 2 (this dispatch's own report): before this method existed, `hivemind.memory.
+        hot_state.packing.assemble` had no way to see a resumed Handoff at all beyond its own
+        `decisions` (`recent_decisions` above); every other field -- `goal`, `progress`,
+        `next_steps`, `do_not_redo`, `tried_and_failed`, `constraints`, `open_threads`,
+        `pinned_facts`, `notes` -- never reached the resuming Drone's own prompt. `assemble`
+        renders whatever this returns into its own delimited section of hot state
+        (`hivemind.memory.hot_state.packing._render_handoff`).
+        """
+        return self._resume_from
 
     async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
         """Return no Cell Wax: placement already chose this attempt's Cell before it ever ran.

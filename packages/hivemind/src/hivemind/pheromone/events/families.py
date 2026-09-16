@@ -238,6 +238,8 @@ class MemoryEvent(PheromoneEvent):
             "memory.pinned",
             # roadmap step 4.2 (Bee Bread, the warm tier): every write into it.
             "memory.bee_bread_deposited",
+            # roadmap step 4.4: one ContextTooLong overflow recovered by shrinking the budget.
+            "memory.overflow",
         }
     )
 

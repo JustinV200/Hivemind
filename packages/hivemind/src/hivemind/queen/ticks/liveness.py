@@ -16,7 +16,13 @@ its own Warden went offline or simply stopped renewing it -- returns to the pool
 `handle_infrastructure_item` (this module's own dispatch point) also reaches `hivemind.queen.
 ticks.wax.handle_wax_item` for a `waggle.messages.cell.CellWaxProposed` (roadmap step 4.2a), the
 same "ahead of `decide`, so a within-cap case needs no awake episode" shape as its ForageRequest
-neighbour.
+neighbour. Roadmap step 4.6 adds one more move to the same Heartbeat handling: `handle_heartbeat_
+item` now also checks the sending Warden's own reported `ContextTelemetry` against `hivemind.queen.
+ticks.context.intervention_for`, and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight
+over that Warden's own link when its context has crossed the threshold -- mirroring `hivemind.
+queen.queen.Queen._send_intervene`'s own wire-and-send shape rather than reaching back into
+`queen.py` for it (that module is at its own size cap), so the Queen orders context interventions
+without an awake episode, exactly like a routine Heartbeat itself.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -55,16 +61,19 @@ from datetime import datetime
 from typing import cast
 
 from hivemind.cell import HoneyClearance
+from hivemind.memory.thresholds import Thresholds
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.ticks import context as context_tick
 from hivemind.queen.ticks import forage as forage_tick
 from hivemind.queen.ticks import wax as wax_tick
-from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
+from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
 from hivemind.supervision.attendant import InboxItem
+from waggle.envelope import wrap
 from waggle.ids import WardenId, new_alarm_id
 from waggle.messages.forage import ForageRequest as WireForageRequest
-from waggle.messages.supervision import AlarmContext, Heartbeat
+from waggle.messages.supervision import AlarmContext, Heartbeat, Intervene
 
 __all__ = [
     "WardenLiveness",
@@ -142,7 +151,7 @@ async def handle_infrastructure_item(
         fully handled); False otherwise, so the caller falls through to its own ordinary dispatch.
     """
     if isinstance(item.payload, Heartbeat):
-        await handle_heartbeat_item(deps, item, last_heartbeat, liveness)
+        await handle_heartbeat_item(deps, wardens, item, last_heartbeat, liveness)
         return True
     if isinstance(item.payload, WireForageRequest):
         await forage_tick.handle_forage_request_for_item(deps, wardens, item)
@@ -152,27 +161,67 @@ async def handle_infrastructure_item(
 
 async def handle_heartbeat_item(
     deps: QueenDeps,
+    wardens: Mapping[WardenId, WardenLink],
     item: InboxItem,
     last_heartbeat: MutableMapping[WardenId, Heartbeat],
     liveness: MutableMapping[WardenId, WardenLiveness],
 ) -> None:
-    """Record one Heartbeat InboxItem and renew its own Warden's live grants.
+    """Record one Heartbeat InboxItem, renew its own Warden's live grants, and watch its context.
 
     `hivemind.queen.queen.Queen`'s own tick calls this directly for a received Heartbeat, so the
-    three things a Heartbeat causes (mirror it, reset liveness, renew grants) live in one place
-    instead of split across that call site and this module.
+    four things a Heartbeat causes (mirror it, reset liveness, renew grants, watch context) live
+    in one place instead of split across that call site and this module.
 
     Args:
         deps: The Queen's collaborators.
+        wardens: Every Warden currently attached, keyed by id; used to send a context Intervene
+            straight back to the reporting Warden's own link (roadmap step 4.6).
         item: The ordered InboxItem; `item.payload` must be a `Heartbeat` (the one caller already
             checked this with `isinstance`; `cast` below trusts that rather than re-checking it).
         last_heartbeat: The Queen's own `warden_id -> Heartbeat` mirror; mutated in place.
         liveness: The Queen's own `warden_id -> WardenLiveness` table; mutated in place.
     """
     warden_id = WardenId(item.principal)
-    last_heartbeat[warden_id] = cast(Heartbeat, item.payload)
+    heartbeat = cast(Heartbeat, item.payload)
+    last_heartbeat[warden_id] = heartbeat
     record_heartbeat(liveness, warden_id, item.received_at)
     await renew_grants_on_heartbeat(deps, warden_id)
+    await _watch_context(deps, wardens, warden_id, heartbeat)
+
+
+async def _watch_context(
+    deps: QueenDeps,
+    wardens: Mapping[WardenId, WardenLink],
+    warden_id: WardenId,
+    heartbeat: Heartbeat,
+) -> None:
+    """Order compact or handoff on `warden_id`'s own link when its context crosses a threshold.
+
+    Roadmap step 4.6: "The Queen watches Warden telemetry and orders compact or handoff past
+    thresholds." No awake episode: the pure rule (`hivemind.queen.ticks.context.intervention_for`)
+    already decided, so this only builds the wire message and sends it, the same shape
+    `hivemind.queen.queen.Queen._send_intervene` uses for a human- or awake-ordered intervention.
+    """
+    thresholds = Thresholds(
+        compact_at=deps.memory_budget.compact_at,
+        handoff_threshold=deps.memory_budget.handoff_threshold,
+    )
+    intervention = context_tick.intervention_for(heartbeat.telemetry, thresholds)
+    if intervention is None:
+        return
+    link = wardens.get(warden_id)
+    if link is None:
+        return  # Unreachable: no link to send an order over (mirrors ticks.forage's own rule).
+    action, slot = to_wire(intervention)
+    message = Intervene(
+        action=action,
+        subject=None,
+        task_id=None,
+        slot=slot,
+        alarm_id=None,
+        reason=intervention.reason,
+    )
+    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
 
 
 async def check_liveness(

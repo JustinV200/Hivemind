@@ -79,7 +79,7 @@ from hivemind.memory.cell_wax import (
 from hivemind.queen.autopilot import QueenAction
 from hivemind.queen.autopilot.wax import WaxAutopilotOutcome, WaxProposalSignal, decide_wax_proposal
 from hivemind.queen.awake import QueenSources, decide_awake
-from hivemind.queen.awake.episode import WAX_CAP_PER_CELL
+from hivemind.queen.awake.episode import WAX_CAP_PER_CELL, EpisodeExtras
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.supervision.attendant import InboxItem
@@ -203,7 +203,11 @@ async def _judge(
         clearance=wax.clearance,
     )
     decision = await decide_awake(
-        deps, event, sources, _JUDGEMENT_EFFORT, cells_in_play=frozenset({wax.cell_id})
+        deps,
+        event,
+        sources,
+        _JUDGEMENT_EFFORT,
+        EpisodeExtras(cells_in_play=frozenset({wax.cell_id})),
     )
     if decision.action is QueenAction.WRITE_WAX:
         written = await write_wax(wax, WaxDecision.AWAKE, decision.reason, ctx)

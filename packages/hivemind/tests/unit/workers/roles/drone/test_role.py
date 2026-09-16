@@ -15,6 +15,8 @@ from builders.llm import make_bound, make_tool_call
 from builders.workers import make_assignment, make_context
 
 from hivemind.llm import FakeLLMProvider, ProviderCapabilities, text_response, tool_call_response
+from hivemind.llm.errors import ContextTooLongError
+from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
 from hivemind.pheromone import TrailQuery
 from hivemind.workers.errors import WorkerCancelledError
 from hivemind.workers.roles.drone import Drone
@@ -129,6 +131,38 @@ async def test_pause_is_awaited_between_tool_calls() -> None:
     outcome = await task
 
     assert outcome.claimed is True
+
+
+async def test_drone_shrinks_and_retries_on_context_too_long() -> None:
+    # Roadmap step 4.4: a ContextTooLongError never crashes a Drone attempt.
+    provider = FakeLLMProvider()
+    ctx = make_context(bound=make_bound(provider=provider))
+    assignment = make_assignment()
+    call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
+    provider.script(
+        ContextTooLongError("fake", window=1_000, requested=2_000),
+        tool_call_response(call),
+        text_response("Done."),
+    )
+
+    outcome = await Drone().run(ctx, assignment, resume_from=None)
+
+    assert outcome.claimed is True
+    events = await ctx.trail.query(TrailQuery(family="memory"))
+    assert [e.kind for e in events] == ["memory.overflow"]
+
+
+async def test_drone_raises_context_overflow_after_max_overflows() -> None:
+    provider = FakeLLMProvider()
+    ctx = make_context(bound=make_bound(provider=provider))
+    assignment = make_assignment()
+    for _ in range(MAX_OVERFLOWS + 1):
+        provider.script(ContextTooLongError("fake", window=1_000, requested=2_000))
+
+    with pytest.raises(ContextOverflowError) as exc_info:
+        await Drone().run(ctx, assignment, resume_from=None)
+
+    assert exc_info.value.attempts == MAX_OVERFLOWS
 
 
 async def test_cancel_raises_worker_cancelled_error() -> None:

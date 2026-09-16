@@ -20,16 +20,20 @@ from builders.wardens import make_warden_deps
 
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider, ProviderCapabilities, text_response
+from hivemind.llm.errors import ContextTooLongError
 from hivemind.memory import (
     AlarmSummary,
     CellWaxSummary,
     DecisionSummary,
+    Handoff,
     Note,
     Pin,
     QuestionSummary,
     TaskSummary,
     TriggerEvent,
 )
+from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
+from hivemind.pheromone import TrailQuery
 from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.awake import decide_awake
 from waggle.ids import CellId
@@ -58,6 +62,9 @@ class _EmptyHotState:
 
     async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
         return ()
+
+    async def handoff(self) -> Handoff | None:
+        return None
 
 
 def _event() -> TriggerEvent:
@@ -108,3 +115,33 @@ async def test_decide_awake_records_an_episode_in_memory() -> None:
     assert len(episodes) == 1
     assert episodes[0].is_autopilot is False
     assert episodes[0].decision == "RECORD"
+
+
+async def test_decide_awake_shrinks_and_retries_on_context_too_long() -> None:
+    # Roadmap step 4.4: a ContextTooLongError never crashes a Warden's awake episode.
+    provider = FakeLLMProvider(capabilities=ProviderCapabilities.full())
+    provider.script(
+        ContextTooLongError("fake-warden", window=1_000, requested=2_000),
+        text_response(_decision_json()),
+    )
+    deps, _queen_end, _warden_id = make_warden_deps(fake_provider=provider)
+
+    decision = await decide_awake(deps, _event(), _EmptyHotState())
+
+    assert decision.action is WardenAction.RECORD
+    events = await deps.trail.query(TrailQuery())
+    assert [e.kind for e in events] == ["memory.overflow", "memory.episode"]
+
+
+async def test_decide_awake_raises_context_overflow_after_max_overflows() -> None:
+    provider = FakeLLMProvider(capabilities=ProviderCapabilities.full())
+    for _ in range(MAX_OVERFLOWS + 1):
+        provider.script(ContextTooLongError("fake-warden", window=1_000, requested=2_000))
+    deps, _queen_end, _warden_id = make_warden_deps(fake_provider=provider)
+
+    try:
+        await decide_awake(deps, _event(), _EmptyHotState())
+    except ContextOverflowError as exc:
+        assert exc.attempts == MAX_OVERFLOWS
+    else:
+        raise AssertionError("expected ContextOverflowError")

@@ -17,14 +17,12 @@ _handle_assign` does for a real `TaskAssign.resume_from`; a brand-new `WorkerCon
 ("bee 2") -- a fresh worker id, a fresh `TelemetryTracker`, no in-process link to bee 1 at all --
 is then handed only that stored `HandoffRef` and finishes the remaining two files.
 
-`_augment_do_not_redo` exists because of a real production gap this dispatch found and reports
-rather than silently working around in `src/`: `hivemind.workers.roles.drone.outcome.
-build_handoff_outcome` always builds `do_not_redo=()` (and every other optional list field empty)
--- nothing in the Drone role ever populates it from what an attempt actually did. Grading roadmap
-step 4.5's "not repeating do-not-redo steps" needs a Handoff whose `do_not_redo` says something, so
-this harness fills it in here from data it already has (which paths bee 1 itself committed), the
-same shape a smarter future Drone would derive from its own tool-call record; every other field on
-the returned Handoff is bee 1's own real output, unmodified.
+Bee 1's own Handoff is stored and read back completely unmodified: `hivemind.workers.roles.drone.
+outcome.build_handoff_outcome` derives `do_not_redo` (every side-effecting call that landed),
+`tried_and_failed`, `constraints`, `open_threads` and `pinned_facts` from what the attempt actually
+did (a defect this eval used to work around here, fixed at the source instead -- see git history
+for the harness's own former `_augment_do_not_redo`), so grading roadmap step 4.5's "not repeating
+do-not-redo steps" needs no help from this harness at all.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by
@@ -99,13 +97,6 @@ STEP_FILES: tuple[str, str, str, str] = ("step_1.txt", "step_2.txt", "step_3.txt
 # against a real model's own turn-taking.
 _LIVE_TRIGGER_AFTER_CALLS = 2
 
-# The template every do_not_redo entry this harness builds follows; matched back against a later
-# tool call's own recorded path by plain substring containment (tests.evals.handoff.grader.
-# grade_no_redo), so the literal path must appear in the rendered text.
-_DO_NOT_REDO_TEMPLATE = (
-    "Do not write {path} again; it was already committed before this checkpoint."
-)
-
 __all__ = [
     "STEP_FILES",
     "HandoffScenarioResult",
@@ -119,8 +110,8 @@ class HandoffScenarioResult:
     """Everything `tests.evals.handoff.grader.build_report` needs to grade one scenario run.
 
     Attributes:
-        handoff: The Handoff bee 2 itself read back (`read_handoff`) and resumed from --
-            do_not_redo augmented; see the module docstring for why.
+        handoff: The Handoff bee 2 itself read back (`read_handoff`) and resumed from -- bee 1's
+            own real output, unmodified (module docstring).
         expected_files: Every scratch path the whole task (both bees) was meant to produce.
         present_files: The subset of `expected_files` that actually exist once bee 2 finishes.
         second_bee_writes: Every path bee 2's own attempt committed, in call order -- "the tool
@@ -244,11 +235,10 @@ async def _run_bee_one(world: _World) -> tuple[HandoffRef, int]:
 async def _checkpoint_bee_one(
     world: _World, ctx1: WorkerContext, task_id: TaskId | None, handoff: Handoff
 ) -> tuple[HandoffRef, int]:
-    """Augment bee 1's own Handoff with do_not_redo and store it; return the ref and write count."""
+    """Store bee 1's own Handoff, unmodified; return its ref and bee 1's own write count."""
     bee1_write_count = len(world.session.written_paths)
-    augmented = _augment_do_not_redo(handoff, world.session.written_paths)
     memory_ctx = MemoryContext(store=ctx1.memory, identity=ctx1.identity, clock=ctx1.clock)
-    handoff_ref = await write_checkpoint(augmented, task_id, memory_ctx)
+    handoff_ref = await write_checkpoint(handoff, task_id, memory_ctx)
     return handoff_ref, bee1_write_count
 
 
@@ -322,10 +312,11 @@ async def run_live_handoff_scenario(
     forces the checkpoint by wrapping the resolved provider in `_CheckpointAfterNCalls` instead
     of flipping `handoff_requested` from a scripted round, and asks for exact file names in the
     objective text rather than dictating tool calls directly. `tests.evals.handoff.
-    test_handoff_eval_live` grades completion and Handoff shape strictly; it does not hard-assert
-    no-redo (see that module's own docstring for the real seam gap -- `hivemind.workers.roles.
-    drone.sources.DroneSources` never surfaces a resumed Handoff's `do_not_redo` into the prompt
-    at all -- this dispatch reports rather than works around).
+    test_handoff_eval_live` grades completion, Handoff shape and no-redo, all strictly:
+    `hivemind.workers.roles.drone.sources.DroneSources.handoff` now surfaces the whole resumed
+    Handoff -- `do_not_redo` included, rendered as an explicit instruction list -- into bee 2's own
+    prompt (defect 2 this dispatch fixed), so a real model has the same textual signal the fake
+    scenario's own scripting only used to approximate.
 
     Args:
         manifest_path: A Hive Manifest naming a real `[llm.slots.worker]` provider
@@ -464,12 +455,6 @@ class _CheckpointAfterNCalls:
         self._calls += 1
         if self._calls >= self._trigger_after:
             self._telemetry.handoff_requested = True
-
-
-def _augment_do_not_redo(handoff: Handoff, committed_paths: list[str]) -> Handoff:
-    """Fill in `do_not_redo` from paths already committed; see the module docstring's gap note."""
-    entries = tuple(_DO_NOT_REDO_TEMPLATE.format(path=path) for path in committed_paths)
-    return handoff.model_copy(update={"do_not_redo": entries})
 
 
 async def _present_files(session: _RecordingSession, expected: Sequence[str]) -> tuple[str, ...]:

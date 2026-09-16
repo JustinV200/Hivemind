@@ -7,16 +7,12 @@ needs. The provider itself is resolved from `docs/manifests/minimal.toml` (hoste
 `hivemind.cli.stores.build_registry` -- never a literal model id or base URL in this file
 (`scripts/check_no_model_ids.py`).
 
-Neither variant hard-asserts the no-redo grade. `tests.evals.handoff.scenario.
-run_live_handoff_scenario`'s own docstring names why: `hivemind.workers.roles.drone.sources.
-DroneSources` never surfaces a resumed Handoff's `do_not_redo` (or `goal`, `progress`,
-`next_steps`, `tried_and_failed`, `constraints`, `open_threads`, `pinned_facts`, `notes`) into the
-resuming bee's own prompt at all -- only `decisions` reaches it. A real model therefore has no
-textual "do not redo this" signal today beyond whatever it infers from `decisions`' own tool-call
-history; asserting no-redo here would be asserting a real production gap holds by luck. This
-dispatch reports the gap (see this package's own eval report and the dispatch's final summary)
-rather than working around it in `src/`, and grades completion and Handoff shape strictly instead,
-since neither depends on that seam.
+Both variants now assert no-redo strictly, alongside completion and Handoff shape:
+`hivemind.workers.roles.drone.sources.DroneSources.handoff` surfaces the whole resumed Handoff --
+`do_not_redo` rendered as an explicit "Already done, do not repeat" instruction list included --
+into the resuming bee's own prompt (defect 2 this dispatch fixed; see `tests.evals.handoff.
+scenario.run_live_handoff_scenario`'s own docstring), so a real model has the same textual signal
+the fake scenario's own scripting only used to approximate.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -28,7 +24,7 @@ See Also:
     - .claude/roadmap.md step 4.5 for "Run with the fake in CI and with real providers under
       live_llm."
     - tests.contracts.test_llm_provider_contract for the same environment-gate pattern.
-    - tests.evals.handoff.scenario for run_live_handoff_scenario and its own gap note.
+    - tests.evals.handoff.scenario for run_live_handoff_scenario.
 """
 
 from __future__ import annotations
@@ -65,7 +61,7 @@ async def test_a_fresh_bee_resumes_from_a_handoff_with_a_real_hosted_provider() 
     )
     assert report.completion.passed, report.completion
     assert report.handoff_shape.passed, report.handoff_shape
-    # no_redo is reported, not asserted -- see the module docstring's own seam note.
+    assert report.no_redo.passed, report.no_redo
 
 
 @pytest.mark.local_llm
@@ -87,4 +83,4 @@ async def test_a_fresh_bee_resumes_from_a_handoff_with_a_local_provider() -> Non
     )
     assert report.completion.passed, report.completion
     assert report.handoff_shape.passed, report.handoff_shape
-    # no_redo is reported, not asserted -- see the module docstring's own seam note.
+    assert report.no_redo.passed, report.no_redo

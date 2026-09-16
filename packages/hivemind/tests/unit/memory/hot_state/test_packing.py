@@ -20,6 +20,7 @@ from datetime import timedelta
 from builders.memory import (
     make_alarm_summary,
     make_cell_wax_summary,
+    make_handoff,
     make_note,
     make_pin,
     make_principal,
@@ -31,7 +32,12 @@ from builders.memory import (
 from hivemind.cell import HoneyClearance
 from hivemind.llm import SectionLabel
 from hivemind.memory.counter import EstimateCounter
-from hivemind.memory.hot_state.packing import AssembleRequest, assemble
+from hivemind.memory.handoff import Handoff
+from hivemind.memory.hot_state.packing import (
+    MAX_HANDOFF_LIST_ITEMS_SHOWN,
+    AssembleRequest,
+    assemble,
+)
 from hivemind.memory.hot_state.summaries import (
     AlarmSummary,
     CellWaxSummary,
@@ -56,6 +62,7 @@ class _FakeSources:
     pins_: tuple[Pin, ...] = field(default_factory=tuple)
     notes_: tuple[Note, ...] = ()
     wax_: tuple[CellWaxSummary, ...] = ()
+    handoff_: Handoff | None = None
 
     async def active_tasks(self) -> tuple[TaskSummary, ...]:
         return self.tasks
@@ -81,6 +88,9 @@ class _FakeSources:
         # forgets to set `cells_in_play` on its AssembleRequest is caught here, not silently
         # passed.
         return tuple(item for item in self.wax_ if item.cell_id in cells)
+
+    async def handoff(self) -> Handoff | None:
+        return self.handoff_
 
 
 def _request(clock: FakeClock, **overrides: object) -> AssembleRequest:
@@ -137,6 +147,26 @@ async def test_assemble_drops_the_lowest_scored_items_on_overflow() -> None:
 
     assert pin.id in prompt.included
     assert stale_note.id in prompt.dropped
+
+
+async def test_assemble_on_drop_collects_exactly_the_dropped_items() -> None:
+    # Roadmap step 4.4: assemble's own on_drop callback is how a caller (hivemind.queen.awake.
+    # episode.decide_awake, hivemind.wardens.awake.episode.decide_awake) finds out which items to
+    # archive into Bee Bread so "every dropped item is findable in Bee Bread by id" holds.
+    clock = FakeClock()
+    now = clock.now()
+    pin = make_pin(clock=clock, text="p")
+    stale_note = make_note(clock=clock, author="a", text="n", written_at=now - timedelta(days=30))
+    sources = _FakeSources(pins_=(pin,), notes_=(stale_note,))
+    tiny_budget = make_token_budget(max_input_tokens=3, output_reserve=0)
+    collected: list[object] = []
+
+    prompt = await assemble(
+        _request(clock, budget=tiny_budget), sources, EstimateCounter(), on_drop=collected.append
+    )
+
+    assert collected == [stale_note]
+    assert prompt.dropped == (stale_note.id,)
 
 
 async def test_assemble_replaces_an_item_over_the_item_cap_with_a_reference() -> None:
@@ -217,3 +247,119 @@ async def test_assemble_ranks_a_block_wax_note_above_a_note_severity_one() -> No
     )
 
     assert prompt.included.index(block.id) < prompt.included.index(note.id)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Defect 2: a resumed Handoff renders into its own delimited HOT_STATE block
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _full_handoff(clock: FakeClock) -> Handoff:
+    """Build a Handoff with every optional field populated, so a test can check each one renders."""
+    return make_handoff(
+        clock=clock,
+        goal="Finish the four scratch files.",
+        progress="Wrote step_1.txt and step_2.txt.",
+        tried_and_failed=("run_command build failed: state=ROLLED_BACK",),
+        constraints=("write_file step_2.txt: blocked by the diff size cap.",),
+        open_threads=("In progress: was about to call write_file (step_3.txt).",),
+        next_steps=("Write step_3.txt.", "Write step_4.txt."),
+        do_not_redo=("Do not redo writing to step_1.txt; it already succeeded.",),
+        pinned_facts=("The scratch dir quota is 10MB.",),
+        notes="A short freeform note.",
+    )
+
+
+async def test_assemble_renders_a_resumed_handoff_as_its_own_delimited_hot_state_block() -> None:
+    """Every Handoff field defect 2 asks for reaches the assembled HOT_STATE text, delimited."""
+    clock = FakeClock()
+    handoff = _full_handoff(clock)
+    sources = _FakeSources(handoff_=handoff)
+
+    prompt = await assemble(_request(clock), sources, EstimateCounter())
+
+    hot_state = prompt.sections[SectionLabel.HOT_STATE]
+    assert "<<<handoff>>>" in hot_state
+    assert "<<<end handoff>>>" in hot_state
+    assert handoff.goal in hot_state
+    assert handoff.progress in hot_state
+    assert handoff.tried_and_failed[0] in hot_state
+    assert handoff.constraints[0] in hot_state
+    assert handoff.open_threads[0] in hot_state
+    assert handoff.pinned_facts[0] in hot_state
+    assert handoff.notes in hot_state
+
+
+async def test_assemble_renders_do_not_redo_and_next_steps_as_instruction_lists() -> None:
+    """do_not_redo and next_steps read as explicit instructions, per the module's own contract."""
+    clock = FakeClock()
+    handoff = _full_handoff(clock)
+    sources = _FakeSources(handoff_=handoff)
+
+    prompt = await assemble(_request(clock), sources, EstimateCounter())
+
+    hot_state = prompt.sections[SectionLabel.HOT_STATE]
+    assert "Already done, do not repeat:" in hot_state
+    assert f"- {handoff.do_not_redo[0]}" in hot_state
+    assert "Next:" in hot_state
+    assert f"- {handoff.next_steps[0]}" in hot_state
+    assert f"- {handoff.next_steps[1]}" in hot_state
+
+
+async def test_assemble_omits_the_handoff_block_when_not_resuming_one() -> None:
+    """No Handoff (a fresh episode): no <<<handoff>>> block at all, not even an empty one."""
+    clock = FakeClock()
+    sources = _FakeSources(tasks=(make_task_summary(clock=clock),))
+
+    prompt = await assemble(_request(clock), sources, EstimateCounter())
+
+    assert "<<<handoff>>>" not in prompt.sections.get(SectionLabel.HOT_STATE, "")
+
+
+async def test_assemble_never_drops_a_resumed_handoff_for_budget() -> None:
+    """The handoff block renders even with a packing budget far too small for anything else.
+
+    It is safety-critical, not a relevance-ranked candidate (module docstring).
+    """
+    clock = FakeClock()
+    handoff = _full_handoff(clock)
+    sources = _FakeSources(handoff_=handoff)
+    tiny_budget = make_token_budget(max_input_tokens=1, output_reserve=0)
+
+    prompt = await assemble(_request(clock, budget=tiny_budget), sources, EstimateCounter())
+
+    assert "<<<handoff>>>" in prompt.sections[SectionLabel.HOT_STATE]
+
+
+async def test_assemble_truncates_an_oversized_handoff_list_with_a_count() -> None:
+    """A do_not_redo list past MAX_HANDOFF_LIST_ITEMS_SHOWN is truncated, with how many were cut."""
+    clock = FakeClock()
+    items = tuple(
+        f"Do not redo writing to step_{i}.txt again."
+        for i in range(MAX_HANDOFF_LIST_ITEMS_SHOWN + 3)
+    )
+    handoff = make_handoff(clock=clock, do_not_redo=items)
+    sources = _FakeSources(handoff_=handoff)
+
+    prompt = await assemble(_request(clock), sources, EstimateCounter())
+
+    hot_state = prompt.sections[SectionLabel.HOT_STATE]
+    for item in items[:MAX_HANDOFF_LIST_ITEMS_SHOWN]:
+        assert item in hot_state
+    for item in items[MAX_HANDOFF_LIST_ITEMS_SHOWN:]:
+        assert item not in hot_state
+    assert "(+3 more, truncated)" in hot_state
+
+
+async def test_assemble_hard_truncates_a_handoff_block_still_over_the_item_cap() -> None:
+    """Even after the per-list cap, a still-oversized block is hard-truncated with a char count."""
+    clock = FakeClock()
+    handoff = make_handoff(clock=clock, notes="x" * 1_500)  # Under Handoff.MAX_NOTES_CHARS (2000).
+    sources = _FakeSources(handoff_=handoff)
+    small_cap_budget = make_token_budget(item_cap_chars=200)
+
+    prompt = await assemble(_request(clock, budget=small_cap_budget), sources, EstimateCounter())
+
+    hot_state = prompt.sections[SectionLabel.HOT_STATE]
+    assert "...[handoff truncated, " in hot_state
+    assert "more chars]" in hot_state

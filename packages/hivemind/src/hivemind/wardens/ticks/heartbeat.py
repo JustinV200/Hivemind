@@ -14,7 +14,14 @@ its prompt from, over this Warden's own sub-bee table and memory store. `send_he
 tolerates the Queen link already being closed (this dispatch's own fix 4): a heartbeat send that
 races `hivemind.wardens.warden.Warden.stop()`'s own teardown finds a `waggle.errors.
 TransportClosedError` recoverable, recording `warden.offline` instead of letting it end this
-Warden's own tick loop or escape `stop()` itself.
+Warden's own tick loop or escape `stop()` itself. Roadmap step 4.6 adds `check_sub_bee_context`,
+run on this same heartbeat cadence: it compares every sub-bee's own last reported
+`ContextTelemetry` (mirrored here by `record_heartbeat`) against `hivemind.memory.thresholds.
+intervention_kind_for` -- the pure rule shared with `hivemind.queen.ticks.context.intervention_for`
+-- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any sub-bee past its own
+threshold, mirroring the Queen's own watch over this Warden ("Wardens do the same to sub-bees").
+`compact_view` (roadmap step 4.6) now builds a size-capped `CompactView` through `hivemind.memory.
+thresholds.capped_compact_view` rather than the raw telemetry fields.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -57,19 +64,26 @@ from hivemind.memory import (
     AlarmSummary,
     CellWaxSummary,
     DecisionSummary,
+    Handoff,
     Note,
     Pin,
     QuestionSummary,
     TaskSummary,
 )
 from hivemind.memory.cell_wax import WaxState, cap_wax_for_hot_state
+from hivemind.memory.thresholds import (
+    InterventionKind,
+    Thresholds,
+    capped_compact_view,
+    intervention_kind_for,
+)
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
 from hivemind.wardens.ticks.alarms import handle_alarm_action
 from hivemind.workers.state import WorkerState
-from waggle.envelope import wrap
+from waggle.envelope import Hop, wrap
 from waggle.errors import TransportClosedError
 from waggle.ids import CellId, WorkerId, new_alarm_id, new_event_id
 from waggle.messages import AlarmSeverity
@@ -81,10 +95,13 @@ from waggle.messages.supervision import (
     CompactView,
     ContextTelemetry,
     Heartbeat,
+    Intervene,
+    InterventionAction,
 )
 from waggle.messages.task import TaskProgress, TaskStage
 
 if TYPE_CHECKING:
+    from hivemind.wardens.spawn.sub_bee import SubBee
     from hivemind.wardens.warden import Warden
 
 RECENT_DECISIONS_LIMIT = 20  # Matches hivemind.memory.hot_state.packing's own default.
@@ -94,8 +111,14 @@ NOTES_LIMIT = 50  # Generous: notes are already bounded per author on write.
 # section lives in hivemind.manifest, outside them), so this mirrors that default the same way
 # hivemind.memory.hot_state.summaries.ITEM_CAP_CHARS mirrors [memory] item_cap_chars's own default.
 _WAX_CAP_PER_CELL = 20
+# Roadmap step 4.6: mirrors hivemind.queen.deps.MemoryBudget's own compact_at default. WardenDeps
+# already carries a real handoff_threshold field (used to hand a Drone's own attempt off); no such
+# field exists yet for the milder compact lever, so this mirrors the Queen's own default the same
+# way _WAX_CAP_PER_CELL above mirrors a manifest default no field carries yet.
+_COMPACT_AT = 0.5
 
 __all__ = [
+    "check_sub_bee_context",
     "compact_view",
     "hot_state_sources",
     "raise_stalled_alarms",
@@ -150,6 +173,50 @@ async def send_heartbeat(warden: Warden) -> None:
         # Queen being gone, not raised, so a heartbeat racing Warden.stop()'s own teardown can
         # never crash this Warden's tick loop or propagate out of stop() itself.
         await _record_link_lost(warden)
+    # Roadmap step 4.6: "Wardens do the same to sub-bees" -- on this same cadence, since a
+    # sub-bee's own last_telemetry is only ever fresh right after send_heartbeat's own aggregation
+    # pass read it into the Heartbeat just sent above.
+    await check_sub_bee_context(warden)
+
+
+async def check_sub_bee_context(warden: Warden) -> None:
+    """Order compact or handoff on any sub-bee whose last reported context crossed a threshold.
+
+    Roadmap step 4.6: "Wardens do the same to sub-bees [as the Queen does to Wardens]." A sub-bee
+    with no telemetry yet (`last_telemetry is None`) is skipped: there is nothing to compare.
+    """
+    thresholds = Thresholds(
+        compact_at=_COMPACT_AT, handoff_threshold=warden._deps.handoff_threshold
+    )
+    for sub_bee in tuple(warden._sub_bees.values()):
+        if sub_bee.last_telemetry is None:
+            continue
+        kind = intervention_kind_for(sub_bee.last_telemetry, thresholds)
+        if kind is not None:
+            await _send_context_intervene(warden, sub_bee, kind)
+
+
+async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: InterventionKind) -> None:
+    """Send one Intervene(COMPACT)/Intervene(HANDOFF) straight to `sub_bee`'s own link."""
+    action = (
+        InterventionAction.HANDOFF
+        if kind is InterventionKind.HANDOFF
+        else InterventionAction.COMPACT
+    )
+    message = Intervene(
+        action=action,
+        subject=None,
+        task_id=sub_bee.task_id,
+        slot=None,
+        binding=None,
+        alarm_id=None,
+        reason=f"This Warden ordered {action.value.lower()}: context past the {kind.value.lower()} "
+        "threshold.",
+    )
+    hop = Hop(
+        sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
+    )
+    await sub_bee.link.send(wrap(message, hop, clock=warden._deps.clock))
 
 
 def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat) -> None:
@@ -227,17 +294,12 @@ def hot_state_sources(warden: Warden) -> _WardenHotState:
 
 
 def compact_view(telemetry: ContextTelemetry) -> CompactView:
-    """Build the CompactView a Supervisor.inspect() reply carries, from one ContextTelemetry.
+    """Build the size-capped CompactView a Supervisor.inspect() reply carries (roadmap step 4.6).
 
     Lives here, not in `hivemind.wardens.warden`, so that module's own class body stays within
     codingrules 5.1's file-length limit (this module already imports everything it needs).
     """
-    return CompactView(
-        goal=telemetry.goal,
-        progress=f"{telemetry.tokens_used}/{telemetry.context_window} tokens used.",
-        decisions=tuple(telemetry.last_actions),
-        open_threads=tuple(telemetry.blockers),
-    )
+    return capped_compact_view(telemetry)
 
 
 def _empty_telemetry() -> ContextTelemetry:
@@ -370,3 +432,7 @@ class _WardenHotState:
                     )
                 )
         return tuple(items)
+
+    async def handoff(self) -> Handoff | None:
+        """Return None: a Warden's own awake episode never resumes from a Worker's own Handoff."""
+        return None
