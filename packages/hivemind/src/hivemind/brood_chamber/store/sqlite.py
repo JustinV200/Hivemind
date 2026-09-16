@@ -3,8 +3,8 @@
 The Brood Chamber's durable home is two tables, `tasks` and `questions`, in the Hive's single
 SQLite file (ADR-0006). This module owns both end to end: the migration that creates them
 (`hivemind.brood_chamber.store.migrations`), and `SqliteTaskStore`, the `hivemind.brood_chamber.
-store.protocol.TaskStore` implementation built on them. Every mutation runs one transaction under
-`asyncio.to_thread` that writes the task and/or question row(s) and calls `hivemind.pheromone.
+store.protocol.TaskStore` implementation built on them. Every mutation runs one transaction on the
+store's `ConnectionThread` that writes the task or question row(s) and calls `hivemind.pheromone.
 insert_event` for the accompanying event on the same connection, so the state change and its trail
 event commit together (codingrules section 12's "same transaction" rule, Appendix C rule 3) --
 exactly the pattern `hivemind.pheromone.trail.sqlite.insert_event`'s own docstring names the Brood
@@ -22,7 +22,7 @@ Key invariants:
       database, so a Brood Chamber that writes trail events before the Pheromone Trail's own
       migration has run fails loudly (`MigrationError`) instead of writing an event into a table
       that is never read.
-    - Every SQLite call runs under `asyncio.to_thread`, one whole transaction per hop, serialised
+    - Every SQLite call runs on the store's `ConnectionThread`, one transaction per hop, serialised
       by this instance's own `asyncio.Lock` (codingrules section 11).
     - A task or question row and the event(s) that accompany it are written inside one
       `hivemind.common.sqlite.transaction` block, so a failure partway through (a duplicate id, a
@@ -56,7 +56,7 @@ from hivemind.brood_chamber.store.protocol import TaskFilter, check_task_event
 from hivemind.brood_chamber.task.model import Task
 from hivemind.common.errors import ConflictError, InvariantViolationError, MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
-from hivemind.common.sqlite import transaction
+from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.pheromone import TaskEvent, insert_event
 from waggle.clock import Clock
 from waggle.ids import MessageId, TaskId
@@ -130,10 +130,12 @@ class SqliteTaskStore:
                 (normally produced by `create`, which applies the migration first).
         """
         self._connection = connection
-        # Serialises every method on this instance, matching hivemind.pheromone.trail.sqlite.
-        # SqlitePheromoneTrail's own lock: asyncio.to_thread may run each call on a different
-        # worker thread, and sqlite3 connections are not safe for two threads to issue statements
-        # on at once.
+        # One thread per connection (hivemind.common.sqlite.ConnectionThread): a cancelled
+        # await can never leave a transaction open under the next caller's BEGIN.
+        self._thread = ConnectionThread("hive-chamber")
+        # Serialises every method on this instance as a whole, matching hivemind.pheromone.trail.
+        # sqlite.SqlitePheromoneTrail's own lock: the thread above keeps statements from
+        # overlapping; this keeps one method's hop from interleaving with another's.
         self._lock = asyncio.Lock()
 
     @classmethod
@@ -176,20 +178,20 @@ class SqliteTaskStore:
             check_task_event(task, event)
         async with self._lock:
             # Blocking: len(tasks) task inserts plus len(events) event inserts, one transaction.
-            await asyncio.to_thread(_insert_tasks_transaction, self._connection, tasks, events)
+            await self._thread.run(_insert_tasks_transaction, self._connection, tasks, events)
 
     async def update_task(self, task: Task, event: TaskEvent) -> None:
         """Replace the stored task and record `event`; see TaskStore.update_task."""
         check_task_event(task, event)
         async with self._lock:
             # Blocking: one UPDATE plus one event insert, in one transaction.
-            await asyncio.to_thread(_update_task_transaction, self._connection, task, event)
+            await self._thread.run(_update_task_transaction, self._connection, task, event)
 
     async def get_task(self, task_id: TaskId) -> Task:
         """Return the stored task with id `task_id`; see TaskStore.get_task."""
         async with self._lock:
             # Blocking: one indexed SELECT by primary key.
-            row = await asyncio.to_thread(_select_task_row, self._connection, task_id)
+            row = await self._thread.run(_select_task_row, self._connection, task_id)
         if row is None:
             raise TaskNotFoundError(task_id)
         return Task.model_validate_json(row["body"])
@@ -198,7 +200,7 @@ class SqliteTaskStore:
         """Return every task matching `query`, ordered by (created_at, id); see TaskStore."""
         async with self._lock:
             # Blocking: one indexed SELECT bounded by query.limit.
-            rows = await asyncio.to_thread(_select_tasks_rows, self._connection, query)
+            rows = await self._thread.run(_select_tasks_rows, self._connection, query)
         return tuple(Task.model_validate_json(row["body"]) for row in rows)
 
     async def insert_question(self, task: Task, question: Question, event: TaskEvent) -> None:
@@ -206,7 +208,7 @@ class SqliteTaskStore:
         check_task_event(task, event)
         async with self._lock:
             # Blocking: one task UPDATE, one question INSERT, one event insert, one transaction.
-            await asyncio.to_thread(
+            await self._thread.run(
                 _insert_question_transaction, self._connection, task, question, event
             )
 
@@ -215,7 +217,7 @@ class SqliteTaskStore:
         check_task_event(task, event)
         async with self._lock:
             # Blocking: one task UPDATE, one question UPDATE, one event insert, one transaction.
-            await asyncio.to_thread(
+            await self._thread.run(
                 _update_question_transaction, self._connection, task, question, event
             )
 
@@ -223,7 +225,7 @@ class SqliteTaskStore:
         """Return the stored question with id `question_id`; see TaskStore.get_question."""
         async with self._lock:
             # Blocking: one indexed SELECT by primary key.
-            row = await asyncio.to_thread(_select_question_row, self._connection, question_id)
+            row = await self._thread.run(_select_question_row, self._connection, question_id)
         if row is None:
             raise QuestionNotFoundError(question_id)
         return Question.model_validate_json(row["body"])
@@ -235,9 +237,7 @@ class SqliteTaskStore:
         async with self._lock:
             # Blocking: one indexed SELECT, unbounded (the Brood Chamber never holds enough
             # questions at once for this to matter; TaskFilter's limit has no counterpart here).
-            rows = await asyncio.to_thread(
-                _select_questions_rows, self._connection, task_id, status
-            )
+            rows = await self._thread.run(_select_questions_rows, self._connection, task_id, status)
         return tuple(Question.model_validate_json(row["body"]) for row in rows)
 
 
@@ -272,7 +272,7 @@ def _question_row(question: Question) -> tuple[str, str, str, str, str]:
 def _insert_tasks_transaction(
     connection: sqlite3.Connection, tasks: Sequence[Task], events: Sequence[TaskEvent]
 ) -> None:
-    """Insert every task then every event, in one transaction; sync body run under to_thread."""
+    """Insert every task then every event, in one transaction; sync body run on the thread."""
     with transaction(connection):
         for task in tasks:
             try:
@@ -286,7 +286,7 @@ def _insert_tasks_transaction(
 
 
 def _update_task_transaction(connection: sqlite3.Connection, task: Task, event: TaskEvent) -> None:
-    """Update one task row then insert its event, in one transaction; run under to_thread."""
+    """Update one task row then insert its event, in one transaction; run on the thread."""
     with transaction(connection):
         cursor = connection.execute(
             _UPDATE_TASK_SQL,
@@ -342,7 +342,7 @@ def _task_query_where(query: TaskFilter) -> tuple[list[str], list[object]]:
 def _insert_question_transaction(
     connection: sqlite3.Connection, task: Task, question: Question, event: TaskEvent
 ) -> None:
-    """Update the task, insert the question, then insert the event; run under to_thread."""
+    """Update the task, insert the question, then insert the event; run on the thread."""
     with transaction(connection):
         cursor = connection.execute(
             _UPDATE_TASK_SQL,
@@ -369,7 +369,7 @@ def _insert_question_transaction(
 def _update_question_transaction(
     connection: sqlite3.Connection, task: Task, question: Question, event: TaskEvent
 ) -> None:
-    """Update the task, update the question, then insert the event; run under to_thread."""
+    """Update the task, update the question, then insert the event; run on the thread."""
     with transaction(connection):
         task_cursor = connection.execute(
             _UPDATE_TASK_SQL,

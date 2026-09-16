@@ -1,6 +1,6 @@
 """Provide SqliteMemoryStore: the durable MemoryStore built on the five memory tables.
 
-Every mutation runs one transaction under `asyncio.to_thread` (the actual SQL lives in the sibling
+Every mutation runs one transaction on the store's `ConnectionThread` (the SQL lives in the sibling
 modules `hivemind.memory.store.sqlite.records`, the original four tables, and
 `hivemind.memory.store.sqlite.bee_bread`, the fifth) that writes the row and calls
 `hivemind.pheromone.insert_event` for the accompanying event on the same connection, so the state
@@ -19,7 +19,7 @@ Fits into the Hive:
 Key invariants:
     - `create` refuses to proceed unless `pheromone_events` already exists on `connection`'s
       database, matching `hivemind.brood_chamber.store.sqlite.SqliteTaskStore.create`'s own check.
-    - Every SQLite call runs under `asyncio.to_thread`, one whole transaction per hop, serialised
+    - Every SQLite call runs on the store's `ConnectionThread`, one transaction per hop, serialised
       by this instance's own `asyncio.Lock` (codingrules section 11).
 
 See Also:
@@ -41,6 +41,7 @@ from datetime import datetime
 from hivemind.cell import HoneyClearance
 from hivemind.common.errors import MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
+from hivemind.common.sqlite import ConnectionThread
 from hivemind.memory.bee_bread.entry import BeeBreadEntry
 from hivemind.memory.cell_wax import CellWax, WaxState
 from hivemind.memory.episodes import EpisodeRecord
@@ -106,6 +107,9 @@ class SqliteMemoryStore:
                 (normally produced by `create`, which applies the migration first).
         """
         self._connection = connection
+        # One thread per connection (hivemind.common.sqlite.ConnectionThread): a cancelled
+        # await can never leave a transaction open under the next caller's BEGIN.
+        self._thread = ConnectionThread("hive-memory")
         # Serialises every method, matching SqliteTaskStore's and SqlitePheromoneTrail's own lock.
         self._lock = asyncio.Lock()
 
@@ -140,30 +144,30 @@ class SqliteMemoryStore:
     async def add_pin(self, pin: Pin, event: MemoryEvent) -> None:
         """Insert `pin` and record `event`; see `MemoryStore.add_pin`."""
         async with self._lock:
-            await asyncio.to_thread(records.add_pin_transaction, self._connection, pin, event)
+            await self._thread.run(records.add_pin_transaction, self._connection, pin, event)
 
     async def list_pins(self, allowance: HoneyClearance) -> tuple[Pin, ...]:
         """Return pins within `allowance`, oldest first; see `MemoryStore.list_pins`."""
         async with self._lock:
-            rows = await asyncio.to_thread(records.select_pins_rows, self._connection, allowance)
+            rows = await self._thread.run(records.select_pins_rows, self._connection, allowance)
         return tuple(Pin.model_validate_json(row["body"]) for row in rows)
 
     async def remove_pin(self, pin_id: EventId) -> None:
         """Remove the pin with id `pin_id`; see `MemoryStore.remove_pin`."""
         async with self._lock:
-            await asyncio.to_thread(records.delete_pin, self._connection, pin_id)
+            await self._thread.run(records.delete_pin, self._connection, pin_id)
 
     async def add_note(self, note: Note, event: MemoryEvent) -> None:
         """Insert `note`, record `event`, and evict `note.author`'s oldest if over bound."""
         async with self._lock:
-            await asyncio.to_thread(records.add_note_transaction, self._connection, note, event)
+            await self._thread.run(records.add_note_transaction, self._connection, note, event)
 
     async def list_notes(
         self, author: str | None, allowance: HoneyClearance, limit: int
     ) -> tuple[Note, ...]:
         """Return notes within `allowance`, oldest first; see `MemoryStore.list_notes`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 records.select_notes_rows, self._connection, author, allowance, limit
             )
         return tuple(Note.model_validate_json(row["body"]) for row in rows)
@@ -171,7 +175,7 @@ class SqliteMemoryStore:
     async def remove_note(self, note_id: EventId) -> None:
         """Remove the note with id `note_id`; see `MemoryStore.remove_note`."""
         async with self._lock:
-            await asyncio.to_thread(records.delete_note, self._connection, note_id)
+            await self._thread.run(records.delete_note, self._connection, note_id)
 
     async def put_handoff(
         self, event_id: EventId, handoff: Handoff, task_id: TaskId | None, event: MemoryEvent
@@ -181,14 +185,14 @@ class SqliteMemoryStore:
         See `MemoryStore.put_handoff` for the full contract.
         """
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 records.put_handoff_transaction, self._connection, event_id, handoff, task_id, event
             )
 
     async def get_handoff(self, event_id: EventId) -> tuple[Handoff, HoneyClearance]:
         """Return the stored Handoff and its clearance; see `MemoryStore.get_handoff`."""
         async with self._lock:
-            row = await asyncio.to_thread(records.select_handoff_row, self._connection, event_id)
+            row = await self._thread.run(records.select_handoff_row, self._connection, event_id)
         if row is None:
             raise HandoffNotFoundError(event_id)
         return Handoff.model_validate_json(row["body"]), HoneyClearance(row["clearance"])
@@ -196,16 +200,14 @@ class SqliteMemoryStore:
     async def put_episode(self, record: EpisodeRecord, event: MemoryEvent) -> None:
         """Insert `record` and record `event`; see `MemoryStore.put_episode`."""
         async with self._lock:
-            await asyncio.to_thread(
-                records.put_episode_transaction, self._connection, record, event
-            )
+            await self._thread.run(records.put_episode_transaction, self._connection, record, event)
 
     async def list_episodes(
         self, principal: str | None, allowance: HoneyClearance, limit: int
     ) -> tuple[EpisodeRecord, ...]:
         """Return episodes within `allowance`, newest first; see `MemoryStore.list_episodes`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 records.select_episodes_rows, self._connection, principal, allowance, limit
             )
         return tuple(EpisodeRecord.model_validate_json(row["body"]) for row in rows)
@@ -214,21 +216,21 @@ class SqliteMemoryStore:
         """Delete episodes recorded before `cutoff`; see `MemoryStore.purge_episodes_before`."""
         async with self._lock:
             # Blocking: one DELETE in one transaction; the store's second retention DELETE.
-            return await asyncio.to_thread(
+            return await self._thread.run(
                 records.purge_episodes_transaction, self._connection, cutoff
             )
 
     async def add_bee_bread_entry(self, entry: BeeBreadEntry, event: MemoryEvent) -> None:
         """Insert `entry` and record `event`; see `MemoryStore.add_bee_bread_entry`."""
         async with self._lock:
-            await asyncio.to_thread(bee_bread.add_entry_transaction, self._connection, entry, event)
+            await self._thread.run(bee_bread.add_entry_transaction, self._connection, entry, event)
 
     async def get_bee_bread_entry(
         self, entry_id: EventId, allowance: HoneyClearance
     ) -> BeeBreadEntry:
         """Return the entry with id `entry_id`; see `MemoryStore.get_bee_bread_entry`."""
         async with self._lock:
-            row = await asyncio.to_thread(bee_bread.select_by_id_row, self._connection, entry_id)
+            row = await self._thread.run(bee_bread.select_by_id_row, self._connection, entry_id)
         if row is None:
             raise BeeBreadEntryNotFoundError(entry_id)
         clearance = HoneyClearance(row["clearance"])
@@ -241,7 +243,7 @@ class SqliteMemoryStore:
     ) -> tuple[BeeBreadEntry, ...]:
         """Return entries for `task_id`; see `MemoryStore.list_bee_bread_by_task`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 bee_bread.select_by_task_rows, self._connection, task_id, allowance
             )
         return tuple(BeeBreadEntry.model_validate_json(row["body"]) for row in rows)
@@ -251,7 +253,7 @@ class SqliteMemoryStore:
     ) -> tuple[BeeBreadEntry, ...]:
         """Return entries in `[start, end]`; see `MemoryStore.list_bee_bread_between`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 bee_bread.select_between_rows, self._connection, start, end, allowance
             )
         return tuple(BeeBreadEntry.model_validate_json(row["body"]) for row in rows)
@@ -259,12 +261,12 @@ class SqliteMemoryStore:
     async def put_wax(self, wax: CellWax, event: MemoryEvent) -> None:
         """Insert `wax` and record `event`; see `MemoryStore.put_wax`."""
         async with self._lock:
-            await asyncio.to_thread(wax_sql.put_wax_transaction, self._connection, wax, event)
+            await self._thread.run(wax_sql.put_wax_transaction, self._connection, wax, event)
 
     async def get_wax(self, wax_id: str) -> CellWax:
         """Return the note with id `wax_id`; see `MemoryStore.get_wax`."""
         async with self._lock:
-            row = await asyncio.to_thread(wax_sql.select_by_id_row, self._connection, wax_id)
+            row = await self._thread.run(wax_sql.select_by_id_row, self._connection, wax_id)
         if row is None:
             raise WaxNotFoundError(wax_id)
         return CellWax.model_validate_json(row["body"])
@@ -274,7 +276,7 @@ class SqliteMemoryStore:
     ) -> tuple[CellWax, ...]:
         """Return notes in `states`, within `allowance`; see `MemoryStore.list_wax`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 wax_sql.select_wax_rows, self._connection, cell_id, states, allowance
             )
         return tuple(CellWax.model_validate_json(row["body"]) for row in rows)
@@ -282,10 +284,10 @@ class SqliteMemoryStore:
     async def update_wax_state(self, wax: CellWax, event: MemoryEvent) -> None:
         """Overwrite the row for `wax.id` and record `event`; see `MemoryStore.update_wax_state`."""
         async with self._lock:
-            existing = await asyncio.to_thread(wax_sql.select_by_id_row, self._connection, wax.id)
+            existing = await self._thread.run(wax_sql.select_by_id_row, self._connection, wax.id)
             if existing is None:
                 raise WaxNotFoundError(wax.id)
-            await asyncio.to_thread(
+            await self._thread.run(
                 wax_sql.update_wax_state_transaction, self._connection, wax, event
             )
 

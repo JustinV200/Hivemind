@@ -7,7 +7,7 @@ than duplicating it.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called only by
-    `hivemind.memory.store.sqlite.store.SqliteMemoryStore`, under `asyncio.to_thread`. Calls into
+    `hivemind.memory.store.sqlite.store.SqliteMemoryStore`, on its `ConnectionThread`. Calls into
     hivemind.cell (HoneyClearance), hivemind.common.sqlite (transaction), hivemind.memory.bee_bread
     (BeeBreadEntry), hivemind.pheromone (insert_event), hivemind.memory.store.sqlite.records and
     sqlite3 only.
@@ -47,7 +47,7 @@ _ORDER_BY = " ORDER BY created_at, id"
 def add_entry_transaction(
     connection: sqlite3.Connection, entry: BeeBreadEntry, event: MemoryEvent
 ) -> None:
-    """Insert one bee_bread row then its event, in one transaction; run under to_thread."""
+    """Insert one bee_bread row then its event, in one transaction; run on the store's thread."""
     with transaction(connection):
         connection.execute(
             _INSERT_SQL,

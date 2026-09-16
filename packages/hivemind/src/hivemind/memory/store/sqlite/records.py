@@ -9,7 +9,7 @@ Bread's own table lives in the sibling `hivemind.memory.store.sqlite.bee_bread`,
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called only by
-    `hivemind.memory.store.sqlite.store.SqliteMemoryStore`, under `asyncio.to_thread`. Calls into
+    `hivemind.memory.store.sqlite.store.SqliteMemoryStore`, on its `ConnectionThread`. Calls into
     hivemind.cell (HoneyClearance), hivemind.common.sqlite (transaction), hivemind.memory
     (episodes, handoff, notes, pins), hivemind.pheromone (insert_event) and sqlite3 only.
 
@@ -83,7 +83,7 @@ def _delete_row(connection: sqlite3.Connection, sql: str, row_id: str) -> None:
 
 
 def add_pin_transaction(connection: sqlite3.Connection, pin: Pin, event: MemoryEvent) -> None:
-    """Insert one pin row then its event, in one transaction; sync body run under to_thread."""
+    """Insert one pin row then its event, in one transaction; run on the store's thread."""
     with transaction(connection):
         connection.execute(
             _INSERT_PIN_SQL,
@@ -173,7 +173,7 @@ def put_handoff_transaction(
     task_id: str | None,
     event: MemoryEvent,
 ) -> None:
-    """Insert one handoff row then its event, in one transaction; run under to_thread."""
+    """Insert one handoff row then its event, in one transaction; run on the store's thread."""
     with transaction(connection):
         connection.execute(
             _INSERT_HANDOFF_SQL,
@@ -197,7 +197,7 @@ def select_handoff_row(connection: sqlite3.Connection, event_id: str) -> sqlite3
 def put_episode_transaction(
     connection: sqlite3.Connection, record: EpisodeRecord, event: MemoryEvent
 ) -> None:
-    """Insert one episode row then its event, in one transaction; run under to_thread."""
+    """Insert one episode row then its event, in one transaction; run on the store's thread."""
     with transaction(connection):
         connection.execute(
             _INSERT_EPISODE_SQL,

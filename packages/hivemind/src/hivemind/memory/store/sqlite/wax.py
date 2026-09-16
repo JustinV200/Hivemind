@@ -8,7 +8,7 @@ duplicating it.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called only by
-    `hivemind.memory.store.sqlite.store.SqliteMemoryStore`, under `asyncio.to_thread`. Calls into
+    `hivemind.memory.store.sqlite.store.SqliteMemoryStore`, on its `ConnectionThread`. Calls into
     hivemind.cell (HoneyClearance), hivemind.common.sqlite (transaction), hivemind.memory.cell_wax
     (CellWax, WaxState), hivemind.pheromone (insert_event), hivemind.memory.store.sqlite.records
     and sqlite3 only.
@@ -52,7 +52,7 @@ _ORDER_BY_NEWEST = " ORDER BY proposed_at DESC, id DESC"
 
 
 def put_wax_transaction(connection: sqlite3.Connection, wax: CellWax, event: MemoryEvent) -> None:
-    """Insert one wax row then its event, in one transaction; run under to_thread."""
+    """Insert one wax row then its event, in one transaction; run on the store's thread."""
     with transaction(connection):
         connection.execute(
             _INSERT_SQL,

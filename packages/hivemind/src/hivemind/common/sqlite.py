@@ -4,21 +4,26 @@ Every SQLite-backed subsystem (the Pheromone Trail, the Brood Chamber, and every
 opens its connection through :func:`connect` and wraps each ordinary write (a plain ``execute``,
 not ``executescript``) in :func:`transaction`, so the pragmas and the locking discipline are set
 in exactly one place instead of once per subsystem. SQLite itself is a blocking C library with no
-async API; codingrules section 11 requires that kind of call to run under ``asyncio.to_thread`` in
-the adapter that owns it, never in this module or in core decision logic, so everything here is
-deliberately synchronous.
+async API; codingrules section 11 requires that kind of call to run off the event loop in the
+adapter that owns it, never in this module or in core decision logic, so ``connect`` and
+``transaction`` are deliberately synchronous, and :class:`ConnectionThread` is the one way an
+adapter runs them off the loop: a single worker thread per connection, so two statements can
+never be in flight on one connection at once, however the awaiting coroutines are cancelled.
 
 Fits into the Hive:
     Layer 0 (primitives; imports nothing internal beyond waggle). Called by every subsystem's own
-    ``sqlite.py`` adapter (starting with ``hivemind.pheromone.trail.sqlite``), always from inside
-    ``asyncio.to_thread``. ``hivemind.common.migrations`` uses :func:`connect`'s connections but
-    not :func:`transaction` itself, for the reason documented on that function.
+    ``sqlite.py`` adapter (starting with ``hivemind.pheromone.trail.sqlite``), always through
+    that adapter's own ``ConnectionThread``. ``hivemind.common.migrations`` uses :func:`connect`'s
+    connections but not :func:`transaction` itself, for the reason documented on that function.
 
 Key invariants:
     - A connection returned by ``connect`` is in autocommit mode (``isolation_level=None``): no
       write happens outside an explicit ``transaction`` block.
     - ``transaction`` never leaves a connection mid-write: it commits on success, rolls back and
       re-raises on any exception, and refuses to nest on a connection that is already inside one.
+    - ``ConnectionThread.run`` never interrupts the call it is running: cancelling the awaiting
+      coroutine loses that coroutine's result, never the ordering of statements on the connection,
+      and the next ``run`` on the same thread starts only once the previous call has returned.
     - ``transaction`` must never wrap a call to ``connection.executescript(...)``.
       ``executescript`` unconditionally commits whatever transaction is already pending the
       moment it is called -- a hard-coded behaviour of the sqlite3 C extension, independent of
@@ -39,8 +44,11 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -54,7 +62,7 @@ BUSY_TIMEOUT_MS = 5_000
 # the -wal and -shm siblings next to, so an in-memory database is the one case connect() skips it.
 _MEMORY_PATH = ":memory:"
 
-__all__ = ["BUSY_TIMEOUT_MS", "connect", "transaction"]
+__all__ = ["BUSY_TIMEOUT_MS", "ConnectionThread", "connect", "transaction"]
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
@@ -134,10 +142,10 @@ def transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         Never call ``connection.executescript(...)`` inside this block; see the module docstring's
         "Key invariants" for why, and ``hivemind.common.migrations`` for the pattern that works.
     """
-    # sqlite3.Connection.in_transaction reports whether autocommit mode has an open transaction
-    # right now; since connect() always sets isolation_level=None, this is only True while a
-    # previous transaction() call on this same connection is still open (a bug in the caller, not
-    # a race, because a Python thread only runs one frame of this generator at a time).
+    # in_transaction is only True while a previous transaction() on this connection is still open
+    # (connect() sets isolation_level=None): a caller nesting two blocks, or two threads sharing
+    # the connection, which asyncio.to_thread's shared pool allows the moment an awaiting coroutine
+    # is cancelled mid-write. ConnectionThread rules the second out; this guard makes both loud.
     if connection.in_transaction:
         raise RuntimeError(
             "transaction() called on a connection that already has one in progress; "
@@ -156,3 +164,46 @@ def transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         raise
     else:
         connection.execute("COMMIT")
+
+
+class ConnectionThread:
+    """One worker thread per connection: every blocking call on it runs there, in order.
+
+    Why not ``asyncio.to_thread``: it hands each call to the interpreter's shared default pool, so
+    a coroutine cancelled while awaiting one returns at once while the pool thread is still inside
+    the transaction (``hivemind.wardens.ticks.alarms.retire_sub_bee`` cancels a sub-bee's runtime
+    mid-write when a Worker is respawned, for instance), and the store's own ``asyncio.Lock`` is
+    released with it. The next caller's ``BEGIN IMMEDIATE`` then lands on a connection that already
+    has a transaction open ("cannot start a transaction within a transaction", or
+    :func:`transaction`'s own guard) -- a real-clock race the phase 3 e2e suite hit about once in
+    forty runs. A single dedicated thread queues the next call behind the running one by
+    construction, whatever the awaiting coroutine does, so a cancelled await can only ever lose
+    its own result, never the ordering of statements on the connection. Stores keep their
+    ``asyncio.Lock`` on top of this for the methods that make two hops (a read, then a write that
+    depends on it); this class guarantees the physical serialisation, the lock the logical one.
+    """
+
+    def __init__(self, name: str) -> None:
+        """Prepare the executor; its one thread starts on the first ``run``.
+
+        Args:
+            name: The thread-name prefix a debugger or thread dump shows, e.g. ``"hive-trail"``.
+        """
+        # max_workers=1 is the whole mechanism: a second call cannot start until the first returns.
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=name)
+
+    async def run[ResultT](self, fn: Callable[..., ResultT], /, *args: object) -> ResultT:
+        """Run ``fn(*args)`` on this connection's thread and return its result.
+
+        Cancelling the awaiting coroutine never interrupts ``fn``: it runs to completion on the
+        thread and the next ``run`` waits behind it, which is the whole reason this class exists.
+
+        Args:
+            fn: The blocking function to run; typically one ``transaction`` block or one SELECT.
+            *args: Passed to ``fn`` positionally.
+
+        Returns:
+            Whatever ``fn`` returned.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, functools.partial(fn, *args))

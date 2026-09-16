@@ -33,7 +33,7 @@ Key invariants:
       (`run_cluster_tick` marks it handled in the same call that acts on it, before its next poll
       could see it again).
     - Every `put_order`/`pending`/`mark_handled` call on `SqliteOrderStore` runs under
-      `asyncio.to_thread`, serialised by one `asyncio.Lock` per instance, mirroring
+      the store's own `ConnectionThread`, serialised by one `asyncio.Lock` per instance, mirroring
       `hivemind.queen.forage.ledger.store_sqlite.SqliteLedgerStore`'s own contract.
 
 See Also:
@@ -57,6 +57,7 @@ from enum import Enum
 from typing import Protocol
 
 from hivemind.common.migrations import apply_migrations, load_migrations
+from hivemind.common.sqlite import ConnectionThread
 from waggle.clock import Clock
 from waggle.ids import IdKind, new_id
 
@@ -201,6 +202,9 @@ class SqliteOrderStore:
                 produced by `create`, which applies the migration first).
         """
         self._connection = connection
+        # One thread per connection (hivemind.common.sqlite.ConnectionThread): a cancelled
+        # await can never leave a transaction open under the next caller's BEGIN.
+        self._thread = ConnectionThread("hive-orders")
         self._lock = asyncio.Lock()  # Serialises every method, matching SqliteLedgerStore's own.
 
     @classmethod
@@ -220,12 +224,12 @@ class SqliteOrderStore:
     async def put_order(self, order: ClusterOrder) -> None:
         """Insert `order`, keyed by `order.id`; see `OrderStore.put_order`."""
         async with self._lock:
-            await asyncio.to_thread(_insert_order, self._connection, order)
+            await self._thread.run(_insert_order, self._connection, order)
 
     async def pending(self) -> tuple[ClusterOrder, ...]:
         """Return every unhandled order, oldest first; see `OrderStore.pending`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_PENDING_SQL).fetchall()
             )
         return tuple(_order_from_row(row) for row in rows)
@@ -233,7 +237,7 @@ class SqliteOrderStore:
     async def mark_handled(self, order_id: str, handled_at: datetime) -> None:
         """Set `order_id`'s own `handled_at`; see `OrderStore.mark_handled`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 lambda: self._connection.execute(
                     _UPDATE_HANDLED_SQL, (handled_at.isoformat(), order_id)
                 )

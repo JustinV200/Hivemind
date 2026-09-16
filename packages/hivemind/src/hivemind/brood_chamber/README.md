@@ -49,7 +49,7 @@ hivemind.brood_chamber.store import TaskStore` without knowing the split.
   `hivemind.brood_chamber.store.migrations`). `create` refuses to proceed (`MigrationError`)
   unless `pheromone_events` already exists on the connection's database, so a Brood Chamber never
   writes a `task.*` event into a table the Pheromone Trail has not created yet. Every mutation
-  runs one transaction under `asyncio.to_thread` that writes the task/question row(s) and calls
+  runs one transaction on the store's own `ConnectionThread` that writes the task/question row(s) and calls
   `hivemind.pheromone.insert_event` for the event, so both commit or neither does.
 - `store/migrations/` -- the numbered SQL migration series `store/sqlite.py` applies
   (`0001_create_tasks.sql`); a real Python package (an `__init__.py`, however empty) because

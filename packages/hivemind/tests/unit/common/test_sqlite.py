@@ -13,11 +13,13 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from pathlib import Path
 
 import pytest
 
-from hivemind.common.sqlite import BUSY_TIMEOUT_MS, connect, transaction
+from hivemind.common.sqlite import BUSY_TIMEOUT_MS, ConnectionThread, connect, transaction
 
 
 def test_connect_enables_wal_journal_mode_on_a_file_database(tmp_path: Path) -> None:
@@ -102,3 +104,53 @@ def test_transaction_refuses_to_nest_on_a_connection_already_in_one(tmp_path: Pa
         transaction(connection),
     ):
         pass  # never reached; the second transaction()'s __enter__ raises first
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ConnectionThread: a cancelled await never lets the next call overlap the running one
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_connection_thread_queues_the_next_call_behind_a_cancelled_one(
+    tmp_path: Path,
+) -> None:
+    """Cancelling an awaiting coroutine mid-transaction must not let a second BEGIN overlap it.
+
+    The exact race the phase 3 e2e scenario (g) hit through `asyncio.to_thread`: the cancelled
+    coroutine returned while the pool thread was still inside `transaction()`, the store's lock
+    was released, and the next caller's `BEGIN IMMEDIATE` found a transaction already open.
+    """
+    connection = connect(tmp_path / "queue.sqlite3")
+    connection.execute("CREATE TABLE writes (n INTEGER)")
+    thread = ConnectionThread("test-sqlite")
+    inside_transaction = threading.Event()
+    release = threading.Event()
+
+    def slow_write() -> None:
+        with transaction(connection):
+            connection.execute("INSERT INTO writes VALUES (1)")
+            inside_transaction.set()
+            release.wait(timeout=5.0)  # Hold the transaction open until the test says go.
+
+    def fast_write() -> None:
+        with transaction(connection):
+            connection.execute("INSERT INTO writes VALUES (2)")
+
+    slow = asyncio.ensure_future(thread.run(slow_write))
+    await asyncio.to_thread(inside_transaction.wait, 5.0)  # The slow write is now mid-flight.
+    slow.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await slow
+    fast = asyncio.ensure_future(thread.run(fast_write))  # Would nest under to_thread's pool.
+    await asyncio.sleep(0.05)  # Give the second call every chance to start early (it must not).
+    release.set()
+    await fast
+
+    rows = [row["n"] for row in connection.execute("SELECT n FROM writes ORDER BY n")]
+    assert rows == [1, 2]
+
+
+async def test_connection_thread_returns_the_functions_result() -> None:
+    thread = ConnectionThread("test-sqlite")
+
+    assert await thread.run(lambda a, b: a + b, 2, 3) == 5

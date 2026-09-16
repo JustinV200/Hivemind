@@ -10,7 +10,7 @@ is not available here the way `hivemind.memory.store.migrations` is).
 does not care whether its `.sql` files sit in a dedicated sub-package or beside the module that
 applies them, since it only reads whatever in `location` matches its own filename pattern.
 `SqliteLedgerStore` mirrors `hivemind.memory.store.sqlite.SqliteMemoryStore`'s own shape (one
-upsert per `put_*`, one `asyncio.to_thread` per method, one lock per instance) but pairs no
+upsert per `put_*`, one `ConnectionThread` hop per method, one lock per instance) but pairs no
 `PheromoneEvent` with any write: unlike the memory tables, a ledger row is bookkeeping the
 allocator reads back, not itself an audited state transition -- `hivemind.queen.forage.grants`
 records the `forage.*` trail events for the transitions that matter (granted, denied, revoked,
@@ -24,7 +24,7 @@ Fits into the Hive:
     ForageGrant, RoyalReserve) and hivemind.queen.forage.ledger (model, store_protocol) only.
 
 Key invariants:
-    - Every SQLite call runs under `asyncio.to_thread`, one whole transaction per hop, serialised
+    - Every SQLite call runs on the store's `ConnectionThread`, one transaction per hop, serialised
       by this instance's own `asyncio.Lock` (codingrules section 11), mirroring
       `SqliteMemoryStore`'s own contract.
     - `put_*` is an upsert (`INSERT ... ON CONFLICT ... DO UPDATE`), matching `LedgerStore`'s own
@@ -43,7 +43,7 @@ import importlib.resources
 import sqlite3
 
 from hivemind.common.migrations import apply_migrations, load_migrations
-from hivemind.common.sqlite import transaction
+from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
 from hivemind.queen.forage.ledger.model import LocalPoolReport
 from waggle.clock import Clock
@@ -137,6 +137,9 @@ class SqliteLedgerStore:
                 (normally produced by `create`, which applies the migration first).
         """
         self._connection = connection
+        # One thread per connection (hivemind.common.sqlite.ConnectionThread): a cancelled
+        # await can never leave a transaction open under the next caller's BEGIN.
+        self._thread = ConnectionThread("hive-ledger")
         # Serialises every method, matching SqliteMemoryStore's own lock.
         self._lock = asyncio.Lock()
 
@@ -158,14 +161,14 @@ class SqliteLedgerStore:
     async def put_capacity(self, cell_id: CellId, capacity: ForageCapacity) -> None:
         """Upsert `cell_id`'s latest reported capacity; see `LedgerStore.put_capacity`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert, self._connection, _UPSERT_CAPACITY_SQL, cell_id, capacity.model_dump_json()
             )
 
     async def list_capacities(self) -> tuple[tuple[CellId, ForageCapacity], ...]:
         """Return every stored `(cell_id, capacity)` pair; see `LedgerStore.list_capacities`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_CAPACITIES_SQL).fetchall()
             )
         return tuple(
@@ -176,7 +179,7 @@ class SqliteLedgerStore:
     async def put_local_report(self, report: LocalPoolReport) -> None:
         """Upsert `report`, keyed by its own warden_id; see `LedgerStore.put_local_report`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert,
                 self._connection,
                 _UPSERT_LOCAL_REPORT_SQL,
@@ -187,7 +190,7 @@ class SqliteLedgerStore:
     async def list_local_reports(self) -> tuple[LocalPoolReport, ...]:
         """Return every stored local-pool report; see `LedgerStore.list_local_reports`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_LOCAL_REPORTS_SQL).fetchall()
             )
         return tuple(LocalPoolReport.model_validate_json(row["body"]) for row in rows)
@@ -195,19 +198,19 @@ class SqliteLedgerStore:
     async def put_grant(self, grant: ForageGrant) -> None:
         """Upsert `grant`, keyed by `grant.id`; see `LedgerStore.put_grant`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert, self._connection, _UPSERT_GRANT_SQL, grant.id, grant.model_dump_json()
             )
 
     async def delete_grant(self, grant_id: GrantId) -> None:
         """Remove the grant stored under `grant_id`, if any; see `LedgerStore.delete_grant`."""
         async with self._lock:
-            await asyncio.to_thread(_delete_row, self._connection, grant_id)
+            await self._thread.run(_delete_row, self._connection, grant_id)
 
     async def list_grants(self) -> tuple[ForageGrant, ...]:
         """Return every stored grant; see `LedgerStore.list_grants`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_GRANTS_SQL).fetchall()
             )
         return tuple(ForageGrant.model_validate_json(row["body"]) for row in rows)
@@ -215,12 +218,12 @@ class SqliteLedgerStore:
     async def put_reserve(self, reserve: RoyalReserve) -> None:
         """Replace the stored Royal Reserve; see `LedgerStore.put_reserve`."""
         async with self._lock:
-            await asyncio.to_thread(_put_reserve, self._connection, reserve.model_dump_json())
+            await self._thread.run(_put_reserve, self._connection, reserve.model_dump_json())
 
     async def get_reserve(self) -> RoyalReserve | None:
         """Return the stored Royal Reserve, or None; see `LedgerStore.get_reserve`."""
         async with self._lock:
-            row = await asyncio.to_thread(
+            row = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_RESERVE_SQL).fetchone()
             )
         return RoyalReserve.model_validate_json(row["body"]) if row is not None else None
@@ -228,14 +231,14 @@ class SqliteLedgerStore:
     async def put_seat_capacity(self, source_id: str, seats_total: int) -> None:
         """Upsert a source's total seats; see `LedgerStore.put_seat_capacity`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert_int, self._connection, _UPSERT_SEAT_CAPACITY_SQL, source_id, seats_total
             )
 
     async def list_seat_capacities(self) -> tuple[tuple[str, int], ...]:
         """Return every stored seat capacity; see `LedgerStore.list_seat_capacities`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_SEAT_CAPACITIES_SQL).fetchall()
             )
         return tuple((row["source_id"], row["seats_total"]) for row in rows)
@@ -243,14 +246,14 @@ class SqliteLedgerStore:
     async def put_spend_by_goal(self, goal_id: TaskId, spend_usd: float) -> None:
         """Upsert a goal's running spend; see `LedgerStore.put_spend_by_goal`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert_float, self._connection, _UPSERT_SPEND_BY_GOAL_SQL, goal_id, spend_usd
             )
 
     async def list_spend_by_goal(self) -> tuple[tuple[TaskId, float], ...]:
         """Return every stored goal spend; see `LedgerStore.list_spend_by_goal`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_SPEND_BY_GOAL_SQL).fetchall()
             )
         return tuple((TaskId(row["goal_id"]), row["spend_usd"]) for row in rows)
@@ -258,7 +261,7 @@ class SqliteLedgerStore:
     async def put_hosting_plan(self, plan: HostingPlan) -> None:
         """Upsert `plan`, keyed by its own cell_id; see `LedgerStore.put_hosting_plan`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert,
                 self._connection,
                 _UPSERT_HOSTING_PLAN_SQL,
@@ -269,7 +272,7 @@ class SqliteLedgerStore:
     async def list_hosting_plans(self) -> tuple[HostingPlan, ...]:
         """Return every stored HostingPlan; see `LedgerStore.list_hosting_plans`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_HOSTING_PLANS_SQL).fetchall()
             )
         return tuple(HostingPlan.model_validate_json(row["body"]) for row in rows)
@@ -277,14 +280,14 @@ class SqliteLedgerStore:
     async def put_ceilings(self, holder: WardenId, ceilings: Ceilings) -> None:
         """Upsert `holder`'s ceilings; see `LedgerStore.put_ceilings`."""
         async with self._lock:
-            await asyncio.to_thread(
+            await self._thread.run(
                 _upsert, self._connection, _UPSERT_CEILINGS_SQL, holder, ceilings.model_dump_json()
             )
 
     async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
         """Return every stored ceilings pair; see `LedgerStore.list_ceilings`."""
         async with self._lock:
-            rows = await asyncio.to_thread(
+            rows = await self._thread.run(
                 lambda: self._connection.execute(_SELECT_CEILINGS_SQL).fetchall()
             )
         return tuple(

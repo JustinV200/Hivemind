@@ -43,7 +43,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.common.sqlite import transaction
+from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import PheromoneTrail
@@ -93,9 +93,11 @@ class SqliteSegmentPurge:
             connection: An open connection from `hivemind.common.sqlite.connect`.
         """
         self._connection = connection
+        # One thread per connection (hivemind.common.sqlite.ConnectionThread): a cancelled
+        # await can never leave a transaction open under the next caller's BEGIN.
+        self._thread = ConnectionThread("hive-purge")
         # Serialises purge_segment on this instance the same way SqlitePheromoneTrail's own lock
-        # serialises its four methods: asyncio.to_thread may run each call on a different worker
-        # thread, and this connection must never have two transactions open on it at once.
+        # serialises its four methods: one whole purge at a time, never two interleaved.
         self._lock = asyncio.Lock()
 
     async def purge_segment(self, node_id: NodeId) -> int:
@@ -103,7 +105,7 @@ class SqliteSegmentPurge:
         async with self._lock:
             # Blocking: one DELETE in one transaction, matched on the indexed node_id column, so
             # even a large ephemeral Night Veil segment removes in one fast pass.
-            return await asyncio.to_thread(_purge_transaction, self._connection, node_id)
+            return await self._thread.run(_purge_transaction, self._connection, node_id)
 
 
 class MemorySegmentPurge:

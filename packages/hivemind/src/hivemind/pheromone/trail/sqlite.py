@@ -24,7 +24,7 @@ Key invariants:
       own source and asserts that neither of the two forbidden SQL tokens ever appears in it.
     - `insert_event` opens no transaction of its own: the caller wraps it in one, which is what
       lets `_record_transaction` below and a future cross-subsystem writer share a single commit.
-    - Every SQLite call runs under `asyncio.to_thread`, one whole transaction per hop, serialised
+    - Every SQLite call runs on the store's `ConnectionThread`, one transaction per hop, serialised
       by this instance's own `asyncio.Lock` (codingrules section 11).
 
 See Also:
@@ -44,7 +44,7 @@ import sqlite3
 from datetime import datetime
 
 from hivemind.common.migrations import apply_migrations, load_migrations
-from hivemind.common.sqlite import transaction
+from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.pheromone.errors import DuplicateEventError
 from hivemind.pheromone.events import PheromoneEvent, parse_event_json
 from hivemind.pheromone.trail.protocol import TrailQuery, TrailSegment
@@ -144,10 +144,12 @@ class SqlitePheromoneTrail:
         """
         self._connection = connection
         self._clock = clock
-        # Serialises every Protocol method on this instance. asyncio.to_thread may run each call
-        # on a different worker thread, and sqlite3 connections are not safe for two threads to
-        # issue statements on at once; this lock is what keeps "one transaction in flight at a
-        # time" true despite that, matching hivemind.common.sqlite's own transaction() contract.
+        # One thread per connection (hivemind.common.sqlite.ConnectionThread): a cancelled
+        # await can never leave a transaction open under the next caller's BEGIN.
+        self._thread = ConnectionThread("hive-trail")
+        # Serialises every Protocol method on this instance as a whole. The thread above already
+        # keeps statements from overlapping; this lock keeps one method's hop from interleaving
+        # with another's, so a query never observes a merge half-way through.
         self._lock = asyncio.Lock()
 
     @classmethod
@@ -171,21 +173,21 @@ class SqlitePheromoneTrail:
         async with self._lock:
             # Blocking: one INSERT in one transaction; sub-millisecond on a local SSD, though the
             # busy_timeout pragma can stretch this to BUSY_TIMEOUT_MS under write contention.
-            await asyncio.to_thread(_record_transaction, self._connection, event)
+            await self._thread.run(_record_transaction, self._connection, event)
 
     async def query(self, query: TrailQuery) -> tuple[PheromoneEvent, ...]:
         """Return matching events in trail order; see `PheromoneTrail.query` for the contract."""
         async with self._lock:
             # Blocking: one indexed SELECT bounded by query.limit; expected to stay in the
             # low-single-digit milliseconds thanks to the (at, node_id, id) index.
-            rows = await asyncio.to_thread(_select_events, self._connection, query)
+            rows = await self._thread.run(_select_events, self._connection, query)
         return tuple(parse_event_json(row["body"]) for row in rows)
 
     async def export_segment(self, node_id: NodeId, since: datetime | None = None) -> TrailSegment:
         """Export one node's events; see `PheromoneTrail.export_segment` for the contract."""
         async with self._lock:
             # Blocking: one indexed SELECT on node_id, optionally bounded by `since`.
-            rows = await asyncio.to_thread(_select_segment_rows, self._connection, node_id, since)
+            rows = await self._thread.run(_select_segment_rows, self._connection, node_id, since)
         events = tuple(parse_event_json(row["body"]) for row in rows)
         return TrailSegment(node_id=node_id, exported_at=self._clock.now(), events=events)
 
@@ -197,7 +199,7 @@ class SqlitePheromoneTrail:
         async with self._lock:
             # Blocking: one INSERT OR IGNORE per event, all inside one transaction, so a partial
             # merge can never land -- either every unknown event is inserted, or none is.
-            return await asyncio.to_thread(_merge_transaction, self._connection, segment)
+            return await self._thread.run(_merge_transaction, self._connection, segment)
 
 
 def _event_row(event: PheromoneEvent) -> tuple[str, str, str, str, str, str, str, str, str]:
@@ -220,7 +222,7 @@ def _event_row(event: PheromoneEvent) -> tuple[str, str, str, str, str, str, str
 
 
 def _record_transaction(connection: sqlite3.Connection, event: PheromoneEvent) -> None:
-    """Insert one event inside its own transaction; the sync body `record` runs under to_thread."""
+    """Insert one event inside its own transaction; the sync body `record` runs on the thread."""
     with transaction(connection):
         insert_event(connection, event)
 

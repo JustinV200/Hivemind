@@ -25,8 +25,13 @@ grows domain logic of its own.
   IMMEDIATE`, `COMMIT` on success, `ROLLBACK` and re-raise on any exception, and a clear
   `RuntimeError` if the connection already has one in flight. It must never wrap a call to
   `connection.executescript(...)` — see its docstring and `hivemind.common.migrations` for why.
-  Every function here is synchronous; codingrules section 11 requires callers to run it under
-  `asyncio.to_thread`.
+  `connect` and `transaction` are synchronous; codingrules section 11 requires callers to run
+  them off the event loop, and `ConnectionThread(name)` is how every store does it: `await
+  thread.run(fn, *args)` runs `fn` on that connection's one dedicated worker thread, so two
+  statements can never be in flight on one connection at once. `asyncio.to_thread`'s shared pool
+  cannot promise that: a coroutine cancelled while awaiting a hop returns while the pool thread is
+  still inside the transaction, the store's lock releases with it, and the next caller's `BEGIN`
+  finds a transaction already open (the phase 3 e2e scenario (g) flake, 2026-09-16).
 - **Migrations** (`hivemind.common.migrations`): `load_migrations(location)` reads every
   `NNNN_name.sql` file directly under a directory or an `importlib.resources` `Traversable`
   (`MIGRATION_FILE_PATTERN`), requiring the versions found to be exactly the contiguous run 1..n
