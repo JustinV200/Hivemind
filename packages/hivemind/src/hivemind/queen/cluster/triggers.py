@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     # block for why a real import here would cycle back through queen/deps.py.
     from hivemind.queen.deps import QueenDeps, WardenLink
 
-__all__ = ["check_cost_caps"]
+__all__ = ["check_cost_caps", "providers_of"]
 
 
 async def check_cost_caps(
@@ -69,7 +69,7 @@ async def check_cost_caps(
         headroom = deps.ledger.spend.headroom(task.goal_id, deps.budgets.spend_cap_usd)
         if headroom > 0:
             continue  # This goal is still within its cap; its grant's providers stay untouched.
-        for provider in _providers_of(grant, deps):
+        for provider in providers_of(grant, deps):
             if provider in already_seen or provider in state.clustered_providers:
                 continue
             already_seen.add(provider)
@@ -77,8 +77,16 @@ async def check_cost_caps(
     return tuple(outcomes)
 
 
-def _providers_of(grant: ForageGrant, deps: QueenDeps) -> tuple[str, ...]:
-    """Return every provider name `grant`'s own allowed bindings resolve to on `deps.map`."""
+def providers_of(grant: ForageGrant, deps: QueenDeps) -> tuple[str, ...]:
+    """Return every provider name `grant`'s own allowed bindings resolve to on `deps.map`.
+
+    Shared with `hivemind.queen.cluster.tick`, whose bound-provider probe needs the same
+    grant-to-provider reading to decide whether a DOWN provider leaves a bee any fallback.
+
+    Args:
+        grant: A live grant from `deps.ledger.live_grants()`.
+        deps: The Queen's collaborators; `map` resolves each binding's source to its provider.
+    """
     providers: list[str] = []
     for binding in grant.allowed:
         try:

@@ -3,6 +3,11 @@
 Appendix C's "Provider health" row: `HEALTHY <-> DEGRADED <-> DOWN`, "in memory, re-probed on
 start". Once `hivemind.queen.cluster.protocol.cluster` has paused a provider's bees, something has
 to notice when it recovers without hammering it every tick; `HealthPoller` is that something.
+The same poller watches every provider a live grant is bound to *before* any outage (roadmap
+step 4.9's first trigger, "`ProviderHealth` failing with no fallback within Forage"): a healthy
+provider is re-probed every `ClusterBackoff.healthy_interval_s`, and `failed_probes` counts the
+consecutive DOWN readings so `hivemind.queen.cluster.tick` clusters on the second, never on one
+blip.
 `next_probe_at` is the pure half (codingrules section 9's usual split between a pure decision and
 its effect): given how many consecutive probes a provider has failed and the current time, it
 returns the next instant worth probing again, growing the gap exponentially up to a manifest-
@@ -46,9 +51,14 @@ from hivemind.llm import HealthState, ProviderHealth, ProviderLookup
 DEFAULT_INITIAL_BACKOFF_S = 5.0  # First re-probe, one tick's worth of "just went down" patience.
 DEFAULT_MAX_BACKOFF_S = 300.0  # Cap at five minutes: a long outage is still noticed reasonably.
 DEFAULT_BACKOFF_FACTOR = 2.0  # Doubling: cheap to reason about, matches the Fanner's own retries.
+# How often a provider that reads HEALTHY is probed again: one GET per provider per half minute
+# is cheap on a loopback server and on a hosted one, and bounds how long an outage goes
+# unnoticed to this plus one initial backoff (two DOWN readings cluster it).
+DEFAULT_HEALTHY_PROBE_INTERVAL_S = 30.0
 
 __all__ = [
     "DEFAULT_BACKOFF_FACTOR",
+    "DEFAULT_HEALTHY_PROBE_INTERVAL_S",
     "DEFAULT_INITIAL_BACKOFF_S",
     "DEFAULT_MAX_BACKOFF_S",
     "ClusterBackoff",
@@ -65,11 +75,14 @@ class ClusterBackoff:
         initial_s: The gap before the first re-probe of a newly clustered provider.
         max_s: The largest gap this schedule ever reaches.
         factor: How much the gap multiplies by per consecutive failed probe.
+        healthy_interval_s: The steady-state gap between probes of a provider that last read
+            HEALTHY, whether it is bound and running or has just recovered.
     """
 
     initial_s: float = DEFAULT_INITIAL_BACKOFF_S
     max_s: float = DEFAULT_MAX_BACKOFF_S
     factor: float = DEFAULT_BACKOFF_FACTOR
+    healthy_interval_s: float = DEFAULT_HEALTHY_PROBE_INTERVAL_S
 
 
 def next_probe_at(attempt: int, now: datetime, backoff: ClusterBackoff | None = None) -> datetime:
@@ -133,28 +146,43 @@ class HealthPoller:
             now: The caller's own injected current time, used to schedule the *next* probe.
 
         Returns:
-            The fresh `ProviderHealth` reading. A `HEALTHY` reading resets this provider's own
-            attempt count to 0 and clears its scheduled next probe (`reset`'s own effect); any
-            other reading (`DEGRADED`/`DOWN`) advances the attempt count and reschedules.
+            The fresh `ProviderHealth` reading. A `HEALTHY` reading drops this provider's own
+            failed-probe count and schedules the next probe one `healthy_interval_s` out; any
+            other reading (`DEGRADED`/`DOWN`) advances the count and reschedules on the backoff.
         """
         instance = provider_lookup(provider)
         reading = await instance.health()  # External await: an outage probe, no fixed timeout
         # here since `hivemind.llm.provider.LLMProvider.health` itself never blocks on the model
         # (it reports readiness, never completes a call) -- see that Protocol's own contract.
         if reading.state is HealthState.HEALTHY:
-            self.reset(provider)
+            # Steady state: forget any earlier failures, but keep watching at the slow cadence
+            # so a bound provider going down is noticed without a probe on every tick.
+            self._attempts.pop(provider, None)
+            self._next_probe_at[provider] = now + timedelta(seconds=self.backoff.healthy_interval_s)
         else:
             attempt = self._attempts.get(provider, 0) + 1
             self._attempts[provider] = attempt
             self._next_probe_at[provider] = next_probe_at(attempt, now, self.backoff)
         return reading
 
+    def failed_probes(self, provider: str) -> int:
+        """Return how many consecutive probes of `provider` have read DOWN or DEGRADED.
+
+        0 for a provider never probed, or whose last reading was HEALTHY. `hivemind.queen.cluster.
+        tick` clusters a bound provider only once this reaches its own threshold, so one failed
+        GET never pauses a whole provider's bees.
+
+        Args:
+            provider: The `[llm.providers.<name>]` key to look up.
+        """
+        return self._attempts.get(provider, 0)
+
     def reset(self, provider: str) -> None:
         """Drop `provider`'s own attempt count and scheduled next probe.
 
-        Called by `probe` on a HEALTHY reading, and by `hivemind.queen.cluster.protocol.resume`
-        once a provider has actually resumed (by hand or by recovery), so a provider clustered
-        again later starts its backoff fresh rather than picking up where a past outage left off.
+        Called by `hivemind.queen.cluster.tick` once an operator's `hive wake` has resumed a
+        provider by hand, so it is probed again at once and a provider clustered again later
+        starts its backoff fresh rather than picking up where a past outage left off.
 
         Args:
             provider: The provider to reset.

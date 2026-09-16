@@ -18,12 +18,18 @@ from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ModelSlot
 from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
+from hivemind.queen.cluster.health import (
+    DEFAULT_HEALTHY_PROBE_INTERVAL_S,
+    DEFAULT_INITIAL_BACKOFF_S,
+)
 from hivemind.queen.cluster.orders import ClusterOrder, InMemoryOrderStore, OrderKind, new_order_id
 from hivemind.queen.cluster.protocol import cluster
 from hivemind.queen.cluster.tick import awake_available, run_cluster_tick
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from hivemind.queen.state import ClusterState
+from waggle.clock import FakeClock
 from waggle.ids import TaskId
 
 
@@ -187,3 +193,95 @@ async def test_run_cluster_tick_leaves_a_still_down_provider_clustered() -> None
     await run_cluster_tick(deps, state, queen.wardens)
 
     assert state.clustered_providers == frozenset({"fake"})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The outage trigger: a bound provider that reads DOWN twice, with no fallback, clusters itself
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _running_goal_with_probing(
+    clock: FakeClock,
+) -> tuple[QueenDeps, Queen, FakeLLMProvider, TaskId]:
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(
+        clock=clock,
+        fake_provider=provider,
+        orders=InMemoryOrderStore(),
+        provider_lookup=lambda _name: provider,
+    )
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    return deps, queen, provider, goal_id
+
+
+async def test_run_cluster_tick_clusters_a_bound_provider_after_two_down_probes() -> None:
+    """Roadmap 4.9's first trigger: DOWN with no fallback within Forage pauses the bees on it."""
+    clock = FakeClock()
+    deps, queen, provider, goal_id = await _running_goal_with_probing(clock)
+    state = ClusterState()
+    provider.set_outage(True)
+
+    await run_cluster_tick(deps, state, queen.wardens)  # First DOWN reading: a blip, not yet.
+    assert state.clustered_providers == frozenset()
+    clock.advance(DEFAULT_INITIAL_BACKOFF_S)
+    await run_cluster_tick(deps, state, queen.wardens)  # Second in a row: an outage.
+
+    assert state.clustered_providers == frozenset({"fake"})
+    task = await deps.chamber.get(goal_id)
+    assert task.status is TaskStatus.PAUSED
+    clustered = await deps.trail.query(TrailQuery(kind="queen.clustered"))
+    assert [event.payload.get("cause") for event in clustered] == ["provider_down"]
+
+
+async def test_run_cluster_tick_probes_a_healthy_bound_provider_only_at_the_steady_cadence() -> (
+    None
+):
+    clock = FakeClock()
+    deps, queen, _provider, goal_id = await _running_goal_with_probing(clock)
+    state = ClusterState()
+
+    await run_cluster_tick(deps, state, queen.wardens)
+
+    assert state.clustered_providers == frozenset()
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+    # Probed once, then not again until the steady interval has passed: no GET per tick.
+    assert not deps.health_poller.is_due("fake", clock.now())
+    clock.advance(DEFAULT_HEALTHY_PROBE_INTERVAL_S)
+    assert deps.health_poller.is_due("fake", clock.now())
+
+
+async def test_run_cluster_tick_never_clusters_on_a_single_down_reading() -> None:
+    clock = FakeClock()
+    deps, queen, provider, goal_id = await _running_goal_with_probing(clock)
+    state = ClusterState()
+    provider.set_outage(True)
+
+    await run_cluster_tick(deps, state, queen.wardens)
+    clock.advance(DEFAULT_INITIAL_BACKOFF_S)
+    provider.set_outage(False)  # Back before the confirming probe: a blip.
+    await run_cluster_tick(deps, state, queen.wardens)
+
+    assert state.clustered_providers == frozenset()
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+    assert deps.health_poller.failed_probes("fake") == 0
+
+
+async def test_run_cluster_tick_resumes_a_recovered_provider_it_clustered_itself() -> None:
+    clock = FakeClock()
+    deps, queen, provider, goal_id = await _running_goal_with_probing(clock)
+    state = ClusterState()
+    provider.set_outage(True)
+    await run_cluster_tick(deps, state, queen.wardens)
+    clock.advance(DEFAULT_INITIAL_BACKOFF_S)
+    await run_cluster_tick(deps, state, queen.wardens)
+    assert state.clustered_providers == frozenset({"fake"})
+
+    provider.set_outage(False)
+    clock.advance(DEFAULT_INITIAL_BACKOFF_S * 2)  # Past the second backoff step.
+    await run_cluster_tick(deps, state, queen.wardens)
+
+    assert state.clustered_providers == frozenset()
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING

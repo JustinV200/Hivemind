@@ -4,8 +4,12 @@
 dispatch's own deliverable): one call that checks cost caps
 (`hivemind.queen.cluster.triggers.check_cost_caps`), drains every pending operator order
 (`hivemind.queen.cluster.orders.OrderStore.pending`, `hive cluster`/`hive wake`'s own durable
-rows, docs/adr/0024), and probes every currently clustered provider's health on its own backoff
-schedule (`hivemind.queen.cluster.health.HealthPoller`), clustering or resuming through
+rows, docs/adr/0024), probes every provider a live grant is bound to at the poller's slow steady
+cadence and clusters one that has read DOWN `DOWN_PROBES_BEFORE_CLUSTER` times in a row while
+some bee on it has no allowed binding on any other healthy provider (roadmap step 4.9's own first
+trigger: "`ProviderHealth` failing with no fallback within Forage"), and probes every currently
+clustered provider's health on its own backoff schedule
+(`hivemind.queen.cluster.health.HealthPoller`), clustering or resuming through
 `hivemind.queen.cluster.protocol` as each of those decides. `awake_available` is the small, pure
 check roadmap step 4.9's own third deliverable asks for: "the Queen's own awake mode being
 unavailable is handled by her autopilot running the same protocol" -- when `ModelSlot.QUEEN`'s own
@@ -46,12 +50,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from hivemind.forage import UnknownSourceError
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import HealthState
 from hivemind.queen.cluster.orders import OrderKind
 from hivemind.queen.cluster.protocol import cluster, resume
-from hivemind.queen.cluster.triggers import check_cost_caps
+from hivemind.queen.cluster.triggers import check_cost_caps, providers_of
 from hivemind.queen.state import ClusterState
 
 if TYPE_CHECKING:
@@ -59,13 +62,17 @@ if TYPE_CHECKING:
     # block for why a real import here would cycle back through queen/deps.py.
     from hivemind.queen.deps import QueenDeps, WardenLink
 
-__all__ = ["awake_available", "run_cluster_tick"]
+# Consecutive DOWN readings before a bound provider is clustered: one failed GET is a blip (a
+# restart, a dropped packet); the second, one backoff later, is an outage worth pausing for.
+DOWN_PROBES_BEFORE_CLUSTER = 2
+
+__all__ = ["DOWN_PROBES_BEFORE_CLUSTER", "awake_available", "run_cluster_tick"]
 
 
 async def run_cluster_tick(
     deps: QueenDeps, state: ClusterState, wardens: Sequence[WardenLink]
 ) -> None:
-    """Check cost caps, drain pending operator orders, and probe clustered providers' health.
+    """Check cost caps, drain operator orders, probe bound providers, then probe clustered ones.
 
     Args:
         deps: The Queen's collaborators; `orders`, `health_poller`, `provider_lookup`, `ledger`
@@ -77,6 +84,7 @@ async def run_cluster_tick(
     """
     await check_cost_caps(deps, state, wardens)
     await _drain_orders(deps, state, wardens)
+    await _probe_bound(deps, state, wardens)
     await _probe_clustered(deps, state, wardens)
 
 
@@ -112,7 +120,7 @@ async def _drain_orders(
                 await cluster(provider, "operator", deps, state, wardens)
             else:
                 await resume(provider, deps, state, wardens)
-                deps.health_poller.reset(provider)
+                deps.health_poller.reset(provider)  # Probed again at once, then steadily.
         await deps.orders.mark_handled(order.id, deps.clock.now())
 
 
@@ -136,14 +144,44 @@ def _bound_providers(deps: QueenDeps) -> tuple[str, ...]:
     """Return every provider name at least one live grant's allowed bindings currently name."""
     seen: list[str] = []
     for grant in deps.ledger.live_grants():
-        for binding in grant.allowed:
-            try:
-                source = deps.map.get(binding.source_id)
-            except UnknownSourceError:
-                continue
-            if source.spec.provider not in seen:
-                seen.append(source.spec.provider)
+        for provider in providers_of(grant, deps):
+            if provider not in seen:
+                seen.append(provider)
     return tuple(seen)
+
+
+async def _probe_bound(deps: QueenDeps, state: ClusterState, wardens: Sequence[WardenLink]) -> None:
+    """Probe every bound, unclustered provider that is due; cluster one down with no fallback."""
+    if deps.provider_lookup is None:
+        return  # No way to reach a live LLMProvider by name; nothing this tick can probe.
+    now = deps.clock.now()
+    for provider in _bound_providers(deps):
+        if provider in state.clustered_providers or not deps.health_poller.is_due(provider, now):
+            continue
+        # External await: a health probe, never a completion call (module docstring).
+        reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
+        if reading.state is not HealthState.DOWN:
+            continue  # HEALTHY keeps running; DEGRADED (a 429, a 5xx) is the Fanner's to spill.
+        if deps.health_poller.failed_probes(provider) < DOWN_PROBES_BEFORE_CLUSTER:
+            continue  # One blip; the backoff schedule brings the confirming probe soon.
+        if _every_bee_has_a_fallback(provider, deps, state):
+            continue  # The ladder and the Fanner move each call to the next binding instead.
+        await cluster(provider, "provider_down", deps, state, wardens)
+
+
+def _every_bee_has_a_fallback(provider: str, deps: QueenDeps, state: ClusterState) -> bool:
+    """Return whether every live grant naming `provider` also names a provider still up.
+
+    "No fallback within Forage" (roadmap step 4.9), read off the ledger: a grant's `allowed`
+    bindings are exactly what its sub-bees may call, so a grant whose every binding sits on
+    `provider` or on an already clustered one has nowhere to spill, and its bees must pause.
+    """
+    unavailable = set(state.clustered_providers) | {provider}
+    for grant in deps.ledger.live_grants():
+        providers = set(providers_of(grant, deps))
+        if provider in providers and not providers - unavailable:
+            return False
+    return True
 
 
 async def _probe_clustered(
@@ -156,6 +194,8 @@ async def _probe_clustered(
     for provider in tuple(state.clustered_providers):
         if not deps.health_poller.is_due(provider, now):
             continue
+        # A HEALTHY reading schedules its own next probe at the steady cadence (HealthPoller.
+        # probe), so a provider resumed here keeps being watched like any other bound one.
         # External await: a health probe, never a completion call (module docstring); the
         # provider's own health() contract carries no fixed timeout of its own to name here.
         reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)

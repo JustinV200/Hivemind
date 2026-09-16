@@ -15,7 +15,12 @@ from __future__ import annotations
 from datetime import timedelta
 
 from hivemind.llm import FakeLLMProvider, HealthState
-from hivemind.queen.cluster.health import ClusterBackoff, HealthPoller, next_probe_at
+from hivemind.queen.cluster.health import (
+    DEFAULT_HEALTHY_PROBE_INTERVAL_S,
+    ClusterBackoff,
+    HealthPoller,
+    next_probe_at,
+)
 from waggle.clock import FakeClock
 
 
@@ -83,7 +88,7 @@ async def test_health_poller_reschedules_after_a_down_reading() -> None:
     assert poller.is_due("anthropic", now + timedelta(seconds=5.0))
 
 
-async def test_health_poller_resets_the_schedule_on_a_healthy_reading() -> None:
+async def test_health_poller_schedules_the_steady_probe_after_a_healthy_reading() -> None:
     provider = FakeLLMProvider(name="anthropic")
     provider.set_outage(True)
     poller = HealthPoller()
@@ -95,7 +100,25 @@ async def test_health_poller_resets_the_schedule_on_a_healthy_reading() -> None:
     reading = await poller.probe("anthropic", lambda _name: provider, now)
 
     assert reading.state is HealthState.HEALTHY
-    assert poller.is_due("anthropic", now)  # Reset: due again immediately.
+    assert poller.failed_probes("anthropic") == 0  # The earlier failure is forgotten.
+    # Steady state: not hammered every tick, but still watched at the slow cadence.
+    assert not poller.is_due("anthropic", now)
+    assert poller.is_due("anthropic", now + timedelta(seconds=DEFAULT_HEALTHY_PROBE_INTERVAL_S))
+
+
+async def test_health_poller_counts_consecutive_failed_probes() -> None:
+    provider = FakeLLMProvider(name="anthropic")
+    provider.set_outage(True)
+    poller = HealthPoller()
+    clock = FakeClock()
+
+    assert poller.failed_probes("anthropic") == 0
+    await poller.probe("anthropic", lambda _name: provider, clock.now())
+    await poller.probe("anthropic", lambda _name: provider, clock.now())
+
+    assert poller.failed_probes("anthropic") == 2
+    poller.reset("anthropic")
+    assert poller.failed_probes("anthropic") == 0
 
 
 def test_health_poller_reset_clears_a_provider_never_probed() -> None:
