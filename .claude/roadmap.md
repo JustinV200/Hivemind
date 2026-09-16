@@ -802,7 +802,7 @@ failing.
   extra checks on the gate from 3.17; the tier table decides where each applies, and the task's
   tempo may shorten or lengthen the ladder only above the tier's floor (an urgent `scratch_write`
   may skip the judge; `irreversible` never skips anything).
-- [ ] **4.11 CLI.** `cli/memory.py` (`hive memory show <bee>`, `hive memory pins add|list|remove`,
+- [x] **4.11 CLI.** `cli/memory.py` (`hive memory show <bee>`, `hive memory pins add|list|remove`,
   `hive memory compact <bee>`, `hive memory wax <cell> list|propose|clear`), `cli/forage.py` (`hive forage status|grants|grant <warden> ...`),
   `cli/cluster.py` (`hive cluster [provider]`, `hive wake`), `hive capping audit --sample`.
 
