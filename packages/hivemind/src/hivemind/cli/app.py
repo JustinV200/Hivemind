@@ -10,8 +10,9 @@ CLI row), never containing logic of its own.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
-    hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run and hivemind.cli.readback (cells,
-    inbox, wardens) now; later phases add entrance and friends through their own public APIs.
+    hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
+    hivemind.cli.forage and hivemind.cli.readback (cells, inbox, wardens, cluster) now; later
+    phases add entrance and friends through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -41,8 +42,8 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli import capping, llm, tasks, trail
-from hivemind.cli.readback import cells_app, inbox_app, wardens_app
+from hivemind.cli import capping, forage, llm, memory, tasks, trail
+from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import run_command
 from hivemind.cli.version import collect_version_info, format_version
 
@@ -78,12 +79,22 @@ app.add_typer(cells_app, name="cells")
 app.add_typer(inbox_app, name="inbox")
 app.add_typer(wardens_app, name="wardens")
 
+# Roadmap step 4.11: memory (hot state, pins, compaction, Cell Wax), forage (the ledger and grant
+# revisions), and Clustering's own operator orders (`hive cluster`/`hive wake`, docs/adr/0024).
+# `cluster` lives in `hivemind.cli.readback` (not a flat `hivemind.cli.cluster` module) because it
+# is mostly a read reconstructed from durable stores plus one small write, the same shape
+# `readback.inbox`'s own `answer` command already has, and `hivemind.cli` itself is already at
+# codingrules section 5.6's ten-module limit without it; `wake` is a bare root command (`hive
+# wake`, not `hive cluster wake`), matching `hive run`'s own shape.
+app.add_typer(memory.app, name="memory")
+app.add_typer(forage.app, name="forage")
+app.add_typer(cluster_app, name="cluster")
+app.command("wake")(wake_command)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
 #   doctor     - environment and manifest diagnostics
-#   cluster    - pause/resume a Hive while a provider is unavailable
-#   wake       - trigger an awake episode by hand
 #   entrance   - manage the Hive Entrance's listeners and enrolled devices
 #   supersede  - move the Hive Stand to a new machine
 #   backup     - snapshot the Brood Chamber, Honey Store and Pheromone Trail

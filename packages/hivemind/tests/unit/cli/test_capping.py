@@ -1,12 +1,16 @@
-"""Tests for hivemind.cli.capping: `hive capping queue|show`.
+"""Tests for hivemind.cli.capping: `hive capping queue|show|audit sample|audit rates`.
 
 Fits into the Hive:
-    Mirrors src/hivemind/cli/capping.py (codingrules section 3: tests/unit mirrors src/
-    one-to-one). Drives the typer application through typer.testing.CliRunner, with a
-    `MemoryPheromoneTrail` seeded directly through `PheromoneTrail.record` (the same v0 shape
-    `hivemind.supervision.capping.gate.CappingGate` itself writes) and handed to the CLI by
-    monkeypatching `hivemind.cli.capping.open_trail`, the same seam `test_trail.py`'s own
-    `--follow` test uses.
+    Mirrors src/hivemind/cli/capping/ (codingrules section 3: tests/unit mirrors src/
+    one-to-one; kept as one flat test module since the split into queue.py/sample.py was for
+    codingrules section 5.1's file-size limit only, not a behavioural split worth mirroring here).
+    Drives the typer application through typer.testing.CliRunner. `queue`/`show` tests seed a
+    `MemoryPheromoneTrail` directly through `PheromoneTrail.record` (the same v0 shape
+    `hivemind.supervision.capping.gate.CappingGate` itself writes) and hand it to the CLI by
+    monkeypatching `hivemind.cli.capping.queue.open_trail`, the same seam `test_trail.py`'s own
+    `--follow` test uses. `audit sample`/`audit rates` tests seed a real SQLite trail (through
+    `hivemind.cli.stores.open_trail`) instead, since `hivemind.cli.capping.sample` opens its own
+    trail through a different module's `open_trail` reference.
 
 Key invariants:
     - None: this module holds tests only.
@@ -24,18 +28,20 @@ import json
 from pathlib import Path
 
 import pytest
+from builders.cli import fake_manifest
 from pydantic import JsonValue
 from typer.testing import CliRunner
 
-import hivemind.cli.capping as capping_module
+import hivemind.cli.capping.queue as capping_module
 from hivemind.cli.app import app
 from hivemind.cli.stores import open_trail
-from hivemind.pheromone import CappingEvent, MemoryPheromoneTrail
+from hivemind.pheromone import CappingEvent, MemoryPheromoneTrail, PheromoneTrail, TrailQuery
 from waggle.clock import Clock, FakeClock
 from waggle.ids import (
     HiveId,
     MessageId,
     NodeId,
+    new_cell_id,
     new_event_id,
     new_hive_id,
     new_message_id,
@@ -289,3 +295,106 @@ def test_show_reads_a_real_sqlite_trail(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert result.stdout.strip() == ""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# hive capping audit sample | hive capping audit rates
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _record_verified_proposal_with_cell(
+    trail: PheromoneTrail, clock: FakeClock, hive_id: HiveId, node_id: NodeId
+) -> MessageId:
+    """Record PROPOSED -> VERIFIED, this time with `cell_id` in the payload.
+
+    Roadmap step 4.11's own audit path needs `cell_id` to reconstruct a Proposal; the pre-existing
+    capping.py tests above predate that need, so they are left exactly as they were.
+    """
+    proposal = new_message_id(clock)
+    task = new_task_id(clock)
+    cell = new_cell_id(clock)
+    await trail.record(
+        _event(
+            clock,
+            "capping.proposed",
+            proposal,
+            hive_id,
+            node_id,
+            task_id=task,
+            cell_id=cell,
+            tier="SCRATCH_WRITE",
+        )
+    )
+    clock.advance(1)
+    await trail.record(
+        _event(clock, "capping.verified", proposal, hive_id, node_id, postconditions_held=1)
+    )
+    return proposal
+
+
+def test_audit_sample_produces_one_capping_audited_event_with_the_fake_judge(
+    tmp_path: Path,
+) -> None:
+    manifest_path = fake_manifest(tmp_path)
+    db = manifest_path.parent / "data" / "hive.sqlite3"
+    trail = open_trail(db)
+    clock = FakeClock()
+    hive_id, node_id = new_hive_id(clock), new_node_id(clock)
+    asyncio.run(_record_verified_proposal_with_cell(trail, clock, hive_id, node_id))
+
+    result = runner.invoke(
+        app,
+        [
+            "capping",
+            "audit",
+            "--manifest",
+            str(manifest_path),
+            "sample",
+            "--rate",
+            "1.0",
+            "--fake-judge",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    events = asyncio.run(trail.query(TrailQuery(kind="capping.audited")))
+    assert len(events) == 1
+    assert events[0].payload["outcome"] == "APPROVE"
+
+
+def test_audit_sample_without_fake_judge_is_refused(tmp_path: Path) -> None:
+    manifest_path = fake_manifest(tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["capping", "audit", "--manifest", str(manifest_path), "sample", "--rate", "1.0"],
+    )
+
+    assert result.exit_code == 2
+
+
+def test_audit_rates_reports_the_sampled_tier_with_no_fresh_sampling(tmp_path: Path) -> None:
+    manifest_path = fake_manifest(tmp_path)
+    db = manifest_path.parent / "data" / "hive.sqlite3"
+    trail = open_trail(db)
+    clock = FakeClock()
+    hive_id, node_id = new_hive_id(clock), new_node_id(clock)
+    asyncio.run(_record_verified_proposal_with_cell(trail, clock, hive_id, node_id))
+    runner.invoke(
+        app,
+        [
+            "capping",
+            "audit",
+            "--manifest",
+            str(manifest_path),
+            "sample",
+            "--rate",
+            "1.0",
+            "--fake-judge",
+        ],
+    )
+
+    result = runner.invoke(app, ["capping", "audit", "--manifest", str(manifest_path), "rates"])
+
+    assert result.exit_code == 0, result.output
+    assert "SCRATCH_WRITE" in result.output

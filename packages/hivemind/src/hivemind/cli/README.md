@@ -161,3 +161,88 @@ goal itself finishes in well under a second). `test_cells.py`, `test_inbox.py` a
 `open_chamber`/`open_trail`/`open_memory` (or, for `hive wardens list`, trail events built by
 hand) the same way a running `hive run` process would have left them, since each command's own job
 is reading state a *different* process wrote.
+
+## Command groups (phase 4 step 4.11)
+
+- `memory/` (a package, not a flat module: `show.py`/`pins.py`/`compact.py`/`wax.py` plus a shared
+  `context.py`, codingrules section 5.1's 300-line limit) -- `hive memory show <bee> [--manifest]
+  [--db] [--clearance C1]` (builds a `hivemind.memory.HotStateSources` view over the Brood
+  Chamber, the memory store and the trail, and prints what the real `hivemind.memory.assemble`
+  packs for that principal: PINS/HOT_STATE sections, token count, and included/dropped counts,
+  plus the bee's latest Handoff if the trail shows one). `hive memory pins add "<text>"
+  [--clearance C0|C1|C2]`, `pins list [--clearance]`, `pins remove <id>` (thin calls onto
+  `hivemind.memory.add_pin`/`MemoryStore.list_pins`/`.remove_pin`). `hive memory compact <bee>
+  [--manifest] [--db]` runs one real `hivemind.memory.compact` call on `ModelSlot.RIPENER`,
+  through `hivemind.cli.stores.build_registry`, over the closed tasks placed under Warden id
+  `<bee>`'s Bee Bread entries (a Task carries no bee-shaped field this phase beyond `warden_id`;
+  see the module's own docstring). `hive memory wax <cell> list|propose|clear`: CELL,
+  `--manifest`/`--db` are read once on the `wax` group's own callback and shared through `ctx.obj`
+  (codingrules section 5.1's parameter cap: `propose` already carries its own four flags), so they
+  must come right after `wax` and before the subcommand name (`hive memory wax <cell> --manifest
+  hive.toml propose "<text>"`, not `... propose "<text>" --manifest hive.toml`). `list` reads
+  every note on that Cell through `MemoryStore.list_wax`; `propose "<text>" [--severity
+  NOTE|CAUTION|BLOCK] [--expires-in SECONDS]` writes a PROPOSED note through `hivemind.memory.
+  propose_wax`, leaving it for a running Queen's next tick to judge (never WRITTEN directly);
+  `clear <id>` is an explicit operator override (there is no operator-facing clear *request* path
+  in v0) that calls `hivemind.memory.clear_wax` itself, recording `memory.wax_cleared` with
+  `WaxOrigin.HUMAN` -- its own `--help` says so.
+- `forage.py` -- `--manifest`/`--db` are read once on this group's own callback and shared through
+  `ctx.obj` by every subcommand below (codingrules section 5.1's parameter cap), so they must be
+  given right after `forage` and before the subcommand name (`hive forage --manifest hive.toml
+  status`, not `hive forage status --manifest hive.toml`). `status [--json]` restores a
+  `hivemind.queen.forage.ForageLedger` from the durable ledger store and prints its headroom, the
+  Royal Reserve, every Cell's latest reported capacity and every Warden's reported local pool
+  (throttled-source state lives only in a running Queen's own in-memory Forage map, so it is never
+  shown here; the printed output says so). `grants [--json]` lists every live grant: holder,
+  state, max sub-bees, seats, spend budget and spent. `grant <warden> --sub-bees N [--seats N]
+  [--spend USD]` writes a grown or shrunk revision of that Warden's own already-live grant through
+  `hivemind.queen.forage.grants.revise` (a Warden's first grant is always issued by a running
+  Queen's own dispatcher, never by this command, so `grant` refuses cleanly when none exists yet)
+  and records the same `forage.granted` event shape `hivemind.queen.dispatcher` writes for a
+  task-driven grant; it never starts a Queen, and takes effect the moment one next starts, or the
+  next time the holding Warden's own heartbeat renews.
+- `readback/cluster.py` -- `hive cluster [--provider NAME]` and `hive wake [provider]` each append
+  one durable `hivemind.queen.cluster.ClusterOrder` row (`hivemind.cli.stores.
+  open_cluster_orders`) the running Queen's own `run_cluster_tick` polls every tick, and print its
+  id; naming no provider means "every currently-bound one" for `cluster`, "every currently
+  clustered one" for `wake`. `cluster` takes `--provider` as an option (not the roadmap's own
+  bare `[provider]` positional) because a Click `Group` always resolves a leftover token against
+  its own optional positional `Argument` before ever trying it as a subcommand name, so a bare
+  `hive cluster status` would otherwise silently be parsed as "cluster the provider literally
+  named status" instead of dispatching to `status` below (verified empirically; `hive wake` keeps
+  the positional form since it is a plain command with no subcommands of its own, registered on
+  the root app matching `hive run`'s own shape). `hive cluster status [--manifest] [--db]` prints
+  every still-pending order plus, reconstructed from the trail's `queen.clustered`/`queen.resumed`
+  events (there is no `OrderStore` method to list a handled order by itself), every order a
+  running Queen's tick has already acted on. Lives in `hivemind.cli.readback` rather than a flat
+  `hivemind.cli.cluster` module: `hivemind.cli` was already at codingrules section 5.6's
+  ten-module limit, and this command's own shape (mostly a read, one small durable write) matches
+  `readback.inbox`'s own `answer` command exactly.
+- `capping/` (split from the earlier flat `capping.py` into `queue.py`/`sample.py`/`__init__.py`,
+  codingrules section 5.1's 300-line limit) also gains `hive capping audit sample [--tier T]
+  [--rate R] --fake-judge` (roadmap step 4.11's third piece): samples every terminal
+  (VERIFIED/ROLLED_BACK) proposal found on the
+  trail at its tier's own `audit_rate` (or `--rate`, overriding it) and reviews each one through
+  `hivemind.supervision.capping.audit_completed`, printing per-tier `AuditRates`. The trail never
+  carries a proposal's own action content (codingrules section 12), so the reviewed `Proposal` is
+  reconstructed from only what the trail kept (task id, Cell id, tier) plus clearly-labelled
+  placeholders for the rest -- a real audit of the bee's actual diff or command needs a live link
+  this v0 CLI does not have, flagged in this dispatch's own report. `--fake-judge` is required: no
+  `hivemind.wardens.judge.ModelJudgeReviewer` exists yet in this codebase, so every sampled
+  proposal is reviewed by `hivemind.supervision.capping.FakeJudgeReviewer`, scripted with one
+  APPROVE verdict per proposal. `hive capping audit rates` prints the same `AuditRates`,
+  reconstructed from every past `capping.audited` event, with no fresh sampling.
+- `docs/manifests/full.toml` gained the phase 4 fields no earlier step had added yet: `[memory]
+  hot_window_s`, `sweep_interval_s`, `wax_text_cap_chars`; `[forage] measurement_drift_threshold`;
+  `[forage.map.local_llama] vram_bytes_required` (every hosted source above it has none: no local
+  footprint to weigh).
+
+`test_memory.py`, `test_forage.py` and `test_cluster.py` follow the same `fake_manifest` + real
+SQLite file pattern as `test_cells.py`/`test_inbox.py`/`test_wardens.py`: each seeds its own store
+directly (through `hivemind.cli.stores`' `open_chamber`/`open_memory`/`open_ledger`/
+`open_cluster_orders`/`open_trail`), drives the command through `CliRunner`, and asserts the
+written row or trail event a running `hive run` process would have left behind. `test_capping.py`
+gained the same `--fake-judge` sampling case, seeded the same way `test_queue_excludes_terminal_
+proposals...` already seeds a `capping.*` sequence, with `[supervision] capping_tiers_file`/tier
+lookups exercised against the shipped default table (`--tier`/`--rate` keep the assertion
+independent of that table's own numbers).

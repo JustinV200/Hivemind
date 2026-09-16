@@ -180,6 +180,10 @@ spend_cap_per_goal_usd = 5.0
 token_budget_per_goal = 2000000
 # The most concurrent sub-bees one goal's tasks may spawn in total.
 max_sub_bees_per_goal = 4
+# Fraction a Cell's reported free memory, free cores or free seats must move, relative to the
+# reading a live grant was computed from, before the ledger recomputes that grant instead of
+# reusing it (roadmap step 4.7).
+measurement_drift_threshold = 0.15
 
 [forage.roles.drone]
 # Logical cores this role's bee occupies while running.
@@ -246,6 +250,9 @@ grade = 2
 context_window = 8192
 capabilities = ["json_mode"]
 seats = 2
+# VRAM this model needs to load locally, in bytes (about 8 GiB here); unset (as every hosted
+# source above leaves it) for a source with no local footprint to weigh against a Cell's free VRAM.
+vram_bytes_required = 8589934592
 
 [forage.map.local_embed]
 provider = "local"
@@ -297,10 +304,18 @@ handoff_threshold = 0.66
 item_cap_chars = 4000
 # Cell Wax cautions kept per Cell before the oldest, least-severe ones are dropped.
 cell_wax_cap = 20
+# The most characters one Cell Wax note's text holds; a Hive may cap this lower than waggle's own
+# MAX_WAX_TEXT_CHARS ceiling, never higher (the wire shape itself refuses more).
+wax_text_cap_chars = 4000
 # Default seconds before a pin or caution expires (seven days here).
 default_expiry_s = 604800
 # Seconds an EpisodeRecord is kept before it may be purged (seven days here).
 episode_retention_s = 604800
+# Seconds an item may sit in hot state, unlinked to an active task and past no Alarm resolution,
+# before the House Bee sweep ages it out to Bee Bread (four hours here).
+hot_window_s = 14400.0
+# Seconds between one House Bee sweep (demotion, then compaction) and the next (one hour here).
+sweep_interval_s = 3600.0
 # Operator-set facts always included in hot state, regardless of age.
 pins = ["This Hive runs on Windows and Linux hosts; never assume POSIX-only paths."]
 
