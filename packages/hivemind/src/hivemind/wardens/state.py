@@ -47,6 +47,7 @@ from waggle.messages.supervision import WardenState as WireWardenState
 from waggle.messages.task import TaskResume
 
 __all__ = [
+    "SETTLED_EVENT_KINDS",
     "TRANSITIONS",
     "WardenState",
     "assert_transition",
@@ -197,6 +198,16 @@ def is_terminal(state: WardenState) -> bool:
         True for STOPPED (TRANSITIONS maps it to an empty frozenset); False otherwise.
     """
     return not TRANSITIONS[state]
+
+
+# The trail kind a Warden records when it settles into each of the three states
+# `settled_state` can return (roadmap step 4.9 added CLUSTERED); Appendix C's rule 3: every
+# transition is a trail event written in the same tick that made it.
+SETTLED_EVENT_KINDS: dict[WardenState, str] = {
+    WardenState.ACTIVE: "warden.active",
+    WardenState.WATCH: "warden.watch",
+    WardenState.CLUSTERED: "warden.clustered",
+}
 
 
 def settled_state(task_ids: Iterable[TaskId | None], clustered: Container[TaskId]) -> WardenState:

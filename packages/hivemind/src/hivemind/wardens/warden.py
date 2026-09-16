@@ -87,7 +87,7 @@ from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
-from hivemind.wardens.state import WardenState, assert_transition, clustering_update, settled_state
+from hivemind.wardens.state import WardenState, assert_transition, clustering_update
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
@@ -155,7 +155,8 @@ class Warden(TickLoop):
         self._heartbeat_task: asyncio.Task[None] | None = None
         # Roadmap step 4.9 (Clustering): every task id a Queen-sent Intervene(HANDOFF) told this
         # Warden to pause, dropped again on a Queen-sent TaskResume for the same task; read by
-        # _settle_after_tick to decide ACTIVE <-> CLUSTERED, the same way _sub_bees' own emptiness
+        # ticks.assign.settle_after_tick to decide ACTIVE <-> CLUSTERED, the same way _sub_bees'
+        # own emptiness
         # already decides ACTIVE <-> WATCH.
         self._clustered_tasks: set[TaskId] = set()
 
@@ -344,7 +345,7 @@ async def _run_tick(warden: Warden) -> None:
         ordered = await warden._attendant.order(tuple(items))
         for item in ordered:
             await _handle_item(warden, item)
-    await _settle_after_tick(warden)
+    await ticks.assign.settle_after_tick(warden)
 
 
 def _drain_items(
@@ -399,30 +400,6 @@ def _heartbeat_deadline_task(warden: Warden) -> asyncio.Task[None]:
     return warden._heartbeat_task
 
 
-async def _settle_after_tick(warden: Warden) -> None:
-    """Hand a slot a finished bee freed to a parked assignment, then settle ACTIVE/WATCH/CLUSTERED.
-
-    `hivemind.wardens.ticks.assign.spawn_parked` runs first so a task parked for a full pool
-    starts the same tick the pool has room again (nothing else ever re-drove it); `hivemind.
-    wardens.state.settled_state` then reads the sub-bee table (and, roadmap step 4.9, `warden.
-    _clustered_tasks`) that spawn may just have grown, through `assert_transition` -- unlike the
-    pre-4.9 ACTIVE <-> WATCH-only version of this function, so a state this pair can never legally
-    reach (e.g. CLUSTERED with no sub-bees left) raises loudly rather than being written silently.
-    No `warden.clustered` kind exists yet in `hivemind.pheromone.events.families.WardenEvent.
-    KINDS` (outside this dispatch's own files to add one to; flagged in its report), so entering
-    CLUSTERED records no trail event of its own; the Queen's own `queen.clustered` is the
-    auditable record until that gap is closed.
-    """
-    await ticks.assign.spawn_parked(warden)
-    target = settled_state((s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks)
-    if target is not warden._state:  # Something changed since the last check.
-        assert_transition(warden._state, target, warden_id=warden._warden_id)
-        warden._state = target
-        if target is not WardenState.CLUSTERED:
-            kind = "warden.active" if target is WardenState.ACTIVE else "warden.watch"
-            await _record_event(warden, kind)
-
-
 async def _handle_item(warden: Warden, item: InboxItem) -> None:
     """Decide and act on one ordered InboxItem, waking a model only for NEEDS_JUDGEMENT."""
     # The sub-bee `item` concerns: by sender for a sub-bee link, by task for the Queen's own
@@ -475,7 +452,8 @@ async def _act(
     elif action is WardenAction.FORWARD_CONTROL and isinstance(
         payload, TaskCancel | TaskPause | TaskResume | Intervene
     ):
-        # Roadmap step 4.9 (Clustering): read by `_settle_after_tick`'s own ACTIVE <-> CLUSTERED
+        # Roadmap step 4.9 (Clustering): read by `ticks.assign.settle_after_tick`'s own
+        # ACTIVE <-> CLUSTERED
         # move; `clustering_update`'s own docstring explains the decision this applies.
         if item.principal == _QUEEN_LINK:
             clustering_update(item.task_id, payload, warden._clustered_tasks)

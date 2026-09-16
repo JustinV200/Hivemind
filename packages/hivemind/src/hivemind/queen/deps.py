@@ -63,6 +63,7 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.queen.cluster.health import HealthPoller
 from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
+from hivemind.queen.state import ClusterState
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
 from waggle.envelope import Hop
@@ -188,6 +189,9 @@ class QueenDeps:
         orders: Roadmap step 4.9 (Clustering): the durable `hive cluster`/`hive wake` rows
             `hivemind.queen.cluster.tick.run_cluster_tick` polls every tick. Defaults to a fresh
             `InMemoryOrderStore()`, matching every other roadmap-4.9-and-earlier test.
+        cluster_state: The Queen's own mode and the set of clustered providers
+            (`hivemind.queen.state.ClusterState`), read by `run_cluster_tick` and by
+            `awake_available` before every awake episode. Defaults to RUNNING with none.
         health_poller: The clustered-provider health-probe schedule (`hivemind.queen.cluster.
             health.HealthPoller`), on its own backoff. Defaults to a fresh instance over the
             module's own default `ClusterBackoff`.
@@ -224,3 +228,7 @@ class QueenDeps:
     orders: OrderStore = field(default_factory=InMemoryOrderStore)
     health_poller: HealthPoller = field(default_factory=HealthPoller)
     provider_lookup: ProviderLookup | None = None
+    # Held here rather than on the Queen instance so `hive cluster`/`hive wake` and the tests
+    # can read her mode without reaching into the kernel, and so queen.py stays inside its
+    # size cap (codingrules 5.1); exactly one per Queen, like every other mutable store here.
+    cluster_state: ClusterState = field(default_factory=ClusterState)

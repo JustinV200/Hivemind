@@ -276,6 +276,7 @@ class WardenEvent(PheromoneEvent):
             "warden.started",
             "warden.watch",
             "warden.active",
+            "warden.clustered",  # Roadmap step 4.9: every sub-bee paused by Clustering.
             "warden.offline",
             "warden.reconnected",
             "warden.migrated",

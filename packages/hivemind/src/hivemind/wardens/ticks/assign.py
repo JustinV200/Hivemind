@@ -33,8 +33,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.pheromone import WardenEvent
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
+from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
 from hivemind.wardens.ticks.alarms import send_alarm_to_queen
+from waggle.ids import new_event_id
 from waggle.messages.forage import GrantIssued
 from waggle.messages.supervision import AlarmKind
 from waggle.messages.task import TaskAssign
@@ -139,6 +142,37 @@ async def spawn_parked(warden: Warden) -> None:
         if assignment.grant_id in warden._grants:
             warden._pending.pop(assignment.task_id, None)
             await handle_assign(warden, assignment)
+
+
+async def settle_after_tick(warden: Warden) -> None:
+    """Hand a slot a finished bee freed to a parked assignment, then settle ACTIVE/WATCH/CLUSTERED.
+
+    `spawn_parked` runs first so a task parked for a full pool starts the same tick the pool has
+    room again (nothing else ever re-drove it); `hivemind.wardens.state.settled_state` then reads
+    the sub-bee table (and, roadmap step 4.9, `warden._clustered_tasks`) that spawn may just have
+    grown, through `assert_transition`, so a state this pair can never legally reach (CLUSTERED
+    with no sub-bees left, say) raises loudly rather than being written silently. Every settled
+    state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`), beside
+    the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel file stays
+    inside its size cap (codingrules 5.1); it is the second half of this module's spawn duty.
+    """
+    await spawn_parked(warden)
+    target = settled_state((s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks)
+    if target is not warden._state:  # Something changed since the last check.
+        assert_transition(warden._state, target, warden_id=warden._warden_id)
+        warden._state = target
+        # Same shape as warden.py's own _record_event: subject is this Warden, no payload.
+        event = WardenEvent(
+            id=new_event_id(warden._deps.clock),
+            hive_id=warden._deps.identity.hive_id,
+            node_id=warden._deps.identity.node_id,
+            at=warden._deps.clock.now(),
+            actor=warden._deps.identity.actor,
+            kind=SETTLED_EVENT_KINDS[target],
+            subject_id=warden._warden_id,
+            payload={},
+        )
+        await warden._deps.trail.record(event)
 
 
 async def _retry_lease_or_escalate(warden: Warden, assignment: TaskAssign) -> None:

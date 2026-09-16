@@ -64,6 +64,7 @@ from typing import TYPE_CHECKING
 from hivemind.common.tasks import reap
 from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.memory import Handoff, write_checkpoint
+from hivemind.memory.overflow import ContextOverflowError
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.runtime.reports import AlarmDetails, ResultDetails
 from hivemind.workers.state import WorkerState
@@ -79,6 +80,8 @@ from waggle.messages.task import TaskOutcome, TaskStage
 _CRASH_ALARM_KINDS: tuple[tuple[type[BaseException], AlarmKind], ...] = (
     (ProviderUnavailableError, AlarmKind.PROVIDER_UNAVAILABLE),
     (RateLimitedError, AlarmKind.PROVIDER_UNAVAILABLE),
+    # Roadmap step 4.4: three overflows in one episode end the attempt with its own Alarm kind.
+    (ContextOverflowError, AlarmKind.CONTEXT_OVERFLOW),
 )
 
 if TYPE_CHECKING:

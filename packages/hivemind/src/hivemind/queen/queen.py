@@ -73,6 +73,7 @@ from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
 from hivemind.queen.awake import QueenSources, decide_awake
+from hivemind.queen.cluster import awake_available, run_cluster_tick
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
@@ -371,6 +372,9 @@ async def _run_tick(queen: Queen) -> None:
     await ticks.liveness.check_liveness(
         queen._deps, queen.wardens, queen._liveness, queen._human_inbox
     )
+    # Roadmap step 4.9: drain hive cluster/wake orders and probe clustered providers, on the
+    # same cadence as liveness and dispatch (docs/adr/0024).
+    await run_cluster_tick(queen._deps, queen._deps.cluster_state, queen.wardens)
     await dispatch_ready(queen._deps, queen.wardens)
     # This dispatch's own fix 3: the tick now calls the exact same retry-safe function hive run's
     # own poll loop calls (hivemind.cli.compose.run_goal), instead of a separate sweep that used
@@ -475,6 +479,10 @@ async def _run_awake(queen: Queen, item: InboxItem) -> QueenAction:
         payload_ref=item.id,
         clearance=HoneyClearance.C2,
     )
+    # Roadmap step 4.9: while the Queen's own slot is clustered, autopilot never wakes the model;
+    # the item takes the chain's last step instead (codingrules 8.8: the human is always last).
+    if not awake_available(queen._deps.cluster_state, queen._deps):
+        return QueenAction.ESCALATE_TO_HUMAN
     decision = await decide_awake(queen._deps, event, sources, effort)
     await record_event(
         queen._deps, "queen.awake", queen._deps.identity.hive_id, event_kind=item.payload_kind
