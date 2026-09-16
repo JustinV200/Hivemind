@@ -710,7 +710,7 @@ failing.
   no search; every entry carries its `HoneyClearance` and lookups filter by the reader's
   allowance. `memory/demote.py`: pure rules for what leaves hot state (task closed, Alarm resolved,
   age past a manifest window).
-- [ ] **4.2a Cell Wax (cell notes).** `memory/cell_wax.py`: `CellWax` (id, Cell id, `WaxSeverity`
+- [x] **4.2a Cell Wax (cell notes).** `memory/cell_wax.py`: `CellWax` (id, Cell id, `WaxSeverity`
   `NOTE | CAUTION | BLOCK`, text capped by the manifest, proposer, reason, `HoneyClearance`,
   optional `expires_at`) with its own table and the transition table `PROPOSED → WRITTEN →
   CLEARED | EXPIRED`, `PROPOSED → REJECTED` (Appendix C). Any bee, Warden or the human may
