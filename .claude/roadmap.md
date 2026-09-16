@@ -834,10 +834,12 @@ at a quarter of the default `budget_fraction`). The real-task rule was exercised
 LM Studio (Heretic Qwen3.8-27B, the operator's `hive.toml`): a mixed run with fake planning and
 real Drones, an instrumented full run, and the plain `hive run` command; each planned a multi-task
 graph, ran three Drones in parallel on the real server (one proposal rolled back and retried), and
-completed with the scratch root removed. One earlier full run timed out with both Drone requests
-cancelled client-side within a second of being sent and nothing on the trail afterwards; it did not
-recur in the three runs that followed and its cause is unknown. Not yet exercised for real: a live
-provider outage through `hive cluster`/`hive wake` (covered by the fake-provider e2e only).
+completed with the scratch root removed. One earlier full run "timed out in 417.9s" with both
+Drone requests cancelled a second after being sent: `hive run`'s default `--timeout` (120 s) counts
+from submission and planning alone took 418 s (five structured-output attempts on the local model),
+so the poll loop expired the instant dispatch happened and the normal teardown stopped the Warden.
+Pass `--timeout 900` with a local 27B model. Not yet exercised for real: a live provider outage
+through `hive cluster`/`hive wake` (covered by the fake-provider e2e only).
 
 ### ADRs to write
 
