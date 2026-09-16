@@ -120,6 +120,16 @@ class Ceilings(BaseModel):
     exportable_seats: Annotated[int, Field(ge=0)] = Field(
         description="Seats on the Cell's own servers the Warden may lend to the shared pool."
     )
+    scratch_disk_bytes_per_lease: Annotated[int, Field(ge=0)] = Field(
+        default=0,
+        description="Disk the Warden may give one Real Cell lease's scratch directory "
+        "(roadmap step 4.8); 0 means no ceiling beyond the Cell's own free disk.",
+    )
+    resident_basket_disk_bytes: Annotated[int, Field(ge=0)] = Field(
+        default=0,
+        description="Disk the Warden may keep resident for its own Comb Basket (roadmap step "
+        "4.8); 0 means no ceiling beyond the Cell's own free disk.",
+    )
 
     @classmethod
     def from_wire(cls, wire: WireCeilingsReport) -> Ceilings:
@@ -130,6 +140,8 @@ class Ceilings(BaseModel):
             model_disk_bytes=wire.model_disk_bytes,
             loadable_sources=wire.loadable_sources,
             exportable_seats=wire.exportable_seats,
+            scratch_disk_bytes_per_lease=wire.scratch_disk_bytes_per_lease,
+            resident_basket_disk_bytes=wire.resident_basket_disk_bytes,
         )
 
     def to_wire(self) -> WireCeilingsReport:
@@ -140,6 +152,8 @@ class Ceilings(BaseModel):
             model_disk_bytes=self.model_disk_bytes,
             loadable_sources=self.loadable_sources,
             exportable_seats=self.exportable_seats,
+            scratch_disk_bytes_per_lease=self.scratch_disk_bytes_per_lease,
+            resident_basket_disk_bytes=self.resident_basket_disk_bytes,
         )
 
 

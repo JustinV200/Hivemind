@@ -73,7 +73,7 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.base import WaggleMessage
-from waggle.messages.forage import ForageReply, GrantIssued
+from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign
 from waggle.transport.memory import MemoryTransport
@@ -265,7 +265,8 @@ class WardenEnd:
     """Wrap the Warden side of one attached link: send reports, collect orders.
 
     Owns its own mutable state in place (codingrules section 8.5): `grants`, `assignments`,
-    `answers`, `intervenes` and `forage_replies` grow as envelopes are pumped off the transport.
+    `answers`, `intervenes`, `forage_replies` and `ceilings_sets` (roadmap step 4.8) grow as
+    envelopes are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -286,6 +287,7 @@ class WardenEnd:
         self.answers: list[Answer] = []
         self.intervenes: list[Intervene] = []
         self.forage_replies: list[ForageReply] = []
+        self.ceilings_sets: list[CeilingsSet] = []  # Roadmap step 4.8.
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -340,6 +342,11 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.forage_replies), limit=limit)
         return self.forage_replies[-1]
 
+    async def wait_for_ceilings_set(self, limit: int = DEFAULT_PUMP_LIMIT) -> CeilingsSet:
+        """Pump until at least one CeilingsSet has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.ceilings_sets), limit=limit)
+        return self.ceilings_sets[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Queen's own receive() ends cleanly."""
         await self._transport.close()
@@ -361,6 +368,10 @@ class WardenEnd:
             self.received_kinds.append("intervene")
         elif isinstance(payload, ForageReply):
             self.forage_replies.append(payload)
+            self.received_kinds.append("forage_reply")
+        elif isinstance(payload, CeilingsSet):
+            self.ceilings_sets.append(payload)
+            self.received_kinds.append("ceilings_set")
             self.received_kinds.append("forage_reply")
 
 

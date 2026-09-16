@@ -17,9 +17,10 @@ import asyncio
 from builders.forage import make_capacity, make_grant, make_reserve
 
 from hivemind.forage.grant_state import GrantState
+from hivemind.forage.models.grants import SeatReservation
 from hivemind.queen.forage.ledger import ForageLedger, InMemoryLedgerStore, LocalPoolReport
 from waggle.clock import FakeClock
-from waggle.ids import new_cell_id, new_warden_id
+from waggle.ids import GrantId, TaskId, new_cell_id, new_warden_id
 
 
 def test_headroom_is_zero_with_no_capacity_reported() -> None:
@@ -151,3 +152,77 @@ async def test_restore_is_a_no_op_with_no_store() -> None:
     await ledger.restore()  # Must not raise.
 
     assert ledger.live_grants() == ()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 4.8: shared_seats headroom, record_spend, and the three sub-books restoring
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_headroom_shared_seats_is_zero_with_no_declared_capacity() -> None:
+    ledger = ForageLedger()
+
+    assert ledger.headroom().shared_seats == 0
+
+
+async def test_headroom_shared_seats_subtracts_reserve_and_live_grant_reservations() -> None:
+    ledger = ForageLedger(reserve=make_reserve(seats=1, headroom_fraction=0.0))
+    await ledger.seats.set_capacity("src_1", 10)
+    clock = FakeClock()
+    grant = make_grant(
+        clock=clock,
+        state=GrantState.ACTIVE,
+        seats=(SeatReservation(source_id="src_1", seats=3),),
+    )
+
+    await ledger.record_grant(grant)
+
+    # 10 total - 1 reserve seat - 3 reserved by the live grant = 6.
+    assert ledger.headroom().shared_seats == 6
+
+
+def test_headroom_shared_seats_never_goes_negative() -> None:
+    ledger = ForageLedger(reserve=make_reserve(seats=5, headroom_fraction=0.0))
+
+    assert ledger.headroom().shared_seats == 0
+
+
+async def test_record_spend_accumulates_per_goal_and_updates_the_grants_own_spent_field() -> None:
+    ledger = ForageLedger()
+    clock = FakeClock()
+    grant = make_grant(clock=clock, state=GrantState.ACTIVE, spent=0.0)
+    await ledger.record_grant(grant)
+    goal_id = TaskId("task_abc")
+
+    await ledger.record_spend(grant.id, goal_id, 1.5)
+    await ledger.record_spend(grant.id, goal_id, 0.5)
+
+    assert ledger.spend.for_goal(goal_id) == 2.0
+    updated = ledger.grant(grant.id)
+    assert updated is not None
+    assert updated.spent == 2.0
+
+
+async def test_record_spend_with_an_unknown_grant_still_records_the_goal_total() -> None:
+    ledger = ForageLedger()
+    goal_id = TaskId("task_abc")
+
+    await ledger.record_spend(GrantId("grant_unknown"), goal_id, 1.0)
+
+    assert ledger.spend.for_goal(goal_id) == 1.0
+
+
+async def test_restore_also_restores_the_three_roadmap_4_8_sub_books() -> None:
+    store = InMemoryLedgerStore()
+    clock = FakeClock()
+    original = ForageLedger(store=store)
+    await original.seats.set_capacity("src_1", 4)
+    grant = make_grant(clock=clock, state=GrantState.ACTIVE)
+    await original.record_grant(grant)
+    await original.record_spend(grant.id, TaskId("task_abc"), 2.0)
+
+    restored = ForageLedger(store=store)
+    await restored.restore()
+
+    assert restored.seats.total_capacity() == 4
+    assert restored.spend.for_goal(TaskId("task_abc")) == 2.0

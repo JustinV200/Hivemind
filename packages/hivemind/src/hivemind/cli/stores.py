@@ -25,9 +25,10 @@ responder-installing `"fake"` factory for `hive run`'s own tests.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.tasks` and
     `hivemind.cli.trail` (the store functions) and by `hivemind.cli.llm` (the manifest-conversion
-    functions), and by every later CLI step that needs a live `ProviderRegistry`. Calls into
+    functions), and by every later CLI step that needs a live `ProviderRegistry`;
+    `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8). Calls into
     `hivemind.brood_chamber`, `hivemind.common.sqlite`, `hivemind.pheromone`, `hivemind.forage`,
-    `hivemind.llm` and `hivemind.manifest`.
+    `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
 
 Key invariants:
     - `open_chamber` always applies the Pheromone Trail's migrations on its own connection before
@@ -70,7 +71,7 @@ Public API:
     - DEFAULT_MANIFEST, ManifestOption, JsonOption: the shared `--manifest`/`--json` typer option
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
-    - open_trail, open_chamber, open_memory: the three store composition functions.
+    - open_trail, open_chamber, open_memory, open_ledger: the four store composition functions.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
       conversion functions.
 """
@@ -100,6 +101,7 @@ from hivemind.llm import (
 from hivemind.manifest import HiveManifest, ManifestError, load_manifest
 from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
+from hivemind.queen.forage.ledger import SqliteLedgerStore
 from waggle.clock import Clock, SystemClock
 
 # Shared so `hive tasks`, `hive trail` and `hive capping` declare `--db` with the exact same flag
@@ -134,6 +136,7 @@ __all__ = [
     "build_registry",
     "load_manifest_or_exit",
     "open_chamber",
+    "open_ledger",
     "open_memory",
     "open_trail",
     "provider_configs",
@@ -210,6 +213,29 @@ def open_memory(db: Path) -> MemoryStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_ledger(db: Path) -> SqliteLedgerStore:
+    """Open `db` and return a ready SqliteLedgerStore, applying its migrations first.
+
+    Roadmap step 4.8: `hivemind.cli.compose.deps.build_queen_deps` calls this so
+    `hivemind.queen.forage.ledger.book.ForageLedger` is backed by durable SQLite in production,
+    restoring its own in-memory tables from whatever this store already held
+    (`ForageLedger.restore`); `hivemind.queen.forage.ledger.InMemoryLedgerStore` stays the store a
+    test builds directly when it wants no file at all.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteLedgerStore whose tables exist and are current.
+    """
+
+    async def _open() -> SqliteLedgerStore:
+        connection = connect(db)
+        return await SqliteLedgerStore.create(connection, SystemClock())
 
     return asyncio.run(_open())
 

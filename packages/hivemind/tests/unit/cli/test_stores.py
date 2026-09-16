@@ -15,6 +15,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import importlib.resources
 from pathlib import Path
 
 import pytest
@@ -25,14 +26,19 @@ from hivemind.cli.stores import (
     build_forage_map,
     build_registry,
     open_chamber,
+    open_ledger,
     open_trail,
     provider_configs,
     resolve_db,
     slot_bindings,
 )
+from hivemind.common.migrations import applied_versions, apply_migrations, load_migrations
+from hivemind.common.sqlite import connect
 from hivemind.forage import ModelSlot
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
+from hivemind.queen.forage.ledger import SqliteLedgerStore
+from hivemind.queen.forage.ledger.store_sqlite import SUBSYSTEM as LEDGER_SUBSYSTEM
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import new_hive_id, new_node_id
 
@@ -96,6 +102,40 @@ def test_open_chamber_works_on_a_file_open_trail_already_migrated(tmp_path: Path
     chamber = open_chamber(db, _identity())
 
     assert asyncio.run(chamber.list(TaskFilter())) == ()
+
+
+def test_open_ledger_returns_a_ready_sqlite_ledger_store_on_a_fresh_file(tmp_path: Path) -> None:
+    # Roadmap step 4.8: open_ledger runs its own asyncio.run internally, the same seam every
+    # other open_* function here uses (this module's own docstring).
+    store = open_ledger(tmp_path / "hive.sqlite3")
+
+    assert isinstance(store, SqliteLedgerStore)
+    assert asyncio.run(store.list_capacities()) == ()
+    assert asyncio.run(store.list_grants()) == ()
+
+
+def test_open_ledger_applies_both_migrations_on_a_fresh_file(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+
+    open_ledger(db)
+
+    connection = connect(db)
+    assert applied_versions(connection, LEDGER_SUBSYSTEM) == (1, 2)
+
+
+def test_open_ledger_applies_0002_on_a_db_that_already_has_0001(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+    connection = connect(db)
+    # Apply only migration 1 by hand, simulating a database created before 0002 existed.
+    migrations = load_migrations(importlib.resources.files("hivemind.queen.forage.ledger"))
+    apply_migrations(connection, LEDGER_SUBSYSTEM, migrations[:1], SystemClock())
+    assert applied_versions(connection, LEDGER_SUBSYSTEM) == (1,)
+    connection.close()
+
+    open_ledger(db)  # A fresh open, mirroring how a real CLI command reopens the file.
+
+    reopened = connect(db)
+    assert applied_versions(reopened, LEDGER_SUBSYSTEM) == (1, 2)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

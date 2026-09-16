@@ -5,8 +5,11 @@ Forage ledger row, with "SQLite" as the store and "Yes" under "survives a Queen 
 row's own "Recovery" column reads "Reconciled against fresh capacity reports on Requeening",
 which is why this protocol persists every Cell's latest capacity and every Warden's usage report
 too, not only grants -- a restart reconciles what it can from fresh reports, but a live grant
-itself (a lease a Warden is already spending against) has to survive the gap in between. This
-module fixes the one seam both implementations
+itself (a lease a Warden is already spending against) has to survive the gap in between. Roadmap
+step 4.8 adds four more small tables the same "hosting decisions" phrase names: a shared source's
+declared seat capacity, spend recorded per goal, each Cell's written `HostingPlan` and each
+Warden's set `Ceilings` -- every one an upsert keyed by its own id, following the same shape as
+the four this protocol already had. This module fixes the one seam both implementations
 (`hivemind.queen.forage.ledger.store_memory.InMemoryLedgerStore`,
 `hivemind.queen.forage.ledger.store_sqlite.SqliteLedgerStore`) must honour, following the same
 Protocol-plus-two-implementations shape `hivemind.memory.store.protocol.MemoryStore` uses for the
@@ -15,10 +18,10 @@ memory tables.
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage
     sub-package. Implemented by `hivemind.queen.forage.ledger.store_memory` and `.store_sqlite`;
-    used by `hivemind.queen.forage.ledger.book.ForageLedger` to write through every mutation and to
-    restore its own in-memory state on start. Calls into `hivemind.forage` (ForageCapacity,
-    ForageGrant, RoyalReserve), `hivemind.queen.forage.ledger.model` (LocalPoolReport) and waggle
-    only.
+    used by `hivemind.queen.forage.ledger.book.ForageLedger` to write through every mutation and
+    to restore its own in-memory state on start. Calls into `hivemind.forage` (Ceilings,
+    ForageCapacity, ForageGrant, HostingPlan, RoyalReserve),
+    `hivemind.queen.forage.ledger.model` (LocalPoolReport) and waggle only.
 
 Key invariants:
     - Every `put_*` is an upsert keyed by the id named in its own signature: a second call with the
@@ -27,8 +30,9 @@ Key invariants:
       report replacing whatever it last reported.
     - `delete_grant` is idempotent: deleting an id that is not stored is a no-op, not an error,
       matching `hivemind.memory.store.protocol.MemoryStore.remove_pin`'s own contract.
-    - `get_reserve`/`list_capacities`/`list_local_reports`/`list_grants` never raise for an empty
-      store; they return the store's own defaults or empty collections.
+    - `get_reserve`/`list_capacities`/`list_local_reports`/`list_grants`/`list_seat_capacities`/
+      `list_spend_by_goal`/`list_hosting_plans`/`list_ceilings` never raise for an empty store;
+      they return the store's own defaults or empty collections.
 
 See Also:
     - .claude/codingrules.md Appendix C, "Capacity, grants, hosting decisions, snapshots" row, for
@@ -41,9 +45,9 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from hivemind.forage import ForageCapacity, ForageGrant, RoyalReserve
+from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
 from hivemind.queen.forage.ledger.model import LocalPoolReport
-from waggle.ids import CellId, GrantId
+from waggle.ids import CellId, GrantId, TaskId, WardenId
 
 __all__ = ["LedgerStore"]
 
@@ -112,4 +116,55 @@ class LedgerStore(Protocol):
 
     async def get_reserve(self) -> RoyalReserve | None:
         """Return the stored Royal Reserve, or None when nothing has been stored yet."""
+        ...
+
+    async def put_seat_capacity(self, source_id: str, seats_total: int) -> None:
+        """Upsert a shared source's declared total seats.
+
+        Args:
+            source_id: The Forage map source this capacity is on.
+            seats_total: The source's total concurrent-request capacity.
+        """
+        ...
+
+    async def list_seat_capacities(self) -> tuple[tuple[str, int], ...]:
+        """Return every stored `(source_id, seats_total)` pair, in no particular order."""
+        ...
+
+    async def put_spend_by_goal(self, goal_id: TaskId, spend_usd: float) -> None:
+        """Upsert a goal's cumulative recorded spend.
+
+        Args:
+            goal_id: The goal (a `TaskId`) this spend is recorded against.
+            spend_usd: The goal's new running total, in US dollars.
+        """
+        ...
+
+    async def list_spend_by_goal(self) -> tuple[tuple[TaskId, float], ...]:
+        """Return every stored `(goal_id, spend_usd)` pair, in no particular order."""
+        ...
+
+    async def put_hosting_plan(self, plan: HostingPlan) -> None:
+        """Upsert a Cell's written HostingPlan, keyed by `plan.cell_id`.
+
+        Args:
+            plan: The plan to store, replacing any earlier revision for the same Cell.
+        """
+        ...
+
+    async def list_hosting_plans(self) -> tuple[HostingPlan, ...]:
+        """Return every stored HostingPlan, in no particular order."""
+        ...
+
+    async def put_ceilings(self, holder: WardenId, ceilings: Ceilings) -> None:
+        """Upsert a Warden's set Ceilings, keyed by `holder`.
+
+        Args:
+            holder: The Warden these ceilings apply to.
+            ceilings: The ceilings to store, replacing any earlier ones for the same Warden.
+        """
+        ...
+
+    async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
+        """Return every stored `(holder, ceilings)` pair, in no particular order."""
         ...

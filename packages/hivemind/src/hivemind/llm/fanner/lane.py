@@ -146,18 +146,26 @@ class Fanner:
         """Return this Fanner's collaborators, for its own FannerLanes to call back into."""
         return self._deps
 
-    def lane(self, tempo: Tempo) -> FannerLane:
+    def lane(
+        self, tempo: Tempo, grant_id: str | None = None, goal_id: str | None = None
+    ) -> FannerLane:
         """Build a FannerLane for one bee or call site, ordered in every queue by `tempo`.
 
         Args:
             tempo: The calling bee's speed-against-accuracy setting; orders this lane's calls in
                 every SeatMeter queue and sets its spill threshold.
+            grant_id: The grant the calls on this lane draw against, if the caller knows one at
+                lane-construction time; carried onto every `llm.call` this lane records
+                (roadmap step 4.8's own attribution note -- see `FannerLane`'s own docstring for
+                why this is the finest grain available without a caller-side change outside this
+                package's own file list).
+            goal_id: The goal those calls serve, on the same terms as `grant_id`.
 
         Returns:
             A `hivemind.llm.ladders.gate.CallGate` a ladder or a bee can call `complete` on
             directly, or pass as a ladder's `gate=`.
         """
-        return FannerLane(self, tempo)
+        return FannerLane(self, tempo, grant_id=grant_id, goal_id=goal_id)
 
     def in_flight(self, provider: str) -> int:
         """Return how many calls on `provider` are running right now.
@@ -219,7 +227,14 @@ class FannerLane:
     `gate=` with no code of its own aware the Fanner exists.
     """
 
-    def __init__(self, fanner: Fanner, tempo: Tempo) -> None:
+    def __init__(
+        self,
+        fanner: Fanner,
+        tempo: Tempo,
+        *,
+        grant_id: str | None = None,
+        goal_id: str | None = None,
+    ) -> None:
         """Bind this lane to its owning Fanner and the tempo that orders its queued calls.
 
         Args:
@@ -228,9 +243,22 @@ class FannerLane:
             tempo: This lane's speed-against-accuracy setting; sets its place in every seat queue
                 and its spill threshold (`hivemind.llm.fanner.spill.SPILL_WAIT_FRACTION` of its
                 latency budget).
+            grant_id: Carried onto every `llm.call` this lane records, when the caller passed one
+                to `Fanner.lane`. Roadmap step 4.8's own attribution note: neither
+                `hivemind.llm.models.LLMRequest` nor `hivemind.llm.slots.BoundModel` carries a
+                grant or a goal id today, and both live outside this package's own file list, so
+                the finest attribution this module can offer is per lane -- one Warden's (or the
+                Queen's) shared `CallGate` -- not per individual call. A lane built for a whole
+                Warden therefore attributes every sub-bee's call to the same grant and goal, which
+                is exactly right while a Warden holds one grant at a time and drifts once it holds
+                several; see this package's README for the precise callers a future dispatch would
+                need to change to narrow this further.
+            goal_id: The goal those calls serve, on the same terms as `grant_id`.
         """
         self._fanner = fanner
         self._tempo = tempo
+        self._grant_id = grant_id
+        self._goal_id = goal_id
 
     async def complete(self, bound: BoundModel, request: LLMRequest) -> LLMResponse:
         """Run `request` through `bound`'s chain, metering and spilling as needed.
@@ -305,14 +333,23 @@ class FannerLane:
         # (hivemind.llm.ladders.gate.DirectCallGate's own docstring); stamped on a copy since
         # every LLMRequest is frozen.
         stamped = request.model_copy(update={"model": attempt.bound.model})
+        source_id = attempt.source.source_id if attempt.source is not None else None
+        provider = attempt.bound.provider.name
         start_s = self._fanner.deps.clock.monotonic()
+        # Roadmap step 4.8: the seat is already held (SeatMeter.acquire, in _meter) by this point,
+        # so call_started brackets the actual window a shared source's seat is in flight on,
+        # regardless of how long queueing for it took.
+        await self._fanner.deps.recorder.call_started(source_id, provider)
         try:
             # External await: the actual model call. Its own timeout is the provider adapter's
             # concern (llm/providers/<name>); the Fanner only measures how long it took.
             response = await attempt.bound.provider.complete(stamped)
         finally:
-            # Always release, success or error, so a raised exception never leaks a held seat.
+            # Always release, success or error, so a raised exception never leaks a held seat;
+            # call_finished always matches call_started for the same reason (LlmEventRecorder's
+            # own "Key invariants").
             await attempt.seat_meter.release()
+            await self._fanner.deps.recorder.call_finished(source_id, provider)
         latency_s = self._fanner.deps.clock.monotonic() - start_s
         actual_tokens = response.usage.input_tokens + response.usage.output_tokens
         attempt.rate_limiter.observe_actual_tokens(attempt.estimated_tokens, actual_tokens)
@@ -344,10 +381,9 @@ class FannerLane:
                 requests_per_minute_left=snapshot.requests_remaining if snapshot else None,
                 tokens_per_minute_left=snapshot.tokens_remaining if snapshot else None,
             )
+        payload = _call_payload(attempt.bound, response, latency_s, self._grant_id, self._goal_id)
         await self._fanner.deps.recorder.record(
-            kind=LLM_CALL_KIND,
-            subject_id=new_event_id(self._fanner.deps.clock),
-            payload=_call_payload(attempt.bound, response, latency_s),
+            kind=LLM_CALL_KIND, subject_id=new_event_id(self._fanner.deps.clock), payload=payload
         )
 
     async def _spill(self, current: BoundModel, target: BoundModel, reason: SpillReason) -> None:
@@ -382,10 +418,24 @@ class FannerLane:
         )
 
 
-def _call_payload(current: BoundModel, response: LLMResponse, latency_s: float) -> JsonObject:
-    """Build the llm.call payload: LlmEvent's required fields for that kind, plus latency."""
+def _call_payload(
+    current: BoundModel,
+    response: LLMResponse,
+    latency_s: float,
+    grant_id: str | None,
+    goal_id: str | None,
+) -> JsonObject:
+    """Build the llm.call payload: LlmEvent's required fields for that kind, plus latency.
+
+    `grant_id`/`goal_id` (roadmap step 4.8) are omitted from the payload entirely when the lane
+    that made this call carries neither (the common case today, since no composition-root caller
+    yet passes them to `Fanner.lane` -- see `FannerLane.__init__`'s own docstring), rather than
+    written as an explicit `None`: `hivemind.queen.forage.ledger.recorder.LedgerRecorder` treats a
+    missing key exactly like an explicit `None`, so this is purely about keeping an ordinary
+    trail payload free of two keys that never carry information.
+    """
     usage = response.usage
-    return {
+    payload: JsonObject = {
         "slot": current.slot.value,
         "provider": current.provider.name,
         "usage": {
@@ -398,6 +448,11 @@ def _call_payload(current: BoundModel, response: LLMResponse, latency_s: float) 
         },
         "latency_s": latency_s,
     }
+    if grant_id is not None:
+        payload["grant_id"] = grant_id
+    if goal_id is not None:
+        payload["goal_id"] = goal_id
+    return payload
 
 
 def _spill_payload(current: BoundModel, target: BoundModel, reason: SpillReason) -> JsonObject:

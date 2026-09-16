@@ -166,7 +166,14 @@ class LocalPoolUsage(BaseModel):
 
 
 class CeilingsReport(BaseModel):
-    """The wire form of Ceilings: what a Warden may use of its own Cell without asking."""
+    """The wire form of Ceilings: what a Warden may use of its own Cell without asking.
+
+    Roadmap step 4.8 adds `scratch_disk_bytes_per_lease` and `resident_basket_disk_bytes`: a
+    minor protocol addition, documented the same way ADR-0016's own field list was -- both new
+    fields default to 0 ("no ceiling beyond the Cell's own free disk"), so an older sender's
+    message still validates and a receiver that has not yet read this field sees the same
+    behaviour as before.
+    """
 
     model_config = VALUE_MODEL_CONFIG
 
@@ -183,6 +190,18 @@ class CeilingsReport(BaseModel):
     )
     exportable_seats: int = Field(
         ge=0, description="Seats on the Cell's servers the Warden may lend to the shared pool."
+    )
+    scratch_disk_bytes_per_lease: int = Field(
+        default=0,
+        ge=0,
+        description="Disk the Warden may give one Real Cell lease's scratch directory; 0 means "
+        "no ceiling beyond the Cell's own free disk.",
+    )
+    resident_basket_disk_bytes: int = Field(
+        default=0,
+        ge=0,
+        description="Disk the Warden may keep resident for its own Comb Basket; 0 means no "
+        "ceiling beyond the Cell's own free disk.",
     )
 
 

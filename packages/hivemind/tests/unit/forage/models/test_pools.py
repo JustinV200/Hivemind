@@ -64,6 +64,24 @@ def test_ceilings_round_trips_through_the_wire_form() -> None:
     assert Ceilings.from_wire(wire) == original
 
 
+def test_ceilings_scratch_and_basket_disk_default_to_zero() -> None:
+    # Roadmap step 4.8's own two additions: 0 means "no ceiling beyond the Cell's own free disk".
+    ceilings = _ceilings()
+
+    assert ceilings.scratch_disk_bytes_per_lease == 0
+    assert ceilings.resident_basket_disk_bytes == 0
+
+
+def test_ceilings_scratch_and_basket_disk_round_trip_through_the_wire_form() -> None:
+    original = _ceilings(scratch_disk_bytes_per_lease=1_000, resident_basket_disk_bytes=2_000)
+
+    wire = original.to_wire()
+
+    assert wire.scratch_disk_bytes_per_lease == 1_000
+    assert wire.resident_basket_disk_bytes == 2_000
+    assert Ceilings.from_wire(wire) == original
+
+
 def test_ceilings_rejects_max_sub_bees_above_the_wire_bound() -> None:
     with pytest.raises(ValidationError):
         _ceilings(max_sub_bees=1_000)

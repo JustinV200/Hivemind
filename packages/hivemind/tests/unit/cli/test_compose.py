@@ -22,11 +22,14 @@ from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest, pump_until_done
+from builders.forage import make_grant
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStore, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import GoalReport, Hive, HiveStores, build_hive, run_goal, run_hive
+from hivemind.cli.stores import open_ledger
 from hivemind.forage import RoleFootprint, RoyalReserve
+from hivemind.forage.grant_state import GrantState
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
     FakeLLMProvider,
@@ -225,6 +228,26 @@ def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_p
     # reserve, rather than falling back to QueenDeps's own default-constructed one.
     assert isinstance(deps.ledger, ForageLedger)
     assert deps.ledger.reserve == deps.reserve
+
+
+def test_build_hive_wires_the_queen_deps_ledger_over_sqlite_and_restores_it(
+    tmp_path: Path,
+) -> None:
+    # Roadmap step 4.8: build_queen_deps opens a SqliteLedgerStore on [hive] db (even when the
+    # trail/chamber/memory stores themselves were overridden with in-memory fakes, since a
+    # ForageLedger's own store is wired independently of HiveStores) and restores from it.
+    clock = FakeClock()
+    manifest = load_manifest(fake_manifest(tmp_path, clock=clock), {})
+    stores = _in_memory_stores(clock, manifest)
+    hive = build_hive(manifest, environ={}, clock=clock, stores=stores)
+    grant = make_grant(clock=clock, state=GrantState.ACTIVE, max_sub_bees=3)
+    asyncio.run(hive.queen._deps.ledger.record_grant(grant))
+
+    db = manifest.resolve_path(manifest.hive.db)
+    restored = ForageLedger(reserve=manifest.forage.reserve, store=open_ledger(db))
+    asyncio.run(restored.restore())
+
+    assert restored.grant(grant.id) == grant
 
 
 @pytest.fixture

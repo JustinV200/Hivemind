@@ -1,12 +1,16 @@
 """Divide the Hive's shared Forage pool among Wardens on the Queen's behalf.
 
 This package is queen-scoped, distinct from the Layer 1 `hivemind.forage` package, and sets
-ceilings per Warden plus hosting plans for where each model runs. Roadmap step 4.7 gives it its
+ceilings per Warden plus hosting plans for where each model runs. Roadmap step 4.7 gave it its
 first real modules: `ledger` (the live book: every Cell's latest capacity, every Warden's local
 report, every live grant, the Royal Reserve and the headroom they leave -- see that sub-package's
 own docstring), `grants` (a grant's own lease -- issue, renew on heartbeat, shrink, revoke, expire
 -- every edge through `hivemind.forage.grant_state`) and `requests` (`ForageRequest` handling:
-within headroom by autopilot, contested by awake).
+within headroom by autopilot, contested by awake). Roadmap step 4.8 adds `hosting`
+(`write_hosting_plan`, a Cell's `HostingPlan` from the map and ledger) and `ceilings`
+(`set_ceilings`/`change_ceilings`, a Warden's local-pool bounds), and extends the ledger with
+shared-seat, per-goal-spend, hosting-plan and ceilings tables `requests` now reads for its
+SHARED_SEATS and SPEND checks.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
@@ -22,15 +26,20 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under queen.
     - .claude/roadmap.md step 4.7 for the work that first populates it.
+    - .claude/roadmap.md step 4.8 for hosting plans, ceilings and the ledger's own additions.
 
-Public API (roadmap step 4.7):
-    - ForageLedger, Headroom, LocalPoolReport, LedgerStore, InMemoryLedgerStore,
-      SqliteLedgerStore, apply_ledger_migrations: the live book and its persistence (ledger).
+Public API (roadmap steps 4.7-4.8):
+    - ForageLedger, Headroom, LocalPoolReport, SeatBook, SpendBook, DecisionBook, LedgerRecorder,
+      LedgerStore, InMemoryLedgerStore, SqliteLedgerStore, apply_ledger_migrations: the live book,
+      its three sub-books, its Fanner-facing feed and its persistence (ledger).
     - activate, revise, renew_grants_for_warden, revoke, sweep_expired: a grant's own lease
       (grants).
     - ForageRequestOutcome, handle_sub_bee_request: ForageRequest handling (requests).
+    - PlanReason, write_hosting_plan: a Cell's HostingPlan (hosting).
+    - set_ceilings, change_ceilings: a Warden's local-pool bounds (ceilings).
 """
 
+from hivemind.queen.forage.ceilings import change_ceilings, set_ceilings
 from hivemind.queen.forage.grants import (
     activate,
     renew_grants_for_warden,
@@ -38,30 +47,43 @@ from hivemind.queen.forage.grants import (
     revoke,
     sweep_expired,
 )
+from hivemind.queen.forage.hosting import PlanReason, write_hosting_plan
 from hivemind.queen.forage.ledger import (
+    DecisionBook,
     ForageLedger,
     Headroom,
     InMemoryLedgerStore,
+    LedgerRecorder,
     LedgerStore,
     LocalPoolReport,
+    SeatBook,
+    SpendBook,
     SqliteLedgerStore,
     apply_ledger_migrations,
 )
 from hivemind.queen.forage.requests import ForageRequestOutcome, handle_sub_bee_request
 
 __all__ = [
+    "DecisionBook",
     "ForageLedger",
     "ForageRequestOutcome",
     "Headroom",
     "InMemoryLedgerStore",
+    "LedgerRecorder",
     "LedgerStore",
     "LocalPoolReport",
+    "PlanReason",
+    "SeatBook",
+    "SpendBook",
     "SqliteLedgerStore",
     "activate",
     "apply_ledger_migrations",
+    "change_ceilings",
     "handle_sub_bee_request",
     "renew_grants_for_warden",
     "revise",
     "revoke",
+    "set_ceilings",
     "sweep_expired",
+    "write_hosting_plan",
 ]

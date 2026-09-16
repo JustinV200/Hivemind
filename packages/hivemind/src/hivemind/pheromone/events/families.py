@@ -31,7 +31,8 @@ Vocabulary (family -> kind -> when it is recorded):
         requested (a ForageRequest was made); granted (a ForageGrant was issued); denied (a
         request was refused); revoked (a standing grant was pulled back); expired (a grant's
         expires_at passed unrenewed); hosting_decided (a HostingPlan was chosen for a Cell);
-        plan_written (the chosen HostingPlan was recorded with its reason).
+        plan_written (the chosen HostingPlan was recorded with its reason); ceilings_set (the
+        Queen set or changed a Warden's Ceilings, roadmap step 4.8).
     memory: checkpoint (a Handoff was written); handoff (control resumed from a Handoff, the other
         half of a checkpoint); reset (a threshold reset ran); compacted (a summary replaced older
         source records); wax_proposed (Cell Wax was proposed); wax_written (the Queen wrote it);
@@ -211,6 +212,7 @@ class ForageEvent(PheromoneEvent):
             "forage.expired",
             "forage.hosting_decided",
             "forage.plan_written",
+            "forage.ceilings_set",
         }
     )
 

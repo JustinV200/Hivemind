@@ -74,6 +74,18 @@ def test_model_source_spec_defaults_cost_seats_capabilities_and_host_cell_id() -
     assert spec.seats == 1
     assert spec.capabilities == ()
     assert spec.host_cell_id is None
+    assert spec.vram_bytes_required is None
+
+
+def test_model_source_spec_accepts_an_explicit_vram_requirement() -> None:
+    spec = _spec(vram_bytes_required=8 * 1024**3)
+
+    assert spec.vram_bytes_required == 8 * 1024**3
+
+
+def test_model_source_spec_rejects_a_non_positive_vram_requirement() -> None:
+    with pytest.raises(ValidationError, match="greater than 0"):
+        _spec(vram_bytes_required=0)
 
 
 @pytest.mark.parametrize("grade", [MIN_MODEL_GRADE - 1, MAX_MODEL_GRADE + 1])

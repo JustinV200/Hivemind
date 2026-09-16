@@ -58,18 +58,26 @@ every assignment goes to a Warden, over Waggle.
   Warden's own live grants (`liveness.renew_grants_on_heartbeat`) the same tick it resets liveness,
   and `check_liveness`'s own sweep now also returns any grant whose lease lapsed
   (`hivemind.queen.forage.grants.sweep_expired`) to the pool, unconditionally, every tick.
-- `queen.forage` (roadmap step 4.7): `ForageLedger` -- the Queen's live book of Forage: every
+- `queen.forage` (roadmap steps 4.7-4.8): `ForageLedger` -- the Queen's live book of Forage: every
   Cell's latest capacity, every Warden's own local-pool report (reported, never granted --
   codingrules 8.10), every live shared grant and the headroom they leave, backed by a
-  `LedgerStore` (`InMemoryLedgerStore`, `SqliteLedgerStore`). `grants` drives every grant edge
+  `LedgerStore` (`InMemoryLedgerStore`, `SqliteLedgerStore`); step 4.8 adds three sub-books
+  (`ledger.seats`, `.spend`, `.decisions`) for shared-seat capacity/usage, per-goal spend and
+  hosting-plan/ceilings decisions, and `LedgerRecorder`, a `hivemind.llm.fanner.LlmEventRecorder`
+  implementation that feeds the ledger from the Fanner without `llm` ever importing `queen`. See
+  `queen/forage/README.md` for the full module-by-module map. `grants` drives every grant edge
   (`activate`, `revise`, `renew_grants_for_warden`, `revoke`, `sweep_expired`) through
   `hivemind.forage.grant_state`'s own transition table, with a `forage.*` trail event
   (`hivemind.queen.trail.record_forage_event`) for every one that changes state. `requests`
-  (`handle_sub_bee_request`) answers a `SUB_BEES` `ForageRequest` against the ledger's own
-  headroom, through the autopilot rule in `queen.autopilot.forage.decide_forage_request` --
-  granted at once within headroom, denied (with a reason) otherwise, contested (could be met by
-  shrinking another live grant) recorded as `NEEDS_JUDGEMENT` at `Effort.HIGH` but not yet
-  resolved (`queen.awake` holds no action to shrink another grant; see that package's own report).
+  (`handle_sub_bee_request`) answers a Warden's `ForageRequest` against the ledger's own
+  headroom, through the autopilot rule in `queen.autopilot.forage.decide_forage_request`: SUB_BEES
+  (4.7), SHARED_SEATS and SPEND (4.8) are each granted at once within headroom, denied (with a
+  reason) otherwise, or (SUB_BEES/SHARED_SEATS only) contested (could be met by shrinking another
+  live grant) recorded as `NEEDS_JUDGEMENT` at `Effort.HIGH` but not yet resolved (`queen.awake`
+  holds no action to shrink another grant; see that package's own report); BINDING stays denied,
+  routing's own job from phase 8 on. `hosting.write_hosting_plan` and `ceilings.set_ceilings`/
+  `.change_ceilings` (4.8) write a Cell's `HostingPlan` and a Warden's `Ceilings`, each a pure
+  decision plus an effectful trail-and-ledger (and, for ceilings, Waggle) edge.
 - `queen.cluster`, `queen.requeening`, `queen.supersedure`: placeholders, populated in a later
   roadmap phase.
 

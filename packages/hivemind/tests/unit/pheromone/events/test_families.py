@@ -168,6 +168,12 @@ def test_llm_event_kinds_include_throttled() -> None:
     assert "llm.throttled" in LlmEvent.KINDS
 
 
+def test_forage_event_kinds_include_ceilings_set() -> None:
+    # Roadmap step 4.8: hivemind.queen.forage.ceilings.set_ceilings/change_ceilings record this
+    # kind whenever the Queen sets or changes a Warden's Ceilings.
+    assert "forage.ceilings_set" in ForageEvent.KINDS
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # EVENT_FAMILIES and event_class_for
 # ──────────────────────────────────────────────────────────────────────────────

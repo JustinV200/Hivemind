@@ -33,6 +33,15 @@ async def test_null_llm_event_recorder_discards_without_raising() -> None:
     await recorder.record(LLM_CALL_KIND, new_event_id(clock), {"slot": "WORKER"})
 
 
+async def test_null_llm_event_recorder_call_started_and_finished_are_no_ops() -> None:
+    # Roadmap step 4.8: every existing recorder keeps working with the two new Protocol members.
+    recorder = NullLlmEventRecorder()
+
+    await recorder.call_started("src_1", "fake")
+    await recorder.call_finished("src_1", "fake")
+    await recorder.call_started(None, "fake")  # An unresolved source is a legal argument too.
+
+
 def _build_trail_recorder() -> tuple[TrailLlmEventRecorder, MemoryPheromoneTrail, Clock]:
     """Wire a TrailLlmEventRecorder over a fresh MemoryPheromoneTrail, sharing one clock."""
     clock = FakeClock()
@@ -123,3 +132,16 @@ async def test_trail_llm_event_recorder_records_one_event_per_call() -> None:
     events = await trail.query(TrailQuery())
     assert len(events) == 2
     assert events[0].id != events[1].id
+
+
+async def test_trail_llm_event_recorder_call_started_and_finished_write_nothing_to_the_trail() -> (
+    None
+):
+    # Roadmap step 4.8: the trail records finished occurrences, not momentary in-flight state
+    # (codingrules Appendix C rule 4); both are no-ops here.
+    recorder, trail, _clock = _build_trail_recorder()
+
+    await recorder.call_started("src_1", "fake")
+    await recorder.call_finished("src_1", "fake")
+
+    assert await trail.query(TrailQuery()) == ()

@@ -41,6 +41,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,8 +52,15 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
 from hivemind.cli.compose.links import HiveLinks
-from hivemind.cli.stores import build_registry, open_chamber, open_memory, open_trail, slot_bindings
-from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, Tempo
+from hivemind.cli.stores import (
+    build_registry,
+    open_chamber,
+    open_ledger,
+    open_memory,
+    open_trail,
+    slot_bindings,
+)
+from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
 from hivemind.llm import (
     FakeLLMProvider,
     Fanner,
@@ -320,12 +328,37 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap) -> QueenDeps:
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,
-        # roadmap step 4.7: an in-memory-only ledger for now (ForageLedger(store=...) durability
-        # needs a raw sqlite3.Connection this function has no access to -- HiveStores only ever
-        # hands back the three already-wrapped stores; wiring a LedgerStore onto the Hive's own
-        # database file is a hivemind.cli.stores change, outside this dispatch's own file list).
-        ledger=ForageLedger(reserve=forage.reserve),
+        # roadmap step 4.8: a SqliteLedgerStore over the Hive's own [hive] db file, restored from
+        # whatever it already held (Appendix C: "Forage ledger (SQLite) | Yes... Reconciled
+        # against fresh capacity reports on Requeening"). InMemoryLedgerStore stays available for
+        # a test that builds a QueenDeps by hand instead of through this function.
+        ledger=_build_ledger(manifest, forage.reserve),
     )
+
+
+def _build_ledger(manifest: HiveManifest, reserve: RoyalReserve) -> ForageLedger:
+    """Build a ForageLedger over a SqliteLedgerStore on `manifest`'s own `[hive] db` file.
+
+    Roadmap step 4.8: opening the store and restoring the ledger from it both need
+    `asyncio.run`'s own fresh event loop, the same composition-root seam
+    `hivemind.cli.stores.open_trail` already uses (codingrules section 8.2) -- `open_ledger`
+    itself already does this for the open; `restore` needs its own call since it is a method on
+    an already-built `ForageLedger`, not a classmethod `open_ledger` could return in one step.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[hive] db` names
+            the file every store this Hive opens shares.
+        reserve: The `[forage.reserve]` Royal Reserve this ledger's headroom subtracts first.
+
+    Returns:
+        A ForageLedger whose in-memory tables already reflect whatever this Hive's database file
+        held before this call (empty, for a fresh one).
+    """
+    db = manifest.resolve_path(manifest.hive.db)
+    store = open_ledger(db)
+    ledger = ForageLedger(reserve=reserve, store=store)
+    asyncio.run(ledger.restore())
+    return ledger
 
 
 def _manifest_dir(manifest: HiveManifest) -> Path:

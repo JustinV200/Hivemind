@@ -4,20 +4,30 @@ The Fanner (`hivemind.llm.fanner.lane.FannerLane`, roadmap step 3.12a) is the se
 model call passes through, and codingrules section 12 requires that every state-changing action --
 a completed call, a spill from one binding to the next, a source masked after a rate limit
 (`llm.throttled`, roadmap step 4.7a) -- write a Pheromone Trail event (the Hive's append-only audit
-log) before it counts as done. This module is that seam: `LlmEventRecorder` is a one-method
-Protocol a lane calls with a raw `(kind, subject_id, payload)` triple, so `FannerLane` never
+log) before it counts as done. This module is that seam: `LlmEventRecorder.record` is a one-method
+call a lane makes with a raw `(kind, subject_id, payload)` triple, so `FannerLane` never
 constructs an `LlmEvent` (`hivemind.pheromone.events.families`) directly and never knows whether
 anything is listening -- a fourth occurrence kind is nothing more than a new `kind` string passed
-to the same `record` call, never a change to this module. `TrailLlmEventRecorder` is the
-implementation that actually builds one; `NullLlmEventRecorder` is the default that discards every
-occurrence, mirroring `hivemind.llm.ladders.observer.NullLadderObserver`'s own shape.
+to the same `record` call, never a change to this module. Roadmap step 4.8 adds two more Protocol
+members, `call_started`/`call_finished`: the Forage ledger's `hivemind.queen.forage.ledger.
+recorder.LedgerRecorder` needs to know a call is in flight on a given source *before* it completes
+(so a live "seats in use" figure means something while a call is still running), which `record`
+alone cannot give it -- `record` only ever fires once a call has already finished (`llm.call`) or
+already spilled (`llm.spill`); nothing fires at the moment a seat is actually taken. Every existing
+implementation keeps working: `NullLlmEventRecorder` and `TrailLlmEventRecorder` both take the two
+new members as no-ops, because neither has any notion of a live in-flight count to update (the
+Pheromone Trail is an audit log of what happened, not a place to record momentary state --
+codingrules Appendix C rule 4: "derived views... are never stored"). `TrailLlmEventRecorder` is
+the `record` implementation that actually builds an `LlmEvent`; `NullLlmEventRecorder` is the
+default that discards every occurrence, mirroring `hivemind.llm.ladders.observer.
+NullLadderObserver`'s own shape.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.fanner`. Called by
     `hivemind.llm.fanner.lane.FannerLane` once per completed call (`llm.call`), once per spill
-    (`llm.spill`) and once per throttle (`llm.throttled`). Calls into `hivemind.llm.models` (for
-    `JsonObject`), `hivemind.pheromone` (for `LlmEvent`, `LlmUsage` and `PheromoneTrail`) and
-    `waggle` only.
+    (`llm.spill`), once per throttle (`llm.throttled`), and around each call's own seat hold
+    (`call_started`/`call_finished`). Calls into `hivemind.llm.models` (for `JsonObject`),
+    `hivemind.pheromone` (for `LlmEvent`, `LlmUsage` and `PheromoneTrail`) and `waggle` only.
 
 Key invariants:
     - `LlmEvent` fixes `slot`, `provider` and `usage` as typed fields, not payload entries
@@ -31,14 +41,22 @@ Key invariants:
       does, with `waggle.ids.new_event_id`, so this module stays a pure "given a subject_id, record
       it" seam; this is flagged again in this dispatch's report as an open question for whichever
       later dispatch gives a call a real id.
+    - `call_started`/`call_finished` are always called in a matched pair around one call
+      (`FannerLane._call`'s own `try`/`finally`), so an implementation that counts them may assume
+      every `call_started` for a source is eventually followed by exactly one `call_finished` for
+      the same source, success or error alike.
 
 See Also:
     - .claude/codingrules.md section 8.10 for the Fanner's role as "the only place seat counts are
       enforced" and its trail-recording responsibility.
     - .claude/codingrules.md section 12 for the Pheromone Trail payload rules this recorder
       follows (ids and enum values only, never text).
+    - .claude/roadmap.md step 4.8 for "seats in use and free per shared source", the dimension
+      `call_started`/`call_finished` feed.
     - hivemind.llm.ladders.observer for TrailLadderObserver, the sibling seam this one mirrors.
     - hivemind.pheromone.events.families.LlmEvent for the trail event shape this recorder builds.
+    - hivemind.queen.forage.ledger.recorder for LedgerRecorder, the one implementation that gives
+      `call_started`/`call_finished` real behaviour.
 """
 
 from __future__ import annotations
@@ -77,12 +95,50 @@ class LlmEventRecorder(Protocol):
         """
         ...
 
+    async def call_started(self, source_id: str | None, provider: str) -> None:
+        """Report that a call is about to run, its seat already held (roadmap step 4.8).
+
+        Called once per call, right before the provider is actually awaited
+        (`FannerLane._call`); a recorder with no notion of live in-flight seats (every recorder
+        in this module) treats this as a no-op.
+
+        Args:
+            source_id: The Forage map source the call is on, or None when the map has never heard
+                of this (provider, model) pair.
+            provider: The manifest `[llm.providers.<name>]` key the call is on.
+        """
+        ...
+
+    async def call_finished(self, source_id: str | None, provider: str) -> None:
+        """Report that a call this recorder saw `call_started` for has now returned or raised.
+
+        Always called in a `finally` alongside the call's own seat release, so every
+        `call_started` is matched by exactly one of these (module docstring's own "Key
+        invariants").
+
+        Args:
+            source_id: The same value passed to the matching `call_started`.
+            provider: The same value passed to the matching `call_started`.
+        """
+        ...
+
 
 class NullLlmEventRecorder:
     """An LlmEventRecorder that discards every occurrence; the Fanner's default when none is set."""
 
     async def record(self, kind: str, subject_id: str, payload: JsonObject) -> None:
         """Discard the occurrence; see `LlmEventRecorder.record` for the full contract."""
+        return None
+
+    async def call_started(self, source_id: str | None, provider: str) -> None:
+        """No-op: this recorder tracks no live in-flight seats.
+
+        See `LlmEventRecorder.call_started` for the full contract.
+        """
+        return None
+
+    async def call_finished(self, source_id: str | None, provider: str) -> None:
+        """No-op; see `LlmEventRecorder.call_finished`."""
         return None
 
 
@@ -125,6 +181,17 @@ class TrailLlmEventRecorder:
             payload=remaining,
         )
         await self._trail.record(event)
+
+    async def call_started(self, source_id: str | None, provider: str) -> None:
+        """No-op: the trail records finished occurrences, not momentary state (Appendix C rule 4).
+
+        See `LlmEventRecorder.call_started` for the full contract.
+        """
+        return None
+
+    async def call_finished(self, source_id: str | None, provider: str) -> None:
+        """No-op; see `LlmEventRecorder.call_finished`."""
+        return None
 
 
 def _split_typed_fields(payload: JsonObject) -> tuple[JsonObject, JsonObject]:

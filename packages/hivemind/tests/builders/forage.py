@@ -59,6 +59,7 @@ _SPEC_FIELD_NAMES = frozenset(
         "capabilities",
         "seats",
         "host_cell_id",
+        "vram_bytes_required",  # Roadmap step 4.8.
     }
 )
 

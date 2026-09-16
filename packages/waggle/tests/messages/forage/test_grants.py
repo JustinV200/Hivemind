@@ -394,3 +394,22 @@ def test_plan_written_slot_names_are_unique_and_bounded() -> None:
     with pytest.raises(ValidationError, match=f"at most {MAX_SLOT_PLANS}"):
         # Slot names take letters only: the seventeen names are S, SA, SAA, ... not numbered.
         _rebuild(example, slots=tuple(_slot_plan("S" + "A" * i) for i in range(MAX_SLOT_PLANS + 1)))
+
+
+def test_ceilings_report_scratch_and_basket_disk_default_to_zero_and_round_trip() -> None:
+    # Roadmap step 4.8's own minor protocol addition: both default to 0 ("no ceiling beyond the
+    # Cell's own free disk"), so CEILINGS (built with neither named) still validates unchanged.
+    assert CEILINGS.scratch_disk_bytes_per_lease == 0
+    assert CEILINGS.resident_basket_disk_bytes == 0
+
+    named = CeilingsReport(
+        max_sub_bees=4,
+        model_vram_bytes=8 * GIB,
+        model_disk_bytes=32 * GIB,
+        loadable_sources=("nuc/small",),
+        exportable_seats=2,
+        scratch_disk_bytes_per_lease=2 * GIB,
+        resident_basket_disk_bytes=4 * GIB,
+    )
+    restored = CeilingsReport.model_validate_json(named.model_dump_json())
+    assert restored == named

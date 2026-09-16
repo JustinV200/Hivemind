@@ -35,19 +35,26 @@ from `hivemind.forage.models` and this package's own `__init__.py`:
   field -- the manifest's `[forage.roles.<role>]` table keys it), `ForageCapacity` (a Cell's
   report: `HostCapacity` plus its `Seat`s plus its own sub-bee cap).
 - **Forage map sources** (`models.sources`): `ModelCost`, `ModelSourceSpec` (the static half a
-  manifest's `[forage.map.<source_id>]` embeds directly), `Distance` and `Abundance` (the live
-  half), `ModelSource` (spec plus live figures; `source_ref()` builds the wire `SourceRef` other
-  models embed).
+  manifest's `[forage.map.<source_id>]` embeds directly; roadmap step 4.8 adds an optional
+  `vram_bytes_required`, read by `hivemind.queen.forage.hosting.write_hosting_plan` against a
+  Cell's free VRAM), `Distance` and `Abundance` (the live half). `Abundance` also carries
+  `throttled_until` (roadmap step 4.7a): `ForageMap.throttle` masks a source's headroom to zero
+  after a hosted provider's `RateLimitedError` until that instant, and the map's read methods
+  clear an expired mask with no timer. `ModelSource` (spec plus live figures; `source_ref()`
+  builds the wire `SourceRef` other models embed).
 - **Grants** (`models.grants`): `AllowedBinding`, `SeatReservation` (both convert to/from their
   wire forms), `ForageGrant` (`to_wire`/`from_wire` convert to/from `GrantIssued`), `ForageRequest`
-  (flattens the wire `ForageDelta` into its own fields), `ForageRequestKind` (mirrors the wire enum
-  member for member), `RoyalReserve` (what the Queen holds back before any grant; every field
-  defaults so an omitted `[forage.reserve]` section is still safe).
+  (flattens the wire `ForageDelta` into its own fields; roadmap step 4.8 gives `SHARED_SEATS` and
+  `SPEND` real ledger-backed handling in `hivemind.queen.forage.requests`), `ForageRequestKind`
+  (mirrors the wire enum member for member), `RoyalReserve` (what the Queen holds back before any
+  grant; every field defaults so an omitted `[forage.reserve]` section is still safe).
 - **Local pool and hosting** (`models.pools`): `LocalPool` (a Warden's own pool; its `reserve`
   field reuses `RoyalReserve`'s shape, scoped to one Cell), `Ceilings` (`to_wire`/`from_wire`
-  convert to/from `CeilingsReport`), `SourceChain` and `SlotPlan` (name sources by id; convert
-  to/from their wire forms given a `source_id -> ModelSource` mapping), `HostingPlan` (per Cell,
-  per slot, a chain plus a default).
+  convert to/from `CeilingsReport`; roadmap step 4.8 adds `scratch_disk_bytes_per_lease` and
+  `resident_basket_disk_bytes`, both defaulting to 0), `SourceChain` and `SlotPlan` (name sources
+  by id; convert to/from their wire forms given a `source_id -> ModelSource` mapping),
+  `HostingPlan` (per Cell, per slot, a chain plus a default; written by
+  `hivemind.queen.forage.hosting.write_hosting_plan`, roadmap step 4.8).
 - **`ForageMap`** (`hivemind.forage.map`): owns the map's live figures under one `asyncio.Lock`;
   `get`, `sources` and `for_slot` are synchronous reads, `observe` and `set_abundance` are the
   async writers. `SlotBinding` is the forage-side view of one `[llm.slots]` manifest row.

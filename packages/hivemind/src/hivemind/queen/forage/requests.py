@@ -7,34 +7,38 @@ behind that: it reads `hivemind.queen.forage.ledger.ForageLedger.headroom`, buil
 -- commits a revised `hivemind.forage.ForageGrant` to the ledger through `hivemind.queen.forage.
 grants.revise`. It never sends a wire message or writes a trail event itself: `hivemind.queen.
 ticks.forage` is the one caller, and it owns both (the same split `hivemind.queen.dispatcher`
-already keeps between minting a grant and sending it). v1 only evaluates `SUB_BEES` requests
-against real ledger headroom (`hivemind.queen.forage.ledger.model.Headroom`'s own module docstring
-explains why the ledger carries no shared spend or per-source seat ceiling to size the other three
-`ForageRequestKind` members against yet); a `SHARED_SEATS`, `SPEND` or `BINDING` request is denied
-with a reason naming that scope, never silently mishandled.
+already keeps between minting a grant and sending it). Roadmap step 4.7 shipped only `SUB_BEES`
+against real ledger headroom; step 4.8 (this module's own dispatch) adds `SHARED_SEATS` (checked
+against `ForageLedger.headroom().shared_seats`, growing the existing grant's own
+`SeatReservation` for the named source) and `SPEND` (checked against `ForageLedger.spend.
+headroom`, using `deps.budgets.spend_cap_usd`, never itself contested -- see `_handle_spend`'s own
+docstring for why). `BINDING` is still denied with a reason: codingrules section 8.10's routing
+(phase 8) is what picks a higher-grade binding, not the ledger.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage
     sub-package. Called by `hivemind.queen.ticks.forage`, once per received `ForageRequest`. Calls
-    into `hivemind.forage` (ForageGrant), `hivemind.queen.autopilot` (ForageAutopilotOutcome,
-    ForageRequestSignal, decide_forage_request), `hivemind.queen.deps` (QueenDeps),
-    `hivemind.queen.forage.grants` (revise) and `hivemind.queen.forage.ledger` (ForageLedger)
-    only.
+    into `hivemind.forage` (ForageGrant, SeatReservation), `hivemind.queen.autopilot`
+    (ForageAutopilotOutcome, ForageRequestSignal, decide_forage_request), `hivemind.queen.deps`
+    (QueenDeps), `hivemind.queen.forage.grants` (revise) and `hivemind.queen.forage.ledger`
+    (ForageLedger) only.
 
 Key invariants:
     - `handle_sub_bee_request` never mutates the ledger on a DENY or NEEDS_JUDGEMENT verdict:
       only `ForageAutopilotOutcome.GRANT` calls `grants.revise`.
-    - The revised grant's `max_sub_bees` is the existing grant's plus the wanted delta
-      (`waggle.messages.forage.values.ForageDelta.sub_bees` is "extra... wanted", an increment,
-      never a replacement), so a grant only ever grows through this path; shrinking a grant is a
-      Queen-initiated `hivemind.queen.forage.grants.revise` call this module does not make.
+    - Every dimension this module grants only ever grows the existing grant: `max_sub_bees`,
+      `spend_budget` and the named source's `SeatReservation.seats` are all incremented by the
+      wanted delta (`waggle.messages.forage.values.ForageDelta`'s own docstring: "wanted", never a
+      replacement); shrinking a grant is a Queen-initiated `hivemind.queen.forage.grants.revise`
+      call this module does not make.
 
 See Also:
     - .claude/roadmap.md step 4.7 for this module's own field-by-field description.
+    - .claude/roadmap.md step 4.8 for the SHARED_SEATS and SPEND checks this dispatch adds.
     - .claude/codingrules.md section 8.14 for "contested Forage" running at high effort -- the
       caller's own choice, not this module's.
     - hivemind.queen.autopilot.forage for the pure rule this module builds the signal for.
-    - hivemind.queen.forage.ledger.model for Headroom's own v1 scope (sub-bees only).
+    - hivemind.queen.forage.ledger.model for Headroom's own two dimensions.
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from hivemind.forage import ForageGrant
+from hivemind.forage.models.grants import SeatReservation
 from hivemind.queen.autopilot import (
     ForageAutopilotOutcome,
     ForageRequestSignal,
@@ -50,7 +55,7 @@ from hivemind.queen.autopilot import (
 )
 from hivemind.queen.forage import grants
 from hivemind.queen.forage.ledger import ForageLedger
-from waggle.ids import GrantId
+from waggle.ids import TaskId
 from waggle.messages.forage import ForageRequest as WireForageRequest
 from waggle.messages.forage.values import ForageRequestKind as WireForageRequestKind
 
@@ -61,11 +66,13 @@ if TYPE_CHECKING:
 
 __all__ = ["ForageRequestOutcome", "handle_sub_bee_request"]
 
-# The reason a non-SUB_BEES request is always denied in v1 (module docstring's own scope note).
-_OUT_OF_SCOPE_REASON = (
-    "v1 evaluates only SUB_BEES requests against the ledger's own headroom; SHARED_SEATS, SPEND "
-    "and BINDING requests have no configured shared ceiling to compute headroom from yet."
+# BINDING stays out of scope through phase 8's own routing (module docstring).
+_BINDING_OUT_OF_SCOPE_REASON = (
+    "BINDING requests pick a higher-grade binding for a slot, which is routing's job "
+    "(codingrules section 8.10, phase 8), not a ledger headroom check."
 )
+_SPEND_NEEDS_GOAL_REASON = "SPEND requests must name a task_id: the goal whose spend cap applies."
+_SEATS_NEED_SOURCE_REASON = "SHARED_SEATS requests must name a source_id."
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,19 +98,19 @@ async def handle_sub_bee_request(
 ) -> ForageRequestOutcome:
     """Decide, and if granted commit, one Warden's ForageRequest.
 
+    Named for the dimension roadmap step 4.7 shipped first; kept under this name across step 4.8
+    because `hivemind.queen.ticks.forage` (outside this dispatch's own file list) already imports
+    it by exactly this name -- see this dispatch's own report for the rename
+    (`handle_forage_request_for_kind`, say) a future dispatch touching that file should make.
+
     Args:
         ledger: The Queen's live book.
-        deps: The Queen's collaborators; unused directly today, carried for the same reason every
-            other `hivemind.queen.forage` entry point takes it -- a future dimension (spend,
-            tokens) will need `deps.clock`/`deps.reserve` the way `grants.py` already does.
+        deps: The Queen's collaborators; `budgets.spend_cap_usd` sizes a SPEND request's headroom.
         wire_request: The Warden's own request.
 
     Returns:
         The decision, and the revised grant when granted.
     """
-    if wire_request.kind is not WireForageRequestKind.SUB_BEES:
-        return ForageRequestOutcome(ForageAutopilotOutcome.DENY, None, _OUT_OF_SCOPE_REASON)
-
     existing = ledger.grant(wire_request.grant_id)
     if existing is None:
         return ForageRequestOutcome(
@@ -112,16 +119,34 @@ async def handle_sub_bee_request(
             f"Grant {wire_request.grant_id} is not known to the ledger; nothing to extend.",
         )
 
+    # One branch per WireForageRequestKind member (waggle.messages.forage.values); BINDING is the
+    # only one with no ledger-side check yet (module docstring).
+    if wire_request.kind is WireForageRequestKind.SUB_BEES:
+        return await _handle_sub_bees(ledger, existing, wire_request)
+    if wire_request.kind is WireForageRequestKind.SHARED_SEATS:
+        return await _handle_shared_seats(ledger, existing, wire_request)
+    if wire_request.kind is WireForageRequestKind.SPEND:
+        return await _handle_spend(ledger, deps, existing, wire_request)
+    return ForageRequestOutcome(ForageAutopilotOutcome.DENY, None, _BINDING_OUT_OF_SCOPE_REASON)
+
+
+async def _handle_sub_bees(
+    ledger: ForageLedger, existing: ForageGrant, wire_request: WireForageRequest
+) -> ForageRequestOutcome:
+    """Grow `existing.max_sub_bees` within the ledger's sub-bee headroom, or deny/defer."""
     wanted = wire_request.wanted.sub_bees
     headroom = ledger.headroom()
-    signal = ForageRequestSignal(
-        within_headroom=wanted <= headroom.sub_bees,
-        shrinkable=_shrinkable(ledger, existing.id, wanted, headroom.sub_bees),
+    other = sum(g.max_sub_bees for g in ledger.live_grants() if g.id != existing.id)
+    outcome = decide_forage_request(
+        ForageRequestSignal(
+            within_headroom=wanted <= headroom.sub_bees,
+            shrinkable=_shrinkable(other, wanted, headroom.sub_bees),
+        )
     )
-    outcome = decide_forage_request(signal)
     if outcome is not ForageAutopilotOutcome.GRANT:
-        return ForageRequestOutcome(outcome, None, _reason(outcome, wanted, headroom.sub_bees))
-
+        return ForageRequestOutcome(
+            outcome, None, _reason(outcome, "sub-bees", wanted, headroom.sub_bees)
+        )
     revised = existing.model_copy(
         update={"max_sub_bees": existing.max_sub_bees + wanted, "revision": existing.revision + 1}
     )
@@ -133,23 +158,109 @@ async def handle_sub_bee_request(
     )
 
 
-def _shrinkable(ledger: ForageLedger, exclude: GrantId, wanted: int, free: int) -> bool:
-    """Return whether shrinking every OTHER live grant to zero could cover the rest of `wanted`.
+async def _handle_shared_seats(
+    ledger: ForageLedger, existing: ForageGrant, wire_request: WireForageRequest
+) -> ForageRequestOutcome:
+    """Grow `existing`'s SeatReservation on the wanted source, within shared-seat headroom."""
+    source_id = wire_request.wanted.source_id
+    if source_id is None:
+        return ForageRequestOutcome(ForageAutopilotOutcome.DENY, None, _SEATS_NEED_SOURCE_REASON)
+
+    wanted = wire_request.wanted.seats
+    headroom = ledger.headroom()
+    other = sum(
+        seat.seats
+        for grant in ledger.live_grants()
+        if grant.id != existing.id
+        for seat in grant.seats
+    )
+    outcome = decide_forage_request(
+        ForageRequestSignal(
+            within_headroom=wanted <= headroom.shared_seats,
+            shrinkable=_shrinkable(other, wanted, headroom.shared_seats),
+        )
+    )
+    if outcome is not ForageAutopilotOutcome.GRANT:
+        return ForageRequestOutcome(
+            outcome, None, _reason(outcome, "shared seats", wanted, headroom.shared_seats)
+        )
+    revised = existing.model_copy(
+        update={
+            "seats": _grow_seat_reservation(existing.seats, source_id, wanted),
+            "revision": existing.revision + 1,
+        }
+    )
+    await grants.revise(ledger, revised)
+    return ForageRequestOutcome(
+        ForageAutopilotOutcome.GRANT,
+        revised,
+        f"{wanted} more seats on {source_id} granted from headroom "
+        f"({headroom.shared_seats} free before this).",
+    )
+
+
+async def _handle_spend(
+    ledger: ForageLedger, deps: QueenDeps, existing: ForageGrant, wire_request: WireForageRequest
+) -> ForageRequestOutcome:
+    """Grow `existing.spend_budget` within the requesting goal's remaining spend cap.
+
+    Never NEEDS_JUDGEMENT: a goal's spend cap (`deps.budgets.spend_cap_usd`) is not a shared pool
+    another live grant could be shrunk to relieve -- each goal has its own cap, so "contested"
+    has no meaning here the way it does for sub-bees or shared seats (module docstring).
+    """
+    goal_id: TaskId | None = wire_request.task_id
+    if goal_id is None:
+        return ForageRequestOutcome(ForageAutopilotOutcome.DENY, None, _SPEND_NEEDS_GOAL_REASON)
+
+    wanted = wire_request.wanted.spend
+    headroom = ledger.spend.headroom(goal_id, deps.budgets.spend_cap_usd)
+    outcome = decide_forage_request(
+        ForageRequestSignal(within_headroom=wanted <= headroom, shrinkable=False)
+    )
+    if outcome is not ForageAutopilotOutcome.GRANT:
+        return ForageRequestOutcome(outcome, None, _reason(outcome, "spend", wanted, headroom))
+    revised = existing.model_copy(
+        update={
+            "spend_budget": existing.spend_budget + wanted,
+            "revision": existing.revision + 1,
+        }
+    )
+    await grants.revise(ledger, revised)
+    return ForageRequestOutcome(
+        ForageAutopilotOutcome.GRANT,
+        revised,
+        f"${wanted:.2f} more spend for goal {goal_id} granted from headroom (${headroom:.2f} "
+        "free before this).",
+    )
+
+
+def _grow_seat_reservation(
+    seats: tuple[SeatReservation, ...], source_id: str, wanted: int
+) -> tuple[SeatReservation, ...]:
+    """Return `seats` with `source_id`'s own reservation grown by `wanted`, adding one if absent."""
+    for reservation in seats:
+        if reservation.source_id == source_id:
+            grown = reservation.model_copy(update={"seats": reservation.seats + wanted})
+            return tuple(grown if s.source_id == source_id else s for s in seats)
+    return (*seats, SeatReservation(source_id=source_id, seats=wanted))
+
+
+def _shrinkable(other: int, wanted: int, free: int) -> bool:
+    """Return whether `free` plus every other live grant's own committed amount covers `wanted`.
 
     A coarse over-approximation deliberately: this only decides whether the request is worth an
     awake episode's judgement (`hivemind.queen.autopilot.ForageAutopilotOutcome.NEEDS_JUDGEMENT`),
     never which grant to actually shrink -- that policy call is exactly what queen.awake does not
     yet support (this dispatch's own report names the gap).
     """
-    other = sum(g.max_sub_bees for g in ledger.live_grants() if g.id != exclude)
     return (free + other) >= wanted
 
 
-def _reason(outcome: ForageAutopilotOutcome, wanted: int, free: int) -> str:
+def _reason(outcome: ForageAutopilotOutcome, dimension: str, wanted: float, free: float) -> str:
     """Explain a DENY or NEEDS_JUDGEMENT verdict, for the trail and the wire ForageReply."""
     if outcome is ForageAutopilotOutcome.NEEDS_JUDGEMENT:
         return (
-            f"Wants {wanted} sub-bees against {free} free; cannot be met from headroom alone "
+            f"Wants {wanted} {dimension} against {free} free; cannot be met from headroom alone "
             "but shrinking another live grant could -- contested, needs judgement."
         )
-    return f"Wants {wanted} sub-bees against {free} free, and no other live grant to shrink."
+    return f"Wants {wanted} {dimension} against {free} free, and no other live grant to shrink."

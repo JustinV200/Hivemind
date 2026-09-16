@@ -144,6 +144,13 @@ class ModelSourceSpec(BaseModel):
         default=None,
         description="The Cell whose server serves this model; None for a hosted provider.",
     )
+    vram_bytes_required: Annotated[int, Field(gt=0)] | None = Field(
+        default=None,
+        description="VRAM this model needs to load locally, in bytes; None for a hosted source "
+        "with no local footprint to weigh against a Cell's free VRAM (roadmap step 4.8: "
+        "hivemind.queen.forage.hosting.write_hosting_plan reads this to check a candidate local "
+        "source against the Cell's free VRAM before naming it a plan's primary source).",
+    )
 
 
 class Distance(BaseModel):

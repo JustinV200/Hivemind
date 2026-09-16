@@ -44,10 +44,10 @@ import sqlite3
 
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.common.sqlite import transaction
-from hivemind.forage import ForageCapacity, ForageGrant, RoyalReserve
+from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
 from hivemind.queen.forage.ledger.model import LocalPoolReport
 from waggle.clock import Clock
-from waggle.ids import CellId, GrantId
+from waggle.ids import CellId, GrantId, TaskId, WardenId
 
 SUBSYSTEM = "queen_forage_ledger"  # Keys this subsystem's rows in the shared schema_migrations.
 # Dotted package path importlib.resources.files() reads the numbered .sql files from; the module
@@ -78,6 +78,33 @@ _UPSERT_RESERVE_SQL = (
     "ON CONFLICT (id) DO UPDATE SET body = excluded.body"
 )
 _SELECT_RESERVE_SQL = "SELECT body FROM forage_ledger_reserve WHERE id = 1"
+
+# Roadmap step 4.8: four more single-key-plus-body tables, the same upsert shape as the four
+# above; grouped into one _Row helper (below) rather than four more near-identical upsert/select
+# constant pairs, to keep this module's own line count within codingrules 5.1.
+_UPSERT_SEAT_CAPACITY_SQL = (
+    "INSERT INTO forage_ledger_seat_capacity (source_id, seats_total) VALUES (?, ?) "
+    "ON CONFLICT (source_id) DO UPDATE SET seats_total = excluded.seats_total"
+)
+_SELECT_SEAT_CAPACITIES_SQL = "SELECT source_id, seats_total FROM forage_ledger_seat_capacity"
+
+_UPSERT_SPEND_BY_GOAL_SQL = (
+    "INSERT INTO forage_ledger_spend_by_goal (goal_id, spend_usd) VALUES (?, ?) "
+    "ON CONFLICT (goal_id) DO UPDATE SET spend_usd = excluded.spend_usd"
+)
+_SELECT_SPEND_BY_GOAL_SQL = "SELECT goal_id, spend_usd FROM forage_ledger_spend_by_goal"
+
+_UPSERT_HOSTING_PLAN_SQL = (
+    "INSERT INTO forage_ledger_hosting_plans (cell_id, body) VALUES (?, ?) "
+    "ON CONFLICT (cell_id) DO UPDATE SET body = excluded.body"
+)
+_SELECT_HOSTING_PLANS_SQL = "SELECT body FROM forage_ledger_hosting_plans"
+
+_UPSERT_CEILINGS_SQL = (
+    "INSERT INTO forage_ledger_ceilings (warden_id, body) VALUES (?, ?) "
+    "ON CONFLICT (warden_id) DO UPDATE SET body = excluded.body"
+)
+_SELECT_CEILINGS_SQL = "SELECT warden_id, body FROM forage_ledger_ceilings"
 
 __all__ = ["MIGRATIONS_PACKAGE", "SUBSYSTEM", "SqliteLedgerStore", "apply_ledger_migrations"]
 
@@ -198,6 +225,72 @@ class SqliteLedgerStore:
             )
         return RoyalReserve.model_validate_json(row["body"]) if row is not None else None
 
+    async def put_seat_capacity(self, source_id: str, seats_total: int) -> None:
+        """Upsert a source's total seats; see `LedgerStore.put_seat_capacity`."""
+        async with self._lock:
+            await asyncio.to_thread(
+                _upsert_int, self._connection, _UPSERT_SEAT_CAPACITY_SQL, source_id, seats_total
+            )
+
+    async def list_seat_capacities(self) -> tuple[tuple[str, int], ...]:
+        """Return every stored seat capacity; see `LedgerStore.list_seat_capacities`."""
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                lambda: self._connection.execute(_SELECT_SEAT_CAPACITIES_SQL).fetchall()
+            )
+        return tuple((row["source_id"], row["seats_total"]) for row in rows)
+
+    async def put_spend_by_goal(self, goal_id: TaskId, spend_usd: float) -> None:
+        """Upsert a goal's running spend; see `LedgerStore.put_spend_by_goal`."""
+        async with self._lock:
+            await asyncio.to_thread(
+                _upsert_float, self._connection, _UPSERT_SPEND_BY_GOAL_SQL, goal_id, spend_usd
+            )
+
+    async def list_spend_by_goal(self) -> tuple[tuple[TaskId, float], ...]:
+        """Return every stored goal spend; see `LedgerStore.list_spend_by_goal`."""
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                lambda: self._connection.execute(_SELECT_SPEND_BY_GOAL_SQL).fetchall()
+            )
+        return tuple((TaskId(row["goal_id"]), row["spend_usd"]) for row in rows)
+
+    async def put_hosting_plan(self, plan: HostingPlan) -> None:
+        """Upsert `plan`, keyed by its own cell_id; see `LedgerStore.put_hosting_plan`."""
+        async with self._lock:
+            await asyncio.to_thread(
+                _upsert,
+                self._connection,
+                _UPSERT_HOSTING_PLAN_SQL,
+                plan.cell_id,
+                plan.model_dump_json(),
+            )
+
+    async def list_hosting_plans(self) -> tuple[HostingPlan, ...]:
+        """Return every stored HostingPlan; see `LedgerStore.list_hosting_plans`."""
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                lambda: self._connection.execute(_SELECT_HOSTING_PLANS_SQL).fetchall()
+            )
+        return tuple(HostingPlan.model_validate_json(row["body"]) for row in rows)
+
+    async def put_ceilings(self, holder: WardenId, ceilings: Ceilings) -> None:
+        """Upsert `holder`'s ceilings; see `LedgerStore.put_ceilings`."""
+        async with self._lock:
+            await asyncio.to_thread(
+                _upsert, self._connection, _UPSERT_CEILINGS_SQL, holder, ceilings.model_dump_json()
+            )
+
+    async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
+        """Return every stored ceilings pair; see `LedgerStore.list_ceilings`."""
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                lambda: self._connection.execute(_SELECT_CEILINGS_SQL).fetchall()
+            )
+        return tuple(
+            (WardenId(row["warden_id"]), Ceilings.model_validate_json(row["body"])) for row in rows
+        )
+
 
 def _upsert(connection: sqlite3.Connection, sql: str, key: str, body: str) -> None:
     """Run one `(key, body)` upsert, inside its own transaction."""
@@ -215,3 +308,15 @@ def _put_reserve(connection: sqlite3.Connection, body: str) -> None:
     """Upsert the single reserve row, inside its own transaction."""
     with transaction(connection):
         connection.execute(_UPSERT_RESERVE_SQL, (body,))
+
+
+def _upsert_int(connection: sqlite3.Connection, sql: str, key: str, value: int) -> None:
+    """Run one `(key, int)` upsert, inside its own transaction (seat capacity)."""
+    with transaction(connection):
+        connection.execute(sql, (key, value))
+
+
+def _upsert_float(connection: sqlite3.Connection, sql: str, key: str, value: float) -> None:
+    """Run one `(key, float)` upsert, inside its own transaction (per-goal spend)."""
+    with transaction(connection):
+        connection.execute(sql, (key, value))
