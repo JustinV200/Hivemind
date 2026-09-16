@@ -13,7 +13,11 @@ itself (not wrapped in a `pydantic.ValidationError`; see that module for why), s
 note-writing tool catches one typed error regardless of which check fires.
 `BeeBreadEntryNotFoundError` (roadmap step 4.2) covers a Bee Bread (the warm memory tier) lookup by
 id that names no stored entry, raised by `hivemind.memory.store.protocol.MemoryStore.
-get_bee_bread_entry`.
+get_bee_bread_entry`. `SummaryOfSummaryError`, `EmptyCompactionError` and `TooManySourcesError`
+(roadmap step 4.3) are `hivemind.memory.compact.compact`'s own three refusals: a source that is
+itself already a `BeeBreadEntryKind.SUMMARY` (compaction is one level only, docs/adr/0022), no
+sources at all, and more sources than one entry may reference (`hivemind.memory.bee_bread.entry.
+MAX_REF_IDS`).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by hivemind.memory.checkpoint
@@ -46,9 +50,12 @@ from hivemind.common.errors import HiveMindError, NotFoundError, PermissionDenie
 __all__ = [
     "BeeBreadEntryNotFoundError",
     "ClearanceError",
+    "EmptyCompactionError",
     "HandoffNotFoundError",
     "MemoryTierError",
     "NoteTooLongError",
+    "SummaryOfSummaryError",
+    "TooManySourcesError",
 ]
 
 
@@ -118,6 +125,64 @@ class BeeBreadEntryNotFoundError(NotFoundError):
         """
         super().__init__(f"No BeeBreadEntry with id {entry_id!r} exists in the memory tables.")
         self.entry_id = entry_id
+
+
+class SummaryOfSummaryError(MemoryTierError):
+    """Raise when `hivemind.memory.compact.compact` is offered a source that is already a summary.
+
+    Compaction is one level only (docs/adr/0022-memory-tiers-relevance-and-compaction.md: "never
+    from a previous summary"), so a `BeeBreadEntry` whose `kind` is `BeeBreadEntryKind.SUMMARY`
+    is refused as a source rather than folded into a second-level summary.
+    """
+
+    code: ClassVar[str] = "hivemind.memory.summary_of_summary"
+
+    def __init__(self, entry_id: str) -> None:
+        """Build the error for a summary offered as a compaction source.
+
+        Args:
+            entry_id: The offending `BeeBreadEntry.id`.
+        """
+        super().__init__(
+            f"BeeBreadEntry {entry_id!r} is already a SUMMARY; compaction never summarises a "
+            "summary (one level only)."
+        )
+        self.entry_id = entry_id
+
+
+class EmptyCompactionError(MemoryTierError):
+    """Raise when `hivemind.memory.compact.compact` is given no source entries to summarise."""
+
+    code: ClassVar[str] = "hivemind.memory.empty_compaction"
+
+    def __init__(self) -> None:
+        """Build the error for a compaction request with no sources."""
+        super().__init__("compact() was given no source entries; there is nothing to summarise.")
+
+
+class TooManySourcesError(MemoryTierError):
+    """Raise when `hivemind.memory.compact.compact` is given more sources than one entry allows.
+
+    `hivemind.memory.bee_bread.entry.MAX_REF_IDS` bounds how many source ids one `BeeBreadEntry`
+    may reference; a caller with a larger backlog (a House Bee sweep, roadmap step 4.3) batches it
+    into several `compact()` calls instead.
+    """
+
+    code: ClassVar[str] = "hivemind.memory.too_many_sources"
+
+    def __init__(self, count: int, limit: int) -> None:
+        """Build the error for an oversized compaction request.
+
+        Args:
+            count: How many sources were offered.
+            limit: The cap they exceeded (`MAX_REF_IDS`).
+        """
+        super().__init__(
+            f"compact() was given {count} source entries, over the {limit}-entry limit for one "
+            "summary; split into smaller batches."
+        )
+        self.count = count
+        self.limit = limit
 
 
 class NoteTooLongError(MemoryTierError):

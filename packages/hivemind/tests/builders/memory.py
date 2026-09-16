@@ -32,6 +32,7 @@ from hivemind.forage.slots import ModelSlot
 from hivemind.memory import (
     BeeBreadEntry,
     BeeBreadEntryKind,
+    CompactionRequest,
     Decision,
     EpisodeRecord,
     Handoff,
@@ -54,6 +55,7 @@ from waggle.ids import new_alarm_id, new_event_id, new_message_id, new_task_id
 __all__ = [
     "make_alarm_summary",
     "make_bee_bread_entry",
+    "make_compaction_request",
     "make_decision_summary",
     "make_episode",
     "make_handoff",
@@ -319,6 +321,28 @@ def make_bee_bread_entry(clock: Clock | None = None, **overrides: object) -> Bee
     }
     fields.update(overrides)
     return BeeBreadEntry(**fields)
+
+
+def make_compaction_request(clock: Clock | None = None, **overrides: object) -> CompactionRequest:
+    """Build a valid CompactionRequest: one C1 TASK_HISTORY source, no pins.
+
+    Args:
+        clock: Source of the default source entry's id and timestamp; a fresh FakeClock when
+            omitted.
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A CompactionRequest ready for `hivemind.memory.compact.compact`.
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "sources": (make_bee_bread_entry(clock=active_clock),),
+        "pins": (),
+        "clearance": HoneyClearance.C1,
+        "task_id": None,
+    }
+    fields.update(overrides)
+    return CompactionRequest(**fields)  # type: ignore[arg-type]
 
 
 def make_decision_summary(clock: Clock | None = None, **overrides: object) -> DecisionSummary:

@@ -17,6 +17,11 @@ nothing accumulates as a conversation.
 - `demote.py` -- `DemotionReason`, `should_demote` and `demote`: the pure rule for what leaves hot
   state (task closed, Alarm resolved, aged past the manifest's `hot_window_s`) and the one write
   path that archives an item into Bee Bread (roadmap step 4.2).
+- `compact.py` -- `CompactionSchema`, `CompactionRequest`, `CompactionDeps`, `CompactionResult` and
+  `compact`: folds a batch of Bee Bread entries into one new `SUMMARY` entry on `ModelSlot.RIPENER`,
+  never from a previous summary, with every pin copied verbatim (roadmap step 4.3, docs/adr/0022).
+  The other half of a House Bee sweep (`hivemind.workers.roles.house_bee`), demotion being the
+  first.
 - `bee_bread/` -- `BeeBreadEntry`/`BeeBreadEntryKind` (the warm tier's one row shape), `BeeBread`
   (the lookup-only index: by id, by task, between two times), and `deposit_transcript`/
   `deposit_tool_result`/`deposit_handoff_ref`/`deposit_hot_state_item` (every write path, roadmap
@@ -38,7 +43,8 @@ nothing accumulates as a conversation.
   `SqliteMemoryStore` (its two implementations), and the numbered SQL migration series (five
   tables: pins, notes, handoffs, episodes, bee_bread).
 - `errors.py` -- `MemoryTierError` (root), `ClearanceError`, `HandoffNotFoundError`,
-  `NoteTooLongError`, `BeeBreadEntryNotFoundError`.
+  `NoteTooLongError`, `BeeBreadEntryNotFoundError`, `SummaryOfSummaryError`,
+  `EmptyCompactionError`, `TooManySourcesError`.
 
 ## Public API
 

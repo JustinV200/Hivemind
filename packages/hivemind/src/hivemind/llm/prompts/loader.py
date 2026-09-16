@@ -2,10 +2,11 @@
 
 A **prompt asset** is one of the plain-markdown files shipped beside this module
 (``queen_system.md``, ``decompose_goal.md``, ``warden_system.md``, ``drone_system.md``,
-``attendant_triage.md``): the system text a bee's awake episode (a bounded, stateless turn where a
-bee is allowed to think with a model) opens with. :func:`load_prompt` reads one such file through
-``importlib.resources`` rather than a filesystem path built from ``__file__``, so it works the same
-way from an installed wheel as from a checkout. :func:`render` then appends whatever durable state
+``attendant_triage.md``, ``compact_records.md``): the system text a bee's awake episode (a
+bounded, stateless turn where a bee is allowed to think with a model) opens with.
+:func:`load_prompt` reads one such file through ``importlib.resources`` rather than a filesystem
+path built from ``__file__``, so it works the same way from an installed wheel as from a checkout.
+:func:`render` then appends whatever durable state
 the caller supplies -- pins, hot state, retrieved content, user-supplied content, the triggering
 event -- each wrapped in a plain-text delimiter naming its kind, in the fixed order codingrules
 section 8.9 calls "stable prefix first" (pins, hot state, retrieved, user, event), regardless of
@@ -70,6 +71,7 @@ class PromptName(Enum):
     WARDEN_SYSTEM = "warden_system"  # wardens/awake: one intervention decision (3.19).
     DRONE_SYSTEM = "drone_system"  # workers/roles/drone: one tool call per turn (3.16).
     ATTENDANT_TRIAGE = "attendant_triage"  # queen|wardens/inbox: the model tie-breaker (3.13).
+    COMPACT_RECORDS = "compact_records"  # memory.compact: one summary from source records (4.3).
 
 
 class SectionLabel(Enum):

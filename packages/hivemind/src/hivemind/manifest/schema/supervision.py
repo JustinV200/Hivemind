@@ -6,9 +6,10 @@ load_policy``) and Capping's risk-tier table (``hivemind.supervision.capping``),
 heartbeat and offline limits every level's liveness tracking uses. ``MemorySection`` sizes the hot
 and warm memory tiers (codingrules section 6.1): how much of a bee's context budget is reserved for
 retrieved and hot-state content versus the model's own reply, when a Handoff (the document a bee
-writes before its context resets) is written, and how long Cell Wax (Queen-written per-Cell
-cautions) and episodes are kept. Both sections are grouped in one file because each is a short,
-flat table of scalars with no embedded sub-models and no cross-field validation of its own
+writes before its context resets) is written, how long Cell Wax (Queen-written per-Cell cautions)
+and episodes are kept, and how often a House Bee sweep (demotion, then compaction) runs. Both
+sections are grouped in one file because each is a short, flat table of scalars with no embedded
+sub-models and no cross-field validation of its own
 (codingrules section 5.2: one file per responsibility, not one file per bracket header, once
 either responsibility would need more than that).
 
@@ -73,6 +74,12 @@ DEFAULT_EPISODE_RETENTION_S = (
 # is almost certainly stale and the House Bee sweep (roadmap step 4.3) moves it to Bee Bread, where
 # it is still findable by id, time or task -- nothing is lost, only no longer always-loaded.
 DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0
+# One hour: how often a House Bee sweep (demotion, then compaction) runs (roadmap step 4.3).
+# Shorter than DEFAULT_HOT_WINDOW_S on purpose -- a sweep that runs several times within one
+# demotion window is cheap (an empty pass costs one lookup) and keeps Bee Bread from ever
+# accumulating a large backlog between runs, which matters once compaction batches are bounded by
+# hivemind.memory.bee_bread.entry.MAX_REF_IDS.
+DEFAULT_SWEEP_INTERVAL_S = 3_600.0
 
 __all__ = [
     "DEFAULT_ALARM_ATTEMPT_LIMIT",
@@ -87,6 +94,7 @@ __all__ = [
     "DEFAULT_ITEM_CAP_CHARS",
     "DEFAULT_MAX_OFFLINE_S",
     "DEFAULT_OUTPUT_RESERVE_TOKENS",
+    "DEFAULT_SWEEP_INTERVAL_S",
     "MemorySection",
     "SupervisionSection",
 ]
@@ -182,4 +190,11 @@ class MemorySection(BaseModel):
     pins: tuple[str, ...] = Field(
         default=(),
         description="Operator-set facts always included in hot state, regardless of age.",
+    )
+    sweep_interval_s: float = Field(
+        default=DEFAULT_SWEEP_INTERVAL_S,
+        gt=0,
+        description="Seconds between one House Bee sweep (demotion, then compaction) and the "
+        "next; hivemind.workers.roles.house_bee.SweepSchedule reads this to decide when the next "
+        "sweep is due.",
     )

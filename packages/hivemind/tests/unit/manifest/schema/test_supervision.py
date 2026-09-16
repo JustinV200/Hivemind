@@ -45,6 +45,16 @@ def test_memory_section_has_sensible_defaults() -> None:
     assert section.handoff_threshold == 0.66
     assert section.hot_window_s == 4.0 * 3600.0
     assert section.pins == ()
+    assert section.sweep_interval_s == 3_600.0
+
+
+def test_memory_section_rejects_a_non_positive_sweep_interval() -> None:
+    with pytest.raises(ValidationError):
+        MemorySection(sweep_interval_s=0)
+
+
+def test_memory_section_accepts_a_custom_sweep_interval() -> None:
+    assert MemorySection(sweep_interval_s=60.0).sweep_interval_s == 60.0
 
 
 def test_memory_section_rejects_a_non_positive_hot_window() -> None:

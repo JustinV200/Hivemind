@@ -42,7 +42,10 @@ def test_bee_bread_entry_rejects_text_over_the_cap() -> None:
         make_bee_bread_entry(text="x" * (MAX_ENTRY_TEXT_CHARS + 1))
 
 
-def test_bee_bread_entry_kind_has_one_member_per_roadmap_step_4_2_shape() -> None:
+def test_bee_bread_entry_kind_has_one_member_per_roadmap_step_4_3_shape() -> None:
+    # Roadmap step 4.2's original six, plus SUMMARY (roadmap step 4.3: hivemind.memory.compact's
+    # own deposited kind, marking a compacted entry so it is never itself offered as a further
+    # compaction source).
     assert {member.value for member in BeeBreadEntryKind} == {
         "TASK_HISTORY",
         "TRAIL_EVENT",
@@ -50,6 +53,7 @@ def test_bee_bread_entry_kind_has_one_member_per_roadmap_step_4_2_shape() -> Non
         "NOTE",
         "TRANSCRIPT",
         "TOOL_RESULT",
+        "SUMMARY",
     }
 
 
@@ -60,3 +64,13 @@ def test_bee_bread_entry_accepts_a_payload_only_entry_with_no_text() -> None:
 
     assert entry.text is None
     assert entry.payload == "the transcript"
+
+
+def test_bee_bread_entry_accepts_a_summary_entry_with_a_payload() -> None:
+    entry = make_bee_bread_entry(
+        kind=BeeBreadEntryKind.SUMMARY, text=None, payload="Summary:\nEverything went fine."
+    )
+
+    assert entry.kind is BeeBreadEntryKind.SUMMARY
+    assert entry.text is None
+    assert entry.payload == "Summary:\nEverything went fine."

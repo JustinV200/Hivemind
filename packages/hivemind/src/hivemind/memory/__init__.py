@@ -12,8 +12,12 @@ non-decaying floor). `handoff` is the resumable snapshot a bee writes before its
 over Brood Chamber/the trail by id, time and task, plus stored Handoffs and deposited transcripts,
 lookup only, no search). `demote` is the pure rule for what leaves hot state (a closed task, a
 resolved Alarm, or age past the manifest's `hot_window_s`) and the one write path that moves an
-item into Bee Bread. `pins` and `notes` are the two ways a fact enters hot state without going
-through a whole episode (`Pin`, `Note`); `episodes` records every awake episode's or autopilot
+item into Bee Bread. `compact` (roadmap step 4.3) folds a batch of Bee Bread entries into one new
+summary entry on `ModelSlot.RIPENER`, never from a previous summary and with every pin copied
+verbatim (docs/adr/0022); it is the other half of a House Bee sweep (`hivemind.workers.roles.
+house_bee`, a sibling dispatch), demotion being the first. `pins` and `notes` are the two ways a
+fact enters hot state without going through a whole episode (`Pin`, `Note`); `episodes` records
+every awake episode's or autopilot
 decision's thinking, streamable live to the Observation Hive (`EpisodeRecord`, `EpisodeStream`);
 `counter` estimates or counts tokens before a call is made (`TokenCounter`); `context` bundles the
 collaborators every write shares (`MemoryContext`); `store` is the durable half, five SQLite tables
@@ -50,7 +54,8 @@ See Also:
 
 Public API:
     - MemoryTierError, ClearanceError, HandoffNotFoundError, NoteTooLongError,
-      BeeBreadEntryNotFoundError: this subsystem's error tree (errors).
+      BeeBreadEntryNotFoundError, SummaryOfSummaryError, EmptyCompactionError,
+      TooManySourcesError: this subsystem's error tree (errors).
     - MemoryContext, MemoryIdentity: the collaborators every write function shares (context).
     - TokenCounter, EstimateCounter, ProviderCounter: token counting before a call (counter).
     - Decision, Handoff: the checkpoint document (handoff).
@@ -66,6 +71,10 @@ Public API:
     - RelevanceScore, Scorable, score, item_id, item_timestamp, RECENCY_HALF_LIFE_S,
       TASK_LINKAGE_BONUS, PIN_FLOOR: relevance scoring (relevance).
     - DemotionReason, should_demote, demote: what leaves hot state, and the write path (demote).
+    - CompactionSchema, CompactionRequest, CompactionDeps, CompactionResult, compact,
+      MAX_SUMMARY_CHARS, MAX_KEY_FACTS, MAX_KEY_FACT_CHARS, MAX_OPEN_THREADS,
+      MAX_OPEN_THREAD_CHARS, RIPENER_OUTPUT_TOKENS: summarise Bee Bread entries into one summary
+      (compact).
     - BeeBreadEntry, BeeBreadEntryKind, BeeBread, deposit_transcript, deposit_tool_result,
       deposit_handoff_ref, deposit_hot_state_item: the warm tier (bee_bread).
     - MemoryStore, InMemoryMemoryStore, SqliteMemoryStore, apply_memory_migrations, SUBSYSTEM,
@@ -82,6 +91,19 @@ from hivemind.memory.bee_bread import (
     deposit_transcript,
 )
 from hivemind.memory.checkpoint import read_handoff, write_checkpoint
+from hivemind.memory.compact import (
+    MAX_KEY_FACT_CHARS,
+    MAX_KEY_FACTS,
+    MAX_OPEN_THREAD_CHARS,
+    MAX_OPEN_THREADS,
+    MAX_SUMMARY_CHARS,
+    RIPENER_OUTPUT_TOKENS,
+    CompactionDeps,
+    CompactionRequest,
+    CompactionResult,
+    CompactionSchema,
+    compact,
+)
 from hivemind.memory.context import MemoryContext, MemoryIdentity
 from hivemind.memory.counter import EstimateCounter, ProviderCounter, TokenCounter
 from hivemind.memory.demote import DemotionReason, demote, should_demote
@@ -94,9 +116,12 @@ from hivemind.memory.episodes import (
 from hivemind.memory.errors import (
     BeeBreadEntryNotFoundError,
     ClearanceError,
+    EmptyCompactionError,
     HandoffNotFoundError,
     MemoryTierError,
     NoteTooLongError,
+    SummaryOfSummaryError,
+    TooManySourcesError,
 )
 from hivemind.memory.handoff import Decision, Handoff
 from hivemind.memory.hot_state import (
@@ -137,11 +162,17 @@ from hivemind.memory.store import (
 __all__ = [
     "DEFAULT_QUEUE_SIZE",
     "ITEM_CAP_CHARS",
+    "MAX_KEY_FACTS",
+    "MAX_KEY_FACT_CHARS",
     "MAX_NOTES_PER_AUTHOR",
     "MAX_NOTE_CHARS",
+    "MAX_OPEN_THREADS",
+    "MAX_OPEN_THREAD_CHARS",
+    "MAX_SUMMARY_CHARS",
     "MIGRATIONS_PACKAGE",
     "PIN_FLOOR",
     "RECENCY_HALF_LIFE_S",
+    "RIPENER_OUTPUT_TOKENS",
     "SUBSYSTEM",
     "TASK_LINKAGE_BONUS",
     "AlarmSummary",
@@ -151,9 +182,14 @@ __all__ = [
     "BeeBreadEntryKind",
     "BeeBreadEntryNotFoundError",
     "ClearanceError",
+    "CompactionDeps",
+    "CompactionRequest",
+    "CompactionResult",
+    "CompactionSchema",
     "Decision",
     "DecisionSummary",
     "DemotionReason",
+    "EmptyCompactionError",
     "EpisodeRecord",
     "EpisodeStream",
     "EstimateCounter",
@@ -176,14 +212,17 @@ __all__ = [
     "RelevanceScore",
     "Scorable",
     "SqliteMemoryStore",
+    "SummaryOfSummaryError",
     "TaskSummary",
     "TokenBudget",
     "TokenCounter",
+    "TooManySourcesError",
     "TriggerEvent",
     "add_note",
     "add_pin",
     "apply_memory_migrations",
     "assemble",
+    "compact",
     "demote",
     "deposit_handoff_ref",
     "deposit_hot_state_item",
