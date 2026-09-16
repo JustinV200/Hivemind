@@ -739,7 +739,7 @@ failing.
   `compact` or `handoff` past thresholds; Wardens do the same to sub-bees; `inspect` returns a
   compacted view under a size cap. A test asserts no full transcript ever appears in a Waggle
   message.
-- [ ] **4.7 Forage ledger and allocation v1.** `queen/forage/ledger.py`: the live book. It holds
+- [x] **4.7 Forage ledger and allocation v1.** `queen/forage/ledger.py`: the live book. It holds
   every Cell's latest `ForageCapacity`, rolling measurements per host and per binding from the
   Fanner, seats in use and free per server and provider, spend per grant and per goal, the Royal
   Reserve, and headroom as shared totals minus reserve minus the sum of live shared grants. Local
