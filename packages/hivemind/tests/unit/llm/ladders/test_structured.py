@@ -13,7 +13,7 @@ See Also:
 
 from __future__ import annotations
 
-from builders.llm import make_bound, make_request, text_response
+from builders.llm import make_bound, make_request, make_response, text_response
 from pydantic import BaseModel, ConfigDict
 
 from hivemind.llm.capabilities import ProviderCapabilities
@@ -107,6 +107,53 @@ async def test_complete_structured_uses_prompted_rung_with_none_capabilities() -
 
     assert result.rung is Rung.PROMPTED
     assert result.value.choice == "a"
+
+
+async def test_complete_structured_shows_the_schema_in_the_prompt_on_the_native_rung() -> None:
+    """NATIVE sends response_schema *and* one user turn carrying the same schema as text."""
+    provider = _native()
+    provider.script(text_response('{"choice": "a"}'))
+    bound = make_bound(provider=provider)
+
+    await complete_structured(bound, make_request(), _Decision)
+
+    sent = provider.calls[0]
+    assert sent.response_schema is not None
+    last = sent.messages[-1]
+    texts = [part.text for part in last.parts if hasattr(part, "text")]
+    assert any('"choice"' in text and "schema" in text for text in texts), texts
+
+
+async def test_complete_structured_shows_the_schema_in_the_prompt_on_the_json_mode_rung() -> None:
+    provider = _json_mode_only()
+    provider.script(text_response('{"choice": "a"}'))
+    bound = make_bound(provider=provider)
+
+    await complete_structured(bound, make_request(), _Decision)
+
+    last = provider.calls[0].messages[-1]
+    assert any('"choice"' in part.text for part in last.parts if hasattr(part, "text"))
+
+
+async def test_complete_structured_asks_for_brevity_after_a_reply_cut_off_at_max_tokens() -> None:
+    """A MAX_TOKENS reply is never parsed; the retry names the cut-off, not "invalid JSON"."""
+    provider = _native()
+    provider.script(
+        make_response(parts=(), stop_reason=StopReason.MAX_TOKENS), text_response('{"choice": "a"}')
+    )
+    bound = make_bound(provider=provider)
+
+    result = await complete_structured(bound, make_request(), _Decision)
+
+    assert result.attempts == 2
+    retry_texts = [
+        part.text
+        for message in provider.calls[1].messages
+        for part in message.parts
+        if hasattr(part, "text")
+    ]
+    assert any("output-token limit" in text for text in retry_texts), retry_texts
+    assert not any("not valid JSON" in text for text in retry_texts), retry_texts
 
 
 # ──────────────────────────────────────────────────────────────────────────────

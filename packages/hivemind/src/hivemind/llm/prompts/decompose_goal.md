@@ -21,8 +21,8 @@ After this system prompt you will see, always in this order:
 ## Your one decision
 
 Decide one task graph for this goal: an ordered set of subtasks and their dependencies on one
-another. The exact fields are given to you separately; here is what each subtask needs
-conceptually, not as a schema:
+another. The exact fields follow, as a JSON schema, in the last turn you are shown; use them
+exactly and do not reason about the shape. Here is what each subtask needs conceptually:
 
 - **A description** of what the subtask does, specific enough that whoever executes it does not
   have to guess at scope.

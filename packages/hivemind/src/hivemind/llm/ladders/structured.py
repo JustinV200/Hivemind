@@ -23,6 +23,14 @@ Key invariants:
     - Rung order is fixed: NATIVE -> JSON_MODE -> PROMPTED. A binding starts on the strongest rung
       its `ProviderCapabilities` supports and only ever steps down, never back up, within one
       binding attempt.
+    - Every rung shows the model the schema in text: PROMPTED through `render_json_preamble` (the
+      whole reply format), NATIVE and JSON_MODE through `render_schema_hint` alongside the
+      `response_schema` the adapter sends. A provider enforcing a schema the model has never
+      seen makes a reasoning model spend its output budget guessing the fields (the local
+      planner's five-attempt plan on 2026-09-16); one extra user turn removes that.
+    - A reply that stopped at `max_output_tokens` is never parsed: whatever text it carries is
+      cut off, so the retry's correction says so and asks for brevity, instead of the misleading
+      "not valid JSON" a truncated or empty reply would otherwise earn.
     - `ContextTooLongError` is never caught here: it propagates unchanged to `complete_structured`'s
       caller, which owns the prompt budget and must shrink it (codingrules section 8.6's ladder
       rule stops at retries and fallback; a context overflow is not either).
@@ -61,7 +69,11 @@ from hivemind.llm.errors import (
     RateLimitedError,
     RefusedError,
 )
-from hivemind.llm.ladders.extraction import extract_json_block, render_json_preamble
+from hivemind.llm.ladders.extraction import (
+    extract_json_block,
+    render_json_preamble,
+    render_schema_hint,
+)
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.ladders.observer import (
     FallbackNote,
@@ -230,6 +242,14 @@ def _parse_structured[ModelT: BaseModel](
     response: LLMResponse, rung: Rung, schema: type[ModelT]
 ) -> ModelT:
     """Parse and validate one response against `schema`, or raise `_StructuredParseError`."""
+    if response.stop_reason is StopReason.MAX_TOKENS:
+        # The provider cut the reply off, so any JSON in it is incomplete; a reasoning model most
+        # often spent the whole budget thinking and produced no text at all. Say exactly that, so
+        # the retry asks for less reasoning rather than "valid JSON" it never got to write.
+        raise _StructuredParseError(
+            "the reply was cut off at the output-token limit before the JSON was complete; keep "
+            "any reasoning brief and reply with only the JSON object."
+        )
     raw_text = response.text
     if rung is Rung.PROMPTED:
         block = extract_json_block(raw_text)
@@ -286,12 +306,12 @@ def _build_request_for_rung(
         return base.model_copy(update={"messages": turns, "response_schema": None})
     # NATIVE and JSON_MODE both send the schema; the adapter is what turns JSON mode on for a
     # provider that lacks schema_output (ADR-0009: the rung picks the hint, the adapter the wire).
-    turns = (
-        base.messages
-        if correction is None
-        else (*base.messages, Message.text(Role.USER, correction))
-    )
+    # The schema also goes into the prompt as one user turn (module docstring): enforcement alone
+    # leaves the model guessing at the fields it is being constrained to.
     schema_json = cast(JsonObject, schema.model_json_schema())
+    turns = (*base.messages, Message.text(Role.USER, render_schema_hint(schema_json)))
+    if correction is not None:
+        turns = (*turns, Message.text(Role.USER, correction))
     return base.model_copy(update={"messages": turns, "response_schema": schema_json})
 
 

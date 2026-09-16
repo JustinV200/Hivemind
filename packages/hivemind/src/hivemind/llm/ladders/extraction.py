@@ -4,7 +4,11 @@ The PROMPTED rung of `hivemind.llm.ladders.structured` and the prompted tool pro
 `hivemind.llm.ladders.tools` both exist for a model with no native schema output, JSON mode or
 tool-call protocol: everything has to travel as plain text, in and out. This module is the plain
 text half of that: `render_json_preamble`/`render_tool_preamble` build the instructions a prompted
-request appends (what shape to reply in), `extract_json_block`/`extract_tool_blocks` pull the
+request appends (what shape to reply in), `render_schema_hint` builds the one turn the NATIVE and
+JSON_MODE rungs append so a model whose provider enforces the schema still gets to *see* it
+(a reasoning model otherwise spends its whole output budget guessing at the fields it is being
+constrained to, which is how a local planner burned 8192 tokens and returned nothing, 2026-09-16),
+`extract_json_block`/`extract_tool_blocks` pull the
 model's fenced replies back out, and `validate_arguments` checks a tool call's `arguments` against
 its `ToolDefinition.parameters` JSON schema using a small, documented subset -- not a `jsonschema`
 dependency (see `docs/adr/0009-structured-output-and-tool-call-degradation-ladders.md` for why).
@@ -72,6 +76,7 @@ __all__ = [
     "extract_json_block",
     "extract_tool_blocks",
     "render_json_preamble",
+    "render_schema_hint",
     "render_tool_preamble",
     "validate_arguments",
 ]
@@ -118,6 +123,30 @@ def render_json_preamble(schema: JsonObject) -> str:
     return (
         "Reply with exactly one fenced ```json code block, and nothing else outside it, "
         "containing valid JSON that matches this schema:\n\n"
+        f"```json\n{schema_text}\n```"
+    )
+
+
+def render_schema_hint(schema: JsonObject) -> str:
+    """Build the NATIVE/JSON_MODE rungs' companion turn: the schema the provider enforces, in text.
+
+    A provider that enforces `response_schema` never shows the model that schema; the model only
+    meets it token by token as the grammar constrains its output. A reasoning model then spends
+    its output budget working out what fields it is supposed to produce, and a plain one invents
+    them; showing the shape up front costs the schema's tokens once and removes the guesswork,
+    while the provider still enforces it.
+
+    Args:
+        schema: The JSON schema the reply must satisfy (`type[ModelT].model_json_schema()`).
+
+    Returns:
+        Plain text, no vendor-specific tags, appended as a user turn by
+        `hivemind.llm.ladders.structured` on every rung but PROMPTED (which has its own preamble).
+    """
+    schema_text = json.dumps(schema, indent=2, sort_keys=True)
+    return (
+        "Your reply must be one JSON object matching this schema. The provider enforces it; you "
+        "are shown it so you know every field up front and need not reason about the shape:\n\n"
         f"```json\n{schema_text}\n```"
     )
 
