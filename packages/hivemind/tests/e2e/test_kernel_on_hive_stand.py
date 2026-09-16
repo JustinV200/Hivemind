@@ -312,8 +312,9 @@ def _cancel_the_first_drone_mid_attempt(
 
 
 @_LEVELS
+@_BUDGETS
 def test_a_killed_drone_is_respawned_by_warden_autopilot_with_no_queen_awake_episode(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(b) a hand-cancelled sub-bee is respawned without any Queen awake episode.
 
@@ -321,8 +322,12 @@ def test_a_killed_drone_is_respawned_by_warden_autopilot_with_no_queen_awake_epi
     (`hivemind.wardens.ticks.heartbeat.raise_stalled_alarms`): `WORKER_STALLED` respawns at one
     missed cycle, a Warden-autopilot decision that never reaches `hivemind.wardens.awake` or the
     Queen at all.
+
+    `quarter_budget` (roadmap 4.4's exit bar): the extended `_BUDGETS` axis (module docstring).
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive_box: list[Hive] = []
     script = HaikuScript(_cancel_the_first_drone_mid_attempt(hive_box, {"done": False}))
     hive = _hive(manifest_path, script)
@@ -371,8 +376,9 @@ def _crashing_worker_turn(crash_budget: dict[str, int], used_models: set[str | N
 
 
 @_LEVELS
+@_BUDGETS
 def test_a_drone_that_crashes_repeatedly_escalates_and_the_queen_rebinds_it_to_completion(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(c) a Warden RESPAWN, two escalations, then the Queen's own REBIND finishes the goal.
 
@@ -386,22 +392,21 @@ def test_a_drone_that_crashes_repeatedly_escalates_and_the_queen_rebinds_it_to_c
     Warden's own grant carries only one binding to offer (`builders.cli.fake_manifest`'s own
     module docstring: the fallback chain is a Queen-side concept a Warden's grant never carries),
     so `hivemind.wardens.ticks.alarms._rebind` finds no local target and escalates instead; the
-    Queen's own first decision (her own attempt counter starts at 1) is RETRY_TASK, redispatching
-    a fresh sub-bee at attempt 2 -- which also crashes (the crash budget's own third and last),
-    escalating a second time; the Queen's own second decision (attempts now 2) is REBIND
-    (`hivemind.queen.ticks.alarms._rebind`), and she already resolved the fallback key for
-    herself, so her own `Intervene(REBIND)` names it (`binding="local_worker"`);
-    `hivemind.wardens.ticks.control._handle_queen_rebind` turns that into a real respawn, one
-    attempt higher, on `local_worker` -- which the script no longer crashes, so the goal finishes
-    there. This exact chain (`worker.failed` exactly 3, `worker.spawned` exactly 4, one
-    `queen.decided(REBIND)` naming `local_worker`, the goal finishing on `test-model-strong`) held
-    on 20/20 manual runs at both capability levels in this dispatch's own soak test, so this
-    scenario needs no retry loop.
+    Queen's own first decision is RETRY_TASK, redispatching a fresh sub-bee at attempt 2 -- which
+    also crashes (the crash budget's own third and last), escalating a second time; the Queen's
+    own second decision is REBIND, naming `binding="local_worker"`;
+    `hivemind.wardens.ticks.control._handle_queen_rebind` turns that into a real respawn on
+    `local_worker`, which the script no longer crashes, so the goal finishes there. This exact
+    chain held on 20/20 manual runs at both capability levels in this dispatch's own soak test,
+    so this scenario needs no retry loop; `quarter_budget` rides the same `_BUDGETS` axis as
+    every other scenario in this file (module docstring).
     """
     used_models: set[str | None] = set()
     manifest_path = fake_manifest(
         tmp_path, capabilities=capabilities, tuning=ManifestTuning(worker_fallback=True)
     )
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     script = HaikuScript(_crashing_worker_turn({"count": 3}, used_models))
     hive = _hive(manifest_path, script)
     report, events = asyncio.run(_run_goal_and_events(hive))
@@ -445,10 +450,13 @@ def _blocked_question_worker_turn(request: LLMRequest) -> LLMResponse:
 
 
 @_LEVELS
+@_BUDGETS
 def test_a_drones_question_blocks_the_task_until_hive_inbox_answer_resumes_it(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(d) a question blocks the task until one `hive inbox answer` (CliRunner) resumes it.
+
+    `quarter_budget` (roadmap 4.4's exit bar): the extended `_BUDGETS` axis (module docstring).
 
     `ask` blocks the task; `hive inbox`/`hive inbox answer` (CliRunner, each in its own worker
     thread) resolve it, and `hivemind.queen.questions.sync_answers_from_chamber` forwards the
@@ -475,6 +483,8 @@ def test_a_drones_question_blocks_the_task_until_hive_inbox_answer_resumes_it(
     report for the 20-run result recorded against this exact test).
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(_blocked_question_worker_turn))
     asyncio.run(_run_blocked_question(hive, manifest_path))
 
@@ -588,8 +598,9 @@ async def _run_checkpoint_and_resume(hive: Hive) -> None:
 
 
 @_LEVELS
+@_BUDGETS
 def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_appears(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(f) a write outside scratch is rejected and never lands; the goal still finishes.
 
@@ -597,6 +608,8 @@ def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_ap
     there); the goal still finishes, because the script's next call writes the real files. This
     scenario never needed a retry: 30/30 single-Hive runs held clean in this dispatch's own soak
     test (nothing here touches the CLI/cross-process path scenario (d)'s own race lives in).
+
+    `quarter_budget` (roadmap 4.4's exit bar): the extended `_BUDGETS` axis (module docstring).
     """
     outside = tmp_path / "outside" / "never.txt"
 
@@ -610,6 +623,8 @@ def test_a_write_outside_scratch_without_the_capability_is_rejected_and_never_ap
         return text_response("Three haiku written.")
 
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(worker_turn))
     report, kinds = asyncio.run(_run_goal_to_completion(hive))
 
@@ -659,8 +674,13 @@ def _failing_command_worker_turn() -> WorkerTurn:
 
 
 @_LEVELS
-def test_a_failing_command_proposal_is_rolled_back(tmp_path: Path, capabilities: str) -> None:
+@_BUDGETS
+def test_a_failing_command_proposal_is_rolled_back(
+    tmp_path: Path, capabilities: str, quarter_budget: bool
+) -> None:
     """(g) a failed command proposal is rolled back, its Alarm chain lands, and the goal finishes.
+
+    `quarter_budget` (roadmap 4.4's exit bar): the extended `_BUDGETS` axis (module docstring).
 
     A `run_command` whose own exit is non-zero is the real, reachable `ROLLED_BACK` path
     (`hivemind.supervision.capping.gate._apply_and_verify`'s own "a COMMAND's own non-zero exit
@@ -684,6 +704,8 @@ def test_a_failing_command_proposal_is_rolled_back(tmp_path: Path, capabilities:
     `POSTCONDITION_FAILED`@1 row) -- is now asserted deterministically below.
     """
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(_failing_command_worker_turn()))
     asyncio.run(_run_rolled_back_proposal(tmp_path, hive))
 
@@ -723,14 +745,17 @@ def _pid_is_dead(pid: int) -> Callable[[], bool]:
 
 
 @_LEVELS
+@_BUDGETS
 def test_the_hive_stand_is_left_exactly_as_found_after_the_goal(
-    tmp_path: Path, capabilities: str
+    tmp_path: Path, capabilities: str, quarter_budget: bool
 ) -> None:
     """(h) the left-as-found snapshot holds: unchanged tree, empty scratch, every pid dead.
 
     Every path and size outside the SQLite data dir is unchanged, scratch is empty, and every pid
     the lease started (a real `run_command` child, `hivemind.cell.local.LocalProcessSession`) is
     dead once `run_hive` exits.
+
+    `quarter_budget` (roadmap 4.4's exit bar): the extended `_BUDGETS` axis (module docstring).
     """
 
     def worker_turn(request: LLMRequest) -> LLMResponse:
@@ -743,6 +768,8 @@ def test_the_hive_stand_is_left_exactly_as_found_after_the_goal(
         return text_response("Three haiku written.")
 
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    if quarter_budget:
+        set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(worker_turn))
     data_dir = tmp_path / "data"
     before = snapshot_tree(tmp_path, exclude=(data_dir,))
