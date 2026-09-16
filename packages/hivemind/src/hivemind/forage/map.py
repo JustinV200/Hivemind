@@ -84,6 +84,13 @@ class SlotBinding(BaseModel):
         default=None, description="Another [llm.slots] key to fall back to; None for no fallback."
     )
     effort: Effort = Field(description="How hard the model behind this row is asked to think.")
+    max_output_tokens: int | None = Field(
+        default=None,
+        gt=0,
+        description="The manifest row's own reply-length cap, when it names one; the operator's "
+        "knob for a model that thinks past a call site's own budget. None leaves each call "
+        "site's budget alone.",
+    )
 
 
 class ForageMap:

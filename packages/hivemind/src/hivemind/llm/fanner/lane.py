@@ -329,10 +329,10 @@ class FannerLane:
 
     async def _call(self, attempt: _Attempt, request: LLMRequest) -> LLMResponse:
         """Make the metered call, always releasing its seat, and record it on success."""
-        # The binding, not the caller, knows which model id the provider should run
-        # (hivemind.llm.ladders.gate.DirectCallGate's own docstring); stamped on a copy since
-        # every LLMRequest is frozen.
-        stamped = request.model_copy(update={"model": attempt.bound.model})
+        # The binding, not the caller, knows which model id the provider should run and whether
+        # the manifest capped its reply length (hivemind.llm.slots.BoundModel.stamp, the same
+        # rule hivemind.llm.ladders.gate.DirectCallGate applies); a copy, requests are frozen.
+        stamped = attempt.bound.stamp(request)
         source_id = attempt.source.source_id if attempt.source is not None else None
         provider = attempt.bound.provider.name
         start_s = self._fanner.deps.clock.monotonic()

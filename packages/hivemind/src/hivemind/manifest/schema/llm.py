@@ -203,8 +203,9 @@ class SlotBinding(BaseModel):
     """``[llm.slots.<key>]``: one model-slot binding: a provider, a model id, and a fallback chain.
 
     Distinct from ``hivemind.forage.map.SlotBinding``, the lightweight forage-side view of this
-    same row (see that module's docstring): this is the manifest's own, fully-validated shape,
-    including ``max_output_tokens``, a field forage's view has no need of.
+    same row (see that module's docstring): this is the manifest's own, fully-validated shape;
+    ``hivemind.cli.stores.slot_bindings`` copies the fields the forage view carries, and
+    ``max_output_tokens`` rides along so ``hivemind.llm.slots.BoundModel.stamp`` can apply it.
     """
 
     model_config = _MODEL_CONFIG

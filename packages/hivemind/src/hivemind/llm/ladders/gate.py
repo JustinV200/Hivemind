@@ -71,5 +71,6 @@ class DirectCallGate:
         # No seat check, no latency measurement: those belong to the Fanner (roadmap 3.12a), which
         # implements this same Protocol once it exists. A caller with no gate gets exactly the
         # provider's own behaviour, unmetered. The binding, not the caller, knows which model id
-        # the provider should run, so the gate stamps it here (a copy: requests are frozen).
-        return await bound.provider.complete(request.model_copy(update={"model": bound.model}))
+        # the provider should run and whether the manifest capped its reply length, so the gate
+        # stamps both here (`BoundModel.stamp`, a copy: requests are frozen).
+        return await bound.provider.complete(bound.stamp(request))

@@ -63,6 +63,7 @@ from typing import ClassVar, Protocol
 from hivemind.common.errors import InvariantViolationError
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
+from hivemind.llm.models import LLMRequest
 from hivemind.llm.provider import LLMProvider
 
 __all__ = [
@@ -140,6 +141,30 @@ class BoundModel:
     cost_per_million_input_usd: float | None  # Forage map price, or None when unpriced.
     cost_per_million_output_usd: float | None  # Forage map price, or None when unpriced.
     fallback: BoundModel | None = None  # Next binding to try on failure; None ends the chain.
+    # The manifest row's own reply-length cap, or None to leave each call site's budget alone.
+    # Applied by `stamp`, so the operator's knob wins wherever the request finally goes out.
+    max_output_tokens: int | None = None
+
+    def stamp(self, request: LLMRequest) -> LLMRequest:
+        """Return `request` as this binding sends it: its model id, and its output cap if set.
+
+        The binding, not the caller, knows which model id the provider should run, and the
+        manifest row, not the call site, has the last word on how long a reply may be: a
+        planner's or a judge's own constant is the budget it needs on an ordinary model, while
+        `[llm.slots.<key>] max_output_tokens` is what an operator turns up for a reasoning
+        model that thinks past it (a local Qwen3.8-27B spent 8192 tokens thinking and wrote
+        no plan, 2026-09-16). Both gates call this, so it is the one place either is applied.
+
+        Args:
+            request: The caller's request; frozen, so the result is a copy.
+
+        Returns:
+            A copy with `model` set and, when this binding names one, `max_output_tokens`.
+        """
+        update: dict[str, object] = {"model": self.model}
+        if self.max_output_tokens is not None:
+            update["max_output_tokens"] = self.max_output_tokens
+        return request.model_copy(update=update)
 
 
 def resolve(
@@ -276,6 +301,7 @@ def _bind_one(
         cost_per_million_input_usd=cost_input,
         cost_per_million_output_usd=cost_output,
         fallback=fallback,
+        max_output_tokens=binding.max_output_tokens,
     )
 
 

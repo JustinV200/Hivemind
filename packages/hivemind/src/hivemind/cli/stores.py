@@ -343,6 +343,7 @@ def slot_bindings(manifest: HiveManifest) -> tuple[SlotBinding, ...]:
             model=row.model,
             fallback=row.fallback,
             effort=row.effort,
+            max_output_tokens=row.max_output_tokens,
         )
         for key, row in manifest.llm.slots.items()
     )

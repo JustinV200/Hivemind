@@ -53,3 +53,18 @@ async def test_direct_call_gate_stamps_the_bindings_model_on_the_request() -> No
 
     # The caller's request named no model; the gate filled it in from the binding, on a copy.
     assert provider.calls[0].model == "local-small"
+
+
+async def test_direct_call_gate_applies_the_bindings_output_cap_when_it_names_one() -> None:
+    provider = FakeLLMProvider()
+    provider.script(text_response("ok"), text_response("ok"))
+
+    await DirectCallGate().complete(
+        make_bound(provider=provider), make_request(max_output_tokens=256)
+    )
+    await DirectCallGate().complete(
+        make_bound(provider=provider, max_output_tokens=4096), make_request(max_output_tokens=256)
+    )
+
+    # No cap on the binding: the call site's own budget goes out; a cap: the manifest's wins.
+    assert [call.max_output_tokens for call in provider.calls] == [256, 4096]

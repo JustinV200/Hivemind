@@ -170,6 +170,30 @@ def test_resolve_follows_a_named_binding_fallback_in_the_full_manifest() -> None
     assert bound.fallback.fallback is None
 
 
+def test_resolve_copies_the_rows_output_cap_from_the_full_manifest() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+    bindings = bindings_from_manifest(manifest)
+
+    queen = resolve(ModelSlot.QUEEN, bindings.values(), _lookup)
+    judge = resolve(ModelSlot.JUDGE, bindings.values(), _lookup)
+
+    assert queen.max_output_tokens == 8192  # [llm.slots.queen] names one.
+    assert judge.max_output_tokens is None  # [llm.slots.judge] leaves the call site's budget.
+
+
+def test_bound_model_stamp_sets_the_model_and_only_a_named_output_cap() -> None:
+    from builders.llm import make_bound, make_request
+
+    request = make_request(max_output_tokens=512)
+
+    uncapped = make_bound(model="m-a").stamp(request)
+    capped = make_bound(model="m-b", max_output_tokens=12_288).stamp(request)
+
+    assert (uncapped.model, uncapped.max_output_tokens) == ("m-a", 512)
+    assert (capped.model, capped.max_output_tokens) == ("m-b", 12_288)
+    assert request.max_output_tokens == 512  # Stamping copies; the caller's request is frozen.
+
+
 def test_resolve_uses_the_providers_declared_context_window() -> None:
     bound = resolve(ModelSlot.WORKER, [make_binding()], _lookup)
 
