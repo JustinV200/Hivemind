@@ -724,7 +724,7 @@ failing.
   to ripening once phase 7 lands, so the history compounds as Honey at `cell:<id>` scope.
   `memory.wax_*` events. Named for the wax bees use to cap and mend a cell: it marks the cell, it
   is not the honey inside.
-- [ ] **4.3 Compaction.** `memory/compact.py`: summarise from source records on `ModelSlot.RIPENER`,
+- [x] **4.3 Compaction.** `memory/compact.py`: summarise from source records on `ModelSlot.RIPENER`,
   never from a previous summary; pins verbatim; one level of summary; records `memory.compacted`.
   A House Bee **sweep** duty (`workers/roles/house_bee.py`, first version) runs demotion and
   compaction on a timer, and ripens Bee Bread into Honey once phase 7 lands.
