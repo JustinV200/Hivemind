@@ -227,10 +227,11 @@ is reading state a *different* process wrote.
   carries a proposal's own action content (codingrules section 12), so the reviewed `Proposal` is
   reconstructed from only what the trail kept (task id, Cell id, tier) plus clearly-labelled
   placeholders for the rest -- a real audit of the bee's actual diff or command needs a live link
-  this v0 CLI does not have, flagged in this dispatch's own report. `--fake-judge` is required: no
-  `hivemind.wardens.judge.ModelJudgeReviewer` exists yet in this codebase, so every sampled
-  proposal is reviewed by `hivemind.supervision.capping.FakeJudgeReviewer`, scripted with one
-  APPROVE verdict per proposal. `hive capping audit rates` prints the same `AuditRates`,
+  this v0 CLI does not have, flagged in this dispatch's own report. `--fake-judge` is required
+  for that same reason: `hivemind.wardens.judge.ModelJudgeReviewer` exists (a Warden's live gate
+  uses it), but a model judge reviewing a placeholder action would only ever grade the
+  placeholder, so every sampled proposal is reviewed by `hivemind.supervision.capping.
+  FakeJudgeReviewer`, scripted with one APPROVE verdict per proposal. `hive capping audit rates` prints the same `AuditRates`,
   reconstructed from every past `capping.audited` event, with no fresh sampling.
 - `docs/manifests/full.toml` gained the phase 4 fields no earlier step had added yet: `[memory]
   hot_window_s`, `sweep_interval_s`, `wax_text_cap_chars`; `[forage] measurement_drift_threshold`;

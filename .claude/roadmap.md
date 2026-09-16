@@ -838,6 +838,20 @@ completed with the scratch root removed. One earlier full run "timed out in 417.
 Drone requests cancelled a second after being sent: `hive run`'s default `--timeout` (120 s) counts
 from submission and planning alone took 418 s (five structured-output attempts on the local model),
 so the poll loop expired the instant dispatch happened and the normal teardown stopped the Warden.
+
+**Follow-up, later on 2026-09-16** (see `.claude/phase-4-handoff.md` section 4): the scenario (g)
+flake was a real race (a cancelled `asyncio.to_thread` hop leaving a SQLite transaction open under
+the next caller's `BEGIN`; fixed with one worker thread per connection, `hivemind.common.sqlite.
+ConnectionThread`); the planner's five attempts were the model reasoning about a schema it never saw
+plus an 8192 output cap the manifest could not raise (fixed: the schema is shown on every rung, a
+cut-off reply gets a targeted correction, and `[llm.slots.<key>] max_output_tokens` now reaches the
+request; with 12288 the planner validated first time, 78 s, 5470 reasoning tokens); a task's tempo
+now reaches its sub-bees' and the judge's Fanner lanes; and 4.9's first trigger, `ProviderHealth`
+DOWN with no fallback, is implemented in `run_cluster_tick`. The provider outage was then run for
+real: LM Studio stopped three seconds after the first `worker.spawned`, `queen.clustered`
+(`cause = provider_down`) 26 s later with no operator order, `lms server start` then `hive wake`,
+`queen.resumed` one second after the order, the three files written once, goal succeeded in 55 s
+of outage-to-finish.
 Pass `--timeout 900` with a local 27B model. Not yet exercised for real: a live provider outage
 through `hive cluster`/`hive wake` (covered by the fake-provider e2e only).
 
