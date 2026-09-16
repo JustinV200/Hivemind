@@ -776,7 +776,7 @@ failing.
   wait; recorded as `llm.throttled` with the source and the wait. `ProviderRateLimiter` prefers
   reported figures over the manifest's configured ones once it has them, so a manifest number is
   a starting guess and never a permanent ceiling.
-- [ ] **4.8 Hosting plans and ceilings.** `queen/forage/hosting.py`: per Cell, write a
+- [x] **4.8 Hosting plans and ceilings.** `queen/forage/hosting.py`: per Cell, write a
   `HostingPlan` (per slot a primary source and a fallback chain, plus a default) from the Forage
   map and ledger: the Cell's free VRAM against each model's requirement, seat pressure on the Hive
   Stand, the measured distance from the Cell to each candidate source against the task's tempo,
