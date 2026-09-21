@@ -1,0 +1,110 @@
+"""Unit tests for hivemind.hive.backends.docker.network: NetworkPolicy -> Docker network mapping.
+
+Fits into the Hive:
+    Layer 0 (test infrastructure, not shipped). Mirrors
+    src/hivemind/hive/backends/docker/network.py (codingrules section 3).
+
+Key invariants:
+    - None: this module holds tests only.
+
+See Also:
+    - hivemind.hive.backends.docker.network for plan_network, host_gateway_extra_hosts and
+      network_name, under test.
+"""
+
+from __future__ import annotations
+
+import pytest
+from builders.forage import make_capacity
+
+from hivemind.cell import CombShieldLevel
+from hivemind.hive.backends.docker.network import (
+    ALLOWLIST_LABEL,
+    HOST_GATEWAY_HOSTNAME,
+    HOST_GATEWAY_VALUE,
+    host_gateway_extra_hosts,
+    network_name,
+    plan_network,
+)
+from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from waggle.clock import FakeClock
+from waggle.ids import new_cell_id, new_hive_id
+
+
+def _make_spec(**overrides: object) -> VirtualCellSpec:
+    """Build a valid VirtualCellSpec, with sensible defaults for every field a test ignores."""
+    fields: dict[str, object] = {
+        "image": "base-ubuntu",
+        "cpu_cores": 2.0,
+        "memory_bytes": 2 * 1024**3,
+        "disk_bytes": 10 * 1024**3,
+        "capacity": make_capacity(),
+        "hive_id": new_hive_id(FakeClock()),
+    }
+    fields.update(overrides)
+    return VirtualCellSpec(**fields)
+
+
+def test_network_name_is_deterministic_from_cell_id_alone() -> None:
+    cell_id = new_cell_id(FakeClock())
+
+    assert network_name(cell_id) == network_name(cell_id)
+    assert cell_id in network_name(cell_id)
+
+
+def test_host_gateway_extra_hosts_is_the_one_documented_entry() -> None:
+    assert host_gateway_extra_hosts() == {HOST_GATEWAY_HOSTNAME: HOST_GATEWAY_VALUE}
+
+
+def test_plan_network_none_policy_is_internal() -> None:
+    cell_id = new_cell_id(FakeClock())
+    spec = _make_spec(network_policy=NetworkPolicy.NONE)
+
+    plan = plan_network(spec, cell_id)
+
+    assert plan.spec.internal is True
+    assert plan.spec.name == network_name(cell_id)
+    # Every policy, NONE included, still needs the control link to reach the Queen.
+    assert plan.extra_hosts == host_gateway_extra_hosts()
+
+
+def test_plan_network_egress_only_policy_is_not_internal() -> None:
+    cell_id = new_cell_id(FakeClock())
+    spec = _make_spec(network_policy=NetworkPolicy.EGRESS_ONLY)
+
+    plan = plan_network(spec, cell_id)
+
+    assert plan.spec.internal is False
+    assert ALLOWLIST_LABEL not in plan.spec.labels
+
+
+def test_plan_network_allowlist_policy_is_not_internal_and_labels_the_allowlist() -> None:
+    cell_id = new_cell_id(FakeClock())
+    spec = _make_spec(
+        network_policy=NetworkPolicy.ALLOWLIST,
+        network_allowlist=("api.example.com", "cdn.example.com"),
+    )
+
+    plan = plan_network(spec, cell_id)
+
+    assert plan.spec.internal is False
+    assert plan.spec.labels[ALLOWLIST_LABEL] == "api.example.com,cdn.example.com"
+
+
+def test_plan_network_stamps_hive_id_and_cell_id_labels() -> None:
+    cell_id = new_cell_id(FakeClock())
+    spec = _make_spec()
+
+    plan = plan_network(spec, cell_id)
+
+    assert plan.spec.labels["hivemind.hive_id"] == spec.hive_id
+    assert plan.spec.labels["hivemind.cell_id"] == cell_id
+
+
+def test_plan_network_refuses_vpn_tor() -> None:
+    cell_id = new_cell_id(FakeClock())
+    # VirtualCellSpec's own validator requires VPN_TOR and NIGHT_VEIL together (hive/models.py).
+    spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
+
+    with pytest.raises(ValueError, match="VPN_TOR"):
+        plan_network(spec, cell_id)

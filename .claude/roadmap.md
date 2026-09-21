@@ -954,7 +954,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   randomised at boot, metadata endpoints null-routed). README documents each package and each
   rule. Built in CI with the other images; attestation (5.7b) checks this image and installs
   nothing at runtime.
-- [ ] **5.4 Docker backend.** `hive/backends/docker.py` using the Docker SDK under
+- [x] **5.4 Docker backend.** `hive/backends/docker.py` using the Docker SDK under
   `asyncio.to_thread`: create container from spec with resource limits and a network policy
   (`none`, `egress-only`, `allowlist`), wait for `CellReady` and the Warden's first `Heartbeat`,
   destroy with volume cleanup. Contract suite passes. Integration test marked.

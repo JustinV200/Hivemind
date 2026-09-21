@@ -38,6 +38,12 @@ Public API:
     - CellBackend, BackendCapabilities, VirtualCellRecord, FakeCellBackend: the provisioning
       protocol, its capability declaration, its list_cells value type, and its in-memory
       reference implementation (hivemind.hive.backends).
+    - CellBootstrap, QueenEndpoint, ReadinessGate, CellReadyInfo, mint_cell_bootstrap,
+      FakeReadinessGate: the backend-independent identity and readiness seam every CellBackend
+      provisions through, and its in-memory implementation (hivemind.hive.backends).
+    - DockerCellBackend, build_docker_backend: the first working CellBackend, over a Docker
+      daemon, and the factory a composition root hands to BackendRegistry.register
+      (hivemind.hive.backends).
     - BackendRegistry, CellBackendFactory: name -> CellBackend, for the composition root
       (hivemind.hive.registry).
 """
@@ -45,8 +51,16 @@ Public API:
 from hivemind.hive.backends import (
     BackendCapabilities,
     CellBackend,
+    CellBootstrap,
+    CellReadyInfo,
+    DockerCellBackend,
     FakeCellBackend,
+    FakeReadinessGate,
+    QueenEndpoint,
+    ReadinessGate,
     VirtualCellRecord,
+    build_docker_backend,
+    mint_cell_bootstrap,
 )
 from hivemind.hive.cell_state import (
     TRANSITIONS,
@@ -74,18 +88,26 @@ __all__ = [
     "BackendRegistry",
     "CellBackend",
     "CellBackendFactory",
+    "CellBootstrap",
     "CellDestroyError",
     "CellProvisionError",
+    "CellReadyInfo",
+    "DockerCellBackend",
     "FakeCellBackend",
+    "FakeReadinessGate",
     "HiveError",
     "InvalidCellTransitionError",
     "NetworkPolicy",
+    "QueenEndpoint",
+    "ReadinessGate",
     "UnknownBackendError",
     "VirtualCellRecord",
     "VirtualCellSpec",
     "VirtualCellStatus",
     "assert_dormant_allowed",
     "assert_transition",
+    "build_docker_backend",
     "can_enter_dormant",
     "can_transition",
+    "mint_cell_bootstrap",
 ]

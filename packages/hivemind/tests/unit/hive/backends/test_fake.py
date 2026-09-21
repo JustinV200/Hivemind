@@ -1,17 +1,18 @@
-"""Unit tests for hivemind.hive.backends.fake: FakeCellBackend's provision/destroy/pause/list.
+"""Unit tests for hivemind.hive.backends.fake: FakeCellBackend and FakeReadinessGate.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/hive/backends/fake.py
     (codingrules section 3). The cross-implementation contract (idempotent destroy, capability
     honouring, concurrency safety, ...) lives in
     packages/hivemind/tests/contracts/test_cell_backend_contract.py instead; this module covers
-    FakeCellBackend's own extra surface: its failure/delay switches and call recording.
+    each fake's own extra surface: its failure/delay switches and call recording.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.hive.backends.fake for FakeCellBackend, the class under test.
+    - hivemind.hive.backends.fake for FakeCellBackend and FakeReadinessGate, the classes under
+      test.
     - packages/hivemind/tests/contracts/test_cell_backend_contract.py for the shared CellBackend
       contract.
 """
@@ -21,16 +22,18 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from builders.cells import make_capabilities
 from builders.forage import make_capacity
 
 from hivemind.cell import AccessLevel, CellKind
 from hivemind.hive.backends.base import BackendCapabilities
-from hivemind.hive.backends.fake import FakeCellBackend
+from hivemind.hive.backends.bootstrap import CellReadyInfo
+from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
 from hivemind.hive.models import VirtualCellSpec
 from waggle.clock import FakeClock
-from waggle.ids import CellId, new_hive_id
+from waggle.ids import CellId, new_cell_id, new_hive_id
 
 
 def _make_spec(**overrides: object) -> VirtualCellSpec:
@@ -247,3 +250,111 @@ async def test_provision_over_headroom_raises_provision_error() -> None:
 
     with pytest.raises(CellProvisionError, match="headroom"):
         await backend.provision(_make_spec())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FakeReadinessGate
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_wait_ready_returns_a_default_info_with_no_arrangement() -> None:
+    gate = FakeReadinessGate(FakeClock())
+    cell_id = new_cell_id(FakeClock())
+
+    info = await gate.wait_ready(cell_id, timeout_s=30.0)
+
+    assert info.capabilities.can_host_model is True
+    assert info.capacity.max_sub_bees > 0
+
+
+async def test_wait_ready_returns_arranged_info() -> None:
+    gate = FakeReadinessGate(FakeClock())
+    cell_id = new_cell_id(FakeClock())
+    arranged = CellReadyInfo(
+        capabilities=make_capabilities(has_display=True), capacity=make_capacity()
+    )
+    gate.set_ready_info(cell_id, arranged)
+
+    info = await gate.wait_ready(cell_id, timeout_s=30.0)
+
+    assert info is arranged
+
+
+async def test_expect_and_forget_are_recorded() -> None:
+    gate = FakeReadinessGate(FakeClock())
+    cell_id = new_cell_id(FakeClock())
+
+    await gate.expect(cell_id, "ab" * 32)
+    await gate.forget(cell_id)
+
+    assert gate.expect_calls == [cell_id]
+    assert gate.forget_calls == [cell_id]
+
+
+async def test_forget_of_a_never_expected_cell_is_a_silent_no_op() -> None:
+    gate = FakeReadinessGate(FakeClock())
+    unknown_id = CellId("cell_never_expected")
+
+    await gate.forget(unknown_id)  # must not raise
+
+    assert gate.forget_calls == [unknown_id]
+
+
+async def test_set_never_ready_makes_wait_ready_time_out() -> None:
+    clock = FakeClock()
+    gate = FakeReadinessGate(clock)
+    cell_id = new_cell_id(clock)
+    gate.set_never_ready(cell_id)
+
+    task = asyncio.create_task(gate.wait_ready(cell_id, timeout_s=5.0))
+    await asyncio.sleep(0)  # Let wait_ready reach its clock.sleep(5.0) await.
+    clock.advance(5.0)  # No real sleeping in tests (codingrules 14.5): drive the fake forward.
+
+    with pytest.raises(TimeoutError, match="never reported ready"):
+        await task
+
+
+async def test_set_never_ready_off_lets_wait_ready_succeed_again() -> None:
+    clock = FakeClock()
+    gate = FakeReadinessGate(clock)
+    cell_id = new_cell_id(clock)
+    gate.set_never_ready(cell_id)
+    gate.set_never_ready(cell_id, False)
+
+    info = await gate.wait_ready(cell_id, timeout_s=5.0)
+
+    assert info.capabilities.can_host_model is True
+
+
+async def test_set_next_never_ready_arms_whichever_cell_expect_registers_next() -> None:
+    clock = FakeClock()
+    gate = FakeReadinessGate(clock)
+    already_expected = new_cell_id(clock)
+    await gate.expect(already_expected, "ab" * 32)
+    gate.set_next_never_ready()
+    next_cell = new_cell_id(clock)
+
+    await gate.expect(next_cell, "cd" * 32)
+
+    # The Cell expected before the switch was armed is unaffected; only the next one is.
+    assert (await gate.wait_ready(already_expected, timeout_s=1.0)).capabilities.can_host_model
+
+    task = asyncio.create_task(gate.wait_ready(next_cell, timeout_s=1.0))
+    await asyncio.sleep(0)
+    clock.advance(1.0)
+    with pytest.raises(TimeoutError):
+        await task
+
+
+async def test_forget_clears_never_ready_and_arranged_info() -> None:
+    clock = FakeClock()
+    gate = FakeReadinessGate(clock)
+    cell_id = new_cell_id(clock)
+    gate.set_never_ready(cell_id)
+
+    await gate.forget(cell_id)
+
+    # A forgotten Cell is back to the default, ready-immediately behaviour: the never-ready switch
+    # does not survive a forget(), matching how a backend re-expects a Cell from scratch.
+    info = await gate.wait_ready(cell_id, timeout_s=5.0)
+    assert info.capabilities.can_host_model is True

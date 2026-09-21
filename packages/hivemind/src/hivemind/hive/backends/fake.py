@@ -1,4 +1,4 @@
-"""Provide FakeCellBackend: an in-memory CellBackend for tests, demos and hive doctor.
+"""Provide FakeCellBackend and FakeReadinessGate: in-memory fakes for tests, demos and hive doctor.
 
 FakeCellBackend implements `hivemind.hive.backends.base.CellBackend` over a plain in-memory table:
 `provision()` mints a fresh CellId, builds a Cell whose capabilities reflect `spec.exoskeleton` (a
@@ -12,14 +12,27 @@ to take. Three switches simulate failure without touching real infrastructure:
 await `clock.sleep()` before returning, so a test can prove a slow-to-ready Cell still finishes
 within `spec.ready_timeout_s` -- or times out when the delay exceeds it. Every call is recorded
 (`provision_calls`, `destroy_calls`, `pause_calls`, `resume_calls`) so a test can assert on what
-was actually asked for. Shipped code, not test-only (codingrules section 14.4: "fakes live in
-src/ beside their Protocol"), because `hive doctor` and demo paths use it too.
+was actually asked for.
+
+FakeReadinessGate implements `hivemind.hive.backends.bootstrap.ReadinessGate` the same way:
+`wait_ready` returns a default `CellReadyInfo` (or one arranged with `set_ready_info`) as soon as
+it is called, unless `set_never_ready` is armed for that Cell, in which case it awaits the fake
+clock's own `sleep(timeout_s)` and raises `TimeoutError`, exactly the shape a real gate's deadline
+hits. It lives here, beside `FakeCellBackend`, rather than in its own module, because it is the
+second (and, for now, only other) fake this package ships, and codingrules 5.2's "one file, one
+concept" reads this package's pair of in-memory Protocol fakes as one concept: what lets
+`hivemind.hive.backends.docker.DockerCellBackend` (roadmap step 5.4) and its tests run with no
+real Docker daemon or Queen.
+
+Both are shipped code, not test-only (codingrules section 14.4: "fakes live in src/ beside their
+Protocol"), because `hive doctor` and demo paths use them too.
 
 Fits into the Hive:
-    Layer 3 (sources of Cells). Implements `hivemind.hive.backends.base.CellBackend`; constructed
-    directly by tests, demo scripts and `hive doctor`. Calls into hivemind.cell, hivemind.hive.
-    backends.base, hivemind.hive.cell_state, hivemind.hive.errors, hivemind.hive.models and
-    waggle only.
+    Layer 3 (sources of Cells). Implements `hivemind.hive.backends.base.CellBackend` and
+    `hivemind.hive.backends.bootstrap.ReadinessGate`; constructed directly by tests, demo scripts
+    and `hive doctor`. Calls into hivemind.cell, hivemind.forage, hivemind.hive.backends.base,
+    hivemind.hive.backends.bootstrap, hivemind.hive.cell_state, hivemind.hive.errors,
+    hivemind.hive.models and waggle only.
 
 Key invariants:
     - A Cell this backend returns always has kind == CellKind.VIRTUAL and access_level ==
@@ -31,11 +44,15 @@ Key invariants:
       list_cells, matching what a real backend's own infrastructure would report.
     - pause()/resume() raise BackendCapabilityError whenever capabilities.can_pause is False,
       before touching the table or the recorded call lists.
+    - FakeReadinessGate.forget() is idempotent: forgetting a Cell never `expect`-ed, or already
+      forgotten, is a no-op, matching ReadinessGate's own documented contract.
 
 See Also:
     - .claude/codingrules.md section 14.4 for "fakes live in src/, are shipped code."
     - hivemind.hive.backends.base for CellBackend, BackendCapabilities and VirtualCellRecord, the
-      Protocol and value types this class implements and returns.
+      Protocol and value types FakeCellBackend implements and returns.
+    - hivemind.hive.backends.bootstrap for ReadinessGate and CellReadyInfo, the Protocol and value
+      type FakeReadinessGate implements and returns.
     - hivemind.llm.fake for FakeLLMProvider, the switches-and-call-recording pattern this mirrors.
 """
 
@@ -46,12 +63,15 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from hivemind.cell import AccessLevel, Cell, CellCapabilities, CellKind, OsFamily
+from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
+from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId, new_cell_id
+from waggle.messages import OsFamily as WireOsFamily
 
 _FAKE_BACKEND_NAME = "fake"  # The `name` and every Cell's `source` this backend hands out.
 _FAKE_ARCH = "x86_64"  # images/ is Ubuntu-based and this fake never runs on real hardware.
@@ -59,8 +79,12 @@ _FAKE_DISTRIBUTION = "Ubuntu 24.04 LTS"  # Matches codingrules 2's Virtual Cell 
 _FAKE_SHELL = "/bin/bash"
 _FAKE_PACKAGE_MANAGER = "apt"
 _FAKE_PYTHON_VERSION = "3.12"
+_FAKE_CORES = 2  # A modest default host: enough for provision()'s own defaults, no more.
+_FAKE_MEMORY_BYTES = 2 * 1024**3
+_FAKE_DISK_BYTES = 10 * 1024**3
+_FAKE_MAX_SUB_BEES = 4
 
-__all__ = ["FakeCellBackend"]
+__all__ = ["FakeCellBackend", "FakeReadinessGate"]
 
 
 @dataclass(slots=True)
@@ -247,3 +271,117 @@ def _build_cell(spec: VirtualCellSpec, source: str, cell_id: CellId) -> Cell:
         access_level=AccessLevel.FULL,
         comb_shield=spec.comb_shield,
     )
+
+
+# What wait_ready() returns for a Cell no test arranged with set_ready_info: a modest,
+# terminal-only Cell matching _build_cell's own defaults above, so a test that never calls
+# set_ready_info still gets a self-consistent, validator-passing CellReadyInfo.
+_DEFAULT_READY_INFO = CellReadyInfo(
+    capabilities=CellCapabilities(
+        os=OsFamily.LINUX,
+        arch=_FAKE_ARCH,
+        distribution=_FAKE_DISTRIBUTION,
+        shell=_FAKE_SHELL,
+        package_manager=_FAKE_PACKAGE_MANAGER,
+        python_version=_FAKE_PYTHON_VERSION,
+        has_display=False,
+        has_audio=False,
+        has_browser=False,
+        can_start_display=False,
+        can_host_model=True,
+        network_scopes=(),
+    ),
+    capacity=ForageCapacity(
+        host=HostCapacity(
+            cores=_FAKE_CORES,
+            memory_bytes=_FAKE_MEMORY_BYTES,
+            memory_free_bytes=_FAKE_MEMORY_BYTES,
+            disk_bytes=_FAKE_DISK_BYTES,
+            disk_free_bytes=_FAKE_DISK_BYTES,
+            cpu_load=0.0,
+            gpus=(),
+            arch=_FAKE_ARCH,
+            os=WireOsFamily.LINUX,
+        ),
+        local_seats=(),
+        max_sub_bees=_FAKE_MAX_SUB_BEES,
+    ),
+)
+
+
+class FakeReadinessGate:
+    """An in-memory ReadinessGate: ready immediately, unless armed never-ready for a Cell.
+
+    Mirrors `FakeCellBackend`'s own shape: an injected Clock for deterministic timing, one switch
+    per simulated failure mode, and every call recorded so a test can assert on what was actually
+    asked for.
+    """
+
+    def __init__(self, clock: Clock) -> None:
+        """Create a FakeReadinessGate with nothing expected or armed yet.
+
+        Args:
+            clock: Source of the real wait a `set_never_ready` Cell's `wait_ready` performs before
+                raising, so a test drives it with a FakeClock instead of a real timer.
+        """
+        self._clock = clock
+        self._never_ready: set[CellId] = set()
+        self._never_ready_next = False
+        self._ready_info: dict[CellId, CellReadyInfo] = {}
+        self.expect_calls: list[CellId] = []
+        self.forget_calls: list[CellId] = []
+
+    def set_ready_info(self, cell_id: CellId, info: CellReadyInfo) -> None:
+        """Make `wait_ready(cell_id, ...)` return `info` instead of the module's own default.
+
+        Args:
+            cell_id: Which Cell's result to override.
+            info: The CellReadyInfo `wait_ready` should return for it.
+        """
+        self._ready_info[cell_id] = info
+
+    def set_never_ready(self, cell_id: CellId, never_ready: bool = True) -> None:
+        """Make `wait_ready(cell_id, ...)` wait out `timeout_s` and raise, or stop doing so.
+
+        Args:
+            cell_id: Which Cell's wait to arm or disarm.
+            never_ready: True arms the switch; False disarms it, letting `wait_ready` succeed
+                again.
+        """
+        if never_ready:
+            self._never_ready.add(cell_id)
+        else:
+            self._never_ready.discard(cell_id)
+
+    def set_next_never_ready(self) -> None:
+        """Arm never-ready for whichever Cell the very next `expect()` call registers.
+
+        A caller (a `CellBackend.provision()` under test) usually mints its own `CellId`
+        internally, so a test cannot name it in advance the way `set_never_ready` needs; this is
+        the one-shot alternative for exactly that case.
+        """
+        self._never_ready_next = True
+
+    async def expect(self, cell_id: CellId, verify_key_hex: str) -> None:
+        """Record the expectation; see `ReadinessGate.expect`."""
+        self.expect_calls.append(cell_id)
+        if self._never_ready_next:
+            self._never_ready.add(cell_id)
+            self._never_ready_next = False
+
+    async def wait_ready(self, cell_id: CellId, timeout_s: float) -> CellReadyInfo:
+        """Return this Cell's arranged or default CellReadyInfo; see `ReadinessGate.wait_ready`."""
+        if cell_id in self._never_ready:
+            # A real gate's own deadline is what a caller's timeout_s bounds; the fake clock makes
+            # this instant in a test while still exercising the exact same timeout code path.
+            await self._clock.sleep(timeout_s)
+            raise TimeoutError(
+                f"Cell {cell_id} never reported ready within {timeout_s}s (FakeReadinessGate)."
+            )
+        return self._ready_info.get(cell_id, _DEFAULT_READY_INFO)
+
+    async def forget(self, cell_id: CellId) -> None:
+        """Drop any arranged state for `cell_id`; see `ReadinessGate.forget` (idempotent)."""
+        self.forget_calls.append(cell_id)
+        self._never_ready.discard(cell_id)
+        self._ready_info.pop(cell_id, None)

@@ -199,8 +199,21 @@ exclude = [
 #   [[tool.mypy.overrides]]
 #   module = ["some_untyped_package.*"]
 #   ignore_missing_imports = true  # WHY: <name the package and the reason no stub exists>
-# No override exists yet because every dependency imported so far (pydantic, structlog, typer,
-# websockets, cryptography) ships its own type information.
+# Every other dependency imported so far (pydantic, structlog, typer, websockets, cryptography)
+# ships its own type information, so this is the first (and, for now, only) override.
+
+[[tool.mypy.overrides]]
+# WHY: "docker" (the Docker Engine SDK for Python, roadmap step 5.4) ships no inline types and no
+# official stub package as of this writing; it is also an *optional* dependency (the
+# `hivemind[docker]` extra, packages/hivemind/pyproject.toml) imported by exactly one module,
+# `hivemind.hive.backends.docker.sdk_client`, lazily inside `__init__` so the rest of the workspace
+# imports fine without it (that module's own docstring). A typings/docker/*.pyi stub would have to
+# cover the SDK's own dynamic, resource-manager-heavy surface (client.containers, client.networks,
+# client.volumes, docker.errors.*) for one module's worth of calls; ignore_missing_imports here is
+# the narrowly-scoped override the comment above documents, confined to that one module by the
+# import-linter contract below ("vendor Docker SDK only inside hive/backends/docker/sdk_client").
+module = ["docker", "docker.*"]
+ignore_missing_imports = true
 
 # ──────────────────────────────────────────────────────────────────────────────
 # pytest (codingrules section 2 + 14: pytest-asyncio, marker set, strictness)
@@ -404,6 +417,18 @@ ignore_imports = [
 # providers land; "warn" still surfaces a visible note (so a typo'd path is never silent forever)
 # without blocking CI for a contract that has nothing to check yet.
 unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+# codingrules section 8.6's vendor-SDK confinement pattern, applied to a vendor *infrastructure*
+# SDK instead of an LLM one (roadmap step 5.4): the Docker Engine SDK for Python is imported only
+# inside hivemind.hive.backends.docker.sdk_client (and, lazily, only inside its __init__, never at
+# module scope -- that module's own docstring), so the rest of the workspace, "hivemind[docker]"
+# extra installed or not, never needs it to import cleanly.
+name = "vendor Docker SDK only inside hive/backends/docker/sdk_client"
+type = "forbidden"
+source_modules = ["hivemind", "waggle", "pollen"]
+forbidden_modules = ["docker"]
+ignore_imports = ["hivemind.hive.backends.docker.sdk_client -> docker"]
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "subprocess... importable only from `hivemind.cell.*`...

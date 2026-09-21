@@ -42,7 +42,13 @@ jobs:
       # in for "the runner had no Docker".
       - name: Verify Docker is available
         run: docker info
-      # No integration test exists until phase 5 adds the first Docker Cell backend, and pytest
+      # roadmap step 5.4: packages/hivemind/tests/integration/test_docker_backend.py provisions
+      # this exact image and tag (images/base-ubuntu/README.md's own build command, repository
+      # root as build context); without it the test would just skip ("not built locally"),
+      # silently never proving the Docker backend against a real container on this runner.
+      - name: Build images/base-ubuntu:dev
+        run: docker build -f images/base-ubuntu/Dockerfile -t hivemind/base-ubuntu:dev .
+      # No integration test existed until phase 5 added the first Docker Cell backend, and pytest
       # exits 5 ("no tests collected") when a marker selects nothing. Treat that one exit code as
       # success explicitly, rather than with `continue-on-error` (which would also swallow a real
       # collection error), so this step still fails loudly on anything else. GitHub runs `run:`
@@ -53,7 +59,7 @@ jobs:
           status=0
           uv run --frozen pytest -m "integration" || status=$?
           if [ "$status" -eq 5 ]; then
-            echo "No integration tests collected yet (expected until phase 5's first Docker Cell backend); treating as success."
+            echo "No integration tests collected (unexpected now that step 5.4 added one; check the build step above)."
             exit 0
           fi
           exit "$status"

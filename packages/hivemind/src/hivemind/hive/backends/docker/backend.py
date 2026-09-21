@@ -1,0 +1,348 @@
+"""Provide DockerCellBackend: provision, destroy, pause and list Virtual Cells on a Docker daemon.
+
+The Docker backend (ADR-0026: "Docker first and QEMU second", ADR-0027: "connect outbound only,
+boot a Warden") is the first working `hivemind.hive.backends.base.CellBackend`. It never talks to
+the Docker daemon or the Queen-side readiness machinery directly: it is built entirely from three
+collaborators handed to its constructor -- a `hivemind.hive.backends.docker.client.
+DockerClientPort` (the real `SdkDockerClient` or, in every test, `FakeDockerClient`), a
+`hivemind.hive.backends.bootstrap.ReadinessGate` (the real Queen-side gate, a later roadmap step,
+or `FakeReadinessGate`), and a `hivemind.hive.backends.bootstrap.QueenEndpoint` (where the Queen
+is, as reachable from inside a Cell). `hivemind.hive.backends.docker.network` decides what network
+each `VirtualCellSpec.network_policy` needs; this module does everything else: resource-limit
+mapping, the all-or-nothing provisioning sequence and its cleanup, idempotent destroy, label-only
+listing, and pause/resume.
+
+Fits into the Hive:
+    Layer 3 (sources of Cells). Implements `hivemind.hive.backends.base.CellBackend`; constructed
+    by the composition root (a later phase's `cli/`) when `[hive] backend = "docker"` and
+    registered through `hivemind.hive.registry.BackendRegistry`. Calls into hivemind.cell,
+    hivemind.hive.backends.base, hivemind.hive.backends.bootstrap, hivemind.hive.backends.docker
+    (client, network), hivemind.hive.cell_state, hivemind.hive.errors, hivemind.hive.models and
+    waggle only.
+
+Key invariants:
+    - provision() either returns a Cell of kind VIRTUAL or raises CellProvisionError; any resource
+      already created (network, volume, container) is removed before the error is raised, and the
+      ReadinessGate registration is forgotten too (codingrules Appendix A.1: all-or-nothing).
+    - destroy() is idempotent even after this backend's own process restarted with no in-memory
+      state: every resource name is recomputed from `cell_id` alone
+      (`hivemind.hive.backends.docker.network.network_name`, this module's own `_container_name`/
+      `_volume_name`), never looked up in a table this instance might not still hold.
+    - `spec.disk_bytes` is not enforced: Docker's per-container disk quota
+      (`storage_opt={"size": ...}`) needs a storage driver most default installs -- Docker Desktop
+      over WSL2 included, the dev host ADR-0026 names -- do not provide, so setting it would break
+      provisioning on the very host this backend is meant to work on first. Documented here and in
+      this package's README rather than silently ignored.
+
+See Also:
+    - docs/adr/0026-cell-backends-docker-first-qemu-second.md for the CellBackend contract this
+      class implements.
+    - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the readiness
+      handshake (CellReady plus the first Heartbeat) `provision()` waits on through ReadinessGate.
+    - hivemind.hive.backends.docker.network for exactly what each NetworkPolicy enforces.
+    - hivemind.hive.backends.docker.client for DockerClientPort and its value types.
+    - hivemind.hive.backends.docker.fake and hivemind.hive.backends.fake for the two fakes this
+      backend is tested against with no real Docker daemon or Queen.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+
+from hivemind.cell import AccessLevel, Cell, CellKind
+from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
+from hivemind.hive.backends.bootstrap import (
+    CellBootstrap,
+    CellReadyInfo,
+    QueenEndpoint,
+    ReadinessGate,
+    mint_cell_bootstrap,
+)
+from hivemind.hive.backends.docker.client import (
+    ContainerInfo,
+    ContainerSpec,
+    DockerClientError,
+    DockerClientPort,
+    VolumeSpec,
+)
+from hivemind.hive.backends.docker.network import NetworkPlan, network_name, plan_network
+from hivemind.hive.cell_state import VirtualCellStatus
+from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
+from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from waggle.clock import Clock
+from waggle.ids import CellId, HiveId
+
+_BACKEND_NAME = "docker"
+# images/base-ubuntu/README.md's own DEFAULT_SCRATCH_ROOT: the scratch volume mounts exactly here.
+_SCRATCH_MOUNT_PATH = "/var/lib/hivemind/scratch"
+
+# tmpfs mount target, not a host temp directory this process itself reads or writes.
+_TMP_MOUNT_PATH = "/tmp"  # noqa: S108  # SAFETY: container-internal tmpfs mount, not a host path.
+_DEFAULT_PIDS_LIMIT = 256  # Generous for a Warden plus a handful of sub-bees; bounds a fork bomb.
+_NANOS_PER_CPU = 1_000_000_000  # Docker's nano_cpus unit: billionths of one logical CPU.
+_LABEL_HIVE_ID = "hivemind.hive_id"
+_LABEL_CELL_ID = "hivemind.cell_id"
+_LABEL_IMAGE = "hivemind.image"
+_LABEL_COMB_SHIELD = "hivemind.comb_shield"
+
+__all__ = ["DockerCellBackend", "build_docker_backend"]
+
+
+class DockerCellBackend:
+    """CellBackend over a Docker daemon, driven entirely through its injected collaborators."""
+
+    def __init__(
+        self,
+        client: DockerClientPort,
+        gate: ReadinessGate,
+        endpoint: QueenEndpoint,
+        clock: Clock,
+        *,
+        max_cells: int | None = None,
+    ) -> None:
+        """Create a DockerCellBackend with nothing provisioned yet.
+
+        Args:
+            client: How this backend talks to Docker; `SdkDockerClient` for a real daemon,
+                `FakeDockerClient` for tests.
+            gate: How this backend learns a Cell has become reachable.
+            endpoint: Where and who the Queen is, as every provisioned Cell must reach her.
+            clock: Source of every minted CellId (`hivemind.hive.backends.bootstrap.
+                mint_cell_bootstrap`).
+            max_cells: The most Cells this backend may hold at once, or None for no cap of its
+                own beyond whatever the daemon itself enforces.
+        """
+        self._client = client
+        self._gate = gate
+        self._endpoint = endpoint
+        self._clock = clock
+        self._max_cells = max_cells
+        # In-process bookkeeping only, for `capabilities.headroom`: `list_cells` and `destroy`
+        # never read this, since they work from Docker's own labels and deterministic names
+        # instead (this module's own key invariant: destroy survives a process restart).
+        self._active_ids: set[CellId] = set()
+
+    @property
+    def name(self) -> str:
+        """This backend's registry name, "docker"."""
+        return _BACKEND_NAME
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Docker can snapshot (a later step) and pause; headroom tracks this instance's count."""
+        headroom = (
+            None if self._max_cells is None else max(0, self._max_cells - len(self._active_ids))
+        )
+        return BackendCapabilities(can_snapshot=True, can_pause=True, headroom=headroom)
+
+    async def provision(self, spec: VirtualCellSpec) -> Cell:
+        """See `CellBackend.provision`."""
+        self._check_headroom(spec)
+        if spec.network_policy is NetworkPolicy.VPN_TOR:
+            # Night Veil needs its own image (roadmap 5.3a) and routing (5.7a), neither of which
+            # exists yet; refusing here is cheaper than failing partway through provisioning.
+            raise CellProvisionError(
+                self.name,
+                spec.image,
+                "VPN_TOR requires the Night Veil image and routing (roadmap steps 5.3a/5.7a), "
+                "not yet available to the Docker backend",
+            )
+        bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
+        # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify
+        # this Cell's very first signed frame, which can arrive the instant the container starts.
+        await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)
+        try:
+            cell = await self._provision_resources(spec, bootstrap)
+        except (DockerClientError, TimeoutError) as exc:
+            await self._gate.forget(bootstrap.cell_id)
+            raise CellProvisionError(self.name, spec.image, str(exc)) from exc
+        self._active_ids.add(bootstrap.cell_id)
+        return cell
+
+    async def _provision_resources(self, spec: VirtualCellSpec, bootstrap: CellBootstrap) -> Cell:
+        """Create the network, volume and container in order, cleaning up all of it on failure."""
+        cell_id = bootstrap.cell_id
+        created: list[tuple[str, str]] = []  # (kind, name), in creation order, for _cleanup.
+        try:
+            plan = plan_network(spec, cell_id)
+            await self._client.create_network(plan.spec)
+            created.append(("network", plan.spec.name))
+            volume_spec = _build_volume_spec(spec, cell_id)
+            await self._client.create_volume(volume_spec)
+            created.append(("volume", volume_spec.name))
+            container_spec = _build_container_spec(spec, bootstrap, plan, volume_spec.name)
+            await self._client.create_container(container_spec)
+            created.append(("container", container_spec.name))
+            await self._client.start_container(container_spec.name)
+            # No timeout wrapper here: ReadinessGate.wait_ready's own `timeout_s` argument is the
+            # deadline (its contract: raises TimeoutError past it), so a second one would only
+            # race the first for no benefit.
+            ready_info = await self._gate.wait_ready(cell_id, spec.ready_timeout_s)
+        except (DockerClientError, TimeoutError):
+            await self._cleanup(created)
+            raise
+        return _build_cell(spec, cell_id, self.name, ready_info)
+
+    async def _cleanup(self, created: list[tuple[str, str]]) -> None:
+        """Undo every resource `_provision_resources` made, most recently created first."""
+        for kind, name in reversed(created):
+            if kind == "container":
+                await self._client.remove_container(name, force=True)
+            elif kind == "volume":
+                await self._client.remove_volume(name)
+            else:
+                await self._client.remove_network(name)
+
+    def _check_headroom(self, spec: VirtualCellSpec) -> None:
+        """Raise CellProvisionError before creating anything if this backend is already full."""
+        if self._max_cells is not None and len(self._active_ids) >= self._max_cells:
+            raise CellProvisionError(
+                self.name, spec.image, f"at its headroom of {self._max_cells} cells"
+            )
+
+    async def destroy(self, cell_id: CellId) -> None:
+        """See `CellBackend.destroy` (idempotent)."""
+        try:
+            await self._client.remove_container(_container_name(cell_id), force=True)
+            await self._client.remove_volume(_volume_name(cell_id))
+            await self._client.remove_network(network_name(cell_id))
+        except DockerClientError as exc:
+            raise CellDestroyError(self.name, cell_id, str(exc)) from exc
+        self._active_ids.discard(cell_id)
+        await self._gate.forget(cell_id)
+
+    async def list_cells(self, hive_id: HiveId) -> Sequence[VirtualCellRecord]:
+        """See `CellBackend.list_cells`: reads Docker's own labels, nothing this instance holds."""
+        infos = await self._client.list_containers({_LABEL_HIVE_ID: str(hive_id)})
+        return tuple(_to_record(info) for info in infos)
+
+    async def pause(self, cell_id: CellId) -> None:
+        """See `CellBackend.pause`."""
+        if not self.capabilities.can_pause:
+            raise BackendCapabilityError(self.name, "pause", cell_id=cell_id)
+        await self._client.pause_container(_container_name(cell_id))
+
+    async def resume(self, cell_id: CellId) -> None:
+        """See `CellBackend.resume`."""
+        if not self.capabilities.can_pause:
+            raise BackendCapabilityError(self.name, "resume", cell_id=cell_id)
+        await self._client.unpause_container(_container_name(cell_id))
+
+
+def build_docker_backend(
+    client: DockerClientPort,
+    gate: ReadinessGate,
+    endpoint: QueenEndpoint,
+    clock: Clock,
+    *,
+    max_cells: int | None = None,
+) -> Callable[[], DockerCellBackend]:
+    """Close over this backend's collaborators and return a zero-arg factory for the registry.
+
+    `hivemind.hive.registry.BackendRegistry.register` takes a `CellBackendFactory` -- a callable
+    with no arguments -- because the registry itself never constructs collaborators (codingrules
+    8.2: no service locator); the composition root builds them once and calls this function to get
+    something it can hand to `register("docker", ...)`. The return type here is a plain
+    `Callable[[], DockerCellBackend]` rather than an imported `CellBackendFactory` alias, so this
+    module never needs `hivemind.hive.registry` -- a `DockerCellBackend` already satisfies
+    `CellBackend` structurally, and `register`'s own parameter type accepts this callable as-is.
+
+    Args:
+        client: How the backend talks to Docker.
+        gate: How the backend learns a Cell has become reachable.
+        endpoint: Where and who the Queen is.
+        clock: Source of every minted CellId.
+        max_cells: The most Cells the backend may hold at once, or None for no cap of its own.
+
+    Returns:
+        A callable that builds a fresh `DockerCellBackend` from the given collaborators each time
+        it is called; `BackendRegistry.get` calls it at most once and caches the result.
+    """
+
+    def factory() -> DockerCellBackend:
+        return DockerCellBackend(client, gate, endpoint, clock, max_cells=max_cells)
+
+    return factory
+
+
+def _container_name(cell_id: CellId) -> str:
+    """Return this Cell's deterministic container name; mirrors `network.network_name`."""
+    return f"hivemind-cell-{cell_id}"
+
+
+def _volume_name(cell_id: CellId) -> str:
+    """Return this Cell's deterministic scratch-volume name; mirrors `network.network_name`."""
+    return f"hivemind-cell-{cell_id}-scratch"
+
+
+def _build_volume_spec(spec: VirtualCellSpec, cell_id: CellId) -> VolumeSpec:
+    """Build the per-Cell scratch volume's spec."""
+    return VolumeSpec(
+        name=_volume_name(cell_id),
+        labels={_LABEL_HIVE_ID: str(spec.hive_id), _LABEL_CELL_ID: cell_id},
+    )
+
+
+def _build_container_spec(
+    spec: VirtualCellSpec, bootstrap: CellBootstrap, network_plan: NetworkPlan, volume_name: str
+) -> ContainerSpec:
+    """Map VirtualCellSpec onto ContainerSpec: resource limits, labels and least-privilege flags."""
+    labels = {
+        **spec.labels,
+        _LABEL_HIVE_ID: str(spec.hive_id),
+        _LABEL_CELL_ID: bootstrap.cell_id,
+        _LABEL_IMAGE: spec.image,
+        _LABEL_COMB_SHIELD: spec.comb_shield.value,
+    }
+    return ContainerSpec(
+        name=_container_name(bootstrap.cell_id),
+        image=spec.image,
+        environment=bootstrap.environment(),
+        labels=labels,
+        network_name=network_plan.spec.name,
+        extra_hosts=network_plan.extra_hosts,
+        volume_name=volume_name,
+        volume_mount_path=_SCRATCH_MOUNT_PATH,
+        # NOTE: spec.disk_bytes is deliberately not mapped to Docker's storage_opt "size": that
+        # option needs a storage driver (overlay2 with xfs pquota, devicemapper) most default
+        # installs -- Docker Desktop over WSL2 included -- do not provide; see this module's own
+        # docstring and hive/backends/README.md for the documented limitation.
+        nano_cpus=int(spec.cpu_cores * _NANOS_PER_CPU),
+        mem_limit_bytes=spec.memory_bytes,
+        pids_limit=_DEFAULT_PIDS_LIMIT,
+        cap_drop=("ALL",),
+        security_opt=("no-new-privileges:true",),
+        # Read-only root plus a writable tmpfs /tmp and the writable scratch volume: least
+        # privilege (codingrules 15) without breaking a Python process that expects /tmp to exist.
+        read_only_rootfs=True,
+        tmpfs={_TMP_MOUNT_PATH: ""},
+    )
+
+
+def _build_cell(
+    spec: VirtualCellSpec, cell_id: CellId, source: str, ready_info: CellReadyInfo
+) -> Cell:
+    """Build the VIRTUAL, FULL-access Cell a successfully provisioned `spec` reports."""
+    return Cell(
+        id=cell_id,
+        kind=CellKind.VIRTUAL,
+        name=spec.image,
+        source=source,
+        capabilities=ready_info.capabilities,
+        capacity=ready_info.capacity,
+        access_level=AccessLevel.FULL,
+        comb_shield=spec.comb_shield,
+    )
+
+
+def _to_record(info: ContainerInfo) -> VirtualCellRecord:
+    """Build a VirtualCellRecord from one Docker container's labels and status."""
+    cell_id = CellId(info.labels.get(_LABEL_CELL_ID, info.name))
+    status = VirtualCellStatus.DORMANT if info.status == "paused" else VirtualCellStatus.READY
+    return VirtualCellRecord(
+        cell_id=cell_id,
+        status=status,
+        image=info.labels.get(_LABEL_IMAGE, ""),
+        labels=dict(info.labels),
+        created_at=info.created_at,
+    )

@@ -1,6 +1,9 @@
 """Hold one CellBackend implementation per kind of infrastructure a Virtual Cell can use.
 
-Covers local containers, a local hypervisor, and cloud providers under backends/cloud/.
+Covers local containers (`docker/`), a local hypervisor, and cloud providers under `cloud/`.
+`bootstrap.py` holds the backend-independent identity and readiness seam (`CellBootstrap`,
+`QueenEndpoint`, `ReadinessGate`, `CellReadyInfo`) every backend provisions through, so the Docker,
+QEMU and cloud backends share one shape without sharing infrastructure code.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside the hive package. Handles
@@ -11,20 +14,49 @@ Fits into the Hive:
 Key invariants:
     - Every Cell a CellBackend implementation returns has kind == CellKind.VIRTUAL and
       access_level == AccessLevel.FULL (hivemind.cell.Cell's own validator enforces the latter).
+    - Nothing in this package registers a backend at import time (codingrules 5.5): each
+      implementation exports a factory (`hivemind.hive.backends.docker.build_docker_backend`) the
+      composition root calls and hands to `hivemind.hive.registry.BackendRegistry.register`.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under hive.
     - .claude/roadmap.md phase 5 for the work that populates it: step 5.2 (base.py, fake.py, this
-      face), step 5.4 (docker.py), step 5.11 (qemu.py).
+      face), step 5.4 (docker/), step 5.11 (qemu.py).
 
 Public API:
     - CellBackend: protocol every provisioning backend implements (hivemind.hive.backends.base).
     - BackendCapabilities, VirtualCellRecord: the capability-declaration and list_cells value
       types every implementation shares (hivemind.hive.backends.base).
     - FakeCellBackend: the in-memory reference implementation (hivemind.hive.backends.fake).
+    - CellBootstrap, QueenEndpoint, ReadinessGate, CellReadyInfo, mint_cell_bootstrap: the
+      backend-independent provisioning seam (hivemind.hive.backends.bootstrap).
+    - FakeReadinessGate: the in-memory ReadinessGate (hivemind.hive.backends.fake).
+    - DockerCellBackend, build_docker_backend: the Docker backend and its registry factory
+      (hivemind.hive.backends.docker).
 """
 
 from hivemind.hive.backends.base import BackendCapabilities, CellBackend, VirtualCellRecord
-from hivemind.hive.backends.fake import FakeCellBackend
+from hivemind.hive.backends.bootstrap import (
+    CellBootstrap,
+    CellReadyInfo,
+    QueenEndpoint,
+    ReadinessGate,
+    mint_cell_bootstrap,
+)
+from hivemind.hive.backends.docker import DockerCellBackend, build_docker_backend
+from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
 
-__all__ = ["BackendCapabilities", "CellBackend", "FakeCellBackend", "VirtualCellRecord"]
+__all__ = [
+    "BackendCapabilities",
+    "CellBackend",
+    "CellBootstrap",
+    "CellReadyInfo",
+    "DockerCellBackend",
+    "FakeCellBackend",
+    "FakeReadinessGate",
+    "QueenEndpoint",
+    "ReadinessGate",
+    "VirtualCellRecord",
+    "build_docker_backend",
+    "mint_cell_bootstrap",
+]

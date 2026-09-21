@@ -33,11 +33,13 @@ from builders.forage import make_capacity
 
 from hivemind.cell import AccessLevel, CellKind
 from hivemind.hive.backends.base import CellBackend
-from hivemind.hive.backends.fake import FakeCellBackend
+from hivemind.hive.backends.bootstrap import QueenEndpoint
+from hivemind.hive.backends.docker import DockerCellBackend, FakeDockerClient
+from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
 from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
 from hivemind.hive.models import VirtualCellSpec
 from waggle.clock import Clock, FakeClock
-from waggle.ids import CellId, HiveId, new_hive_id
+from waggle.ids import CellId, HiveId, new_hive_id, new_node_id
 
 
 def _make_spec(hive_id: HiveId, **overrides: object) -> VirtualCellSpec:
@@ -97,7 +99,42 @@ class _FakeHarness:
         return self._backend
 
 
-_HARNESSES: dict[str, BackendHarness] = {"fake": _FakeHarness()}
+class _DockerHarness:
+    """Builds a DockerCellBackend over FakeDockerClient and FakeReadinessGate (roadmap 5.4)."""
+
+    def __init__(self) -> None:
+        """Start with no backend built yet; `build()` creates one."""
+        self._client: FakeDockerClient | None = None
+
+    def build(self, clock: Clock) -> CellBackend:
+        """Build a fresh DockerCellBackend on `clock`, over fresh fakes."""
+        self._client = FakeDockerClient()
+        gate = FakeReadinessGate(clock)
+        # A plain, valid-looking endpoint: no test in this suite asserts on its contents, only on
+        # what DockerCellBackend does with the fakes it was given.
+        endpoint = QueenEndpoint(
+            waggle_url="ws://localhost:8710",
+            queen_node_id=new_node_id(clock),
+            queen_verify_key_hex="00" * 32,
+        )
+        return DockerCellBackend(self._client, gate, endpoint, clock)
+
+    def arrange_provision_failure(self, reason: str) -> None:
+        """Arm the built FakeDockerClient's create_container failure switch."""
+        self._active().set_create_container_failure(reason)
+
+    def arrange_destroy_failure(self, reason: str) -> None:
+        """Arm the built FakeDockerClient's remove_container failure switch."""
+        self._active().set_remove_container_failure(reason)
+
+    def _active(self) -> FakeDockerClient:
+        """Return the built client, or raise if `build()` was never called."""
+        if self._client is None:
+            raise RuntimeError("build() must be called before arranging a failure.")
+        return self._client
+
+
+_HARNESSES: dict[str, BackendHarness] = {"fake": _FakeHarness(), "docker": _DockerHarness()}
 
 
 @pytest.fixture(params=sorted(_HARNESSES))
