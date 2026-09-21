@@ -158,6 +158,13 @@ class TierSpec(BaseModel):
         description="The largest inline diff this tier's DiffSizeCapCheck allows; None means no "
         "cap (a tier whose actions never carry a diff).",
     )
+    max_copy_bytes: int | None = Field(
+        default=None,
+        gt=0,
+        description="The largest source file a COPY action (roadmap step 5.0e, the `keep` tool) "
+        "may move at this tier, checked against ProposedAction.copy_size by the same "
+        "DiffSizeCapCheck; None means no cap (a tier whose actions never carry a COPY).",
+    )
     judge: bool = Field(
         default=False,
         description="Whether CheckKind.JUDGE belongs in this tier's real-time ladder. True adds "

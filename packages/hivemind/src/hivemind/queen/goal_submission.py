@@ -4,9 +4,11 @@
 function, mirroring `hivemind.queen.dispatcher.dispatch_ready` and `hivemind.queen.questions`'s own
 free functions, so `queen.py` (pinned exactly at codingrules 5.1's 300-line file cap) never has to
 grow to carry a new `PlanBrief` field (roadmap step 5.0b: `scratch_root`, so a plan that declares a
-leaving inside the Hive Stand's own scratch is refused while planning, not discovered at release).
-`Queen.submit_goal` becomes a one-line delegator, exactly like `Queen._tick`/`_on_tick_failed` are
-for `_run_tick`/`_record_recovered_tick_error` in `queen.py` itself.
+leaving inside the Hive Stand's own scratch is refused while planning, not discovered at release;
+roadmap step 5.0e: `keep_root`, so the planner prompt can be told the manifest's own keep root and
+declare a leaving under it). `Queen.submit_goal` becomes a one-line delegator, exactly like
+`Queen._tick`/`_on_tick_failed` are for `_run_tick`/`_record_recovered_tick_error` in `queen.py`
+itself.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -61,7 +63,11 @@ async def submit_goal(
     """
     bound = deps.bound_for(ModelSlot.QUEEN)
     brief = PlanBrief(
-        goal, clearance, [link.cell for link in wardens], scratch_root=deps.scratch_root
+        goal,
+        clearance,
+        [link.cell for link in wardens],
+        scratch_root=deps.scratch_root,
+        keep_root=deps.keep_root,
     )
     draft = await plan_goal(brief, bound, gate=deps.call_gate)
     minted = await deps.chamber.submit(draft)

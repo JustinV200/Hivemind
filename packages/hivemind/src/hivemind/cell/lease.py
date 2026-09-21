@@ -255,10 +255,10 @@ class RealCellLease:
 
         Args:
             facts: This lease's frozen facts, computed by the source opening it.
-            trail: Where cell.leased/cell.released/cell.touched_outside_scratch events land.
+            trail: Where cell.leased/.released/.touched_outside_scratch events land.
             clock: Source of every minted event id and timestamp.
-            identity: The Hive, node and actor this lease stamps on every trail event.
-            releaser: Performs the kill-and-restore work `release()` delegates to.
+            identity: The Hive, node and actor stamped on every trail event.
+            releaser: The kill-and-restore work `release()` delegates to.
         """
         self.id = facts.id
         self.cell_id = facts.cell_id
@@ -317,14 +317,12 @@ class RealCellLease:
         self._started_pids.append(pid)
 
     async def note_touched_path(self, path: Path) -> None:
-        """Record that this lease's session touched `path` (relative or absolute), resolved first.
+        """Record that this lease's session touched `path`, resolved first.
 
-        Writes `cell.touched_outside_scratch` when the resolved path is outside `scratch_root`
-        (codingrules 12: touching outside a lease's scratch directory is always audited).
+        Writes `cell.touched_outside_scratch` when outside `scratch_root` (codingrules 12).
         """
-        # The actual Path.resolve() calls live in a plain (non-async) helper: they are fast,
-        # in-memory-mostly operations, but flake8-async (ASYNC240) still flags a blocking
-        # pathlib call written directly inside an async function's body.
+        # Path.resolve() lives in a plain (non-async) helper (ASYNC240: no blocking pathlib call
+        # directly inside an async function's body).
         resolved, within_scratch = self._resolve_touched(path)
         self._touched_paths.append(resolved)
         if not within_scratch:
@@ -344,14 +342,13 @@ class RealCellLease:
     ) -> None:
         """Record what `release()` must put back at `path` (resolved first) -- or leave in place.
 
-        No trail event here (`release()` writes `cell.left` for a persisted record, once the
-        final content is known); scratch-internal paths are never recorded.
+        No trail event here (`release()` writes `cell.left` for a persisted record); scratch-
+        internal paths are never recorded.
 
         Args:
             path: The path written outside scratch, relative or absolute.
             prior: Bytes at `path` before this write, or None if it did not exist yet.
-            persist: True once a caller *decided* this path should stay (roadmap step 5.0a; this
-                method only carries that decision -- see `RestoreRecord.persist`).
+            persist: True once a caller *decided* this path should stay (`RestoreRecord.persist`).
             approved_by: Who allowed it, POLICY or HUMAN; required with `reason` iff `persist`.
             reason: Why, one line; required with `approved_by` iff `persist`.
 
@@ -369,11 +366,18 @@ class RealCellLease:
         resolved = path.resolve(strict=False)
         return resolved, _is_within(resolved, self.scratch_root.resolve(strict=False))
 
-    def is_path_allowed(self, path: Path) -> bool:
-        """Return whether `path`, once resolved, is reachable from this lease.
+    def note_allowed_path(self, path: Path) -> None:
+        """Widen `allowed_paths` to also cover `path` (resolved), if not already (roadmap 5.0e).
 
-        Resolves `..` and symlinks with `Path.resolve(strict=False)` before comparing, so neither
-        can be used to sneak outside scratch undetected.
+        See `hivemind.wardens.spawn.spawn._widen_lease_reachability`, this method's one caller.
+        """
+        resolved = path.resolve(strict=False)
+        if self.is_path_allowed(resolved) or len(self.allowed_paths) >= MAX_ALLOWED_PATHS:
+            return  # Already reachable, or this lease has already widened as far as it may.
+        self.allowed_paths = (*self.allowed_paths, resolved)
+
+    def is_path_allowed(self, path: Path) -> bool:
+        """Return whether `path`, resolved (`..`/symlinks collapsed), is reachable from this lease.
 
         Args:
             path: The path to check, relative or absolute.

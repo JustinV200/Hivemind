@@ -90,10 +90,11 @@ class PlannerError(ConfigurationError):
 class PlanBrief:
     """What `plan_goal` is asked to plan: the goal, its clearance ceiling and the fleet it has.
 
-    One value rather than four parameters (codingrules 5.1's parameter limit), and the natural
+    One value rather than five parameters (codingrules 5.1's parameter limit), and the natural
     unit to hand a planner: the text as the human stated it, the data-sensitivity ceiling every
-    subtask inherits, the Cells placement will match the plan's needs against, and the Hive
-    Stand's own scratch root (roadmap step 5.0b) so a declared leaving inside it is caught here.
+    subtask inherits, the Cells placement will match the plan's needs against, the Hive Stand's
+    own scratch root (roadmap step 5.0b) so a declared leaving inside it is caught here, and
+    (roadmap step 5.0e) its own keep root.
     """
 
     goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
@@ -102,6 +103,15 @@ class PlanBrief:
     # `hivemind.manifest`'s own `[hive_stand] scratch_root`, resolved; None when the caller has
     # none in hand (most unit tests), which simply skips PlannedTask's own scratch check.
     scratch_root: Path | None = None
+    # `hivemind.manifest`'s own `[hive_stand] keep_root`, resolved; None when the operator has not
+    # set one (or the caller has none in hand). `TaskAssign` carries no `keep_root` field of its
+    # own -- adding one would be a wire change this step does not otherwise need (roadmap step
+    # 5.0e: "the planner prompt instead tells the planner the keep root... via PlanBrief") -- so
+    # this is the one place a Drone learns about it at all: `_build_request` folds it into hot
+    # state, and the planner is expected to declare a `leaves` entry at (or under) this path when
+    # the goal's own artefact belongs there, which then rides to the Drone unchanged on
+    # `TaskAssign.leaves` (roadmap step 5.0b), exactly like any other declared leaving.
+    keep_root: Path | None = None
 
 
 async def plan_goal(
@@ -146,10 +156,20 @@ async def plan_goal(
 def _build_request(brief: PlanBrief, bound: BoundModel) -> LLMRequest:
     """Render `decompose_goal.md` and build the one request `plan_goal` sends to `bound`."""
     sections: dict[SectionLabel, str] = {SectionLabel.USER: brief.goal}
+    hot_state_lines: list[str] = []
     if brief.cells is not None:
         # decompose_goal.md promises "a rough summary of the fleet's capacity" under hot state;
         # without it a model guesses (a Linux-only plan on a Windows Hive Stand never places).
-        sections[SectionLabel.HOT_STATE] = describe_fleet(brief.cells)
+        hot_state_lines.append(describe_fleet(brief.cells))
+    if brief.keep_root is not None:
+        # Roadmap step 5.0e: TaskAssign carries no keep_root field of its own (PlanBrief.keep_root's
+        # own docstring), so this is the one place a plan ever learns it exists at all.
+        hot_state_lines.append(
+            f"Keep root: {brief.keep_root} -- declare a leaving at this path, or a location "
+            "under it, for anything the goal itself needs to remain there."
+        )
+    if hot_state_lines:
+        sections[SectionLabel.HOT_STATE] = "\n\n".join(hot_state_lines)
     system = render(PromptName.DECOMPOSE_GOAL, sections=sections)
     return LLMRequest(
         slot=bound.slot,

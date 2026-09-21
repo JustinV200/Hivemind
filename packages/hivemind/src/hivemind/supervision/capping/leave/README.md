@@ -19,6 +19,7 @@ is restored on release exactly as it always was before phase 5.
 | `table.py` | `LeavePolicyTable`, `load_leave_policy`: `leave-policy.toml`, as data, validated. |
 | `policy.py` | `decide`: the pure function tying the four modules above together. |
 | `persist.py` | `decide_persist`: turns a verdict into persist/approved_by/reason for `apply.py`. |
+| `scan.py` | `declared_leaving_root`, `scan_declared_leaves`: the `run_command` before/after scan (roadmap step 5.0e), and the shared conservative-root helper `hivemind.wardens.spawn.spawn` also uses to widen a lease's own reachable paths. |
 
 `hivemind.supervision.capping.apply` is the one effectful caller: for every path an
 `OUTSIDE_SCRATCH_WRITE` proposal touches, it reads the session, applies the diff, then calls
@@ -28,8 +29,9 @@ note_restore_path` with `persist`/`approved_by` set accordingly.
 
 ## Path classes
 
-`keep_root` (under the manifest's `[hive_stand] keep_root`, roadmap step 5.0e -- `None` today,
-so nothing classifies as `keep_root` yet), `home` (under the Cell's own home directory), `startup`
+`keep_root` (under the manifest's `[hive_stand] keep_root`, roadmap step 5.0e; `None` unless the
+operator sets one, in which case nothing classifies as `keep_root`), `home` (under the Cell's own
+home directory), `startup`
 (a Windows Startup folder, a systemd unit directory, a shell rc file, LaunchAgents/LaunchDaemons,
 ...), `system` (`/etc`, `/usr`, `/bin`, `/opt`, `C:\Windows`, `C:\Program Files*`, ...), and
 `other` -- a path `classify_path` recognises as none of the four. The roadmap names only the first

@@ -336,6 +336,13 @@ class PlannedLeaving(BaseModel):
                 f"PlannedLeaving.pattern {self.pattern!r} names a bare root, drive or home "
                 "directory; a plan may only declare specific paths, never a whole tree."
             )
+        if any(char in parts[0] for char in "*?["):
+            # `~/*` or `C:\**` is the bare home or drive again, spelt as a glob: it would declare
+            # (and make writable) the whole tree the rule above exists to refuse.
+            raise ValueError(
+                f"PlannedLeaving.pattern {self.pattern!r} starts with a wildcard segment; name "
+                "at least one real directory or file before any `*`."
+            )
         if ".." in parts:
             raise ValueError(
                 f"PlannedLeaving.pattern {self.pattern!r} may not contain a `..` segment."

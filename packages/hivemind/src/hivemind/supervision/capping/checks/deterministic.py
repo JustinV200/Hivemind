@@ -45,12 +45,13 @@ from typing import ClassVar
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
 from hivemind.supervision.capping.tiers import RiskTier
-from waggle.messages.capping import ActionKind, CheckKind, CheckOutcome
+from waggle.messages.capping import ActionKind, CheckKind, CheckOutcome, ProposedAction
 
 # ActionKind.ACTION_SEQUENCE has no applier yet (roadmap 3.17: "ACTION_SEQUENCE -> REJECTED with
 # reason 'unsupported in v0'"); SchemaCheck is where that rejection actually happens, before the
-# gate ever reaches apply.py.
-_SUPPORTED_ACTION_KINDS = frozenset({ActionKind.DIFF, ActionKind.COMMAND})
+# gate ever reaches apply.py. COPY (roadmap step 5.0e, the `keep` tool) does have an applier
+# (hivemind.supervision.capping.apply._apply_copy).
+_SUPPORTED_ACTION_KINDS = frozenset({ActionKind.DIFF, ActionKind.COMMAND, ActionKind.COPY})
 
 __all__ = [
     "CommandAllowlistCheck",
@@ -150,40 +151,24 @@ class CommandAllowlistCheck:
 
 
 class DiffSizeCapCheck:
-    """Require a DIFF action's inline diff to fit the tier's max_diff_bytes, when one is set."""
+    """Require a DIFF's inline diff, or a COPY's source size, to fit the tier's own byte cap.
+
+    One check class fills the gate's single SIZE_CAP slot for both size-bounded action kinds
+    (mirroring `_AllowlistCheck`'s own one-slot-two-checks shape below), since neither cap ever
+    applies to the other kind's own field.
+    """
 
     kind: ClassVar[CheckKind] = CheckKind.SIZE_CAP
 
     async def run(self, context: CheckContext) -> CheckResultRecord:
-        """Pass trivially for a non-DIFF action or an uncapped tier; else measure the diff."""
+        """Dispatch to the diff or copy size check by `action.kind`; pass trivially for neither."""
         action = context.proposal.action
-        cap = context.tier.max_diff_bytes
-        if action.kind is not ActionKind.DIFF or cap is None:
-            return CheckResultRecord(
-                kind=CheckKind.SIZE_CAP, outcome=CheckOutcome.PASSED, reason="no size cap applies"
-            )
-        if action.diff is None:
-            # A by-digest diff (too large for the wire, ProposedAction.diff_sha256 set instead) is
-            # written to scratch; this deterministic check has no CellSession to read it back with
-            # (CheckContext carries none), so it fails closed (codingrules 8.12) rather than
-            # guessing the size.
-            return CheckResultRecord(
-                kind=CheckKind.SIZE_CAP,
-                outcome=CheckOutcome.FAILED,
-                reason="diff is by digest; size cannot be verified without scratch (unsupported "
-                "in v0)",
-            )
-        size = len(action.diff.encode("utf-8"))
-        if size > cap:
-            return CheckResultRecord(
-                kind=CheckKind.SIZE_CAP,
-                outcome=CheckOutcome.FAILED,
-                reason=f"diff is {size} bytes, over the {cap}-byte cap for this tier",
-            )
+        if action.kind is ActionKind.DIFF:
+            return _check_diff_size(action, context.tier.max_diff_bytes)
+        if action.kind is ActionKind.COPY:
+            return _check_copy_size(action, context.tier.max_copy_bytes)
         return CheckResultRecord(
-            kind=CheckKind.SIZE_CAP,
-            outcome=CheckOutcome.PASSED,
-            reason=f"diff is {size} bytes, within the {cap}-byte cap",
+            kind=CheckKind.SIZE_CAP, outcome=CheckOutcome.PASSED, reason="no size cap applies"
         )
 
 
@@ -220,6 +205,60 @@ class _AllowlistCheck:
         if path_result.outcome is not CheckOutcome.PASSED:
             return path_result
         return await self.command_check.run(context)
+
+
+def _check_diff_size(action: ProposedAction, cap: int | None) -> CheckResultRecord:
+    """Measure a DIFF action's inline diff against `cap`, when one is set."""
+    if cap is None:
+        return CheckResultRecord(
+            kind=CheckKind.SIZE_CAP, outcome=CheckOutcome.PASSED, reason="no size cap applies"
+        )
+    if action.diff is None:
+        # A by-digest diff (too large for the wire, ProposedAction.diff_sha256 set instead) is
+        # written to scratch; this deterministic check has no CellSession to read it back with
+        # (CheckContext carries none), so it fails closed (codingrules 8.12) rather than
+        # guessing the size.
+        return CheckResultRecord(
+            kind=CheckKind.SIZE_CAP,
+            outcome=CheckOutcome.FAILED,
+            reason="diff is by digest; size cannot be verified without scratch (unsupported in v0)",
+        )
+    size = len(action.diff.encode("utf-8"))
+    if size > cap:
+        return CheckResultRecord(
+            kind=CheckKind.SIZE_CAP,
+            outcome=CheckOutcome.FAILED,
+            reason=f"diff is {size} bytes, over the {cap}-byte cap for this tier",
+        )
+    return CheckResultRecord(
+        kind=CheckKind.SIZE_CAP,
+        outcome=CheckOutcome.PASSED,
+        reason=f"diff is {size} bytes, within the {cap}-byte cap",
+    )
+
+
+def _check_copy_size(action: ProposedAction, cap: int | None) -> CheckResultRecord:
+    """Measure a COPY action's own declared copy_size against `cap` (roadmap step 5.0e)."""
+    if cap is None:
+        return CheckResultRecord(
+            kind=CheckKind.SIZE_CAP, outcome=CheckOutcome.PASSED, reason="no size cap applies"
+        )
+    # ProposedAction's own validator (waggle.messages.capping.action) already requires copy_size
+    # to be set for a COPY action, so this is never None here; the actual bytes are re-measured
+    # and re-checked against this same cap again at apply time (hivemind.supervision.capping.
+    # apply._apply_copy), since a declared size could lie about what scratch really holds.
+    size = action.copy_size or 0
+    if size > cap:
+        return CheckResultRecord(
+            kind=CheckKind.SIZE_CAP,
+            outcome=CheckOutcome.FAILED,
+            reason=f"copy source is {size} bytes, over the {cap}-byte cap for this tier",
+        )
+    return CheckResultRecord(
+        kind=CheckKind.SIZE_CAP,
+        outcome=CheckOutcome.PASSED,
+        reason=f"copy source is {size} bytes, within the {cap}-byte cap",
+    )
 
 
 def _normalise(scratch_root: Path, path: Path) -> Path:

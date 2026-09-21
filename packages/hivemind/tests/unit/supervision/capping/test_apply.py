@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 from builders.capping import FakeLeaseView, make_action, make_proposal
 
 from hivemind.cell import CompletedCommand, FakeSession, Responder
-from hivemind.supervision.capping.apply import apply_action
+from hivemind.supervision.capping.apply import ApplyExtras, apply_action
 from hivemind.supervision.capping.errors import CappingError
 from hivemind.supervision.capping.tiers import RiskTier
 from waggle.clock import FakeClock
-from waggle.messages.capping import ActionKind
+from waggle.messages.capping import ActionKind, ProposedAction
 
 
 def _session(
@@ -126,3 +127,148 @@ async def test_apply_action_rejects_action_sequence(tmp_path: Path) -> None:
 
     with pytest.raises(CappingError):
         await apply_action(session, lease, proposal, scratch_root)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# COPY (roadmap step 5.0e, the `keep` tool)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _copy_action(source: str, destination: Path, content: bytes) -> ProposedAction:
+    """Build a valid COPY ProposedAction, its sha256/size matching `content` for real."""
+    return make_action(
+        ActionKind.COPY,
+        paths=(source, str(destination)),
+        copy_sha256=hashlib.sha256(content).hexdigest(),
+        copy_size=len(content),
+    )
+
+
+async def test_apply_action_copy_moves_the_source_to_the_destination(tmp_path: Path) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    await session.put_file(Path("installer.exe"), b"\x00binary\x01content")
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    destination = outside_dir / "installer.exe"
+    action = _copy_action("installer.exe", destination, b"\x00binary\x01content")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+
+    result = await apply_action(session, lease, proposal, scratch_root)
+
+    assert result.succeeded
+    assert await session.get_file(destination) == b"\x00binary\x01content"
+    with pytest.raises(FileNotFoundError):
+        await session.get_file(Path("installer.exe"))  # The source is removed: keep() moves it.
+
+
+async def test_apply_action_copy_records_a_restore_record_with_no_prior(tmp_path: Path) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    await session.put_file(Path("installer.exe"), b"payload")
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    destination = outside_dir / "installer.exe"
+    action = _copy_action("installer.exe", destination, b"payload")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+
+    await apply_action(session, lease, proposal, scratch_root)
+
+    resolved = destination.resolve(strict=False)
+    assert lease.restore_records == [(resolved, None)]  # Nothing was there before this apply.
+
+
+async def test_apply_action_copy_records_a_restore_record_with_the_priors_content(
+    tmp_path: Path,
+) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    await session.put_file(Path("installer.exe"), b"new payload")
+    destination = outside_dir / "installer.exe"
+    await session.put_file(destination, b"old payload")
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    action = _copy_action("installer.exe", destination, b"new payload")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+
+    await apply_action(session, lease, proposal, scratch_root)
+
+    resolved = destination.resolve(strict=False)
+    assert lease.restore_records == [(resolved, b"old payload")]
+    assert await session.get_file(destination) == b"new payload"
+
+
+async def test_apply_action_copy_fails_closed_on_a_hash_mismatch(tmp_path: Path) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    # The content on disk no longer matches the sha256/size the proposal declared.
+    await session.put_file(Path("installer.exe"), b"changed since the tool proposed this")
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    destination = outside_dir / "installer.exe"
+    action = _copy_action("installer.exe", destination, b"original bytes")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+
+    result = await apply_action(session, lease, proposal, scratch_root)
+
+    assert not result.succeeded
+    assert result.failure_reason is not None
+    assert "no longer matches" in result.failure_reason
+    with pytest.raises(FileNotFoundError):
+        await session.get_file(destination)  # Nothing was ever written.
+
+
+async def test_apply_action_copy_fails_closed_on_a_missing_source(tmp_path: Path) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    destination = outside_dir / "installer.exe"
+    action = _copy_action("never-written.exe", destination, b"content")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+
+    result = await apply_action(session, lease, proposal, scratch_root)
+
+    assert not result.succeeded
+    assert result.failure_reason is not None
+    assert "no file at" in result.failure_reason
+
+
+async def test_apply_action_copy_refuses_when_the_disk_reserve_would_break(tmp_path: Path) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    await session.put_file(Path("installer.exe"), b"payload")
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    destination = outside_dir / "installer.exe"
+    action = _copy_action("installer.exe", destination, b"payload")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+    # No real disk has anywhere near this many megabytes free, so the reserve always breaks.
+    huge_reserve_mb = 2**40
+
+    result = await apply_action(
+        session, lease, proposal, scratch_root, ApplyExtras(disk_reserve_mb=huge_reserve_mb)
+    )
+
+    assert not result.succeeded
+    assert result.failure_reason is not None
+    assert "reserve" in result.failure_reason
+    with pytest.raises(FileNotFoundError):
+        await session.get_file(destination)
+
+
+async def test_apply_action_copy_skips_the_disk_reserve_check_when_none(tmp_path: Path) -> None:
+    scratch_root = tmp_path / "scratch"
+    outside_dir = tmp_path / "outside"
+    session = _session(scratch_root, allowed_paths=(outside_dir,))
+    await session.put_file(Path("installer.exe"), b"payload")
+    lease = FakeLeaseView(scratch_root, allowed_paths=(outside_dir,))
+    destination = outside_dir / "installer.exe"
+    action = _copy_action("installer.exe", destination, b"payload")
+    proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
+
+    result = await apply_action(
+        session, lease, proposal, scratch_root, ApplyExtras(disk_reserve_mb=None)
+    )
+
+    assert result.succeeded

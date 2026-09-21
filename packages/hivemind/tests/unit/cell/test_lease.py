@@ -10,7 +10,13 @@ from pydantic import ValidationError
 
 from hivemind.cell.errors import InvalidLeaseTransitionError
 from hivemind.cell.fake import FakeLeaseReleaser
-from hivemind.cell.lease import LeaseFacts, LeaseReleaser, LeaseReleaseReport, RealCellLease
+from hivemind.cell.lease import (
+    MAX_ALLOWED_PATHS,
+    LeaseFacts,
+    LeaseReleaser,
+    LeaseReleaseReport,
+    RealCellLease,
+)
 from hivemind.cell.lease_state import LeaseState
 from hivemind.cell.leavings import ApprovedBy
 from hivemind.cell.tiers import CombShieldLevel
@@ -140,6 +146,34 @@ def test_is_path_allowed_collapses_dotdot_before_checking(tmp_path: Path) -> Non
     sneaky = tmp_path / "sub" / ".." / ".." / "outside.txt"
 
     assert not lease.is_path_allowed(sneaky)
+
+
+def test_note_allowed_path_widens_reachability(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    widened = tmp_path.parent / "keep"
+
+    lease.note_allowed_path(widened)
+
+    assert lease.is_path_allowed(widened / "file.txt")
+    assert widened.resolve(strict=False) in lease.allowed_paths
+
+
+def test_note_allowed_path_is_a_noop_for_an_already_reachable_path(tmp_path: Path) -> None:
+    already_allowed = tmp_path.parent / "allowed"
+    lease = _make_lease(tmp_path, allowed_paths=(already_allowed,))
+
+    lease.note_allowed_path(already_allowed)
+
+    assert lease.allowed_paths == (already_allowed.resolve(strict=False),)
+
+
+def test_note_allowed_path_stops_widening_once_at_the_cap(tmp_path: Path) -> None:
+    filler = tuple(tmp_path.parent / f"allowed-{i}" for i in range(MAX_ALLOWED_PATHS))
+    lease = _make_lease(tmp_path, allowed_paths=filler)
+
+    lease.note_allowed_path(tmp_path.parent / "one-too-many")
+
+    assert len(lease.allowed_paths) == MAX_ALLOWED_PATHS
 
 
 async def test_release_is_idempotent_and_returns_the_first_report(tmp_path: Path) -> None:

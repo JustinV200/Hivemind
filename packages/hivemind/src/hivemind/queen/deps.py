@@ -246,6 +246,10 @@ class QueenDeps:
         hot_window_s: The manifest's own `[memory] hot_window_s`, the compaction cutoff a
             Queen-run sweep measures entry age against. Defaults to `DEFAULT_HOT_WINDOW_S`'s own
             value (four hours).
+        keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
+            None (the default) until the operator sets one. Read only by `hivemind.queen.
+            goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.
+            keep_root` so the planner can be told the keep root and declare a leaving under it.
     """
 
     chamber: BroodChamber
@@ -286,3 +290,8 @@ class QueenDeps:
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S
     hot_window_s: float = _DEFAULT_HOT_WINDOW_S
+    # Roadmap step 5.0e: the manifest's own [hive_stand] keep_root, resolved; None until the
+    # operator sets one. Read only by hivemind.queen.goal_submission.submit_goal, which passes it
+    # to hivemind.queen.planner.PlanBrief.keep_root so the planner prompt can be told it (TaskAssign
+    # itself carries no keep_root field -- see PlanBrief.keep_root's own docstring for why).
+    keep_root: Path | None = None

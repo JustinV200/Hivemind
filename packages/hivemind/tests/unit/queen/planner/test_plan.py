@@ -291,6 +291,32 @@ async def test_plan_goal_omits_the_hot_state_section_without_a_fleet() -> None:
     assert "<<<hot_state>>>" not in (provider.calls[0].system or "")
 
 
+async def test_plan_goal_renders_keep_root_into_the_hot_state_section() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
+    bound = make_bound(provider=provider)
+
+    keep_root = Path("/keep")
+    brief = PlanBrief("Write three haiku about bees.", HoneyClearance.C1, keep_root=keep_root)
+
+    await plan_goal(brief, bound, gate=DirectCallGate())
+
+    system = provider.calls[0].system or ""
+    assert "<<<hot_state>>>" in system
+    assert "Keep root: " in system
+    assert str(keep_root) in system
+
+
+async def test_plan_goal_omits_the_hot_state_section_without_a_fleet_or_keep_root() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
+    bound = make_bound(provider=provider)
+
+    brief = PlanBrief("Write three haiku about bees.", HoneyClearance.C1)
+
+    await plan_goal(brief, bound, gate=DirectCallGate())
+
+    assert "<<<hot_state>>>" not in (provider.calls[0].system or "")
+
+
 def test_describe_fleet_names_each_cell_and_the_os_placement_matches_on() -> None:
     cell = make_cell(name="hive-stand")
 

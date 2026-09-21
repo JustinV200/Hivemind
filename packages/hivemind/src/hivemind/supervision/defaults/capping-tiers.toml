@@ -21,6 +21,10 @@
 #                         no-op (hivemind.cell.NoopSnapshotter) and fall back to REVERSE_DIFF.
 #   max_diff_bytes    -- the largest inline unified diff this tier's DiffSizeCapCheck allows;
 #                         omit (or leave unset) for a tier whose actions never carry a diff.
+#   max_copy_bytes    -- roadmap step 5.0e: the largest source file the `keep` tool's own COPY
+#                         action may move at this tier, checked by the same DiffSizeCapCheck
+#                         against ProposedAction.copy_size; omit for a tier whose actions never
+#                         carry a COPY (every tier but outside_scratch_write, v0's only proposer).
 #   judge             -- roadmap step 4.10: whether CheckKind.JUDGE belongs in this tier's
 #                         real-time ladder, even without naming JUDGE in `checks`/`floor` by hand
 #                         (hivemind.supervision.capping.tiers.checks_for). true for
@@ -69,12 +73,17 @@ audit_rate = 0.02  # Low risk, confined to scratch; light sampling as a defence-
 # A later phase adds SANDBOX_TESTS here (run the touched tests in a sandbox Cell before applying).
 
 [tiers.outside_scratch_write]
-# A diff that touches a path outside scratch (an install the Hive makes, for instance). The
-# allowlist check enforces both a capability grant and that the path is reachable from the lease.
+# A diff that touches a path outside scratch (an install the Hive makes, for instance), or (roadmap
+# step 5.0e) a COPY the `keep` tool proposes to move a scratch file there. The allowlist check
+# enforces both a capability grant and that the path is reachable from the lease.
 checks = ["SCHEMA", "ALLOWLIST", "SIZE_CAP"]
 floor = ["SCHEMA"]
 snapshot_before = false
 max_diff_bytes = 1048576
+max_copy_bytes = 26214400  # 25 MiB: generous for a config file, a small binary or a short log a
+# `keep` call legitimately wants to move whole, well past a diff's own 1 MiB (a COPY never counts
+# against max_diff_bytes; it is text-free by construction, so a much larger cap costs nothing the
+# wire itself has to carry).
 judge = true  # Roadmap step 4.10: a real-time review now wired into every Warden's own checks.
 audit_rate = 0.0  # A live review already covers every proposal here; nothing left to sample.
 # A later phase adds SANDBOX_TESTS above.

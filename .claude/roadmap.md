@@ -928,7 +928,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   file. An unanswered question past its timeout means *discard*, never a failed task. No tempo
   removes this rung. Phase 10 moves the same question onto push and step-up; nothing here
   changes then.
-- [ ] **5.0e The `keep` tool and `keep_root`.** `workers/tools/keep.py`: `keep(source,
+- [x] **5.0e The `keep` tool and `keep_root`.** `workers/tools/keep.py`: `keep(source,
   destination)` proposes moving a scratch file to a path outside it, an ordinary
   `outside_scratch_write` through the same gate, policy and ledger. A diff cannot carry a binary,
   so this adds a `COPY` action kind (a waggle minor bump) capped by a per-tier `max_copy_bytes`.

@@ -15,7 +15,7 @@ from builders.cells import make_capabilities, make_cell
 
 from hivemind.cell import AccessLevel, CellKind, CompletedCommand, FakeSession, OsFamily, Responder
 from hivemind.cell.leavings import ApprovedBy
-from hivemind.supervision.capping.apply import apply_action
+from hivemind.supervision.capping.apply import ApplyExtras, apply_action
 from hivemind.supervision.capping.leave.model import LeaveVerdict
 from hivemind.supervision.capping.leave.persist import build_leave_context
 from hivemind.supervision.capping.leave.table import (
@@ -61,7 +61,7 @@ async def test_apply_action_leave_allow_persists_and_sets_policy_approval(tmp_pa
     action = make_action(ActionKind.DIFF, paths=(str(target),), diff="@@ -0,0 +1,1 @@\n+hello\n")
     proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
 
-    result = await apply_action(session, lease, proposal, scratch_root, leave)
+    result = await apply_action(session, lease, proposal, scratch_root, ApplyExtras(leave=leave))
 
     assert result.succeeded
     resolved = target.resolve(strict=False)
@@ -90,7 +90,7 @@ async def test_apply_action_leave_undeclared_path_never_persists(tmp_path: Path)
     action = make_action(ActionKind.DIFF, paths=(str(target),), diff="@@ -0,0 +1,1 @@\n+hello\n")
     proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
 
-    result = await apply_action(session, lease, proposal, scratch_root, leave)
+    result = await apply_action(session, lease, proposal, scratch_root, ApplyExtras(leave=leave))
 
     assert result.succeeded
     resolved = target.resolve(strict=False)
@@ -144,7 +144,7 @@ async def test_apply_action_leave_ask_does_not_persist_without_a_human_check(
     )
     proposal = make_proposal(risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE, action=action)
 
-    result = await apply_action(session, lease, proposal, scratch_root, leave)
+    result = await apply_action(session, lease, proposal, scratch_root, ApplyExtras(leave=leave))
 
     resolved = target.resolve(strict=False)
     assert lease.persist_records == [(resolved, False, None, None)]

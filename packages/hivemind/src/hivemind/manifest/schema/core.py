@@ -7,7 +7,8 @@ providers or security posture it runs with: ``HiveSection`` (the Hive's own iden
 node id, and where its SQLite file lives), ``QueenSection`` (how often the Queen ticks and checks
 in), ``HiveStandSection`` (the Hive Stand, the machine the Queen runs on and the first Real Cell:
 its own capacity-probe overrides in ``HiveStandCapacityOverrides``, its per-lease scratch quota
-and disk reserve, and the wire ``AccessLevel`` any lease on it may hold at most),
+and disk reserve, the wire ``AccessLevel`` any lease on it may hold at most, and (roadmap step
+5.0e) an optional ``keep_root`` outside scratch that outlives every lease),
 ``BroodChamberSection`` (the task graph store's one limit) and ``PheromoneSection`` (how long the
 audit trail keeps events). Every field here carries a default sensible for local development, so a
 manifest that omits every section but ``[hive]`` still loads
@@ -42,7 +43,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from waggle.messages.base import HiveIdField, NodeIdField
 from waggle.messages.labels import AccessLevel as WireAccessLevel
@@ -220,6 +221,14 @@ class HiveStandSection(BaseModel):
         "hivemind.cell.local.HiveStandConfig.from_section converts it via the hivemind mirror's "
         "own from_wire.",
     )
+    keep_root: Path | None = Field(
+        default=None,
+        description="Roadmap step 5.0e: an optional directory outside scratch_root that outlives "
+        "every lease -- the `keep` tool's own destinations, and the one path class the leave "
+        "policy (supervision/defaults/leave-policy.toml) ALLOWs by default. Resolved relative to "
+        "the manifest's own directory, like scratch_root. None (the default) means the Hive "
+        "keeps nothing past a lease's release.",
+    )
 
     @field_validator("address")
     @classmethod
@@ -228,6 +237,33 @@ class HiveStandSection(BaseModel):
         # Same rule every other Waggle endpoint in the Hive follows (waggle.uris' own docstring);
         # applying it here means a bad address fails at load time, not on the first dial attempt.
         return check_waggle_uri(value)
+
+    @model_validator(mode="after")
+    def _keep_root_is_usable(self) -> HiveStandSection:
+        """Refuse a keep_root that overlaps scratch_root, or one FULL access can never reach.
+
+        Roadmap step 5.0e names two facts an operator must learn at start-up, not after a silent
+        run: a keep_root inside (or containing) scratch_root would be wiped by the very release it
+        is meant to survive, and a keep_root set while access_level is READ_ONLY or SCRATCH can
+        never actually keep anything -- the leave policy's own hard rule (roadmap step 5.0c) always
+        DENYs a leaving at those levels, and that rule is never weakened for keep_root's sake.
+        """
+        if self.keep_root is None:
+            return self
+        if _paths_overlap(self.scratch_root, self.keep_root):
+            raise ValueError(
+                f"[hive_stand] keep_root ({self.keep_root}) may not be inside, equal to, or "
+                f"contain scratch_root ({self.scratch_root}); keep_root must sit outside scratch "
+                "so scratch's own wholesale removal on release never touches it."
+            )
+        if self.access_level is not WireAccessLevel.FULL:
+            raise ValueError(
+                f"[hive_stand] keep_root is set, but access_level is "
+                f"{self.access_level.value.lower()!r}; the leave policy always denies persisting "
+                "under READ_ONLY or SCRATCH access, so nothing kept here could ever actually "
+                'stay. Raise access_level to "full" to use keep_root.'
+            )
+        return self
 
 
 class BroodChamberSection(BaseModel):
@@ -251,4 +287,23 @@ class PheromoneSection(BaseModel):
         default=DEFAULT_RETENTION_DAYS,
         gt=0,
         description="Days a trail event is kept before the retention job may delete it.",
+    )
+
+
+def _paths_overlap(scratch_root: Path, keep_root: Path) -> bool:
+    """Return whether `keep_root` and `scratch_root` share any ancestor/descendant relationship.
+
+    Neither path is guaranteed absolute at this point (`HiveManifest.resolve_path` only resolves
+    a relative path once the manifest's own directory is known, after this section validates), so
+    a relative path is joined onto the current working directory purely for this comparison --
+    `resolve_path`'s own documented fallback when no manifest directory is known yet -- rather
+    than resolved against disk (`Path.resolve()` would touch the filesystem and, for a `..`
+    segment, could even give a different answer once the real manifest directory is known).
+    """
+    resolved_scratch = scratch_root if scratch_root.is_absolute() else Path.cwd() / scratch_root
+    resolved_keep = keep_root if keep_root.is_absolute() else Path.cwd() / keep_root
+    return (
+        resolved_scratch == resolved_keep
+        or resolved_scratch in resolved_keep.parents
+        or resolved_keep in resolved_scratch.parents
     )

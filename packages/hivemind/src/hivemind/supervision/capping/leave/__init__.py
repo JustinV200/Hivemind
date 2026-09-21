@@ -48,6 +48,8 @@ Public API:
       through (persist).
     - LeaveHumanVerdict: the human's own closed answer to an ASK verdict (model).
     - leave_decided_payload: the capping.leave_decided trail payload for one decision (trail).
+    - ScannedFile, MAX_SCAN_FILES, MAX_SCAN_FILE_BYTES, declared_leaving_root,
+      scan_declared_leaves: the `run_command` before/after scan, roadmap step 5.0e (scan).
 """
 
 from hivemind.supervision.capping.leave.classify import classify_path
@@ -72,6 +74,13 @@ from hivemind.supervision.capping.leave.persist import (
     with_asker,
 )
 from hivemind.supervision.capping.leave.policy import decide
+from hivemind.supervision.capping.leave.scan import (
+    MAX_SCAN_FILE_BYTES,
+    MAX_SCAN_FILES,
+    ScannedFile,
+    declared_leaving_root,
+    scan_declared_leaves,
+)
 from hivemind.supervision.capping.leave.table import (
     DEFAULT_LEAVE_POLICY_FILENAME,
     ClassPolicy,
@@ -88,6 +97,8 @@ __all__ = [
     "DEFAULT_HUMAN_TIMEOUT_S",
     "DEFAULT_LEAVE_POLICY_FILENAME",
     "HIVE_STAND_SOURCE",
+    "MAX_SCAN_FILES",
+    "MAX_SCAN_FILE_BYTES",
     "Asker",
     "ClassPolicy",
     "GeneralSettings",
@@ -102,14 +113,17 @@ __all__ = [
     "LeaveRequest",
     "LeaveVerdict",
     "PathClass",
+    "ScannedFile",
     "SingleVerdict",
     "build_leave_context",
     "classify_path",
     "decide",
     "decide_persist",
+    "declared_leaving_root",
     "leave_decided_payload",
     "load_leave_policy",
     "looks_executable",
     "matches_leaving",
+    "scan_declared_leaves",
     "with_asker",
 ]

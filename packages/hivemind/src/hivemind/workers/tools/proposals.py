@@ -24,9 +24,10 @@ Key invariants:
     - `spend_estimate_usd` is always 0.0 (roadmap step 3.16, v0): no built-in tool this phase
       proposes a real spend.
     - `describe` never includes a diff's or a command's own text, only ids, the tier-and-state
-      verdict and each check/postcondition's outcome (codingrules section 12's "never the diff
-      text back" carried over from the trail's own payload rule, even though this is tool-result
-      text rather than a trail event).
+      verdict, each check/postcondition's outcome and (roadmap step 5.0e) each outside-scratch
+      path's own leave verdict -- a resolved path and a one-line reason, never file contents
+      (codingrules section 12's "never the diff text back" carried over from the trail's own
+      payload rule, even though this is tool-result text rather than a trail event).
     - `cap` notes exactly one Alarm per ROLLED_BACK outcome, never more: a Proposal only ever
       reaches ROLLED_BACK once (`hivemind.supervision.capping.state`'s own transition table has no
       edge back out of it).
@@ -47,6 +48,7 @@ from dataclasses import dataclass
 from hivemind.cell import HoneyClearance
 from hivemind.forage.tempo import Tempo
 from hivemind.supervision.capping import GateOutcome, Proposal, ProposalState, RiskTier
+from hivemind.supervision.capping.leave import LeaveDecisionRecord
 from hivemind.workers.context import WorkerContext
 from waggle.ids import new_message_id
 from waggle.messages.capping import ProposedAction
@@ -139,16 +141,30 @@ def describe(outcome: GateOutcome) -> str:
         outcome: What `cap` returned.
 
     Returns:
-        One line naming the terminal state, the reason, and each check kind and postcondition
-        index with its own pass/fail -- never the proposal's diff or command text (module
-        docstring).
+        One line naming the terminal state, the reason, each check kind and postcondition index
+        with its own pass/fail, and (only when the proposal touched a path outside scratch,
+        roadmap step 5.0e) each such path's own leave verdict and whether it will actually remain
+        -- never the proposal's diff or command text (module docstring).
     """
     checks = "; ".join(f"{check.kind.value}={check.outcome.value}" for check in outcome.checks)
     postconditions = "; ".join(
         f"[{pc.index}] {pc.kind.value}={'held' if pc.has_held else 'failed'}"
         for pc in outcome.postconditions
     )
-    return (
+    text = (
         f"state={outcome.state.value}; reason={outcome.reason}; "
         f"checks=({checks or 'none'}); postconditions=({postconditions or 'none'})"
+    )
+    if outcome.leave_decisions:
+        text += f"; leaves=({_describe_leaves(outcome.leave_decisions)})"
+    return text
+
+
+def _describe_leaves(decisions: tuple[LeaveDecisionRecord, ...]) -> str:
+    """Render each outside-scratch path's own leave verdict, plainly: will it remain, and why."""
+    return "; ".join(
+        f"{decision.path}="
+        f"{'will remain' if decision.persisted else 'will be removed on release'} "
+        f"({decision.reason})"
+        for decision in decisions
     )

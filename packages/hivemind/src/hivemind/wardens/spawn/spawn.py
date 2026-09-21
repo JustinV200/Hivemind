@@ -65,8 +65,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 
-from hivemind.cell import Cell, CellSession, NoopSnapshotter, RealCellLease, TaskNeeds
+from hivemind.cell import AccessLevel, Cell, CellSession, NoopSnapshotter, RealCellLease, TaskNeeds
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
@@ -76,6 +77,7 @@ from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
 from hivemind.supervision.capping import GateDeps
+from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.sub_bee import SubBee
@@ -193,13 +195,13 @@ async def spawn_sub_bee(
     """
     deps = ctx.deps
     worker_id = new_worker_id(deps.clock)
-    needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
-    capabilities = worker_capabilities(ctx.ceiling, needs, ctx.lease.scratch_root)
+    capabilities, write_roots = _prepare_capabilities(ctx, assignment)
     binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
     bound = deps.rebind(binding_key)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
     facts = _SpawnedBeeFacts(worker_id=worker_id, bound=bound, capabilities=capabilities)
 
+    _widen_lease_reachability(ctx, write_roots)
     capping_gate = _build_capping_gate(ctx, assignment)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
@@ -247,6 +249,58 @@ async def stop_sub_bee(
     await reap(sub_bee.runtime_task)
 
 
+def _prepare_capabilities(
+    ctx: WardenCellContext, assignment: TaskAssign
+) -> tuple[CapabilitySet, tuple[Path, ...]]:
+    """Compute this sub-bee's own CapabilitySet slice, and the declared write roots it shares.
+
+    Roadmap step 5.0e: `write_roots` feeds both this slice's own `fs:write` candidates and
+    `_widen_lease_reachability`'s own lease widening -- an outside-scratch write needs both to
+    actually land (`hivemind.workers.capabilities.worker_capabilities`'s own module docstring).
+    """
+    needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
+    write_roots = _declared_write_roots(ctx.deps, assignment)
+    capabilities = worker_capabilities(
+        ctx.ceiling, needs, ctx.lease.scratch_root, extra_write_roots=write_roots
+    )
+    return capabilities, write_roots
+
+
+def _declared_write_roots(deps: WardenDeps, assignment: TaskAssign) -> tuple[Path, ...]:
+    """Return the manifest's own `keep_root` plus each of `assignment`'s declared leaving roots.
+
+    Roadmap step 5.0e: the one set of roots both `worker_capabilities` (an outside-scratch
+    `fs:write` candidate per root) and `_widen_lease_reachability` (the same roots, as lease
+    `allowed_paths`) need; computed once per spawn so neither repeats `declared_leaving_root`'s
+    own `~`-expansion and wildcard-stripping work.
+    """
+    roots = [
+        declared_leaving_root(leaving.pattern, deps.leave_home) for leaving in assignment.leaves
+    ]
+    if deps.keep_root is not None:
+        roots.append(deps.keep_root)
+    return tuple(roots)
+
+
+def _widen_lease_reachability(ctx: WardenCellContext, write_roots: tuple[Path, ...]) -> None:
+    """Widen this Warden's lease so `write_roots` are reachable, under FULL access only.
+
+    Roadmap step 5.0e: "make keep_root and the task's declared leaves reachable for a lease only
+    in the way the access level already permits." A lease is opened once, at `Warden.start()`,
+    before any `TaskAssign` exists, so `RealCellLease.allowed_paths` cannot be sized from a task's
+    `leaves` or the manifest's `keep_root` up front; this call (once per spawned sub-bee, on the
+    one lease every sub-bee on this Cell shares) is what closes that gap. Only ever widens under
+    `AccessLevel.FULL`: at READ_ONLY or SCRATCH the leave policy's own hard rule (roadmap step
+    5.0c) always DENYs a leaving regardless, so nothing there would ever need to reach outside
+    scratch for this reason, and widening reachability past what a lower level's own capability
+    ceiling grants would be exactly the escalation codingrules section 15 forbids.
+    """
+    if ctx.lease.access_level is not AccessLevel.FULL:
+        return
+    for root in write_roots:
+        ctx.lease.note_allowed_path(root)
+
+
 def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> AuditingCappingGate:
     """Build this sub-bee's own CappingGate (codingrules section 8.12: nothing lands uncapped).
 
@@ -276,6 +330,7 @@ def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> Audit
             declared_leaves=assignment.leaves,
             keep_root=deps.keep_root,
             leave_home=deps.leave_home,
+            disk_reserve_mb=deps.disk_reserve_mb,
         ),
         AuditWiring(
             reviewer=deps.judge_reviewer,

@@ -73,7 +73,9 @@ from waggle.messages.capping import CheckKind
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
-__all__ = ["WardenDeps"]
+DEFAULT_DISK_RESERVE_MB = 1024  # Mirrors hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB.
+
+__all__ = ["DEFAULT_DISK_RESERVE_MB", "WardenDeps"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,11 +138,19 @@ class WardenDeps:
             test that never names this field.
         leave_policy: The leave policy every sub-bee's `CappingGate` decides an outside-scratch
             write against (roadmap step 5.0c). Defaults to the shipped `leave-policy.toml`.
-        keep_root: The manifest's `[hive_stand] keep_root`, or None until roadmap step 5.0e wires
-            it; threaded into every sub-bee's `GateDeps.keep_root` unchanged.
+        keep_root: The manifest's `[hive_stand] keep_root` (roadmap step 5.0e), or None; threaded
+            into every sub-bee's `GateDeps.keep_root` unchanged, and into
+            `hivemind.wardens.spawn.spawn._widen_lease_reachability`.
         leave_home: This Warden's own Cell's home directory, for `~`-rooted `leaves` pattern
             expansion (roadmap step 5.0c); defaults to this process's own home, correct for the
             Hive Stand (v0's only Real Cell source).
+        disk_reserve_mb: The manifest's own `[hive_stand] disk_reserve_mb` (roadmap step 5.0e), a
+            `keep` COPY's destination is refused against; threaded into every sub-bee's
+            `GateDeps.disk_reserve_mb` unchanged. Defaults to `DEFAULT_DISK_RESERVE_MB` (this
+            module's own mirror of `hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB`, kept
+            local rather than imported so this Layer 5 module does not reach into Layer 1 for one
+            constant), so a WardenDeps built before this dispatch keeps checking against a sane
+            figure rather than skipping the check silently.
     """
 
     source: RealCellSource
@@ -182,6 +192,8 @@ class WardenDeps:
     leave_policy: LeavePolicyTable = field(default_factory=load_leave_policy)
     keep_root: Path | None = None
     leave_home: Path = field(default_factory=Path.home)
+    # Roadmap step 5.0e: additive, defaulted like every field above it.
+    disk_reserve_mb: int = DEFAULT_DISK_RESERVE_MB
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

@@ -3,12 +3,18 @@
 Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle dance). The
 Capping gate is the quality gate every side effect outside a lease's scratch directory passes:
 propose, check, apply, verify, roll back. ``ProposedAction`` is the action itself, in a shape
-deterministic checks can read: one ``ActionKind`` (a diff, a command as an argument list, or a
-sequence of steps) with exactly the field that kind needs populated, the paths it touches, and
-a bound on the characters it carries in total. A diff too large for the wire is written to
-scratch with the session and referenced by ``paths`` plus ``diff_sha256`` instead. The model is
-split out of ``waggle.messages.capping.proposals`` by responsibility so each file stays under the
-codingrules 5.1 size limit. Every bound is a named constant here; the number, not the name, is
+deterministic checks can read: one ``ActionKind`` (a diff, a command as an argument list, a
+sequence of steps, or a copy by digest) with exactly the field that kind needs populated, the
+paths it touches, and a bound on the characters it carries in total. A diff too large for the
+wire is written to scratch with the session and referenced by ``paths`` plus ``diff_sha256``
+instead. ``COPY`` (roadmap step 5.0e, protocol 1.4) is for the same reason but unconditional: a
+diff is text, so it can carry small binary content awkwardly at best, but the `keep` tool moves a
+scratch file of any size and kind to a path outside it, so its proposal never carries the bytes at
+all -- only their sha256 and size in ``copy_sha256``/``copy_size``, with ``paths`` holding exactly
+the source (inside scratch) and the destination (outside it); the gate reads the source's bytes
+from scratch itself at apply time and verifies the hash before writing the destination. The model
+is split out of ``waggle.messages.capping.proposals`` by responsibility so each file stays under
+the codingrules 5.1 size limit. Every bound is a named constant here; the number, not the name, is
 normative.
 
 Fits into the Hive:
@@ -18,8 +24,9 @@ Fits into the Hive:
 
 Key invariants:
     - Exactly the field matching ``kind`` is populated: a DIFF carries one of diff or
-      diff_sha256, a COMMAND a non-empty command, an ACTION_SEQUENCE non-empty steps, and no
-      action carries another kind's field.
+      diff_sha256, a COMMAND a non-empty command, an ACTION_SEQUENCE non-empty steps, a COPY both
+      copy_sha256 and copy_size plus exactly two paths (source, destination), and no action
+      carries another kind's field.
     - The characters across summary, diff, command, paths and steps never exceed
       MAX_ACTION_CHARS, so a proposal's envelope always fits a frame.
     - The model is frozen and forbids extras through VALUE_MODEL_CONFIG, like a message, but
@@ -48,8 +55,10 @@ MAX_PATHS = 64  # The paths one action touches; a refactor across more is severa
 MAX_STEPS = 100  # An action sequence for the Exoskeleton (GUI driving); longer is a task.
 MAX_STEP_CHARS = 1_000  # One step in prose: what to click, type or wait for.
 MAX_ACTION_CHARS = 262_144  # 256 KiB across every text field, so the frame stays under 1 MiB.
+COPY_PATHS_LEN = 2  # A COPY action's own paths: exactly (source, destination), never more or less.
 
 __all__ = [
+    "COPY_PATHS_LEN",
     "MAX_ACTION_CHARS",
     "MAX_COMMAND_ITEMS",
     "MAX_COMMAND_ITEM_CHARS",
@@ -69,6 +78,7 @@ class ActionKind(Enum):
     DIFF = "DIFF"  # A unified diff over the paths, inline or by digest.
     COMMAND = "COMMAND"  # One program run as an argument list, never a shell string.
     ACTION_SEQUENCE = "ACTION_SEQUENCE"  # Ordered steps, for the Exoskeleton or a device.
+    COPY = "COPY"  # roadmap 5.0e: move a scratch file outside it, by digest, never inline bytes.
 
 
 class ProposedAction(BaseModel):
@@ -105,6 +115,18 @@ class ProposedAction(BaseModel):
         max_length=MAX_STEPS,
         description="The ordered steps; non-empty exactly for an ACTION_SEQUENCE action.",
     )
+    copy_sha256: Annotated[str, Field(pattern=SHA256_PATTERN)] | None = Field(
+        default=None,
+        description="Digest of the source file's bytes, verified against scratch at apply time; "
+        "set exactly for a COPY action.",
+    )
+    copy_size: int | None = Field(
+        default=None,
+        ge=0,
+        description="Size in bytes of the source file at proposal time; set exactly for a COPY "
+        "action, and re-checked against the tier's max_copy_bytes and the file's actual size at "
+        "apply time.",
+    )
 
     @model_validator(mode="after")
     def _field_matches_kind(self) -> ProposedAction:
@@ -118,8 +140,8 @@ class ProposedAction(BaseModel):
                     f"diff {'set' if self.diff is not None else 'None'} and diff_sha256 "
                     f"{self.diff_sha256}."
                 )
-        # A diff on a COMMAND or ACTION_SEQUENCE would never be applied, so its presence means
-        # the sender confused two actions; refusing it keeps the gate's inputs unambiguous.
+        # A diff on a COMMAND, ACTION_SEQUENCE or COPY would never be applied, so its presence
+        # means the sender confused two actions; refusing it keeps the gate's inputs unambiguous.
         elif self.diff is not None or self.diff_sha256 is not None:
             raise ValueError(
                 f"A {self.kind.value} action carries neither diff nor diff_sha256; only a DIFF "
@@ -137,7 +159,24 @@ class ProposedAction(BaseModel):
                 f"A ProposedAction steps is non-empty exactly for an ACTION_SEQUENCE action, "
                 f"got kind {self.kind.value} with {len(self.steps)} step(s)."
             )
+        self._check_copy_fields()
         return self
+
+    def _check_copy_fields(self) -> None:
+        """Require copy_sha256/copy_size and exactly two paths for COPY, neither for any other."""
+        is_copy = self.kind is ActionKind.COPY
+        if (self.copy_sha256 is None or self.copy_size is None) == is_copy:
+            raise ValueError(
+                "A ProposedAction carries both copy_sha256 and copy_size exactly for a COPY "
+                f"action, got kind {self.kind.value} with copy_sha256 "
+                f"{'set' if self.copy_sha256 is not None else 'None'} and copy_size "
+                f"{self.copy_size}."
+            )
+        if is_copy and len(self.paths) != COPY_PATHS_LEN:
+            raise ValueError(
+                f"A COPY action carries exactly {COPY_PATHS_LEN} paths (source, destination), "
+                f"got {len(self.paths)}."
+            )
 
     @model_validator(mode="after")
     def _total_chars_within_cap(self) -> ProposedAction:

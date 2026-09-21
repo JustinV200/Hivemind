@@ -78,7 +78,7 @@ def make_action(kind: ActionKind = ActionKind.DIFF, **overrides: object) -> Prop
     """Build a valid ProposedAction: a one-line new-file diff to `note.txt`, by default.
 
     Args:
-        kind: DIFF, COMMAND or ACTION_SEQUENCE; DIFF by default.
+        kind: DIFF, COMMAND, ACTION_SEQUENCE or COPY; DIFF by default.
         **overrides: Field values that replace the defaults below, including `kind` itself.
 
     Returns:
@@ -93,12 +93,20 @@ def make_action(kind: ActionKind = ActionKind.DIFF, **overrides: object) -> Prop
         "cwd": None,
         "paths": (),
         "steps": (),
+        "copy_sha256": None,
+        "copy_size": None,
     }
     if kind is ActionKind.DIFF:
         fields["diff"] = "@@ -0,0 +1,1 @@\n+hello\n"
         fields["paths"] = ("note.txt",)
     elif kind is ActionKind.COMMAND:
         fields["command"] = ("true",)
+    elif kind is ActionKind.COPY:
+        # sha256 of b"hello" -- roadmap step 5.0e's own default keep() payload, matching the
+        # DIFF branch's own default content above.
+        fields["paths"] = ("note.txt", "/keep/note.txt")
+        fields["copy_sha256"] = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        fields["copy_size"] = 5
     else:
         fields["steps"] = ("Click the confirm button.",)
     fields.update(overrides)

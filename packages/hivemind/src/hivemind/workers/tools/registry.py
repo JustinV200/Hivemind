@@ -14,9 +14,10 @@ alongside instead.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Built and read by
-    `hivemind.workers.roles.drone.Drone`; the five `ToolSpec`s it registers live in
-    `hivemind.workers.tools.session`, `.http` and `.ask`. Calls into `hivemind.guard`,
-    `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.errors` and waggle only.
+    `hivemind.workers.roles.drone.Drone`; the six `ToolSpec`s it registers live in
+    `hivemind.workers.tools.session`, `.http`, `.ask` and `.keep` (roadmap step 5.0e). Calls into
+    `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.errors`
+    and waggle only.
 
 Key invariants:
     - `ToolRegistry.execute` never raises for an unknown tool or an invalid argument: both become
@@ -176,17 +177,24 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
         ctx: This attempt's WorkerContext; only `capabilities` decides which tools are offered.
 
     Returns:
-        A ToolRegistry with `run_command`, `read_file`, `write_file` and `ask` always, plus
-        `http_request` only when `ctx.capabilities` holds at least one `net` capability -- there is
-        nothing else a network tool could ever be allowed to do for this Worker.
+        A ToolRegistry with `run_command`, `read_file`, `write_file`, `ask` and `keep` always,
+        plus `http_request` only when `ctx.capabilities` holds at least one `net` capability --
+        there is nothing else a network tool could ever be allowed to do for this Worker.
     """
-    # Imported here, not at module level: session/http/ask each import ToolInvocation/ToolSpec
-    # from this module, so importing them back at module scope would cycle.
+    # Imported here, not at module level: session/http/ask/keep each import ToolInvocation/
+    # ToolSpec from this module, so importing them back at module scope would cycle.
     from hivemind.workers.tools.ask import ASK_SPEC
     from hivemind.workers.tools.http import HTTP_SPEC
+    from hivemind.workers.tools.keep import KEEP_SPEC
     from hivemind.workers.tools.session import READ_FILE_SPEC, RUN_COMMAND_SPEC, WRITE_FILE_SPEC
 
-    specs: list[ToolSpec] = [RUN_COMMAND_SPEC, READ_FILE_SPEC, WRITE_FILE_SPEC, ASK_SPEC]
+    specs: list[ToolSpec] = [
+        RUN_COMMAND_SPEC,
+        READ_FILE_SPEC,
+        WRITE_FILE_SPEC,
+        ASK_SPEC,
+        KEEP_SPEC,
+    ]
     if any(capability.family is CapabilityFamily.NET for capability in ctx.capabilities):
         specs.append(HTTP_SPEC)
     return ToolRegistry(specs)

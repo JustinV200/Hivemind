@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from pathlib import Path
 
 from builders.cells import make_cell
 from builders.wardens import make_warden_deps
@@ -159,6 +160,60 @@ async def test_spawn_sub_bee_threads_assignment_leaves_into_the_capping_gate() -
 
     gate = captured["capping"]
     assert gate._deps.declared_leaves == leaves  # type: ignore[attr-defined]
+
+    await stop_sub_bee(sub_bee, deps.clock)
+    await sub_bee.link.close()
+
+
+async def test_spawn_sub_bee_widens_lease_reachability_under_full_access(tmp_path: Path) -> None:
+    """Roadmap step 5.0e: keep_root and a declared leaving's root become reachable under FULL."""
+    cell = make_cell(kind=CellKind.REAL, access_level=AccessLevel.FULL)
+    keep_root = tmp_path / "keep"
+    deps, _queen_end, warden_id = make_warden_deps(cells=(cell,), keep_root=keep_root)
+    lease = await deps.source.lease(
+        LeaseRequest(
+            cell_id=cell.id, holder=warden_id, task_id=None, access_level=cell.access_level
+        )
+    )
+    session = await deps.source.open_session(lease)
+    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    leaves = (PlannedLeaving(pattern="~/Projects/app", reason="the goal asked for it"),)
+    assignment = make_assignment(clock=deps.clock, leaves=leaves)
+    grant = _grant(deps.clock, assignment.grant_id)
+    ctx = WardenCellContext(
+        warden_id=warden_id, deps=deps, ceiling=ceiling, cell=cell, lease=lease, session=session
+    )
+
+    sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+
+    assert lease.is_path_allowed(keep_root / "kept.txt")
+    assert lease.is_path_allowed(deps.leave_home / "Projects" / "app" / "file.py")
+
+    await stop_sub_bee(sub_bee, deps.clock)
+    await sub_bee.link.close()
+
+
+async def test_spawn_sub_bee_never_widens_lease_reachability_under_scratch_access() -> None:
+    """Under SCRATCH the leave policy always DENYs anyway; nothing should widen reachability."""
+    cell = make_cell(kind=CellKind.REAL, access_level=AccessLevel.SCRATCH)
+    deps, _queen_end, warden_id = make_warden_deps(cells=(cell,), keep_root=Path("/keep"))
+    lease = await deps.source.lease(
+        LeaseRequest(
+            cell_id=cell.id, holder=warden_id, task_id=None, access_level=cell.access_level
+        )
+    )
+    session = await deps.source.open_session(lease)
+    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    leaves = (PlannedLeaving(pattern="~/Projects/app", reason="the goal asked for it"),)
+    assignment = make_assignment(clock=deps.clock, leaves=leaves)
+    grant = _grant(deps.clock, assignment.grant_id)
+    ctx = WardenCellContext(
+        warden_id=warden_id, deps=deps, ceiling=ceiling, cell=cell, lease=lease, session=session
+    )
+
+    sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+
+    assert lease.allowed_paths == ()
 
     await stop_sub_bee(sub_bee, deps.clock)
     await sub_bee.link.close()

@@ -47,7 +47,9 @@ exactly and do not reason about the shape. Here is what each subtask needs conce
   "set up a project in Y" — never for working files, logs, downloads or anything else scratch
   already holds and removes on its own. Each one is an absolute or `~`-rooted path (never a bare
   root or drive, never inside scratch, never a `..` segment) plus one line saying why the goal
-  needs it kept. Declaring a path here does not make it stay; policy still decides.
+  needs it kept. Declaring a path here does not make it stay; policy still decides. When hot state
+  names a keep root, declaring a leaving at that path, or a location under it, is the one place
+  policy allows unconditionally — prefer it when the goal's own artefact fits there.
 
 ## Hard rules
 

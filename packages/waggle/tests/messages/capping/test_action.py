@@ -53,7 +53,12 @@ def _rebuild(example: ProposedAction, **changes: object) -> ProposedAction:
 
 
 def test_action_kind_members_and_values_match_the_spec() -> None:
-    assert [member.name for member in ActionKind] == ["DIFF", "COMMAND", "ACTION_SEQUENCE"]
+    assert [member.name for member in ActionKind] == [
+        "DIFF",
+        "COMMAND",
+        "ACTION_SEQUENCE",
+        "COPY",
+    ]
     assert all(member.value == member.name for member in ActionKind)
 
 
@@ -74,8 +79,15 @@ def test_proposed_action_rejects_an_extra_field() -> None:
         {"diff": None, "diff_sha256": SHA256},
         {"kind": "COMMAND", "diff": None, "command": ("pytest", "-q"), "cwd": "/scratch"},
         {"kind": "ACTION_SEQUENCE", "diff": None, "steps": ("Open settings", "Click save")},
+        {
+            "kind": "COPY",
+            "diff": None,
+            "paths": ("scratch/keeper.exe", "/home/op/keeper.exe"),
+            "copy_sha256": SHA256,
+            "copy_size": 42,
+        },
     ],
-    ids=["diff by digest", "command", "action sequence"],
+    ids=["diff by digest", "command", "action sequence", "copy"],
 )
 def test_proposed_action_accepts_each_kind_with_its_own_field(changes: dict[str, object]) -> None:
     action = _rebuild(ACTION, **changes)
@@ -101,6 +113,30 @@ def test_proposed_action_accepts_each_kind_with_its_own_field(changes: dict[str,
             {"kind": "ACTION_SEQUENCE", "diff": None, "steps": ("s",), "command": ("ls",)},
             "command is non-empty exactly for a COMMAND",
         ),
+        ({"kind": "COPY", "diff": None}, "copy_sha256 and copy_size exactly for a COPY"),
+        (
+            {"copy_sha256": SHA256, "copy_size": 1},
+            "copy_sha256 and copy_size exactly for a COPY",
+        ),
+        (
+            {
+                "kind": "COPY",
+                "diff": None,
+                "copy_sha256": SHA256,
+                "paths": ("scratch/x",),
+            },
+            "copy_sha256 and copy_size exactly for a COPY",
+        ),
+        (
+            {
+                "kind": "COPY",
+                "diff": None,
+                "copy_sha256": SHA256,
+                "copy_size": 1,
+                "paths": ("scratch/x",),
+            },
+            "exactly 2 paths",
+        ),
     ],
 )
 def test_proposed_action_requires_exactly_the_field_of_its_kind(
@@ -108,6 +144,20 @@ def test_proposed_action_requires_exactly_the_field_of_its_kind(
 ) -> None:
     with pytest.raises(ValidationError, match=reason):
         _rebuild(ACTION, **changes)
+
+
+def test_proposed_action_copy_fields_default_to_none_for_an_older_peers_message() -> None:
+    # roadmap step 5.0e: copy_sha256/copy_size are additive (PROTOCOL_MINOR 4), so a payload built
+    # before this dispatch -- one with no "copy_sha256"/"copy_size" keys at all -- must still
+    # validate.
+    payload = ACTION.model_dump(mode="json")
+    del payload["copy_sha256"]
+    del payload["copy_size"]
+
+    rebuilt = ProposedAction.model_validate(payload)
+
+    assert rebuilt.copy_sha256 is None
+    assert rebuilt.copy_size is None
 
 
 def test_proposed_action_bounds_its_text_in_total() -> None:

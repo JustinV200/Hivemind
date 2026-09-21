@@ -296,9 +296,8 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     identity = MemoryIdentity(
         hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
     )
-    # Roadmap step 4.10's own one-line registration: a model-backed JudgeReviewer, merged into
-    # the deterministic check registry so CheckKind.JUDGE is available wherever a tier's own
-    # `judge` flag turns it on (hivemind.supervision.defaults.capping-tiers.toml).
+    # Roadmap step 4.10: a model-backed JudgeReviewer, merged into the deterministic check
+    # registry so CheckKind.JUDGE is available wherever a tier's own `judge` flag turns it on.
     judge_rubrics = load_judge_rubrics()
     judge_reviewer = _build_judge_reviewer(parts)
     return WardenDeps(
@@ -322,11 +321,18 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         missed_heartbeats_before_stalled=supervision.heartbeat_miss_limit,
         judge_reviewer=judge_reviewer,
         judge_rubrics=judge_rubrics,
-        # Roadmap step 4.8: one Fanner lane per grant, so every sub-bee's own llm.call carries
-        # its own grant and goal id (hivemind.wardens.deps.WardenDeps.lane_for_grant's own
-        # docstring); `call_gate` above stays this Warden's own unattributed lane.
+        # Roadmap step 4.8: one Fanner lane per grant (WardenDeps.lane_for_grant's own docstring).
         lane_for_grant=_lane_for_grant(parts),
+        # Roadmap step 5.0e: resolved the same way build_queen_deps resolves scratch_root.
+        keep_root=_keep_root(manifest),
+        disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
     )
+
+
+def _keep_root(manifest: HiveManifest) -> Path | None:
+    """Resolve `[hive_stand] keep_root` against the manifest's own directory, or None."""
+    keep_root = manifest.hive_stand.keep_root
+    return manifest.resolve_path(keep_root) if keep_root is not None else None
 
 
 def _build_judge_reviewer(parts: HiveParts) -> ModelJudgeReviewer:

@@ -37,6 +37,11 @@ Key invariants:
       the pid recorded for `close()` or a later `release()` to find and kill.
     - `close()` is idempotent and kills every pid this session's lease recorded as started,
       whether or not this particular session instance is the one that started it.
+    - `put_file`/`get_file`/`delete_file` read `self._lease.allowed_paths` live, every call,
+      rather than snapshotting it in `__init__`: `RealCellLease.note_allowed_path` (roadmap step
+      5.0e) widens a lease already in use, once a `TaskAssign`'s own declared `leaves` or the
+      manifest's `keep_root` are known -- after this session was already built at `Warden.start()`
+      -- so a snapshot taken here would never see that widening.
 
 See Also:
     - .claude/roadmap.md step 3.11 for the watchdog, RLIMIT_FSIZE and process-group requirements.
@@ -122,7 +127,6 @@ class LocalProcessSession:
         """
         self._lease = lease
         self._scratch_dir = lease.scratch_root
-        self._allowed_paths = lease.allowed_paths
         self._quota = quota
         self._clock = clock
         self._open = True
@@ -191,7 +195,7 @@ class LocalProcessSession:
         """
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
-        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._lease.allowed_paths)
         if _is_outside_scratch(self._scratch_dir, resolved):
             # codingrules section 12: a write outside scratch is always audited on the lease.
             await self._lease.note_touched_path(resolved)
@@ -213,7 +217,7 @@ class LocalProcessSession:
         """
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
-        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._lease.allowed_paths)
         if not resolved.exists():
             raise FileNotFoundError(f"No file at {resolved}.")
         return await asyncio.to_thread(resolved.read_bytes)
@@ -231,7 +235,7 @@ class LocalProcessSession:
         """
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
-        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._lease.allowed_paths)
         if _is_outside_scratch(self._scratch_dir, resolved):
             await self._lease.note_touched_path(resolved)
         if not resolved.exists():

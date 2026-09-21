@@ -76,6 +76,24 @@ def test_from_section_carries_capacity_overrides_through_unchanged(tmp_path: Pat
     assert config.memory_bytes == 1024
 
 
+def test_from_section_resolves_a_relative_keep_root_against_manifest_dir(tmp_path: Path) -> None:
+    section = HiveStandSection(
+        scratch_root=Path(".hive/scratch"), keep_root=Path("keep"), access_level="FULL"
+    )
+
+    config = HiveStandConfig.from_section(section, tmp_path)
+
+    assert config.keep_root == (tmp_path / "keep").resolve(strict=False)
+
+
+def test_from_section_leaves_keep_root_none_when_the_section_has_none(tmp_path: Path) -> None:
+    section = HiveStandSection()
+
+    config = HiveStandConfig.from_section(section, tmp_path)
+
+    assert config.keep_root is None
+
+
 def test_comb_shield_defaults_to_meadow() -> None:
     config = HiveStandConfig(
         enabled=True,

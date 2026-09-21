@@ -272,6 +272,13 @@ def test_planned_leaving_rejects_a_dotdot_segment(pattern: str) -> None:
         PlannedLeaving(pattern=pattern, reason="x")
 
 
+@pytest.mark.parametrize("pattern", ["~/*", "/**", r"C:\*\notes.txt", "~/[a-z]*/x"])
+def test_planned_leaving_rejects_a_wildcard_first_segment(pattern: str) -> None:
+    # A glob straight under the root, drive or home is that whole tree under another spelling.
+    with pytest.raises(ValidationError, match="wildcard segment"):
+        PlannedLeaving(pattern=pattern, reason="x")
+
+
 def test_planned_leaving_bounds_pattern_and_reason() -> None:
     with pytest.raises(ValidationError, match="at least 1"):
         PlannedLeaving(pattern="", reason="x")
