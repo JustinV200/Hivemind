@@ -1,4 +1,4 @@
-# HiveMind CI (roadmap step 0.4).
+  HiveMind CI (roadmap step 0.4).
 #
 # What: the required-status-check workflow for every push to main and every pull request. It
 # gates the whole Python toolchain (ruff, mypy, import-linter, the four hygiene scripts, pytest
