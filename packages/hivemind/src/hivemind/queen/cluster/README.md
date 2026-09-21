@@ -39,7 +39,11 @@ this package.
   an awake episode when her own bound provider is clustered.
 - `triggers.py`: `check_cost_caps(deps, state, wardens)`, the cost-cap trigger: clusters a goal's
   own provider once `deps.ledger.spend.headroom` for that goal hits zero; `providers_of(grant,
-  deps)` is the grant-to-provider reading it and `tick.py` share.
+  deps)` is the grant-to-provider reading it and `tick.py` share. `cluster_if_down(deps, state, wardens,
+  task_id)` is the Alarm-driven trigger `hivemind.queen.ticks.alarms` calls for a
+  `PROVIDER_UNAVAILABLE` Alarm with no fallback binding: it probes that task's own providers at
+  once and clusters any that read DOWN (the failed call is the first signal, so one reading is
+  enough); `every_bee_has_a_fallback` is the "no fallback within Forage" test both triggers share.
 
 ## How to test this
 

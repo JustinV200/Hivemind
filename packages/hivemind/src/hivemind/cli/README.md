@@ -90,7 +90,10 @@ typer layer that calls into a subsystem's public API and never contains logic of
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
   [--json]`: the one command that calls `build_hive`/`run_hive`/`run_goal`. Streams trail events as
   they arrive (unless `--json`), then a one-line summary; exits 0 on success, 1 when the goal
-  failed, 2 on a timeout or a bad manifest. Registered on the root app with `app.command("run")`,
+  failed, 2 on a timeout or a bad manifest. The streamed view begins at the goal's own
+  submission, never earlier (a store that already holds other runs does not replay them), and
+  with `[hive_stand] keep_scratch = true` (development only) the last line names the lease
+  directory the run's files were left in. Registered on the root app with `app.command("run")`,
   not `app.add_typer` -- unlike every other group in this package, it has no subcommand of its own
   (`hive run "goal"`, not `hive run run "goal"`), and the pinned typer version does not collapse a
   single-command `add_typer` sub-app onto its parent's own name (verified empirically; see this
@@ -192,8 +195,9 @@ is reading state a *different* process wrote.
   status`, not `hive forage status --manifest hive.toml`). `status [--json]` restores a
   `hivemind.queen.forage.ForageLedger` from the durable ledger store and prints its headroom, the
   Royal Reserve, every Cell's latest reported capacity and every Warden's reported local pool
-  (throttled-source state lives only in a running Queen's own in-memory Forage map, so it is never
-  shown here; the printed output says so). `grants [--json]` lists every live grant: holder,
+  plus every source still inside a provider's rate-limit window, rebuilt from the trail's own
+  `llm.throttled` events (the live figure is only in a running Queen's in-memory Forage map; the
+  printed note says where the rows come from). `grants [--json]` lists every live grant: holder,
   state, max sub-bees, seats, spend budget and spent. `grant <warden> --sub-bees N [--seats N]
   [--spend USD]` writes a grown or shrunk revision of that Warden's own already-live grant through
   `hivemind.queen.forage.grants.revise` (a Warden's first grant is always issued by a running

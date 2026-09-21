@@ -158,39 +158,45 @@ Also done: the two empty orphan lease directories were removed by hand (the swee
 the Undertaker: "on Queen startup sweeps orphans of both kinds"; `cell/lease_state.py` says so);
 the CLI README's stale "no ModelJudgeReviewer exists" line was corrected.
 
-### 4.2 Open observations, in priority order
+### 4.2 Open observations
 
-1. **A dead provider costs one wasted respawn.** The Drone mid-call when the server dies fails
-   with httpx's "Server disconnected without sending a response" (`RemoteProtocolError`), which
-   the openai_compat client maps to a generic crash (`WORKER_CRASHED` -> policy `RETRY` ->
-   respawn); only the respawned Drone's `ConnectError` becomes `PROVIDER_UNAVAILABLE`. Map
-   `RemoteProtocolError` to `ProviderUnavailableError` in `llm/providers/openai_compat/client.py`
-   (check the anthropic adapter for the same gap).
-2. **A stale escalated Alarm survives Clustering.** The `PROVIDER_UNAVAILABLE` alarm went
-   `alarm.escalated` (attempts 0, then 1) and `queen.decided ESCALATE_TO_HUMAN` 24 s *before* the
-   Queen clustered the provider, so `hive inbox` still lists it after the goal succeeded. Two
-   questions: why the Warden escalated at attempt 0 when `default-policy.toml` says `REBIND` at
-   1 and `ESCALATE` at 2 (start at `wardens/ticks/alarms.py` and the policy's attempt counting),
-   and whether `cluster()` should resolve open `PROVIDER_UNAVAILABLE` alarms for that provider
-   (probably yes: the pause *is* the handling).
-3. **This model's reasoning is the planning bottleneck, and the knob is binary.** LM Studio
+Second clean-up pass, 2026-09-20: every item that was open here is closed except one.
+
+Closed (one commit each, tests beside each):
+
+- **A dead provider no longer costs a wasted respawn.** `llm/providers/openai_compat/client.py`
+  maps `RemoteProtocolError`, `ReadError`, `WriteError` and `CloseError` to
+  `ProviderUnavailableError`, so the bee in flight when the server dies raises the outage itself.
+  The anthropic adapter already covered this (`APIConnectionError`).
+- **A provider outage never reaches the human inbox.** A `PROVIDER_UNAVAILABLE` Alarm with no
+  fallback binding used to fall through to `ESCALATE_TO_HUMAN` and stay in `hive inbox` after
+  Clustering had handled the outage. `queen/ticks/alarms._cluster_or_retry` now probes the task's
+  own providers at once (`queen/cluster/triggers.cluster_if_down`: the failed call plus one DOWN
+  reading is enough), clusters what is down (`alarm.handled` with `action = "CLUSTER"`, resolved
+  when the resumed task succeeds) and otherwise retries the task. The attempt-0 escalation at the
+  Warden was by design: `policy.decide` never matches a fresh Alarm, so its default applies.
+- **`[llm] default_max_output_tokens` is applied, and optional.** It is the cap for every slot that
+  names none; `None` (the new default, was 4096) leaves each call site's own budget alone.
+- **The `None` file**: closed, cannot come from the runtime (scratch confinement, recorded restore
+  paths only; `connect(None)` makes a 4096-byte file, not an empty one).
+- **Cancelled thread hops elsewhere**: reviewed. `cell/local/session.py` and `releaser.py` hold no
+  lock across their `to_thread` calls, so the SQLite failure mode cannot occur; the worst case is
+  a cancelled write finishing inside its own lease's scratch after its caller gave up.
+- **`hive forage status` shows throttled sources**, rebuilt from the trail's `llm.throttled` events.
+- **`hive run` starts its view at submission**; it used to replay the store's whole history.
+- **`[hive_stand] keep_scratch`** (development only) leaves a run's files on disk and prints the
+  lease directory; `cell.released` then honestly reports `is_restored = false`.
+
+Still open:
+
+1. **This model's reasoning is the planning bottleneck, and the knob is binary.** LM Studio
    accepts `reasoning_effort` `none|minimal|low|medium|high|xhigh`, but for this GGUF only on/off
    exist: `none` turns thinking off (verified with curl: 0 reasoning tokens), everything else
-   falls back to on. `Effort` has no NONE, so an operator cannot ask for no thinking. Phase 8
-   (local-model routing) owns this; an `Effort.NONE` mapped to `"none"` would be a small change
-   across `forage/slots.py`, `waggle.messages.forage.Effort` and both adapters' mapping tables.
-   Until then the 12288 budget makes planning reliable but slow (78-110 s per attempt).
-4. **`[llm] default_max_output_tokens` is still unread** (only the per-slot override is wired).
-   Either apply it as the fallback in `BoundModel.stamp` (changes every call site's budget for
-   every operator: the default is 4096, below the planner's 8192) or remove the field.
-5. **The zero-byte `None` file** seen once on 2026-09-16 at 00:16 never reproduced. Nothing in
-   the runtime can write a repo-root path: `cell/local/session.py` confines writes to scratch
-   (`_is_outside_scratch`), the releaser only restores recorded paths, `cli/trail.py` writes the
-   path it is given. `connect(None)` would create a 4096-byte file, not an empty one. Most likely
-   a shell redirect (`2>None`) during the CLI smoke tests. Treat as closed unless it recurs.
-6. **The (g) race class may exist elsewhere.** `ConnectionThread` fixes SQLite; any other
-   `asyncio.to_thread` call whose awaiting coroutine can be cancelled while the thread holds a
-   lock or a file (`cell/local/session.py`, `releaser.py`) deserves the same look.
+   falls back to on. `Effort` has no NONE. Adding one changes `waggle.messages.forage.Effort`, a
+   wire enum: a protocol minor bump (1.2 to 1.3), `docs/waggle/spec.md`, `forage/slots.py`,
+   `forage/allocate.py`'s ceilings, `queen/autopilot/effort.py` and both adapters' tables. That is
+   phase 8 (routing) work, not clean-up. Until then the 12288 budget makes planning reliable but
+   slow (80 to 150 s per attempt on this machine).
 
 ### 4.3 Deliberate deferrals (each recorded in its commit message)
 
@@ -230,13 +236,12 @@ the CLI README's stale "no ModelJudgeReviewer exists" line was corrected.
 - Group-level options must precede the subcommand: `hive forage --manifest X status`,
   `hive cluster --manifest X status`, `hive memory wax --manifest X <cell> list`; but
   `hive memory pins list --manifest X` (leaf-level). Unify if it bothers you.
-- `hive forage status` cannot show throttled sources (throttle state lives only in the running
-  Queen's `ForageMap`).
+- `hive forage status` shows throttled sources from the trail's `llm.throttled` events; the live
+  figure itself is only in the running Queen's `ForageMap`.
 
 ## 6. Suggested order for the next agent
 
-1. Section 4.2 items 1 and 2 together (both are the provider-outage path; the outage drill in 4.4
-   verifies both), then item 4 (one decision, ten lines).
-2. Push the branch when the operator asks; open the PR with the real-run table from section 3.
-3. Phase 5. Keep every file under the codingrules caps (`scripts/check_sizes.py` is strict), one
+1. Push the branch when the operator asks; open the PR with the real-run table from section 3.
+2. Phase 5. Keep every file under the codingrules caps (`scripts/check_sizes.py` is strict), one
    commit per logical change, roadmap ticked in the commit that lands it.
+3. `Effort.NONE` (section 4.2) rides with phase 8.
