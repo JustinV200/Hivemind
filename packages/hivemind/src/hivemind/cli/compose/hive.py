@@ -292,7 +292,8 @@ async def run_goal(
     # The deadline runs from `start`, before planning: submit_goal's own model call can take
     # minutes on a local model, and "never blocks past timeout_s" (module docstring) has to
     # include it.
-    timed_out = await _poll_until_terminal(hive, goal_id, timeout_s, on_event, start=start)
+    submission = _Submission(start=start, at=submitted_at)
+    timed_out = await _poll_until_terminal(hive, goal_id, timeout_s, on_event, submission)
     tasks = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
     succeeded = (
         bool(tasks) and not timed_out and all(t.status is TaskStatus.SUCCEEDED for t in tasks)
@@ -307,13 +308,20 @@ async def run_goal(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _Submission:
+    """When a goal was submitted, on both clocks `_poll_until_terminal` needs (codingrules 5.1)."""
+
+    start: float  # `clock.monotonic()` at submission: what `timeout_s` counts from.
+    at: datetime  # `clock.now()` at submission: where the forwarded trail view begins.
+
+
 async def _poll_until_terminal(
     hive: Hive,
     goal_id: TaskId,
     timeout_s: float,
     on_event: Callable[[PheromoneEvent], None] | None,
-    *,
-    start: float,
+    submission: _Submission,
 ) -> bool:
     """Poll chamber state and forward trail events until `goal_id`'s own tasks are all terminal.
 
@@ -322,14 +330,17 @@ async def _poll_until_terminal(
         goal_id: The goal whose tasks decide when polling stops.
         timeout_s: The most wall time to poll, measured from `start`.
         on_event: Called with every new trail event of interest; None to forward nothing.
-        start: `hive.clock.monotonic()` when the goal was submitted; `timeout_s` counts from it,
-            so planning time (`submit_goal`'s own model call) is inside the budget.
+        submission: When the goal was submitted. `timeout_s` counts from `submission.start`, so
+            planning time (`submit_goal`'s own model call) is inside the budget; forwarded
+            events begin at `submission.at`, so a store that already holds earlier runs never
+            replays their whole history into this run's view.
 
     Returns:
         True once `timeout_s` elapsed first; False once every task reached a terminal status.
     """
     clock = hive.clock
-    last_at: datetime | None = None
+    start = submission.start
+    last_at: datetime | None = submission.at
     last_ids: set[str] = set()
     while True:
         # hive inbox answer (a separate process against the same [hive] db) can only leave a
