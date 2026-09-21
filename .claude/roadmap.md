@@ -120,7 +120,7 @@
 | 2 | Brood Chamber + Pheromone Trail | Tasks persist in SQLite; mutations leave audit events with Night Veil retention exceptions | 0 |
 | 3 | Queen kernel + Warden + Drone on the Hive Stand | `hive run "goal"`: the Queen decomposes, the Hive Stand's Warden spawns Drones, Alarms escalate, a question blocks until answered, the host is left as found; on Claude or a local model | 1, 2 |
 | 4 | Memory, Forage, Clustering | Hot state stays inside its budget under load; handoffs resume; grants and requests flow; a provider outage pauses and preserves, then resumes | 3 |
-| 5 | The Hive (Virtual Cells) + placement | The Queen chooses Real or Virtual per task; each Virtual Cell gets a Warden; Undertakers destroy or release; Overwintering pool (never for Night Veil) | 3, 4 |
+| 5 | The Hive (Virtual Cells) + placement | A task can leave files on a Cell when its plan says so and policy or the human agrees (Leavings); the Queen chooses Real or Virtual per task; each Virtual Cell gets a Warden; Undertakers destroy or release; Overwintering pool (never for Night Veil) | 3, 4 |
 | 6 | Exoskeleton | A Forager sees a screen, clicks, types, hears audio, on either Cell kind, only when asked; Pheromone Mask behavior is callable tactics, not a persistent mode | 5 |
 | 7 | Honey Store | Nectar ripens into Honey with clearance labels; the cold tier of memory is live; Workers query it before acting | 3, 4 |
 | 8 | Local models + provider routing | Every slot can run local; the Hive runs fully offline; routing weighs Forage and model location | 4, 7 |
@@ -873,11 +873,71 @@ except Night Veil Cells which are always just-in-time and teardown-only.
 
 **Depends on.** Phases 3 and 4.
 
-**Deliverables.** `hivemind/hive`, `queen/placement/` for real, `images/base-ubuntu`, Undertaker
+**Deliverables.** `cell/leavings`, `supervision/capping/leave`, the HUMAN rung and the `keep`
+tool (5.0a to 5.0e); `hivemind/hive`, `queen/placement/` for real, `images/base-ubuntu`, Undertaker
 role, `hive cells` CLI.
 
 ### Steps
 
+Steps 5.0a to 5.0e are **Leavings**: what a task may leave behind on a Cell after its lease is
+released. They run on the Hive Stand alone, need no Virtual Cell, and land before 5.1 so every
+real run from here on can keep its output. The rule they keep: scratch is still removed wholesale
+on release and a Cell is still left as found, *plus exactly the paths the Leavings ledger lists*.
+What stays is declared by the plan, decided by policy, and asked of the human only when the policy
+says so; a bee never decides it alone. Leavings are files left in place on a Cell; bytes the Hive
+keeps in its own store are the Basket (9.2a), a separate thing.
+
+- [ ] **5.0a Persist flag and the Leavings ledger.** `RealCellLease.note_restore_path` and
+  `supervision/capping/lease_view.py` grow a `persist` argument (default `False`), so the
+  `RestoreRecord.persist` the releaser already honours (3.17) can finally be set.
+  `cell/leavings/`, a package: `Leaving` (Cell id, path, sha256, size, task, lease, `approved_by`
+  = `POLICY | HUMAN`, the reason, left and removed times), a `LeavingsStore` protocol and its
+  SQLite store in the Brood Chamber's store pattern. A persisted record writes its ledger row and
+  a `cell.left` trail event in the same call; `LeaseReleaseReport` gains `left_paths`, and
+  `is_restored` stays true when the only paths not put back are ledgered ones. `hive cells
+  leavings list|remove <cell>`: `remove` replays the stored prior bytes (or unlinks), marks the
+  row and writes `cell.leaving_removed`. The left-as-found test is extended: after release the
+  temporary home equals its snapshot plus exactly the ledger's paths, and after `remove` it
+  equals the snapshot.
+- [ ] **5.0b The plan declares what stays.** `PlannedTask` gains `leaves`: a bounded tuple of
+  `PlannedLeaving` (an absolute or `~`-rooted path pattern, a one-line reason), empty by default,
+  carried through `TaskDraft`, the Task row and the Assignment (a waggle minor bump) and rendered
+  into the Drone's brief by `brief_for()` beside the acceptance criteria. The validator refuses a
+  pattern inside scratch, a bare root or drive, and any `..` segment, inside the
+  structured-output ladder so a bad one is retried. The planner prompt says to declare only what
+  the goal itself asks to remain ("install X", "set up a project in Y"), never working files;
+  snapshot test. A Drone cannot widen `leaves`; it can only raise a `Question`. A path no plan
+  declared is never persisted, whatever a tool result or a bee says.
+- [ ] **5.0c Leave policy.** `supervision/capping/leave/`: pure autopilot
+  `decide(request, cell, declared) -> ALLOW | ASK | DENY`, its table as data in
+  `leave-policy.toml` beside `capping-tiers.toml`. Inputs, all already known: the Cell's
+  `AccessLevel` (`READ_ONLY` and `SCRATCH` always `DENY`) and `CombShieldLevel` (`NIGHT_VEIL`
+  always `DENY`), whether the Cell is the Hive Stand or a borrowed device, the path's class
+  (`keep_root`, home, system or startup location), size, whether the file is executable, and
+  whether the path matches the task's `leaves`. It reads capabilities and levels, never
+  `cell.kind`. The gate consults it when applying an `outside_scratch_write`: `DENY` does not
+  reject the write, it applies with `persist=False` and is restored on release exactly as today;
+  `ALLOW` sets `persist=True` with `approved_by = POLICY`; `ASK` goes to 5.0d. The judge rubric
+  for `outside_scratch_write` gains one criterion, "does leaving this match the task's stated
+  objective", so an over-declaring plan is caught by a different model.
+- [ ] **5.0d The HUMAN rung, for Leavings first.** `supervision/capping/checks/human.py`:
+  `HumanCheck` raises a `Question` up the existing chain (3.19 to 3.21) with closed options, *keep*,
+  *keep for this whole goal*, *discard*, and the task blocks until it is answered. Only an
+  `Answer` with `source = HUMAN` approves; a Queen or Warden answer is refused. *Keep for this
+  whole goal* is remembered by the Queen per goal and Cell so one goal asks once, not once per
+  file. An unanswered question past its timeout means *discard*, never a failed task. No tempo
+  removes this rung. Phase 10 moves the same question onto push and step-up; nothing here
+  changes then.
+- [ ] **5.0e The `keep` tool and `keep_root`.** `workers/tools/keep.py`: `keep(source,
+  destination)` proposes moving a scratch file to a path outside it, an ordinary
+  `outside_scratch_write` through the same gate, policy and ledger. A diff cannot carry a binary,
+  so this adds a `COPY` action kind (a waggle minor bump) capped by a per-tier `max_copy_bytes`.
+  `[hive_stand] keep_root`: an optional directory outside `scratch_root` that outlives leases,
+  `ALLOW` by default in the policy, counted against `disk_reserve_mb`; the loader refuses one
+  inside `scratch_root`. Commands: `run_command` effects cannot carry a restore record, so v0
+  scans only the task's declared `leaves` patterns before and after each command and ledgers
+  what appeared or changed there; anything else a command touches stays a
+  `cell.touched_outside_scratch` event as today.
 - [ ] **5.1 Virtual Cell model.** `hive/models.py`: `VirtualCellSpec` (image, cpu, memory, disk,
   lifetime, network policy, exoskeleton flag, `ForageCapacity` the image promises),
   `VirtualCellStatus` enum + transition table in `hive/cell_state.py`. A provisioned Virtual Cell
@@ -935,7 +995,9 @@ role, `hive cells` CLI.
   releases Real Cell leases idempotently, revokes their grants, retires a destroyed Virtual Cell's
   Cell Wax (handed to ripening once phase 7 lands; a Real Cell's wax outlives its leases), retries
   with backoff. On Queen
-  startup sweeps orphans of both kinds from backend labels and the trail.
+  startup sweeps orphans of both kinds from backend labels and the trail. Destroying a Virtual
+  Cell marks its Leavings ledger rows (5.0a) removed, since the paths died with the Cell;
+  releasing a Real Cell never touches a ledgered path.
 - [ ] **5.9 Overwintering pool.** `hive/overwinter/policy.py` (pure, Virtual only),
   `hive/overwinter/pool.py`. Placement prefers a dormant Cell with the right image. Clustering uses
   the pool for long outages. Night Veil Cells are excluded. A dormant Cell's volume keeps its
@@ -960,6 +1022,11 @@ role, `hive cells` CLI.
 
 ### Exit criteria
 
+- Leavings, on a real run against the Hive Stand: a goal that asks for a file to be kept leaves
+  it under `keep_root` after release with a ledger row and a `cell.left` event, and scratch is
+  still gone; the same goal without that ask leaves nothing; a goal whose `leaves` path the policy
+  marks `ASK` blocks until `hive inbox answer`, *discard* restores the path and the task still succeeds;
+  `hive cells leavings remove` returns the host to its left-as-found snapshot.
 - The haiku run completes three ways: `prefer = "real"` uses the Hive Stand and zero containers;
   `prefer = "virtual"` uses three containers, each with its own Warden visible in `hive wardens
   list`; a task with `isolation = "required"` uses a Virtual Cell regardless.
@@ -972,6 +1039,9 @@ role, `hive cells` CLI.
 
 ### ADRs to write
 
+- `leavings-declared-by-the-plan-decided-by-policy.md` (why the planner declares and the bee
+  cannot widen; why `DENY` restores rather than rejects; Leavings versus the Basket; what
+  "left as found" means once a ledger exists).
 - `cell-backends-docker-first-qemu-second.md`.
 - `virtual-cells-connect-outbound-only-and-boot-a-warden.md`.
 - `placement-policy-real-versus-virtual.md`.
@@ -1983,7 +2053,9 @@ borrowed device and revoking every grant.
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
 - [ ] **13.4 Absconding.** `hive abscond`: Virtual Cells, dormant Cells, every lease on the Hive
   Stand and on devices, every grant, Worker processes, temp dirs, resident Basket blobs on every
-  Cell (9.2a); from labels and the trail alone.
+  Cell (9.2a); from labels and the trail alone. Leavings (5.0a) are listed in the scope review
+  and removed only when the human ticks them: they were left on purpose, often at the human's
+  own word.
   Absconding is human-only: callable only by a human principal, never by Queen, Warden, Worker,
   autopilot rule, or tool. Execution requires password re-auth, an explicit typed confirmation
   phrase, and a final scope review prompt. Records actor, reason, and confirmation evidence in the
@@ -2136,7 +2208,7 @@ borrowed device and revoking every grant.
 | A provider outage takes the whole Hive down. | Autopilot never awaits a model (0.2), per-provider Clustering that pauses and preserves (4.9), routing fallbacks within Forage (8.1). |
 | Wardens overspend, fork-bomb their Cell or escalate their own capabilities. | Grants sized from reported capacity (3.12, 4.7), attenuation down the tree (10.1), over-grant Alarms, the Guard Bee (10.6). |
 | An offline Nuc diverges from the Queen's view. | Grant is frozen while offline (11.9), outbox and trail segments replay on reconnection (1.8, 2.2), the Queen holds the node's tasks for a grace period, chaos tests cut the link (13.6). |
-| Workers pollute Real Cells. | Leases with scratch roots and process tracking, capability gating outside scratch, left-as-found tests, Undertaker release, Requeening sweep. |
+| Workers pollute Real Cells. | Leases with scratch roots and process tracking, capability gating outside scratch, left-as-found tests, Undertaker release, Requeening sweep. What is meant to stay is declared by the plan, decided by policy or the human, and ledgered so it can always be listed and removed (5.0a to 5.0e). |
 | Terminal-first tempts bees and generated tools to shell out around the capability system. | All process execution through `CellSession`; `subprocess` import-banned outside `cell/`, `hive/backends/`, the dev sandbox and `pollen`; the Comb bans it in generated tools. |
 | Windows Home cannot run Hyper-V. | The Hive Stand is a Real Cell from phase 3 so nothing blocks on a hypervisor; Docker first, QEMU second, both behind `CellBackend`. |
 | Code grows a dependency on one provider's behaviour. | Two adapters from phase 3, ladders in one place, prompts tested on a weak fake, `import-linter`, the eval table (8.5). |
