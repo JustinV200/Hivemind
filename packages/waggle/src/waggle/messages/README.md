@@ -15,7 +15,9 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   declares an alias and writes no validator.
 - `labels.py` and `reports.py`: the closed sets and value models that ride on messages of more
   than one family (`HoneyClearance`, `AccessLevel`, `CombShieldLevel`, `Urgency`, `Tempo`,
-  `Postcondition`, `PlatformReport`, `HostCapacityReport`, ...), so no family file imports another.
+  `Postcondition`, `PlannedLeaving` (roadmap step 5.0b: one path a task's plan declares should
+  stay on its Cell, carried unchanged by a `TaskDraft`, a stored `Task` and a `task.assign`),
+  `PlatformReport`, `HostCapacityReport`, ...), so no family file imports another.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section

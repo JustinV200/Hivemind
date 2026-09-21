@@ -8,9 +8,11 @@ Supervisor` over her attached Wardens); `deps.py` (`QueenDeps`, `WardenLink`, `M
 tick order every Warden link into `hivemind.supervision.attendant.InboxItem`s (`inbox/`), decides
 deterministically first (`autopilot/`, never imports `hivemind.llm`) and, for `NEEDS_JUDGEMENT`,
 through one stateless episode (`awake/`); `planner/` turns a goal into a validated task graph,
-`placement/` picks a Cell for a ready task, and `dispatcher.py` places, grants and assigns it;
-`questions.py` and `human_inbox.py` are the blocking-question and human-Alarm traffic. `cluster/`,
-`forage/`, `requeening/` and `supersedure/` stay the placeholders a later roadmap phase populates.
+`goal_submission.py` plans one goal end to end (`Queen.submit_goal`'s own body, split out so
+`queen.py` stays within its file-size cap), `placement/` picks a Cell for a ready task, and
+`dispatcher.py` places, grants and assigns it; `questions.py` and `human_inbox.py` are the
+blocking-question and human-Alarm traffic. `cluster/`, `forage/`, `requeening/` and `supersedure/`
+stay the placeholders a later roadmap phase populates.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Called by entrance, observation
@@ -44,6 +46,9 @@ Public API (roadmap step 3.20):
       call (roadmap step 3.21 second half; unified across both callers by this dispatch's own
       fix 3) (questions).
     - dispatch_ready: place, grant and assign every ready task (dispatcher).
+    - submit_goal: plan a goal, persist the graph and dispatch what's ready (goal_submission,
+      roadmap step 5.0b); `Queen.submit_goal`'s own body, pulled out so queen.py (pinned at the
+      codingrules 5.1 file cap) never grows for a new PlanBrief field.
     - record_event: the one place a queen.* trail event is built (trail).
     - MAX_TIE_REASON_CHARS, ModelTieBreaker, queen_attendant, to_inbox_item: her Attendant (inbox).
     - QueenAction, decide, effort_for: the deterministic dispatch table (autopilot).
@@ -111,6 +116,7 @@ from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, resume_paused
 from hivemind.queen.errors import QueenError, UnknownWardenError
 from hivemind.queen.forage import ForageLedger
+from hivemind.queen.goal_submission import submit_goal
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import (
     MAX_TIE_REASON_CHARS,
@@ -217,6 +223,7 @@ __all__ = [
     "resume",
     "resume_paused",
     "run_cluster_tick",
+    "submit_goal",
     "sync_answers_from_chamber",
     "to_inbox_item",
 ]

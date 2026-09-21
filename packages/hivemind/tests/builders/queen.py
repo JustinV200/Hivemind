@@ -166,6 +166,11 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "heartbeat_miss_limit": 3,
         "alarm_attempt_limit": 3,
         "memory_budget": MemoryBudget(budget_fraction=0.6, output_reserve_tokens=4_096),
+        # roadmap step 5.0b: never resolved against a real manifest in a unit test, but the field
+        # is required (QueenDeps carries the Hive Stand's own resolved scratch_root); a caller
+        # that needs a specific value for the leaves-vs-scratch rule passes scratch_root=... in
+        # **overrides.
+        "scratch_root": Path("/hive-stand/scratch"),
     }
 
 

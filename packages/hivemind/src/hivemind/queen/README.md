@@ -25,6 +25,8 @@ every assignment goes to a Warden, over Waggle.
   `last_sweep_at` bookkeeping for `queen.ticks.housekeeping.run_housekeeping`, defined here (not
   in that ticks module) so a real import of it never has to run that whole sub-package's own
   `__init__` first -- every `queen.ticks` module already imports `QueenDeps` from here at runtime.
+  `scratch_root` (roadmap step 5.0b) is the Hive Stand's own `[hive_stand] scratch_root`, resolved;
+  `goal_submission.submit_goal` is its one reader.
 - `queen.autopilot`: `QueenAction` (now including `WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX`, roadmap
   step 4.2a), `decide`, `effort_for`, `decide_forage_request`, `decide_wax_proposal` -- the
   deterministic dispatch tables; never imports `hivemind.llm`.
@@ -34,7 +36,10 @@ every assignment goes to a Warden, over Waggle.
   `Effort` autopilot chose for the event class.
 - `queen.planner`: `PlanSchema`, `PlannedTask`, `PlannedPostcondition`, `plan_goal` -- decomposing
   a goal into a validated `hivemind.brood_chamber.TaskGraphDraft`; every subtask carries at least
-  one acceptance postcondition (roadmap step 3.18).
+  one acceptance postcondition (roadmap step 3.18). `PlannedTask.leaves` (roadmap step 5.0b) is a
+  bounded tuple of `waggle.messages.PlannedLeaving`, empty by default; `plan_goal` threads
+  `PlanBrief.scratch_root` to the ladder as a validation context so a leaving declared inside
+  scratch is refused and retried while planning, never discovered later.
 - `queen.placement`: `Placement`, `PlacementError`, `decide` -- the pure v0 decision (the Hive
   Stand only); roadmap step 4.2a adds `blocked_cells`/`cautioned_cells` keyword args, both
   optional and empty by default: a candidate carrying a WRITTEN `BLOCK` Cell Wax note is excluded
@@ -47,7 +52,12 @@ every assignment goes to a Warden, over Waggle.
   (`queen.forage.ceilings.set_ceilings`, from the Cell's own capacity report) and writes its
   Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
   over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
-  attached" means, so every later dispatch to the same Warden is a no-op here.
+  attached" means, so every later dispatch to the same Warden is a no-op here. The `TaskAssign` it
+  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b).
+- `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
+  what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
+  `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules
+  5.1 file cap, never grows for a new `PlanBrief` field.
 - `handle_question`, `answer_question`, `sync_answers_from_chamber` (`questions.py`): the Queen's
   own question traffic; see that module's own docstring for why `answer_question` exists (the
   Brood Chamber's public API has no way to read an already-answered Question's content back out).

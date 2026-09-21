@@ -11,8 +11,10 @@ optionally with a model-backed `TieBreaker` for an exact tie), and dispatches ea
 `NEEDS_JUDGEMENT` runs one stateless `hivemind.queen.awake.episode.decide_awake` episode instead --
 before checking every attached Warden's own liveness and placing whatever the Brood Chamber now
 says is ready. The work each action does lives in `hivemind.queen.ticks`, `hivemind.queen.
-dispatcher` and `hivemind.queen.questions`, this module's own delegates, split out only so this
-file and its `Queen` class stay within codingrules 5.1's size limits.
+dispatcher`, `hivemind.queen.questions` and `hivemind.queen.goal_submission` (`submit_goal`,
+roadmap step 5.0b: threads `deps.scratch_root` into the plan so a declared leaving inside it is
+refused while planning), this module's own delegates, split out only so this file and its `Queen`
+class stay within codingrules 5.1's size limits.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Constructed by whichever
@@ -67,10 +69,9 @@ from typing import Any, ClassVar
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.common.tasks import reap_all, reaping
-from hivemind.forage.slots import ModelSlot
 from hivemind.memory import TriggerEvent
 from hivemind.memory.thresholds import capped_compact_view
-from hivemind.queen import questions, ticks
+from hivemind.queen import goal_submission, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
 from hivemind.queen.awake import QueenSources, decide_awake
 from hivemind.queen.cluster import awake_available
@@ -79,7 +80,6 @@ from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import queen_attendant, to_inbox_item
-from hivemind.queen.planner import PlanBrief, plan_goal
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
@@ -203,13 +203,9 @@ class Queen(TickLoop):
         Returns:
             The goal's own id (the first task minted from the plan).
         """
-        bound = self._deps.bound_for(ModelSlot.QUEEN)
-        brief = PlanBrief(goal, clearance, [link.cell for link in self.wardens])
-        draft = await plan_goal(brief, bound, gate=self._deps.call_gate)
-        minted = await self._deps.chamber.submit(draft)
-        await record_event(self._deps, "queen.planned", minted[0].id, task_count=len(minted))
-        await dispatch_ready(self._deps, self.wardens)
-        return minted[0].id  # The goal's own id: the first task minted from the plan.
+        return await goal_submission.submit_goal(
+            self._deps, self.wardens, goal, clearance=clearance
+        )
 
     async def answer_question(
         self,

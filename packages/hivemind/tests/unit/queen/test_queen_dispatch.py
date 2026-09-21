@@ -55,6 +55,15 @@ def _single_task_plan(goal: str) -> dict[str, object]:
     }
 
 
+def _single_task_plan_with_leaves(goal: str) -> dict[str, object]:
+    """`_single_task_plan`, plus one declared leaving, for the roadmap 5.0b carry-through test."""
+    plan = _single_task_plan(goal)
+    plan["tasks"][0]["leaves"] = [  # type: ignore[index]
+        {"pattern": "/opt/project", "reason": "Set up a project in /opt/project."}
+    ]
+    return plan
+
+
 async def _kinds(trail: PheromoneTrail) -> list[str]:
     """Return every recorded trail event's own kind, oldest first."""
     return [event.kind for event in await trail.query(TrailQuery())]
@@ -91,6 +100,24 @@ async def test_submit_goal_dispatches_the_ready_task_grant_then_assignment_in_or
     assert task.status is TaskStatus.RUNNING
     assert task.warden_id == link.warden_id
     assert task.cell_id == link.cell.id
+    await warden_end.close()
+
+
+async def test_submit_goal_carries_a_declared_leaving_all_the_way_to_the_assignment() -> None:
+    """Roadmap step 5.0b, end to end: plan -> TaskDraft -> Task row -> the wire task.assign."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan_with_leaves))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+
+    goal_id = await queen.submit_goal("Set up a project.", clearance=HoneyClearance.C1)
+
+    assignment = await warden_end.wait_for_assignment()
+    assert len(assignment.leaves) == 1
+    assert assignment.leaves[0].pattern == "/opt/project"
+    assert assignment.leaves[0].reason == "Set up a project in /opt/project."
+    task = await deps.chamber.get(goal_id)
+    assert task.spec.leaves == assignment.leaves
     await warden_end.close()
 
 

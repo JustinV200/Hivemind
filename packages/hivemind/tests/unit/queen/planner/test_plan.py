@@ -13,6 +13,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from builders.cells import make_cell
@@ -107,6 +108,19 @@ def _cyclic_plan(goal: str) -> dict[str, object]:
     return plan
 
 
+def _plan_with_leaving(pattern: str) -> Callable[[str], dict[str, object]]:
+    """A valid plan whose root task declares one leaving at `pattern` (roadmap step 5.0b)."""
+
+    def build(goal: str) -> dict[str, object]:
+        plan = _valid_plan(goal)
+        plan["tasks"][0]["leaves"] = [  # type: ignore[index]
+            {"pattern": pattern, "reason": "Set up a project there."}
+        ]
+        return plan
+
+    return build
+
+
 async def test_plan_goal_converts_a_valid_scripted_plan_into_a_task_graph_draft() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
     bound = make_bound(provider=provider)
@@ -174,6 +188,81 @@ async def test_plan_goal_retries_a_criterion_breaking_a_postcondition_rule_insid
             gate=DirectCallGate(),
         )
     assert len(provider.calls) > 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# leaves (roadmap step 5.0b)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_plan_goal_carries_a_declared_leaving_into_the_task_graph_draft() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_leaving("/opt/project")))
+    bound = make_bound(provider=provider)
+
+    draft = await plan_goal(
+        PlanBrief("Set up a project.", HoneyClearance.C1), bound, gate=DirectCallGate()
+    )
+
+    assert [leaving.pattern for leaving in draft.tasks[0].leaves] == ["/opt/project"]
+    assert draft.tasks[1].leaves == ()  # The child task declared none.
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "relative/path",  # Not absolute or ~-rooted.
+        "/",  # A bare root.
+        "/opt/../etc/passwd",  # A `..` segment.
+    ],
+)
+async def test_plan_goal_retries_a_malformed_leaving_pattern_inside_the_ladder(
+    pattern: str,
+) -> None:
+    # PlannedLeaving's own validator (waggle) refuses these regardless of scratch_root, so no
+    # PlanBrief.scratch_root is needed to exercise this rung of the retry.
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_leaving(pattern)))
+    bound = make_bound(provider=provider)
+
+    with pytest.raises(MalformedOutputError):
+        await plan_goal(
+            PlanBrief("Set up a project.", HoneyClearance.C1), bound, gate=DirectCallGate()
+        )
+    assert len(provider.calls) > 1
+
+
+async def test_plan_goal_retries_a_leaving_pattern_inside_scratch_inside_the_ladder() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_leaving("/scratch/output")))
+    bound = make_bound(provider=provider)
+    brief = PlanBrief("Set up a project.", HoneyClearance.C1, scratch_root=Path("/scratch"))
+
+    # Only fires with scratch_root in hand: PlannedTask's own rule reads it from the ladder's
+    # validation context, which plan_goal builds from brief.scratch_root (module docstring).
+    with pytest.raises(MalformedOutputError):
+        await plan_goal(brief, bound, gate=DirectCallGate())
+    assert len(provider.calls) > 1
+
+
+async def test_plan_goal_accepts_a_leaving_inside_scratch_when_no_scratch_root_is_given() -> None:
+    # PlanBrief.scratch_root defaults to None, so PlannedTask's own scratch rule has nothing to
+    # compare against and skips it (module docstring); every other existing test relies on this.
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_leaving("/scratch/output")))
+    bound = make_bound(provider=provider)
+
+    draft = await plan_goal(
+        PlanBrief("Set up a project.", HoneyClearance.C1), bound, gate=DirectCallGate()
+    )
+
+    assert draft.tasks[0].leaves[0].pattern == "/scratch/output"
+
+
+async def test_plan_goal_accepts_a_leaving_outside_scratch_when_scratch_root_is_given() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_leaving("/opt/project")))
+    bound = make_bound(provider=provider)
+    brief = PlanBrief("Set up a project.", HoneyClearance.C1, scratch_root=Path("/scratch"))
+
+    draft = await plan_goal(brief, bound, gate=DirectCallGate())
+
+    assert draft.tasks[0].leaves[0].pattern == "/opt/project"
 
 
 async def test_plan_goal_renders_the_fleet_into_the_hot_state_section() -> None:

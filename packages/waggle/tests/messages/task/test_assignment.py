@@ -29,6 +29,7 @@ from waggle.messages.labels import (
     AccuracyBar,
     HandoffRef,
     HoneyClearance,
+    PlannedLeaving,
     Postcondition,
     PostconditionKind,
     Tempo,
@@ -36,6 +37,7 @@ from waggle.messages.labels import (
 from waggle.messages.task.assignment import (
     MAX_ACCEPTANCE_CHARS,
     MAX_ACCEPTANCE_ITEMS,
+    MAX_LEAVES_ITEMS,
     MAX_OBJECTIVE_CHARS,
     TaskAssign,
     TaskCancel,
@@ -72,6 +74,7 @@ TESTS_PASS = Postcondition(
     kind=PostconditionKind.TEST_PASSES, subject="tests/", argv=("pytest", "-q"), expected=None
 )
 ARTIFACT = ArtifactRef(path="scratch/summary.md", size_bytes=1_024, sha256="ab" * 32)
+LEAVING = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
 TASK_CLASSES: tuple[type[WaggleMessage], ...] = (
     TaskAssign,
     TaskProgress,
@@ -92,6 +95,7 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         slot="FORAGER",
         objective="Summarise the release notes into one page.",
         acceptance=(RUBRIC, TESTS_PASS),
+        leaves=(LEAVING,),
         tempo=Tempo(latency_budget_s=None, accuracy=AccuracyBar.NORMAL),
         clearance=HoneyClearance.C1,
         grant_id=GRANT_ID,
@@ -284,6 +288,22 @@ def test_task_assign_accepts_a_handoff_at_or_below_its_clearance_and_none() -> N
     assert _rebuild(example, clearance="C1").model_dump()["clearance"] is HoneyClearance.C1
     assert _rebuild(example, clearance="C2").model_dump()["clearance"] is HoneyClearance.C2
     assert _rebuild(example, clearance="C0", resume_from=None).model_dump()["resume_from"] is None
+
+
+def test_task_assign_leaves_defaults_to_empty_so_an_older_peers_message_still_validates() -> None:
+    # roadmap step 5.0b: leaves is additive (PROTOCOL_MINOR 3), so a payload built before this
+    # field existed -- one with no "leaves" key at all -- must still validate.
+    payload = _example(TaskAssign).model_dump(mode="json")
+    del payload["leaves"]
+
+    rebuilt = TaskAssign.model_validate(payload)
+
+    assert rebuilt.leaves == ()
+
+
+def test_task_assign_leaves_is_bounded() -> None:
+    with pytest.raises(ValidationError, match=f"at most {MAX_LEAVES_ITEMS}"):
+        _rebuild(_example(TaskAssign), leaves=(LEAVING,) * (MAX_LEAVES_ITEMS + 1))
 
 
 def test_task_assign_bounds_the_total_characters_across_all_criteria() -> None:

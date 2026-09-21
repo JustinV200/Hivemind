@@ -80,12 +80,17 @@ The degradation ladders (`hivemind.llm.ladders`): the fallback logic codingrules
 whether a binding can enforce a schema or call a tool natively.
 
 - **Structured output** (`hivemind.llm.ladders.structured`): `complete_structured(bound, request,
-  schema, *, gate=None, observer=None)` walks NATIVE (schema-enforced) -> JSON_MODE (JSON-enforced,
+  schema, *, gate=None, options=None)` walks NATIVE (schema-enforced) -> JSON_MODE (JSON-enforced,
   pydantic-validated) -> PROMPTED (fenced ` ```json ` block, extracted and validated), retrying
   each rung with the validation error fed back as a correction before stepping down. Returns a
   `StructuredResult` (`value`, `rung`, `attempts`, `usage`); raises `MalformedOutputError` once
   PROMPTED's own retries are exhausted. `Rung`, `NATIVE_SCHEMA_RETRIES`, `JSON_MODE_RETRIES`,
   `PROMPTED_JSON_RETRIES` are the rung enum and its commented retry-count constants.
+  `LadderOptions(observer=None, context=None)` bundles the two rarer settings (codingrules 5.1's
+  parameter limit): `observer` as before, and `context` (roadmap step 5.0b) -- forwarded to every
+  attempt's own `schema.model_validate` as pydantic's validation context, so a schema's own
+  `model_validator` can read `ValidationInfo.context` (`hivemind.queen.planner.plan.plan_goal` is
+  the one caller that sets it, carrying `PlanBrief.scratch_root` to `PlannedTask`'s own rule).
 - **Tool calls** (`hivemind.llm.ladders.tools`): `run_tool_loop(bound, request, tools, executor,
   options=None)` runs the native tool-call protocol when the binding declares
   `native_tool_calls`, else a prompted protocol (a preamble listing every tool, fenced ` ```tool `

@@ -28,6 +28,7 @@ from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery
 from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
+from waggle.messages import PlannedLeaving
 
 
 def _make_chamber(clock: FakeClock) -> tuple[BroodChamber, MemoryTaskStore, MemoryPheromoneTrail]:
@@ -56,6 +57,22 @@ async def test_submit_mints_tasks_in_graph_order_sharing_one_goal_id() -> None:
     assert tasks[0].goal_id == tasks[0].id
     assert tasks[1].goal_id == tasks[0].id
     assert tasks[1].spec.depends_on == (tasks[0].id,)
+
+
+async def test_submit_carries_a_draft_leaving_onto_the_minted_tasks_own_spec() -> None:
+    # roadmap step 5.0b: TaskDraft.leaves -> TaskSpec.leaves, unchanged, so the Task row (and
+    # later the task.assign the Queen's dispatcher builds from it) carries the same declaration.
+    clock = FakeClock()
+    chamber, _store, _trail = _make_chamber(clock)
+    leaving = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
+    draft = make_graph_draft({"plan": ()})
+    draft = draft.model_copy(
+        update={"tasks": (draft.tasks[0].model_copy(update={"leaves": (leaving,)}),)}
+    )
+
+    (task,) = await chamber.submit(draft)
+
+    assert task.spec.leaves == (leaving,)
 
 
 async def test_submit_records_one_task_submitted_event_per_task_without_the_objective() -> None:

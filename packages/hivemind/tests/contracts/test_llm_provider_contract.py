@@ -46,6 +46,7 @@ from hivemind.llm import (
     ContextTooLongError,
     FallbackNote,
     HealthState,
+    LadderOptions,
     LLMError,
     LLMRequest,
     Message,
@@ -191,7 +192,9 @@ async def test_structured_output_succeeds_at_every_capability_rung(
     observer = _RecordingObserver()
     bound = make_bound(provider=provider)
 
-    result = await complete_structured(bound, make_request(), _Answer, observer=observer)
+    result = await complete_structured(
+        bound, make_request(), _Answer, options=LadderOptions(observer=observer)
+    )
 
     assert result.value == _Answer(answer="ok")
     assert result.rung == _expected_rung(capabilities)

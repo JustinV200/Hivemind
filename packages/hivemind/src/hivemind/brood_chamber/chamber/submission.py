@@ -76,6 +76,7 @@ class _SubmissionMixin(_ChamberBase):
                     needs=draft.needs,
                     clearance=draft.clearance,
                     depends_on=depends_on,
+                    leaves=draft.leaves,
                 ),
                 status=TaskStatus.PENDING,
                 created_at=now,

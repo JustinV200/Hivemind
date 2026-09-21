@@ -31,6 +31,11 @@ Key invariants:
     - A reply that stopped at `max_output_tokens` is never parsed: whatever text it carries is
       cut off, so the retry's correction says so and asks for brevity, instead of the misleading
       "not valid JSON" a truncated or empty reply would otherwise earn.
+    - `complete_structured`'s optional `context` reaches every attempt's own `schema.model_validate`
+      as pydantic's own validation context (`ValidationInfo.context` on a `model_validator`),
+      propagated to nested models unchanged; it is None unless a caller passes one (every call
+      site but `hivemind.queen.planner.plan.plan_goal`, roadmap step 5.0b), so a schema's own
+      validators must treat a missing key the same as an absent context, never assume it is set.
     - `ContextTooLongError` is never caught here: it propagates unchanged to `complete_structured`'s
       caller, which owns the prompt budget and must shrink it (codingrules section 8.6's ladder
       rule stops at retries and fallback; a context overflow is not either).
@@ -55,9 +60,10 @@ See Also:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import cast
+from typing import Any, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -100,6 +106,7 @@ __all__ = [
     "JSON_MODE_RETRIES",
     "NATIVE_SCHEMA_RETRIES",
     "PROMPTED_JSON_RETRIES",
+    "LadderOptions",
     "Rung",
     "StructuredResult",
     "complete_structured",
@@ -125,12 +132,28 @@ class StructuredResult[ModelT: BaseModel]:
 
 
 @dataclass(frozen=True, slots=True)
+class LadderOptions:
+    """The rarely-set half of a `complete_structured` call: an observer, a validation context.
+
+    Bundled into one keyword argument (codingrules 5.1's parameter limit) now that a second,
+    less common option (`context`) exists beside `observer`.
+    """
+
+    observer: LadderObserver | None = None  # Who to tell about a step-down; discards when None.
+    # Forwarded to every attempt's schema.model_validate as pydantic's own validation context
+    # (module docstring); None (every call site but plan_goal) means no context object at all,
+    # not an empty one, matching model_validate's own default.
+    context: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _LadderTools:
     """Group a ladder run's fixed collaborators, so `_run_ladder` stays within 5 parameters."""
 
     gate: CallGate
     observer: LadderObserver
     slot: ModelSlot
+    context: Mapping[str, Any] | None = None  # LadderOptions.context, passed straight through.
 
 
 async def complete_structured[ModelT: BaseModel](
@@ -139,7 +162,7 @@ async def complete_structured[ModelT: BaseModel](
     schema: type[ModelT],
     *,
     gate: CallGate | None = None,
-    observer: LadderObserver | None = None,
+    options: LadderOptions | None = None,
 ) -> StructuredResult[ModelT]:
     """Get a `schema`-shaped reply out of `bound`, degrading rungs and bindings as needed.
 
@@ -148,7 +171,7 @@ async def complete_structured[ModelT: BaseModel](
         request: The call to make; its `response_schema` is overwritten per rung, never read.
         schema: The pydantic model the reply must validate against.
         gate: How to make each call; `DirectCallGate()` (no metering) when omitted.
-        observer: Who to tell about a step-down; `NullLadderObserver()` (discards) when omitted.
+        options: The rarer settings, `LadderOptions()` (both None) when omitted.
 
     Returns:
         A StructuredResult holding the validated value, the rung that produced it, the attempt
@@ -160,9 +183,14 @@ async def complete_structured[ModelT: BaseModel](
         RefusedError: A response's `stop_reason` was REFUSAL.
         ContextTooLongError: Propagated unchanged; the caller must shrink `request` and retry.
     """
-    active_gate = gate if gate is not None else DirectCallGate()
-    active_observer = observer if observer is not None else NullLadderObserver()
-    tools = _LadderTools(gate=active_gate, observer=active_observer, slot=bound.slot)
+    active = options if options is not None else LadderOptions()
+    active_observer = active.observer or NullLadderObserver()
+    tools = _LadderTools(
+        gate=gate or DirectCallGate(),
+        observer=active_observer,
+        slot=bound.slot,
+        context=active.context,
+    )
     current = bound
     while True:
         try:
@@ -170,19 +198,31 @@ async def complete_structured[ModelT: BaseModel](
         except (ProviderUnavailableError, RateLimitedError) as exc:
             # The gate could not reach `current` at all; a rung step-down cannot fix that, so the
             # whole ladder moves to the next binding and restarts fresh (module docstring).
-            if current.fallback is None:
+            fallback = current.fallback
+            if fallback is None:
                 raise
-            await active_observer.on_fallback(
-                FallbackNote(
-                    slot=bound.slot,
-                    from_binding=current.binding,
-                    to_binding=current.fallback.binding,
-                    from_rung=None,
-                    to_rung=None,
-                    reason=_outage_reason(exc),
-                )
-            )
-            current = current.fallback
+            await _report_outage_fallback(active_observer, bound.slot, current, fallback, exc)
+            current = fallback
+
+
+async def _report_outage_fallback(
+    observer: LadderObserver,
+    slot: ModelSlot,
+    current: BoundModel,
+    fallback: BoundModel,
+    exc: ProviderUnavailableError | RateLimitedError,
+) -> None:
+    """Tell `observer` that `current` was unreachable and the ladder is moving to `fallback`."""
+    await observer.on_fallback(
+        FallbackNote(
+            slot=slot,
+            from_binding=current.binding,
+            to_binding=fallback.binding,
+            from_rung=None,
+            to_rung=None,
+            reason=_outage_reason(exc),
+        )
+    )
 
 
 async def _run_ladder[ModelT: BaseModel](
@@ -211,7 +251,7 @@ async def _run_ladder[ModelT: BaseModel](
                 reason = response.reasoning_summary or "no reason given"
                 raise RefusedError(current.provider.name, reason)
             try:
-                value = _parse_structured(response, rung, schema)
+                value = _parse_structured(response, rung, schema, tools.context)
             except _StructuredParseError as exc:
                 last_raw = response.text
                 correction = str(exc)
@@ -239,7 +279,7 @@ class _StructuredParseError(Exception):
 
 
 def _parse_structured[ModelT: BaseModel](
-    response: LLMResponse, rung: Rung, schema: type[ModelT]
+    response: LLMResponse, rung: Rung, schema: type[ModelT], context: Mapping[str, Any] | None
 ) -> ModelT:
     """Parse and validate one response against `schema`, or raise `_StructuredParseError`."""
     if response.stop_reason is StopReason.MAX_TOKENS:
@@ -261,7 +301,7 @@ def _parse_structured[ModelT: BaseModel](
     except json.JSONDecodeError as exc:
         raise _StructuredParseError(f"reply was not valid JSON: {exc}.") from exc
     try:
-        return schema.model_validate(parsed)
+        return schema.model_validate(parsed, context=context)
     except ValidationError as exc:
         raise _StructuredParseError(f"reply did not match the schema: {exc}.") from exc
 

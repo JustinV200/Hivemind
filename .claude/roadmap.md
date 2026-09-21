@@ -899,7 +899,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   row and writes `cell.leaving_removed`. The left-as-found test is extended: after release the
   temporary home equals its snapshot plus exactly the ledger's paths, and after `remove` it
   equals the snapshot.
-- [ ] **5.0b The plan declares what stays.** `PlannedTask` gains `leaves`: a bounded tuple of
+- [x] **5.0b The plan declares what stays.** `PlannedTask` gains `leaves`: a bounded tuple of
   `PlannedLeaving` (an absolute or `~`-rooted path pattern, a one-line reason), empty by default,
   carried through `TaskDraft`, the Task row and the Assignment (a waggle minor bump) and rendered
   into the Drone's brief by `brief_for()` beside the acceptance criteria. The validator refuses a

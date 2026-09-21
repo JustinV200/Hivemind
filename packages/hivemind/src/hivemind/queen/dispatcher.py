@@ -335,6 +335,7 @@ def _task_assign(
         slot=ModelSlot.WORKER.to_wire(),
         objective=task.spec.objective,
         acceptance=task.spec.acceptance,
+        leaves=task.spec.leaves,
         tempo=task.spec.needs.tempo.to_wire(),
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,

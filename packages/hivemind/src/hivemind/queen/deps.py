@@ -8,10 +8,12 @@ the Queen's tick touches: her task store (`chamber`), her hot-state and durable 
 (`policy`, `alarm_attempt_limit`), how she resolves and rebinds a model slot without ever holding
 a `HiveManifest` (`bound_for`, `rebind`, `bindings`, `call_gate`, `map`), her share of Forage
 (`budgets`), her live book of it (`ledger`, roadmap step 4.7), her liveness cadence
-(`heartbeat_interval_s`, `heartbeat_miss_limit`) and the slice of `[memory]` an awake episode's
-prompt is budgeted against (`memory_budget`). `WardenLink` is the Queen-side half of one attached
-Warden's own Waggle link: `hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own
-end of the exact same pair.
+(`heartbeat_interval_s`, `heartbeat_miss_limit`), the slice of `[memory]` an awake episode's
+prompt is budgeted against (`memory_budget`) and the Hive Stand's own resolved scratch root
+(`scratch_root`, roadmap step 5.0b), read only by `hivemind.queen.goal_submission.submit_goal` so
+a declared `PlannedLeaving` inside it is caught while planning, not discovered at release.
+`WardenLink` is the Queen-side half of one attached Warden's own Waggle link: `hivemind.wardens.
+deps.WardenDeps.queen_link`/`.hop` is the Warden's own end of the exact same pair.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -47,6 +49,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from hivemind.brood_chamber import BroodChamber
 from hivemind.cell import Cell
@@ -203,6 +206,10 @@ class QueenDeps:
         alarm_attempt_limit: A ceiling on attempts before an Alarm escalates to the human
             regardless of what the escalation policy's own rows would otherwise decide.
         memory_budget: The `[memory]` slice an awake episode's `TokenBudget` is built from.
+        scratch_root: The Hive Stand's own `[hive_stand] scratch_root`, resolved (roadmap step
+            5.0b). Read only by `hivemind.queen.goal_submission.submit_goal`, which passes it to
+            `hivemind.queen.planner.PlanBrief.scratch_root` so a plan that declares a leaving
+            inside scratch is refused while planning.
         footprints: Every `[forage.roles.<role>]` footprint, forage-side, keyed by
             `waggle.messages.task.WorkerRole`; `hivemind.queen.dispatcher` reads
             `footprints[WorkerRole.DRONE]` for every fresh grant it computes (roadmap step 3.21,
@@ -257,6 +264,7 @@ class QueenDeps:
     heartbeat_miss_limit: int
     alarm_attempt_limit: int
     memory_budget: MemoryBudget
+    scratch_root: Path
     footprints: Mapping[WorkerRole, RoleFootprint] = field(
         default_factory=lambda: {WorkerRole.DRONE: _DEFAULT_DRONE_FOOTPRINT}
     )

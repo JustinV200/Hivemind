@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.2`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.3`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.2"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.3"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.2"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 2` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.3"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 3` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -485,6 +485,14 @@ Value models:
   - `written_at` (`datetime`): when the Handoff was written.
   - `clearance` (`HoneyClearance`): the Handoff's label, visible before it is fetched so a bee
     never resumes from a Handoff above its own clearance.
+- `PlannedLeaving` (roadmap step 5.0b, `PROTOCOL_MINOR` 3): one path a task's plan declares
+  should stay on its Cell once the lease is released; the same shape rides on a `TaskDraft`, a
+  stored `Task` and a `task.assign`, unchanged.
+  - `pattern` (`str`): an absolute (`/...`, `C:\...`, `\\server\share\...`) or `~`-rooted path.
+    Min 1, max `MAX_PATH_CHARS` chars; never a bare root, drive or home, never a `..` segment
+    (validator).
+  - `reason` (`str`): one line, why the goal itself needs this path to remain. Min 1, max
+    `MAX_REASON_CHARS` chars.
 - `PlatformReport`: what a device or Cell runs, the one home for OS and architecture on the wire.
   - `os` (`OsFamily`): the operating system family.
   - `distribution` (`str | None`): distribution or edition name; None when not applicable.
@@ -547,6 +555,10 @@ resume from, to the Warden that owns the chosen Cell, which re-issues it to the 
 - `acceptance` (`tuple[Postcondition, ...]`): the criteria the Warden checks before the task may
   reach `SUCCEEDED`; a `JUDGE_RUBRIC` entry stands in where nothing is machine-checkable. Min 1,
   max 32 items; total characters across all criteria at most 65,536 (validator).
+- `leaves` (`tuple[PlannedLeaving, ...]`, `PROTOCOL_MINOR` 3): what the plan declared should stay
+  on this Cell once the lease is released, carried unchanged from the plan. Max 16 items;
+  defaults to empty, so an envelope from before this field existed still validates. A Drone
+  cannot widen this set, only raise a `Question`.
 - `tempo` (`Tempo`): the task's latency budget and accuracy bar.
 - `clearance` (`HoneyClearance`): the highest label the task's bee may read, resume from or
   write.

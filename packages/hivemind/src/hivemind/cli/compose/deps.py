@@ -378,6 +378,7 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         heartbeat_miss_limit=supervision.heartbeat_miss_limit,
         alarm_attempt_limit=supervision.alarm_attempt_limit,
         memory_budget=_awake_memory_budget(manifest),
+        scratch_root=manifest.resolve_path(manifest.hive_stand.scratch_root),  # roadmap 5.0b
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,
