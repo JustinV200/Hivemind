@@ -10,7 +10,7 @@ Read first, in this order: `CLAUDE.md`, `.claude/codingrules.md` sections 3, 4, 
 
 ## 1. Where things stand
 
-- Branch: `feat/phase-4-memory-forage-clustering`, 34 commits ahead of `main`, **not pushed**.
+- Branch: `feat/phase-4-memory-forage-clustering`, 42 commits ahead of `main`, **not pushed**.
   `git log --oneline main..HEAD` lists one commit per roadmap step, then the five follow-up fixes
   of 2026-09-16 (section 4.1) and this document.
 - Every step 4.1-4.11 is ticked in the roadmap; the exit criteria are marked met, with a note at
@@ -26,7 +26,7 @@ uv run ruff format --check packages ; uv run ruff check ; uv run mypy ; uv run l
 uv run python scripts/check_sizes.py ; uv run python scripts/check_fanout.py
 uv run python scripts/check_no_model_ids.py ; uv run python scripts/check_no_kind_branches.py
 uv run python scripts/check_no_transcripts.py
-uv run pytest -q -m "not integration and not e2e and not live_llm and not local_llm" -p no:cacheprovider   # 4877 passed
+uv run pytest -q -m "not integration and not e2e and not live_llm and not local_llm" -p no:cacheprovider   # 4890 passed
 uv run pytest -q -m e2e packages/hivemind/tests/e2e -p no:cacheprovider                                  # 52 passed, 4 runs in a row
 ```
 
@@ -94,6 +94,20 @@ No work was duplicated (both dead Drones died before their first write). The mod
 across `lms server stop`/`start`; if `lms ps` ever shows it gone, reload with
 `lms load qwen3.8-27b-heretic-abliterated-uncensored --context-length 16384 --gpu max --parallel 4`.
 
+Two traps met for real on 2026-09-20:
+
+- **Check the loaded context after any LM Studio restart.** `lms ps` must show CONTEXT 16384. A
+  restart reloaded the model at 8192; the planner's prompt plus schema is about 4000 tokens, so
+  every attempt ran out of context at about 4140 reasoning tokens (`finish_reason: length`, empty
+  text) and `hive run` failed after nine attempts and sixteen minutes with `MalformedOutputError
+  ... ''`. Nothing in the manifest can see this: `/v1/models` does not report the loaded context
+  (LM Studio's own `/api/v0/models` does, as `loaded_context_length`; a start-up check against
+  `[llm.providers.*.capabilities] context_window` would be a cheap guard). Reload with the
+  command above.
+- **Never run the e2e suite while a real `hive run` is going.** The real-clock scenarios carry a
+  10 s goal timeout and lost 4 then 11 tests to contention, on committed code too; the same suite
+  was green the moment the real run ended.
+
 Where to look when a run misbehaves:
 
 - Trail, straight from SQLite (the run view hides `llm.*`, `memory.*`, `forage.*` kinds; the
@@ -160,7 +174,8 @@ the CLI README's stale "no ModelJudgeReviewer exists" line was corrected.
 
 ### 4.2 Open observations
 
-Second clean-up pass, 2026-09-20: every item that was open here is closed except one.
+Second clean-up pass, 2026-09-20: every item that was open here is closed except the last one
+below; the first one below is new, found while testing that pass.
 
 Closed (one commit each, tests beside each):
 
@@ -189,7 +204,23 @@ Closed (one commit each, tests beside each):
 
 Still open:
 
-1. **This model's reasoning is the planning bottleneck, and the knob is binary.** LM Studio
+1. **A grant of zero sub-bees parks its task silently until the run times out.** Found for real
+   on 2026-09-20: a game plus the 17 GB model left 1.4 GB of free RAM, so `forage/allocate.py`
+   correctly sized the grant at `max_sub_bees = 0` (free memory after the Royal Reserve, over the
+   Drone's 512 MB footprint). The dispatcher issued it anyway (`queen/dispatcher.
+   _send_grant_and_assign`), the Warden raised `GRANT_EXCEEDED` ("allows zero sub-bees"), the
+   Queen escalated it to the human inbox, and the task sat RUNNING for the whole 900 s with no
+   Drone and nothing in the run view saying why. The operator's `hive.toml` records the same hang
+   from an earlier cause (one seat against a reserve of one), worked around in config. The fix is
+   at that one choke point: a fresh grant with `max_sub_bees < 1` should record `forage.denied`
+   with the allocator's own reason plus the free-memory figure and fail the task at once, so
+   `hive run` ends in seconds with the cause on screen. It is not a one-liner: `builders.queen.
+   make_queen_deps` itself yields zero-bee grants by default (one map seat, reserve of one;
+   `test_overriding_reserve_unlocks_the_seat...` asserts it) and most Queen unit tests expect the
+   assignment to go out regardless, so the fixture's default reserve has to change with it. Note
+   too that a Cell's capacity is probed once, at lease time, so waiting for memory to free up
+   would never help today; fail fast is the right v0 behaviour.
+2. **This model's reasoning is the planning bottleneck, and the knob is binary.** LM Studio
    accepts `reasoning_effort` `none|minimal|low|medium|high|xhigh`, but for this GGUF only on/off
    exist: `none` turns thinking off (verified with curl: 0 reasoning tokens), everything else
    falls back to on. `Effort` has no NONE. Adding one changes `waggle.messages.forage.Effort`, a
@@ -244,4 +275,5 @@ Still open:
 1. Push the branch when the operator asks; open the PR with the real-run table from section 3.
 2. Phase 5. Keep every file under the codingrules caps (`scripts/check_sizes.py` is strict), one
    commit per logical change, roadmap ticked in the commit that lands it.
-3. `Effort.NONE` (section 4.2) rides with phase 8.
+3. Section 4.2 item 1 (the zero-bee grant hang) before any more real runs on a busy machine;
+   `Effort.NONE` (item 2) rides with phase 8.
