@@ -343,7 +343,11 @@ def slot_bindings(manifest: HiveManifest) -> tuple[SlotBinding, ...]:
             model=row.model,
             fallback=row.fallback,
             effort=row.effort,
-            max_output_tokens=row.max_output_tokens,
+            # The row's own cap wins; [llm] default_max_output_tokens covers a row with none;
+            # None from both leaves each call site's own budget (BoundModel.stamp).
+            max_output_tokens=row.max_output_tokens
+            if row.max_output_tokens is not None
+            else manifest.llm.default_max_output_tokens,
         )
         for key, row in manifest.llm.slots.items()
     )

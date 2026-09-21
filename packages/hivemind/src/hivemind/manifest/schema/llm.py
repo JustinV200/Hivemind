@@ -69,7 +69,6 @@ MAX_MANIFEST_KEY_CHARS = (
 # A real secret (an Anthropic key starts "sk-ant-...", an OpenAI one "sk-...") never matches this
 # shape, so a value pasted here by mistake instead of an env var name fails validation immediately.
 API_KEY_ENV_PATTERN = r"^[A-Z][A-Z0-9_]*$"
-DEFAULT_MAX_OUTPUT_TOKENS = 4_096  # A generous default reply length before a caller asks for more.
 DEFAULT_REQUEST_TIMEOUT_S = (
     120.0  # Two minutes: enough for a slow model, short enough to fail loud.
 )
@@ -84,7 +83,6 @@ ProviderKind = Literal["anthropic", "openai_compat", "fake"]
 
 __all__ = [
     "API_KEY_ENV_PATTERN",
-    "DEFAULT_MAX_OUTPUT_TOKENS",
     "DEFAULT_PROVIDER_SEATS",
     "DEFAULT_PROVIDER_TIMEOUT_S",
     "DEFAULT_REQUEST_TIMEOUT_S",
@@ -239,10 +237,13 @@ class LlmSection(BaseModel):
         default=False,
         description="True refuses any provider whose base_url is empty (hosted) or not loopback.",
     )
-    default_max_output_tokens: int = Field(
-        default=DEFAULT_MAX_OUTPUT_TOKENS,
+    default_max_output_tokens: int | None = Field(
+        default=None,
         gt=0,
-        description="The reply length cap absent a slot override.",
+        description="A reply-length cap for every slot that names none of its own. None (the "
+        "default) leaves each call site's own budget alone: a planner, a judge and a Drone "
+        "need different lengths, and one number for all of them is an operator's choice, "
+        "never a silent default.",
     )
     request_timeout_s: float = Field(
         default=DEFAULT_REQUEST_TIMEOUT_S,

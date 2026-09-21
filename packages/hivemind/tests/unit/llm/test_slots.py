@@ -178,7 +178,17 @@ def test_resolve_copies_the_rows_output_cap_from_the_full_manifest() -> None:
     judge = resolve(ModelSlot.JUDGE, bindings.values(), _lookup)
 
     assert queen.max_output_tokens == 8192  # [llm.slots.queen] names one.
-    assert judge.max_output_tokens is None  # [llm.slots.judge] leaves the call site's budget.
+    assert judge.max_output_tokens == 4096  # None of its own: [llm] default_max_output_tokens.
+
+
+def test_resolve_leaves_the_output_cap_unset_when_the_manifest_names_none() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "minimal.toml")
+    bindings = bindings_from_manifest(manifest)
+
+    bound = resolve(ModelSlot.QUEEN, bindings.values(), _lookup)
+
+    # Neither the row nor [llm] names a cap, so every call site keeps its own budget.
+    assert bound.max_output_tokens is None
 
 
 def test_bound_model_stamp_sets_the_model_and_only_a_named_output_cap() -> None:
