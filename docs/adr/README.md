@@ -125,3 +125,19 @@ ADRs that exist today, in numeric order:
 - `0024-clustering-protocol.md`: Clustering pauses per provider through the checkpoint-and-Handoff
   path, keeps leases and Cells alive, resumes from Handoffs without redoing work, and takes
   `hive cluster` / `hive wake` orders through a durable table the running Queen polls.
+- `0026-cell-backends-docker-first-qemu-second.md`: one `CellBackend` protocol with declared
+  `BackendCapabilities`, Docker first and QEMU second, everything a backend creates labelled with
+  the Hive id so orphans are found from the infrastructure alone, all-or-nothing `provision` and
+  idempotent `destroy`.
+- `0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md`: a Virtual Cell listens on
+  nothing; its entry point boots a Warden that dials the Queen, `provision` returns only after
+  `CellReady` and the first `Heartbeat`, sub-bees use the `in_cell` strategy, and each Cell gets
+  its own signing key.
+- `0028-placement-policy-real-versus-virtual.md`: `decide` is pure and returns a union (reuse a
+  Real Cell, reuse a dormant one, or provision from a spec) with its reason; hard rules
+  (isolation, Night Veil, `BLOCK` wax, fit, Forage) run before `prefer` is ever read.
+- `0029-overwintering-policy.md`: a bounded pool of paused Virtual Cells, scrubbed on the way in,
+  reused through placement, expired by the Undertaker, and never a Night Veil Cell.
+- `0030-night-veil-retention-and-clearance-boundary.md`: readiness is attestation of an image,
+  placement is Virtual-only, human-originated and local-model-only, only the lifecycle skeleton
+  survives teardown, and C0/C1 Honey labelled with its origin tier is the one export.
