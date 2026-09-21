@@ -26,16 +26,25 @@ beyond the standard library.
   kills the whole tree on a timeout or a scratch-quota breach, and on POSIX an `RLIMIT_FSIZE`
   set via `preexec_fn` as a second line of defence between watchdog samples.
 - **Releaser** (`hivemind.cell.local.releaser`): `HiveStandLeaseReleaser` -- kills every process a
-  lease started, replays its `RestoreRecord`s in reverse (skipping anything the operator approved
-  to persist), then removes the lease's scratch directory wholesale; `kill_process_tree(pid,
+  lease started, then groups its `RestoreRecord`s by resolved path (so a path noted more than
+  once this lease, persisted or not, resolves to exactly one outcome) and either restores each
+  path to its group's earliest `prior`, or, for a path with any `persist=True` record (roadmap
+  step 5.0a), reads its current content back and writes it as a `Leaving`
+  (`hivemind.cell.leavings.LeavingsStore.record_leaving`, atomic with a `cell.left` trail event)
+  instead, landing in `LeaseReleaseReport.left_paths`; a persisted path gone by release time falls
+  back to an ordinary restore of its earliest `prior`, unless that `prior` was `None` too (already
+  as found). Then removes the lease's scratch directory wholesale. `kill_process_tree(pid,
   clock)` -- the shared "kill this process group, POSIX SIGTERM-then-SIGKILL or Windows `taskkill
-  /T /F`" logic this releaser and the session's own watchdog/`close()` both use.
+  /T /F`" logic this releaser and the session's own watchdog/`close()` both use. Takes a
+  `LeavingsStore` and a `CellIdentity` at construction (the same identity its lease was built
+  with).
 - **Source** (`hivemind.cell.local.source`): `HiveStandSource` -- the `RealCellSource` for the
   Hive Stand's one Cell: `cells()` always returns that one Cell with live figures refreshed;
   `lease()` refuses while disabled, already leased, over the requested access level, or under the
   configured disk reserve, otherwise creating `<scratch_root>/<lease_id>/` and opening a
   `RealCellLease`; `open_session()` hands back a `LocalProcessSession` sized from
-  `scratch_quota_mb`.
+  `scratch_quota_mb`. Takes a `LeavingsStore` at construction (roadmap step 5.0a) and hands it
+  straight to every `HiveStandLeaseReleaser` it builds.
 
 ## How to test this
 

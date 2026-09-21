@@ -887,7 +887,7 @@ What stays is declared by the plan, decided by policy, and asked of the human on
 says so; a bee never decides it alone. Leavings are files left in place on a Cell; bytes the Hive
 keeps in its own store are the Basket (9.2a), a separate thing.
 
-- [ ] **5.0a Persist flag and the Leavings ledger.** `RealCellLease.note_restore_path` and
+- [x] **5.0a Persist flag and the Leavings ledger.** `RealCellLease.note_restore_path` and
   `supervision/capping/lease_view.py` grow a `persist` argument (default `False`), so the
   `RestoreRecord.persist` the releaser already honours (3.17) can finally be set.
   `cell/leavings/`, a package: `Leaving` (Cell id, path, sha256, size, task, lease, `approved_by`

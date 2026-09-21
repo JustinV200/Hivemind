@@ -26,6 +26,7 @@ from builders.forage import make_grant
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStore, TaskStatus
 from hivemind.cell import HoneyClearance
+from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose import GoalReport, Hive, HiveStores, build_hive, run_goal, run_hive
 from hivemind.cli.stores import open_ledger
 from hivemind.forage import RoleFootprint, RoyalReserve
@@ -181,7 +182,12 @@ def _in_memory_stores(clock: FakeClock, manifest: HiveManifest) -> HiveStores:
         hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
     )
     chamber = BroodChamber(MemoryTaskStore(trail), clock, identity)
-    return HiveStores(trail=trail, chamber=chamber, memory=InMemoryMemoryStore(trail))
+    return HiveStores(
+        trail=trail,
+        chamber=chamber,
+        memory=InMemoryMemoryStore(trail),
+        leavings=InMemoryLeavingsStore(trail),
+    )
 
 
 def _build_test_hive(

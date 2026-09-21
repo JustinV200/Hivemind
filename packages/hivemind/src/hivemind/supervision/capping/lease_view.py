@@ -15,8 +15,9 @@ Fits into the Hive:
     and written by `hivemind.supervision.capping.checks.deterministic.PathAllowlistCheck` and
     `hivemind.supervision.capping.apply`; implemented by `hivemind.cell.RealCellLease` (once its
     `note_restore_path` method lands from a concurrent roadmap dispatch) and by
-    `tests/builders/capping.FakeLeaseView` for tests. Calls into nothing beyond the standard
-    library.
+    `tests/builders/capping.FakeLeaseView` for tests. Calls into `hivemind.cell.leavings`
+    (`ApprovedBy` only, roadmap step 5.0a) and the standard library; never `hivemind.cell.
+    RealCellLease` itself (see this module's own "Key invariants").
 
 Key invariants:
     - This module, and nothing else in `hivemind.supervision.capping`, imports
@@ -42,6 +43,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol
+
+from hivemind.cell.leavings import ApprovedBy
 
 __all__ = ["LeaseView"]
 
@@ -83,12 +86,25 @@ class LeaseView(Protocol):
         """
         ...
 
-    def note_restore_path(self, path: Path, prior: bytes | None) -> None:
+    def note_restore_path(
+        self,
+        path: Path,
+        prior: bytes | None,
+        *,
+        persist: bool = False,
+        approved_by: ApprovedBy | None = None,
+        reason: str | None = None,
+    ) -> None:
         """Record what `path` held before an outside-scratch write, so release() can restore it.
 
         Args:
             path: The path about to be written, already resolved.
             prior: The bytes `path` held before the write, or None when `path` did not exist
                 before it (so `release()` knows to delete it rather than restore old content).
+            persist: True to leave `path` in place on release instead of restoring `prior`
+                (roadmap step 5.0a); this call site never sets it -- a later step's own gate
+                (5.0c/5.0d) decides and passes it through here.
+            approved_by: Who allowed it, POLICY or HUMAN; required with `reason` iff `persist`.
+            reason: Why, one line; required with `approved_by` iff `persist`.
         """
         ...

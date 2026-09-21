@@ -104,7 +104,15 @@ typer layer that calls into a subsystem's public API and never contains logic of
   running `hive run`'s Queen process, which v0 has none of.
     - `cells.py` -- `hive cells list --manifest hive.toml [--json]`: builds only the Hive Stand's
       own `HiveStandSource` (never a full Hive) and lists every Cell it reports (id, name, source,
-      kind, access level, Comb Shield tier, capabilities, capacity).
+      kind, access level, Comb Shield tier, capabilities, capacity). Nests `leavings.py`'s own
+      Typer app as `hive cells leavings` (roadmap step 5.0a).
+    - `leavings.py` -- `hive cells leavings list CELL --manifest hive.toml [--include-removed]
+      [--json]`: every `hivemind.cell.leavings.Leaving` recorded for CELL (active rows only,
+      unless `--include-removed`), never `Leaving.prior`. `hive cells leavings remove CELL
+      --manifest hive.toml`: replays every active row's `prior` bytes back (or unlinks, when
+      `prior` is `None`) onto the Hive Stand's real filesystem, then marks each row removed and
+      records one `cell.leaving_removed` event per row; a row already removed is simply absent
+      from the next run's own list, so a second `remove` is a no-op, not an error.
     - `inbox.py` -- `hive inbox --manifest hive.toml [--json]` lists pending questions
       (`chamber.pending_questions`) and Alarms still escalated to the human, reconstructed from the
       trail's own `alarm.escalated`/`alarm.resolved` events; `hive inbox answer QUESTION_ID "text"
@@ -251,3 +259,11 @@ gained the same `--fake-judge` sampling case, seeded the same way `test_queue_ex
 proposals...` already seeds a `capping.*` sequence, with `[supervision] capping_tiers_file`/tier
 lookups exercised against the shipped default table (`--tier`/`--rate` keep the assertion
 independent of that table's own numbers).
+
+`test_leavings.py` (roadmap step 5.0a) follows the same pattern for `hive cells leavings
+list|remove`: seeds a `Leaving` directly through `hivemind.cli.stores.open_leavings`, at a real
+file under the test's own `tmp_path`, then drives `list`/`remove` through `CliRunner` and asserts
+the printed row (never `prior`), the filesystem after `remove` (unlinked or restored), and that a
+second `remove` is a no-op. `stores.py` gained `open_leavings(db) -> SqliteLeavingsStore` beside
+its other store functions, and `hivemind.cli.compose.deps.HiveStores`/`open_default_stores` gained
+a fourth `leavings` store alongside `trail`/`chamber`/`memory`.

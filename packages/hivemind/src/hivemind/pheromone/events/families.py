@@ -14,9 +14,12 @@ Vocabulary (family -> kind -> when it is recorded):
     cell: provisioned (a Virtual Cell backend created it); attested (Night Veil attestation ran,
         pass or fail per check); ready (its Warden's first heartbeat arrived); leased (a Real Cell
         lease opened); released (a Real Cell lease closed and the device restored); touched_
-        outside_scratch (a lease wrote or read outside its scratch directory); sting_cut (a human
-        disconnected the Cell); overwintered (a Virtual Cell was paused dormant); destroyed (a
-        Virtual Cell was torn down); purged (Night Veil teardown purge completed for the Cell).
+        outside_scratch (a lease wrote or read outside its scratch directory); left (release()
+        wrote a Leavings ledger row for a persist=True restore record, roadmap step 5.0a);
+        leaving_removed (`hive cells leavings remove` replayed and marked a Leaving row, roadmap
+        step 5.0a); sting_cut (a human disconnected the Cell); overwintered (a Virtual Cell was
+        paused dormant); destroyed (a Virtual Cell was torn down); purged (Night Veil teardown
+        purge completed for the Cell).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
         report, no transition); blocked (RUNNING -> BLOCKED, a question was asked); answered
@@ -158,6 +161,8 @@ class CellEvent(PheromoneEvent):
             "cell.leased",
             "cell.released",
             "cell.touched_outside_scratch",
+            "cell.left",
+            "cell.leaving_removed",
             "cell.sting_cut",
             "cell.overwintered",
             "cell.destroyed",

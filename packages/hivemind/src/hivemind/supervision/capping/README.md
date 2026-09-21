@@ -25,8 +25,10 @@ called by the proposing bee's Warden, never by the bee itself.
   beside `TierSpec` rather than its own module because the two are read together at exactly one
   call site and a split would have pushed this directory over codingrules 5.6's fan-out limit.
 - **Lease view** (`lease_view.py`): `LeaseView`, the Protocol seam to a Real Cell's lease
-  (`scratch_root`, `allowed_paths`, `is_path_allowed`, `note_touched_path`, `note_restore_path`).
-  `hivemind.cell.RealCellLease` satisfies it structurally; this package never imports that class.
+  (`scratch_root`, `allowed_paths`, `is_path_allowed`, `note_touched_path`, `note_restore_path` --
+  roadmap step 5.0a grows a `persist`/`approved_by`/`reason` keyword trio on the last one, so a
+  later gate (5.0c/5.0d) can pass a persist decision through this same seam). `hivemind.cell.
+  RealCellLease` satisfies it structurally; this package never imports that class.
 - **Checks** (`checks/`): `Check` (protocol: `kind`, `async run(context) -> CheckResultRecord`),
   `CheckContext` (proposal, capabilities, lease, scratch_root, tier), `CheckResultRecord` (kind,
   outcome, reason). This phase's deterministic rungs: `SchemaCheck`, `PathAllowlistCheck`,

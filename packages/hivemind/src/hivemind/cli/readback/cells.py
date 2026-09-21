@@ -1,4 +1,4 @@
-"""Provide `hive cells list`: inspect the Cells the Hive Stand (and later the Swarm) can offer.
+"""Provide `hive cells list` and nest `hive cells leavings`: inspect the Hive Stand's Cells.
 
 `hive cells list --manifest hive.toml [--json]` builds only as much of a Hive as `hivemind.cell.
 local.HiveStandSource.cells` needs -- the Hive Stand's own config, never a full `hivemind.cli.
@@ -6,24 +6,29 @@ compose.build_hive` -- and prints one row per Cell it reports: id, name, source,
 level, Comb Shield tier, capabilities and capacity. v0 has exactly one Cell (the Hive Stand's own);
 this command's own row shape already covers a Swarm-sourced Cell too (`hivemind.swarm`, a later
 phase), since `hivemind.cell.Cell` makes no distinction a reader of this table would need to see.
+`hive cells leavings list|remove` (roadmap step 5.0a) is nested here as `hivemind.cli.readback.
+leavings.app`, the same way a Typer sub-app nests under any other group.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
-    console script (`hivemind.cli.app`). Calls into `hivemind.cell`, `hivemind.cli.compose.deps`
-    (`build_hive_stand_source`) and `hivemind.cli.stores` only.
+    console script (`hivemind.cli.app`). Calls into `hivemind.cell`, `hivemind.cell.leavings`
+    (`InMemoryLeavingsStore`, roadmap step 5.0a), `hivemind.cli.compose.deps`
+    (`build_hive_stand_source`), `hivemind.cli.readback.leavings` and `hivemind.cli.stores` only.
 
 Key invariants:
-    - Never leases a Cell: `cells()` only reads capabilities and live capacity, the same read
-      `hivemind.wardens.warden.Warden.start` makes before actually leasing.
+    - `list` never leases a Cell: `cells()` only reads capabilities and live capacity, the same
+      read `hivemind.wardens.warden.Warden.start` makes before actually leasing, and its
+      throwaway `InMemoryLeavingsStore` never touches the real Leavings ledger file either.
     - `--json` prints one array element per Cell with the same fields the table shows, never a
       raw `Cell.model_dump()` (codingrules section 12 style: identifiers and sizes, not internals
       like `RealCellLease`-shaped detail this command never touches in the first place).
 
 See Also:
-    - .claude/roadmap.md step 3.21 for this command's own roadmap bullet.
+    - .claude/roadmap.md step 3.21 for `list`'s own roadmap bullet; step 5.0a for `leavings`'s.
     - hivemind.cell.local.source for HiveStandSource.cells, this command's one read.
     - hivemind.cli.compose.deps for build_hive_stand_source, the construction this command mirrors
       without building a whole Hive around it.
+    - hivemind.cli.readback.leavings for the `leavings list|remove` sub-app nested here.
 """
 
 from __future__ import annotations
@@ -35,13 +40,18 @@ import typer
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell
+from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose.deps import build_hive_stand_source
+from hivemind.cli.readback.leavings import app as leavings_app
 from hivemind.cli.stores import DEFAULT_MANIFEST, JsonOption, ManifestOption, load_manifest_or_exit
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock, SystemClock
 
 app = typer.Typer(name="cells", help="List the Cells the Hive Stand (and the Swarm) can offer.")
+# Roadmap step 5.0a: `hive cells leavings list|remove <cell>`, nested under this group the same
+# way `hive capping <sub>` nests its own subcommands (hivemind.cli.readback.leavings's own app).
+app.add_typer(leavings_app, name="leavings")
 
 __all__ = ["app"]
 
@@ -82,10 +92,11 @@ def list_command(manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOptio
 
 async def _read_cells(manifest: HiveManifest) -> tuple[Cell, ...]:
     """Build the Hive Stand's own source (no lease, no Warden) and read its Cells."""
-    # A fresh, throwaway trail: this command never leases (module docstring), so cell.leased/
-    # cell.released never fire and nothing this trail would hold outlives this one call.
+    # A fresh, throwaway trail and leavings store: this command never leases (module docstring),
+    # so cell.leased/cell.released/cell.left never fire and nothing either would hold outlives
+    # this one call.
     trail = MemoryPheromoneTrail(FakeClock())
-    source = build_hive_stand_source(manifest, trail, SystemClock())
+    source = build_hive_stand_source(manifest, trail, SystemClock(), InMemoryLeavingsStore(trail))
     return await source.cells()
 
 

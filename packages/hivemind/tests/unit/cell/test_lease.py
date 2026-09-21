@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 from builders.cells import make_identity, make_lease_request
+from pydantic import ValidationError
 
 from hivemind.cell.errors import InvalidLeaseTransitionError
 from hivemind.cell.fake import FakeLeaseReleaser
 from hivemind.cell.lease import LeaseFacts, LeaseReleaser, LeaseReleaseReport, RealCellLease
 from hivemind.cell.lease_state import LeaseState
+from hivemind.cell.leavings import ApprovedBy
 from hivemind.cell.tiers import CombShieldLevel
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import PheromoneTrail, TrailQuery
@@ -180,3 +182,67 @@ async def test_release_before_open_raises_invalid_lease_transition(tmp_path: Pat
 
     with pytest.raises(InvalidLeaseTransitionError):
         await lease.release()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# note_restore_path (roadmap step 5.0a: persist/approved_by/reason)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_note_restore_path_inside_scratch_records_nothing(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+
+    lease.note_restore_path(tmp_path / "inside.txt", b"old")
+
+    assert lease.restore_records == ()
+
+
+def test_note_restore_path_outside_scratch_defaults_to_not_persisted(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    lease.note_restore_path(outside, b"old")
+
+    assert len(lease.restore_records) == 1
+    record = lease.restore_records[0]
+    assert record.path == outside.resolve(strict=False)
+    assert record.prior == b"old"
+    assert record.persist is False
+    assert record.approved_by is None
+    assert record.reason is None
+
+
+def test_note_restore_path_persist_true_records_approved_by_and_reason(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    lease.note_restore_path(
+        outside, None, persist=True, approved_by=ApprovedBy.HUMAN, reason="operator kept it"
+    )
+
+    record = lease.restore_records[0]
+    assert record.persist is True
+    assert record.approved_by is ApprovedBy.HUMAN
+    assert record.reason == "operator kept it"
+
+
+def test_note_restore_path_persist_true_without_approved_by_raises(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    with pytest.raises(ValidationError):
+        lease.note_restore_path(outside, None, persist=True, reason="missing approved_by")
+
+
+def test_note_restore_path_persist_false_with_approved_by_raises(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    with pytest.raises(ValidationError):
+        lease.note_restore_path(outside, None, approved_by=ApprovedBy.POLICY, reason="stray")
+
+
+def test_lease_release_report_left_paths_defaults_to_empty() -> None:
+    report = LeaseReleaseReport(killed_processes=0, residual_paths=(), is_restored=True)
+
+    assert report.left_paths == ()

@@ -13,10 +13,11 @@ subdirectory of `scratch_root` for the new lease and opens a `RealCellLease` bac
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction), inside `hivemind.cell.local` (the Hive Stand). Implements
-    `hivemind.cell.source.RealCellSource`; constructed once by the composition root (`cli/
-    stores.py`, a later step) from a loaded `HiveStandConfig`. Calls into `hivemind.cell.lease`,
-    `.lease_state`, `.models`, `.source`, `hivemind.cell.local.config`, `.probe`, `.releaser`,
-    `.session`, `hivemind.pheromone` and the standard library (`shutil.disk_usage`) only.
+    `hivemind.cell.source.RealCellSource`; constructed once by the composition root
+    (`hivemind.cli.compose.deps.build_hive_stand_source`) from a loaded `HiveStandConfig` and a
+    `LeavingsStore`. Calls into `hivemind.cell.lease`, `.lease_state`, `.leavings`, `.models`,
+    `.source`, `hivemind.cell.local.config`, `.probe`, `.releaser`, `.session`,
+    `hivemind.pheromone` and the standard library (`shutil.disk_usage`) only.
 
 Key invariants:
     - `cells()` always returns exactly one Cell, whose id never changes across calls (minted once
@@ -41,6 +42,7 @@ import shutil
 from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.lease import LeaseFacts, LeaseRequest, RealCellLease
 from hivemind.cell.lease_state import LeaseState
+from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local.config import HiveStandConfig
 from hivemind.cell.local.probe import ProbeResult, probe_host, refresh_live
 from hivemind.cell.local.quota import ScratchQuota
@@ -69,6 +71,7 @@ class HiveStandSource:
         identity: CellIdentity,
         trail: PheromoneTrail,
         clock: Clock,
+        leavings: LeavingsStore,
     ) -> None:
         """Build a HiveStandSource over this machine, minting its one Cell's id.
 
@@ -77,11 +80,15 @@ class HiveStandSource:
             identity: The Hive, node and actor this source stamps on every trail event.
             trail: Where cell.leased/cell.released events land.
             clock: Source of every minted id, timestamp and grace-period wait.
+            leavings: Where a `persist=True` restore record's Leaving row lands on release
+                (roadmap step 5.0a); handed straight to every `HiveStandLeaseReleaser` this
+                source builds.
         """
         self._config = config
         self._identity = identity
         self._trail = trail
         self._clock = clock
+        self._leavings = leavings
         self._cell_id: CellId = new_cell_id(clock)
         self._static: ProbeResult = probe_host(config)
         self._active_lease: RealCellLease | None = None
@@ -145,7 +152,12 @@ class HiveStandSource:
             trail=self._trail,
             clock=self._clock,
             identity=self._identity,
-            releaser=HiveStandLeaseReleaser(self._clock, keep_scratch=self._config.keep_scratch),
+            releaser=HiveStandLeaseReleaser(
+                self._clock,
+                self._leavings,
+                self._identity,
+                keep_scratch=self._config.keep_scratch,
+            ),
         )
         await lease.open()
         self._active_lease = lease

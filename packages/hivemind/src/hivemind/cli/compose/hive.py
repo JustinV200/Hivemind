@@ -180,7 +180,7 @@ def build_hive(
     ledger = build_ledger(manifest, manifest.forage.reserve)
     registry = build_provider_registry(manifest, environ, clock, forage_map, responders)
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
-    source = build_hive_stand_source(manifest, hive_stores.trail, clock)
+    source = build_hive_stand_source(manifest, hive_stores.trail, clock, hive_stores.leavings)
     links = _build_links(manifest, source, clock)
     parts = HiveParts(
         manifest=manifest, registry=registry, fanner=fanner, stores=hive_stores, clock=clock

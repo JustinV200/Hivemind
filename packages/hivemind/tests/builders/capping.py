@@ -33,6 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import HoneyClearance
+from hivemind.cell.leavings import ApprovedBy
 from hivemind.forage.tempo import AccuracyBar, Tempo
 from hivemind.supervision.capping.checks.judge import (
     JudgeOutcome,
@@ -285,8 +286,21 @@ class FakeLeaseView:
         """Record `path` on `touched_paths`."""
         self.touched_paths.append(path)
 
-    def note_restore_path(self, path: Path, prior: bytes | None) -> None:
-        """Record `(path, prior)` on `restore_records`."""
+    def note_restore_path(
+        self,
+        path: Path,
+        prior: bytes | None,
+        *,
+        persist: bool = False,
+        approved_by: ApprovedBy | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Record `(path, prior)` on `restore_records`; `persist`/`approved_by`/`reason` unused.
+
+        No caller under test (`hivemind.supervision.capping.apply`) sets these yet (roadmap steps
+        5.0c/5.0d decide `persist`); matching the real `LeaseView.note_restore_path`'s full
+        signature here is what keeps this class a structurally honest fake.
+        """
         self.restore_records.append((path, prior))
 
 
