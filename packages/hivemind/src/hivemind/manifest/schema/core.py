@@ -195,6 +195,12 @@ class HiveStandSection(BaseModel):
         default_factory=HiveStandCapacityOverrides,
         description="Manual overrides for the Hive Stand's own capacity probe.",
     )
+    keep_scratch: bool = Field(
+        default=False,
+        description="Development only: leave each lease's scratch directory behind on release "
+        "so a run's files can be read afterwards. Deliberately breaks 'left exactly as found': "
+        "cell.released reports is_restored = false and the directories accumulate.",
+    )
     scratch_quota_mb: int = Field(
         default=DEFAULT_SCRATCH_QUOTA_MB,
         gt=0,

@@ -119,3 +119,23 @@ async def _spawn_and_wait_exit() -> int:
         )
     await process.wait()
     return process.pid
+
+
+async def test_release_keeps_the_scratch_dir_and_says_so_when_keep_scratch_is_set(
+    tmp_path: Path,
+) -> None:
+    """`[hive_stand] keep_scratch`: the files survive, and the report never claims a restore."""
+    clock = FakeClock()
+    scratch_root = tmp_path / "scratch"
+    scratch_root.mkdir()
+    (scratch_root / "haiku_1.txt").write_text("kept", encoding="utf-8")
+    lease = make_real_cell_lease(
+        scratch_root, clock=clock, releaser=HiveStandLeaseReleaser(clock, keep_scratch=True)
+    )
+    await lease.open()
+
+    report = await lease.release()
+
+    assert (scratch_root / "haiku_1.txt").read_text(encoding="utf-8") == "kept"
+    assert scratch_root in report.residual_paths
+    assert report.is_restored is False

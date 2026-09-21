@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -128,6 +129,8 @@ def run_command(
         typer.echo(f"hive run failed: {_describe(exc)}", err=True)
         raise typer.Exit(code=1) from exc
     _print_summary(report, as_json)
+    if loaded.hive_stand.keep_scratch and not as_json:
+        _print_kept_scratch(loaded.resolve_path(loaded.hive_stand.scratch_root))
     if report.timed_out:
         raise typer.Exit(code=2)
     raise typer.Exit(code=0 if report.succeeded else 1)
@@ -191,6 +194,13 @@ def _print_summary(report: GoalReport, as_json: bool) -> None:
         f"goal {report.goal_id} {outcome} in {report.elapsed_s:.1f}s "
         f"({len(report.tasks)} task(s), ${report.spend_usd:.4f} spent)"
     )
+
+
+def _print_kept_scratch(scratch_root: Path) -> None:
+    """Name the newest lease directory `[hive_stand] keep_scratch` left behind, if any."""
+    leases = sorted(scratch_root.glob("lease_*"), key=lambda path: path.stat().st_mtime)
+    if leases:
+        typer.echo(f"scratch kept (keep_scratch = true): {leases[-1]}")
 
 
 def _task_summary(task: Task) -> str | None:

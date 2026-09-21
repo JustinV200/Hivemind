@@ -65,13 +65,17 @@ __all__ = ["KILL_GRACE_S", "HiveStandLeaseReleaser", "kill_process_tree"]
 class HiveStandLeaseReleaser:
     """Kill survivors, replay restore records and remove scratch: the Hive Stand's own release()."""
 
-    def __init__(self, clock: Clock) -> None:
+    def __init__(self, clock: Clock, *, keep_scratch: bool = False) -> None:
         """Build a releaser that times its SIGTERM-then-SIGKILL grace period from `clock`.
 
         Args:
             clock: Source of the grace-period wait between SIGTERM and SIGKILL on POSIX.
+            keep_scratch: Development only (`[hive_stand] keep_scratch`): leave the scratch
+                directory in place so a run's files can be read afterwards. The report then
+                says so honestly: the directory is residual and the Cell is not restored.
         """
         self._clock = clock
+        self._keep_scratch = keep_scratch
 
     async def release(self, lease: RealCellLease) -> LeaseReleaseReport:
         """Kill what `lease` started, restore what it touched, and remove its scratch directory.
@@ -88,7 +92,10 @@ class HiveStandLeaseReleaser:
             if await kill_process_tree(pid, self._clock):
                 killed += 1
         residual = await asyncio.to_thread(_replay_restore_records, lease.restore_records)
-        scratch_removed = await asyncio.to_thread(_remove_scratch, lease.scratch_root)
+        # Kept on purpose counts as not removed: the report never claims a restore it skipped.
+        scratch_removed = not self._keep_scratch and await asyncio.to_thread(
+            _remove_scratch, lease.scratch_root
+        )
         if not scratch_removed:
             residual = (*residual, lease.scratch_root)
         return LeaseReleaseReport(

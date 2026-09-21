@@ -36,6 +36,10 @@ address = "ws://127.0.0.1:8720"
 scratch_quota_mb = 4096
 # Free disk, in megabytes, a new lease refuses to dip below.
 disk_reserve_mb = 1024
+# Development only: leave each lease's scratch directory behind on release so a run's files
+# can be read afterwards. Breaks "left exactly as found" on purpose; `cell.released` then
+# reports is_restored = false, and the directories accumulate until removed by hand.
+keep_scratch = false
 # The most access any lease on the Hive Stand may hold: READ_ONLY, SCRATCH or FULL.
 access_level = "SCRATCH"
 
@@ -51,7 +55,8 @@ memory_bytes = 17179869184
 # true refuses every provider whose base_url is empty (hosted) or not loopback; false here
 # because [llm.providers.anthropic] below is hosted.
 offline = false
-# The reply length cap absent a per-slot override.
+# A reply-length cap for every slot that names none of its own ([llm.slots.<key>]
+# max_output_tokens). Omit it to leave each call site's own budget alone (the default).
 default_max_output_tokens = 4096
 # Default per-request timeout, in seconds.
 request_timeout_s = 120.0

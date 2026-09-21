@@ -78,6 +78,10 @@ class HiveStandConfig(BaseModel):
     comb_shield: CombShieldLevel = Field(
         default=CombShieldLevel.MEADOW, description="The Hive Stand's own security tier."
     )
+    keep_scratch: bool = Field(
+        default=False,
+        description="Development only: release leaves the lease's scratch directory in place.",
+    )
 
     @classmethod
     def from_section(cls, section: HiveStandSection, manifest_dir: Path) -> HiveStandConfig:
@@ -106,4 +110,5 @@ class HiveStandConfig(BaseModel):
             cores=section.capacity.cores,
             memory_bytes=section.capacity.memory_bytes,
             access_level=AccessLevel.from_wire(section.access_level),
+            keep_scratch=section.keep_scratch,
         )

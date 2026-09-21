@@ -145,7 +145,7 @@ class HiveStandSource:
             trail=self._trail,
             clock=self._clock,
             identity=self._identity,
-            releaser=HiveStandLeaseReleaser(self._clock),
+            releaser=HiveStandLeaseReleaser(self._clock, keep_scratch=self._config.keep_scratch),
         )
         await lease.open()
         self._active_lease = lease
