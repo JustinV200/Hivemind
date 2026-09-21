@@ -57,6 +57,7 @@ __all__ = [
     "HiveError",
     "InvalidCellTransitionError",
     "UnknownBackendError",
+    "UnknownCellError",
 ]
 
 
@@ -211,4 +212,27 @@ class BackendCapabilityError(HiveError):
         super().__init__(f"Backend {backend_name!r} does not support {capability}{subject}.")
         self.backend_name = backend_name
         self.capability = capability
+        self.cell_id = cell_id
+
+
+class UnknownCellError(HiveError):
+    """Raise when a CellBackend is asked about a Cell it never provisioned (or already destroyed).
+
+    Added for `hivemind.hive.backends.cloud.base.CloudCellBackend.accrued_cost_usd` (roadmap step
+    5.12): reporting spend for a Cell needs to know when it started, which only exists for a Cell
+    this backend actually provisioned, unlike `destroy`/`pause`/`resume`'s own idempotent "unknown
+    id is a no-op" contract (there is no sensible zero-cost answer to hand back silently here).
+    """
+
+    code: ClassVar[str] = "hivemind.hive.unknown_cell"
+
+    def __init__(self, backend_name: str, cell_id: str) -> None:
+        """Build the error for a Cell this backend has no record of.
+
+        Args:
+            backend_name: The CellBackend.name that was asked.
+            cell_id: The `CellId` that was looked up.
+        """
+        super().__init__(f"Backend {backend_name!r} has no record of cell {cell_id!r}.")
+        self.backend_name = backend_name
         self.cell_id = cell_id

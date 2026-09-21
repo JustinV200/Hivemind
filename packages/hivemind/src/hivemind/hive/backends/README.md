@@ -1,10 +1,10 @@
 # hivemind.hive.backends
 
 The backends package holds one CellBackend implementation per kind of infrastructure a Virtual
-Cell can be provisioned on: local containers (`docker/`), a local hypervisor, and cloud providers
-under `backends/cloud/`.
+Cell can be provisioned on: local containers (`docker/`), a local hypervisor (`qemu/`), and cloud
+providers under `backends/cloud/`.
 
-## Public API (roadmap steps 5.2, 5.4)
+## Public API (roadmap steps 5.2, 5.4, 5.11, 5.12)
 
 - `CellBackend` (`base.py`): `provision`, `destroy`, `list_cells`, `pause`, `resume`, plus `name`
   and `capabilities` so a caller branches on what a backend can do, never on which one it is.
@@ -23,6 +23,14 @@ under `backends/cloud/`.
   a Docker daemon. See `docker/`'s own module docstrings for `DockerClientPort`, `SdkDockerClient`
   (the only module that may import the `docker` SDK), `FakeDockerClient` and what each
   `NetworkPolicy` really enforces at the Docker level.
+- `QemuCellBackend` / `build_qemu_backend` (`qemu/`): the second working `CellBackend`, over real
+  QEMU VMs. See `qemu/`'s own module docstrings for `QemuRunnerPort`, `ProcessQemuRunner` (the
+  only module that may launch a `qemu-*` binary), `FakeQemuRunner`, the cloud-init documents
+  `qemu/cloud_init.py` renders, and what each `NetworkPolicy` really enforces under QEMU
+  user-mode networking (below).
+- `hivemind.hive.backends.cloud`: `CloudCellBackend`, `CloudBackendConfig`, `CloudCredentials`,
+  `CloudRegion`, `PricingTag` and `FakeCloudCellBackend` (the reference implementation; no real
+  provider is chosen -- ADR-0026, `cloud/README.md`).
 
 ## What the Docker backend's NetworkPolicy really enforces
 
@@ -36,16 +44,31 @@ summary:
 | `ALLOWLIST` | The same plain bridge network as `EGRESS_ONLY`, plus the allowlist stamped on a container label for audit. | Enforcement: Docker's own SDK has no hostname-based outbound allowlist. `TODO(5.7a)` marks exactly what the in-Cell firewall (Night Veil's kill-switch work) still has to close. |
 | `VPN_TOR` | Refused with `CellProvisionError` before anything is created. | Everything -- Night Veil needs its own image (5.3a) and routing (5.7a), neither built yet. |
 
+## What the QEMU backend's NetworkPolicy really enforces
+
+See `hivemind.hive.backends.qemu.network`'s own module docstring for the full explanation;
+summary:
+
+| Policy | What QEMU actually does | What it does not do |
+|---|---|---|
+| `NONE` | `-netdev user,...,restrict=on` plus one `guestfwd` rule forwarding a fixed guest address to the real Queen endpoint. `restrict=on` blocks the guest from reaching the host at all, including QEMU's own `10.0.2.2` host alias; `guestfwd` is the one documented exception QEMU still services under `restrict=on`, so the control link survives. | Verified against real QEMU: this dev host has none (ADR-0026), so the `guestfwd=...-cmd:...` relay (which shells out to the host's own Python to bridge the connection) has been reviewed by reading, not run. |
+| `EGRESS_ONLY` | `-netdev user,id=net0`, no `restrict` -- full outbound reach via SLIRP's own NAT, no inbound (no Virtual Cell backend ever publishes a port). A Queen endpoint on loopback is rewritten to QEMU's `10.0.2.2` host alias so it is actually reachable from inside the guest. | Nothing beyond "no inbound"; outbound is unrestricted by design. |
+| `ALLOWLIST` | The same unrestricted user network as `EGRESS_ONLY`, plus the allowlist stamped into `cell.json`'s labels for audit. | Enforcement: QEMU's own SLIRP stack has no hostname-based outbound allowlist. `TODO(5.7a)` marks exactly what the in-Cell firewall (Night Veil's kill-switch work) still has to close, mirroring Docker's own `ALLOWLIST_LABEL`. |
+| `VPN_TOR` | Refused with `CellProvisionError` before anything is created. | Everything -- Night Veil needs its own image (5.3a) and routing (5.7a), neither built yet. |
+
 ## How to test this
 
 - `packages/hivemind/tests/unit/hive/backends/`: unit tests for `base.py`, `fake.py`,
-  `bootstrap.py` and every module under `docker/`.
+  `bootstrap.py`, every module under `docker/` and `qemu/`, and `cloud/base.py`/`cloud/fake.py`.
 - `packages/hivemind/tests/contracts/test_cell_backend_contract.py`: the shared contract suite,
-  parametrised by a fixture; `FakeCellBackend` and `DockerCellBackend` (over `FakeDockerClient`
-  and `FakeReadinessGate`) both plug in today, `backends/qemu.py` (5.11) once it lands.
-- `packages/hivemind/tests/integration/test_docker_backend.py`: `@pytest.mark.integration`, needs
-  a real Docker daemon; skips cleanly when none answers.
+  parametrised by a fixture; `FakeCellBackend`, `DockerCellBackend` (over `FakeDockerClient` and
+  `FakeReadinessGate`), `QemuCellBackend` (over `FakeQemuRunner` and `FakeReadinessGate`) and
+  `FakeCloudCellBackend` all plug in.
+- `packages/hivemind/tests/integration/test_docker_backend.py` and
+  `test_qemu_backend.py`: `@pytest.mark.integration`, each needs its own real infrastructure;
+  both skip cleanly when none is reachable.
 
 ## Not yet built
 
-- `qemu.py` (roadmap step 5.11), `cloud/` (5.12).
+- A real `hivemind.hive.backends.cloud` provider implementation (post-1.0; ADR-0026,
+  `cloud/README.md`).

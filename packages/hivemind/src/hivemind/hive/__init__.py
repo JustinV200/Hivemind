@@ -44,6 +44,8 @@ Public API:
     - DockerCellBackend, build_docker_backend: the first working CellBackend, over a Docker
       daemon, and the factory a composition root hands to BackendRegistry.register
       (hivemind.hive.backends).
+    - QemuCellBackend, build_qemu_backend: the second working CellBackend, over real QEMU VMs
+      (roadmap step 5.11), and its own registry factory (hivemind.hive.backends).
     - BackendRegistry, CellBackendFactory: name -> CellBackend, for the composition root
       (hivemind.hive.registry).
 """
@@ -56,10 +58,12 @@ from hivemind.hive.backends import (
     DockerCellBackend,
     FakeCellBackend,
     FakeReadinessGate,
+    QemuCellBackend,
     QueenEndpoint,
     ReadinessGate,
     VirtualCellRecord,
     build_docker_backend,
+    build_qemu_backend,
     mint_cell_bootstrap,
 )
 from hivemind.hive.cell_state import (
@@ -98,6 +102,7 @@ __all__ = [
     "HiveError",
     "InvalidCellTransitionError",
     "NetworkPolicy",
+    "QemuCellBackend",
     "QueenEndpoint",
     "ReadinessGate",
     "UnknownBackendError",
@@ -107,6 +112,7 @@ __all__ = [
     "assert_dormant_allowed",
     "assert_transition",
     "build_docker_backend",
+    "build_qemu_backend",
     "can_enter_dormant",
     "can_transition",
     "mint_cell_bootstrap",

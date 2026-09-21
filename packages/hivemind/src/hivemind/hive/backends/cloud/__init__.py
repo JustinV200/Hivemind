@@ -1,7 +1,12 @@
 """Hold the Hive's per-cloud-provider CellBackend implementations.
 
 Each cloud provider the Hive can provision a Virtual Cell on gets one CellBackend implementation
-here.
+here. ADR-0026 deliberately chose none for Brood 1.0 ("cloud backends ... are optional"): `base.py`
+defines what every real provider must add on top of `hivemind.hive.backends.base.CellBackend`
+(`CloudCellBackend`, `CloudBackendConfig`, `CloudCredentials`, `CloudRegion`, `PricingTag`), and
+`fake.py`'s `FakeCloudCellBackend` is this phase's own reference implementation -- an in-memory
+fake, not a vendor SDK, exactly like `hivemind.hive.backends.fake.FakeCellBackend` is for the base
+protocol. See `README.md` for what a real, post-1.0 provider must implement.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside the hive package. Handles
@@ -10,15 +15,36 @@ Fits into the Hive:
     into hive's other sub-packages directly.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 5 adds its first public name.
+    - No vendor cloud SDK is imported anywhere in this package (codingrules section 4): the one
+      shipped implementation, `FakeCloudCellBackend`, is in-memory only.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under hive.
-    - .claude/roadmap.md phase 5 for the work that first populates it.
+    - .claude/roadmap.md phase 5 step 5.12 for the work that populates it.
+    - docs/adr/0026-cell-backends-docker-first-qemu-second.md for why no provider is chosen here.
 
-Public API: none yet; first populated in phase 5.
+Public API:
+    - CloudCellBackend, CloudBackendConfig, CloudCredentials, CloudRegion, PricingTag: the
+      cloud-specific seam every real provider must add on top of CellBackend
+      (hivemind.hive.backends.cloud.base).
+    - FakeCloudCellBackend: the in-memory reference implementation (hivemind.hive.backends.
+      cloud.fake).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 5 adds the first public name.
-__all__: list[str] = []
+from hivemind.hive.backends.cloud.base import (
+    CloudBackendConfig,
+    CloudCellBackend,
+    CloudCredentials,
+    CloudRegion,
+    PricingTag,
+)
+from hivemind.hive.backends.cloud.fake import FakeCloudCellBackend
+
+__all__ = [
+    "CloudBackendConfig",
+    "CloudCellBackend",
+    "CloudCredentials",
+    "CloudRegion",
+    "FakeCloudCellBackend",
+    "PricingTag",
+]

@@ -4,8 +4,10 @@ Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
     hivemind.hive.backends.base.CellBackend contract and runs against every implementation
     registered in `_HARNESSES` below: `hivemind.hive.backends.fake.FakeCellBackend` (roadmap step
-    5.2) today. A new CellBackend implementation (Docker, roadmap 5.4; QEMU, 5.11) adds a
-    `BackendHarness` here and must pass this suite before it is registered anywhere else
+    5.2), `hivemind.hive.backends.docker.DockerCellBackend` (5.4),
+    `hivemind.hive.backends.qemu.QemuCellBackend` (5.11) and
+    `hivemind.hive.backends.cloud.FakeCloudCellBackend` (5.12). A new CellBackend implementation
+    adds a `BackendHarness` here and must pass this suite before it is registered anywhere else
     (codingrules 14.3).
 
     A harness builds a backend from a Clock and can arrange its *next* provision or destroy call
@@ -26,16 +28,26 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Protocol
 
 import pytest
 from builders.forage import make_capacity
+from pydantic import SecretStr
 
 from hivemind.cell import AccessLevel, CellKind
 from hivemind.hive.backends.base import CellBackend
 from hivemind.hive.backends.bootstrap import QueenEndpoint
+from hivemind.hive.backends.cloud import (
+    CloudBackendConfig,
+    CloudCredentials,
+    CloudRegion,
+    FakeCloudCellBackend,
+    PricingTag,
+)
 from hivemind.hive.backends.docker import DockerCellBackend, FakeDockerClient
 from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
+from hivemind.hive.backends.qemu import FakeQemuRunner, QemuBackendConfig, QemuCellBackend
 from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
 from hivemind.hive.models import VirtualCellSpec
 from waggle.clock import Clock, FakeClock
@@ -134,7 +146,81 @@ class _DockerHarness:
         return self._client
 
 
-_HARNESSES: dict[str, BackendHarness] = {"fake": _FakeHarness(), "docker": _DockerHarness()}
+class _QemuHarness:
+    """Builds a QemuCellBackend over FakeQemuRunner and FakeReadinessGate (roadmap 5.11)."""
+
+    def __init__(self) -> None:
+        """Start with no backend built yet; `build()` creates one."""
+        self._runner: FakeQemuRunner | None = None
+
+    def build(self, clock: Clock) -> CellBackend:
+        """Build a fresh QemuCellBackend on `clock`, over fresh fakes."""
+        self._runner = FakeQemuRunner()
+        gate = FakeReadinessGate(clock)
+        endpoint = QueenEndpoint(
+            waggle_url="ws://localhost:8710",
+            queen_node_id=new_node_id(clock),
+            queen_verify_key_hex="00" * 32,
+        )
+        # A test never provisions for real, so these paths are never actually read from disk;
+        # FakeQemuRunner records them but never touches the filesystem.
+        config = QemuBackendConfig(base_image=Path("base-ubuntu.qcow2"), vm_root=Path("vm_root"))
+        return QemuCellBackend(self._runner, gate, endpoint, clock, config=config)
+
+    def arrange_provision_failure(self, reason: str) -> None:
+        """Arm the built FakeQemuRunner's start_vm failure switch."""
+        self._active().set_start_vm_failure(reason)
+
+    def arrange_destroy_failure(self, reason: str) -> None:
+        """Arm the built FakeQemuRunner's stop_vm failure switch."""
+        self._active().set_stop_vm_failure(reason)
+
+    def _active(self) -> FakeQemuRunner:
+        """Return the built runner, or raise if `build()` was never called."""
+        if self._runner is None:
+            raise RuntimeError("build() must be called before arranging a failure.")
+        return self._runner
+
+
+class _CloudHarness:
+    """Builds a FakeCloudCellBackend (roadmap 5.12): no real provider exists yet."""
+
+    def __init__(self) -> None:
+        """Start with no backend built yet; `build()` creates one."""
+        self._backend: FakeCloudCellBackend | None = None
+
+    def build(self, clock: Clock) -> CellBackend:
+        """Build a fresh FakeCloudCellBackend on `clock`."""
+        config = CloudBackendConfig(
+            region=CloudRegion("us-east-1"),
+            credentials=CloudCredentials(key_id=SecretStr("k"), secret=SecretStr("s")),
+            pricing=PricingTag(cost_per_hour_usd=0.1),
+            instance_type="t3.medium",
+        )
+        self._backend = FakeCloudCellBackend(clock, config)
+        return self._backend
+
+    def arrange_provision_failure(self, reason: str) -> None:
+        """Arm the built FakeCloudCellBackend's set_provision_failure switch."""
+        self._active().set_provision_failure(reason)
+
+    def arrange_destroy_failure(self, reason: str) -> None:
+        """Arm the built FakeCloudCellBackend's set_destroy_failure switch."""
+        self._active().set_destroy_failure(reason)
+
+    def _active(self) -> FakeCloudCellBackend:
+        """Return the built backend, or raise if `build()` was never called."""
+        if self._backend is None:
+            raise RuntimeError("build() must be called before arranging a failure.")
+        return self._backend
+
+
+_HARNESSES: dict[str, BackendHarness] = {
+    "fake": _FakeHarness(),
+    "docker": _DockerHarness(),
+    "qemu": _QemuHarness(),
+    "cloud": _CloudHarness(),
+}
 
 
 @pytest.fixture(params=sorted(_HARNESSES))

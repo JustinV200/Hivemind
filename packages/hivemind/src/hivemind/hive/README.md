@@ -25,6 +25,10 @@ pool that keeps a dormant Cell around for fast reuse.
 - `DockerCellBackend` / `build_docker_backend` (`backends/docker/`): the first working
   `CellBackend`, over a Docker daemon (ADR-0026, ADR-0027), and the factory a composition root
   hands to `BackendRegistry.register`.
+- `QemuCellBackend` / `build_qemu_backend` (`backends/qemu/`): the second `CellBackend`, over real
+  QEMU VMs booted from a prebuilt qcow2 and cloud-init (roadmap step 5.11); same contract, gives
+  `isolation = "required"` a real hypervisor boundary. `hivemind.hive.backends.cloud` holds the
+  (optional, post-1.0) cloud provider seam, reached directly rather than re-exported here.
 - `BackendRegistry` / `CellBackendFactory` (`registry.py`): name -> `CellBackend`, for the
   composition root.
 - `HiveError` and its subclasses (`errors.py`): this package's own error tree.
@@ -33,16 +37,19 @@ pool that keeps a dormant Cell around for fast reuse.
 
 - `packages/hivemind/tests/unit/hive/`: unit tests for every module above, mirroring `src/`.
 - `packages/hivemind/tests/contracts/test_cell_backend_contract.py`: one contract suite run over
-  every `CellBackend` implementation (`FakeCellBackend` and `DockerCellBackend`, the latter over
-  `FakeDockerClient` and `FakeReadinessGate`, today; `QemuCellBackend` plugs in through the same
-  fixture once a later roadmap step lands).
+  every `CellBackend` implementation -- `FakeCellBackend`, `DockerCellBackend` (over
+  `FakeDockerClient` and `FakeReadinessGate`), `QemuCellBackend` (over `FakeQemuRunner` and
+  `FakeReadinessGate`), and `FakeCloudCellBackend`.
 - `packages/hivemind/tests/integration/test_docker_backend.py`: `@pytest.mark.integration`,
   provisions a real container against a loopback Waggle server; skips cleanly with no Docker
   daemon reachable.
+- `packages/hivemind/tests/integration/test_qemu_backend.py`: `@pytest.mark.integration`,
+  provisions a real VM the same way; skips cleanly with no `qemu-system-x86_64`/`qemu-img` on PATH.
 
 ## Not yet built (later roadmap steps)
 
 - `lifecycle.py` (5.6): the only intended caller of `cell_state.assert_transition` and
   `assert_dormant_allowed`.
-- `night_veil.py` (5.7b), `snapshot.py` (5.10), `overwinter/` (5.9), `backends/qemu.py` (5.11),
-  `backends/cloud/` (5.12).
+- `night_veil.py` (5.7b), `snapshot.py` (5.10), `overwinter/` (5.9).
+- A real `hivemind.hive.backends.cloud` provider implementation (post-1.0; see that package's own
+  README for what it must add).

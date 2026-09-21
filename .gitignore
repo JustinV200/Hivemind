@@ -53,3 +53,8 @@ requirements-audit.txt
 # Local env overrides (HIVEMIND_* vars, provider API keys) beyond the bare .env above.
 .env.*
 !.env.example
+
+# QEMU Virtual Cell base images (roadmap step 5.11, images/*/vm/README.md): multi-gigabyte binary
+# artefacts that regenerate deterministically from scripts/build_cell_image.py and a pinned
+# Ubuntu release; never committed, matching images/base-ubuntu/vm/README.md's own instructions.
+images/*/vm/*.qcow2
