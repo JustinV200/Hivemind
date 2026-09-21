@@ -65,7 +65,7 @@ from hivemind.cli.stores import (
 )
 from hivemind.forage import ForageGrant, SeatReservation
 from hivemind.manifest import HiveManifest
-from hivemind.pheromone import ForageEvent, PheromoneTrail
+from hivemind.pheromone import ForageEvent, PheromoneTrail, TrailQuery
 from hivemind.queen.forage import ForageLedger, revise
 from hivemind.queen.forage.ledger import SqliteLedgerStore
 from waggle.clock import SystemClock
@@ -113,9 +113,13 @@ class _StatusPayload(BaseModel):
     local_pools: tuple[tuple[str, int, int], ...] = Field(
         description="Per Warden: (warden_id, sub_bees_active, seats_exported)."
     )
+    throttled: tuple[tuple[str, str, float], ...] = Field(
+        description="Per source still inside a provider's rate-limit window: (source id, or the "
+        "provider when the map had no source, the window's end as ISO 8601, the wait in s)."
+    )
     note: str = Field(
-        description="A fixed caveat: throttled-source state lives only in a running Queen's "
-        "in-memory Forage map, so it is never shown here."
+        description="Where the throttled rows come from: the trail's own llm.throttled events, "
+        "since the live figure is only in a running Queen's in-memory Forage map."
     )
 
 
@@ -146,7 +150,10 @@ def status_command(ctx: typer.Context, as_json: JsonOption = False) -> None:
     """Print headroom, the Royal Reserve, every Cell's capacity and every Warden's local pool."""
     cli_ctx: _ForageCliContext = ctx.obj
     store = open_ledger(cli_ctx.db)
-    payload = asyncio.run(_status_payload(store, cli_ctx.manifest))
+    throttled = asyncio.run(_throttled_now(open_trail(cli_ctx.db)))
+    payload = asyncio.run(_status_payload(store, cli_ctx.manifest)).model_copy(
+        update={"throttled": throttled}
+    )
     if as_json:
         typer.echo(payload.model_dump_json(indent=2))
         return
@@ -171,8 +178,32 @@ async def _status_payload(store: SqliteLedgerStore, manifest: HiveManifest) -> _
         reserve_seats=ledger.reserve.seats,
         capacities=capacities,
         local_pools=local_pools,
-        note="throttled-source state lives only in a running Queen's process; not shown here.",
+        throttled=(),
+        note="throttled rows are rebuilt from the trail's llm.throttled events.",
     )
+
+
+async def _throttled_now(trail: PheromoneTrail) -> tuple[tuple[str, str, float], ...]:
+    """Return every source whose last `llm.throttled` window has not passed yet.
+
+    The live throttle is a fact on a running Queen's in-memory `ForageMap`, out of this
+    process's reach; the Fanner records every one as `llm.throttled` with the source and the
+    wait, which is enough to rebuild what is still masked right now.
+    """
+    events = await trail.query(TrailQuery(family="llm", kind="llm.throttled"))
+    now = SystemClock().now()
+    latest: dict[str, tuple[str, str, float]] = {}
+    for event in events:  # Trail order: a later throttle of the same source replaces an earlier.
+        raw_wait = event.payload.get("wait_s")
+        # A payload is untyped JSON; anything but a number means no usable window.
+        wait_s = float(raw_wait) if isinstance(raw_wait, int | float) else 0.0
+        until = event.at + timedelta(seconds=wait_s)
+        name = str(event.payload.get("source_id") or event.payload.get("provider") or "?")
+        if until > now:
+            latest[name] = (name, until.isoformat(), wait_s)
+        else:
+            latest.pop(name, None)
+    return tuple(latest.values())
 
 
 def _print_status(payload: _StatusPayload) -> None:
@@ -189,6 +220,10 @@ def _print_status(payload: _StatusPayload) -> None:
     typer.echo(f"{'WARDEN':<30}  {'SUB_BEES_ACTIVE':>16}  SEATS_EXPORTED")
     for warden_id, active, exported in payload.local_pools:
         typer.echo(f"{warden_id:<30}  {active:>16}  {exported}")
+    typer.echo("\nTHROTTLED SOURCES (inside a provider's rate-limit window)")
+    typer.echo(f"{'SOURCE':<30}  {'UNTIL':<32}  WAIT_S")
+    for name, until, wait_s in payload.throttled:
+        typer.echo(f"{name:<30}  {until:<32}  {wait_s:g}")
     typer.echo(f"\nnote: {payload.note}")
 
 

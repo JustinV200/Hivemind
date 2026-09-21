@@ -157,3 +157,38 @@ def test_grants_command_json_lists_the_seeded_grant(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["grant_id"] == grant_id
     assert rows[0]["holder"] == warden_id
+
+
+def test_status_command_lists_a_source_still_inside_its_throttle_window(tmp_path: Path) -> None:
+    """A recent llm.throttled event shows as throttled; one whose window passed does not."""
+    from hivemind.manifest import load_manifest
+    from hivemind.pheromone import LlmEvent
+    from waggle.ids import new_event_id
+
+    manifest_path = fake_manifest(tmp_path)
+    manifest = load_manifest(manifest_path)
+    trail = open_trail(_db_path(manifest_path))
+    clock = FakeClock()
+
+    def _throttled(source_id: str, at: datetime, wait_s: float) -> LlmEvent:
+        return LlmEvent(
+            id=new_event_id(clock),
+            hive_id=manifest.hive.id,
+            node_id=manifest.hive.node_id,
+            at=at,
+            actor="system",
+            kind="llm.throttled",
+            subject_id=manifest.hive.id,
+            provider="fake",
+            payload={"provider": "fake", "source_id": source_id, "wait_s": wait_s},
+        )
+
+    now = datetime.now(UTC)
+    asyncio.run(trail.record(_throttled("still_waiting", now, 600.0)))
+    asyncio.run(trail.record(_throttled("long_over", now - timedelta(hours=1), 60.0)))
+
+    result = runner.invoke(app, ["forage", "--manifest", str(manifest_path), "status", "--json"])
+
+    assert result.exit_code == 0, result.output
+    names = [row[0] for row in json.loads(result.output)["throttled"]]
+    assert names == ["still_waiting"]
