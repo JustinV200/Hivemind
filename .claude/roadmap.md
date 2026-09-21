@@ -938,11 +938,11 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   scans only the task's declared `leaves` patterns before and after each command and ledgers
   what appeared or changed there; anything else a command touches stays a
   `cell.touched_outside_scratch` event as today.
-- [ ] **5.1 Virtual Cell model.** `hive/models.py`: `VirtualCellSpec` (image, cpu, memory, disk,
+- [x] **5.1 Virtual Cell model.** `hive/models.py`: `VirtualCellSpec` (image, cpu, memory, disk,
   lifetime, network policy, exoskeleton flag, `ForageCapacity` the image promises),
   `VirtualCellStatus` enum + transition table in `hive/cell_state.py`. A provisioned Virtual Cell
   is returned as a `cell.Cell` of kind `VIRTUAL`.
-- [ ] **5.2 CellBackend protocol and registry.** `hive/backends/base.py` (from codingrules
+- [x] **5.2 CellBackend protocol and registry.** `hive/backends/base.py` (from codingrules
   Appendix A.1), `hive/registry.py`. `hive/backends/fake.py` for tests.
 - [ ] **5.3 Base image.** `images/base-ubuntu/Dockerfile`: Ubuntu 24.04 LTS + Python + the
   `hivemind` runtime + a Waggle client that connects **out** to the Queen. Terminal-first. The

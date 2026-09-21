@@ -9,15 +9,22 @@ Fits into the Hive:
     never back up into hive's other sub-packages directly.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 5 adds its first public name.
+    - Every Cell a CellBackend implementation returns has kind == CellKind.VIRTUAL and
+      access_level == AccessLevel.FULL (hivemind.cell.Cell's own validator enforces the latter).
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under hive.
-    - .claude/roadmap.md phase 5 for the work that first populates it.
+    - .claude/roadmap.md phase 5 for the work that populates it: step 5.2 (base.py, fake.py, this
+      face), step 5.4 (docker.py), step 5.11 (qemu.py).
 
-Public API: none yet; first populated in phase 5.
+Public API:
+    - CellBackend: protocol every provisioning backend implements (hivemind.hive.backends.base).
+    - BackendCapabilities, VirtualCellRecord: the capability-declaration and list_cells value
+      types every implementation shares (hivemind.hive.backends.base).
+    - FakeCellBackend: the in-memory reference implementation (hivemind.hive.backends.fake).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 5 adds the first public name.
-__all__: list[str] = []
+from hivemind.hive.backends.base import BackendCapabilities, CellBackend, VirtualCellRecord
+from hivemind.hive.backends.fake import FakeCellBackend
+
+__all__ = ["BackendCapabilities", "CellBackend", "FakeCellBackend", "VirtualCellRecord"]

@@ -1,23 +1,91 @@
 """Provision and destroy Virtual Cells: VM or container Cells the Queen owns, not borrows.
 
-This is the hive package (lowercase, distinct from the Hive as a whole). It covers their lifecycle,
-Night Veil attestation (the always-teardown-only security tier) and the Overwintering pool that
-keeps a dormant Cell around for fast reuse.
+This is the hive package (lowercase, distinct from the Hive as a whole). It covers their lifecycle
+(roadmap step 5.6, not yet built), Night Veil attestation (the always-teardown-only security tier,
+step 5.7b) and the Overwintering pool that keeps a dormant Cell around for fast reuse (step 5.9).
+Step 5.1/5.2 land first: the Virtual Cell request and lifecycle types (`VirtualCellSpec`,
+`NetworkPolicy`, `VirtualCellStatus`), the `CellBackend` protocol every provisioning backend
+implements, its in-memory reference implementation (`FakeCellBackend`), and the registry a
+composition root uses to look a named backend up (`BackendRegistry`).
 
 Fits into the Hive:
-    Layer 3 (sources of Cells, and capabilities handed down). Called by workers.launch, and the
-    wardens supervising the Cells it makes. Calls into hivemind.cell and hivemind.common.
+    Layer 3 (sources of Cells, and capabilities handed down). Called by workers.launch (a later
+    phase), and the wardens supervising the Cells it makes. Calls into hivemind.cell,
+    hivemind.common and hivemind.forage.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 5 adds its first public name.
+    - Every Cell produced here has kind == CellKind.VIRTUAL; Real Cells never pass through.
+    - A NIGHT_VEIL VirtualCellSpec always carries network_policy=NetworkPolicy.VPN_TOR, and vice
+      versa (VirtualCellSpec's own validator enforces this both ways).
+    - A Cell whose CombShieldLevel is NIGHT_VEIL may never reach VirtualCellStatus.DORMANT
+      (hivemind.hive.cell_state.assert_dormant_allowed enforces this ahead of hivemind.hive.
+      lifecycle, which does not exist yet).
 
 See Also:
     - .claude/codingrules.md section 4 for the layer 3 row this package occupies.
-    - .claude/roadmap.md phase 5 for the work that first populates this package.
+    - .claude/codingrules.md Appendix A.1 for the CellBackend shape this package implements.
+    - .claude/roadmap.md phase 5 for the work that populates this package, step by step.
+    - hivemind.cell.local and hivemind.swarm for the Real Cell sources this package never touches.
 
-Public API: none yet; first populated in phase 5.
+Public API:
+    - VirtualCellSpec, NetworkPolicy: a request to provision one Virtual Cell
+      (hivemind.hive.models).
+    - VirtualCellStatus, TRANSITIONS, can_transition, assert_transition, can_enter_dormant,
+      assert_dormant_allowed: the Virtual Cell lifecycle state machine (hivemind.hive.cell_state).
+    - HiveError, CellProvisionError, CellDestroyError, UnknownBackendError,
+      InvalidCellTransitionError, BackendCapabilityError: this package's error tree
+      (hivemind.hive.errors).
+    - CellBackend, BackendCapabilities, VirtualCellRecord, FakeCellBackend: the provisioning
+      protocol, its capability declaration, its list_cells value type, and its in-memory
+      reference implementation (hivemind.hive.backends).
+    - BackendRegistry, CellBackendFactory: name -> CellBackend, for the composition root
+      (hivemind.hive.registry).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 5 adds the first public name.
-__all__: list[str] = []
+from hivemind.hive.backends import (
+    BackendCapabilities,
+    CellBackend,
+    FakeCellBackend,
+    VirtualCellRecord,
+)
+from hivemind.hive.cell_state import (
+    TRANSITIONS,
+    VirtualCellStatus,
+    assert_dormant_allowed,
+    assert_transition,
+    can_enter_dormant,
+    can_transition,
+)
+from hivemind.hive.errors import (
+    BackendCapabilityError,
+    CellDestroyError,
+    CellProvisionError,
+    HiveError,
+    InvalidCellTransitionError,
+    UnknownBackendError,
+)
+from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.registry import BackendRegistry, CellBackendFactory
+
+__all__ = [
+    "TRANSITIONS",
+    "BackendCapabilities",
+    "BackendCapabilityError",
+    "BackendRegistry",
+    "CellBackend",
+    "CellBackendFactory",
+    "CellDestroyError",
+    "CellProvisionError",
+    "FakeCellBackend",
+    "HiveError",
+    "InvalidCellTransitionError",
+    "NetworkPolicy",
+    "UnknownBackendError",
+    "VirtualCellRecord",
+    "VirtualCellSpec",
+    "VirtualCellStatus",
+    "assert_dormant_allowed",
+    "assert_transition",
+    "can_enter_dormant",
+    "can_transition",
+]
