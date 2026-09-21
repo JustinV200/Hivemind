@@ -23,6 +23,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import Awaitable, Callable
 
 from builders.queen import make_queen_deps, plan_responder
@@ -192,3 +193,66 @@ async def test_acceptance_failed_alarm_plus_failed_result_dispatch_exactly_one_r
 async def _alarm_recorded(deps: QueenDeps, action: str) -> bool:
     events = await deps.trail.query(TrailQuery(family="alarm"))
     return any(e.kind == "alarm.handled" and e.payload.get("action") == action for e in events)
+
+
+def _without_fallbacks(deps: QueenDeps) -> QueenDeps:
+    """Return `deps` with every `[llm.slots]` fallback removed: the operator's one-provider Hive."""
+    bare = tuple(binding.model_copy(update={"fallback": None}) for binding in deps.bindings)
+    return dataclasses.replace(deps, bindings=bare)
+
+
+async def test_provider_unavailable_with_no_fallback_clusters_a_down_provider() -> None:
+    """A dead provider with nowhere to rebind to is Clustering's to handle, never the human's."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    base, link, warden_end = make_queen_deps(
+        fake_provider=provider, provider_lookup=lambda _name: provider
+    )
+    deps = _without_fallbacks(base)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    provider.set_outage(True)
+    await warden_end.send(_alarm(deps.clock, kind=AlarmKind.PROVIDER_UNAVAILABLE, task_id=goal_id))
+    await warden_end.wait_for_task_pause()
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert deps.cluster_state.clustered_providers == frozenset({"fake"})
+    assert not queen.human_inbox.alarms
+    handled = await deps.trail.query(TrailQuery(kind="alarm.handled"))
+    assert [event.payload.get("action") for event in handled] == ["CLUSTER"]
+    assert not await deps.trail.query(TrailQuery(kind="alarm.escalated"))
+    await warden_end.close()
+
+
+async def test_provider_unavailable_with_no_fallback_retries_when_the_provider_answers() -> None:
+    """The probe reads HEALTHY: the Alarm was a blip, so the task is dispatched again."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    base, link, warden_end = make_queen_deps(
+        fake_provider=provider, provider_lookup=lambda _name: provider
+    )
+    deps = _without_fallbacks(base)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    await warden_end.send(_alarm(deps.clock, kind=AlarmKind.PROVIDER_UNAVAILABLE, task_id=goal_id))
+
+    async def _handled() -> bool:
+        return bool(await deps.trail.query(TrailQuery(kind="alarm.handled")))
+
+    await _wait_until(_handled)
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert deps.cluster_state.clustered_providers == frozenset()
+    assert not queen.human_inbox.alarms
+    handled = await deps.trail.query(TrailQuery(kind="alarm.handled"))
+    assert [event.payload.get("action") for event in handled] == ["RETRY_TASK"]
+    await warden_end.close()

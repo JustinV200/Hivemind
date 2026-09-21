@@ -54,7 +54,11 @@ from hivemind.forage.slots import ModelSlot
 from hivemind.llm import HealthState
 from hivemind.queen.cluster.orders import OrderKind
 from hivemind.queen.cluster.protocol import cluster, resume
-from hivemind.queen.cluster.triggers import check_cost_caps, providers_of
+from hivemind.queen.cluster.triggers import (
+    check_cost_caps,
+    every_bee_has_a_fallback,
+    providers_of,
+)
 from hivemind.queen.state import ClusterState
 
 if TYPE_CHECKING:
@@ -164,24 +168,9 @@ async def _probe_bound(deps: QueenDeps, state: ClusterState, wardens: Sequence[W
             continue  # HEALTHY keeps running; DEGRADED (a 429, a 5xx) is the Fanner's to spill.
         if deps.health_poller.failed_probes(provider) < DOWN_PROBES_BEFORE_CLUSTER:
             continue  # One blip; the backoff schedule brings the confirming probe soon.
-        if _every_bee_has_a_fallback(provider, deps, state):
+        if every_bee_has_a_fallback(provider, deps, state):
             continue  # The ladder and the Fanner move each call to the next binding instead.
         await cluster(provider, "provider_down", deps, state, wardens)
-
-
-def _every_bee_has_a_fallback(provider: str, deps: QueenDeps, state: ClusterState) -> bool:
-    """Return whether every live grant naming `provider` also names a provider still up.
-
-    "No fallback within Forage" (roadmap step 4.9), read off the ledger: a grant's `allowed`
-    bindings are exactly what its sub-bees may call, so a grant whose every binding sits on
-    `provider` or on an already clustered one has nowhere to spill, and its bees must pause.
-    """
-    unavailable = set(state.clustered_providers) | {provider}
-    for grant in deps.ledger.live_grants():
-        providers = set(providers_of(grant, deps))
-        if provider in providers and not providers - unavailable:
-            return False
-    return True
 
 
 async def _probe_clustered(

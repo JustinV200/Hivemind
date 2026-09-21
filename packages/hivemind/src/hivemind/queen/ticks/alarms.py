@@ -58,6 +58,7 @@ from dataclasses import dataclass
 from hivemind.cell import CellIdentity
 from hivemind.forage.slots import ModelSlot
 from hivemind.queen.autopilot import QueenAction
+from hivemind.queen.cluster.triggers import cluster_if_down
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.ticks.results import fail_task, retry_task
@@ -66,7 +67,7 @@ from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.intervention import Rebind, to_wire
 from waggle.envelope import wrap
 from waggle.ids import TaskId, WardenId
-from waggle.messages.supervision import AlarmRaised, Intervene
+from waggle.messages.supervision import AlarmKind, AlarmRaised, Intervene
 
 MAX_ALARM_REASON_CHARS = 2_000  # Matches waggle.messages.supervision.alarms.MAX_DETAIL_CHARS.
 
@@ -149,6 +150,9 @@ async def _rebind(deps: QueenDeps, wardens: Sequence[WardenLink], handling: Alar
     link = next((w for w in wardens if w.warden_id == handling.warden_id), None)
     fallback_key = _fallback_binding_key(deps)
     if task_id is None or link is None or fallback_key is None:
+        if task_id is not None and payload.kind is AlarmKind.PROVIDER_UNAVAILABLE:
+            await _cluster_or_retry(deps, wardens, handling, task_id)
+            return
         await _escalate(deps, handling.human_inbox, payload)
         return
     intervention = Rebind(reason=_reason(payload), slot=ModelSlot.WORKER)
@@ -168,6 +172,28 @@ async def _rebind(deps: QueenDeps, wardens: Sequence[WardenLink], handling: Alar
     await link.transport.send(wrap(message, link.hop, clock=deps.clock))
     await record_event(deps, "queen.decided", task_id, action="REBIND", binding=fallback_key)
     await _record_handled(deps, handling, task_id, "REBIND")
+
+
+async def _cluster_or_retry(
+    deps: QueenDeps, wardens: Sequence[WardenLink], handling: AlarmHandling, task_id: TaskId
+) -> None:
+    """Handle a provider outage with no fallback binding: cluster if it is down, else retry.
+
+    A dead provider with nowhere to rebind to is exactly what Clustering exists for
+    (codingrules section 8.13), so it never reaches the human: the Queen probes the task's own
+    providers now (`cluster_if_down`) and, if one is down, the pause *is* the handling; the
+    Alarm stays pending and resolves when the resumed task succeeds. A provider that answers
+    was a blip, and the task is simply dispatched again. Either way the Queen's own
+    `alarm_attempt_limit` ceiling still escalates a task that keeps failing.
+    """
+    if await cluster_if_down(deps, deps.cluster_state, wardens, task_id):
+        await record_event(deps, "queen.decided", task_id, action="CLUSTER")
+        await _record_handled(deps, handling, task_id, "CLUSTER")
+        return
+    await _record_handled(deps, handling, task_id, "RETRY_TASK")
+    next_attempt = handling.attempts.get(task_id, 1) + 1
+    handling.attempts[task_id] = next_attempt
+    await retry_task(deps, wardens, task_id, next_attempt)
 
 
 async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRaised) -> None:

@@ -34,6 +34,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from hivemind.forage import ForageGrant, UnknownSourceError
+from hivemind.llm import HealthState
 from hivemind.queen.cluster.protocol import ClusterOutcome, cluster
 from hivemind.queen.state import ClusterState
 
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
     # block for why a real import here would cycle back through queen/deps.py.
     from hivemind.queen.deps import QueenDeps, WardenLink
 
-__all__ = ["check_cost_caps", "providers_of"]
+__all__ = ["check_cost_caps", "cluster_if_down", "every_bee_has_a_fallback", "providers_of"]
 
 
 async def check_cost_caps(
@@ -96,3 +97,65 @@ def providers_of(grant: ForageGrant, deps: QueenDeps) -> tuple[str, ...]:
         if source.spec.provider not in providers:
             providers.append(source.spec.provider)
     return tuple(providers)
+
+
+def every_bee_has_a_fallback(provider: str, deps: QueenDeps, state: ClusterState) -> bool:
+    """Return whether every live grant naming `provider` also names a provider still up.
+
+    "No fallback within Forage" (roadmap step 4.9), read off the ledger: a grant's `allowed`
+    bindings are exactly what its sub-bees may call, so a grant whose every binding sits on
+    `provider` or on an already clustered one has nowhere to spill, and its bees must pause.
+
+    Args:
+        provider: The provider that has just read DOWN.
+        deps: The Queen's collaborators; `ledger` and `map` are read.
+        state: The Queen's own clustered-provider set, already unavailable too.
+    """
+    unavailable = set(state.clustered_providers) | {provider}
+    for grant in deps.ledger.live_grants():
+        providers = set(providers_of(grant, deps))
+        if provider in providers and not providers - unavailable:
+            return False
+    return True
+
+
+async def cluster_if_down(
+    deps: QueenDeps, state: ClusterState, wardens: Sequence[WardenLink], task_id: str
+) -> bool:
+    """Probe the providers `task_id`'s grant is bound to, now, and cluster any that read DOWN.
+
+    The Alarm-driven trigger: a bee's `PROVIDER_UNAVAILABLE` Alarm is one signal and this probe is
+    the second, so a single DOWN reading is enough here (the tick's own steady probe waits for two
+    because it has no failed call to corroborate it). A provider that answers is left alone; the
+    caller retries the task instead of pausing it.
+
+    Args:
+        deps: The Queen's collaborators; `provider_lookup` None means no probe is possible.
+        state: The Queen's own clustered-provider set; mutated by any `cluster` call made here.
+        wardens: Every Warden currently attached.
+        task_id: The task the Alarm concerns; its live grant names the providers to probe.
+
+    Returns:
+        True when at least one of the task's providers is clustered once this returns (whether by
+        this call or already), so the task is paused and will resume from its Handoff; False when
+        every one of them answered, or nothing could be probed.
+    """
+    if deps.provider_lookup is None:
+        return False
+    grant = next((g for g in deps.ledger.live_grants() if g.task_id == task_id), None)
+    if grant is None:
+        return False
+    clustered = False
+    now = deps.clock.now()
+    for provider in providers_of(grant, deps):
+        if provider in state.clustered_providers:
+            clustered = True
+            continue
+        # External await: a health probe, never a completion call (Clustering never awaits a model).
+        reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
+        if reading.state is HealthState.DOWN and not every_bee_has_a_fallback(
+            provider, deps, state
+        ):
+            await cluster(provider, "provider_down", deps, state, wardens)
+            clustered = True
+    return clustered
