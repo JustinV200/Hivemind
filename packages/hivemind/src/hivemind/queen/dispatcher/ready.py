@@ -1,51 +1,39 @@
 """Define dispatch_ready and redispatch: place, grant and (re-)assign a task the Queen wants run.
 
-Roadmap step 3.20's own dispatch map: for each `chamber.next_ready` task, `hivemind.queen.
-placement.decide` picks a Cell and a Warden, `hivemind.forage.allocate.grant` computes a fresh
-`ForageGrant`, and the Warden receives a `GrantIssued` followed by a `TaskAssign` -- in that order,
-so a Warden never sees an assignment its grant has not already arrived for
-(`hivemind.wardens.ticks.assign.handle_assign`'s own park-until-both-arrive contract). Once both
-are sent, `chamber.assign` then `chamber.start` move the task PENDING -> ASSIGNED -> RUNNING and
-`queen.assigned` records it. The Queen never assigns a Worker directly (codingrules section 8.8):
-every assignment goes to a Warden, which is what actually spawns.
+Roadmap step 3.20's own dispatch map, now over `hivemind.queen.placement.decide`'s own three-way
+`Placement` (roadmap step 5.7, ADR-0028): for each `chamber.next_ready` task, `hivemind.queen.
+dispatcher.snapshot` builds the pure `Inventory`/`ForageView` snapshot `decide` reads, `decide`
+picks a `Placement`, `hivemind.queen.dispatcher.acquire.resolve_link` turns it into a `WardenLink`
+(acquiring a Virtual Cell through the `VirtualCellProvider` seam first, if it names one),
+`hivemind.forage.allocate.grant` computes a fresh `ForageGrant`, and the Warden receives a
+`GrantIssued` followed by a `TaskAssign` -- in that order, so a Warden never sees an assignment its
+grant has not already arrived for (`hivemind.wardens.ticks.assign.handle_assign`'s own
+park-until-both-arrive contract). Once both are sent, `chamber.assign` then `chamber.start` move
+the task PENDING -> ASSIGNED -> RUNNING, `queen.placed` records the placement's own reason (the
+wax that weighed on it included) and `queen.assigned` records the Cell it landed on. The Queen
+never assigns a Worker directly (codingrules section 8.8): every assignment goes to a Warden,
+which is what actually spawns.
 
 `redispatch` is the sibling `hivemind.queen.ticks.results.retry_task` and an alarm-driven REBIND
 call for: a RUNNING task's own `hivemind.brood_chamber.task.state.TRANSITIONS` has no edge back to
 PENDING or ASSIGNED (only `ASSIGNED -> PENDING`, for a Warden lost before its Worker ever started),
 so a retry can never go through `chamber.unassign` the way a fresh dispatch goes through
 `chamber.assign`. It resends a fresh grant and assignment straight to the Cell and Warden the task
-is already placed on, at the caller's own attempt number, leaving the chamber's own `Task.status`
-at RUNNING throughout -- the same way a Warden's own internal RETRY/REBIND never tells the Brood
+is already placed on (no placement decision at all), leaving the chamber's own `Task.status` at
+RUNNING throughout -- the same way a Warden's own internal RETRY/REBIND never tells the Brood
 Chamber anything happened at all.
 
-`dispatch_ready` reads its three Forage inputs -- the Drone's footprint, the Royal Reserve and the
-grant lifetime -- from `deps.footprints`/`deps.reserve`/`deps.grant_ttl_s` (roadmap step 3.21,
-second half added these three `QueenDeps` fields, defaulted to the module constants this file used
-to carry itself, so `hivemind.cli.compose.build_hive` can bind them to the loaded manifest's own
-`[forage.roles.drone]`/`[forage.reserve]`/`[forage] grant_ttl_s` while every existing test, which
-never names these fields, keeps today's behaviour unchanged).
-
-This module also records `forage.granted` right after sending a fresh grant: nothing else in the
-Hive's committed code recorded that `hivemind.pheromone.events.families.ForageEvent` kind despite
-it already existing in `ForageEvent.KINDS` -- neither the Queen's own dispatch nor the Warden's
-`hivemind.wardens.ticks.assign.handle_grant` wrote one. Roadmap step 3.21 (second half)'s own
-required trail order (`granted` between `placed` and `spawned`) and `hive wardens list` (reading
-"the grants issued to it") both need it to exist, so this dispatch adds the one call, here, where
-the grant is already in hand; `hivemind.wardens.**` is outside this dispatch's owned files, so the
-event is built directly rather than through `hivemind.queen.trail.record_event` (which only ever
-builds a `queen.*` `QueenEvent`) -- flagged in this dispatch's own report as a pre-existing gap,
-not a new rule this module invents.
-
 Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
-    unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and once more
-    immediately after `submit_goal` and after every `COMPLETE_TASK` decision, so a newly-ready
-    task is placed without waiting for the next tick; `redispatch` is called by
+    Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
+    sub-package. Called unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and
+    once more immediately after `submit_goal` and after every `COMPLETE_TASK` decision, so a
+    newly-ready task is placed without waiting for the next tick; `redispatch` is called by
     `hivemind.queen.ticks.results.retry_task` and `hivemind.queen.ticks.alarms` for a REBIND.
-    Calls into `hivemind.brood_chamber` (Task), `hivemind.forage` (ForageGrant, GrantInputs,
-    ModelSlot, grant), `hivemind.pheromone` (ForageEvent), `hivemind.queen.deps` (QueenDeps,
-    WardenLink), `hivemind.queen.forage.grants` (activate, roadmap step 4.7: every dispatch-issued
-    grant now also lands in the ledger), `hivemind.queen.placement` (PlacementError, decide),
+    Calls into `hivemind.brood_chamber` (Task), `hivemind.cell` (Cell), `hivemind.forage`
+    (Ceilings, ForageGrant, GrantInputs, ModelSlot, grant), `hivemind.pheromone` (ForageEvent),
+    `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
+    roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
+    ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.snapshot`,
     `hivemind.queen.trail` (record_event) and waggle only.
 
 Key invariants:
@@ -56,14 +44,15 @@ Key invariants:
       task id per call so it can never loop forever on a task that will never fit.
     - `chamber.assign`/`chamber.start` run only for a fresh dispatch, never for `redispatch`: a
       RUNNING task's own status is untouched by a retry.
+    - `queen.placed` is always recorded before `queen.assigned`, for a fresh dispatch: the reason a
+      Cell was chosen precedes the record that it was actually assigned.
 
 See Also:
-    - .claude/roadmap.md step 3.20's own dispatch map for the exact TaskAssign shape this module
-      builds.
+    - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
+      on it included".
     - .claude/codingrules.md section 8.8 for "never assigns to a Worker directly".
-    - .claude/codingrules.md Appendix C, "Task" row, for the TRANSITIONS table `redispatch`'s own
-      docstring explains working around.
     - hivemind.queen.placement for decide, this module's one placement call.
+    - hivemind.queen.dispatcher.acquire for resolve_link, this module's Placement-to-Warden call.
     - hivemind.forage.allocate for grant, this module's one allocation call.
 """
 
@@ -72,16 +61,20 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from pydantic import JsonValue
+
 from hivemind.brood_chamber import Task
 from hivemind.cell import Cell
 from hivemind.forage import Ceilings, ForageGrant, GrantInputs, ModelSlot, grant
 from hivemind.forage.models.sources import ModelSource
 from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.dispatcher.acquire import resolve_link
+from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
 from hivemind.queen.forage.hosting import write_hosting_plan
-from hivemind.queen.placement import Placement, PlacementError, decide
+from hivemind.queen.placement import Placement, PlacementError, ProvisionVirtual, decide
 from hivemind.queen.trail import record_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
@@ -96,7 +89,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
 
     Args:
         deps: The Queen's collaborators.
-        wardens: Every Warden currently attached; placement picks among these.
+        wardens: Every Warden currently attached; placement picks among these plus any Virtual
+            side `deps.virtual_backends`/`.dormant_cells` names.
 
     Returns:
         None, once every ready task has been dispatched or found unplaceable this call.
@@ -132,11 +126,6 @@ async def redispatch(
     Returns:
         None, once a fresh grant and assignment have been sent, or silently if the task is
         somehow not placed or its Warden is no longer attached (nothing to resend to).
-
-    `_dispatch_one`'s own fix 4a (chamber transitions before either wire send) has nothing to
-    reorder here: `redispatch` never calls `chamber.assign`/`chamber.start` at all (module
-    docstring), so there is no PENDING/ASSIGNED window for a fast Warden's own reaction to land
-    inside in the first place.
     """
     task = await deps.chamber.get(task_id)
     if task.warden_id is None or task.cell_id is None:
@@ -144,10 +133,7 @@ async def redispatch(
     link = _link_for(wardens, task.warden_id)
     if link is None:
         return  # Its Warden is no longer attached; nothing to resend to.
-    placement = Placement(cell_id=task.cell_id, warden_id=task.warden_id)
-    fresh_grant = await _send_grant_and_assign(
-        deps, link, task, placement, _AssignmentTerms(attempt=attempt)
-    )
+    fresh_grant = await _send_grant_and_assign(deps, link, task, _AssignmentTerms(attempt=attempt))
     await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
 
 
@@ -162,21 +148,17 @@ async def resume_paused(
 
     Roadmap step 4.9 (Clustering): `hivemind.queen.cluster.protocol.resume`'s one dispatcher-path
     entry point, so a resumed task is re-assigned exactly the way a fresh dispatch is (a fresh
-    grant, `GrantIssued` before `TaskAssign`), never a hand-rolled wire send -- "through the
-    existing dispatcher path so no work is redone" (this dispatch's own deliverable). Unlike
-    `redispatch` (a RUNNING task's own retry, which never touches chamber status), this always
-    moves the task PAUSED -> RUNNING first, through `hivemind.brood_chamber.chamber.lifecycle.
-    _LifecycleMixin.resume`, the one legal edge back from PAUSED (Appendix C's "Task" row).
+    grant, `GrantIssued` before `TaskAssign`), never a hand-rolled wire send. Unlike `redispatch`
+    (a RUNNING task's own retry, which never touches chamber status), this always moves the task
+    PAUSED -> RUNNING first, through `hivemind.brood_chamber.chamber.lifecycle._LifecycleMixin.
+    resume`, the one legal edge back from PAUSED (Appendix C's "Task" row).
 
     Args:
         deps: The Queen's collaborators.
         wardens: Every Warden currently attached.
         task_id: The PAUSED task to resume; must already be placed (have a `warden_id`/`cell_id`
-            from before it was paused -- Clustering never unassigns, module docstring of
-            `hivemind.queen.cluster.protocol`).
-        resume_from: The Handoff to resume from, or None to start the fresh attempt without one
-            (docs/adr/0024: "a bee whose Handoff cannot be read resumes from the task's last
-            acceptance state instead").
+            from before it was paused -- Clustering never unassigns).
+        resume_from: The Handoff to resume from, or None to start the fresh attempt without one.
         reason: Why it resumes now, for the chamber's own trail event.
 
     Returns:
@@ -190,11 +172,10 @@ async def resume_paused(
     if link is None:
         return  # Its Warden is no longer attached; nothing to resume it through.
     await deps.chamber.resume(task_id, reason)
-    placement = Placement(cell_id=task.cell_id, warden_id=task.warden_id)
-    # A fresh bee (module docstring: TaskAssign.resume_from's own field docstring, "a fresh one
-    # for a fresh bee"); the Queen owns the attempt number on every Queen-to-Warden hop.
+    # A fresh bee (TaskAssign.resume_from's own field docstring: "a fresh one for a fresh bee");
+    # the Queen owns the attempt number on every Queen-to-Warden hop.
     terms = _AssignmentTerms(attempt=task.attempt + 1, resume_from=resume_from)
-    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, terms)
+    fresh_grant = await _send_grant_and_assign(deps, link, task, terms)
     await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
 
 
@@ -202,28 +183,48 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     """Place, grant and assign one ready task, in that order.
 
     The chamber's own PENDING -> ASSIGNED -> RUNNING transition, and `queen.assigned`, land
-    BEFORE either wire message is sent (this dispatch's own fix 4a): a real Warden reacting to
-    `TaskAssign` can, on genuine SQLite I/O, run faster than the Queen's own remaining
-    bookkeeping -- and a Drone's own immediate Question forwarded straight back up
-    (`Queen._act`'s `BLOCK_ON_QUESTION` handling) must never find the chamber still reading
-    ASSIGNED while it tries to move a RUNNING task to BLOCKED.
+    BEFORE either wire message is sent: a real Warden reacting to `TaskAssign` can, on genuine
+    SQLite I/O, run faster than the Queen's own remaining bookkeeping -- and a Drone's own
+    immediate Question forwarded straight back up (`Queen._act`'s `BLOCK_ON_QUESTION` handling)
+    must never find the chamber still reading ASSIGNED while it tries to move a RUNNING task to
+    BLOCKED.
     """
-    placement = decide(task.spec.needs, wardens)
-    link = _link_for(wardens, placement.warden_id)
-    if link is None:
-        return  # Defensive: unreachable, since decide() only ever names a Warden from `wardens`.
-    reason = "Placed by the Queen's dispatcher."
-    await deps.chamber.assign(task.id, placement.warden_id, placement.cell_id, reason)
+    inventory = await build_inventory(deps, wardens)
+    placement = decide(task.spec.needs, inventory, build_forage_view(deps), deps.placement_policy)
+    link, placement = await resolve_link(deps, wardens, task, placement)
+    await _record_placed(deps, task, placement)
+    await deps.chamber.assign(
+        task.id, link.warden_id, link.cell.id, "Placed by the Queen's dispatcher."
+    )
     await deps.chamber.start(task.id)
     await record_event(
-        deps, "queen.assigned", task.id, cell_id=placement.cell_id, warden_id=placement.warden_id
+        deps, "queen.assigned", task.id, cell_id=link.cell.id, warden_id=link.warden_id
     )
-    terms = _AssignmentTerms(attempt=task.attempt)
-    fresh_grant = await _send_grant_and_assign(deps, link, task, placement, terms)
-    # "placed" (queen.assigned, just above) precedes "granted" on the trail (module docstring's
-    # own required order): this Queen-side record only exists because nothing else writes
-    # forage.granted at all.
-    await _record_forage_granted(deps, task, fresh_grant, placement.warden_id)
+    fresh_grant = await _send_grant_and_assign(
+        deps, link, task, _AssignmentTerms(attempt=task.attempt)
+    )
+    # "placed" and "assigned" (both just above) precede "granted" on the trail.
+    await _record_forage_granted(deps, task, fresh_grant, link.warden_id)
+
+
+async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> None:
+    """Record `queen.placed`: the placement's own reason, with any Cell or Virtual spec it names.
+
+    Roadmap step 5.7: "Records queen.placed with the reason, the wax that weighed on it included"
+    -- `placement.reason` already names any Cell Wax that weighed on the decision
+    (`hivemind.queen.placement.decide._real_exclusion_reason` folds a BLOCK note's id and text
+    straight into it), so this only adds the ids `reason` itself does not carry as structured data.
+    """
+    payload: dict[str, JsonValue] = {
+        "reason": placement.reason,
+        "outcome": type(placement).__name__,
+    }
+    if isinstance(placement, ProvisionVirtual):
+        payload["image"] = placement.spec.image
+        payload["backend"] = placement.backend
+    else:
+        payload["cell_id"] = placement.cell_id
+    await record_event(deps, "queen.placed", task.id, **payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,21 +242,19 @@ class _AssignmentTerms:
 
 
 async def _send_grant_and_assign(
-    deps: QueenDeps, link: WardenLink, task: Task, placement: Placement, terms: _AssignmentTerms
+    deps: QueenDeps, link: WardenLink, task: Task, terms: _AssignmentTerms
 ) -> ForageGrant:
     """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign."""
-    cell_id, warden_id = placement.cell_id, placement.warden_id
+    cell_id, warden_id = link.cell.id, link.warden_id
     # Roadmap step 4.8's own wiring step: the first dispatch ever sent to a Warden sets its
     # ceilings and writes its Cell's hosting plan first (hivemind.wardens.ticks.control handles
     # both on arrival); every later dispatch to the same Warden is a no-op here.
     await _ensure_warden_provisioned(deps, link)
     fresh_grant = grant(_grant_inputs(deps, link, warden_id, cell_id, task))
     # roadmap step 4.7: the ledger is the live book of every shared grant, not only the ones a
-    # ForageRequest later grows; activate() moves it past ISSUED (grant() always starts a fresh
-    # grant there) since a task dispatch means the Warden is about to draw on it at once, the same
-    # reasoning hivemind.queen.forage.requests uses for a request-driven grant. The Cell's own
-    # capacity is reported here too, from the same Cell object placement already resolved, so the
-    # ledger's headroom has real figures to compute from without a separate capacity-report path.
+    # ForageRequest later grows; activate() moves it past ISSUED since a task dispatch means the
+    # Warden is about to draw on it at once. The Cell's own capacity is reported here too, from the
+    # same Cell object placement already resolved, so the ledger's headroom has real figures.
     await deps.ledger.report_capacity(cell_id, link.cell.capacity)
     await deps.ledger.record_grant(forage_grants.activate(fresh_grant))
     sources: dict[str, ModelSource] = {
@@ -293,7 +292,7 @@ def _grant_inputs(
 async def _record_forage_granted(
     deps: QueenDeps, task: Task, fresh_grant: ForageGrant, warden_id: WardenId
 ) -> None:
-    """Record the one `forage.granted` ForageEvent no other module writes (module docstring)."""
+    """Record the one `forage.granted` ForageEvent no other module writes."""
     event = ForageEvent(
         id=new_event_id(deps.clock),
         hive_id=deps.identity.hive_id,
@@ -325,7 +324,7 @@ def _task_assign(
     reason = (
         "Resumed by the Queen's dispatcher (Clustering)."
         if resume_from is not None
-        else "Placed on the Hive Stand by the Queen's dispatcher."
+        else "Placed by the Queen's dispatcher."
     )
     return TaskAssign(
         task_id=task.id,
@@ -352,12 +351,9 @@ def _link_for(wardens: Sequence[WardenLink], warden_id: WardenId) -> WardenLink 
 async def _ensure_warden_provisioned(deps: QueenDeps, link: WardenLink) -> None:
     """Set `link`'s first Ceilings and write its Cell's HostingPlan, once per attachment.
 
-    `Queen.attach_warden` only records an already-built link (queen/queen.py is outside this
-    dispatch's own file list beyond the one housekeeping-call replacement it reports separately),
-    so this runs here instead, at the first dispatch that ever reaches this Warden -- the fallback
-    roadmap step 4.8's own wiring note names. `deps.ledger.decisions.ceilings_for` already
-    distinguishes "never set" (None) from "set once" for exactly this reason
-    (`hivemind.queen.forage.ceilings.set_ceilings`'s own docstring).
+    `Queen.attach_warden` only records an already-built link, so this runs here instead, at the
+    first dispatch that ever reaches this Warden. `deps.ledger.decisions.ceilings_for` already
+    distinguishes "never set" (None) from "set once" for exactly this reason.
     """
     if deps.ledger.decisions.ceilings_for(link.warden_id) is not None:
         return  # Already provisioned on an earlier dispatch to this same Warden.
@@ -368,13 +364,10 @@ async def _ensure_warden_provisioned(deps: QueenDeps, link: WardenLink) -> None:
 def _initial_ceilings(cell: Cell) -> Ceilings:
     """Build a newly attached Warden's first Ceilings from its Cell's own capacity report.
 
-    `max_sub_bees` is the Cell's own cap (`ForageCapacity.max_sub_bees`, already resolved from
-    `[hive_stand] capacity.max_sub_bees` or the Cell's own probed default -- roadmap step 4.8's
-    own wording, "from [hive_stand] capacity.max_sub_bees or the Cell's cap"); VRAM and disk start
-    at the Cell's own free figures, so a Warden can load a model at all before the Queen ever
-    tightens either. Nothing is exported or allowlisted yet: the Queen raises `exportable_seats`
-    and `loadable_sources` later, once a model is actually worth sharing or loading
-    (codingrules section 8.10: "ceilings, not approvals" -- these start conservative, on purpose).
+    `max_sub_bees` is the Cell's own cap; VRAM and disk start at the Cell's own free figures, so a
+    Warden can load a model at all before the Queen ever tightens either. Nothing is exported or
+    allowlisted yet: the Queen raises `exportable_seats`/`loadable_sources` later, once a model is
+    actually worth sharing or loading (codingrules section 8.10: "ceilings, not approvals").
     """
     free_vram = sum(gpu.vram_free_bytes for gpu in cell.capacity.host.gpus)
     return Ceilings(

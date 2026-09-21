@@ -8,10 +8,15 @@ the Queen's tick touches: her task store (`chamber`), her hot-state and durable 
 (`policy`, `alarm_attempt_limit`), how she resolves and rebinds a model slot without ever holding
 a `HiveManifest` (`bound_for`, `rebind`, `bindings`, `call_gate`, `map`), her share of Forage
 (`budgets`), her live book of it (`ledger`, roadmap step 4.7), her liveness cadence
-(`heartbeat_interval_s`, `heartbeat_miss_limit`) and the slice of `[memory]` an awake episode's
-prompt is budgeted against (`memory_budget`). `WardenLink` is the Queen-side half of one attached
-Warden's own Waggle link: `hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own
-end of the exact same pair.
+(`heartbeat_interval_s`, `heartbeat_miss_limit`), the slice of `[memory]` an awake episode's
+prompt is budgeted against (`memory_budget`), and, roadmap step 5.7 (ADR-0028), her placement
+inputs: `placement_policy`, the Virtual side's own inventory (`virtual_backends`,
+`dormant_cells`), and the seam that turns a Virtual `Placement` into a `WardenLink`
+(`virtual_provider`, a `VirtualCellProvider`, defined here beside `WardenLink` rather than in
+`hivemind.queen.placement` since it names `WardenLink`/`Task` and that package must never import
+this one back). `WardenLink` is the Queen-side half of one attached Warden's own Waggle link:
+`hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own end of the exact same
+pair.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -20,8 +25,9 @@ Fits into the Hive:
     `Queen.attach_warden` before `run()`. Calls into `hivemind.brood_chamber`, `hivemind.forage`,
     `hivemind.llm.ladders.gate`, `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
     `hivemind.queen.cluster.health`/`.orders` (HealthPoller, OrderStore, InMemoryOrderStore --
-    roadmap step 4.9), `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.supervision` and
-    waggle only.
+    roadmap step 4.9), `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.queen.placement`
+    (PlacementPolicy, VirtualBackendCandidate, DormantCandidate, Placement -- roadmap step 5.7),
+    `hivemind.supervision` and waggle only.
 
 Key invariants:
     - `QueenDeps` and `WardenLink` are frozen and slotted (codingrules section 8.5): neither is
@@ -47,8 +53,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Protocol
 
-from hivemind.brood_chamber import BroodChamber
+from hivemind.brood_chamber import BroodChamber, Task
 from hivemind.cell import Cell
 from hivemind.forage import (
     ForageMap,
@@ -64,6 +71,12 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.queen.cluster.health import HealthPoller
 from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
+from hivemind.queen.placement import (
+    DormantCandidate,
+    Placement,
+    PlacementPolicy,
+    VirtualBackendCandidate,
+)
 from hivemind.queen.state import ClusterState
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
@@ -98,7 +111,7 @@ _DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT
 _DEFAULT_SWEEP_INTERVAL_S = 3_600.0  # One hour.
 _DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
 
-__all__ = ["Housekeeping", "MemoryBudget", "QueenDeps", "WardenLink"]
+__all__ = ["Housekeeping", "MemoryBudget", "QueenDeps", "VirtualCellProvider", "WardenLink"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +134,38 @@ class WardenLink:
     cell: Cell
     transport: Transport
     hop: Hop
+
+
+class VirtualCellProvider(Protocol):
+    """Acquire a WardenLink for a `ProvisionVirtual`/`ReuseDormant` Placement (roadmap step 5.6).
+
+    `hivemind.queen.dispatcher` is this Protocol's one caller: when `hivemind.queen.placement.
+    decide` returns a Virtual `Placement`, the dispatcher calls `acquire` to turn it into an
+    attached `WardenLink`, the same shape an already-attached Real Cell's link already has.
+    Defined here, beside `WardenLink` rather than in `hivemind.queen.placement` (a sibling
+    package), because it names `WardenLink` and `Task` in its own signature and `queen.placement`
+    must never import `queen.deps` back (that would cycle: `deps` already imports `PlacementPolicy`
+    from `queen.placement`). Roadmap step 5.6 (Virtual Cell lifecycle) implements this over
+    `hivemind.hive.CellBackend`; until then `QueenDeps.virtual_provider` stays `None` and a Virtual
+    Placement raises `hivemind.queen.placement.PlacementError` instead of being acquired.
+    """
+
+    async def acquire(self, placement: Placement, task: Task) -> WardenLink:
+        """Provision or resume the Cell `placement` names, and return its own WardenLink.
+
+        Args:
+            placement: A `ProvisionVirtual` or `ReuseDormant` Placement `decide` returned.
+            task: The task this Cell is being acquired for.
+
+        Returns:
+            A fresh `WardenLink`, attached the same way `Queen.attach_warden` attaches any other.
+
+        Raises:
+            hivemind.hive.CellProvisionError: The backend could not provision or resume the Cell;
+                `hivemind.queen.dispatcher` re-enters placement once with that backend's own
+                headroom zeroed before giving up (ADR-0028 Consequences).
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +284,20 @@ class QueenDeps:
         hot_window_s: The manifest's own `[memory] hot_window_s`, the compaction cutoff a
             Queen-run sweep measures entry age against. Defaults to `DEFAULT_HOT_WINDOW_S`'s own
             value (four hours).
+        placement_policy: The `[placement]`/`[virtual_cells]`-derived value `hivemind.queen.
+            placement.decide.decide` reads (roadmap step 5.7, ADR-0028). Defaults to
+            `PlacementPolicy()` (`prefer="real"`, `allow_hive_stand=True`, no template), matching
+            v0's own Real-only behaviour.
+        virtual_backends: Every registered Virtual backend with room to provision, read by
+            `hivemind.queen.dispatcher`'s snapshot helper to build `decide`'s own `Inventory`.
+            Empty until roadmap step 5.6 gives a composition root something to populate it with.
+        dormant_cells: Every Overwintered Virtual Cell available to resume instead of a fresh
+            provision (`docs/adr/0029`). Empty until roadmap step 5.9 (the Overwintering pool)
+            gives a composition root something to populate it with.
+        virtual_provider: The seam `hivemind.queen.dispatcher` calls to turn a `ProvisionVirtual`/
+            `ReuseDormant` Placement into a `WardenLink` (`VirtualCellProvider`, defined above).
+            `None` (the default) means a Virtual Placement is a `PlacementError` instead of being
+            acquired; roadmap step 5.6 is the first to inject a real one.
     """
 
     chamber: BroodChamber
@@ -278,3 +337,12 @@ class QueenDeps:
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S
     hot_window_s: float = _DEFAULT_HOT_WINDOW_S
+    # Roadmap step 5.7 (ADR-0028): additive fields, every one defaulted so a QueenDeps built
+    # before this dispatch (every existing test) keeps placing every task on the Real side alone,
+    # exactly as before. `virtual_backends`/`dormant_cells` stay empty until roadmap step 5.6 (the
+    # Virtual Cell lifecycle) and step 5.9 (the Overwintering pool) give a composition root
+    # something real to populate them with.
+    placement_policy: PlacementPolicy = field(default_factory=PlacementPolicy)
+    virtual_backends: tuple[VirtualBackendCandidate, ...] = field(default_factory=tuple)
+    dormant_cells: tuple[DormantCandidate, ...] = field(default_factory=tuple)
+    virtual_provider: VirtualCellProvider | None = None

@@ -384,3 +384,46 @@ max_graph_tasks = 64
 [pheromone]
 # Days a trail event is kept before the retention job may delete it.
 retention_days = 90
+
+[placement]
+# Which side hivemind.queen.placement.decide.decide honours when both a Real and a Virtual
+# candidate fit a task's TaskNeeds (roadmap step 5.7, ADR-0028 rule 6).
+prefer = "real"
+# Whether the Hive Stand may still be chosen as a Real candidate.
+allow_hive_stand = true
+
+[placement.roles.drone]
+# Overrides [placement] prefer for the Drone role alone; omit to inherit the top-level value.
+prefer = "real"
+
+[virtual_cells]
+# Which hivemind.hive.CellBackend registry name to provision from; unset (the schema's own
+# default) means no Virtual side is configured at all and every task stays on the Real side.
+backend = "docker"
+# The images/<name> a freshly provisioned Virtual Cell boots by default.
+default_image = "base-ubuntu"
+# Logical cores to reserve.
+cpu_cores = 1.0
+# Memory to reserve, in bytes (1 GiB here).
+memory_bytes = 1073741824
+# Disk to reserve, in bytes (8 GiB here).
+disk_bytes = 8589934592
+# The default outbound network shape: "none", "egress_only" or "allowlist". Never "vpn_tor": that
+# profile is Night Veil's own forced default, not a configurable one.
+network_policy = "egress_only"
+# Seconds to wait for a freshly provisioned Cell to report ready.
+ready_timeout_s = 60.0
+# The most Virtual Cells this Hive may hold running at once.
+max_cells = 4
+
+[virtual_cells.overwinter]
+# Whether a released Virtual Cell may ever go DORMANT instead of being torn down (docs/adr/0029).
+enabled = true
+# The most dormant Cells the pool holds in total, across every image.
+max_cells = 4
+# The most dormant Cells the pool holds for any one image.
+max_per_image = 2
+# Seconds a dormant Cell may sit before the Undertaker's sweep destroys it (one hour here).
+max_dormant_s = 3600.0
+# Disk, in megabytes, the manifest allots to the whole pool (8 GiB here).
+disk_budget_mb = 8192

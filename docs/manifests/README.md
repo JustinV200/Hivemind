@@ -32,6 +32,16 @@ repo-root-relative default.
   Kept honest by a test that round-trips it through `model_dump`/`model_validate`. `[entrance]` is
   not shown: it is added in phase 10.
 
+## `[placement]` and `[virtual_cells]` (roadmap step 5.7)
+
+`[placement]` (`prefer`, `allow_hive_stand`, `[placement.roles.<role>]` overrides) and
+`[virtual_cells]` (the default shape of a freshly provisioned Virtual Cell, plus a nested
+`[virtual_cells.overwinter]` per `docs/adr/0029-overwintering-policy.md`) feed
+`hivemind.queen.placement.decide.decide` (`docs/adr/0028-placement-policy-real-versus-virtual.md`).
+Both default such that a manifest that omits them entirely behaves exactly as before this step:
+`prefer = "real"`, `allow_hive_stand = true`, and `[virtual_cells] backend` unset means no Virtual
+side is configured at all, so every task stays on the Real side.
+
 ## `HIVEMIND_*` environment variables
 
 Codingrules section 13: environment variables are read in exactly one place

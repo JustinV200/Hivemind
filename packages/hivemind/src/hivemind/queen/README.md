@@ -35,12 +35,22 @@ every assignment goes to a Warden, over Waggle.
 - `queen.planner`: `PlanSchema`, `PlannedTask`, `PlannedPostcondition`, `plan_goal` -- decomposing
   a goal into a validated `hivemind.brood_chamber.TaskGraphDraft`; every subtask carries at least
   one acceptance postcondition (roadmap step 3.18).
-- `queen.placement`: `Placement`, `PlacementError`, `decide` -- the pure v0 decision (the Hive
-  Stand only); roadmap step 4.2a adds `blocked_cells`/`cautioned_cells` keyword args, both
-  optional and empty by default: a candidate carrying a WRITTEN `BLOCK` Cell Wax note is excluded
-  outright, one carrying a WRITTEN `CAUTION` is kept but ranked behind every clean candidate.
-- `dispatch_ready` (`dispatcher.py`): place, grant and assign every ready task, never to a Worker
-  directly; a fresh task's own `chamber.assign`/`chamber.start` and `queen.assigned` land before
+- `queen.placement` (roadmap step 5.7, `docs/adr/0028-placement-policy-real-versus-virtual.md`):
+  `Placement` (a union: `ReuseReal`, `ReuseDormant`, `ProvisionVirtual`, each with its own
+  `reason`), `PlacementError`, `decide(needs, inventory, forage, policy)` -- the pure, ordered
+  pipeline: Night Veil first (always a fresh Virtual Cell), then isolation (`REQUIRED` excludes
+  every Real Cell), then each side's own candidates filtered (a `BLOCK` Cell Wax or
+  `allow_hive_stand = false`, then fit, then Forage) and ranked (a `CAUTION` note behind a clean
+  candidate, a dormant Cell before a fresh provision), only then honouring `prefer`. See
+  `queen/placement/README.md` for the full module map.
+- `dispatch_ready`, `redispatch`, `resume_paused` (`dispatcher/`, a package since roadmap step
+  5.7): place, grant and assign every ready task, never to a Worker directly. `dispatcher.snapshot`
+  builds the pure `Inventory`/`ForageView` `queen.placement.decide` reads (the one place this
+  dispatch awaits `deps.memory.list_wax`); `dispatcher.acquire.resolve_link` turns whatever
+  `decide` returns into a `WardenLink`, acquiring a Virtual Cell through `QueenDeps.
+  virtual_provider` first when it names one (re-entering placement once with that backend's own
+  headroom zeroed on a failed acquire, ADR-0028 Consequences). A fresh task's own `queen.placed`
+  (the placement's own reason), `chamber.assign`/`chamber.start` and `queen.assigned` land before
   either wire message is sent, so a fast sub-bee's own immediate Question can never reach
   `Queen._act` while the chamber still reads ASSIGNED. Roadmap step 4.8's own wiring step: before
   the first grant a Warden ever receives, `_ensure_warden_provisioned` sets its first `Ceilings`

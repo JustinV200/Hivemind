@@ -5,9 +5,10 @@ Fourteen documented sections is more than one module can hold under codingrules 
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
 ``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (``[security]`` and
-``[honey.clearance]``), and ``manifest`` (``HiveManifest``, the root that gathers all of the
-above). This file is the schema's face: a caller imports any section model from here without
-knowing which module defines it.
+``[honey.clearance]``), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
+and ``manifest`` (``HiveManifest``, the root that gathers all of the above). This file is the
+schema's face: a caller imports any section model from here without knowing which module defines
+it.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Imported by ``hivemind.manifest.loader``
@@ -32,6 +33,8 @@ Public API:
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
     - Security and clearance (security): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
+    - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
+      VirtualCellsSection, VirtualCellsOverwinterSection.
     - Root (manifest): HiveManifest.
 """
 
@@ -53,6 +56,12 @@ from hivemind.manifest.schema.llm import (
     SlotBinding,
 )
 from hivemind.manifest.schema.manifest import HiveManifest
+from hivemind.manifest.schema.placement import (
+    PlacementRoleOverride,
+    PlacementSection,
+    VirtualCellsOverwinterSection,
+    VirtualCellsSection,
+)
 from hivemind.manifest.schema.security import (
     ClearanceMatrix,
     HoneyClearanceSection,
@@ -77,6 +86,8 @@ __all__ = [
     "LlmSection",
     "MemorySection",
     "PheromoneSection",
+    "PlacementRoleOverride",
+    "PlacementSection",
     "ProviderKind",
     "ProviderSpec",
     "QueenSection",
@@ -84,4 +95,6 @@ __all__ = [
     "SlotBinding",
     "SupervisionSection",
     "TierProfile",
+    "VirtualCellsOverwinterSection",
+    "VirtualCellsSection",
 ]

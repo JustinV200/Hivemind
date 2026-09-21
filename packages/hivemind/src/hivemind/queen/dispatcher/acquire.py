@@ -1,0 +1,145 @@
+"""Define resolve_link: turn a Placement into a WardenLink, acquiring a Virtual Cell if needed.
+
+A `ReuseReal` Placement already names an attached Warden -- `resolve_link` just looks its
+`WardenLink` up. A `ProvisionVirtual`/`ReuseDormant` Placement does not exist as an attached
+Warden yet, so `resolve_link` calls the `hivemind.queen.deps.VirtualCellProvider` seam
+(`QueenDeps.virtual_provider`) roadmap step 5.6 implements; with no provider configured, a Virtual
+Placement is a `PlacementError` instead (roadmap step 5.7's own build instructions: "when no
+provider is injected, a Virtual placement is a PlacementError with a clear message"). When
+`acquire` raises `hivemind.hive.CellProvisionError`, ADR-0028's own Consequences apply: placement
+re-enters once with the failed backend's own headroom zeroed (`ProvisionVirtual`) or that one
+dormant Cell excluded (`ReuseDormant`, `docs/adr/0029`: "a Cell that fails to resume... is
+destroyed and placement falls through to a fresh provision"), and a second failure propagates
+uncaught.
+
+Fits into the Hive:
+    Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
+    sub-package. Called by `hivemind.queen.dispatcher.ready._dispatch_one`. Calls into
+    `hivemind.brood_chamber` (Task), `hivemind.hive` (CellProvisionError), `hivemind.queen.deps`
+    (QueenDeps, WardenLink), `hivemind.queen.dispatcher.snapshot` (build_forage_view,
+    build_inventory), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
+    ReuseDormant, ReuseReal, VirtualBackendCandidate, decide) and waggle only.
+
+Key invariants:
+    - `resolve_link` retries at most once: the retry path never calls itself recursively, so a
+      backend that fails twice in a row raises `CellProvisionError` straight out of this dispatch.
+    - The retry path never mutates `deps.virtual_backends`/`.dormant_cells` in place: it builds a
+      fresh `Inventory` through `build_inventory`'s own keyword arguments, so a failed provision
+      for one task never leaks into the next task's own placement decision.
+
+See Also:
+    - docs/adr/0028-placement-policy-real-versus-virtual.md for the Consequences this module's
+      retry path implements verbatim.
+    - docs/adr/0029-overwintering-policy.md for the dormant-resume-failure fallback.
+    - hivemind.queen.deps for VirtualCellProvider, the seam this module calls.
+    - hivemind.queen.dispatcher.ready for _dispatch_one, this module's one caller.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from collections.abc import Sequence
+
+from hivemind.brood_chamber import Task
+from hivemind.hive import CellProvisionError
+from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
+from hivemind.queen.placement import (
+    Placement,
+    PlacementError,
+    ProvisionVirtual,
+    ReuseDormant,
+    ReuseReal,
+    VirtualBackendCandidate,
+    decide,
+)
+from waggle.ids import WardenId
+
+__all__ = ["resolve_link"]
+
+
+async def resolve_link(
+    deps: QueenDeps, wardens: Sequence[WardenLink], task: Task, placement: Placement
+) -> tuple[WardenLink, Placement]:
+    """Return the WardenLink `placement` names, acquiring a Virtual Cell first if it needs one.
+
+    Args:
+        deps: The Queen's collaborators; `deps.virtual_provider` is the seam a Virtual Placement
+            is acquired through.
+        wardens: Every attached Warden; a `ReuseReal` Placement must already name one of these.
+        task: The task this Cell is being resolved for.
+        placement: What `hivemind.queen.placement.decide.decide` chose.
+
+    Returns:
+        `(link, effective_placement)`: the resolved `WardenLink`, and the Placement actually used
+        -- unchanged unless a failed Virtual acquire triggered one retry (ADR-0028 Consequences).
+
+    Raises:
+        PlacementError: `placement` names a Warden that is no longer attached, or it is a Virtual
+            Placement and `deps.virtual_provider` is unset.
+        hivemind.hive.CellProvisionError: The Virtual acquire failed twice in a row (once at the
+            original placement, once at the retry with headroom zeroed / the dormant Cell excluded).
+    """
+    if isinstance(placement, ReuseReal):
+        link = _attached(wardens, placement.warden_id)
+        if link is None:
+            raise PlacementError(
+                f"decide() named Warden {placement.warden_id}, which is not currently attached."
+            )
+        return link, placement
+    if deps.virtual_provider is None:
+        raise PlacementError(
+            "decide() chose a Virtual Cell but no VirtualCellProvider is configured on QueenDeps "
+            "(roadmap step 5.6 wires one); a Virtual placement cannot be acquired without it."
+        )
+    try:
+        link = await deps.virtual_provider.acquire(placement, task)
+    except CellProvisionError:
+        # ADR-0028 Consequences: re-enter placement once with the failed backend's own headroom
+        # zeroed (or, for a dormant Cell, that Cell excluded), then let a second failure propagate.
+        return await _retry_once(deps, wardens, task, placement)
+    return link, placement
+
+
+async def _retry_once(
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    task: Task,
+    placement: ProvisionVirtual | ReuseDormant,
+) -> tuple[WardenLink, Placement]:
+    """Re-run `decide` once, with the failed candidate excluded, and acquire its own result."""
+    if isinstance(placement, ProvisionVirtual):
+        zeroed = tuple(
+            _zero(b) if b.name == placement.backend else b for b in deps.virtual_backends
+        )
+        inventory = await build_inventory(deps, wardens, virtual_backends=zeroed)
+    else:
+        inventory = await build_inventory(
+            deps, wardens, exclude_dormant=frozenset({placement.cell_id})
+        )
+    retry = decide(task.spec.needs, inventory, build_forage_view(deps), deps.placement_policy)
+    if isinstance(retry, ReuseReal):
+        link = _attached(wardens, retry.warden_id)
+        if link is None:
+            raise PlacementError(
+                f"decide() named Warden {retry.warden_id} on retry, which is not attached."
+            )
+        return link, retry
+    if deps.virtual_provider is None:
+        # Unreachable in practice: reaching this branch means the first attempt already called
+        # a provider (the only way `placement` could have been a Virtual Placement at all).
+        raise PlacementError("internal: no VirtualCellProvider left to retry an acquire with.")
+    link = await deps.virtual_provider.acquire(retry, task)  # A second failure propagates.
+    return link, retry
+
+
+def _zero(candidate: VirtualBackendCandidate) -> VirtualBackendCandidate:
+    """Return `candidate` with its own headroom zeroed, so `decide` skips it on retry."""
+    return dataclasses.replace(
+        candidate, capabilities=candidate.capabilities.model_copy(update={"headroom": 0})
+    )
+
+
+def _attached(wardens: Sequence[WardenLink], warden_id: WardenId) -> WardenLink | None:
+    """Return the WardenLink named by `warden_id`, or None when it names no attached Warden."""
+    return next((link for link in wardens if link.warden_id == warden_id), None)

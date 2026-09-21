@@ -161,12 +161,33 @@ async def test_overriding_reserve_unlocks_the_seat_the_default_reserve_exhausts(
     assert overridden_grant.max_sub_bees > 0
 
 
-async def test_overriding_footprints_and_grant_ttl_change_the_computed_grant() -> None:
-    """QueenDeps' own `footprints`/`grant_ttl_s` fields (added this dispatch) reach the allocator.
+async def test_overriding_grant_ttl_lands_on_the_wire_grant() -> None:
+    """QueenDeps' own `grant_ttl_s` field reaches the allocator through the same call as `reserve`.
 
-    Through the same call as `reserve` above: a much larger DRONE memory footprint drives
-    max_sub_bees back down to 0 even with the seat pool unlocked, and a named grant_ttl_s lands
-    exactly on the wire grant's own expires_at.
+    A named grant_ttl_s lands exactly on the wire grant's own expires_at.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    unlocked_reserve = RoyalReserve(seats=0, memory_bytes=0, headroom_fraction=0.0)
+    deps, link, warden_end = make_queen_deps(
+        fake_provider=provider, reserve=unlocked_reserve, grant_ttl_s=42.0
+    )
+    queen = Queen(deps)
+    queen.attach_warden(link)
+
+    await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    fresh_grant = await warden_end.wait_for_grant()
+
+    assert fresh_grant.expires_at == deps.clock.now() + timedelta(seconds=42.0)
+    await warden_end.close()
+
+
+async def test_a_footprint_no_cell_can_bear_fails_placement_instead_of_a_zero_bee_grant() -> None:
+    """QueenDeps' own `footprints` field reaches placement, and rule 5 refuses an unbearable one.
+
+    Before roadmap step 5.7 a DRONE footprint larger than the host's free memory produced a grant
+    with max_sub_bees == 0 that parked the task until its timeout (the phase 4 handoff's open
+    item). Placement now checks "Forage must cover the grant" (ADR-0028 rule 5) before choosing
+    a Cell, so no grant is sent and the trail says why.
     """
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     unlocked_reserve = RoyalReserve(seats=0, memory_bytes=0, headroom_fraction=0.0)
@@ -181,16 +202,17 @@ async def test_overriding_footprints_and_grant_ttl_change_the_computed_grant() -
         fake_provider=provider,
         reserve=unlocked_reserve,
         footprints={WorkerRole.DRONE: huge_footprint},
-        grant_ttl_s=42.0,
     )
     queen = Queen(deps)
     queen.attach_warden(link)
 
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
-    fresh_grant = await warden_end.wait_for_grant()
 
-    assert fresh_grant.max_sub_bees == 0  # by_memory is now the binding constraint, at zero.
-    assert fresh_grant.expires_at == deps.clock.now() + timedelta(seconds=42.0)
+    events = await deps.trail.query(TrailQuery())
+    decided = [e for e in events if e.kind == "queen.decided"]
+    assert decided, "placement failure must be recorded on the trail"
+    assert decided[-1].payload.get("reason") == "placement_failed"
+    assert "forage.granted" not in await _kinds(deps.trail)
     await warden_end.close()
 
 

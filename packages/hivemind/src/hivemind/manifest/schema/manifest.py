@@ -2,11 +2,14 @@
 
 ``HiveManifest`` gathers every section (``[hive]``, ``[queen]``, ``[hive_stand]``, ``[llm]``,
 ``[forage]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
-``[brood_chamber]``, ``[pheromone]``) into one frozen value. Every section but ``[hive]`` has a
-``default_factory``, so a manifest may omit ``[queen]``, ``[hive_stand]``, ``[supervision]``,
-``[memory]``, ``[security]``, ``[honey.clearance]``, ``[brood_chamber]`` and ``[pheromone]``
-entirely and still validate; ``[hive]`` alone has no default, because an id and a node id are
-never guessed on a Hive's behalf (``hivemind.manifest.schema.core.HiveSection``).
+``[brood_chamber]``, ``[pheromone]``, ``[placement]``, ``[virtual_cells]``) into one frozen value.
+Every section but ``[hive]`` has a ``default_factory``, so a manifest may omit ``[queen]``,
+``[hive_stand]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
+``[brood_chamber]``, ``[pheromone]``, ``[placement]`` and ``[virtual_cells]`` entirely and still
+validate; ``[hive]`` alone has no default, because an id and a node id are never guessed on a
+Hive's behalf (``hivemind.manifest.schema.core.HiveSection``). Omitting ``[virtual_cells]``
+(or its own ``backend`` key) leaves placement Real-only, exactly as before roadmap step 5.7
+(``hivemind.manifest.schema.placement.VirtualCellsSection``'s own key invariant).
 ``[llm]`` and ``[forage]`` also default to an empty table structurally, but each carries its own
 content requirement an empty table cannot satisfy (every ``ModelSlot`` bound; the ``drone`` role
 footprint present), so a real "minimal" manifest -- ``docs/manifests/minimal.toml`` -- still
@@ -60,6 +63,7 @@ from hivemind.manifest.schema.core import (
 )
 from hivemind.manifest.schema.forage import ForageSection
 from hivemind.manifest.schema.llm import LlmSection
+from hivemind.manifest.schema.placement import PlacementSection, VirtualCellsSection
 from hivemind.manifest.schema.security import HoneySection, SecuritySection
 from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
 
@@ -109,6 +113,16 @@ class HiveManifest(BaseModel):
     )
     pheromone: PheromoneSection = Field(
         default_factory=PheromoneSection, description="Pheromone Trail retention."
+    )
+    placement: PlacementSection = Field(
+        default_factory=PlacementSection,
+        description="Which side placement honours, the Hive Stand's own eligibility, and "
+        "per-role overrides (roadmap step 5.7, ADR-0028).",
+    )
+    virtual_cells: VirtualCellsSection = Field(
+        default_factory=VirtualCellsSection,
+        description="The default shape of a freshly provisioned Virtual Cell, and the "
+        "Overwintering pool's own bounds (roadmap step 5.7, ADR-0029).",
     )
     source_path: Path | None = Field(
         default=None,

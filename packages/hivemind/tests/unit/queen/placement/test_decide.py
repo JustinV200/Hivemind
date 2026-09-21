@@ -8,113 +8,374 @@ Key invariants:
 
 See Also:
     - hivemind.queen.placement.decide for the module under test.
+    - docs/adr/0028-placement-policy-real-versus-virtual.md for the rules these tests exercise.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pytest
-from builders.cells import make_cell
+from builders.cells import make_capabilities
+from builders.forage import make_capacity, make_footprint
 
-from hivemind.cell import CellKind, Isolation, OsFamily, TaskNeeds
-from hivemind.queen.deps import WardenLink
-from hivemind.queen.placement import Placement, PlacementError, decide
+from hivemind.cell import CellCapabilities, CombShieldLevel, Isolation, OsFamily, TaskNeeds
+from hivemind.forage import ForageCapacity
+from hivemind.hive import BackendCapabilities, NetworkPolicy, VirtualCellSpec
+from hivemind.queen.placement import (
+    DormantCandidate,
+    ForageView,
+    Inventory,
+    PlacementError,
+    PlacementPolicy,
+    Prefer,
+    ProvisionVirtual,
+    RealCandidate,
+    ReuseDormant,
+    ReuseReal,
+    VirtualBackendCandidate,
+    WaxMention,
+    decide,
+)
 from waggle.clock import FakeClock
-from waggle.codec import Codec
-from waggle.envelope import Hop
-from waggle.ids import new_hive_id, new_node_id, new_warden_id
-from waggle.transport.memory import MemoryTransport
+from waggle.ids import CellId, WardenId, new_cell_id, new_hive_id, new_warden_id
+
+_CLOCK = FakeClock()
 
 
-def _make_link(clock: FakeClock, **cell_overrides: object) -> WardenLink:
-    """Build one WardenLink over a fresh, unused MemoryTransport pair."""
-    warden_id = new_warden_id(clock)
-    hive_id, node_id = new_hive_id(clock), new_node_id(clock)
-    queen_transport, _warden_transport = MemoryTransport.pair(Codec(), Codec())
-    hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
-    cell = make_cell(kind=CellKind.REAL, clock=clock, **cell_overrides)
-    return WardenLink(warden_id=warden_id, cell=cell, transport=queen_transport, hop=hop)
-
-
-def test_no_wardens_attached_refuses_placement() -> None:
-    with pytest.raises(PlacementError):
-        decide(TaskNeeds(), ())
-
-
-def test_places_on_the_first_attached_warden_the_hive_stand() -> None:
-    clock = FakeClock()
-    link = _make_link(clock)
-
-    placement = decide(TaskNeeds(), (link,))
-
-    assert placement == Placement(cell_id=link.cell.id, warden_id=link.warden_id)
-
-
-def test_required_isolation_is_refused_since_no_cell_can_isolate_in_v0() -> None:
-    clock = FakeClock()
-    link = _make_link(clock)
-
-    with pytest.raises(PlacementError):
-        decide(TaskNeeds(isolation=Isolation.REQUIRED), (link,))
-
-
-def test_os_mismatch_is_refused() -> None:
-    clock = FakeClock()
-    # builders.cells.make_capabilities's own default builds a LINUX Cell.
-    link = _make_link(clock)
-    needs = TaskNeeds(os=OsFamily.WINDOWS)
-
-    with pytest.raises(PlacementError):
-        decide(needs, (link,))
-
-
-def test_a_matching_os_need_is_accepted() -> None:
-    clock = FakeClock()
-    link = _make_link(clock)
-    needs = TaskNeeds(os=OsFamily.LINUX)
-
-    placement = decide(needs, (link,))
-
-    assert placement.cell_id == link.cell.id
-
-
-def test_a_blocked_cell_is_excluded_even_as_the_only_candidate() -> None:
-    """Roadmap step 4.2a: "placement treats BLOCK as exclusion"."""
-    clock = FakeClock()
-    link = _make_link(clock)
-
-    with pytest.raises(PlacementError):
-        decide(TaskNeeds(), (link,), blocked_cells=frozenset({link.cell.id}))
-
-
-def test_a_blocked_cell_is_skipped_in_favour_of_a_clean_one() -> None:
-    clock = FakeClock()
-    blocked = _make_link(clock)
-    clean = _make_link(clock)
-
-    placement = decide(TaskNeeds(), (blocked, clean), blocked_cells=frozenset({blocked.cell.id}))
-
-    assert placement.cell_id == clean.cell.id
-
-
-def test_a_cautioned_cell_is_still_a_candidate_when_it_is_the_only_one() -> None:
-    """Roadmap step 4.2a: "CAUTION as a penalty" -- never an exclusion."""
-    clock = FakeClock()
-    link = _make_link(clock)
-
-    placement = decide(TaskNeeds(), (link,), cautioned_cells=frozenset({link.cell.id}))
-
-    assert placement.cell_id == link.cell.id
-
-
-def test_a_cautioned_cell_ranks_behind_an_uncautioned_one() -> None:
-    """Roadmap step 4.2a: "CAUTION is a penalty in ordering"."""
-    clock = FakeClock()
-    cautioned = _make_link(clock)
-    clean = _make_link(clock)
-
-    placement = decide(
-        TaskNeeds(), (cautioned, clean), cautioned_cells=frozenset({cautioned.cell.id})
+def _real(
+    *,
+    capabilities: CellCapabilities | None = None,
+    is_hive_stand: bool = False,
+    has_free_capacity: bool = True,
+) -> RealCandidate:
+    return RealCandidate(
+        warden_id=new_warden_id(_CLOCK),
+        cell_id=new_cell_id(_CLOCK),
+        capabilities=capabilities if capabilities is not None else make_capabilities(),
+        comb_shield=CombShieldLevel.MEADOW,
+        is_hive_stand=is_hive_stand,
+        has_free_capacity=has_free_capacity,
     )
 
-    # cautioned is attached first, yet the clean candidate wins the ranking.
-    assert placement.cell_id == clean.cell.id
+
+def _spec(
+    *,
+    image: str = "base-ubuntu",
+    exoskeleton: bool = False,
+    capacity: ForageCapacity | None = None,
+) -> VirtualCellSpec:
+    return VirtualCellSpec(
+        image=image,
+        cpu_cores=1.0,
+        memory_bytes=1024**3,
+        disk_bytes=8 * 1024**3,
+        network_policy=NetworkPolicy.NONE,
+        exoskeleton=exoskeleton,
+        capacity=capacity if capacity is not None else make_capacity(),
+        comb_shield=CombShieldLevel.MEADOW,
+        hive_id=new_hive_id(_CLOCK),
+    )
+
+
+def _backend(
+    *,
+    name: str = "docker",
+    headroom: int | None = None,
+    image: str = "base-ubuntu",
+    capacity: ForageCapacity | None = None,
+) -> VirtualBackendCandidate:
+    capabilities = BackendCapabilities(can_snapshot=False, can_pause=True, headroom=headroom)
+    return VirtualBackendCandidate(
+        name=name, capabilities=capabilities, specs=(_spec(image=image, capacity=capacity),)
+    )
+
+
+def _forage() -> ForageView:
+    return ForageView(footprint=make_footprint())
+
+
+def _policy(
+    *,
+    prefer: Prefer = "real",
+    allow_hive_stand: bool = True,
+    role_overrides: Mapping[str, Prefer] | None = None,
+) -> PlacementPolicy:
+    return PlacementPolicy(
+        prefer=prefer,
+        allow_hive_stand=allow_hive_stand,
+        role_overrides=role_overrides if role_overrides is not None else {},
+    )
+
+
+def _dormant(
+    *, cell_id: CellId | None = None, warden_id: WardenId | None = None, image: str
+) -> DormantCandidate:
+    return DormantCandidate(
+        cell_id=cell_id if cell_id is not None else new_cell_id(_CLOCK),
+        warden_id=warden_id if warden_id is not None else new_warden_id(_CLOCK),
+        image=image,
+        comb_shield=CombShieldLevel.MEADOW,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The v0 happy path still works, unchanged.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_places_on_the_only_real_candidate_by_default() -> None:
+    real = _real()
+
+    placement = decide(TaskNeeds(), Inventory(real=(real,)), _forage(), _policy())
+
+    assert placement == ReuseReal(real.cell_id, real.warden_id, placement.reason)
+
+
+def test_no_candidates_at_all_raises_placement_error() -> None:
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(), Inventory(), _forage(), _policy())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 1: isolation = REQUIRED is always Virtual.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_isolation_required_is_virtual_regardless_of_prefer() -> None:
+    real = _real()
+    backend = _backend()
+    inventory = Inventory(real=(real,), virtual_backends=(backend,))
+
+    for prefer in ("real", "virtual"):
+        placement = decide(
+            TaskNeeds(isolation=Isolation.REQUIRED), inventory, _forage(), _policy(prefer=prefer)
+        )
+        assert isinstance(placement, ProvisionVirtual)
+
+
+def test_isolation_required_with_no_backend_raises_placement_error_naming_eliminated_rules() -> (
+    None
+):
+    real = _real()
+    inventory = Inventory(real=(real,))  # No Virtual backend at all.
+
+    with pytest.raises(PlacementError, match="isolation=REQUIRED"):
+        decide(TaskNeeds(isolation=Isolation.REQUIRED), inventory, _forage(), _policy())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 2: NIGHT_VEIL is always Virtual, fresh, forced VPN_TOR, never dormant.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_night_veil_always_provisions_fresh_never_dormant_even_with_a_matching_image() -> None:
+    backend = _backend(image="night-veil-ubuntu")
+    # A dormant Cell with the same image sits in the pool, but Night Veil must never reuse it
+    # (docs/adr/0029: "Overwintering Night Veil Cells... the tier forbids outright").
+    dormant = _dormant(image="night-veil-ubuntu")
+    inventory = Inventory(virtual_backends=(backend,), dormant=(dormant,))
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+
+    placement = decide(needs, inventory, _forage(), _policy())
+
+    assert isinstance(placement, ProvisionVirtual)
+    assert placement.spec.comb_shield is CombShieldLevel.NIGHT_VEIL
+    assert placement.spec.network_policy is NetworkPolicy.VPN_TOR
+    assert placement.spec.network_allowlist == ()
+
+
+def test_night_veil_with_no_backend_raises_placement_error() -> None:
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+
+    with pytest.raises(PlacementError, match="NIGHT_VEIL"):
+        decide(needs, Inventory(), _forage(), _policy())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 3: a BLOCK Cell Wax excludes; allow_hive_stand=false excludes the Hive Stand.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_block_on_the_hive_stand_turns_prefer_real_into_provision_virtual_naming_the_wax() -> (
+    None
+):
+    """The roadmap's own exit criterion, verbatim."""
+    hive_stand = _real(is_hive_stand=True)
+    backend = _backend()
+    wax = WaxMention(id="wax_01ABCDEFGHJKMNPQRSTVWXYZ00", text="disk nearly full")
+    inventory = Inventory(
+        real=(hive_stand,), virtual_backends=(backend,), blocked={hive_stand.cell_id: wax}
+    )
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy(prefer="real"))
+
+    assert isinstance(placement, ProvisionVirtual)
+    assert wax.text in placement.reason
+    assert wax.id in placement.reason
+
+
+def test_clearing_the_block_restores_reuse_real() -> None:
+    hive_stand = _real(is_hive_stand=True)
+    backend = _backend()
+    inventory = Inventory(real=(hive_stand,), virtual_backends=(backend,))  # No longer blocked.
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy(prefer="real"))
+
+    assert isinstance(placement, ReuseReal)
+    assert placement.cell_id == hive_stand.cell_id
+
+
+def test_allow_hive_stand_false_excludes_it_even_as_the_only_candidate() -> None:
+    hive_stand = _real(is_hive_stand=True)
+    inventory = Inventory(real=(hive_stand,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(), inventory, _forage(), _policy(allow_hive_stand=False))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 4: OS, network scopes, Exoskeleton.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_os_mismatch_excludes_a_real_candidate() -> None:
+    real = _real(capabilities=make_capabilities(os=OsFamily.LINUX))
+    inventory = Inventory(real=(real,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(os=OsFamily.WINDOWS), inventory, _forage(), _policy())
+
+
+def test_exoskeleton_needs_a_display_or_the_ability_to_start_one() -> None:
+    no_display = _real(capabilities=make_capabilities(has_display=False, can_start_display=False))
+    inventory = Inventory(real=(no_display,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(exoskeleton=True), inventory, _forage(), _policy())
+
+
+def test_exoskeleton_is_satisfied_by_the_ability_to_start_a_display() -> None:
+    can_start = _real(capabilities=make_capabilities(has_display=False, can_start_display=True))
+    inventory = Inventory(real=(can_start,))
+
+    placement = decide(TaskNeeds(exoskeleton=True), inventory, _forage(), _policy())
+
+    assert isinstance(placement, ReuseReal)
+
+
+def test_network_scopes_not_reachable_excludes_a_real_candidate() -> None:
+    real = _real(capabilities=make_capabilities(network_scopes=("example.com",)))
+    inventory = Inventory(real=(real,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(network_scopes=("other.example.com",)), inventory, _forage(), _policy())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 5: Forage must cover the grant.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_no_free_capacity_excludes_a_real_candidate() -> None:
+    real = _real(has_free_capacity=False)
+    inventory = Inventory(real=(real,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(), inventory, _forage(), _policy())
+
+
+def test_no_backend_headroom_excludes_a_virtual_candidate() -> None:
+    backend = _backend(headroom=0)
+    inventory = Inventory(virtual_backends=(backend,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
+
+
+def test_insufficient_spec_capacity_excludes_a_virtual_candidate() -> None:
+    tiny_capacity = make_capacity(max_sub_bees=0)
+    backend = _backend(capacity=tiny_capacity)
+    inventory = Inventory(virtual_backends=(backend,))
+
+    with pytest.raises(PlacementError):
+        decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 6: prefer, CAUTION penalty, dormant before fresh provision, attachment order.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_prefer_virtual_with_dormant_matching_image_returns_reuse_dormant() -> None:
+    backend = _backend(image="base-ubuntu")
+    dormant = _dormant(image="base-ubuntu")
+    inventory = Inventory(virtual_backends=(backend,), dormant=(dormant,))
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
+
+    assert placement == ReuseDormant(dormant.cell_id, dormant.warden_id, placement.reason)
+
+
+def test_prefer_virtual_with_no_dormant_match_provisions_fresh() -> None:
+    backend = _backend(image="base-ubuntu")
+    inventory = Inventory(virtual_backends=(backend,))
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
+
+    assert isinstance(placement, ProvisionVirtual)
+
+
+def test_a_cautioned_real_candidate_ranks_behind_an_uncautioned_one() -> None:
+    cautioned = _real()
+    clean = _real()
+    wax = WaxMention(id="wax_01ABCDEFGHJKMNPQRSTVWXYZ01", text="flaky network")
+    inventory = Inventory(real=(cautioned, clean), cautioned={cautioned.cell_id: wax})
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy())
+
+    assert isinstance(placement, ReuseReal)
+    assert placement.cell_id == clean.cell_id
+
+
+def test_a_cautioned_candidate_is_still_chosen_when_it_is_the_only_one() -> None:
+    cautioned = _real()
+    wax = WaxMention(id="wax_01ABCDEFGHJKMNPQRSTVWXYZ02", text="flaky network")
+    inventory = Inventory(real=(cautioned,), cautioned={cautioned.cell_id: wax})
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy())
+
+    assert isinstance(placement, ReuseReal)
+    assert placement.cell_id == cautioned.cell_id
+
+
+def test_attachment_order_breaks_every_remaining_tie() -> None:
+    first = _real()
+    second = _real()
+    inventory = Inventory(real=(first, second))
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy())
+
+    assert isinstance(placement, ReuseReal)
+    assert placement.cell_id == first.cell_id
+
+
+def test_prefer_virtual_falls_back_to_real_when_no_virtual_candidate_fits() -> None:
+    real = _real()
+    inventory = Inventory(real=(real,))  # No Virtual backend registered at all.
+
+    placement = decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
+
+    assert isinstance(placement, ReuseReal)
+    assert placement.cell_id == real.cell_id
+
+
+def test_role_override_takes_precedence_over_the_top_level_prefer() -> None:
+    real = _real()
+    backend = _backend()
+    inventory = Inventory(real=(real,), virtual_backends=(backend,))
+    policy = _policy(prefer="real", role_overrides={"drone": "virtual"})
+
+    placement = decide(TaskNeeds(), inventory, _forage(), policy)
+
+    assert isinstance(placement, ProvisionVirtual)

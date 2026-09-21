@@ -1,136 +1,349 @@
-"""Define Placement and decide: the Queen's pure choice of which Warden's Cell runs a task.
+"""Define PlacementError and decide: the Queen's pure Real-vs-Virtual-Cell placement pipeline.
 
-Codingrules section 8.7: "Placement is a pure decision... maps TaskNeeds plus the current Cell
-inventory... to a Placement: reuse this Real Cell, or provision a Virtual Cell from this spec. The
-reason is recorded on the trail." v0 has no Virtual Cell provisioner and exactly one kind of
-candidate: the attached Wardens, each already owning one Real Cell (the Hive Stand, in practice, per
-roadmap step 3.20's own bullet). `decide` therefore reduces to checks over the attached
-`hivemind.queen.deps.WardenLink`s, in attachment order -- `needs.isolation == Isolation.REQUIRED`
-can never be satisfied by any Real Cell (codingrules section 15: "a task with isolation = 'required'
-never lands on a Real Cell"), `needs.os`, when set, must match a candidate's own
-`capabilities.os` -- both a `TaskNeeds` check, never a branch on `cell.kind` (`CellCapabilities`
-carries no isolation field of its own yet, so this is entirely about what the task asks for, not
-what the Cell claims to be) -- and, roadmap step 4.2a, a candidate whose Cell carries a WRITTEN
-`WaxSeverity.BLOCK` note is excluded outright, while one carrying a WRITTEN `CAUTION` is kept but
-ranked behind every clean candidate. `blocked_cells`/`cautioned_cells` are precomputed by the
-caller (from `hivemind.memory.cell_wax.CellWax.state`/`.severity`), not read from a store here:
-`decide` stays pure, with no I/O of its own, matching codingrules 8.7 exactly.
+`decide(needs, inventory, forage, policy) -> Placement` is ADR-0028's own ordered pipeline: Night
+Veil first (hard rule 2, always a fresh Virtual Cell), then isolation (hard rule 1, excludes every
+Real Cell), then each side's own candidates are filtered by the hard rules in
+`hivemind.queen.placement.rules` (a `BLOCK` Cell Wax or `allow_hive_stand = false`, then fit, then
+Forage) and ranked (a `CAUTION` note behind a clean candidate, a dormant Cell before a fresh
+provision, attachment order breaking every other tie). Only once both sides are known does
+`policy.prefer` get read at all: the preferred side wins if it has a candidate; otherwise the other
+side is used and the reason says why (this is how a `BLOCK` Cell Wax on the Hive Stand turns
+`prefer = "real"` into a Virtual placement, per the roadmap's own exit criterion); if neither side
+has one, `PlacementError` names every rule that eliminated a candidate, on both sides. `decide`
+performs no I/O of its own (ADR-0028): every candidate, every Cell Wax note and every headroom
+figure it reads already sits on `inventory`, precomputed by `hivemind.queen.dispatcher`'s snapshot
+helper before this is ever called.
 
 Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
-    placement sub-package. Called once per ready task by `hivemind.queen.dispatcher.
-    dispatch_ready`. Calls into `hivemind.cell` (Isolation, TaskNeeds), `hivemind.queen.deps`
-    (WardenLink), `hivemind.queen.errors` (QueenError) and waggle only.
+    Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
+    sub-package. Called once per ready task by `hivemind.queen.dispatcher`. Calls into
+    `hivemind.cell` (CombShieldLevel, TaskNeeds), `hivemind.hive` (NetworkPolicy, VirtualCellSpec),
+    `hivemind.queen.errors` (QueenError), this package's own `inventory`/`models`/`policy`/`rules`
+    modules and waggle only.
 
 Key invariants:
     - `decide` is pure: given the same arguments, it always returns the same `Placement` or raises
       the same shape of `PlacementError`.
-    - `decide` never reads `warden.cell.kind`: every check here is a `TaskNeeds` comparison against
-      `needs.isolation` or `warden.cell.capabilities`, or a Cell Wax set membership check, never a
-      `cell.kind` branch (`scripts/check_no_kind_branches.py` allowlists this module for exactly
-      that reason).
-    - Among candidates that fit and are not BLOCKED, an uncautioned one always outranks a CAUTIONed
-      one, but attachment order still breaks every other tie: `blocked_cells`/`cautioned_cells`
-      only ever narrow or reorder v0's single-Warden default, never replace it with a different
-      kind of ranking.
+    - `decide` never reads `cell.kind`: every check runs over `TaskNeeds`, `CellCapabilities`, a
+      `VirtualCellSpec`'s own fields, or Cell Wax set membership
+      (`scripts/check_no_kind_branches.py` allowlists this whole package for exactly that reason --
+      `hivemind/queen/placement/` is a path-fragment match, so every module here is covered).
+    - A `BLOCK`ed or non-fitting candidate is never returned, on either side (a hypothesis property
+      test in `tests/unit/queen/placement/test_decide_properties.py` checks this over random
+      inventories).
 
 See Also:
-    - .claude/codingrules.md section 8.7 for "placement is a pure decision" and the inputs it maps.
-    - .claude/codingrules.md section 15 for "a task with isolation = 'required' never lands on a
-      Real Cell".
-    - docs/adr/0019-queen-kernel-autopilot-first-with-stateless-awake-episodes.md for "placement v0
-      is the Hive Stand only".
-    - .claude/roadmap.md step 4.2a for "placement treats BLOCK as exclusion and CAUTION as a
-      penalty".
-    - hivemind.queen.dispatcher for dispatch_ready, this function's one caller.
+    - docs/adr/0028-placement-policy-real-versus-virtual.md for the pipeline this module
+      implements almost verbatim.
+    - docs/adr/0029-overwintering-policy.md for the dormant-before-fresh-provision preference.
+    - .claude/roadmap.md step 5.7 for the exit criteria this pipeline satisfies.
+    - hivemind.queen.placement.rules for the individually-tested rule functions this pipeline runs.
+    - hivemind.queen.dispatcher for the snapshot helper that builds `decide`'s own `inventory`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import ClassVar
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from hivemind.cell import Isolation, TaskNeeds
-from hivemind.queen.deps import WardenLink
+import hivemind.queen.placement.rules as rules
+from hivemind.cell import CombShieldLevel, TaskNeeds
+from hivemind.hive import NetworkPolicy, VirtualCellSpec
 from hivemind.queen.errors import QueenError
-from waggle.ids import CellId, WardenId
+from hivemind.queen.placement.inventory import (
+    DormantCandidate,
+    ForageView,
+    Inventory,
+    RealCandidate,
+    VirtualBackendCandidate,
+    WaxMention,
+)
+from hivemind.queen.placement.models import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
+from hivemind.queen.placement.policy import PlacementPolicy
+from waggle.ids import CellId
 
-__all__ = ["Placement", "PlacementError", "decide"]
+# The only Worker role phase 3 implements (mirrors manifest.schema.forage.REQUIRED_ROLE); a real
+# per-role override needs a `role` field on TaskSpec/TaskNeeds that does not exist yet, so this is
+# the one role key `prefer_for` is ever asked about until a later phase adds more roles.
+_ROLE_KEY = "drone"
 
-
-class Placement(BaseModel):
-    """Where a task lands: which Cell, and the Warden that owns it."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    cell_id: CellId = Field(description="The Cell placement chose.")
-    warden_id: WardenId = Field(description="The Warden that owns that Cell.")
+__all__ = ["PlacementError", "decide"]
 
 
 class PlacementError(QueenError):
-    """Raise when no attached Warden's Cell can satisfy a task's TaskNeeds.
+    """Raise when neither a Real nor a Virtual candidate fits a task's `TaskNeeds`.
 
-    Roots at `hivemind.queen.errors.QueenError`, not `hivemind.common.errors.NotFoundError`: the
-    Hive Stand exists and is attached; what is missing is a Cell that *fits*, not a Cell at all.
+    Roots at `hivemind.queen.errors.QueenError`, next to no other member: ADR-0028's own
+    convention keeps a subsystem's specific errors beside the one function that raises them.
     """
 
     code: ClassVar[str] = "hivemind.queen.placement_error"
 
 
 def decide(
-    needs: TaskNeeds,
-    wardens: Sequence[WardenLink],
-    *,
-    blocked_cells: frozenset[CellId] = frozenset(),
-    cautioned_cells: frozenset[CellId] = frozenset(),
+    needs: TaskNeeds, inventory: Inventory, forage: ForageView, policy: PlacementPolicy
 ) -> Placement:
-    """Choose which attached Warden's Cell runs a task with `needs`.
+    """Choose where a task with `needs` runs: an attached Real Cell, or a Virtual one.
 
     Args:
         needs: What the task requires from its Cell.
-        wardens: Every Warden currently attached to the Queen, in attachment order.
-        blocked_cells: Cells carrying a WRITTEN `WaxSeverity.BLOCK` note (roadmap step 4.2a);
-            excluded outright, never a candidate regardless of fit. Empty by default, so every
-            existing caller sees v0's old behaviour unchanged.
-        cautioned_cells: Cells carrying a WRITTEN `WaxSeverity.CAUTION` note; still a candidate,
-            but ranked behind every candidate not in this set.
+        inventory: Every candidate this decision may choose among, precomputed by the caller.
+        forage: What `decide` needs to check "Forage covers the grant" for a Virtual candidate.
+        policy: The `[placement]`-derived value object: `prefer`, `allow_hive_stand`, per-role
+            overrides and the manifest's own default Virtual spec template.
 
     Returns:
-        A Placement naming the highest-ranked fitting, non-BLOCKED candidate's own Cell: among
-        wardens whose Cell fits `needs` and is not `blocked_cells`, an uncautioned one before a
-        cautioned one, attachment order breaking every other tie (v0 places every task on the
-        Hive Stand when it is the only candidate, exactly as before this step).
+        A `Placement` naming the highest-ranked fitting candidate (ADR-0028's own ordered rules).
 
     Raises:
-        PlacementError: No Warden is attached, `needs.isolation` is `Isolation.REQUIRED` (no Cell
-            can isolate in v0: `CellCapabilities` carries no isolation field yet), or no attached
-            Warden's Cell both fits `needs` and is outside `blocked_cells`.
+        PlacementError: No candidate, Real or Virtual, both fits `needs` and clears every hard
+            rule; the message names every rule that eliminated a candidate.
     """
-    if not wardens:
-        raise PlacementError("No Warden is attached; there is no Cell to place a task on.")
-    if needs.isolation is Isolation.REQUIRED:
-        raise PlacementError(
-            "TaskNeeds.isolation is REQUIRED, but no Cell can isolate in v0 (no Virtual Cell "
-            "provisioner exists yet); this task can never be placed."
-        )
-    candidates = [
-        link for link in wardens if _fits_os(needs, link) and link.cell.id not in blocked_cells
-    ]
-    if not candidates:
-        raise PlacementError(
-            f"No attached Warden's Cell both fits {needs!r} and is free of a BLOCK Cell Wax note "
-            f"(checked {len(wardens)} attached Warden(s))."
-        )
-    # Stable sort: an uncautioned candidate outranks a cautioned one (roadmap step 4.2a's own
-    # "CAUTION is a penalty in ordering"), and attachment order still breaks every other tie,
-    # so v0's single-Warden case picks exactly the Cell it always did.
-    ranked = sorted(candidates, key=lambda link: link.cell.id in cautioned_cells)
-    warden = ranked[0]
-    return Placement(cell_id=warden.cell.id, warden_id=warden.warden_id)
+    if rules.night_veil_requires_virtual(needs):
+        return _place_night_veil(needs, inventory, forage, policy)
+
+    isolation_virtual_only = rules.isolation_requires_virtual(needs)
+    real_ranked, real_eliminated = (
+        ((), ("isolation=REQUIRED excludes every Real Cell",))
+        if isolation_virtual_only
+        else _rank_real(needs, inventory, policy)
+    )
+    virtual_pick, virtual_eliminated = _pick_virtual(needs, inventory, forage, policy)
+
+    placement = _prefer_first(
+        policy.prefer_for(_ROLE_KEY), real_ranked, virtual_pick, real_eliminated, virtual_eliminated
+    )
+    if placement is not None:
+        return placement
+
+    reasons = real_eliminated + virtual_eliminated
+    named = "; ".join(reasons) if reasons else "no candidates in inventory"
+    raise PlacementError(f"No Cell fits {needs!r}: {named}.")
 
 
-def _fits_os(needs: TaskNeeds, link: WardenLink) -> bool:
-    """Return whether `link`'s own Cell satisfies `needs.os` (None fits any Cell)."""
-    return needs.os is None or needs.os is link.cell.capabilities.os
+# ──────────────────────────────────────────────────────────────────────────────
+# Real side: rank every fitting, unblocked candidate.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _rank_real(
+    needs: TaskNeeds, inventory: Inventory, policy: PlacementPolicy
+) -> tuple[tuple[RealCandidate, ...], tuple[str, ...]]:
+    """Return (ranked fitting candidates, elimination reasons for every candidate that is not)."""
+    eligible: list[tuple[RealCandidate, int]] = []
+    eliminated: list[str] = []
+    for index, candidate in enumerate(inventory.real):
+        reason = _real_exclusion_reason(needs, candidate, inventory, policy)
+        if reason is not None:
+            eliminated.append(f"Cell {candidate.cell_id}: {reason}")
+            continue
+        eligible.append((candidate, index))
+    # Rule 6: an uncautioned candidate outranks a cautioned one; attachment order (the original
+    # index) breaks every other tie, so v0's single-Warden case still picks exactly the same Cell.
+    ranked = sorted(
+        eligible,
+        key=lambda pair: (rules.caution_rank(pair[0].cell_id, inventory.cautioned), pair[1]),
+    )
+    return tuple(candidate for candidate, _ in ranked), tuple(eliminated)
+
+
+def _real_exclusion_reason(
+    needs: TaskNeeds, candidate: RealCandidate, inventory: Inventory, policy: PlacementPolicy
+) -> str | None:
+    """Return why `candidate` is excluded, or None once it clears every hard rule (rules 3-5)."""
+    wax = inventory.blocked.get(candidate.cell_id)
+    if wax is not None:
+        return f"BLOCK Cell Wax {wax.id} ({wax.text})"
+    if rules.excluded_by_hive_stand_policy(candidate.is_hive_stand, policy):
+        return "allow_hive_stand=false excludes the Hive Stand"
+    if not rules.fits_os(needs, candidate.capabilities):
+        return f"os mismatch (needs {needs.os}, has {candidate.capabilities.os})"
+    if not rules.fits_network_scopes(needs, candidate.capabilities):
+        return "network scopes not reachable"
+    if not rules.fits_exoskeleton(needs, candidate.capabilities):
+        return "Exoskeleton needed but no display and cannot start one"
+    if not rules.real_has_forage(candidate):
+        return "no free Forage capacity"
+    return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Virtual side: pick the best fitting backend/spec, preferring a dormant match.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class _VirtualPick:
+    """One chosen Virtual candidate: a dormant Cell to resume, or a fresh spec to provision."""
+
+    kind: Literal["dormant", "provision"]
+    dormant: DormantCandidate | None
+    backend: str
+    spec: VirtualCellSpec
+
+
+def _pick_virtual(
+    needs: TaskNeeds, inventory: Inventory, forage: ForageView, policy: PlacementPolicy
+) -> tuple[_VirtualPick | None, tuple[str, ...]]:
+    """Return (the best Virtual candidate, elimination reasons for every backend that is not)."""
+    eliminated: list[str] = []
+    for backend in _order_backends(inventory.virtual_backends, policy):
+        if not rules.virtual_has_headroom(backend.capabilities.headroom):
+            eliminated.append(f"Backend {backend.name}: no headroom")
+            continue
+        spec = _best_spec(needs, forage, backend.specs, eliminated, backend.name)
+        if spec is None:
+            continue
+        dormant = _matching_dormant(
+            inventory.dormant, inventory.blocked, spec.image, needs.comb_shield
+        )
+        if dormant is not None:
+            return _VirtualPick("dormant", dormant, backend.name, spec), tuple(eliminated)
+        return _VirtualPick("provision", None, backend.name, spec), tuple(eliminated)
+    if not inventory.virtual_backends:
+        eliminated.append("No Virtual backend is registered")
+    return None, tuple(eliminated)
+
+
+def _best_spec(
+    needs: TaskNeeds,
+    forage: ForageView,
+    specs: tuple[VirtualCellSpec, ...],
+    eliminated: list[str],
+    backend_name: str,
+) -> VirtualCellSpec | None:
+    """Return the first spec in `specs` that fits `needs` and Forage, recording why any do not."""
+    for spec in specs:
+        reason = _virtual_exclusion_reason(needs, forage, spec)
+        if reason is not None:
+            eliminated.append(f"Backend {backend_name} image {spec.image}: {reason}")
+            continue
+        return spec
+    return None
+
+
+def _virtual_exclusion_reason(
+    needs: TaskNeeds, forage: ForageView, spec: VirtualCellSpec
+) -> str | None:
+    """Return why `spec` is excluded, or None once it clears rules 4a/4b/4c and 5c."""
+    if not rules.virtual_fits_os(needs, spec):
+        return "os mismatch"
+    if not rules.virtual_fits_exoskeleton(needs, spec):
+        return "Exoskeleton needed but this image does not provision one"
+    if not rules.virtual_fits_network_scopes(needs, spec):
+        return "network scopes not reachable"
+    if not rules.virtual_has_forage(spec, forage.footprint):
+        return "insufficient Forage capacity"
+    return None
+
+
+def _matching_dormant(
+    dormant: tuple[DormantCandidate, ...],
+    blocked: Mapping[CellId, WaxMention],
+    image: str,
+    comb_shield: CombShieldLevel,
+) -> DormantCandidate | None:
+    """Rule 6: prefer a dormant Cell with `image` over a fresh provision (docs/adr/0029)."""
+    for candidate in dormant:
+        if candidate.cell_id in blocked:
+            continue  # Rule 3a applies to a dormant Cell exactly as it does to any other.
+        if candidate.image == image and candidate.comb_shield is comb_shield:
+            return candidate
+    return None
+
+
+def _order_backends(
+    backends: tuple[VirtualBackendCandidate, ...], policy: PlacementPolicy
+) -> tuple[VirtualBackendCandidate, ...]:
+    """Sort the manifest's own configured default backend first; attachment order otherwise."""
+    template = policy.default_virtual_spec
+    if template is None:
+        return backends
+    return tuple(sorted(backends, key=lambda backend: backend.name != template.backend))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Night Veil: always a fresh Virtual Cell, forced VPN_TOR + NIGHT_VEIL, never dormant.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _place_night_veil(
+    needs: TaskNeeds, inventory: Inventory, forage: ForageView, policy: PlacementPolicy
+) -> Placement:
+    """Rule 2: NIGHT_VEIL is always a fresh Virtual Cell; dormant Cells are never even looked at."""
+    eliminated: list[str] = []
+    for backend in _order_backends(inventory.virtual_backends, policy):
+        if not rules.virtual_has_headroom(backend.capabilities.headroom):
+            eliminated.append(f"Backend {backend.name}: no headroom")
+            continue
+        base = _best_spec(needs, forage, backend.specs, eliminated, backend.name)
+        if base is None:
+            continue
+        # model_copy skips validation (pydantic v2), but every field it sets here is exactly the
+        # pair VirtualCellSpec's own validators require together: VPN_TOR <-> NIGHT_VEIL, and an
+        # empty allowlist for every policy but ALLOWLIST -- the result is provably still valid.
+        spec = base.model_copy(
+            update={
+                "comb_shield": CombShieldLevel.NIGHT_VEIL,
+                "network_policy": NetworkPolicy.VPN_TOR,
+                "network_allowlist": (),
+            }
+        )
+        return ProvisionVirtual(
+            spec=spec,
+            backend=backend.name,
+            reason="NIGHT_VEIL always provisions a fresh Virtual Cell (codingrules section 8.7).",
+        )
+    if not inventory.virtual_backends:
+        eliminated.append("No Virtual backend is registered")
+    named = "; ".join(eliminated) if eliminated else "no candidates in inventory"
+    raise PlacementError(f"NIGHT_VEIL requires a Virtual Cell but none fit: {named}.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Assembling the final Placement.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _prefer_first(
+    prefer: Literal["real", "virtual"],
+    real_ranked: tuple[RealCandidate, ...],
+    virtual_pick: _VirtualPick | None,
+    real_eliminated: tuple[str, ...],
+    virtual_eliminated: tuple[str, ...],
+) -> Placement | None:
+    """Rule 6: return the preferred side's own top candidate, or the other side with its reason."""
+    if prefer == "real":
+        if real_ranked:
+            top = real_ranked[0]
+            reason = f"[placement] prefer=real: placed on {top.cell_id}."
+            return ReuseReal(top.cell_id, top.warden_id, reason)
+        if virtual_pick is not None:
+            named = "; ".join(real_eliminated) or "no Real candidate fit"
+            reason = f"[placement] prefer=real found no Real Cell ({named}); using Virtual instead."
+            return _to_virtual_placement(virtual_pick, reason)
+        return None
+    if virtual_pick is not None:
+        reason = "[placement] prefer=virtual: placed on a Virtual Cell."
+        return _to_virtual_placement(virtual_pick, reason)
+    if real_ranked:
+        top = real_ranked[0]
+        named = "; ".join(virtual_eliminated) or "no Virtual candidate fit"
+        reason = (
+            f"[placement] prefer=virtual found no Virtual capacity ({named}); "
+            f"using Real Cell {top.cell_id} instead."
+        )
+        return ReuseReal(top.cell_id, top.warden_id, reason)
+    return None
+
+
+def _to_virtual_placement(pick: _VirtualPick, reason: str) -> Placement:
+    """Build the ReuseDormant or ProvisionVirtual `pick` names, with `reason`."""
+    if pick.kind == "dormant":
+        if pick.dormant is None:
+            # `_pick_virtual` only ever sets kind="dormant" together with a DormantCandidate; a
+            # None here would be this module's own bug, not a caller's, so it fails loudly.
+            raise PlacementError("internal: a 'dormant' pick carried no DormantCandidate.")
+        return ReuseDormant(pick.dormant.cell_id, pick.dormant.warden_id, reason)
+    return ProvisionVirtual(pick.spec, pick.backend, reason)

@@ -964,7 +964,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
 - [ ] **5.6 Virtual Cell lifecycle.** `hive/lifecycle.py`: `provision → Warden ready → grant →
   release → (overwinter | teardown)`, each transition a `cell.*` event. Night Veil path is always
   `provision → Warden ready → grant → teardown` (no Overwinter branch).
-- [ ] **5.7 Placement policy.** `queen/placement/decide.py`: pure `decide(needs, inventory,
+- [x] **5.7 Placement policy.** `queen/placement/decide.py`: pure `decide(needs, inventory,
   forage, policy) -> Placement` over Real Cells with free capacity and Virtual backends with
   headroom, honouring `[placement]` (`prefer = "real" | "virtual"`, `allow_hive_stand`, per-role
   overrides). Rules, each with a test: `isolation = "required"` always Virtual; Exoskeleton needs a
