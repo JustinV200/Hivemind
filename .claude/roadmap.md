@@ -1013,7 +1013,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
 - [ ] **5.11 QEMU backend.** `hive/backends/qemu.py`: prebuilt qcow2 (`images/base-ubuntu/vm/` from
   `scripts/build_cell_image.py`), cloud-init for the Waggle endpoint and Warden bootstrap, serial
   console for readiness. Same contract suite.
-- [ ] **5.12 Cloud backend interface.** `hive/backends/cloud/base.py` with credentials via
+- [x] **5.12 Cloud backend interface.** `hive/backends/cloud/base.py` with credentials via
   `SecretStr`, region, pricing tag as Forage cost, and one reference implementation chosen in the
   ADR. Optional for Brood 1.0.
 - [ ] **5.13 CLI.** `cli/cells.py` grows `inspect`, `destroy <virtual>`, `release <lease>`,
