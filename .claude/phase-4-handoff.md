@@ -22,11 +22,12 @@ Read first, in this order: `CLAUDE.md`, `.claude/codingrules.md` sections 3, 4, 
 Gates, all green at handover (run from the repo root):
 
 ```
-uv run ruff format --check packages ; uv run ruff check ; uv run mypy ; uv run lint-imports
+uv run ruff format --check . ; uv run ruff check . ; uv run mypy ; uv run lint-imports   # the whole repo, as CI does: ruff also formats Python blocks in markdown
 uv run python scripts/check_sizes.py ; uv run python scripts/check_fanout.py
 uv run python scripts/check_no_model_ids.py ; uv run python scripts/check_no_kind_branches.py
 uv run python scripts/check_no_transcripts.py
 uv run pytest -q -m "not integration and not e2e and not live_llm and not local_llm" -p no:cacheprovider   # 4890 passed
+uv run pytest -q -m "not integration and not e2e and not live_llm and not local_llm" --cov --cov-report= -p no:cacheprovider   # CI runs with coverage; it is slower and once broke the fake-clock pump
 uv run pytest -q -m e2e packages/hivemind/tests/e2e -p no:cacheprovider                                  # 52 passed, 4 runs in a row
 ```
 
@@ -115,8 +116,13 @@ Where to look when a run misbehaves:
 
 ```python
 import sqlite3, json
-con = sqlite3.connect("file:hive.sqlite3?mode=ro", uri=True)   # beside hive.toml; safe while a run holds it (WAL)
-for at, kind, subj, body in con.execute("select at, kind, subject_id, body from pheromone_events where at > '2026-09-16T18:00' order by at"):
+
+con = sqlite3.connect(
+    "file:hive.sqlite3?mode=ro", uri=True
+)  # beside hive.toml; safe while a run holds it (WAL)
+for at, kind, subj, body in con.execute(
+    "select at, kind, subject_id, body from pheromone_events where at > '2026-09-16T18:00' order by at"
+):
     print(at[11:23], kind, subj[:24], json.loads(body).get("payload"))
 ```
 

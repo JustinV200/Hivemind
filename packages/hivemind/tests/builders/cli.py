@@ -70,6 +70,9 @@ __all__ = ["ManifestTuning", "fake_manifest", "pump_until_done"]
 _PUMP_STEP_S = 0.02
 _PUMP_YIELDS_PER_STEP = 50
 _PUMP_STEP_LIMIT = 2_000
+# Real (not fake-clock) time granted per step for thread hops to land; 39 steps in a normal run,
+# so this costs about 40 ms there and is what makes the pump hold on a slow or traced runner.
+_PUMP_REAL_PAUSE_S = 0.001
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -318,6 +321,12 @@ async def pump_until_done[ResultT](
             if task.done():
                 break
             await asyncio.sleep(0)
+        if not task.done():
+            # A zero-length sleep only turns the loop; it never lets a store's worker thread
+            # finish a SQLite hop. Without one real pause per step the fake clock races ahead of
+            # work still in flight, and under coverage tracing (CI's own test step, where every
+            # hop is slower) the scenario never settles however many steps it is given.
+            await asyncio.sleep(_PUMP_REAL_PAUSE_S)
     if not task.done():
         task.cancel()
         raise AssertionError(f"pump_until_done gave up after {limit} clock advances.")
