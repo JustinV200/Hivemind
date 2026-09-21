@@ -125,3 +125,7 @@ ADRs that exist today, in numeric order:
 - `0024-clustering-protocol.md`: Clustering pauses per provider through the checkpoint-and-Handoff
   path, keeps leases and Cells alive, resumes from Handoffs without redoing work, and takes
   `hive cluster` / `hive wake` orders through a durable table the running Queen polls.
+- `0025-leavings-declared-by-the-plan-decided-by-policy.md`: what a task may leave on a Cell is
+  declared by the plan and never widened by a bee, decided by a pure policy table whose `DENY`
+  restores rather than rejects, asked of the human only on `ASK`, and listed in a ledger that
+  keeps the original bytes, so "left as found" means the snapshot plus exactly the ledger's paths.
