@@ -28,9 +28,10 @@ Key invariants:
       (codingrules section 8.7; enforced by Cell's own validator).
     - RealCellLease.state only ever moves along hivemind.cell.lease_state.TRANSITIONS, and every
       move writes its own trail event in the same call that changes it.
-    - hivemind.cell.local (the Hive Stand, phase 3 step 3.11) is the one place under this package
-      that may import subprocess/asyncio.subprocess (codingrules section 4; the root pyproject.toml
-      import-linter contract enforces it).
+    - hivemind.cell.local (the Hive Stand, phase 3 step 3.11) and hivemind.cell.in_cell (code
+      already running inside its own Virtual Cell, roadmap step 5.5) are the two places under
+      this package that may import subprocess/asyncio.subprocess (codingrules section 4; the root
+      pyproject.toml import-linter contract covers `hivemind.cell.**` as a whole).
 
 See Also:
     - .claude/codingrules.md section 4 for the layer 2 row this package occupies.
@@ -59,13 +60,16 @@ Public API:
       roll a Cell back (hivemind.cell.snapshot).
     - FakeSession, FakeCellSource, FakeLeaseReleaser, Responder: an in-memory implementation of
       both Protocols (hivemind.cell.fake).
+    - InCellSession, InCellLeaseReleaser: a CellSession for code already running inside its own
+      Virtual Cell (roadmap step 5.5; hivemind.cell.in_cell).
     - CellError, LeaseRefusedError, SessionClosedError, CommandTimeoutError, PathNotAllowedError,
       SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError,
       ScratchQuotaExceededError: this package's error tree (hivemind.cell.errors).
     - hivemind.cell.local: the Hive Stand, the first Real Cell source (roadmap step 3.11): see
       its own README for HiveStandConfig, HiveStandSource, LocalProcessSession and
       HiveStandLeaseReleaser, not re-exported here (codingrules section 4: `hivemind.cell.local`
-      is the one place under this package allowed to import `subprocess`).
+      is one of the places under this package allowed to import `subprocess`, alongside
+      `hivemind.cell.in_cell`).
 """
 
 from hivemind.cell.errors import (
@@ -80,6 +84,7 @@ from hivemind.cell.errors import (
     SnapshotUnsupportedError,
 )
 from hivemind.cell.fake import FakeCellSource, FakeLeaseReleaser, FakeSession, Responder
+from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
 from hivemind.cell.lease import (
     LeaseFacts,
     LeaseReleaser,
@@ -128,6 +133,8 @@ __all__ = [
     "FakeLeaseReleaser",
     "FakeSession",
     "HoneyClearance",
+    "InCellLeaseReleaser",
+    "InCellSession",
     "InvalidLeaseTransitionError",
     "Isolation",
     "LeaseFacts",

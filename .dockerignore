@@ -1,0 +1,36 @@
+# Repository-root .dockerignore, for images/*/Dockerfile builds run with this directory as their
+# build context (roadmap step 5.3; see images/base-ubuntu/README.md's own "Build context"
+# section). Keeps the context small and reproducible: only the uv workspace manifest, lockfile
+# and the two source trees a Cell image's Dockerfile actually COPYs ever need to be sent.
+
+# Version control and editor/OS cruft.
+.git/
+.gitattributes
+.github/
+.gitignore
+.editorconfig
+
+# Local virtual environments and caches -- never something a Dockerfile should copy from the
+# host; every image installs its own, from uv.lock, inside its own build stage.
+.venv/
+**/__pycache__/
+**/*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.json
+htmlcov/
+
+# Tests, docs and the front end: no image under images/ ever references any of these.
+**/tests/
+docs/
+packages/observation-web/
+
+# The other two image directories: a given image's own Dockerfile only ever COPYs its own
+# packages/*/pyproject.toml and packages/*/src, never a sibling image's directory.
+images/desktop-ubuntu/
+images/night-veil-ubuntu/
+
+# Dev tooling not needed inside any built image.
+scripts/

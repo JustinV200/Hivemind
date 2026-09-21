@@ -958,7 +958,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   `asyncio.to_thread`: create container from spec with resource limits and a network policy
   (`none`, `egress-only`, `allowlist`), wait for `CellReady` and the Warden's first `Heartbeat`,
   destroy with volume cleanup. Contract suite passes. Integration test marked.
-- [ ] **5.5 In-Cell session and Warden spawn strategy.** `cell/in_cell.py`: `InCellSession`, used
+- [x] **5.5 In-Cell session and Warden spawn strategy.** `cell/in_cell.py`: `InCellSession`, used
   when the Warden and its sub-bees run inside the Virtual Cell. `wardens/spawn/` gains the
   `in_cell` strategy. `CellSession` contract suite runs over local, in-cell and fake.
 - [ ] **5.6 Virtual Cell lifecycle.** `hive/lifecycle.py`: `provision → Warden ready → grant →

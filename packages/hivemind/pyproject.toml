@@ -18,6 +18,9 @@ waggle = { workspace = true }  # Resolve waggle from this workspace, not from an
 [project.scripts]
 # Registers the `hive` command, backed by the composition root added in roadmap step 0.6.
 hive = "hivemind.cli.app:main"
+# Registers the in-Cell Warden entry point (roadmap step 5.5): images/base-ubuntu's ENTRYPOINT
+# invokes this to connect a Virtual Cell out to the Queen; see hivemind.cli.in_cell's own README.
+hivemind-in-cell = "hivemind.cli.in_cell.main:main"
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]

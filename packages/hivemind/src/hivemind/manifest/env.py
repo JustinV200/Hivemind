@@ -8,12 +8,18 @@ field per recognised variable; nothing outside this function ever calls ``enviro
 ``HiveManifest``, replacing only the fields an operator actually set. ``provider_api_key`` is the
 one place a provider's secret is read: never from the manifest file itself (codingrules section 13
 forbids an `api_key` field entirely), always from an environment variable, held in a
-``pydantic.SecretStr`` whose `repr` never shows the value.
+``pydantic.SecretStr`` whose `repr` never shows the value. ``read_in_cell_env`` is the same rule
+for a different composition root (roadmap step 5.5): the in-Cell Warden entry point
+(``hivemind.cli.in_cell``) has no Hive Manifest to load inside its Virtual Cell image, so every
+value it needs -- the Queen's Waggle URL, this Cell's own id and signing key, the Queen's verify
+key -- is read here too, into ``InCellEnv``, rather than opening a second `HIVEMIND_*` reading
+site.
 
 Fits into the Hive:
-    Layer 1 (foundational services; capacity as data). Called by ``hivemind.manifest.loader.
-    load_manifest`` when a caller passes an `environ` mapping, and directly by whatever constructs
-    a provider adapter (a later roadmap step) to read that provider's API key. Calls into
+    Layer 1 (foundational services; capacity as data). ``read_env``/``apply_env`` are called by
+    ``hivemind.manifest.loader.load_manifest`` when a caller passes an `environ` mapping;
+    ``provider_api_key`` directly by whatever constructs a provider adapter; ``read_in_cell_env``
+    by ``hivemind.cli.in_cell``, the in-Cell Warden's own composition root. Calls into
     ``hivemind.manifest.errors`` and ``hivemind.manifest.schema`` only.
 
 Key invariants:
@@ -31,6 +37,10 @@ Key invariants:
       raising `ManifestError` if the result is inconsistent (`model_copy` alone never re-runs a
       validator, so an override that recreates the offline/loopback or slot-completeness problem
       would otherwise slip through silently).
+    - `read_in_cell_env` never raises for a missing variable and never parses key material into
+      bytes: it only extracts what `environ` holds, exactly like `read_env`; `hivemind.cli.in_cell`
+      decides which fields are required and does the hex/file parsing itself, so this module's own
+      "read the environment, nothing else" scope never grows a second kind of side effect.
 
 See Also:
     - .claude/codingrules.md section 13 for "environment variables are read in exactly one place".
@@ -56,7 +66,14 @@ _TRUE_BOOL_LITERALS = frozenset({"1", "true", "yes"})
 # The two [hive] env values; kept as a tuple so the validator's error message can list them.
 _ENV_LITERALS = ("dev", "prod")
 
-__all__ = ["EnvOverrides", "apply_env", "provider_api_key", "read_env"]
+__all__ = [
+    "EnvOverrides",
+    "InCellEnv",
+    "apply_env",
+    "provider_api_key",
+    "read_env",
+    "read_in_cell_env",
+]
 
 # A frozen, extras-forbidding config matching every other boundary value (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -108,6 +125,92 @@ def read_env(environ: Mapping[str, str]) -> EnvOverrides:
         hive_stand_scratch_root=Path(scratch_root) if scratch_root is not None else None,
         log_level=environ.get("HIVEMIND_LOG_LEVEL"),
         env=_read_env_literal(environ),
+    )
+
+
+class InCellEnv(BaseModel):
+    """Every `HIVEMIND_*` value the in-Cell Warden entry point (`hivemind.cli.in_cell`) reads.
+
+    Unlike `EnvOverrides`, none of these override a `HiveManifest` section -- a Virtual Cell image
+    carries no manifest of its own. `None` means the variable is not set; this module never
+    decides which of these are required (`read_env`'s own rule: extraction only), so
+    `hivemind.cli.in_cell` raises its own error for whichever one it cannot start without.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    queen_waggle_url: str | None = Field(
+        default=None, description="HIVEMIND_QUEEN_WAGGLE_URL: the URL this Cell dials out to."
+    )
+    cell_id: str | None = Field(
+        default=None, description="HIVEMIND_CELL_ID: the id the Queen minted for this Cell."
+    )
+    hive_id: str | None = Field(
+        default=None,
+        description="HIVEMIND_HIVE_ID: the Queen's own bee address (sender/"
+        "recipient on the wire, waggle.ids.IdKind.HIVE), not a NodeId.",
+    )
+    queen_node_id: str | None = Field(
+        default=None,
+        description="HIVEMIND_QUEEN_NODE_ID: the node id the Queen signs its own frames as, so "
+        "this Cell's Verifier knows whose signature to check (waggle.signing.Ed25519Verifier is "
+        "keyed by node_id, not by hive_id).",
+    )
+    signing_key_hex: SecretStr | None = Field(
+        default=None,
+        description="HIVEMIND_CELL_SIGNING_KEY: this Cell's own Ed25519 private key, hex-encoded "
+        "(the Queen provisions it into the container at create time).",
+    )
+    signing_key_file: Path | None = Field(
+        default=None,
+        description="HIVEMIND_CELL_SIGNING_KEY_FILE: a file holding the same hex text, for a "
+        "mounted secret instead of a bare environment variable (codingrules section 15).",
+    )
+    queen_verify_key_hex: str | None = Field(
+        default=None,
+        description="HIVEMIND_QUEEN_VERIFY_KEY: the Queen's own Ed25519 public key, hex-encoded, "
+        "so this Cell can verify frames the Queen sends.",
+    )
+    queen_verify_key_file: Path | None = Field(
+        default=None,
+        description="HIVEMIND_QUEEN_VERIFY_KEY_FILE: a file holding the same hex text.",
+    )
+    socks_proxy_url: str | None = Field(
+        default=None,
+        description="HIVEMIND_SOCKS_PROXY_URL: a SOCKS proxy Waggle should dial through once "
+        "Night Veil routes it over Tor (roadmap step 5.7a); carried here, not yet acted on.",
+    )
+    log_level: str | None = Field(
+        default=None,
+        description="HIVEMIND_LOG_LEVEL: read by hivemind.common.logging's setup, the same "
+        "variable name (and meaning) EnvOverrides.log_level reads for the Hive Stand.",
+    )
+
+
+def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
+    """Read every `HIVEMIND_*` variable the in-Cell Warden entry point needs.
+
+    Args:
+        environ: A raw environment mapping, e.g. `os.environ` at `hivemind.cli.in_cell`'s own
+            composition root; this function never reads `os.environ` itself (codingrules 13).
+
+    Returns:
+        An InCellEnv with one field set per variable actually present in `environ`.
+    """
+    signing_key = environ.get("HIVEMIND_CELL_SIGNING_KEY")
+    signing_key_file = environ.get("HIVEMIND_CELL_SIGNING_KEY_FILE")
+    verify_key_file = environ.get("HIVEMIND_QUEEN_VERIFY_KEY_FILE")
+    return InCellEnv(
+        queen_waggle_url=environ.get("HIVEMIND_QUEEN_WAGGLE_URL"),
+        cell_id=environ.get("HIVEMIND_CELL_ID"),
+        hive_id=environ.get("HIVEMIND_HIVE_ID"),
+        queen_node_id=environ.get("HIVEMIND_QUEEN_NODE_ID"),
+        signing_key_hex=SecretStr(signing_key) if signing_key is not None else None,
+        signing_key_file=Path(signing_key_file) if signing_key_file is not None else None,
+        queen_verify_key_hex=environ.get("HIVEMIND_QUEEN_VERIFY_KEY"),
+        queen_verify_key_file=Path(verify_key_file) if verify_key_file is not None else None,
+        socks_proxy_url=environ.get("HIVEMIND_SOCKS_PROXY_URL"),
+        log_level=environ.get("HIVEMIND_LOG_LEVEL"),
     )
 
 

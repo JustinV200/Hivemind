@@ -3,10 +3,11 @@
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
     hivemind.cell.session.CellSession contract and runs against every implementation registered
-    in `_HARNESSES` below: `hivemind.cell.fake.FakeSession` (phase 3 step 3.10) and
-    `hivemind.cell.local.LocalProcessSession`, the Hive Stand's own session (phase 3 step 3.11). A
-    new CellSession implementation adds a `SessionHarness` here and must pass this suite before it
-    is used anywhere else (codingrules 14.3).
+    in `_HARNESSES` below: `hivemind.cell.fake.FakeSession` (phase 3 step 3.10),
+    `hivemind.cell.local.LocalProcessSession`, the Hive Stand's own session (phase 3 step 3.11),
+    and `hivemind.cell.in_cell.InCellSession`, for code already running inside its own Virtual
+    Cell (roadmap step 5.5). A new CellSession implementation adds a `SessionHarness` here and
+    must pass this suite before it is used anywhere else (codingrules 14.3).
 
     Every case name a harness supports maps to a fixed, kind-independent outcome (`_LOCAL_SCRIPTS`
     keys below): "echo" writes `_STDOUT_TEXT` to stdout and exits 0, "both" writes both
@@ -22,6 +23,7 @@ See Also:
     - hivemind.cell.session for the CellSession protocol under test.
     - hivemind.cell.fake for FakeSession, the first implementation registered here.
     - hivemind.cell.local for LocalProcessSession, the Hive Stand's own implementation.
+    - hivemind.cell.in_cell for InCellSession, the in-Cell implementation (roadmap step 5.5).
     - packages/hivemind/tests/contracts/test_pheromone_trail_contract.py for the pattern this
       suite's harness-per-implementation shape mirrors.
 """
@@ -37,9 +39,11 @@ from builders.cells import make_real_cell_lease
 
 from hivemind.cell.errors import CommandTimeoutError, PathNotAllowedError, SessionClosedError
 from hivemind.cell.fake import FakeSession
+from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
+from hivemind.cell.local.process import EXIT_COMMAND_NOT_STARTED
 from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.releaser import HiveStandLeaseReleaser
-from hivemind.cell.local.session import EXIT_COMMAND_NOT_STARTED, LocalProcessSession
+from hivemind.cell.local.session import LocalProcessSession
 from hivemind.cell.session import CellSession, CompletedCommand, ExecSpec, ExitStatus, run
 from waggle.clock import FakeClock, SystemClock
 
@@ -132,7 +136,37 @@ class _LocalHarness:
         return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
 
 
-_HARNESSES: dict[str, SessionHarness] = {"fake": _FakeHarness(), "local": _LocalHarness()}
+class _InCellHarness:
+    """Builds an InCellSession over a real, unopened RealCellLease and a real subprocess.
+
+    Shares `_LOCAL_SCRIPTS`/`command_for` with `_LocalHarness`: the outcome an InCellSession
+    produces for each case is identical to LocalProcessSession's -- both run the exact same
+    `python -c` script -- which is the point of one contract suite covering both.
+    """
+
+    def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
+        # A real SystemClock, matching _LocalHarness's own reasoning: real child processes, real
+        # exit and timeout timing.
+        clock = SystemClock()
+        lease = make_real_cell_lease(
+            tmp_path,
+            clock=clock,
+            releaser=InCellLeaseReleaser(clock),
+            allowed_paths=allowed_paths,
+        )
+        return InCellSession(lease, clock)
+
+    def command_for(self, case: str) -> tuple[str, ...]:
+        if case == "missing":
+            return (_MISSING_EXECUTABLE,)
+        return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
+
+
+_HARNESSES: dict[str, SessionHarness] = {
+    "fake": _FakeHarness(),
+    "in_cell": _InCellHarness(),
+    "local": _LocalHarness(),
+}
 
 
 @pytest.fixture(params=sorted(_HARNESSES))

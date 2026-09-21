@@ -1,4 +1,4 @@
-"""Tests for hivemind.manifest.env: read_env, apply_env, provider_api_key.
+"""Tests for hivemind.manifest.env: read_env, apply_env, provider_api_key, read_in_cell_env.
 
 Fits into the Hive:
     Mirrors src/hivemind/manifest/env.py (codingrules section 3: tests/unit mirrors src/
@@ -19,7 +19,13 @@ import pytest
 from pydantic import SecretStr
 
 from hivemind.forage import ModelSlot
-from hivemind.manifest.env import EnvOverrides, apply_env, provider_api_key, read_env
+from hivemind.manifest.env import (
+    EnvOverrides,
+    apply_env,
+    provider_api_key,
+    read_env,
+    read_in_cell_env,
+)
 from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.schema import HiveManifest, ProviderSpec
 from waggle.clock import FakeClock
@@ -194,3 +200,55 @@ def test_provider_api_key_returns_none_when_not_set() -> None:
     spec = ProviderSpec(kind="openai_compat", base_url="http://127.0.0.1:11434/v1")
 
     assert provider_api_key("local", spec, {}) is None
+
+
+def test_read_in_cell_env_returns_all_none_when_nothing_is_set() -> None:
+    env = read_in_cell_env({})
+
+    assert env.queen_waggle_url is None
+    assert env.cell_id is None
+    assert env.hive_id is None
+    assert env.queen_node_id is None
+    assert env.signing_key_hex is None
+    assert env.signing_key_file is None
+    assert env.queen_verify_key_hex is None
+    assert env.queen_verify_key_file is None
+    assert env.socks_proxy_url is None
+
+
+def test_read_in_cell_env_reads_every_recognised_variable() -> None:
+    env = read_in_cell_env(
+        {
+            "HIVEMIND_QUEEN_WAGGLE_URL": "wss://queen.example.org:8443/waggle",
+            "HIVEMIND_CELL_ID": "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "HIVEMIND_HIVE_ID": "hive_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "HIVEMIND_QUEEN_NODE_ID": "node_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "HIVEMIND_CELL_SIGNING_KEY": "aa" * 32,
+            "HIVEMIND_QUEEN_VERIFY_KEY": "bb" * 32,
+            "HIVEMIND_SOCKS_PROXY_URL": "socks5://127.0.0.1:9050",
+        }
+    )
+
+    assert env.queen_waggle_url == "wss://queen.example.org:8443/waggle"
+    assert env.cell_id == "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    assert env.hive_id == "hive_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    assert env.queen_node_id == "node_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    assert env.signing_key_hex is not None
+    assert env.signing_key_hex.get_secret_value() == "aa" * 32
+    assert "aa" * 32 not in repr(env.signing_key_hex)
+    assert env.queen_verify_key_hex == "bb" * 32
+    assert env.socks_proxy_url == "socks5://127.0.0.1:9050"
+
+
+def test_read_in_cell_env_reads_key_file_paths_separately_from_inline_values() -> None:
+    env = read_in_cell_env(
+        {
+            "HIVEMIND_CELL_SIGNING_KEY_FILE": "/run/secrets/cell-signing-key",
+            "HIVEMIND_QUEEN_VERIFY_KEY_FILE": "/run/secrets/queen-verify-key",
+        }
+    )
+
+    assert env.signing_key_hex is None
+    assert env.signing_key_file == Path("/run/secrets/cell-signing-key")
+    assert env.queen_verify_key_hex is None
+    assert env.queen_verify_key_file == Path("/run/secrets/queen-verify-key")

@@ -39,11 +39,19 @@ Public API:
       MANIFEST_KEY_PATTERN, ForageSection, SupervisionSection, MemorySection, SecuritySection,
       TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix.
     - Loading (`hivemind.manifest.loader`): load_manifest.
-    - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key.
+    - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
+      InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
 """
 
-from hivemind.manifest.env import EnvOverrides, apply_env, provider_api_key, read_env
+from hivemind.manifest.env import (
+    EnvOverrides,
+    InCellEnv,
+    apply_env,
+    provider_api_key,
+    read_env,
+    read_in_cell_env,
+)
 from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.loader import load_manifest
 from hivemind.manifest.schema import (
@@ -83,6 +91,7 @@ __all__ = [
     "HiveStandSection",
     "HoneyClearanceSection",
     "HoneySection",
+    "InCellEnv",
     "LlmSection",
     "ManifestError",
     "MemorySection",
@@ -98,4 +107,5 @@ __all__ = [
     "load_manifest",
     "provider_api_key",
     "read_env",
+    "read_in_cell_env",
 ]

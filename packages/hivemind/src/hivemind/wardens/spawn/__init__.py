@@ -8,12 +8,18 @@ carve a grant slice, resolve the assignment's slot to a live model, build the Ca
 `WorkerContext`, start the `WorkerRuntime` and send the sub-bee its first `TaskAssign`;
 `stop_sub_bee` (`spawn.py`) is its counterpart, stopping that runtime cooperatively before falling
 back to a bounded cancel (codingrules section 11: never left cancelled-but-unawaited).
+`InCellSpawnSource` (`in_cell.py`, roadmap step 5.5) is a different kind of "spawn" decision: which
+`RealCellSource` a Warden leases its own Cell through, so a Warden already running inside a Virtual
+Cell opens an `InCellSession` on itself instead of the Hive Stand's `LocalProcessSession`, without
+any code anywhere branching on `cell.kind`.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package.
-    Handles starting and stopping one Worker on the Warden's Cell. `spawn_sub_bee` is called by
-    `hivemind.wardens.ticks.assign` and `hivemind.wardens.ticks.alarms`; `stop_sub_bee` is called
-    by `hivemind.wardens.warden.Warden.stop`.
+    Handles starting and stopping one Worker on the Warden's Cell, and which RealCellSource a
+    Warden leases that Cell through. `spawn_sub_bee` is called by `hivemind.wardens.ticks.assign`
+    and `hivemind.wardens.ticks.alarms`; `stop_sub_bee` is called by `hivemind.wardens.warden.
+    Warden.stop`; `InCellSpawnSource` is built and injected as `WardenDeps.source` by
+    `hivemind.cli.in_cell`, the in-Cell Warden's own composition root.
 
 Key invariants:
     - `spawn_sub_bee`'s runtime task is returned, never dropped: its caller tracks, awaits or
@@ -28,9 +34,22 @@ Public API (roadmap step 3.19):
     - SubBee: the Warden's own bookkeeping row for one sub-bee (sub_bee).
     - WardenCellContext, spawn_sub_bee, stop_sub_bee: start and stop one sub-bee within a grant
       (spawn).
+
+Public API (roadmap step 5.5):
+    - InCellSpawnConfig, InCellSpawnSource: the `in_cell` strategy -- a RealCellSource for a
+      Warden already running inside its own Virtual Cell, chosen by injecting it as
+      `WardenDeps.source` rather than by branching on `cell.kind` (in_cell).
 """
 
+from hivemind.wardens.spawn.in_cell import InCellSpawnConfig, InCellSpawnSource
 from hivemind.wardens.spawn.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
 from hivemind.wardens.spawn.sub_bee import SubBee
 
-__all__ = ["SubBee", "WardenCellContext", "spawn_sub_bee", "stop_sub_bee"]
+__all__ = [
+    "InCellSpawnConfig",
+    "InCellSpawnSource",
+    "SubBee",
+    "WardenCellContext",
+    "spawn_sub_bee",
+    "stop_sub_bee",
+]
