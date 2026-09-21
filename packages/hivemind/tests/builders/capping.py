@@ -30,6 +30,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from hivemind.cell import HoneyClearance
@@ -48,6 +49,7 @@ from waggle.clock import Clock, FakeClock
 from waggle.ids import new_cell_id, new_message_id, new_task_id, new_worker_id
 from waggle.messages.capping import ActionKind, CheckKind, ProposedAction
 from waggle.messages.labels import Postcondition, PostconditionKind
+from waggle.messages.supervision import Answer, Question
 
 # Kinds whose Postcondition needs a command to run, and kinds that compare against `expected`;
 # mirrors waggle.messages.labels's own _COMMAND_KINDS/_COMPARISON_KINDS partition.
@@ -59,6 +61,7 @@ _COMPARISON_POSTCONDITION_KINDS = frozenset(
 )
 
 __all__ = [
+    "FakeAsker",
     "FakeLeaseView",
     "RepeatingJudgeReviewer",
     "make_action",
@@ -262,6 +265,7 @@ class FakeLeaseView:
         self._allowed_paths = allowed_paths
         self.touched_paths: list[Path] = []
         self.restore_records: list[tuple[Path, bytes | None]] = []
+        self.persist_records: list[tuple[Path, bool, ApprovedBy | None, str | None]] = []
 
     @property
     def scratch_root(self) -> Path:
@@ -295,13 +299,15 @@ class FakeLeaseView:
         approved_by: ApprovedBy | None = None,
         reason: str | None = None,
     ) -> None:
-        """Record `(path, prior)` on `restore_records`; `persist`/`approved_by`/`reason` unused.
+        """Record `(path, prior)` on `restore_records`, and the full call on `persist_records`.
 
-        No caller under test (`hivemind.supervision.capping.apply`) sets these yet (roadmap steps
-        5.0c/5.0d decide `persist`); matching the real `LeaseView.note_restore_path`'s full
-        signature here is what keeps this class a structurally honest fake.
+        `restore_records` keeps its original two-field shape so every test written before roadmap
+        step 5.0c keeps reading it unchanged; `persist_records` is the roadmap-5.0c-and-later
+        shape, for a test that wants to assert what a leave-policy decision actually passed
+        through (`persist`, `approved_by`, `reason`).
         """
         self.restore_records.append((path, prior))
+        self.persist_records.append((path, persist, approved_by, reason))
 
 
 class RepeatingJudgeReviewer:
@@ -329,3 +335,32 @@ class RepeatingJudgeReviewer:
         """Record `request` on `calls` and return `self.verdict`, unconditionally."""
         self.calls.append(request)
         return self.verdict
+
+
+class FakeAsker:
+    """An in-memory `hivemind.supervision.capping.leave.Asker`: answers or hangs, by script.
+
+    Implements `Asker` structurally, the same way `FakeLeaseView` implements `LeaseView`: records
+    every `Question` it was asked on `questions`, and either returns a scripted `Answer` or hangs
+    forever (`hang=True`, for `hivemind.supervision.capping.checks.human.HumanCheck`'s own timeout
+    race -- `reap` cancels the hung `ask()` call once the clock-driven timeout wins).
+    """
+
+    def __init__(self, answer: Answer | None = None, *, hang: bool = False) -> None:
+        """Build a FakeAsker that answers with `answer`, or hangs until cancelled.
+
+        Args:
+            answer: The Answer `ask` returns; required unless `hang` is True.
+            hang: True to never return, so a caller's own timeout race decides the outcome.
+        """
+        self._answer = answer
+        self._hang = hang
+        self.questions: list[Question] = []
+
+    async def ask(self, question: Question) -> Answer:
+        """Record `question` and return the scripted Answer, or hang forever."""
+        self.questions.append(question)
+        if self._hang:
+            await asyncio.Future()  # Never resolves; only cancellation (reap) ends this await.
+        assert self._answer is not None, "FakeAsker.ask called with no answer scripted."
+        return self._answer

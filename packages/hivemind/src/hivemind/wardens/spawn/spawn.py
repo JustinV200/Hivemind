@@ -140,6 +140,20 @@ class _SubBeeGrant:
     call_gate: CallGate
 
 
+@dataclass(frozen=True, slots=True)
+class _SpawnedBeeFacts:
+    """Bundles a sub-bee's own id, model binding and CapabilitySet (codingrules 5.1).
+
+    Keeps `_build_worker_context` within the parameter limit once its own `capping_gate` argument
+    (roadmap step 5.0c: built ahead of time in `spawn_sub_bee`, now that it also needs
+    `assignment.leaves`) is added alongside `ctx` and `sub_bee_grant`.
+    """
+
+    worker_id: WorkerId
+    bound: BoundModel
+    capabilities: CapabilitySet
+
+
 class _NullAsker:
     """A placeholder QuestionChannel; `WorkerRuntime.__init__` always replaces it with its own.
 
@@ -184,8 +198,10 @@ async def spawn_sub_bee(
     binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
     bound = deps.rebind(binding_key)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
+    facts = _SpawnedBeeFacts(worker_id=worker_id, bound=bound, capabilities=capabilities)
 
-    worker_ctx = _build_worker_context(ctx, worker_id, bound, sub_bee_grant, capabilities)
+    capping_gate = _build_capping_gate(ctx, assignment)
+    worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
 
     await _record_spawned(deps, worker_id, assignment)
@@ -231,13 +247,15 @@ async def stop_sub_bee(
     await reap(sub_bee.runtime_task)
 
 
-def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
+def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> AuditingCappingGate:
     """Build this sub-bee's own CappingGate (codingrules section 8.12: nothing lands uncapped).
 
     Roadmap step 4.10: an `AuditingCappingGate`, not a plain `CappingGate`, so a terminal proposal
     at a tier the table marks ungated in real time is still sampled for after-the-fact judge
     review, using this Warden's own `WardenDeps.judge_reviewer`/`.judge_rubrics`/`.audit_sampler`/
-    `.findings_sink`/`.audit_rates`.
+    `.findings_sink`/`.audit_rates`. Roadmap step 5.0c: also carries this Warden's own leave-policy
+    fields, plus `assignment.leaves` -- this one sub-bee's own declared Leavings, never widened
+    beyond what its TaskAssign actually carries.
     """
     deps = ctx.deps
     return AuditingCappingGate(
@@ -254,6 +272,10 @@ def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
             ),
             clock=deps.clock,
             checks=deps.checks,
+            leave_policy=deps.leave_policy,
+            declared_leaves=assignment.leaves,
+            keep_root=deps.keep_root,
+            leave_home=deps.leave_home,
         ),
         AuditWiring(
             reviewer=deps.judge_reviewer,
@@ -284,28 +306,27 @@ def _build_sub_bee_grant(
 
 def _build_worker_context(
     ctx: WardenCellContext,
-    worker_id: WorkerId,
-    bound: BoundModel,
+    facts: _SpawnedBeeFacts,
     sub_bee_grant: _SubBeeGrant,
-    capabilities: CapabilitySet,
+    capping_gate: AuditingCappingGate,
 ) -> WorkerContext:
     """Assemble the WorkerContext one sub-bee runs its role inside."""
     deps = ctx.deps
     return WorkerContext(
-        worker_id=worker_id,
+        worker_id=facts.worker_id,
         cell=ctx.cell,
         session=ctx.session,
-        bound=bound,
+        bound=facts.bound,
         grant=sub_bee_grant.slice,
-        capabilities=capabilities,
+        capabilities=facts.capabilities,
         memory=deps.memory,
         trail=deps.trail,
         clock=deps.clock,
         asker=_NullAsker(),
         identity=deps.identity,
-        telemetry=TelemetryTracker(context_window=bound.context_window),
+        telemetry=TelemetryTracker(context_window=facts.bound.context_window),
         handoff_threshold=deps.handoff_threshold,
-        capping=_build_capping_gate(ctx),
+        capping=capping_gate,
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
     )

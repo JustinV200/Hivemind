@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from hivemind.cell import RealCellSource
 from hivemind.forage.tempo import Tempo
@@ -63,6 +64,7 @@ from hivemind.supervision.capping import (
     load_judge_rubrics,
 )
 from hivemind.supervision.capping.checks import Check
+from hivemind.supervision.capping.leave import LeavePolicyTable, load_leave_policy
 from hivemind.supervision.capping.tiers import TierTable
 from hivemind.workers import Worker
 from waggle.clock import Clock
@@ -132,6 +134,13 @@ class WardenDeps:
             ordering and spill threshold (codingrules section 8.14). `call_gate` above stays
             the Warden's own unattributed lane, used for its own awake episodes and by any
             test that never names this field.
+        leave_policy: The leave policy every sub-bee's `CappingGate` decides an outside-scratch
+            write against (roadmap step 5.0c). Defaults to the shipped `leave-policy.toml`.
+        keep_root: The manifest's `[hive_stand] keep_root`, or None until roadmap step 5.0e wires
+            it; threaded into every sub-bee's `GateDeps.keep_root` unchanged.
+        leave_home: This Warden's own Cell's home directory, for `~`-rooted `leaves` pattern
+            expansion (roadmap step 5.0c); defaults to this process's own home, correct for the
+            Hive Stand (v0's only Real Cell source).
     """
 
     source: RealCellSource
@@ -166,6 +175,13 @@ class WardenDeps:
     lane_for_grant: Callable[[str, str, Tempo], CallGate] = field(
         default_factory=lambda: _default_lane_for_grant
     )
+    # Roadmap step 5.0c (leave policy): additive fields, every one defaulted so a WardenDeps built
+    # before this dispatch (every existing test) keeps building unchanged. keep_root stays None
+    # until roadmap step 5.0e wires [hive_stand] keep_root; leave_home defaults to this process's
+    # own home directory, correct for the Hive Stand (v0's only Real Cell source).
+    leave_policy: LeavePolicyTable = field(default_factory=load_leave_policy)
+    keep_root: Path | None = None
+    leave_home: Path = field(default_factory=Path.home)
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

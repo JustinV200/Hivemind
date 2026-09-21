@@ -18,6 +18,14 @@ def test_load_judge_rubrics_reads_the_shipped_v0_table() -> None:
     assert set(rubrics) == set(RiskTier)
 
 
+def test_outside_scratch_write_rubric_checks_the_tasks_stated_objective() -> None:
+    """Roadmap step 5.0c: the judge rubric gains a criterion an over-declaring plan cannot dodge."""
+    rubric = load_judge_rubrics()[RiskTier.OUTSIDE_SCRATCH_WRITE]
+
+    assert "stated objective" in rubric.text
+    assert rubric.rubric_id == "outside_scratch_write-v2"
+
+
 @pytest.mark.parametrize("tier", list(RiskTier))
 def test_every_shipped_rubric_has_a_rubric_id_and_nonempty_text(tier: RiskTier) -> None:
     rubrics = load_judge_rubrics()

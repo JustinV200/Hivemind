@@ -63,3 +63,17 @@ async def test_ask_rejects_an_empty_text() -> None:
     result = await ask(invocation, {"text": ""})
 
     assert result == "text must be a non-empty string."
+
+
+async def test_ask_refuses_the_capping_gates_own_leave_options() -> None:
+    # The Queen remembers a human's answer to a Question with these options (roadmap 5.0d), so a
+    # model wording one itself would be asking for approvals the human never saw.
+    invocation, asker = _make_invocation_and_asker()
+
+    result = await ask(
+        invocation,
+        {"text": "Shall I continue?", "options": ["Keep", " keep for this whole goal ", "DISCARD"]},
+    )
+
+    assert "reserved" in result
+    assert asker.questions == []

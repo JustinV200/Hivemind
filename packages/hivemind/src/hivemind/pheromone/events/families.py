@@ -53,7 +53,10 @@ Vocabulary (family -> kind -> when it is recorded):
         step 3.20); planned (a goal was decomposed and its task graph persisted, roadmap step
         3.20); assigned (a ready task was placed, granted and assigned to a Warden, roadmap step
         3.20); awake (one stateless awake episode ran for the Queen, roadmap step 3.20 -- distinct
-        from the existing `woke`, reserved for other Queen lifecycle wake-ups).
+        from the existing `woke`, reserved for other Queen lifecycle wake-ups); leave_remembered
+        (the Queen answered a leave Question herself from "keep for this whole goal" memory,
+        roadmap step 5.0d; carries the goal id, Cell id and the original wire question id the
+        remembered answer derives from).
     warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
         moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
@@ -74,9 +77,11 @@ Vocabulary (family -> kind -> when it is recorded):
         rolled_back (postconditions failed after applying, and the effect was undone); audited (a
         sampled, already-terminal proposal was reviewed after the fact by the judge -- roadmap
         step 4.10's AuditSampler, for a tier the table marks as not judge-gated in real time;
-        findings become Nectar and an AUDIT_FAILED Alarm on a REJECT verdict); summary (a per-tier
-        rollup of approved/rejected/rolled_back counts, the only capping.* record kept through a
-        Night Veil teardown, codingrules section 12).
+        findings become Nectar and an AUDIT_FAILED Alarm on a REJECT verdict); leave_decided (the
+        leave policy decided ALLOW/ASK/DENY for one outside-scratch path, roadmap step 5.0c;
+        carries the path, its PathClass and whether it was persisted -- never the human-readable
+        reason); summary (a per-tier rollup of approved/rejected/rolled_back counts, the only
+        capping.* record kept through a Night Veil teardown, codingrules section 12).
     llm: call (one model call completed; carries the normalised Usage, slot and provider);
         rebound (a call was retried on the same binding after a transient failure); fallback (a
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
@@ -267,6 +272,7 @@ class QueenEvent(PheromoneEvent):
             "queen.planned",
             "queen.assigned",
             "queen.awake",
+            "queen.leave_remembered",
         }
     )
 
@@ -336,6 +342,7 @@ class CappingEvent(PheromoneEvent):
             "capping.rejected",
             "capping.rolled_back",
             "capping.audited",
+            "capping.leave_decided",
             "capping.summary",
         }
     )

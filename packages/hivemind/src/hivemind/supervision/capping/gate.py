@@ -25,8 +25,8 @@ Fits into the Hive:
     `run` once it holds the proposing bee's `CapabilitySet` and its own lease. Calls into
     `hivemind.cell` (Cell, CellSession, Snapshotter, SnapshotUnsupportedError),
     `hivemind.pheromone` (CappingEvent, PheromoneTrail), `hivemind.supervision.capping.apply`,
-    `.checks`, `.errors`, `.lease_view`, `.postconditions`, `.proposal`, `.state`, `.tiers` and
-    waggle only.
+    `.checks`, `.errors`, `.lease_view`, `.leave` (roadmap step 5.0c), `.postconditions`,
+    `.proposal`, `.state`, `.tiers` and waggle only.
 
 Key invariants:
     - Every proposal state change goes through `hivemind.supervision.capping.state.
@@ -50,7 +50,8 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -68,12 +69,23 @@ from hivemind.supervision.capping.apply import ApplyResult, apply_action
 from hivemind.supervision.capping.checks import Check, CheckContext, CheckResultRecord
 from hivemind.supervision.capping.errors import UnknownProposalError
 from hivemind.supervision.capping.lease_view import LeaseView
+from hivemind.supervision.capping.leave import (
+    DEFAULT_HUMAN_TIMEOUT_S,
+    Asker,
+    LeaveApplyContext,
+    LeavePolicyTable,
+    build_leave_context,
+    leave_decided_payload,
+    load_leave_policy,
+    with_asker,
+)
 from hivemind.supervision.capping.postconditions import PostconditionOutcome, check_postcondition
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.state import ProposalState, assert_transition, is_terminal
 from hivemind.supervision.capping.tiers import TierTable, checks_for
 from waggle.clock import Clock
 from waggle.ids import MessageId, new_event_id
+from waggle.messages import PlannedLeaving
 from waggle.messages.capping import CheckKind, CheckOutcome, RollbackMethod
 
 __all__ = ["CappingGate", "GateDeps", "GateOutcome"]
@@ -101,6 +113,18 @@ class GateDeps:
     identity: CellIdentity  # hive_id/node_id/actor stamped on every event this gate records.
     clock: Clock  # Source of every minted event id and timestamp.
     checks: Mapping[CheckKind, Check]  # deterministic_checks() in v0; a later phase adds rungs.
+    # Roadmap step 5.0c (leave policy): additive fields, every one defaulted so a GateDeps built
+    # before this dispatch (every existing test) keeps constructing unchanged. declared_leaves
+    # defaults to (): hivemind.supervision.capping.leave.policy.decide always reads an empty
+    # `declared` set as "undeclared" (roadmap 5.0b's hard rule), so an outside-scratch write never
+    # persists until a real caller sets this from its own TaskAssign.leaves.
+    leave_policy: LeavePolicyTable = field(default_factory=load_leave_policy)
+    declared_leaves: tuple[PlannedLeaving, ...] = ()
+    keep_root: Path | None = None  # The manifest's [hive_stand] keep_root; roadmap step 5.0e.
+    leave_home: Path = field(default_factory=Path.home)  # The Hive Stand's own home, v0.
+    # Roadmap step 5.0d: how long HumanCheck.ask waits for an Answer before treating an ASK
+    # verdict as discard; additive, defaulted like every field above it.
+    human_timeout_s: float = DEFAULT_HUMAN_TIMEOUT_S
 
 
 class GateOutcome(BaseModel):
@@ -197,7 +221,11 @@ class CappingGate:
         return tuple(p for p in self._proposals.values() if not is_terminal(p.state))
 
     async def run(
-        self, proposal_id: MessageId, capabilities: CapabilitySet, lease: LeaseView
+        self,
+        proposal_id: MessageId,
+        capabilities: CapabilitySet,
+        lease: LeaseView,
+        asker: Asker | None = None,
     ) -> GateOutcome:
         """Walk `proposal_id` through checking, capping, applying and verifying.
 
@@ -207,6 +235,10 @@ class CappingGate:
                 checks.
             lease: The lease this Cell's session runs under, for path reachability and restore
                 bookkeeping.
+            asker: The proposing bee's own `ctx.asker` (roadmap step 5.0d), so an outside-scratch
+                write whose leave verdict is ASK can raise a Question through it; None (the
+                default) leaves ASK unreachable, resolving to discard exactly as before this rung
+                existed (`hivemind.supervision.capping.checks.human.HumanCheck.resolve`).
 
         Returns:
             The terminal outcome: VERIFIED, REJECTED or ROLLED_BACK.
@@ -214,7 +246,7 @@ class CappingGate:
         Raises:
             UnknownProposalError: `proposal_id` was never `propose`d.
         """
-        ops = _Ops(self._deps, self._transition)
+        ops = _Ops(self._deps, self._transition, asker)
         proposal = self._transition(self.get(proposal_id), ProposalState.CHECKING)
         capped = await _check_and_cap(ops, proposal, capabilities, lease)
         if isinstance(capped, GateOutcome):
@@ -237,15 +269,17 @@ class CappingGate:
 
 @dataclass(frozen=True, slots=True)
 class _Ops:
-    """Bundles `GateDeps` and the bound `CappingGate._transition`, as one parameter.
+    """Bundles `GateDeps`, the bound `CappingGate._transition` and this call's own asker.
 
-    Every free function below takes this instead of `(deps, transition)` separately, which is
-    what keeps each of them within the five-parameter limit (codingrules section 5.1) once its
-    own domain arguments are added.
+    Every free function below takes this instead of the three separately, which is what keeps
+    each of them within the five-parameter limit (codingrules section 5.1) once its own domain
+    arguments are added. `asker` (roadmap step 5.0d) is per-call, not per-gate, unlike the other
+    two: it comes from `CappingGate.run`'s own argument, never from `GateDeps`.
     """
 
     deps: GateDeps
     transition: _Transition
+    asker: Asker | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +310,15 @@ async def _record_event(
         payload=dict(payload),
     )
     await deps.trail.record(event)
+
+
+def _leave_context(ops: _Ops) -> LeaveApplyContext:
+    """Build this apply's own LeaveApplyContext, carrying this call's own asker (roadmap 5.0d)."""
+    deps = ops.deps
+    base = build_leave_context(
+        deps.cell, deps.leave_policy, deps.declared_leaves, deps.keep_root, deps.leave_home
+    )
+    return with_asker(base, ops.asker, deps.human_timeout_s, deps.clock)
 
 
 async def _run_checks(
@@ -362,11 +405,19 @@ async def _apply_and_verify(
 ) -> GateOutcome:
     """Apply the CAPPED proposal, then verify its postconditions or roll back."""
     deps = ops.deps
-    apply_result = await apply_action(deps.session, lease, proposal, deps.session.scratch_dir)
+    apply_result = await apply_action(
+        deps.session, lease, proposal, deps.session.scratch_dir, _leave_context(ops)
+    )
     proposal = ops.transition(proposal, ProposalState.APPLIED)
     await _record_event(
         deps, proposal.id, "capping.applied", {"action_kind": proposal.action.kind.value}
     )
+    # Roadmap step 5.0c: one capping.leave_decided per outside-scratch path this apply decided a
+    # leave verdict for (empty whenever the proposal touched nothing outside scratch).
+    for decision in apply_result.leave_decisions:
+        await _record_event(
+            deps, proposal.id, "capping.leave_decided", leave_decided_payload(decision)
+        )
     outcome = _ApplyOutcome(checks=checks, apply_result=apply_result, snapshot_id=snapshot_id)
     if not apply_result.succeeded:
         # A COMMAND's own non-zero exit is itself the failure; nothing was written that needs

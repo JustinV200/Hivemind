@@ -908,7 +908,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   the goal itself asks to remain ("install X", "set up a project in Y"), never working files;
   snapshot test. A Drone cannot widen `leaves`; it can only raise a `Question`. A path no plan
   declared is never persisted, whatever a tool result or a bee says.
-- [ ] **5.0c Leave policy.** `supervision/capping/leave/`: pure autopilot
+- [x] **5.0c Leave policy.** `supervision/capping/leave/`: pure autopilot
   `decide(request, cell, declared) -> ALLOW | ASK | DENY`, its table as data in
   `leave-policy.toml` beside `capping-tiers.toml`. Inputs, all already known: the Cell's
   `AccessLevel` (`READ_ONLY` and `SCRATCH` always `DENY`) and `CombShieldLevel` (`NIGHT_VEIL`
@@ -920,7 +920,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   `ALLOW` sets `persist=True` with `approved_by = POLICY`; `ASK` goes to 5.0d. The judge rubric
   for `outside_scratch_write` gains one criterion, "does leaving this match the task's stated
   objective", so an over-declaring plan is caught by a different model.
-- [ ] **5.0d The HUMAN rung, for Leavings first.** `supervision/capping/checks/human.py`:
+- [x] **5.0d The HUMAN rung, for Leavings first.** `supervision/capping/checks/human.py`:
   `HumanCheck` raises a `Question` up the existing chain (3.19 to 3.21) with closed options, *keep*,
   *keep for this whole goal*, *discard*, and the task blocks until it is answered. Only an
   `Answer` with `source = HUMAN` approves; a Queen or Warden answer is refused. *Keep for this

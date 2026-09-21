@@ -13,12 +13,24 @@ exit code; a non-zero exit is an apply failure the gate rolls back with nothing 
 was touched). ACTION_SEQUENCE never reaches this module: `checks.deterministic.SchemaCheck`
 rejects it during CHECKING, before the gate ever applies anything.
 
+Roadmap step 5.0c: an outside-scratch write's own `persist`/`approved_by` is no longer always
+`False` -- `hivemind.supervision.capping.leave.decide_persist` (given an optional
+`LeaveApplyContext` the gate builds from its own `GateDeps`) decides it, and `hivemind.
+supervision.capping.gate` reads each `ApplyResult.leave_decisions` entry back to record
+`capping.leave_decided`. `leave=None` (every call site outside `hivemind.supervision.capping.gate`'s
+own wiring, including every test that predates this dispatch) reproduces exactly the old,
+unconditional `persist=False` behaviour. Roadmap step 5.0d: an ASK verdict is resolved right here,
+by `hivemind.supervision.capping.checks.human.HumanCheck.resolve`, before `note_restore_path` is
+ever called -- so the task genuinely blocks on the human's answer mid-apply, the same way any other
+external await in this codebase does.
+
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Called
     by `hivemind.supervision.capping.gate.CappingGate` once a proposal reaches CAPPED. Calls into
-    `hivemind.cell` (CellSession, ExecSpec, run), `hivemind.supervision.capping.diff`,
-    `hivemind.supervision.capping.errors`, `hivemind.supervision.capping.lease_view` and
-    `hivemind.supervision.capping.tiers` (RiskTier) only.
+    `hivemind.cell` (CellSession, ExecSpec, run), `hivemind.supervision.capping.checks.human`
+    (HumanCheck, roadmap step 5.0d), `hivemind.supervision.capping.diff`, `hivemind.supervision.
+    capping.errors`, `hivemind.supervision.capping.leave` (roadmap step 5.0c), `hivemind.
+    supervision.capping.lease_view` and `hivemind.supervision.capping.tiers` (RiskTier) only.
 
 Key invariants:
     - Every TouchedPath in an ApplyResult carries the *resolved* path and the bytes it held before
@@ -27,14 +39,19 @@ Key invariants:
       that crashes mid-write must still leave a restore record behind.
     - A COMMAND action never touches ApplyResult.touched (nothing to undo for the command itself,
       codingrules section 8.12's roadmap note); its own exit code decides success.
+    - `leave_decisions` carries one entry per outside-scratch path only when `leave` is not None;
+      it is always empty for a COMMAND action and for a DIFF action with nothing outside scratch.
 
 See Also:
     - .claude/codingrules.md section 8.3 for "pure core, effectful edges."
     - .claude/codingrules.md section 8.7 for the restore-record rule this module's DIFF path
       follows for an outside-scratch write.
     - .claude/roadmap.md step 3.17 for the exact restore-path sentence this module implements.
+    - .claude/roadmap.md step 5.0c for "The gate consults it when applying an outside_scratch_
+      write," this module's own new behaviour.
     - hivemind.supervision.capping.diff for apply_unified_diff, the pure function this module's
       DIFF path is built on.
+    - hivemind.supervision.capping.leave for LeaveApplyContext and decide_persist.
     - hivemind.supervision.capping.gate for CappingGate, this module's one caller.
 """
 
@@ -44,9 +61,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hivemind.cell import CellSession, ExecSpec, run
+from hivemind.supervision.capping.checks.human import HumanCheck
 from hivemind.supervision.capping.diff import apply_unified_diff
 from hivemind.supervision.capping.errors import CappingError
 from hivemind.supervision.capping.lease_view import LeaseView
+from hivemind.supervision.capping.leave import (
+    LeaveApplyContext,
+    LeaveDecisionRecord,
+    decide_persist,
+)
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.tiers import RiskTier
 from waggle.messages.capping import ActionKind
@@ -73,10 +96,17 @@ class ApplyResult:
     succeeded: bool  # False only for a COMMAND action that exited non-zero.
     touched: tuple[TouchedPath, ...]  # Empty for a COMMAND action; one entry per DIFF target path.
     exit_code: int | None = None  # Set only for a COMMAND action.
+    # Roadmap step 5.0c: one entry per outside-scratch path decide_persist actually ran for;
+    # empty whenever `leave` was None (module docstring's own backward-compatible default).
+    leave_decisions: tuple[LeaveDecisionRecord, ...] = ()
 
 
 async def apply_action(
-    session: CellSession, lease: LeaseView, proposal: Proposal, scratch_root: Path
+    session: CellSession,
+    lease: LeaseView,
+    proposal: Proposal,
+    scratch_root: Path,
+    leave: LeaveApplyContext | None = None,
 ) -> ApplyResult:
     """Apply `proposal.action` and report what happened.
 
@@ -85,6 +115,8 @@ async def apply_action(
         lease: Where an outside-scratch write records its restore path and touched path.
         proposal: The CAPPED proposal being applied; only `.action` and `.risk_tier` are read.
         scratch_root: The session's scratch directory, for resolving relative paths.
+        leave: The leave-policy inputs an outside-scratch write is decided against (roadmap step
+            5.0c); None (the default) reproduces the pre-phase-5 behaviour of never persisting.
 
     Returns:
         What was written or run, and whether it succeeded.
@@ -95,7 +127,7 @@ async def apply_action(
             check was bypassed, a bug in the caller, not a normal apply failure.
     """
     if proposal.action.kind is ActionKind.DIFF:
-        return await _apply_diff(session, lease, proposal, scratch_root)
+        return await _apply_diff(session, lease, proposal, scratch_root, leave)
     if proposal.action.kind is ActionKind.COMMAND:
         return await _apply_command(session, proposal)
     raise CappingError(
@@ -105,10 +137,15 @@ async def apply_action(
 
 
 async def _apply_diff(
-    session: CellSession, lease: LeaseView, proposal: Proposal, scratch_root: Path
+    session: CellSession,
+    lease: LeaseView,
+    proposal: Proposal,
+    scratch_root: Path,
+    leave: LeaveApplyContext | None,
 ) -> ApplyResult:
     """Apply a DIFF action: read prior bytes, compute new bytes, write, recording as needed."""
     touched: list[TouchedPath] = []
+    decisions: list[LeaveDecisionRecord] = []
     diff_text = proposal.action.diff or ""
     for raw_path in proposal.action.paths:
         path = Path(raw_path)
@@ -118,13 +155,30 @@ async def _apply_diff(
         if proposal.risk_tier is RiskTier.OUTSIDE_SCRATCH_WRITE or _is_outside_scratch(
             resolved, scratch_root
         ):
+            # Roadmap step 5.0c: the leave policy decides persist/approved_by; leave=None keeps
+            # today's unconditional persist=False (decide_persist's own module docstring).
+            decision = decide_persist(leave, resolved, new_content)
+            if leave is not None:
+                # Roadmap step 5.0d: an ASK verdict is resolved by asking a human; resolve() is a
+                # no-op for anything else (HumanCheck's own "Key invariants").
+                decision = await HumanCheck(leave.clock, leave.human_timeout_s).resolve(
+                    leave, decision, proposal
+                )
+            if decision.record is not None:
+                decisions.append(decision.record)
             # Recorded BEFORE the write: a crash between the two still leaves a restore record
             # release() can replay (codingrules section 8.7).
-            lease.note_restore_path(resolved, prior)
+            lease.note_restore_path(
+                resolved,
+                prior,
+                persist=decision.persist,
+                approved_by=decision.approved_by,
+                reason=decision.reason,
+            )
             await lease.note_touched_path(resolved)
         await session.put_file(path, new_content)
         touched.append(TouchedPath(path=resolved, prior=prior))
-    return ApplyResult(succeeded=True, touched=tuple(touched))
+    return ApplyResult(succeeded=True, touched=tuple(touched), leave_decisions=tuple(decisions))
 
 
 async def _apply_command(session: CellSession, proposal: Proposal) -> ApplyResult:

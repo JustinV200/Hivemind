@@ -71,7 +71,7 @@ from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.common.tasks import reap_all, reaping
 from hivemind.memory import TriggerEvent
 from hivemind.memory.thresholds import capped_compact_view
-from hivemind.queen import goal_submission, questions, ticks
+from hivemind.queen import goal_submission, leave_memory, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
 from hivemind.queen.awake import QueenSources, decide_awake
 from hivemind.queen.cluster import awake_available
@@ -94,7 +94,7 @@ from hivemind.supervision import (
 from hivemind.supervision.attendant import InboxItem, TieBreaker
 from waggle.envelope import Envelope, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
-from waggle.ids import MessageId, TaskId, WardenId
+from waggle.ids import CellId, MessageId, TaskId, WardenId
 from waggle.loop import TickLoop
 from waggle.messages.supervision import (
     AlarmRaised,
@@ -152,6 +152,10 @@ class Queen(TickLoop):
         # is a MessageShape.REPLY), mirroring hivemind.wardens.ticks.questions's own
         # `_question_envelope_ids` for the hop below this one.
         self._question_envelope_ids: dict[MessageId, MessageId] = {}
+        # Roadmap step 5.0d: one remembered "keep for this whole goal" answer per (goal_id,
+        # cell_id), so a leave Question for the same goal and Cell answers herself, once, instead
+        # of asking the human again for every later file (hivemind.queen.leave_memory).
+        self._leave_memory: dict[tuple[TaskId, CellId], leave_memory.LeaveMemoryEntry] = {}
         # A task's own retry count, since hivemind.brood_chamber.task.state.TRANSITIONS has no
         # edge back from RUNNING that would let `Task.attempt` itself track this (module docstring
         # of hivemind.queen.dispatcher.redispatch); absent means "on its first attempt" (1).
@@ -214,6 +218,7 @@ class Queen(TickLoop):
         *,
         source: AnswerSource = AnswerSource.QUEEN,
         clearance: HoneyClearance = HoneyClearance.C1,
+        chosen_option: int | None = None,
     ) -> Task:
         """Record a human's (or the Queen's own) answer and forward it to the asking Warden.
 
@@ -225,25 +230,20 @@ class Queen(TickLoop):
             text: The answer text.
             source: Who answered; QUEEN by default.
             clearance: The answer's data-sensitivity label; C1 by default.
+            chosen_option: Index into the original Question's own `options`, when one was picked
+                (roadmap step 5.0d); None for a free-text answer.
 
         Returns:
             The question's task, now RUNNING again.
         """
-        wire_question_id = self._question_wire_ids.pop(question_id, None)
-        correlation_id = self._question_envelope_ids.pop(question_id, None)
-        # Fix 3: drop _open_questions here too, or sync_answers_from_chamber's own cross-process
-        # sweep later mistakes it for "not yet forwarded" and looks for a Note that never comes.
-        if wire_question_id is not None:
-            self._open_questions.pop(wire_question_id, None)
         answer_input = questions.AnswerInput(
             question_id=question_id,
             text=text,
             source=source,
             clearance=clearance,
-            wire_question_id=wire_question_id,
-            correlation_id=correlation_id,
+            chosen_option=chosen_option,
         )
-        return await questions.answer_question(self._deps, self.wardens, answer_input)
+        return await questions.answer_question_in_process(self, answer_input)
 
     async def stop(self) -> None:  # type: ignore[override]
         """End the loop, then reap every attached Warden's own receive task (rules 1-3)."""
@@ -514,12 +514,29 @@ async def _act(
         )
         await ticks.alarms.handle_alarm(queen._deps, queen.wardens, handling)
     elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(payload, Question):
-        chamber_question = await questions.handle_question(queen._deps, payload)
-        queen._open_questions[payload.question_id] = payload.task_id
-        queen._question_wire_ids[chamber_question.id] = payload.question_id
-        queen._question_envelope_ids[chamber_question.id] = MessageId(item.id)
+        await _block_on_question(queen, payload, task, warden_id, MessageId(item.id))
     elif isinstance(payload, Answer):
         pass  # ROUTE_ANSWER: no wire path produces this in v0 (see hivemind.queen.questions).
+
+
+async def _block_on_question(
+    queen: Queen, question: Question, task: Task | None, warden_id: WardenId, envelope_id: MessageId
+) -> None:
+    """Answer `question` from goal+Cell memory if it qualifies; otherwise queue it for the human.
+
+    Roadmap step 5.0d: a leave Question this Queen already has a "keep for this whole goal"
+    answer for is answered here, instantly, and never reaches `hive inbox`
+    (`hivemind.queen.leave_memory.answer_from_memory`'s own docstring); every other question
+    takes the ordinary `chamber.ask` path.
+    """
+    if task is not None and await leave_memory.answer_from_memory(
+        queen, task, warden_id, question, envelope_id
+    ):
+        return
+    chamber_question = await questions.handle_question(queen._deps, question)
+    queen._open_questions[question.question_id] = question.task_id
+    queen._question_wire_ids[chamber_question.id] = question.question_id
+    queen._question_envelope_ids[chamber_question.id] = envelope_id
 
 
 async def _act_on_task_result(queen: Queen, action: QueenAction, payload: TaskResult) -> None:

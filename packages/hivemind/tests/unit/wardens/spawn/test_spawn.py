@@ -29,6 +29,7 @@ from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from waggle.clock import Clock
 from waggle.ids import GrantId, new_cell_id, new_warden_id
+from waggle.messages import PlannedLeaving
 from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
 from waggle.messages.forage.values import Effort as WireEffort
 from waggle.messages.task import TaskAssign, WorkerRole
@@ -106,6 +107,58 @@ async def test_spawn_sub_bee_never_grants_capabilities_wider_than_the_ceiling() 
     assert granted.issubset(ceiling)  # type: ignore[attr-defined]
     # SCRATCH never grants net/device: proves the slice is strictly narrower, not merely equal.
     assert not any(cap.family.value == "net" for cap in granted.capabilities)  # type: ignore[attr-defined]
+
+    await stop_sub_bee(sub_bee, deps.clock)
+    await sub_bee.link.close()
+
+
+def _capturing_capping_worker_factory(
+    captured: dict[str, object],
+) -> Callable[[WorkerRole], ScriptedWorker]:
+    """Build a worker_factory whose script records `ctx.capping`'s own GateDeps (test-only)."""
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: object
+    ) -> WorkerOutcome:
+        captured["capping"] = ctx.capping
+        await asyncio.sleep(0)
+        return make_outcome()
+
+    def factory(role: WorkerRole) -> ScriptedWorker:
+        return ScriptedWorker(script, role=role)
+
+    return factory
+
+
+async def test_spawn_sub_bee_threads_assignment_leaves_into_the_capping_gate() -> None:
+    """Roadmap step 5.0c: TaskAssign.leaves reaches this sub-bee's own GateDeps.declared_leaves."""
+    cell = make_cell(kind=CellKind.REAL, access_level=AccessLevel.FULL)
+    captured: dict[str, object] = {}
+    deps, _queen_end, warden_id = make_warden_deps(
+        cells=(cell,), worker_factory=_capturing_capping_worker_factory(captured)
+    )
+    lease = await deps.source.lease(
+        LeaseRequest(
+            cell_id=cell.id, holder=warden_id, task_id=None, access_level=cell.access_level
+        )
+    )
+    session = await deps.source.open_session(lease)
+    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    leaves = (PlannedLeaving(pattern="~/keep.txt", reason="the goal asked for it"),)
+    assignment = make_assignment(clock=deps.clock, leaves=leaves)
+    grant = _grant(deps.clock, assignment.grant_id)
+    ctx = WardenCellContext(
+        warden_id=warden_id, deps=deps, ceiling=ceiling, cell=cell, lease=lease, session=session
+    )
+
+    sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if "capping" in captured:
+            break
+
+    gate = captured["capping"]
+    assert gate._deps.declared_leaves == leaves  # type: ignore[attr-defined]
 
     await stop_sub_bee(sub_bee, deps.clock)
     await sub_bee.link.close()

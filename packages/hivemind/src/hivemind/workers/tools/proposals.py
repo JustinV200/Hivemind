@@ -115,15 +115,18 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
 
     Args:
         ctx: This attempt's WorkerContext: supplies the gate, the capabilities to check the
-            proposal against, the lease view for path reachability, and the telemetry tracker a
-            rollback is noted on.
+            proposal against, the lease view for path reachability, the telemetry tracker a
+            rollback is noted on, and (roadmap step 5.0d) `ctx.asker`, the real transport-backed
+            asker `WorkerRuntime` has already substituted in by the time a tool call runs, so an
+            ASK-verdict leaving can raise its Question up the same Worker -> Warden -> Queen chain
+            `hivemind.workers.tools.ask.ask` uses.
         proposal: A freshly built Proposal, from `make_proposal`.
 
     Returns:
         The gate's terminal outcome: VERIFIED, REJECTED or ROLLED_BACK.
     """
     await ctx.capping.propose(proposal)
-    outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease)
+    outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease, ctx.asker)
     if outcome.state is ProposalState.ROLLED_BACK:
         ctx.telemetry.note_rollback(ROLLBACK_ALARM_KIND, outcome.reason)
     return outcome
