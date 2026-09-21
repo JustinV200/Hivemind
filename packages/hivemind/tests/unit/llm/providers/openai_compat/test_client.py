@@ -280,3 +280,15 @@ async def test_stream_sse_connection_failure_raises_provider_unavailable() -> No
     with pytest.raises(ProviderUnavailableError):
         async for _ in client.stream_sse("/chat/completions", {"stream": True}):
             pass
+
+
+async def test_a_server_that_dies_mid_call_raises_provider_unavailable() -> None:
+    """A "Server disconnected without sending a response" is an outage, never a generic crash."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+
+    client = _make_client(handler)
+
+    with pytest.raises(ProviderUnavailableError):
+        await client.get_json("/models")

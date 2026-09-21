@@ -64,10 +64,18 @@ CONTEXT_OVERFLOW_MARKERS = (
 # HTTP status the server did send; both end up as ProviderUnavailableError, but only these are
 # caught here (an httpx.HTTPStatusError never happens because this client never calls
 # response.raise_for_status() itself -- it inspects response.status_code directly instead).
+# RemoteProtocolError/ReadError/WriteError/CloseError are what a server that dies *mid-call*
+# raises ("Server disconnected without sending a response"): without them the in-flight bee
+# crashed as WORKER_CRASHED and only its respawn's ConnectError named the outage, one wasted
+# respawn per dead provider (seen for real on 2026-09-16).
 _CONNECTION_EXCEPTIONS: tuple[type[Exception], ...] = (
     httpx.ConnectError,
     httpx.ConnectTimeout,
     httpx.ReadTimeout,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.CloseError,
+    httpx.RemoteProtocolError,
 )
 
 __all__ = ["OpenAICompatClient"]
