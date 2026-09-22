@@ -255,6 +255,63 @@ async def test_list_leavings_for_an_unknown_cell_is_empty(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# list_all_leavings
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_list_all_leavings_spans_every_cell_active_rows_by_default(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    first = make_leaving(clock=clock, path=Path("/outside/first.txt"))
+    second = make_leaving(clock=clock, path=Path("/outside/second.txt"))
+    removed = make_leaving(clock=clock, path=Path("/outside/removed.txt"))
+    for leaving in (first, second, removed):
+        await store_and_trail.store.record_leaving(
+            leaving, _make_cell_event(clock, leaving.cell_id, "cell.left")
+        )
+    await store_and_trail.store.mark_removed(
+        removed.cell_id,
+        removed.path,
+        clock.now(),
+        _make_cell_event(clock, removed.cell_id, "cell.leaving_removed"),
+    )
+
+    active_only = await store_and_trail.store.list_all_leavings()
+    every_row = await store_and_trail.store.list_all_leavings(include_removed=True)
+
+    assert {leaving.path for leaving in active_only} == {first.path, second.path}
+    assert {leaving.path for leaving in every_row} == {first.path, second.path, removed.path}
+    # Every Cell's rows in one list, never scoped to a single cell_id (that is list_leavings).
+    assert {leaving.cell_id for leaving in active_only} == {first.cell_id, second.cell_id}
+
+
+async def test_list_all_leavings_is_empty_when_nothing_has_ever_been_recorded(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    result = await store_and_trail.store.list_all_leavings()
+
+    assert result == ()
+
+
+async def test_list_all_leavings_is_ordered_by_cell_id_then_left_at_then_path(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    # Four distinct Cells (make_leaving mints a fresh cell_id per call), recorded out of order.
+    leavings = [make_leaving(clock=clock, path=Path(f"/outside/{i}.txt")) for i in range(4)]
+    for leaving in reversed(leavings):
+        await store_and_trail.store.record_leaving(
+            leaving, _make_cell_event(clock, leaving.cell_id, "cell.left")
+        )
+
+    result = await store_and_trail.store.list_all_leavings()
+
+    keys = [(leaving.cell_id, leaving.left_at, str(leaving.path)) for leaving in result]
+    assert keys == sorted(keys)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # mark_removed
 # ──────────────────────────────────────────────────────────────────────────────
 

@@ -33,6 +33,10 @@ Key invariants:
       the same call that changes `state`, with `subject_id` set to `cell_id`.
     - `release()` is idempotent: once it has produced a report, every later call returns that same
       report without calling the injected LeaseReleaser or the trail again.
+    - `release()` never leaves a lease stuck in RELEASING: a delegate that raises moves the lease
+      to ORPHANED and re-raises, so a later call is legal (`hivemind.cell.lease_state`'s
+      `RELEASING -> ORPHANED` and `ORPHANED -> RELEASING` edges) and `cell.released` is written at
+      most once, only by the call that actually succeeds.
     - `is_path_allowed` and `note_touched_path` both resolve `..` and symlinks with
       `Path.resolve(strict=False)` before comparing, so neither can be used to sneak outside
       scratch undetected.
@@ -239,8 +243,7 @@ class RealCellLease:
     """One Warden's tenancy on a Real Cell: scratch root, started processes, touched paths.
 
     Mutable state, owned by this class alone (codingrules 8.5): `state` moves along
-    `hivemind.cell.lease_state.TRANSITIONS`; every public method that changes it writes its own
-    trail event in the same call.
+    `hivemind.cell.lease_state.TRANSITIONS`, one trail event per method that changes it.
     """
 
     def __init__(
@@ -321,9 +324,8 @@ class RealCellLease:
 
         Writes `cell.touched_outside_scratch` when outside `scratch_root` (codingrules 12).
         """
-        # Path.resolve() lives in a plain (non-async) helper (ASYNC240: no blocking pathlib call
-        # directly inside an async function's body).
-        resolved, within_scratch = self._resolve_touched(path)
+        # ASYNC240: Path.resolve() lives in a plain, non-async helper, never inline here.
+        resolved, within_scratch = _resolve_touched(path, self.scratch_root)
         self._touched_paths.append(resolved)
         if not within_scratch:
             await self._record(
@@ -342,9 +344,6 @@ class RealCellLease:
     ) -> None:
         """Record what `release()` must put back at `path` (resolved first) -- or leave in place.
 
-        No trail event here (`release()` writes `cell.left` for a persisted record); scratch-
-        internal paths are never recorded.
-
         Args:
             path: The path written outside scratch, relative or absolute.
             prior: Bytes at `path` before this write, or None if it did not exist yet.
@@ -355,22 +354,14 @@ class RealCellLease:
         Raises:
             pydantic.ValidationError: `persist`/`approved_by`/`reason` disagree (`RestoreRecord`).
         """
-        resolved, within_scratch = self._resolve_touched(path)
+        resolved, within_scratch = _resolve_touched(path, self.scratch_root)
         if not within_scratch:
             self._restore_records.append(
                 _build_restore_record(resolved, prior, persist, approved_by, reason)
             )
 
-    def _resolve_touched(self, path: Path) -> tuple[Path, bool]:
-        """Resolve `path` and report whether it lands inside this lease's scratch root."""
-        resolved = path.resolve(strict=False)
-        return resolved, _is_within(resolved, self.scratch_root.resolve(strict=False))
-
     def note_allowed_path(self, path: Path) -> None:
-        """Widen `allowed_paths` to also cover `path` (resolved), if not already (roadmap 5.0e).
-
-        See `hivemind.wardens.spawn.spawn._widen_lease_reachability`, this method's one caller.
-        """
+        """Widen `allowed_paths` to also cover `path` (resolved), if not already (roadmap 5.0e)."""
         resolved = path.resolve(strict=False)
         if self.is_path_allowed(resolved) or len(self.allowed_paths) >= MAX_ALLOWED_PATHS:
             return  # Already reachable, or this lease has already widened as far as it may.
@@ -379,11 +370,7 @@ class RealCellLease:
     def is_path_allowed(self, path: Path) -> bool:
         """Return whether `path`, resolved (`..`/symlinks collapsed), is reachable from this lease.
 
-        Args:
-            path: The path to check, relative or absolute.
-
-        Returns:
-            True if the resolved path is inside `scratch_root` or under one of `allowed_paths`.
+        True when it lands inside `scratch_root` or under one of `allowed_paths`.
         """
         resolved = path.resolve(strict=False)
         roots = (self.scratch_root, *self.allowed_paths)
@@ -392,18 +379,26 @@ class RealCellLease:
     async def release(self) -> LeaseReleaseReport:
         """Release this lease, idempotently.
 
-        The first call transitions through RELEASING to RELEASED, delegating the actual kill-and-
-        restore work to the injected LeaseReleaser, then records cell.released. Every later call
-        returns that same report unchanged, doing nothing else.
+        Transitions RELEASING -> RELEASED, delegating to the injected LeaseReleaser, then records
+        cell.released. A delegate that raises moves the lease to ORPHANED and re-raises instead
+        (`_orphan_after_failed_release`), so a later call is legal (`ORPHANED -> RELEASING`)
+        rather than stuck forever; a later call after success just returns the same report.
 
         Returns:
             The outcome of releasing this lease.
+
+        Raises:
+            InvalidLeaseTransitionError: This lease is not OPEN or ORPHANED when called.
         """
         if self._release_report is not None:
             return self._release_report  # Idempotent: nothing to redo.
         assert_transition(self.state, LeaseState.RELEASING, lease_id=self.id)
         self.state = LeaseState.RELEASING
-        report = await self._releaser.release(self)
+        try:
+            report = await self._releaser.release(self)
+        except Exception:
+            self._orphan_after_failed_release()
+            raise
         assert_transition(self.state, LeaseState.RELEASED, lease_id=self.id)
         self.state = LeaseState.RELEASED
         self._release_report = report
@@ -421,6 +416,15 @@ class RealCellLease:
             },
         )
         return report
+
+    def _orphan_after_failed_release(self) -> None:
+        """Move a RELEASING lease to ORPHANED after its delegate raised, so a retry is legal.
+
+        SAFETY: `release()`'s broad `except Exception` exists only to run this compensating
+        transition before re-raising the same exception unchanged; it is never swallowed here.
+        """
+        assert_transition(self.state, LeaseState.ORPHANED, lease_id=self.id)
+        self.state = LeaseState.ORPHANED
 
     async def _record(self, kind: str, payload: Mapping[str, JsonValue]) -> None:
         """Build and record a CellEvent for this lease's Cell, stamped with its own identity."""
@@ -448,6 +452,16 @@ def _build_restore_record(
     return RestoreRecord(
         path=path, prior=prior, persist=persist, approved_by=approved_by, reason=reason
     )
+
+
+def _resolve_touched(path: Path, scratch_root: Path) -> tuple[Path, bool]:
+    """Resolve `path` and report whether it lands inside `scratch_root`.
+
+    Module-level (not a `RealCellLease` method) purely to keep that class within codingrules
+    5.1's class-length limit; `note_touched_path` and `note_restore_path` are its only callers.
+    """
+    resolved = path.resolve(strict=False)
+    return resolved, _is_within(resolved, scratch_root.resolve(strict=False))
 
 
 def _is_within(path: Path, root: Path) -> bool:

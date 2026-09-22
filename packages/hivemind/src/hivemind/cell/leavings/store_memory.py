@@ -94,6 +94,15 @@ class InMemoryLeavingsStore:
         matches.sort(key=lambda leaving: (leaving.left_at, str(leaving.path)))
         return tuple(matches)
 
+    async def list_all_leavings(self, *, include_removed: bool = False) -> tuple[Leaving, ...]:
+        """Return every Leaving across every Cell; see LeavingsStore.list_all_leavings."""
+        async with self._lock:
+            # Copy while holding the lock; filtering and sorting below never touch shared state.
+            leavings = list(self._leavings.values())
+        matches = [leaving for leaving in leavings if include_removed or leaving.removed_at is None]
+        matches.sort(key=lambda leaving: (leaving.cell_id, leaving.left_at, str(leaving.path)))
+        return tuple(matches)
+
     async def mark_removed(
         self, cell_id: CellId, path: Path, removed_at: datetime, event: CellEvent
     ) -> Leaving:

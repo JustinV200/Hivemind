@@ -13,9 +13,9 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.cell.leavings`.
     Implemented by `hivemind.cell.leavings.store_memory` and `.store_sqlite`; used by
     `hivemind.cell.local.releaser.HiveStandLeaseReleaser.release` (`record_leaving`) and by `hive
-    cells leavings list|remove` (`list_leavings`, `get_leaving`, `mark_removed`). Calls into
-    `hivemind.cell.leavings.model`, `hivemind.cell.errors` and `hivemind.pheromone` (`CellEvent`)
-    only.
+    cells leavings list|remove` (`list_leavings`, `list_all_leavings`, `get_leaving`,
+    `mark_removed`). Calls into `hivemind.cell.leavings.model`, `hivemind.cell.errors` and
+    `hivemind.pheromone` (`CellEvent`) only.
 
 Key invariants:
     - `record_leaving`'s event and row commit together, or neither commits at all (Appendix C
@@ -143,6 +143,22 @@ class LeavingsStore(Protocol):
 
         Returns:
             Matching Leavings, ordered by `(left_at, path)` ascending.
+        """
+        ...
+
+    async def list_all_leavings(self, *, include_removed: bool = False) -> tuple[Leaving, ...]:
+        """Return every Leaving recorded across every Cell, ordered by `(cell_id, left_at, path)`.
+
+        Every `hive run` mints a fresh Cell id for the Hive Stand (roadmap phase 5's own CLI
+        defect fix), so an operator cannot always name a `cell_id` to scope `list_leavings` to;
+        this is `hive cells leavings list`'s own read when CELL is omitted.
+
+        Args:
+            include_removed: When False (the default), only active rows; when True, every row
+                any Cell has ever had, active or removed.
+
+        Returns:
+            Matching Leavings across every Cell, ordered by `(cell_id, left_at, path)` ascending.
         """
         ...
 

@@ -78,6 +78,10 @@ _SELECT_LIST_ACTIVE_SQL = (
     "SELECT * FROM cell_leavings WHERE cell_id = ? AND removed_at IS NULL ORDER BY left_at, path"
 )
 _SELECT_LIST_ALL_SQL = "SELECT * FROM cell_leavings WHERE cell_id = ? ORDER BY left_at, path"
+_SELECT_LIST_EVERY_CELL_ACTIVE_SQL = (
+    "SELECT * FROM cell_leavings WHERE removed_at IS NULL ORDER BY cell_id, left_at, path"
+)
+_SELECT_LIST_EVERY_CELL_ALL_SQL = "SELECT * FROM cell_leavings ORDER BY cell_id, left_at, path"
 _MARK_REMOVED_SQL = (
     "UPDATE cell_leavings SET removed_at = ? WHERE cell_id = ? AND path = ? AND removed_at IS NULL"
 )
@@ -177,6 +181,17 @@ class SqliteLeavingsStore:
             rows = await self._thread.run(
                 lambda: self._connection.execute(sql, (cell_id,)).fetchall()
             )
+        return tuple(_row_to_leaving(row) for row in rows)
+
+    async def list_all_leavings(self, *, include_removed: bool = False) -> tuple[Leaving, ...]:
+        """Return every Leaving across every Cell; see LeavingsStore.list_all_leavings."""
+        sql = (
+            _SELECT_LIST_EVERY_CELL_ALL_SQL
+            if include_removed
+            else _SELECT_LIST_EVERY_CELL_ACTIVE_SQL
+        )
+        async with self._lock:
+            rows = await self._thread.run(lambda: self._connection.execute(sql).fetchall())
         return tuple(_row_to_leaving(row) for row in rows)
 
     async def mark_removed(

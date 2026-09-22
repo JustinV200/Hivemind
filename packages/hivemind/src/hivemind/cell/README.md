@@ -28,13 +28,17 @@ here; `swarm` for enrolled devices, a later phase).
   `resolve_scratch_path` (the shared relative-path-under-scratch, `..`/symlink-safe resolution
   every concrete session's `put_file`/`get_file` uses).
 - **Lease** (`hivemind.cell.lease_state`, `hivemind.cell.lease`): `LeaseState`
-  (`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`) with
+  (`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`; `RELEASING ->
+  ORPHANED -> RELEASING`, a release() whose delegate raised, retried) with
   `can_transition`/`assert_transition`; `LeaseRequest`, `LeaseFacts`, `LeaseReleaseReport` (now
   also `left_paths`, roadmap step 5.0a), `RestoreRecord` (one path written outside scratch, and
   what `release()` must put back -- now also `persist`/`approved_by`/`reason`, validated
   together), `LeaseReleaser` (the injected Protocol `release()` delegates to) and `RealCellLease`
   -- `open()` and `release()` each write their own trail event (`cell.leased`, `cell.released`) in
-  the same call that changes `state`; `release()` is idempotent; `note_started_process`,
+  the same call that changes `state`; `release()` is idempotent on success, and moves a lease to
+  ORPHANED (re-raising) rather than leaving it stuck in RELEASING when its delegate raises, so a
+  later call -- a retry, or the Undertaker's sweep (roadmap 5.8) -- is legal again;
+  `note_started_process`,
   `note_touched_path` (writes `cell.touched_outside_scratch` when the path is outside scratch),
   `note_restore_path`/`restore_records` (sync bookkeeping for what a Capping proposal wrote
   outside scratch, roadmap step 3.17; a path inside scratch is never recorded; roadmap step 5.0a
@@ -43,9 +47,11 @@ here; `swarm` for enrolled devices, a later phase).
   bookkeeping a Warden and the Undertaker read.
 - **Leavings** (`hivemind.cell.leavings`, roadmap step 5.0a): the ledger of paths a task was
   allowed to keep on a Cell past its lease's release -- `Leaving`, `ApprovedBy`, `LeavingsStore`
-  and its two implementations; see `cell/leavings/README.md` for its own public API. Written by
+  (`record_leaving`, `get_leaving`, `list_leavings`, `list_all_leavings` -- every Cell's active
+  Leavings in one call, since every `hive run` mints a fresh Cell id -- `mark_removed`) and its
+  two implementations; see `cell/leavings/README.md` for its own public API. Written by
   `hivemind.cell.local.HiveStandLeaseReleaser.release`; read and cleared by `hive cells
-  leavings list|remove`.
+  leavings list|remove [CELL] [--path PATH]`.
 - **Source** (`hivemind.cell.source`): `RealCellSource` (`name`, `cells()`, `lease(request)`,
   `open_session(lease)`) and `CellIdentity` (the Hive/node/actor a source stamps on its events).
 - **Snapshot** (`hivemind.cell.snapshot`): `Snapshotter`, `NoopSnapshotter` (every Real Cell

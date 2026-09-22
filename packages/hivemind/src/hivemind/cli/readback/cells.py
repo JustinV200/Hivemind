@@ -49,7 +49,7 @@ from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock, SystemClock
 
 app = typer.Typer(name="cells", help="List the Cells the Hive Stand (and the Swarm) can offer.")
-# Roadmap step 5.0a: `hive cells leavings list|remove <cell>`, nested under this group the same
+# Roadmap step 5.0a: `hive cells leavings list|remove [CELL]`, nested under this group the same
 # way `hive capping <sub>` nests its own subcommands (hivemind.cli.readback.leavings's own app).
 app.add_typer(leavings_app, name="leavings")
 

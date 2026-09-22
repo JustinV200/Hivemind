@@ -40,6 +40,26 @@ class _CountingReleaser:
         return self._report
 
 
+class _FlakyReleaser:
+    """A LeaseReleaser stub that raises on its first N calls, then succeeds.
+
+    Roadmap 5.8's own retry case: a releaser that fails mid-way must be retryable.
+    """
+
+    def __init__(self, failures: int, report: LeaseReleaseReport | None = None) -> None:
+        self.calls = 0
+        self._failures = failures
+        self._report = report or LeaseReleaseReport(
+            killed_processes=1, residual_paths=(), is_restored=True
+        )
+
+    async def release(self, lease: RealCellLease) -> LeaseReleaseReport:
+        self.calls += 1
+        if self.calls <= self._failures:
+            raise OSError(f"simulated release failure #{self.calls}")
+        return self._report
+
+
 def _make_lease(
     tmp_path: Path,
     allowed_paths: tuple[Path, ...] = (),
@@ -216,6 +236,75 @@ async def test_release_before_open_raises_invalid_lease_transition(tmp_path: Pat
 
     with pytest.raises(InvalidLeaseTransitionError):
         await lease.release()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# release() failure: RELEASING -> ORPHANED, and the ORPHANED -> RELEASING retry
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_release_moves_to_orphaned_and_reraises_when_delegate_fails(
+    tmp_path: Path,
+) -> None:
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser)
+    await lease.open()
+
+    with pytest.raises(OSError, match="simulated release failure #1"):
+        await lease.release()
+
+    assert lease.state is LeaseState.ORPHANED
+    assert releaser.calls == 1
+
+
+async def test_release_retried_after_orphaned_failure_succeeds_once_delegate_recovers(
+    tmp_path: Path,
+) -> None:
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser)
+    await lease.open()
+
+    with pytest.raises(OSError):
+        await lease.release()
+
+    report = await lease.release()
+
+    assert lease.state is LeaseState.RELEASED
+    assert releaser.calls == 2
+    assert report.killed_processes == 1
+
+
+async def test_release_records_cell_released_only_once_after_a_failed_retry(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser, trail=trail, clock=clock)
+    await lease.open()
+
+    with pytest.raises(OSError):
+        await lease.release()
+    await lease.release()
+
+    events = await trail.query(TrailQuery(kind="cell.released"))
+    assert len(events) == 1
+
+
+async def test_release_after_orphaned_from_failure_is_legal_release_still_idempotent(
+    tmp_path: Path,
+) -> None:
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser)
+    await lease.open()
+    with pytest.raises(OSError):
+        await lease.release()
+
+    first = await lease.release()
+    second = await lease.release()
+
+    assert first is second
+    assert releaser.calls == 2  # The second, successful release() call is never repeated.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
