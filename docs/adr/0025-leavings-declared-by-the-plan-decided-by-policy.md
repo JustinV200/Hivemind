@@ -25,9 +25,9 @@ result or a bee says: "not declared" is the policy's first rule, checked before 
 The declaration comes from the model that read the human's goal, not from the model that is
 reading web pages and tool output, which is the one a prompt injection reaches. A Drone that
 thinks something else should stay can only raise a Question. The pattern's own validator (absolute
-or `~`-rooted, never a bare root, drive or home nor a wildcard straight under one, no `..`) lives in waggle so it holds on a bare
-wire decode; the inside-scratch rule runs in the planner's structured-output ladder, so a bad
-pattern is retried rather than silently dropped.
+or `~`-rooted, never a bare root, drive or home nor a wildcard straight under one, no `..`) lives
+in waggle so it holds on a bare wire decode; the inside-scratch rule runs in the planner's
+structured-output ladder, so a bad pattern is retried rather than silently dropped.
 
 **A pure policy table decides, and `DENY` restores rather than rejects.**
 `supervision/capping/leave` is a pure `decide(request, cell, declared, table)` returning `ALLOW`,

@@ -1027,6 +1027,23 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   still gone; the same goal without that ask leaves nothing; a goal whose `leaves` path the policy
   marks `ASK` blocks until `hive inbox answer`, *discard* restores the path and the task still succeeds;
   `hive cells leavings remove` returns the host to its left-as-found snapshot.
+  **Met, 2026-09-21**, on the local 27B model with a copy of the operator's manifest plus
+  `access_level = "FULL"`, `keep_root`, and `[llm.slots.judge] max_output_tokens = 6144`: (1) the
+  keep goal succeeded in 456 s, `capping.leave_decided` `KEEP_ROOT ALLOW`, `cell.left`, one
+  ledger row `approved_by = policy`, scratch gone, `is_restored = true`; (2) the plain goal
+  succeeded in 77 s and left nothing; (3) an executable leaving raised the closed Question into
+  `hive inbox`, `hive inbox answer --option 2` unblocked it, `leave_decided` recorded
+  `human_answer = DISCARD`, the file was gone after release and the task succeeded; (4)
+  `hive cells leavings remove <cell>` emptied the directories and marked the rows removed.
+  Found on the way: the model judge had never run for real before (scratch writes skip it), and
+  with its call-site budget of 1024 tokens (`wardens/judge.py`) this model spends every token
+  thinking and returns nothing, nine times, which crashes the Drone; the manifest cap fixes it.
+  The judge also rejected every outside-scratch `DIFF` the Drone proposed without postconditions
+  (three to six rejections per run, about 30 s each) until the Drone reached the path through a
+  command; the tools should attach a `FILE_EXISTS` postcondition to an outside-scratch write, or
+  the rubric should not demand one (open, not Leavings). Every `hive run` mints a new Cell id, so
+  `leavings remove` needs the id from `cell.left`; `hive cells leavings list` should accept a
+  path or "the Hive Stand" (open).
 - The haiku run completes three ways: `prefer = "real"` uses the Hive Stand and zero containers;
   `prefer = "virtual"` uses three containers, each with its own Warden visible in `hive wardens
   list`; a task with `isolation = "required"` uses a Virtual Cell regardless.
