@@ -18,7 +18,12 @@ from __future__ import annotations
 
 import pytest
 
-from waggle.uris import WAGGLE_URI_PATTERN, check_waggle_uri, is_loopback_host
+from waggle.uris import (
+    WAGGLE_URI_PATTERN,
+    check_waggle_uri,
+    is_loopback_host,
+    is_virtual_cell_gateway_host,
+)
 
 
 @pytest.mark.parametrize(
@@ -69,3 +74,55 @@ def test_is_loopback_host_rejects_everything_else(host: str) -> None:
 
 def test_pattern_is_the_one_queen_moved_declares() -> None:
     assert WAGGLE_URI_PATTERN == r"^wss?://\S+$"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.6: allow_virtual_cell_gateway_host, the Virtual Cell control-link exception.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "ws://host.docker.internal:9500",
+        "ws://10.0.2.2:9500",  # QEMU's own SLIRP gateway; inside 10.0.0.0/8.
+        "ws://10.0.0.1:9000",  # RFC 1918.
+        "ws://172.16.0.5:9000",  # RFC 1918.
+        "ws://192.168.1.5:9000",  # RFC 1918.
+        "ws://169.254.1.1:9000",  # Link-local.
+        "ws://127.0.0.1:9000",  # Loopback still accepted when the flag is set.
+    ],
+)
+def test_check_waggle_uri_allows_gateway_hosts_when_flagged(uri: str) -> None:
+    assert check_waggle_uri(uri, allow_virtual_cell_gateway_host=True) == uri
+
+
+@pytest.mark.parametrize("uri", ["ws://host.docker.internal:9500", "ws://10.0.0.1:9000"])
+def test_check_waggle_uri_still_refuses_gateway_hosts_by_default(uri: str) -> None:
+    """The flag is opt-in: every existing call site (default False) keeps today's behaviour."""
+    with pytest.raises(ValueError, match="loopback host"):
+        check_waggle_uri(uri)
+
+
+def test_check_waggle_uri_still_refuses_a_public_host_even_when_flagged() -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        check_waggle_uri("ws://example.org:9000", allow_virtual_cell_gateway_host=True)
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["host.docker.internal", "10.0.2.2", "10.0.0.1", "172.16.0.5", "192.168.1.5", "169.254.1.1"],
+)
+def test_is_virtual_cell_gateway_host_accepts_the_documented_forms(host: str) -> None:
+    assert is_virtual_cell_gateway_host(host)
+
+
+@pytest.mark.parametrize("host", ["example.org", "8.8.8.8", ""])
+def test_is_virtual_cell_gateway_host_rejects_public_hosts_and_unresolvable_names(
+    host: str,
+) -> None:
+    # A public address is never a Virtual Cell gateway, and an unresolvable name is refused
+    # rather than looked up (Python's ipaddress.is_private also covers loopback, so this
+    # function may return True for a loopback literal too -- harmless, since check_waggle_uri
+    # already accepts loopback through is_loopback_host before this function is even consulted).
+    assert not is_virtual_cell_gateway_host(host)

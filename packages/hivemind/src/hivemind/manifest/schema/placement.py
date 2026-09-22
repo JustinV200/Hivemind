@@ -20,6 +20,16 @@ configured at all" (the composition root never builds a template from an unset b
 Layer 1 and `hive` is Layer 3, so this module may never import it (codingrules section 4); the
 composition root converts the string once it already holds both.
 
+Roadmap step 5.6 (this branch) adds ``listen_host``/``listen_port``/``advertise_url`` to
+``VirtualCellsSection``: where the Queen's own `queen.cell_gate.CellListener` binds its WebSocket
+server (``listen_host``/``listen_port``, loopback by default like every other Waggle listener,
+``waggle.transport.websocket_server.WebSocketServer``'s own default) and the URL a provisioned
+Cell is actually told to dial (``advertise_url``, optional: unset means "use the bound
+``listen_host``/``listen_port`` directly", which only works when the Cell can reach that host --
+never true for a Docker container reaching its own host, hence the field). This section carries no
+Ed25519 key material of its own: `hivemind.hive.backends.bootstrap.QueenEndpoint` (a later
+composition-root value, not a manifest field) is where the Queen's own key hex is threaded in.
+
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
     ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``waggle.messages.task``
@@ -47,7 +57,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -74,6 +84,8 @@ DEFAULT_OVERWINTER_MAX_CELLS = 4  # Matches [virtual_cells] max_cells by default
 DEFAULT_OVERWINTER_MAX_PER_IMAGE = 2  # A rare image never crowds out a common one.
 DEFAULT_OVERWINTER_MAX_DORMANT_S = 3600.0  # One hour before the Undertaker sweeps it up.
 DEFAULT_OVERWINTER_DISK_BUDGET_MB = 8192  # 8 GiB of disk Forage set aside for dormant Cells.
+DEFAULT_VIRTUAL_CELLS_LISTEN_HOST = "127.0.0.1"  # Loopback: matches WebSocketServer's own default.
+DEFAULT_VIRTUAL_CELLS_LISTEN_PORT = 0  # 0: let the OS choose, like WebSocketServer's own default.
 
 __all__ = [
     "DEFAULT_ALLOW_HIVE_STAND",
@@ -88,6 +100,8 @@ __all__ = [
     "DEFAULT_VIRTUAL_CELLS_CPU_CORES",
     "DEFAULT_VIRTUAL_CELLS_DISK_BYTES",
     "DEFAULT_VIRTUAL_CELLS_IMAGE",
+    "DEFAULT_VIRTUAL_CELLS_LISTEN_HOST",
+    "DEFAULT_VIRTUAL_CELLS_LISTEN_PORT",
     "DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES",
     "DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY",
     "NetworkPolicyName",
@@ -229,4 +243,21 @@ class VirtualCellsSection(BaseModel):
     overwinter: VirtualCellsOverwinterSection = Field(
         default_factory=VirtualCellsOverwinterSection,
         description="The Overwintering pool's own bounds (docs/adr/0029).",
+    )
+    listen_host: str = Field(
+        default=DEFAULT_VIRTUAL_CELLS_LISTEN_HOST,
+        description="The interface hivemind.queen.cell_gate.CellListener binds its WebSocket "
+        "server on; loopback by default, matching every other Waggle listener.",
+    )
+    listen_port: Annotated[int, Field(ge=0, le=65535)] = Field(
+        default=DEFAULT_VIRTUAL_CELLS_LISTEN_PORT,
+        description="The port to bind; 0 lets the OS choose one (waggle.transport.websocket_"
+        "server.WebSocketServer's own default).",
+    )
+    advertise_url: str | None = Field(
+        default=None,
+        description="The ws:// or wss:// URL a provisioned Cell is actually told to dial, when "
+        "it differs from listen_host/listen_port (e.g. a Docker container reaching the host "
+        "gateway alias, or a QEMU guest reaching the SLIRP gateway). None means the bound "
+        "listen_host/listen_port is reachable from the Cell directly.",
     )

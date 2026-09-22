@@ -961,7 +961,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
 - [x] **5.5 In-Cell session and Warden spawn strategy.** `cell/in_cell.py`: `InCellSession`, used
   when the Warden and its sub-bees run inside the Virtual Cell. `wardens/spawn/` gains the
   `in_cell` strategy. `CellSession` contract suite runs over local, in-cell and fake.
-- [ ] **5.6 Virtual Cell lifecycle.** `hive/lifecycle.py`: `provision → Warden ready → grant →
+- [x] **5.6 Virtual Cell lifecycle.** `hive/lifecycle.py`: `provision → Warden ready → grant →
   release → (overwinter | teardown)`, each transition a `cell.*` event. Night Veil path is always
   `provision → Warden ready → grant → teardown` (no Overwinter branch).
 - [x] **5.7 Placement policy.** `queen/placement/decide.py`: pure `decide(needs, inventory,

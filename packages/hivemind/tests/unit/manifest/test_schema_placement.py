@@ -63,6 +63,26 @@ def test_virtual_cells_section_rejects_an_unknown_backend() -> None:
         VirtualCellsSection(backend="not-a-backend")
 
 
+def test_virtual_cells_section_listener_fields_default_to_loopback() -> None:
+    """Roadmap step 5.6: CellListener binds loopback by default, like WebSocketServer."""
+    section = VirtualCellsSection()
+
+    assert section.listen_host == "127.0.0.1"
+    assert section.listen_port == 0
+    assert section.advertise_url is None
+
+
+def test_virtual_cells_section_accepts_an_advertise_url_for_a_docker_gateway() -> None:
+    section = VirtualCellsSection(advertise_url="ws://host.docker.internal:9500")
+
+    assert section.advertise_url == "ws://host.docker.internal:9500"
+
+
+def test_virtual_cells_section_rejects_an_out_of_range_port() -> None:
+    with pytest.raises(ValidationError):
+        VirtualCellsSection(listen_port=70000)
+
+
 def test_virtual_cells_overwinter_section_defaults_are_positive() -> None:
     section = VirtualCellsOverwinterSection()
 

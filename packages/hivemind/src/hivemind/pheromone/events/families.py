@@ -16,7 +16,14 @@ Vocabulary (family -> kind -> when it is recorded):
         lease opened); released (a Real Cell lease closed and the device restored); touched_
         outside_scratch (a lease wrote or read outside its scratch directory); sting_cut (a human
         disconnected the Cell); overwintered (a Virtual Cell was paused dormant); destroyed (a
-        Virtual Cell was torn down); purged (Night Veil teardown purge completed for the Cell).
+        Virtual Cell was torn down); purged (Night Veil teardown purge completed for the Cell);
+        provisioning (a hivemind.hive.lifecycle.CellLifecycle.provision call began, roadmap step
+        5.6); granted (a Virtual Cell was handed to a task, GRANTED); virtual_released (a Virtual
+        Cell's task ended, RELEASED, pending an overwinter-or-teardown decision -- distinct from
+        `released` above, which is a Real Cell's own lease closing); resumed (an Overwintered
+        Virtual Cell woke back to READY); destroying (a CellBackend.destroy call began, before
+        `destroyed`); provision_failed (a CellLifecycle.provision call's own backend.provision
+        raised).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
         report, no transition); blocked (RUNNING -> BLOCKED, a question was asked); answered
@@ -162,6 +169,17 @@ class CellEvent(PheromoneEvent):
             "cell.overwintered",
             "cell.destroyed",
             "cell.purged",
+            # Roadmap step 5.6 (hivemind.hive.lifecycle.CellLifecycle, this branch): the Virtual
+            # Cell lifecycle's own edges not already covered above. Appended as one contiguous
+            # block at the end so a concurrent branch adding cell.left/cell.leaving_removed to
+            # this same frozenset (5.0a/5.0b, a different implementer) merges as an adjacent-line
+            # conflict at most, never an interleaved one.
+            "cell.provisioning",
+            "cell.granted",
+            "cell.virtual_released",
+            "cell.resumed",
+            "cell.destroying",
+            "cell.provision_failed",
         }
     )
 

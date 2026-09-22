@@ -48,6 +48,15 @@ Public API:
       (roadmap step 5.11), and its own registry factory (hivemind.hive.backends).
     - BackendRegistry, CellBackendFactory: name -> CellBackend, for the composition root
       (hivemind.hive.registry).
+    - CellLifecycle, DecideRelease, LiveVirtualCell, LifecycleDormantCell,
+      LifecycleVirtualBackend, ReleaseDecision, always_teardown: the Virtual Cell lifecycle
+      (roadmap step 5.6; hivemind.hive.lifecycle).
+    - OverwinterDecision, ReleaseOutcome, PoolView, OverwinterConfig, decide_release,
+      DormantCell, PooledCandidate, Scrubber, OverwinterPool: the Overwintering pool, roadmap step
+      5.9 (hivemind.hive.overwinter). Its own `ReleaseDecision` is re-exported here as
+      `OverwinterReleaseDecision`, since `hivemind.hive.lifecycle.ReleaseDecision` already holds
+      the bare name at this face; import `hivemind.hive.overwinter` directly for the unprefixed
+      name.
 """
 
 from hivemind.hive.backends import (
@@ -81,8 +90,30 @@ from hivemind.hive.errors import (
     HiveError,
     InvalidCellTransitionError,
     UnknownBackendError,
+    UnknownCellError,
+)
+from hivemind.hive.lifecycle import (
+    CellLifecycle,
+    DecideRelease,
+    LifecycleDormantCell,
+    LifecycleVirtualBackend,
+    LiveVirtualCell,
+    ReleaseDecision,
+    always_teardown,
 )
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.overwinter import (
+    DormantCell,
+    OverwinterConfig,
+    OverwinterDecision,
+    OverwinterPool,
+    PooledCandidate,
+    PoolView,
+    ReleaseOutcome,
+    Scrubber,
+    decide_release,
+)
+from hivemind.hive.overwinter import ReleaseDecision as OverwinterReleaseDecision
 from hivemind.hive.registry import BackendRegistry, CellBackendFactory
 
 __all__ = [
@@ -94,26 +125,46 @@ __all__ = [
     "CellBackendFactory",
     "CellBootstrap",
     "CellDestroyError",
+    "CellLifecycle",
     "CellProvisionError",
     "CellReadyInfo",
+    "DecideRelease",
     "DockerCellBackend",
+    # roadmap step 5.9 (hivemind.hive.overwinter): appended as its own block, not interleaved
+    # alphabetically above, so a concurrent edit to the rest of this list never conflicts with it.
+    "DormantCell",
     "FakeCellBackend",
     "FakeReadinessGate",
     "HiveError",
     "InvalidCellTransitionError",
+    "LifecycleDormantCell",
+    "LifecycleVirtualBackend",
+    "LiveVirtualCell",
     "NetworkPolicy",
+    "OverwinterConfig",
+    "OverwinterDecision",
+    "OverwinterPool",
+    "OverwinterReleaseDecision",
+    "PoolView",
+    "PooledCandidate",
     "QemuCellBackend",
     "QueenEndpoint",
     "ReadinessGate",
+    "ReleaseDecision",
+    "ReleaseOutcome",
+    "Scrubber",
     "UnknownBackendError",
+    "UnknownCellError",
     "VirtualCellRecord",
     "VirtualCellSpec",
     "VirtualCellStatus",
+    "always_teardown",
     "assert_dormant_allowed",
     "assert_transition",
     "build_docker_backend",
     "build_qemu_backend",
     "can_enter_dormant",
     "can_transition",
+    "decide_release",
     "mint_cell_bootstrap",
 ]
