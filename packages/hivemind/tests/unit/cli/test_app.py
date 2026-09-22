@@ -70,10 +70,10 @@ def test_main_makes_stdout_tolerate_unencodable_output(monkeypatch: pytest.Monke
 
     from hivemind.cli.app import _tolerate_console_encoding
 
-    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="
-")
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\n")
     monkeypatch.setattr(sys, "stdout", stream)
     _tolerate_console_encoding()
     stream.write("done ✅\n")
     stream.flush()
-    assert stream.buffer.getvalue() == b"done ?\n"
+    assert stream.buffer.getvalue() == b"done ?
+"
