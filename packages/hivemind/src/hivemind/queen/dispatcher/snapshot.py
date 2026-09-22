@@ -61,6 +61,7 @@ from waggle.messages.task import WorkerRole
 __all__ = [
     "build_forage_view",
     "build_inventory",
+    "current_virtual_backends",
     "dormant_candidate_from_lifecycle",
     "virtual_backend_candidate_from_lifecycle",
 ]
@@ -96,10 +97,8 @@ async def build_inventory(
     real = tuple(_real_candidate(link, footprint) for link in wardens)
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
-    elif deps.virtual_backend_source is not None:
-        backends = await deps.virtual_backend_source()
     else:
-        backends = deps.virtual_backends
+        backends = await current_virtual_backends(deps)
     if deps.dormant_cell_source is not None:
         live_dormant = await deps.dormant_cell_source()
         dormant = tuple(cell for cell in live_dormant if cell.cell_id not in exclude_dormant)
@@ -241,3 +240,17 @@ async def _wax_maps(
         elif wax.severity is WaxSeverity.CAUTION:
             cautioned[wax.cell_id] = mention
     return blocked, cautioned
+
+
+async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandidate, ...]:
+    """Return the Virtual backends placement sees right now.
+
+    The live source when wired, else the static tuple. The retry-once path
+    (`hivemind.queen.dispatcher.acquire`) zeroes one backend's headroom in a copy of THIS, never
+    of `deps.virtual_backends` alone: in a real Hive the static tuple is empty and only the live
+    source names the configured backend, so zeroing the static tuple made the retry see no
+    Virtual side at all and fall back to the Hive Stand (the first real Docker run).
+    """
+    if deps.virtual_backend_source is not None:
+        return await deps.virtual_backend_source()
+    return deps.virtual_backends

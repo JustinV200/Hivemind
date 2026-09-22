@@ -255,13 +255,16 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
         tasks; call `hive.queen.submit_goal`/`run_goal` inside the `async with` block.
     """
     if hive.virtual_cells is not None:
-        # Roadmap step 5.6: reconcile the live table from every registered backend's own
-        # list_cells (hivemind.hive.lifecycle.CellLifecycle.reconcile's own contract: called once,
-        # before any other method), then start accepting Virtual Cells' own control connections --
-        # both before hive.warden.start()/the TaskGroup below, so a Cell dialling back in while the
-        # Queen is still coming up is never dropped for connecting "too early".
-        await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+        # Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile
+        # the live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
+        # CellLifecycle.reconcile's own contract: called once, before any other method). The
+        # listener goes first because reconcile constructs every backend, and a Docker or QEMU
+        # backend's QueenEndpoint carries the listener's bound port, which only exists after
+        # start() (the first real Docker run failed on exactly this). Both happen before
+        # hive.warden.start()/the TaskGroup below, so a Cell dialling back in while the Queen is
+        # still coming up is never dropped for connecting "too early".
         await hive.virtual_cells.listener.start(hive.queen)
+        await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
     await hive.warden.start()
     # Structured concurrency (codingrules section 11): both loops are owned by this one
     # asyncio.TaskGroup, which awaits them to completion when the block below exits, whether

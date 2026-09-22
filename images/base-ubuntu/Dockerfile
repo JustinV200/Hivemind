@@ -60,6 +60,11 @@ COPY packages/hivemind/src packages/hivemind/src
 # distribution, not an editable link back to /build/packages/*/src -- the runtime stage below
 # copies only the resulting virtual environment, not this stage's source trees, so an editable
 # install (a path-reference shim) would break at import time without this flag.
+# The venv is created at the exact path the runtime stage mounts it at: every console script
+# uv writes carries an absolute shebang (`#!/opt/hivemind/venv/bin/python`), so a venv built at
+# /build/.venv and copied elsewhere would leave `hivemind-in-cell` pointing at a path that does
+# not exist in the shipped image (the first real build found exactly that).
+ENV UV_PROJECT_ENVIRONMENT=/opt/hivemind/venv
 RUN uv sync --frozen --no-dev --no-editable --package hivemind
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -81,7 +86,7 @@ RUN apt-get update \
     && mkdir -p /var/lib/hivemind/scratch \
     && chown -R hive:hive /var/lib/hivemind
 
-COPY --from=builder --chown=hive:hive /build/.venv /opt/hivemind/venv
+COPY --from=builder --chown=hive:hive /opt/hivemind/venv /opt/hivemind/venv
 ENV PATH="/opt/hivemind/venv/bin:${PATH}"
 
 USER hive

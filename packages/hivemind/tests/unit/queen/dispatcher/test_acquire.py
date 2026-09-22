@@ -191,3 +191,37 @@ async def test_a_failed_dormant_resume_retries_once_excluding_that_cell() -> Non
     assert len(provider.calls) == 2
     await warden_end.close()
     await warden_end2.close()
+
+
+async def test_the_retry_zeroes_the_live_backend_source_not_the_static_tuple() -> None:
+    """The retry zeroes a copy of the live source, not the static tuple.
+
+    A real Hive names its backends only through `virtual_backend_source`; zeroing the static
+    tuple made the retry see no Virtual side at all (the first real Docker run).
+    """
+    deps, link, warden_end = make_queen_deps()
+    fresh_cell = make_cell(kind=CellKind.VIRTUAL, clock=deps.clock)
+    fresh_link = WardenLink(
+        warden_id=new_warden_id(deps.clock), cell=fresh_cell, transport=link.transport, hop=link.hop
+    )
+    provider = FakeVirtualCellProvider(result=fresh_link, fail_times=1)
+    live = (_backend(deps.clock, "docker"), _backend(deps.clock, "qemu"))
+
+    async def source() -> tuple[VirtualBackendCandidate, ...]:
+        return live
+
+    deps2, link2, warden_end2 = make_queen_deps(
+        virtual_provider=provider,
+        virtual_backend_source=source,
+        placement_policy=PlacementPolicy(prefer="virtual"),
+    )
+    task = make_task()
+    placement = ProvisionVirtual(_spec(deps2.clock), "docker", "test")
+
+    resolved, effective = await resolve_link(deps2, (link2,), task, placement)
+
+    assert resolved is fresh_link
+    assert isinstance(effective, ProvisionVirtual)
+    assert effective.backend == "qemu"
+    await warden_end.close()
+    await warden_end2.close()

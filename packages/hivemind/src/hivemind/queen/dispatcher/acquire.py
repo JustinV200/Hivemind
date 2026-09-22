@@ -43,7 +43,11 @@ from collections.abc import Sequence
 from hivemind.brood_chamber import Task
 from hivemind.hive import CellProvisionError
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
+from hivemind.queen.dispatcher.snapshot import (
+    build_forage_view,
+    build_inventory,
+    current_virtual_backends,
+)
 from hivemind.queen.placement import (
     Placement,
     PlacementError,
@@ -109,9 +113,8 @@ async def _retry_once(
 ) -> tuple[WardenLink, Placement]:
     """Re-run `decide` once, with the failed candidate excluded, and acquire its own result."""
     if isinstance(placement, ProvisionVirtual):
-        zeroed = tuple(
-            _zero(b) if b.name == placement.backend else b for b in deps.virtual_backends
-        )
+        current = await current_virtual_backends(deps)
+        zeroed = tuple(_zero(b) if b.name == placement.backend else b for b in current)
         inventory = await build_inventory(deps, wardens, virtual_backends=zeroed)
     else:
         inventory = await build_inventory(

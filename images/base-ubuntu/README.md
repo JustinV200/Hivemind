@@ -56,7 +56,7 @@ actually reads the `TrailSegmentSync` chunks this image already sends.
 | 6 | `uv sync --frozen --no-dev --no-editable --package hivemind` | Installs `hivemind` and its own dependency closure (`waggle`, transitively, via `packages/hivemind/pyproject.toml`'s own `dependencies`). `--frozen`: fail rather than silently re-resolve. `--no-dev`: never ruff/mypy/pytest/import-linter inside a shipped image. `--no-editable`: a built distribution, not a path-reference shim back into the builder stage's own source tree (the runtime stage copies only the resulting virtual environment). |
 | 7 | `ca-certificates`, `python3` (runtime stage) | Only what the installed venv needs to run; no compiler, no uv, no curl in the shipped image. |
 | 8 | A non-root `hive` user, home directory and `/var/lib/hivemind/scratch` | Codingrules section 15: least privilege; nothing runs as root once installed. `/var/lib/hivemind/scratch` is `hivemind.cli.in_cell.config.DEFAULT_SCRATCH_ROOT`, where `InCellSpawnSource` creates each lease's own scratch subdirectory. |
-| 9 | The builder stage's `.venv`, copied in and put on `PATH` | The only thing carried from the builder stage into the shipped image. |
+| 9 | The builder stage's venv, built at `/opt/hivemind/venv` (`UV_PROJECT_ENVIRONMENT`) so its console scripts' absolute shebangs are right in the shipped image, copied in and put on `PATH` | The only thing carried from the builder stage into the shipped image. |
 | 10 | No `EXPOSE` | Codingrules section 15: a Virtual Cell opens no inbound port. Every Waggle link is dialled **out**. |
 | 11 | `ENTRYPOINT ["hivemind-in-cell"]` | The in-Cell Warden entry point (roadmap step 5.5), described above. |
 
