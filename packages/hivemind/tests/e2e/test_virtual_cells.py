@@ -52,6 +52,7 @@ import pytest
 from builders.virtual_cells import (
     ContainerSpawningFakeCellBackend,
     VirtualCellsTuning,
+    assert_every_warden_flushed_its_trail,
     clear_wax_note,
     default_container_script,
     independent_haiku_plan,
@@ -308,6 +309,8 @@ async def _run_scenario_a(hive: Hive, *, overwinter_enabled: bool) -> None:
         assert len(backend.provision_calls) >= 3
 
         _assert_scenario_a_trail_order(report.tasks, events, overwinter_enabled=overwinter_enabled)
+        if not overwinter_enabled:
+            assert_every_warden_flushed_its_trail(hive, report.tasks, events)
     finally:
         await backend.aclose()
 

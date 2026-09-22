@@ -38,6 +38,9 @@ Public API:
       (hivemind.queen.cell_gate.provider).
     - make_on_task_finished: builds the callable QueenDeps.on_task_finished holds, for releasing a
       Virtual Cell once its task ends (hivemind.queen.cell_gate.release).
+    - make_quiesce: builds the real `quiesce` callable make_on_task_finished calls before tearing a
+      Cell down, so its Warden's final trail sync has a chance to land first
+      (hivemind.queen.cell_gate.quiesce).
     - CellSnapshotHandler: answers a Warden's own CellSnapshotRequest/CellRollbackRequest, the
       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
 """
@@ -45,6 +48,7 @@ Public API:
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps, SnapshotRequestHandler
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
+from hivemind.queen.cell_gate.quiesce import make_quiesce
 from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
 from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 
@@ -57,4 +61,5 @@ __all__ = [
     "SnapshotRequestHandler",
     "make_on_cell_granted",
     "make_on_task_finished",
+    "make_quiesce",
 ]

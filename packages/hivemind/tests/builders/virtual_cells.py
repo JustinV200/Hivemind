@@ -83,6 +83,7 @@ import pytest
 from builders.cli import fake_manifest
 
 import hivemind.cli.compose.hive as _hive_compose
+from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, HoneyClearance
 from hivemind.cli.compose import Hive
 from hivemind.cli.in_cell.main import run_in_cell_warden
@@ -102,6 +103,7 @@ from hivemind.memory.cell_wax import (
     propose_wax,
     write_wax,
 )
+from hivemind.pheromone import PheromoneEvent
 from hivemind.queen.placement.policy import PlacementPolicy
 from hivemind.wardens.deps import WardenDeps
 from waggle.clock import Clock, SystemClock
@@ -113,6 +115,7 @@ __all__ = [
     "ContainerScript",
     "ContainerSpawningFakeCellBackend",
     "VirtualCellsTuning",
+    "assert_every_warden_flushed_its_trail",
     "clear_wax_note",
     "default_container_script",
     "independent_haiku_plan",
@@ -406,6 +409,41 @@ def _memory_context(hive: Hive) -> MemoryContext:
         hive_id=hive.manifest.hive.id, node_id=hive.manifest.hive.node_id, actor="system"
     )
     return MemoryContext(store=hive.stores.memory, identity=identity, clock=hive.clock)
+
+
+def assert_every_warden_flushed_its_trail(
+    hive: Hive, tasks: Sequence[Task], events: Sequence[PheromoneEvent]
+) -> None:
+    """Assert every task's own Cell shipped its final trail segment before being torn down.
+
+    `warden.stopped` is recorded only at the very end of `hivemind.wardens.warden.Warden.stop`,
+    right before it ships this Cell's last trail segment -- present here under a node id other
+    than the Queen's own, it proves the segment actually merged
+    (`hivemind.queen.cell_gate.quiesce.make_quiesce` gave the Warden a real chance to ship it)
+    rather than dying with the container the way it did before that fix. Never call this for an
+    overwintered Cell: its own Warden is still running, so it never records one at all.
+    """
+    queen_node_id = str(hive.manifest.hive.node_id)
+    for task in tasks:
+        warden_id = _warden_id_for_cell(events, _cell_id_for_task(events, task.id))
+        merged = [e for e in events if e.subject_id == warden_id and e.kind == "warden.stopped"]
+        assert merged and merged[0].node_id != queen_node_id
+
+
+def _cell_id_for_task(events: Sequence[PheromoneEvent], task_id: str) -> str:
+    """Return the Cell id `queen.assigned` named for `task_id`."""
+    assigned = next(e for e in events if e.kind == "queen.assigned" and e.subject_id == task_id)
+    cell_id = assigned.payload.get("cell_id")
+    assert isinstance(cell_id, str)
+    return cell_id
+
+
+def _warden_id_for_cell(events: Sequence[PheromoneEvent], cell_id: str) -> str:
+    """Return `cell_id`'s own attached Warden id, read off its cell.ready event."""
+    ready = next(e for e in events if e.kind == "cell.ready" and e.subject_id == cell_id)
+    warden_id = ready.payload["warden_id"]
+    assert isinstance(warden_id, str)
+    return warden_id
 
 
 class ContainerSpawningFakeCellBackend(FakeCellBackend):

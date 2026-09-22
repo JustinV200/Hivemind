@@ -123,6 +123,56 @@ async def test_on_task_finished_tears_down_a_failed_task_without_ever_asking_the
     assert backend.pause_calls == []  # Never offered to decide_release at all.
 
 
+async def test_on_task_finished_quiesces_before_tearing_down_without_a_pool() -> None:
+    lifecycle, backend = _build_lifecycle(with_pool=False)
+    cell_id = await _granted_cell(lifecycle)
+    calls: list[CellId] = []
+
+    async def _quiesce(quiesced_cell_id: CellId) -> None:
+        calls.append(quiesced_cell_id)
+
+    on_task_finished = make_on_task_finished(lifecycle, _no_op_scrub, _quiesce)
+
+    await on_task_finished(cell_id, _outcome(TaskStatus.SUCCEEDED))
+
+    assert calls == [cell_id]
+    assert backend.destroy_calls == [cell_id]
+
+
+async def test_on_task_finished_quiesces_before_tearing_down_a_failed_task() -> None:
+    lifecycle, backend = _build_lifecycle(with_pool=True)
+    cell_id = await _granted_cell(lifecycle)
+    calls: list[CellId] = []
+
+    async def _quiesce(quiesced_cell_id: CellId) -> None:
+        calls.append(quiesced_cell_id)
+
+    on_task_finished = make_on_task_finished(lifecycle, _no_op_scrub, _quiesce)
+
+    await on_task_finished(cell_id, _outcome(TaskStatus.FAILED))
+
+    assert calls == [cell_id]
+    assert backend.destroy_calls == [cell_id]
+
+
+async def test_on_task_finished_never_quiesces_before_overwintering() -> None:
+    """A paused Cell's own Warden must keep running so it can later resume (see release.py)."""
+    lifecycle, backend = _build_lifecycle(with_pool=True)
+    cell_id = await _granted_cell(lifecycle)
+    calls: list[CellId] = []
+
+    async def _quiesce(quiesced_cell_id: CellId) -> None:
+        calls.append(quiesced_cell_id)
+
+    on_task_finished = make_on_task_finished(lifecycle, _no_op_scrub, _quiesce)
+
+    await on_task_finished(cell_id, _outcome(TaskStatus.SUCCEEDED))
+
+    assert calls == []
+    assert lifecycle.status_of(cell_id) is VirtualCellStatus.DORMANT
+    assert backend.pause_calls == [cell_id]
+
+
 async def test_on_cell_granted_walks_ready_to_granted_once_and_ignores_a_regrant() -> None:
     """A retry or redispatch grants an already-GRANTED Cell again; that must not raise."""
     lifecycle, _backend = _build_lifecycle(with_pool=False)

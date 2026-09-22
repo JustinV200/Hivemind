@@ -164,6 +164,19 @@ class LifecycleVirtualCellProvider:
         """
         self._queen = queen
 
+    @property
+    def queen(self) -> _WardensView | None:
+        """The Queen `bind_queen` bound, or None before that has run.
+
+        Exposed so `hivemind.queen.cell_gate.quiesce.make_quiesce`'s own `queen_getter` can reuse
+        this provider's late-bound reference instead of the composition root adding a second
+        `bind_queen` call site (`hivemind.cli.compose.hive._assemble_hive`, not in this dispatch's
+        allowed-to-fix list): `hivemind.cli.compose.virtual_cells.build_virtual_cells` closes over
+        `lambda: provider.queen` before either `provider` or the real `Queen` it will later be
+        bound to exists.
+        """
+        return self._queen
+
     async def acquire(self, placement: Placement, task: Task) -> WardenLink:
         """Provision or resume the Cell `placement` names, and return its own WardenLink.
 

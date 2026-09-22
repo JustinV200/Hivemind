@@ -66,8 +66,20 @@ Fits into the Hive:
     `_fail_closed_night_veil_probe` below returns), `hivemind.manifest` (HiveManifest),
     `hivemind.pheromone` (PheromoneTrail, TrailRecorder), `hivemind.queen.cell_gate`
     (CellListener, CellListenerDeps, LifecycleVirtualCellProvider, QueenReadinessGate,
-    make_on_task_finished), `hivemind.queen.dispatcher.snapshot` (the two hive-to-queen candidate
-    converters), `hivemind.queen.placement` (VirtualBackendCandidate) and waggle only.
+    make_on_task_finished, make_quiesce), `hivemind.queen.dispatcher.snapshot` (the two
+    hive-to-queen candidate converters), `hivemind.queen.placement` (VirtualBackendCandidate) and
+    waggle only.
+
+    **Graceful teardown wiring (this dispatch's own fix, a real Docker run's own defect):**
+    `make_quiesce` is closed over `lambda: provider.queen` -- `LifecycleVirtualCellProvider`'s own
+    late-bound Queen reference, reused rather than adding a second `bind_queen` call site to
+    `hivemind.cli.compose.hive._assemble_hive` (not in this dispatch's allowed-to-fix list) -- and
+    handed to `make_on_task_finished` as its `quiesce` parameter, so a finished task's own Cell is
+    asked to stop and ship its final trail segment before `hivemind.hive.lifecycle.CellLifecycle.
+    teardown` destroys the backend out from under it. `_build_lifecycle` also now binds a
+    `TrailSegmentReceiver` unconditionally, not only for `docker`/`qemu`: leaving it unbound for
+    `fake` silently dropped every `TrailSegmentSync` a Cell's own Warden ever shipped, which is why
+    the graceful stop alone was not enough (see that function's own comment for the full story).
 
     **Night Veil probe wiring (roadmap step 5.7b, this branch closing a gap an earlier
     implementer's own report named):** `LifecycleVirtualCellProvider` now takes a `probe_factory`
@@ -138,6 +150,7 @@ from hivemind.queen.cell_gate import (
     QueenReadinessGate,
     make_on_cell_granted,
     make_on_task_finished,
+    make_quiesce,
 )
 from hivemind.queen.deps import (
     DormantCellSource,
@@ -219,15 +232,21 @@ def build_virtual_cells(
     gate, listener, registry, lifecycle = _build_lifecycle(
         manifest, section, trail, clock, environ or {}
     )
+    provider = _build_provider(manifest, lifecycle, gate, trail, clock)
+    # Reuses provider's own late-bound Queen reference (`bind_queen`, called once by
+    # hivemind.cli.compose.hive._assemble_hive) rather than adding a second bind_queen call site
+    # not in this dispatch's allowed-to-fix list (hivemind.queen.cell_gate.quiesce's own module
+    # docstring): a Queen does not exist yet at this point, so only a getter closure can reach it.
+    quiesce = make_quiesce(lambda: provider.queen, clock)
     return VirtualCellsParts(
         registry=registry,
         gate=gate,
         listener=listener,
         lifecycle=lifecycle,
-        provider=_build_provider(manifest, lifecycle, gate, trail, clock),
+        provider=provider,
         virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
         dormant_cell_source=_dormant_cell_source(lifecycle),
-        on_task_finished=make_on_task_finished(lifecycle, _null_scrub),
+        on_task_finished=make_on_task_finished(lifecycle, _null_scrub, quiesce),
         on_cell_granted=make_on_cell_granted(lifecycle),
     )
 
@@ -260,13 +279,23 @@ def _build_lifecycle(
         identity,
         overwinter=OverwinterSettings(pool=pool, config=overwinter_config),
     )
+    # Unconditional, unlike the snapshot relay below: any backend's own Warden -- "fake" included,
+    # the one `tests.builders.virtual_cells.ContainerSpawningFakeCellBackend` runs a real in-Cell
+    # Warden over -- ships its local trail segment as TrailSegmentSync chunks on every heartbeat
+    # and once more from `stop()` (hivemind.wardens.trail_sync's own module docstring); leaving
+    # this unbound for "fake" left every one of those chunks silently dropped (`CellListener.
+    # _dispatch`'s own "no-op when CellListenerDeps names no ... receiver"), so a Cell's whole
+    # local trail was lost even when `hivemind.queen.cell_gate.quiesce.make_quiesce` gave its
+    # Warden a clean chance to ship it (this dispatch's own fix, confirmed missing by the phase 5
+    # e2e slice: the Queen's trail held only her own node id for a finished Virtual Cell's task).
+    listener.bind_trail_receiver(TrailSegmentReceiver(trail))
     if section.backend in ("docker", "qemu"):
         # "fake" (dev/test only) never declares can_snapshot=True (hivemind.hive.backends.fake's
         # own default), so it would only ever draw NoopSnapshotter -- opening a real SQLite
         # connection to attach a SnapshotLedgerPort no Cell of that backend can ever use would be
         # pure overhead (and, in a short-lived test process, an unclosed file handle nothing here
-        # ever gets a chance to release). Only a real backend gets the relay wired in.
-        _attach_snapshot_and_trail(manifest, listener, lifecycle, trail, clock)
+        # ever gets a chance to release). Only a real backend gets the snapshot relay wired in.
+        _attach_snapshot(manifest, listener, lifecycle, clock)
     return gate, listener, registry, lifecycle
 
 
@@ -289,26 +318,21 @@ def _build_provider(
     return LifecycleVirtualCellProvider(lifecycle, gate, recorder, _fail_closed_night_veil_probe)
 
 
-def _attach_snapshot_and_trail(
-    manifest: HiveManifest,
-    listener: CellListener,
-    lifecycle: CellLifecycle,
-    trail: PheromoneTrail,
-    clock: Clock,
+def _attach_snapshot(
+    manifest: HiveManifest, listener: CellListener, lifecycle: CellLifecycle, clock: Clock
 ) -> None:
-    """Wire the snapshot relay and the offline trail sync into `listener` and `lifecycle`.
+    """Wire the snapshot relay into `listener` and `lifecycle` (docker/qemu only; caller's guard).
 
-    Roadmap step 5.10's own follow-up gap (the snapshot relay): a durable ledger so `hive cells
-    snapshot`/`hive cells rollback` and this running Queen all read and write the same book, and
-    the handler `listener` answers a Warden's own `CellSnapshotRequest`/`CellRollbackRequest`
-    through -- bound after `listener` exists (the same late-binding shape `LifecycleVirtualCell
-    Provider.bind_queen` already uses), since `listener` itself has to exist first for
-    `_build_registry`'s own lazy endpoint closures.
+    Roadmap step 5.10's own follow-up gap: a durable ledger so `hive cells snapshot`/`hive cells
+    rollback` and this running Queen all read and write the same book, and the handler `listener`
+    answers a Warden's own `CellSnapshotRequest`/`CellRollbackRequest` through -- bound after
+    `listener` exists (the same late-binding shape `LifecycleVirtualCellProvider.bind_queen`
+    already uses), since `listener` itself has to exist first for `_build_registry`'s own lazy
+    endpoint closures.
     """
     ledger = open_snapshot_ledger(manifest.resolve_path(manifest.hive.db))
     lifecycle.attach_snapshot_ledger(ledger)
     listener.bind_snapshot_handler(CellSnapshotHandler(lifecycle, ledger, clock))
-    listener.bind_trail_receiver(TrailSegmentReceiver(trail))
 
 
 def _build_listener(
