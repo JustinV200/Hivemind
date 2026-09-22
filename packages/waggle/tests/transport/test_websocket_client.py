@@ -269,3 +269,16 @@ async def test_reconnect_after_the_server_restarts_on_the_same_port(
         await client.close()
     finally:
         await second.close()
+
+
+def test_gateway_host_is_accepted_only_with_the_virtual_cell_flag(
+    plain_codec: Codec, fake_clock: FakeClock
+) -> None:
+    """A ws:// URI on the Docker host gateway is refused by default and accepted for a Cell."""
+    uri = "ws://host.docker.internal:8710"
+    with pytest.raises(ValueError, match="loopback"):
+        WebSocketClientTransport(uri, plain_codec, fake_clock)
+    client = WebSocketClientTransport(
+        uri, plain_codec, fake_clock, allow_virtual_cell_gateway_host=True
+    )
+    assert client.uri == uri

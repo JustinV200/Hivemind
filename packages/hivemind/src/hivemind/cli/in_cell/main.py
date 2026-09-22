@@ -151,7 +151,11 @@ async def _connect_and_announce(
         `build_in_cell_warden_deps` needs beyond `config` itself.
     """
     codec = Codec(signer=config.signer, verifier=config.verifier)
-    transport = WebSocketClientTransport(config.queen_waggle_url, codec, clock)
+    # The gateway carve-out matches build_runtime_config's own validation of this URL: from inside
+    # a container, loopback is the Cell itself, so the Queen is reached through the host gateway.
+    transport = WebSocketClientTransport(
+        config.queen_waggle_url, codec, clock, allow_virtual_cell_gateway_host=True
+    )
     # This Cell's own local Pheromone Trail segment (codingrules section 12: "A Warden that is
     # offline writes to its local segment; on reconnection the segment merges into the Queen's
     # trail"): `build_in_cell_warden_deps` wires a `WaggleTrailSync` that ships it over `transport`

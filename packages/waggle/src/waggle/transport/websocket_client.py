@@ -84,12 +84,16 @@ class WebSocketClientTransport:
         *,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         open_timeout_s: float = OPEN_TIMEOUT_S,
+        allow_virtual_cell_gateway_host: bool = False,
     ) -> None:
         """Remember where to dial and how; nothing is dialled until ``connect``.
 
         Args:
             uri: The Hive Stand's listener, ``wss://host:port`` anywhere or ``ws://`` on a
-                loopback host only.
+                loopback host only -- or, with ``allow_virtual_cell_gateway_host``, on a Virtual
+                Cell's host-gateway alias or private address too (``check_waggle_uri``).
+            allow_virtual_cell_gateway_host: Set only by a Virtual Cell's own in-Cell entry
+                point, whose loopback is the Cell itself, never the Hive Stand (ADR-0027).
             codec: Encodes every send and decodes every receive; its limit is the dial's
                 max_size.
             clock: The injected Clock every backoff wait goes through.
@@ -103,7 +107,9 @@ class WebSocketClientTransport:
         """
         # Checked once here, not per dial, so a misconfigured address fails at construction in
         # the composition root rather than inside a reconnect loop (spec section 6).
-        self._uri = check_waggle_uri(uri)
+        self._uri = check_waggle_uri(
+            uri, allow_virtual_cell_gateway_host=allow_virtual_cell_gateway_host
+        )
         if max_attempts < 1:
             raise ValueError(f"max_attempts must be at least 1, got {max_attempts}.")
         self._codec = codec
