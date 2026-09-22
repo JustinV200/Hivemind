@@ -38,15 +38,10 @@ matching link ever showing up in `queen.wardens`), this provider tears the Cell 
 retry-once path runs (ADR-0028 Consequences); a failure from `lifecycle.provision`/`.resume`
 themselves already raises `CellProvisionError` on its own and needs no extra teardown (neither
 call ever leaves a dangling record on its own failure path -- see `hivemind.hive.lifecycle`'s own
-key invariants). Known gap (documented, not fixed here): `hivemind.hive.cell_state.TRANSITIONS`
-has no PROVISIONING -> DESTROYING edge, so a Cell that reached PROVISIONING (`lifecycle.provision`
-returned) but never `mark_ready` (this provider's own `gate.wait_ready`/`queen.wardens` lookup
-failed) cannot be torn down by this provider at all -- `_teardown_best_effort` swallows the
-resulting `InvalidCellTransitionError` and the record is left tracked, PROVISIONING, for a future
-sweep enhancement. A real, contract-conformant backend never reaches this branch: its own
-`provision()` already blocks on the very same gate and raises `CellProvisionError` itself before
-this provider's own `gate.wait_ready` could ever see a fresh timeout (module docstring, first
-paragraph) -- only a backend that violates that contract could leave a Cell stuck here.
+key invariants). A Cell that reached PROVISIONING (`lifecycle.provision` returned) but never
+`mark_ready` (this provider's own `gate.wait_ready`/`queen.wardens` lookup failed, or Night Veil
+attestation was red) is torn down through `hivemind.hive.cell_state`'s PROVISIONING -> DESTROYING
+edge, so nothing is left tracked for a sweep to find.
 
 **Night Veil attestation (roadmap step 5.7b, ADR-0030, this branch closing a gap an earlier
 implementer's own report named):** for a freshly provisioned Cell whose `comb_shield` is

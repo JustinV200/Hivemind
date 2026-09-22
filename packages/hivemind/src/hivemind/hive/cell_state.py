@@ -84,6 +84,9 @@ TRANSITIONS: Mapping[VirtualCellStatus, frozenset[VirtualCellStatus]] = {
         {
             VirtualCellStatus.READY,  # the backend's Cell became reachable in time
             VirtualCellStatus.FAILED,  # the backend could not create it, or it timed out
+            # A Cell whose infrastructure exists but that must never be used: Night Veil
+            # attestation (roadmap 5.7b) failed before READY, so it is destroyed, not left.
+            VirtualCellStatus.DESTROYING,
         }
     ),
     VirtualCellStatus.READY: frozenset(

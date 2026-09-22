@@ -25,10 +25,12 @@ first lookup differs from every one after it, once `node_id` is bound. A forged 
 naming someone else's `cell_id` still fails: the signature must verify against *that* `cell_id`'s
 own registered key, which only the real Cell holds.
 
-Known gap (documented, not fixed here): `hivemind.cli.in_cell.link.CellLink` -- today's only
-sender -- never emits `waggle.messages.forage.hosting.CapacityReport`, so a Cell's real
-`ForageCapacity` never reaches this listener; `_PLACEHOLDER_CAPACITY` (all zeros) stands in until a
-real in-Cell Warden sends one (this dispatch's own report names this explicitly).
+Fixed here (this dispatch): `_await_ready` now also captures the `CapacityReport` a real in-Cell
+Warden's own `hivemind.cli.in_cell.main._connect_and_announce` sends between `CellReady` and the
+first `CellHeartbeat`, converting it into a real `ForageCapacity` (`_capacity_from_report`) instead
+of always using `_PLACEHOLDER_CAPACITY` (all zeros); see that function's own docstring for the
+defect this closes (a real Virtual Cell's every grant was capped at zero sub-bees). A Cell that
+never sends one (a fake or stubbed connection in a unit test) still gets `_PLACEHOLDER_CAPACITY`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`. Built
@@ -66,6 +68,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -90,7 +93,9 @@ from waggle.messages.cell.snapshot import (
     CellSnapshotRequest,
 )
 from waggle.messages.cell.status import CellHeartbeat, CellReady
+from waggle.messages.forage.hosting import CapacityReport
 from waggle.messages.labels import OsFamily
+from waggle.messages.reports import PlatformReport
 from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_from_hex
 from waggle.transport.websocket import WebSocketTransport
@@ -220,10 +225,19 @@ class CellListener:
         self._accept_task = asyncio.ensure_future(self._accept_loop())
 
     async def stop(self) -> None:
-        """Stop accepting, close every connection, and wait for every handler to finish."""
+        """Stop accepting, close every connection, and wait for every handler to finish.
+
+        Cancels every still-running handler explicitly (this dispatch's own fix, see `_handle`'s
+        own docstring for why): a handler attached to the Queen never reads its own transport
+        again once attached, so it never notices `self._server.close()` closing the underlying
+        connection out from under it on its own; without an explicit cancel here, `stop()` would
+        wait forever on a handler that has nothing left to wait for.
+        """
         await self._server.close()
         if self._accept_task is not None:
             await self._accept_task
+        for task in tuple(self._handlers):
+            task.cancel()
         if self._handlers:
             await asyncio.gather(*self._handlers, return_exceptions=True)
 
@@ -238,42 +252,71 @@ class CellListener:
             task.add_done_callback(self._handlers.discard)
 
     async def _handle(self, transport: WebSocketTransport) -> None:
-        """Drain one accepted connection for CellReady then CellHeartbeat, attach, and clean up."""
+        """Drain one accepted connection for CellReady then CellHeartbeat, attach, and clean up.
+
+        **Documented defect and this dispatch's own minimal fix:** the module docstring's own
+        "Heartbeats and future GrantIssued/TaskAssign frames still flow through the Warden's own
+        tick, which drains this same WardenLink" is not actually true once a real (non-fake)
+        transport is involved: `hivemind.queen.queen.Queen.attach_warden` calls `link.transport.
+        receive()` itself, a *second*, independent call to the same underlying `websockets`
+        connection's own single-consumer `recv()` (`waggle.transport.base.Transport`'s own
+        documented "one task sends and one task receives at a time" concurrency model) -- so a
+        `_handle` that also kept iterating `transport.receive()` after attaching raced the Queen's
+        own tick loop for the same socket and crashed with `websockets.exceptions.
+        ConcurrencyError`, confirmed directly the first time any test actually attached a real
+        Queen to a real Virtual Cell connection over a real loopback WebSocket (every prior test
+        of this module used a stub `Queen`/`Transport`, never exercising the real double-consumer
+        race). `hivemind.queen.queen` is not in this dispatch's allowed-to-fix list, so the fix
+        stays here: `link` is now built around `_FanoutTransport`, not `transport` directly --
+        that class's own docstring is the one and only real reader of `transport.receive()` from
+        now on, feeding the Queen's own consumption through an internal queue and answering a
+        `CellSnapshotRequest`/`CellRollbackRequest`/`TrailSegmentSync` inline itself, so both
+        consumers keep seeing every envelope they need with no second `recv()` in sight.
+        """
         binding = await _await_ready(transport)
         if binding is None:
             await transport.close()
             return  # Never became ready; nothing was attached, so nothing to detach either.
         assert self._queen is not None  # noqa: S101 - start() always runs before a connection.
-        link = WardenLink(
-            warden_id=binding.warden_id,
-            cell=_cell_from_binding(binding),
-            transport=transport,
-            hop=Hop(
-                sender=self._deps.hive_id,
-                recipient=binding.warden_id,
-                node_id=self._deps.queen_node_id,
-            ),
-        )
-        # Attach before resolving the gate: a caller waking from QueenReadinessGate.wait_ready
-        # (hivemind.hive.provider, roadmap step 5.6) looks this Cell's own link up in
-        # `queen.wardens` next, so it must already be there the instant wait_ready returns.
-        self._queen.attach_warden(link)
-        self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
+        fanout = self._attach(transport, binding)
         try:
-            async for envelope in transport.receive():
-                # Heartbeats and future GrantIssued/TaskAssign frames still flow through the
-                # Warden's own tick, which drains this same WardenLink; this loop only answers
-                # the two kinds a Warden cannot reach the Queen's own collaborators any other
-                # way for (the snapshot relay, the offline trail sync) and otherwise falls
-                # through, same as before.
-                await self._dispatch(transport, link.hop, envelope)
-        except (ConnectionLostError, CodecError, SignatureError):
-            pass
+            # Ends normally once fanout's own pump notices the connection close (or a decode
+            # failure); never raises on that path (_FanoutTransport.pump's own docstring), so the
+            # only exception that can reach here is a genuine external cancel (stop(), below).
+            await fanout.pump_task
         finally:
+            if not fanout.pump_task.done():
+                fanout.pump_task.cancel()
+            await asyncio.gather(fanout.pump_task, return_exceptions=True)
             await detach_warden(self._queen, binding.warden_id)
 
+    def _attach(self, transport: WebSocketTransport, binding: _ReadyBinding) -> _FanoutTransport:
+        """Build the fan-out link for a ready Cell, attach it to the Queen, then resolve the gate.
+
+        Attach before resolving the gate: a caller waking from QueenReadinessGate.wait_ready
+        (hivemind.queen.cell_gate.provider, roadmap step 5.6) looks this Cell's own link up in
+        `queen.wardens` next, so it must already be there the instant wait_ready returns.
+        """
+        assert self._queen is not None  # noqa: S101 - _handle checked already.
+        hop = Hop(
+            sender=self._deps.hive_id, recipient=binding.warden_id, node_id=self._deps.queen_node_id
+        )
+        fanout = _FanoutTransport(
+            transport, lambda envelope: self._dispatch(transport, hop, envelope)
+        )
+        link = WardenLink(
+            warden_id=binding.warden_id, cell=_cell_from_binding(binding), transport=fanout, hop=hop
+        )
+        self._queen.attach_warden(link)
+        self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
+        return fanout
+
     async def _dispatch(self, transport: WebSocketTransport, hop: Hop, envelope: Envelope) -> None:
-        """Answer a snapshot relay request, or merge a trail segment chunk; else do nothing."""
+        """Answer a snapshot relay request, or merge a trail segment chunk; else do nothing.
+
+        Called only from `_FanoutTransport.pump` now (this class's own module docstring): never
+        directly on `_handle`'s own former read loop, which no longer exists.
+        """
         payload = envelope.payload
         if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
             snapshot_reply = await self._snapshot_handler.snapshot(payload)
@@ -287,6 +330,106 @@ class CellListener:
             )
         elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
             await self._trail_receiver.receive(payload)
+
+
+# Marks "the pump will never put another envelope" on _FanoutTransport's own internal queue; a
+# private sentinel object (never an Envelope, so `is` identity alone tells the two apart).
+_FANOUT_DONE = object()
+
+
+class _FanoutTransport:
+    """Wrap one accepted connection so the Queen's own read and this listener's own read agree.
+
+    `waggle.transport.base.Transport`'s own documented concurrency model is "one task sends and
+    one task receives at a time" -- a single real `websockets` connection has exactly one
+    `recv()` to give out. `CellListener._handle`'s own module docstring names the defect this
+    class exists to close: `hivemind.queen.queen.Queen.attach_warden` becomes a second reader the
+    moment a `WardenLink` is attached, so this class is built around the real transport instead
+    and handed to `attach_warden` in its place -- `pump`, started at construction, is the one and
+    only task that ever calls the real transport's own `receive()`; every envelope it reads either
+    answers inline (a snapshot relay request, a trail segment sync -- `CellListener._dispatch`) or
+    is queued for `receive()` here to yield to the Queen, so both "readers" still see every
+    envelope meant for them without a second `recv()` ever happening.
+
+    Implements `waggle.transport.base.Transport` structurally (`send`/`receive`/`close`/
+    `is_connected`/`connect`, every one forwarded to or fed from the real transport): `hivemind.
+    queen.deps.WardenLink.transport` and `hivemind.queen.queen.Queen.attach_warden` need nothing
+    more than that, so neither has to change to accept this in place of a real `WebSocketTransport`.
+    """
+
+    def __init__(
+        self, real: WebSocketTransport, dispatch: Callable[[Envelope], Awaitable[None]]
+    ) -> None:
+        """Wrap `real`, starting `pump` immediately so nothing else may ever call its `receive()`.
+
+        Args:
+            real: The accepted connection this listener drains exclusively from now on.
+            dispatch: Answers a `CellSnapshotRequest`/`CellRollbackRequest`/`TrailSegmentSync`
+                inline, on the pump's own task (`CellListener._dispatch`, bound to this specific
+                connection's own transport and Hop).
+        """
+        self._real = real
+        self._dispatch = dispatch
+        self._queue: asyncio.Queue[Envelope | object] = asyncio.Queue()
+        self._closed_exc: Exception | None = None
+        self.pump_task: asyncio.Task[None] = asyncio.ensure_future(self._pump())
+
+    @property
+    def is_connected(self) -> bool:
+        """See `waggle.transport.base.Transport.is_connected`; forwarded to the real transport."""
+        return self._real.is_connected
+
+    async def connect(self) -> None:
+        """See `waggle.transport.base.Transport.connect`; forwarded (already connected, a no-op)."""
+        await self._real.connect()
+
+    async def send(self, envelope: Envelope) -> None:
+        """See `waggle.transport.base.Transport.send`; forwarded to the real transport directly."""
+        await self._real.send(envelope)
+
+    async def receive(self) -> AsyncIterator[Envelope]:
+        """Yield every envelope `pump` queued for the Queen; see `Transport.receive`.
+
+        Raises:
+            ConnectionLostError | CodecError | SignatureError: Whatever `pump`'s own `receive()`
+                on the real transport raised, re-raised here once queued items are exhausted, so
+                a caller sees exactly the same failure shape it would from the real transport.
+        """
+        while True:
+            item = await self._queue.get()
+            if item is _FANOUT_DONE:
+                if self._closed_exc is not None:
+                    raise self._closed_exc
+                return  # A clean end (StopAsyncIteration-shaped): nothing more will ever arrive.
+            assert isinstance(item, Envelope)  # noqa: S101 - only Envelope or _FANOUT_DONE is ever queued.
+            yield item
+
+    async def close(self) -> None:
+        """See `waggle.transport.base.Transport.close`; forwarded to the real transport directly."""
+        await self._real.close()
+
+    async def _pump(self) -> None:
+        """The one and only real reader of the wrapped transport's own `receive()` (class doc).
+
+        Never raises: a lost connection or a decode failure is recorded on `self._closed_exc`
+        (re-raised from `receive()` above, once every already-queued envelope has been yielded)
+        rather than propagated out of this task, so a caller that only awaits `pump_task` itself
+        (`CellListener._handle`) sees a clean, normal return on every path.
+        """
+        try:
+            async for envelope in self._real.receive():
+                if isinstance(
+                    envelope.payload, (CellSnapshotRequest, CellRollbackRequest, TrailSegmentSync)
+                ):
+                    # Answered right here, inline: these three kinds are never meant for the
+                    # Queen's own bee-protocol dispatch (class docstring).
+                    await self._dispatch(envelope)
+                else:
+                    await self._queue.put(envelope)
+        except (ConnectionLostError, CodecError, SignatureError) as exc:
+            self._closed_exc = exc
+        finally:
+            await self._queue.put(_FANOUT_DONE)
 
 
 class _GateVerifier:
@@ -350,16 +493,34 @@ class _ReadyBinding:
 async def _await_ready(transport: WebSocketTransport) -> _ReadyBinding | None:
     """Drain `transport` until a verified CellReady then a CellHeartbeat both arrive, or it ends.
 
+    **Documented defect and this dispatch's own minimal fix:** the module's own former "Known gap"
+    ("`hivemind.cli.in_cell.link.CellLink` -- today's only sender -- never emits `CapacityReport`")
+    is stale: `hivemind.cli.in_cell.main._connect_and_announce` already sends one, between
+    `CellReady` and the first `CellHeartbeat` (that module's own module docstring: "sends the three
+    frames that must go out before a Warden exists... announce/send_capacity_report/
+    send_cell_heartbeat, in that order"). This function simply never looked for it, so
+    `_PLACEHOLDER_CAPACITY` (`max_sub_bees=0`) was used unconditionally for every real Virtual
+    Cell, which zeros `hivemind.queen.forage.ceilings._initial_ceilings`'s own `max_sub_bees` the
+    moment `hivemind.queen.dispatcher.ready._ensure_warden_provisioned` runs -- every grant this
+    Warden is ever issued then allows zero sub-bees (`Ceilings.max_sub_bees` caps every later
+    grant), so a Drone can never be spawned on it and its task sits RUNNING forever, escalating a
+    `GRANT_EXCEEDED` Alarm on every attempt. Confirmed directly: the first time any test actually
+    ran a real in-Cell Warden's own `CapacityReport` past a real `CellListener`. Now captured here,
+    the same way `CellReady`'s own `platform`/`capabilities` already are.
+
     Returns:
         The binding once both frames arrived, or None if the connection ended (or a frame failed
         to verify) before they did.
     """
     ready: CellReady | None = None
     node_id: NodeId | None = None
+    capacity: ForageCapacity | None = None
     try:
         async for envelope in transport.receive():
             if isinstance(envelope.payload, CellReady):
                 ready, node_id = envelope.payload, envelope.node_id
+            elif isinstance(envelope.payload, CapacityReport) and ready is not None:
+                capacity = _capacity_from_report(envelope.payload, ready.platform)
             elif isinstance(envelope.payload, CellHeartbeat) and ready is not None:
                 assert node_id is not None  # noqa: S101 - set together with `ready` just above.
                 return _ReadyBinding(
@@ -369,12 +530,35 @@ async def _await_ready(transport: WebSocketTransport) -> _ReadyBinding | None:
                     comb_shield=CombShieldLevel.from_wire(ready.comb_shield),
                     info=CellReadyInfo(
                         capabilities=CellCapabilities.from_wire(ready.platform, ready.capabilities),
-                        capacity=_PLACEHOLDER_CAPACITY,
+                        # The real report when one arrived (this function's own docstring);
+                        # _PLACEHOLDER_CAPACITY (all zeros) only for a Cell that never sends one.
+                        capacity=capacity if capacity is not None else _PLACEHOLDER_CAPACITY,
                     ),
                 )
     except (ConnectionLostError, CodecError, SignatureError):
         pass  # The link ended, or a frame failed to verify; report "never became ready" below.
     return None
+
+
+def _capacity_from_report(report: CapacityReport, platform: PlatformReport) -> ForageCapacity:
+    """Build a ForageCapacity from a Cell's own `forage.capacity_report`, plus its own platform.
+
+    Args:
+        report: The Cell's own capacity snapshot.
+        platform: `CellReady.platform`, the same source `CellCapabilities.from_wire` already
+            reads `arch`/`os` from (`HostCapacity.from_wire`'s own split, this module's own
+            docstring).
+
+    Returns:
+        The equivalent ForageCapacity. `local_seats` is always empty: `CapacityReport` carries no
+        Seat figures of its own (`waggle.messages.forage.hosting`'s own field list), matching
+        `_PLACEHOLDER_CAPACITY`'s own shape.
+    """
+    return ForageCapacity(
+        host=HostCapacity.from_wire(report.host, platform),
+        local_seats=(),
+        max_sub_bees=report.max_sub_bees,
+    )
 
 
 def _cell_from_binding(binding: _ReadyBinding) -> Cell:

@@ -72,12 +72,12 @@ class _GatedFakeCellBackend(FakeCellBackend):
             clock,
             capabilities=BackendCapabilities(can_snapshot=False, can_pause=True, headroom=None),
         )
-        self._gate = gate
+        self._queen_gate = gate
         self._wardens = wardens
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         cell = await super().provision(spec)
-        await self._gate.expect(cell.id, "deadbeef")
+        await self._queen_gate.expect(cell.id, "deadbeef")
         link = WardenLink(
             warden_id=new_warden_id(self._clock),
             cell=cell,
@@ -85,7 +85,7 @@ class _GatedFakeCellBackend(FakeCellBackend):
             hop=Hop(sender="hive_x", recipient="warden_x", node_id=new_node_id(self._clock)),
         )
         self._wardens.append(link)
-        self._gate.resolve(
+        self._queen_gate.resolve(
             cell.id,
             new_node_id(self._clock),
             CellReadyInfo(capabilities=cell.capabilities, capacity=cell.capacity),
@@ -216,13 +216,10 @@ async def test_acquire_provision_never_ready_raises_and_never_returns_a_link() -
     with pytest.raises(CellProvisionError):
         await provider.acquire(placement, _fake_task())
 
-    # teardown() cannot move a still-PROVISIONING record straight to DESTROYING (no such edge in
-    # hivemind.hive.cell_state.TRANSITIONS -- provider.py's own _teardown_best_effort swallows
-    # that and moves on): the record is left tracked, PROVISIONING, for a future sweep enhancement
-    # to find (documented gap; a real backend never reaches this branch in the first place).
+    # A failed acquire tears the still-PROVISIONING Cell down (hivemind.hive.cell_state's own
+    # PROVISIONING -> DESTROYING edge), so nothing is left tracked for a sweep to find.
     tracked = lifecycle.live_cells()
-    assert len(tracked) == 1
-    assert tracked[0].status is VirtualCellStatus.PROVISIONING
+    assert [cell.status for cell in tracked] in ([], [VirtualCellStatus.DESTROYED])
 
 
 async def test_acquire_reuse_dormant_finds_the_still_attached_link() -> None:
@@ -310,14 +307,10 @@ async def test_acquire_night_veil_a_red_check_tears_down_and_names_it() -> None:
     with pytest.raises(CellProvisionError, match="kill_switch_active"):
         await provider.acquire(placement, _fake_task())
 
-    # Same documented gap as test_acquire_provision_never_ready_raises_and_never_returns_a_link:
-    # attestation runs before mark_ready, so the record is still PROVISIONING when teardown is
-    # attempted, and hivemind.hive.cell_state.TRANSITIONS has no PROVISIONING -> DESTROYING edge;
-    # _teardown_best_effort swallows that and moves on. What matters for this test's own claim is
-    # that the Cell never reached READY (and so was never handed back as a link).
+    # Attestation runs before mark_ready, so the record was still PROVISIONING when torn down;
+    # the PROVISIONING -> DESTROYING edge lets a red check destroy the Cell rather than leave it.
     tracked = lifecycle.live_cells()
-    assert len(tracked) == 1
-    assert tracked[0].status is VirtualCellStatus.PROVISIONING
+    assert [cell.status for cell in tracked] in ([], [VirtualCellStatus.DESTROYED])
 
 
 async def test_acquire_night_veil_records_the_attested_event_even_on_a_red_check() -> None:

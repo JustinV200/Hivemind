@@ -45,7 +45,7 @@ Public API:
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps, SnapshotRequestHandler
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
-from hivemind.queen.cell_gate.release import make_on_task_finished
+from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
 from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 
 __all__ = [
@@ -55,5 +55,6 @@ __all__ = [
     "LifecycleVirtualCellProvider",
     "QueenReadinessGate",
     "SnapshotRequestHandler",
+    "make_on_cell_granted",
     "make_on_task_finished",
 ]

@@ -82,10 +82,12 @@ from hivemind.llm import (
     default_factories,
 )
 from hivemind.manifest import ForageSection, HiveManifest
+from hivemind.manifest.schema import PlacementSection
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
+from hivemind.queen.placement import PlacementPolicy
 from hivemind.supervision import load_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
@@ -398,6 +400,21 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         # Roadmap step 4.3: the manifest's own sweep cadence for the Queen's House Bee sweep.
         sweep_interval_s=manifest.memory.sweep_interval_s,
         hot_window_s=manifest.memory.hot_window_s,
+        # Roadmap step 5.7: the [placement] section, as the slice decide() reads.
+        placement_policy=_placement_policy(manifest.placement),
+    )
+
+
+def _placement_policy(section: PlacementSection) -> PlacementPolicy:
+    """Convert the manifest's `[placement]` section into the `PlacementPolicy` decide() reads."""
+    return PlacementPolicy(
+        prefer=section.prefer,
+        allow_hive_stand=section.allow_hive_stand,
+        role_overrides={
+            key: override.prefer
+            for key, override in section.roles.items()
+            if override.prefer is not None
+        },
     )
 
 
@@ -411,6 +428,7 @@ def _with_virtual_cells(base: QueenDeps, virtual_cells: VirtualCellsParts | None
         virtual_backend_source=virtual_cells.virtual_backend_source,
         dormant_cell_source=virtual_cells.dormant_cell_source,
         on_task_finished=virtual_cells.on_task_finished,
+        on_cell_granted=virtual_cells.on_cell_granted,
     )
 
 

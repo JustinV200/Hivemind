@@ -11,6 +11,11 @@ unconditionally, via the additive `QueenDeps.on_task_finished` seam (documented 
 `QueenDeps` itself): this module is what the composition root actually builds that callable from,
 once it also holds a `CellLifecycle` and a `Scrubber`.
 
+`make_on_cell_granted` is the other half of the same seam: `hivemind.queen.dispatcher.ready`
+awaits `QueenDeps.on_cell_granted` the moment a task is granted onto a Cell, and the callable built
+here walks the lifecycle's own READY -> GRANTED edge for a Cell it tracks, so `cell.granted` is
+recorded by the dispatch that caused it and precedes the assignment on the trail.
+
 A FAILED task's own Cell is torn down outright, skipping `hivemind.hive.overwinter.policy.
 decide_release` entirely: the roadmap step 5.10 Capping gate that would tell this module whether
 the Cell's own state is actually suspect (`ReleaseOutcome.rolled_back_whole_cell`) is not yet
@@ -56,11 +61,31 @@ from hivemind.brood_chamber import TaskOutcome, TaskStatus
 from hivemind.hive import BackendCapabilityError
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.overwinter import OverwinterDecision, ReleaseOutcome, Scrubber
-from waggle.ids import CellId
+from waggle.ids import CellId, GrantId
 
-__all__ = ["make_on_task_finished"]
+__all__ = ["make_on_cell_granted", "make_on_task_finished"]
 
 OnTaskFinished = Callable[[CellId, TaskOutcome], Awaitable[None]]
+OnCellGranted = Callable[[CellId, GrantId], Awaitable[None]]
+
+
+def make_on_cell_granted(lifecycle: CellLifecycle) -> OnCellGranted:
+    """Build the callable `QueenDeps.on_cell_granted` holds, closed over `lifecycle`.
+
+    Args:
+        lifecycle: Walked READY -> GRANTED for a Cell it tracks; a Cell it does not track (a Real
+            Cell, most tasks) is a no-op, which is how the Queen avoids reading `cell.kind`.
+
+    Returns:
+        An async callable `hivemind.queen.dispatcher.ready` awaits once per dispatched task.
+    """
+
+    async def _on_cell_granted(cell_id: CellId, grant_id: GrantId) -> None:
+        """Grant `cell_id` in the lifecycle if it tracks the Cell."""
+        if lifecycle.status_of(cell_id) is not None:
+            await lifecycle.grant(cell_id, grant_id)
+
+    return _on_cell_granted
 
 
 def make_on_task_finished(lifecycle: CellLifecycle, scrub: Scrubber) -> OnTaskFinished:

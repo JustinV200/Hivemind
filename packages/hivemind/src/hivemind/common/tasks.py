@@ -52,11 +52,21 @@ async def reap(task: asyncio.Future[Any]) -> None:
 
     Raises:
         Exception: Whatever `task` itself raised, other than its own cancellation.
+        asyncio.CancelledError: The current task was itself cancelled while reaping.
     """
     if not task.done():
         task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
+    try:
         await task
+    except asyncio.CancelledError:
+        # `task`'s own cancellation is the expected outcome and is swallowed. The caller's own
+        # cancellation is not: if this task was itself cancelled while waiting here, the request
+        # lands on this very `await` and must keep propagating, or a loop that reaps a throwaway
+        # waiter on every tick (a Warden whose Queen link has closed spins exactly that way) would
+        # swallow every cancel ever sent to it and never finish.
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
 
 
 async def reap_all(tasks: Iterable[asyncio.Future[Any]]) -> None:

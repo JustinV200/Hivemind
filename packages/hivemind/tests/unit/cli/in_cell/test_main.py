@@ -26,7 +26,7 @@ import asyncio
 
 import pytest
 
-from hivemind.cli.in_cell.main import run_in_cell_warden
+from hivemind.cli.in_cell.main import SHUTDOWN_GRACE_S, run_in_cell_warden
 from hivemind.common.errors import ConfigurationError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.wardens.deps import WardenDeps
@@ -148,5 +148,38 @@ async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider()
         # it here, after the run completed, avoids a cross-task race against the exact moment it
         # was called relative to the server's own receive queue draining.
         assert len(seen_calls) == 1
+    finally:
+        await server.close()
+
+
+@pytest.mark.parametrize("close_server_first", [False, True])
+async def test_run_in_cell_warden_finishes_its_cancellation(close_server_first: bool) -> None:
+    """A cancelled in-Cell Warden task completes: sub-bees reaped, link closed, no hang.
+
+    A backend destroying a Cell (or a Queen tearing its listener down first) cancels the process
+    from outside rather than sending Shutdown; the task must still finish within the shutdown
+    grace, whether or not the Queen's side of the socket is already gone.
+    """
+    queen_signer = Ed25519Signer.generate()
+    server = WebSocketServer(Codec(signer=queen_signer))
+    await server.start()
+    try:
+        hive_id = new_hive_id(_CLOCK)
+        queen_node_id = new_node_id(_CLOCK)
+        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer)
+
+        run_task = asyncio.ensure_future(run_in_cell_warden(environ, SystemClock()))
+        connections = server.connections()
+        server_transport = await asyncio.wait_for(anext(connections), timeout=WAIT_S)
+        server_receive = server_transport.receive()
+        for _ in range(3):  # CellReady, CapacityReport, CellHeartbeat: the Warden is running.
+            await asyncio.wait_for(anext(server_receive), timeout=WAIT_S)
+        await asyncio.sleep(0.05)  # Let the Warden enter its first tick's wait.
+
+        if close_server_first:
+            await server_transport.close()
+        run_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(run_task, timeout=SHUTDOWN_GRACE_S + WAIT_S)
     finally:
         await server.close()

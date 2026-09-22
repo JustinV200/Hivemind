@@ -95,17 +95,22 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
     Returns:
         None, once every ready task has been dispatched or found unplaceable this call.
     """
-    attempted: set[TaskId] = set()
-    while True:
-        task = await deps.chamber.next_ready()
-        if task is None or task.id in attempted:
-            return  # Nothing left ready, or we would only re-attempt a task already tried.
-        attempted.add(task.id)
-        try:
-            await _dispatch_one(deps, wardens, task)
-        except PlacementError:
-            # The reason string on the trail is enough; the next ready task still gets a chance.
-            await record_event(deps, "queen.decided", task.id, reason="placement_failed")
+    # One dispatch pass at a time per Queen: Queen.submit_goal and the tick loop both call this,
+    # and a Virtual placement awaits a real provision inside resolve_link, a window in which the
+    # other caller would otherwise see the same PENDING task and lose the chamber's own
+    # PENDING -> ASSIGNED transition (QueenDeps.dispatch_lock's own comment).
+    async with deps.dispatch_lock:
+        attempted: set[TaskId] = set()
+        while True:
+            task = await deps.chamber.next_ready()
+            if task is None or task.id in attempted:
+                return  # Nothing left ready, or we would only re-attempt a task already tried.
+            attempted.add(task.id)
+            try:
+                await _dispatch_one(deps, wardens, task)
+            except PlacementError:
+                # The reason string on the trail is enough; the next ready task still gets a chance.
+                await record_event(deps, "queen.decided", task.id, reason="placement_failed")
 
 
 async def redispatch(
@@ -259,6 +264,11 @@ async def _send_grant_and_assign(
     # same Cell object placement already resolved, so the ledger's headroom has real figures.
     await deps.ledger.report_capacity(cell_id, link.cell.capacity)
     await deps.ledger.record_grant(forage_grants.activate(fresh_grant))
+    # A Virtual Cell's own READY -> GRANTED edge (hivemind.hive.cell_state) is driven here, by the
+    # dispatch that grants it, so `cell.granted` precedes the assignment on the trail; the seam is
+    # a no-op for a Cell the lifecycle does not track (QueenDeps.on_cell_granted's own comment).
+    if deps.on_cell_granted is not None:
+        await deps.on_cell_granted(cell_id, fresh_grant.id)
     sources: dict[str, ModelSource] = {
         binding.source_id: deps.map.get(binding.source_id) for binding in fresh_grant.allowed
     }

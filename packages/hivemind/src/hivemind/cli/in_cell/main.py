@@ -111,13 +111,34 @@ async def run_in_cell_warden(
     try:
         await warden.run()
     finally:
-        if warden.state is not WardenState.STOPPED:
-            # run() ended some other way (an exception propagating out, say) rather than through
-            # a Queen-sent Shutdown/CellTeardownRequest, which already calls stop() itself
-            # (module docstring's own invariant on why this is not unconditional).
-            await warden.stop()
-        await transport.close()
+        await _shut_down(warden, transport)
         _LOG.info("cell.warden.stopped", warden_id=config.warden_id)
+
+
+# How long a cancelled or failing in-Cell Warden may spend stopping sub-bees, releasing its lease,
+# shipping its last trail segment and closing the link before the Cell is abandoned to its
+# backend's destroy. The backend destroys the Cell either way; this only keeps the process from
+# hanging on a peer that has already gone (the Queen closed the socket first, say).
+SHUTDOWN_GRACE_S = 3.0
+
+
+async def _shut_down(warden: Warden, transport: WebSocketClientTransport) -> None:
+    """Stop `warden` (unless a Queen-sent Shutdown already did) and close the link, bounded.
+
+    Runs from `run_in_cell_warden`'s `finally`, so also on cancellation: everything here is
+    best-effort against a peer that may already be gone, and `SHUTDOWN_GRACE_S` bounds it so the
+    task always completes its cancellation.
+    """
+    try:
+        async with asyncio.timeout(SHUTDOWN_GRACE_S):
+            if warden.state is not WardenState.STOPPED:
+                # run() ended some other way (an exception propagating out, say) rather than
+                # through a Queen-sent Shutdown/CellTeardownRequest, which already calls stop()
+                # itself (module docstring's own invariant on why this is not unconditional).
+                await warden.stop()
+            await transport.close()
+    except TimeoutError:
+        _LOG.warning("cell.warden.shutdown_timed_out", grace_s=SHUTDOWN_GRACE_S)
 
 
 async def _connect_and_announce(

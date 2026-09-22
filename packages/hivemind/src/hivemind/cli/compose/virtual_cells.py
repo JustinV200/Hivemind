@@ -112,9 +112,15 @@ from hivemind.queen.cell_gate import (
     CellSnapshotHandler,
     LifecycleVirtualCellProvider,
     QueenReadinessGate,
+    make_on_cell_granted,
     make_on_task_finished,
 )
-from hivemind.queen.deps import DormantCellSource, OnTaskFinished, VirtualBackendSource
+from hivemind.queen.deps import (
+    DormantCellSource,
+    OnCellGranted,
+    OnTaskFinished,
+    VirtualBackendSource,
+)
 from hivemind.queen.dispatcher.snapshot import (
     dormant_candidate_from_lifecycle,
     virtual_backend_candidate_from_lifecycle,
@@ -150,6 +156,7 @@ class VirtualCellsParts:
         virtual_backend_source: `QueenDeps.virtual_backend_source`'s own live feed.
         dormant_cell_source: `QueenDeps.dormant_cell_source`'s own live feed.
         on_task_finished: `QueenDeps.on_task_finished`'s own implementation.
+        on_cell_granted: `QueenDeps.on_cell_granted`'s own implementation.
     """
 
     registry: BackendRegistry
@@ -160,6 +167,7 @@ class VirtualCellsParts:
     virtual_backend_source: VirtualBackendSource
     dormant_cell_source: DormantCellSource
     on_task_finished: OnTaskFinished
+    on_cell_granted: OnCellGranted
 
 
 def build_virtual_cells(
@@ -210,6 +218,7 @@ def build_virtual_cells(
         virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
         dormant_cell_source=_dormant_cell_source(lifecycle),
         on_task_finished=make_on_task_finished(lifecycle, _null_scrub),
+        on_cell_granted=make_on_cell_granted(lifecycle),
     )
 
 
@@ -322,7 +331,29 @@ def _build_registry(ctx: _RegistryContext, clock: Clock) -> BackendRegistry:
     ("a Hive that never uses a given backend should never pay to construct it") intact.
     """
     registry = BackendRegistry()
-    registry.register("fake", lambda: FakeCellBackend(clock))
+    # Roadmap step 5's own e2e slice (this branch): pass the listener's own QueenEndpoint so the
+    # fake backend mints a real CellBootstrap on every provision() (hivemind.hive.backends.fake's
+    # own module docstring, "endpoint" constructor argument) -- otherwise self.bootstraps stays
+    # empty and nothing (a test harness standing in for a real container) has an identity to dial
+    # the Queen's own listener back with. A *callable* (`lambda: _fake_backend_endpoint(ctx)`),
+    # resolved fresh by FakeCellBackend on every provision() call, never eagerly here: `hivemind.
+    # hive.lifecycle.CellLifecycle.reconcile` (run_hive's own module docstring: called before
+    # listener.start()) already forces this "fake" factory to run once, through BackendRegistry.
+    # get's own construct-once-and-cache contract, before the listener has a real URL to give --
+    # an eagerly-resolved endpoint would bake "not started yet" into this cached instance forever,
+    # and every Virtual Cell this Hive ever provisions would silently never mint a bootstrap.
+    # `_fake_backend_endpoint` falls back to None when the listener still has not started (e.g. a
+    # caller that seeds the fake backend directly, never running a real Hive), matching every
+    # pre-existing caller's own endpoint-less behaviour.
+    # `gate=ctx.gate`: the same real ReadinessGate every other backend factory below already
+    # receives, so provision() can call gate.expect() the way a real backend does (ADR-0027) --
+    # without it, the Queen-side gate never learns a fake-backed Cell's own key, and a real
+    # CellListener's own wait_ready() can never resolve for one (hivemind.hive.backends.fake's own
+    # module docstring, "gate" constructor argument); unused whenever endpoint resolves to None.
+    registry.register(
+        "fake",
+        lambda: FakeCellBackend(clock, endpoint=lambda: _fake_backend_endpoint(ctx), gate=ctx.gate),
+    )
     if ctx.section.backend == "docker":
         registry.register("docker", lambda: _build_docker(ctx, clock))
     elif ctx.section.backend == "qemu":
@@ -355,6 +386,32 @@ def _build_qemu(ctx: _RegistryContext, clock: Clock) -> QemuCellBackend:
         ProcessQemuRunner(vm_root), ctx.gate, endpoint, clock, config=config
     )
     return factory()
+
+
+def _fake_backend_endpoint(ctx: _RegistryContext) -> QueenEndpoint | None:
+    """Best-effort QueenEndpoint for the "fake" backend factory (module docstring's own note).
+
+    Roadmap step 5's own e2e slice: an in-process test harness standing in for a real container
+    dials the Queen back the same way a real backend's Cell would, so it needs a real
+    `CellBootstrap` -- which `hivemind.hive.backends.fake.FakeCellBackend` only mints when its own
+    `endpoint` constructor argument is set. That needs `ctx.listener.uri`, which only resolves once
+    `hivemind.cli.compose.hive.run_hive` has called `listener.start()`; a caller that seeds the fake
+    backend directly, without ever running a real Hive (e.g. a `hive cells` CLI readback test),
+    never starts that listener at all. Falling back to `None` there keeps `FakeCellBackend`'s own
+    pre-existing, endpoint-less behaviour (no bootstrap minted) exactly as before this branch.
+
+    Args:
+        ctx: This backend's own registry context.
+
+    Returns:
+        A real `QueenEndpoint` once the listener has started; `None` otherwise.
+    """
+    try:
+        return _endpoint_for(ctx, docker=False)
+    except RuntimeError:
+        # listener.start() has not run yet (this function's own docstring): fall back to no
+        # bootstrap, matching every caller of the "fake" backend factory from before this branch.
+        return None
 
 
 def _endpoint_for(

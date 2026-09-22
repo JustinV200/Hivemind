@@ -6,6 +6,7 @@ Mirrors src/hivemind/common/tasks.py (codingrules section 3: tests/unit mirrors 
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -43,3 +44,35 @@ async def test_reap_re_raises_a_real_failure() -> None:
 
     with pytest.raises(RuntimeError, match="boom"):
         await reap(task)
+
+
+async def test_reap_keeps_the_reaping_tasks_own_cancellation() -> None:
+    """Cancelling a task that is inside `reap` still cancels it.
+
+    Only the reaped task's own cancellation is swallowed, never the caller's: a Warden reaping a
+    waiter every tick would otherwise absorb every cancel sent to it.
+    """
+    started = asyncio.Event()
+
+    async def reaper() -> None:
+        never = asyncio.ensure_future(asyncio.Event().wait())
+        started.set()
+        # A waiter that swallows its own cancellation slowly, so the outer cancel lands here.
+        await reap(_slow_to_cancel(never))
+
+    outer = asyncio.ensure_future(reaper())
+    await started.wait()
+    await asyncio.sleep(0)
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(outer, timeout=2.0)
+
+
+def _slow_to_cancel(inner: asyncio.Future[Any]) -> asyncio.Task[None]:
+    async def body() -> None:
+        try:
+            await inner
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.2)  # Cancellation takes a moment; the outer cancel arrives now.
+
+    return asyncio.ensure_future(body())

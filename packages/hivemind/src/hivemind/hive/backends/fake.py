@@ -68,9 +68,10 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Protocol
 
 from hivemind.cell import AccessLevel, Cell, CellCapabilities, CellKind, OsFamily
 from hivemind.forage import ForageCapacity, HostCapacity
@@ -99,7 +100,24 @@ _FAKE_MEMORY_BYTES = 2 * 1024**3
 _FAKE_DISK_BYTES = 10 * 1024**3
 _FAKE_MAX_SUB_BEES = 4
 
-__all__ = ["FakeCellBackend", "FakeReadinessGate"]
+__all__ = ["FakeCellBackend", "FakeReadinessGate", "ReadinessGateExpect"]
+
+
+class ReadinessGateExpect(Protocol):
+    """The one `hivemind.hive.backends.bootstrap.ReadinessGate` method `FakeCellBackend` needs.
+
+    A narrower structural Protocol than the full `ReadinessGate` (which also carries
+    `wait_ready`/`forget`, both a *caller* of `provision()` uses, never the backend itself):
+    `FakeCellBackend.__init__`'s own `gate` argument only ever calls `expect`, mirroring exactly
+    what a real backend (`hivemind.hive.backends.docker`/`.qemu`) does with its own injected gate
+    before starting a Cell's infra (ADR-0027). A real `hivemind.queen.cell_gate.gate.
+    QueenReadinessGate` and the in-memory `FakeReadinessGate` below both already satisfy this
+    structurally, with no inheritance needed.
+    """
+
+    async def expect(self, cell_id: CellId, verify_key_hex: str) -> None:
+        """Register `cell_id`'s public key; see `ReadinessGate.expect`."""
+        ...
 
 
 @dataclass(slots=True)
@@ -120,7 +138,8 @@ class FakeCellBackend:
         clock: Clock,
         capabilities: BackendCapabilities | None = None,
         *,
-        endpoint: QueenEndpoint | None = None,
+        endpoint: QueenEndpoint | Callable[[], QueenEndpoint | None] | None = None,
+        gate: ReadinessGateExpect | None = None,
     ) -> None:
         """Create a FakeCellBackend with nothing provisioned yet.
 
@@ -130,7 +149,26 @@ class FakeCellBackend:
                 can_pause=True, headroom=None (unbounded) so most tests need not think about it.
             endpoint: When given, `provision()` also mints a real `CellBootstrap` for every Cell
                 it builds (module docstring's own e2e slice addition); `None` (the default) skips
-                that entirely, matching every pre-existing caller's own behaviour.
+                that entirely, matching every pre-existing caller's own behaviour. May be a plain
+                `QueenEndpoint`, or a zero-argument callable returning one (or `None`), resolved
+                fresh on every `provision()` call rather than once here: `hivemind.hive.lifecycle.
+                CellLifecycle.reconcile` (called by `hivemind.cli.compose.hive.run_hive` before its
+                own `CellListener.start()`) already forces this backend to be constructed, through
+                `hivemind.hive.registry.BackendRegistry.get`'s own construct-once-and-cache
+                contract, before a real listener's own URL is known -- a plain, eagerly-resolved
+                `QueenEndpoint` would bake in "not started yet" forever for this cached instance.
+                `hivemind.cli.compose.virtual_cells._build_registry` passes a callable for exactly
+                this reason.
+            gate: When given (together with `endpoint`), `provision()` also calls `gate.expect()`
+                with the freshly minted Cell's own id and public key, exactly as a real backend
+                (`hivemind.hive.backends.docker`/`.qemu`) already does through its own injected
+                `hivemind.hive.backends.bootstrap.ReadinessGate` (ADR-0027: "expect() before the
+                Cell's own infra exists") -- without this, a real `hivemind.queen.cell_gate.gate.
+                QueenReadinessGate` never learns this Cell's key, so its own `wait_ready()` (what
+                `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider` blocks on) fails
+                instantly with "never registered" the moment anything real calls it. `None` (the
+                default) skips this entirely, matching every pre-existing caller's own behaviour;
+                unused whenever `endpoint` resolves to `None` (no bootstrap is ever minted then).
         """
         self._clock = clock
         self._capabilities = (
@@ -139,10 +177,15 @@ class FakeCellBackend:
             else BackendCapabilities(can_snapshot=False, can_pause=True, headroom=None)
         )
         self._endpoint = endpoint
+        self._gate = gate
         self._cells: dict[CellId, _TrackedCell] = {}
         self._provision_failure_reason: str | None = None
         self._destroy_failure_reason: str | None = None
         self._provision_delay_s = 0.0
+        self._reset_recorded_calls()
+
+    def _reset_recorded_calls(self) -> None:
+        """Start (or clear) the per-method call records tests assert on."""
         self.provision_calls: list[VirtualCellSpec] = []
         self.destroy_calls: list[CellId] = []
         self.pause_calls: list[CellId] = []
@@ -211,7 +254,7 @@ class FakeCellBackend:
         headroom = self._capabilities.headroom
         if headroom is not None and len(self._cells) >= headroom:
             raise CellProvisionError(self.name, spec.image, f"at its headroom of {headroom} cells")
-        cell_id = self._mint_cell_id(spec)
+        cell_id = await self._mint_cell_id(spec)
         cell = _build_cell(spec, self.name, cell_id)
         # hive_id first so a caller's own spec.labels can never shadow the id the sweep relies on.
         labels = {**spec.labels, "hive_id": spec.hive_id}
@@ -220,18 +263,25 @@ class FakeCellBackend:
         )
         return cell
 
-    def _mint_cell_id(self, spec: VirtualCellSpec) -> CellId:
+    async def _mint_cell_id(self, spec: VirtualCellSpec) -> CellId:
         """Return a fresh CellId, minting and recording a real CellBootstrap when `endpoint` is set.
 
         With no `endpoint` (the default), this is just `new_cell_id` -- pre-existing behaviour,
         unchanged. With one, the bootstrap's own `mint_cell_bootstrap`-minted `cell_id` is used
         instead of a second, independent one, so `self.bootstraps[cell.id]` always agrees with the
-        Cell this call actually builds (module docstring's own e2e slice addition).
+        Cell this call actually builds (module docstring's own e2e slice addition), and, when a
+        `gate` was also given, that gate learns this Cell's own public key before this method
+        returns -- see `__init__`'s own `gate` docstring for why that matters. `endpoint`'s own
+        callable form (`__init__`'s own docstring) is resolved fresh here, on every call, never
+        once at construction time.
         """
-        if self._endpoint is None:
+        endpoint = self._endpoint() if callable(self._endpoint) else self._endpoint
+        if endpoint is None:
             return new_cell_id(self._clock)
-        bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
+        bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
         self.bootstraps[bootstrap.cell_id] = bootstrap
+        if self._gate is not None:
+            await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)
         return bootstrap.cell_id
 
     async def destroy(self, cell_id: CellId) -> None:

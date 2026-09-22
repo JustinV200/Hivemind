@@ -50,6 +50,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -81,7 +82,7 @@ from hivemind.queen.state import ClusterState
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
 from waggle.envelope import Hop
-from waggle.ids import CellId, WardenId
+from waggle.ids import CellId, GrantId, WardenId
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
@@ -115,6 +116,7 @@ __all__ = [
     "DormantCellSource",
     "Housekeeping",
     "MemoryBudget",
+    "OnCellGranted",
     "OnTaskFinished",
     "QueenDeps",
     "VirtualBackendSource",
@@ -135,6 +137,11 @@ DormantCellSource = Callable[[], Awaitable[tuple[DormantCandidate, ...]]]
 # hivemind.queen.cell_gate.release.make_on_task_finished builds the one real implementation; see
 # that module's own docstring for what it does with a finished task's own Cell.
 OnTaskFinished = Callable[[CellId, TaskOutcome], Awaitable[None]]
+# Told by hivemind.queen.dispatcher.ready the moment a task is granted onto a Cell, so a Virtual
+# Cell's own READY -> GRANTED edge (hivemind.hive.cell_state) is driven by the dispatch that
+# caused it, not synthesised later at release time. The composition root wires it to
+# CellLifecycle.grant for Cells the lifecycle tracks, and to a no-op for every other Cell.
+OnCellGranted = Callable[[CellId, GrantId], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,3 +396,9 @@ class QueenDeps:
     virtual_backend_source: VirtualBackendSource | None = None
     dormant_cell_source: DormantCellSource | None = None
     on_task_finished: OnTaskFinished | None = None
+    on_cell_granted: OnCellGranted | None = None
+    # Serialises every dispatch_ready call on this Queen. Queen.submit_goal dispatches directly and
+    # the tick loop dispatches again on every inbox item; while a Virtual placement awaits a real
+    # provision inside resolve_link, the other call site could otherwise pick the same still-PENDING
+    # task and lose the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
+    dispatch_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
