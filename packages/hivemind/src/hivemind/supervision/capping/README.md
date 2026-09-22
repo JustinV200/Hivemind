@@ -56,7 +56,7 @@ called by the proposing bee's Warden, never by the bee itself.
 - **Audit** (`audit.py`, roadmap step 4.10): `AuditSampler` (`should_sample`, deterministic by
   default, an injectable `random.Random` in production), `audit_completed(deps, proposal, tier,
   rates)` (samples, reviews through the same `JudgeReviewer` seam, deposits an `AuditFinding`
-  through `FindingsSink`, records `capping.audited`, raises an `AUDIT_FAILED` `Alarm` on `REJECT`),
+  through `FindingsSink`, records `capping.audited`, raises an `AUDIT_FAILED` `Alarm` on `REJECT`; a judge that cannot answer (`JudgeAnswerError`) makes the sample inconclusive, `capping.audited` with `judge_error` and no outcome, never a crash),
   `AuditRates` (per-tier sampled/failed counts and failure rate, the Guard Bee's future read
   model), `FindingsSink`/`InMemoryFindingsSink` (Nectar deposit seam; the Honey Store's own
   Nectar-backed sink lands in phase 7), `AuditDeps`, `AuditFinding`.
