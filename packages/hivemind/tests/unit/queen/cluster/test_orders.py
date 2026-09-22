@@ -99,6 +99,26 @@ class _ContractCases:
         assert await store.pending() == ()
 
     @staticmethod
+    async def a_release_order_round_trips_its_lease_id(store: OrderStore) -> None:
+        """Roadmap step 5.13: a RELEASE order carries `lease_id`, never a `provider`."""
+        clock = FakeClock()
+        order = ClusterOrder(
+            id=new_order_id(clock),
+            kind=OrderKind.RELEASE,
+            provider=None,
+            requested_at=clock.now(),
+            lease_id="lease_01ABCDEF",
+        )
+
+        await store.put_order(order)
+
+        pending = await store.pending()
+        assert len(pending) == 1
+        assert pending[0].kind is OrderKind.RELEASE
+        assert pending[0].provider is None
+        assert pending[0].lease_id == "lease_01ABCDEF"
+
+    @staticmethod
     async def pending_orders_the_oldest_request_first(store: OrderStore) -> None:
         clock = FakeClock()
         first = _order(clock, kind=OrderKind.CLUSTER, provider="anthropic")
@@ -142,6 +162,10 @@ async def test_in_memory_store_orders_oldest_first() -> None:
     await _ContractCases.pending_orders_the_oldest_request_first(InMemoryOrderStore())
 
 
+async def test_in_memory_store_release_order_round_trips_lease_id() -> None:
+    await _ContractCases.a_release_order_round_trips_its_lease_id(InMemoryOrderStore())
+
+
 async def _sqlite_store(tmp_path: Path, name: str) -> SqliteOrderStore:
     """Build a fresh SqliteOrderStore over its own file under `tmp_path`."""
     connection = connect(tmp_path / f"{name}.db")
@@ -159,6 +183,12 @@ async def test_sqlite_store_put_order(tmp_path: Path) -> None:
 async def test_sqlite_store_none_provider(tmp_path: Path) -> None:
     await _ContractCases.cluster_order_with_no_provider_round_trips_as_none(
         await _sqlite_store(tmp_path, "none_provider")
+    )
+
+
+async def test_sqlite_store_release_order_round_trips_lease_id(tmp_path: Path) -> None:
+    await _ContractCases.a_release_order_round_trips_its_lease_id(
+        await _sqlite_store(tmp_path, "release_lease_id")
     )
 
 

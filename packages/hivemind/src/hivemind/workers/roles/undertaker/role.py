@@ -73,7 +73,7 @@ from hivemind.pheromone import CellEvent, PheromoneTrail
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from waggle.clock import Clock
-from waggle.ids import CellId, new_event_id
+from waggle.ids import CellId, EventId, new_event_id
 from waggle.messages.task import TaskAssign, WorkerRole
 
 # Retry constants (exponential backoff, mirrors hivemind.queen.cluster.health.ClusterBackoff's own
@@ -94,6 +94,7 @@ __all__ = [
     "GrantRevoker",
     "LeavingsRemover",
     "NullLeavingsRemover",
+    "NullWaxRetirer",
     "RetryPolicy",
     "Undertaker",
     "UndertakerDeps",
@@ -207,6 +208,21 @@ class NullLeavingsRemover:
         return 0
 
 
+class NullWaxRetirer:
+    """A WaxRetirer that retires nothing; for a caller with no Cell Wax store of its own to hand.
+
+    Added by roadmap step 5.13 (`hive cells destroy`/`abscond`): those commands build a plain
+    `Undertaker` offline, over whatever `GrantRevoker` and `LeavingsRemover` they can wire for
+    real, but have no live Cell Wax store to retire against -- the same documented gap
+    `NullLeavingsRemover` already covers for the Leavings ledger, mirrored here for symmetry.
+    """
+
+    async def retire_wax(self, cell_id: CellId, at: datetime) -> int:
+        """Retire nothing and report 0; see `WaxRetirer.retire_wax`."""
+        del cell_id, at  # Nothing to retire: this caller has no Cell Wax store wired in.
+        return 0
+
+
 @dataclass(frozen=True, slots=True)
 class UndertakerDeps:
     """Every collaborator one Undertaker needs.
@@ -298,7 +314,7 @@ class Undertaker:
             spend_usd=0.0,
         )
 
-    async def destroy_virtual(self, cell_id: CellId) -> None:
+    async def destroy_virtual(self, cell_id: CellId) -> EventId:
         """Destroy a Virtual Cell, revoke its grants, retire its Cell Wax, mark its Leavings gone.
 
         Idempotent end to end: an unknown or already-destroyed `cell_id` still runs every step, and
@@ -307,6 +323,10 @@ class Undertaker:
 
         Args:
             cell_id: The Virtual Cell to destroy.
+
+        Returns:
+            The id of the `cell.destroyed` trail event this call records -- `hive cells destroy`
+            (roadmap step 5.13) prints it as the operator-facing receipt of what happened.
 
         Raises:
             hivemind.hive.errors.CellDestroyError: The backend acknowledged the Cell exists but
@@ -324,7 +344,7 @@ class Undertaker:
         removed = await self._retrying(
             lambda: self._deps.leavings_remover.mark_cell_removed(cell_id, at), HiveError
         )
-        await self._record(
+        return await self._record(
             "cell.destroyed",
             cell_id,
             {"grants_revoked": revoked, "wax_retired": retired, "leavings_removed": removed},
@@ -396,8 +416,15 @@ class Undertaker:
                 # a test controls it exactly (waggle.clock.FakeClock.sleep never really waits).
                 await self._deps.clock.sleep(delay)
 
-    async def _record(self, kind: str, cell_id: CellId, payload: Mapping[str, JsonValue]) -> None:
-        """Build and record a CellEvent for `cell_id`, stamped with this role's own identity."""
+    async def _record(
+        self, kind: str, cell_id: CellId, payload: Mapping[str, JsonValue]
+    ) -> EventId:
+        """Build and record a CellEvent for `cell_id`, stamped with this role's own identity.
+
+        Returns:
+            The recorded event's own id, so a caller that needs a receipt (`destroy_virtual`) can
+            hand it back without re-querying the trail.
+        """
         event = CellEvent(
             id=new_event_id(self._deps.clock),
             hive_id=self._deps.identity.hive_id,
@@ -409,3 +436,4 @@ class Undertaker:
             payload=dict(payload),
         )
         await self._deps.trail.record(event)
+        return event.id

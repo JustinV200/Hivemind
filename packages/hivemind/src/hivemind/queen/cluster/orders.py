@@ -17,6 +17,16 @@ than under a `migrations/` sub-package -- `queen/cluster/` already sits three le
 cluster`/`hive wake` (roadmap step 4.11, a separate dispatch) and the running Queen's own tick
 share through one open connection to the Hive's `[hive] db` file.
 
+Roadmap step 5.13 (`hive cells release <lease-id>`) reuses this same table and store rather than
+building a sibling `queen/orders/` package (the roadmap step's own "choose the smaller change"):
+`OrderKind.RELEASE` is a third order kind, naming a `lease_id` instead of a `provider` (the
+`0002_add_release_lease_id.sql` migration adds that one nullable column). `provider` and
+`lease_id` are never both set on one order: a `CLUSTER`/`WAKE` row only ever names a provider, a
+`RELEASE` row only ever names a lease. `hivemind.queen.cluster.tick.run_release_tick` is the
+RELEASE-only counterpart to `run_cluster_tick`'s own CLUSTER/WAKE draining, so `_drain_orders`
+there filters to `{CLUSTER, WAKE}` explicitly rather than treating "not CLUSTER" as "WAKE" the way
+it could when only two kinds existed.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's cluster
     sub-package. Written by whichever composition root wires `hive cluster`/`hive wake` (roadmap
@@ -82,22 +92,27 @@ class OrderKind(Enum):
 
     CLUSTER = "CLUSTER"  # Pause: one named provider, or every currently-bound one if none named.
     WAKE = "WAKE"  # Resume: one named provider, or every currently clustered one if none named.
+    # Roadmap step 5.13: release one named Real Cell lease (hive cells release). Always names a
+    # lease_id, never a provider -- see this module's own docstring.
+    RELEASE = "RELEASE"
 
 
 @dataclass(frozen=True, slots=True)
 class ClusterOrder:
-    """One durable `hive cluster`/`hive wake` row the running Queen polls for.
+    """One durable `hive cluster`/`hive wake`/`hive cells release` row the running Queen polls for.
 
     Attributes:
         id: This order's own id (module docstring: waggle's closed `IdKind` set has no dedicated
             kind for an operator order, so this reuses `IdKind.EVENT`'s own ULID minting rather
             than widening that shared enum for one small table this dispatch owns).
-        kind: CLUSTER or WAKE.
+        kind: CLUSTER, WAKE or RELEASE.
         provider: The `[llm.providers.<name>]` key this order names; None means "every provider"
             (module docstring: every currently-bound one for CLUSTER, every currently clustered
-            one for WAKE).
+            one for WAKE); always None for a RELEASE order.
+        lease_id: The `LeaseId` a RELEASE order names; always None for a CLUSTER/WAKE order
+            (module docstring's "never both set").
         requested_at: When the order was written.
-        handled_at: When `run_cluster_tick` acted on it; None while still pending.
+        handled_at: When `run_cluster_tick`/`run_release_tick` acted on it; None while pending.
     """
 
     id: str
@@ -105,6 +120,7 @@ class ClusterOrder:
     provider: str | None
     requested_at: datetime
     handled_at: datetime | None = None
+    lease_id: str | None = None
 
 
 def new_order_id(clock: Clock) -> str:
@@ -181,11 +197,11 @@ def apply_order_migrations(connection: sqlite3.Connection, clock: Clock) -> tupl
 
 
 _INSERT_ORDER_SQL = (
-    "INSERT INTO cluster_orders (id, kind, provider, requested_at, handled_at) "
-    "VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO cluster_orders (id, kind, provider, requested_at, handled_at, lease_id) "
+    "VALUES (?, ?, ?, ?, ?, ?)"
 )
 _SELECT_PENDING_SQL = (
-    "SELECT id, kind, provider, requested_at, handled_at FROM cluster_orders "
+    "SELECT id, kind, provider, requested_at, handled_at, lease_id FROM cluster_orders "
     "WHERE handled_at IS NULL ORDER BY requested_at, id"
 )
 _UPDATE_HANDLED_SQL = "UPDATE cluster_orders SET handled_at = ? WHERE id = ?"
@@ -249,19 +265,27 @@ def _insert_order(connection: sqlite3.Connection, order: ClusterOrder) -> None:
     handled = order.handled_at.isoformat() if order.handled_at is not None else None
     connection.execute(
         _INSERT_ORDER_SQL,
-        (order.id, order.kind.value, order.provider, order.requested_at.isoformat(), handled),
+        (
+            order.id,
+            order.kind.value,
+            order.provider,
+            order.requested_at.isoformat(),
+            handled,
+            order.lease_id,
+        ),
     )
 
 
 def _order_from_row(row: Sequence[object]) -> ClusterOrder:
     """Build a ClusterOrder from one `cluster_orders` row, column order matching the SELECT."""
-    order_id, kind, provider, requested_at, handled_at = row
+    order_id, kind, provider, requested_at, handled_at, lease_id = row
     return ClusterOrder(
         id=str(order_id),
         kind=OrderKind(kind),
         provider=str(provider) if provider is not None else None,
         requested_at=datetime.fromisoformat(str(requested_at)),
         handled_at=datetime.fromisoformat(str(handled_at)) if handled_at is not None else None,
+        lease_id=str(lease_id) if lease_id is not None else None,
     )
 
 
@@ -273,4 +297,5 @@ def _with_handled_at(order: ClusterOrder, handled_at: datetime) -> ClusterOrder:
         provider=order.provider,
         requested_at=order.requested_at,
         handled_at=handled_at,
+        lease_id=order.lease_id,
     )

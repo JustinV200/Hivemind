@@ -31,8 +31,9 @@ See Also:
 
 Public API:
     - Undertaker, UndertakerDeps, RetryPolicy, GrantRevoker, WaxRetirer, LeavingsRemover,
-      NullLeavingsRemover, DEFAULT_MAX_ATTEMPTS, DEFAULT_INITIAL_BACKOFF_S, DEFAULT_BACKOFF_FACTOR,
-      DEFAULT_MAX_BACKOFF_S: the role itself (hivemind.workers.roles.undertaker.role).
+      NullLeavingsRemover, NullWaxRetirer, DEFAULT_MAX_ATTEMPTS, DEFAULT_INITIAL_BACKOFF_S,
+      DEFAULT_BACKOFF_FACTOR, DEFAULT_MAX_BACKOFF_S: the role itself
+      (hivemind.workers.roles.undertaker.role).
     - sweep_orphans, SweepDeps, SweepReport, orphan_virtual_cells, orphan_real_leases,
       KnownLiveCells, LeaseFinder, DormantEvictor: the Queen-startup sweep
       (hivemind.workers.roles.undertaker.sweep).
@@ -48,6 +49,7 @@ from hivemind.workers.roles.undertaker.role import (
     GrantRevoker,
     LeavingsRemover,
     NullLeavingsRemover,
+    NullWaxRetirer,
     RetryPolicy,
     Undertaker,
     UndertakerDeps,
@@ -80,6 +82,7 @@ __all__ = [
     "LeaseFinder",
     "LeavingsRemover",
     "NullLeavingsRemover",
+    "NullWaxRetirer",
     "RetryPolicy",
     "SweepDeps",
     "SweepReport",

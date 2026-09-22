@@ -39,8 +39,10 @@ Public API:
     - ClusterOutcome, ResumeOutcome, cluster, resume: pause and resume one provider (protocol).
     - ClusterBackoff, HealthPoller, next_probe_at: backoff-scheduled health polling (health).
     - ClusterOrder, InMemoryOrderStore, OrderKind, OrderStore, SqliteOrderStore,
-      apply_order_migrations, new_order_id: the durable operator-order table (orders).
-    - awake_available, run_cluster_tick: the two hooks a running Queen's tick wires in (tick).
+      apply_order_migrations, new_order_id: the durable operator-order table (orders), which now
+      also carries RELEASE orders (roadmap step 5.13, `hive cells release`).
+    - awake_available, run_cluster_tick, run_release_tick: the hooks a running Queen's tick wires
+      in (tick).
     - check_cost_caps: the cost-cap trigger (triggers).
 """
 
@@ -55,7 +57,7 @@ from hivemind.queen.cluster.orders import (
     new_order_id,
 )
 from hivemind.queen.cluster.protocol import ClusterOutcome, ResumeOutcome, cluster, resume
-from hivemind.queen.cluster.tick import awake_available, run_cluster_tick
+from hivemind.queen.cluster.tick import awake_available, run_cluster_tick, run_release_tick
 from hivemind.queen.cluster.triggers import check_cost_caps
 
 __all__ = [
@@ -76,4 +78,5 @@ __all__ = [
     "next_probe_at",
     "resume",
     "run_cluster_tick",
+    "run_release_tick",
 ]

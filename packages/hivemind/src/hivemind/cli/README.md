@@ -251,3 +251,69 @@ gained the same `--fake-judge` sampling case, seeded the same way `test_queue_ex
 proposals...` already seeds a `capping.*` sequence, with `[supervision] capping_tiers_file`/tier
 lookups exercised against the shipped default table (`--tier`/`--rate` keep the assertion
 independent of that table's own numbers).
+
+## Command groups (phase 5 step 5.13)
+
+- `readback/virtual.py` (plus `readback/virtual_offline.py` and `readback/virtual_abscond.py`,
+  split out to stay within codingrules section 5.1's 300-line budget) -- six commands merged
+  straight into `hive cells` with no `virtual`/prefix of their own (`readback/cells.py`'s own
+  `app.add_typer(virtual_app)`, given no name, folds a nameless sub-app's commands in at the
+  parent's own level -- verified empirically). Real/Virtual is always decided by "is it in a
+  registered backend's own labelled list", never `cell.kind` (ADR-0026's "backend labels are the
+  source of truth"):
+    - `hive cells inspect CELL_ID [--manifest]`: a Virtual Cell's own backend/image/status/labels/
+      created_at (from `CellBackend.list_cells`, no Queen needed), or a Real Cell's own row plus
+      every lease the trail still shows open for it.
+    - `hive cells destroy CELL_ID [--manifest]`: Virtual only (refuses the Hive Stand's own Real
+      Cell id with a clear message); goes through a plain `Undertaker` built over the manifest's
+      own backend (`hivemind.cli.compose.virtual_cells.build_virtual_cells`) and a `ForageLedger`-
+      backed `GrantRevoker`; idempotent (an unknown id is a clean no-op, `CellBackend.destroy`'s
+      own contract), printing the `cell.destroyed` trail event id.
+    - `hive cells release LEASE_ID [--manifest]`: writes a durable
+      `hivemind.queen.cluster.ClusterOrder(kind=RELEASE, lease_id=...)` row, exactly like `hive
+      cluster`/`hive wake` (docs/adr/0024), for a running Queen's own tick
+      (`hivemind.queen.cluster.tick.run_release_tick`, roadmap step 5.13's own addition to the
+      Clustering order table) to drain -- which can revoke the lease's Cell's live grants but not
+      itself kill the Warden's session, a documented gap (`run_release_tick`'s own module
+      docstring) needing a new Queen -> Warden wire message this dispatch does not add. Reports
+      the lease orphaned and points at `abscond` when no Queen looks to be running, a heuristic
+      read off the trail's own `warden.*` history (v0 has no live link into a running Queen).
+    - `hive cells snapshot CELL_ID` / `rollback CELL_ID SNAPSHOT_ID [--manifest]`: through
+      `hivemind.hive.snapshot.snapshotter_for` (roadmap step 5.10, a concurrent dispatch that
+      landed during this one's own gate window), imported lazily inside `virtual_offline.
+      build_snapshotter`. One cross-process limitation is documented there, not closed by this
+      dispatch: `DockerSnapshotter`/`QemuSnapshotter` each keep their own snapshot-id-to-image
+      mapping in one process's memory, so a `rollback` invocation cannot see what a separate,
+      earlier `snapshot` invocation recorded.
+    - `hive cells abscond [--yes] [--manifest]`: from backend labels and the trail alone (no
+      lifecycle table). Destroys every Virtual Cell every registered backend lists for this Hive's
+      id; for every Real Cell lease the trail shows still open, writes a RELEASE order when a
+      Queen looks to be running, or reconstructs and releases its `RealCellLease` directly when
+      its own scratch directory still exists (`virtual_offline.reconstruct_lease`) -- a lease
+      neither running Queen nor still-present scratch can help is left untouched and counted, the
+      "minimal safe thing" this dispatch's own report names. Revokes every grant the pass touched
+      (a before/after count on the restored ledger) and prints a summary: containers destroyed,
+      leases released/deferred/left untouched, grants revoked, and whether a fresh re-read now
+      finds everything gone (`left_as_found`). Confirms interactively unless `--yes`.
+  - `queen/cluster/orders.py` grew a third `OrderKind.RELEASE` (naming `lease_id`, never
+    `provider`) on the same table CLUSTER/WAKE already use, plus its own
+    `0002_add_release_lease_id.sql` migration -- the roadmap step's own "choose the smaller
+    change" over a sibling order table. `queen/cluster/tick.py`'s `_drain_orders` now filters to
+    `{CLUSTER, WAKE}` explicitly (a RELEASE row used to fall into its own `else` branch, back when
+    "not CLUSTER" safely meant "WAKE"); `run_release_tick` is the new RELEASE-only drain, hooked
+    into `queen/ticks/housekeeping.py`'s `run_housekeeping` right after `run_cluster_tick`.
+  - `workers/roles/undertaker/role.py` gained `NullWaxRetirer` (mirrors `NullLeavingsRemover`, for
+    a caller with no live Cell Wax store to wire in) and `destroy_virtual` now returns the
+    `cell.destroyed` trail event's own `EventId`, so a caller (this dispatch's own `destroy`
+    command) can hand it back as a receipt without a second trail query.
+
+`test_virtual.py` drives all six commands through `CliRunner` against a real `fake_manifest` (with
+`[virtual_cells] backend = "fake"` appended, since `builders.cli.fake_manifest` itself is not this
+dispatch's file to grow a knob on) and a real SQLite file; `hivemind.cli.readback.virtual.
+build_virtual_cells`/`build_hive_stand_source` are monkeypatched to hand back one pre-seeded
+`VirtualCellsParts`/`FakeCellSource` per test (mirroring `test_llm.py`'s own `build_registry`
+monkeypatch), since a `FakeCellBackend` provisioned through its own real `provision()` call has no
+way to be reached back from outside the CLI process otherwise, and `HiveStandSource` mints a fresh
+random Cell id on every construction. `queen/cluster/test_orders.py` and `test_tick.py` gained
+RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.py` gained
+`NullWaxRetirer` and `destroy_virtual`'s own returned event id.

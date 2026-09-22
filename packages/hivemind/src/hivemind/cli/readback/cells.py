@@ -36,12 +36,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell
 from hivemind.cli.compose.deps import build_hive_stand_source
+from hivemind.cli.readback.virtual import app as virtual_app
 from hivemind.cli.stores import DEFAULT_MANIFEST, JsonOption, ManifestOption, load_manifest_or_exit
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock, SystemClock
 
 app = typer.Typer(name="cells", help="List the Cells the Hive Stand (and the Swarm) can offer.")
+# Roadmap step 5.13: merges virtual_app's six commands (inspect/destroy/release/snapshot/
+# rollback/abscond) straight into this app with no name/prefix of its own (Typer's own add_typer,
+# given no name and a nameless sub-app, folds its commands in at this level -- verified empirically
+# while drafting hivemind.cli.readback.virtual's own module docstring), so `hive cells inspect ...`
+# is the command, never `hive cells virtual inspect ...`.
+app.add_typer(virtual_app)
 
 __all__ = ["app"]
 

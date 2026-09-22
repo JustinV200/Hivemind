@@ -5,8 +5,10 @@ being the Queen's own tick, not a dedicated Worker assignment (that would need a
 a grant for maintenance that touches no task). `run_housekeeping` is the one function
 `hivemind.queen.queen.Queen`'s tick calls in place of the bare `run_cluster_tick(...)` it used to
 call directly (roadmap step 4.9's own wiring): it still runs `hivemind.queen.cluster.tick.
-run_cluster_tick` first, unconditionally, then checks `hivemind.workers.roles.house_bee.
-SweepSchedule.is_due` against `deps.housekeeping.last_sweep_at` and, when due, runs one House Bee
+run_cluster_tick` first, unconditionally, then (roadmap step 5.13) `hivemind.queen.cluster.tick.
+run_release_tick` (drains any pending `hive cells release` order the same tick), then checks
+`hivemind.workers.roles.house_bee.SweepSchedule.is_due` against `deps.housekeeping.last_sweep_at`
+and, when due, runs one House Bee
 sweep (`hivemind.workers.roles.house_bee.run_sweep`) directly over the Queen's own memory store --
 never through a `TaskAssign` to a Warden, since the Queen has no Cell of her own to spawn a Worker
 on. A House Bee (a maintenance role) sweep is: demote whatever has aged out of hot state into Bee
@@ -17,10 +19,10 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called once per tick by `hivemind.queen.queen.Queen`'s own `_run_tick`, in place
     of `run_cluster_tick`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory`
-    (BeeBread, MemoryContext), `hivemind.queen.cluster.tick` (run_cluster_tick), `hivemind.queen.
-    deps` (QueenDeps, WardenLink, Housekeeping, under TYPE_CHECKING), `hivemind.queen.state`
-    (ClusterState), `hivemind.workers.roles.house_bee` (SweepDeps, SweepSchedule, SweepWindow,
-    run_sweep) and waggle only.
+    (BeeBread, MemoryContext), `hivemind.queen.cluster.tick` (run_cluster_tick, run_release_tick),
+    `hivemind.queen.deps` (QueenDeps, WardenLink, Housekeeping, under TYPE_CHECKING),
+    `hivemind.queen.state` (ClusterState), `hivemind.workers.roles.house_bee` (SweepDeps,
+    SweepSchedule, SweepWindow, run_sweep) and waggle only.
 
 Key invariants:
     - `run_housekeeping` never awaits a model on its own `run_cluster_tick` half (that module's own
@@ -68,7 +70,7 @@ from hivemind.common.logging import get_logger
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import BoundModel, UnresolvableSlotError
 from hivemind.memory import BeeBread, MemoryContext
-from hivemind.queen.cluster.tick import run_cluster_tick
+from hivemind.queen.cluster.tick import run_cluster_tick, run_release_tick
 from hivemind.queen.state import ClusterState
 from hivemind.workers.roles.house_bee import SweepDeps, SweepSchedule, SweepWindow, run_sweep
 
@@ -100,6 +102,10 @@ async def run_housekeeping(
         state: The Queen's own mode and clustered-provider set; mutated by `run_cluster_tick`.
     """
     await run_cluster_tick(deps, state, wardens)
+    # Roadmap step 5.13: drains RELEASE orders (`hive cells release`) the same tick, separately
+    # from CLUSTER/WAKE -- see hivemind.queen.cluster.tick's own module docstring for why this is
+    # a second call rather than one more branch inside run_cluster_tick's own order drain.
+    await run_release_tick(deps)
     now = deps.clock.now()
     if deps.housekeeping.last_sweep_at is None:
         # First tick ever: seed the timer instead of sweeping immediately (module docstring's own

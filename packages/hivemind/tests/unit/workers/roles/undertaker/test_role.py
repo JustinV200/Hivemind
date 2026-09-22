@@ -37,6 +37,7 @@ from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.workers.roles.undertaker.role import (
     NullLeavingsRemover,
+    NullWaxRetirer,
     RetryPolicy,
     Undertaker,
     UndertakerDeps,
@@ -114,7 +115,7 @@ async def test_destroy_virtual_destroys_and_calls_every_collaborator() -> None:
     rig = _make_rig(clock)
     cell_id = new_cell_id(clock)
 
-    await rig.undertaker.destroy_virtual(cell_id)
+    event_id = await rig.undertaker.destroy_virtual(cell_id)
 
     assert isinstance(rig.backend, FakeCellBackend)
     assert rig.backend.destroy_calls == [cell_id]
@@ -124,6 +125,8 @@ async def test_destroy_virtual_destroys_and_calls_every_collaborator() -> None:
     events = await rig.trail.query(TrailQuery(kind="cell.destroyed"))
     assert len(events) == 1
     assert events[0].subject_id == cell_id
+    # Roadmap step 5.13: `hive cells destroy` prints this id as its own receipt.
+    assert event_id == events[0].id
 
 
 async def test_destroy_virtual_is_idempotent_for_an_unknown_cell() -> None:
@@ -296,3 +299,16 @@ async def test_null_leavings_remover_marks_nothing() -> None:
     removed = await NullLeavingsRemover().mark_cell_removed(new_cell_id(clock), clock.now())
 
     assert removed == 0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NullWaxRetirer
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_null_wax_retirer_retires_nothing() -> None:
+    clock = FakeClock()
+
+    retired = await NullWaxRetirer().retire_wax(new_cell_id(clock), clock.now())
+
+    assert retired == 0

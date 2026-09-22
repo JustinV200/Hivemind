@@ -157,7 +157,9 @@ def test_open_cluster_orders_applies_its_migration_on_a_fresh_file(tmp_path: Pat
     open_cluster_orders(db)
 
     connection = connect(db)
-    assert applied_versions(connection, ORDERS_SUBSYSTEM) == (1,)
+    # (1, 2): 0001 creates cluster_orders; 0002 (roadmap step 5.13) adds its own lease_id column
+    # for RELEASE orders (hivemind.queen.cluster.orders's own module docstring).
+    assert applied_versions(connection, ORDERS_SUBSYSTEM) == (1, 2)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -17,28 +17,53 @@ bound provider is itself clustered, an awake episode has nowhere to go, so the o
 `_run_awake` (not this dispatch's file to edit) is expected to call this first and skip straight to
 `QueenAction.NEEDS_JUDGEMENT`'s autopilot fallback when it returns False.
 
+`run_release_tick` is roadmap step 5.13's own addition: `hive cells release <lease-id>` writes a
+durable `ClusterOrder(kind=RELEASE, lease_id=...)` row (`hivemind.queen.cluster.orders`'s own
+module docstring explains why this reuses the CLUSTER/WAKE table rather than a sibling one), and
+this is the running Queen's own drain for it, called separately from `run_cluster_tick` (so
+`_drain_orders` below now filters to `{CLUSTER, WAKE}` explicitly, leaving a RELEASE row for this
+function instead of falling into its own `else` branch, which used to mean "WAKE" whenever the
+order was not CLUSTER, back when only two kinds existed). What it can do from here, in-process, is
+deliberately narrow and documented as such: the Queen holds no reference to the Warden's own
+`hivemind.cell.RealCellLease` object (leases are opened and released by whichever Warden holds
+them, reached only through Waggle wire messages -- `Intervene`'s own `InterventionAction` carries
+no "release your lease" lever yet), so this cannot itself kill the Warden's processes or remove its
+scratch directory. What it *can* do, entirely within the Queen's own authority, is revoke every
+live Forage grant on the lease's Cell (`hivemind.queen.forage.grants.revoke`, the same call
+`hivemind.workers.roles.undertaker.role.Undertaker.release_real`'s own `GrantRevoker` makes) --
+stopping further spend against that Cell at once -- and mark the order handled so it is not
+retried forever. A full live release additionally needs a new Queen -> Warden wire message and
+Warden-side handling; flagged in this dispatch's own report as the open question for whoever adds
+that lever. `hive cells abscond` (roadmap step 5.13, `hivemind.cli.readback.virtual`) is the
+guaranteed path to fully close a lease once its own Warden process is not running to cooperate.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's cluster
-    sub-package. `run_cluster_tick` is called once per Queen tick by whichever orchestrator wires
-    it in (see this dispatch's own report for the exact `queen.py` lines, since this dispatch may
-    not edit that file); `awake_available` is called from `hivemind.queen.queen._run_awake`
-    (same caveat). Calls into `hivemind.llm` (HealthState), `hivemind.forage.slots` (ModelSlot),
-    `hivemind.queen.cluster.health`, `.orders`, `.protocol`, `.triggers`, `hivemind.queen.deps`
-    (QueenDeps, WardenLink), `hivemind.queen.state` (ClusterState) and waggle only.
+    sub-package. `run_cluster_tick`/`run_release_tick` are each called once per Queen tick by
+    whichever orchestrator wires them in (see this dispatch's own report for the exact `queen.py`/
+    `queen/ticks/housekeeping.py` lines); `awake_available` is called from `hivemind.queen.queen.
+    _run_awake` (same caveat). Calls into `hivemind.llm` (HealthState), `hivemind.forage.slots`
+    (ModelSlot), `hivemind.queen.cluster.health`, `.orders`, `.protocol`, `.triggers`,
+    `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (revoke, local
+    import -- see `_revoke_grants_for_cell`'s own docstring), `hivemind.queen.state`
+    (ClusterState), `hivemind.pheromone` (TrailQuery, MAX_QUERY_LIMIT) and waggle only.
 
 Key invariants:
     - `run_cluster_tick` never awaits a model: `check_cost_caps`, order handling and
       `HealthPoller.probe` (which calls only `LLMProvider.health()`) are its whole body.
+      `run_release_tick` never awaits a model either: it only reads the trail and revokes grants.
     - Every pending order is marked handled in the same call that acts on it, before the next
       order is read, so a WAKE row is consumed exactly once even if `run_cluster_tick` is called
-      again before the store's own next write lands (`OrderStore`'s own contract).
+      again before the store's own next write lands (`OrderStore`'s own contract); the same holds
+      for a RELEASE row and `run_release_tick`.
     - `awake_available` returns True (never blocks awake) when `deps.bindings` names no binding
       for `ModelSlot.QUEEN`'s own manifest key: a missing binding is a configuration gap this
       function is not the place to raise on, and Clustering never invents a reason to block awake
       that health data does not actually support.
 
 See Also:
-    - .claude/roadmap.md step 4.9 for the deliverable this module's two functions satisfy.
+    - .claude/roadmap.md step 4.9 for the deliverable `run_cluster_tick`/`awake_available` satisfy;
+      step 5.13 for `run_release_tick`'s own deliverable.
     - hivemind.queen.cluster.protocol for cluster/resume, the effects this module's decisions run.
     - hivemind.queen.cluster.health for HealthPoller, the backoff schedule this module drives.
     - hivemind.queen.cluster.orders for OrderStore/ClusterOrder/OrderKind, the durable rows this
@@ -52,7 +77,8 @@ from typing import TYPE_CHECKING
 
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import HealthState
-from hivemind.queen.cluster.orders import OrderKind
+from hivemind.pheromone import MAX_QUERY_LIMIT, TrailQuery
+from hivemind.queen.cluster.orders import ClusterOrder, OrderKind
 from hivemind.queen.cluster.protocol import cluster, resume
 from hivemind.queen.cluster.triggers import (
     check_cost_caps,
@@ -60,6 +86,8 @@ from hivemind.queen.cluster.triggers import (
     providers_of,
 )
 from hivemind.queen.state import ClusterState
+from waggle.ids import CellId
+from waggle.messages.forage.values import RevocationCause
 
 if TYPE_CHECKING:
     # Only for the type hints below: see hivemind.queen.cluster.protocol's own TYPE_CHECKING
@@ -69,8 +97,10 @@ if TYPE_CHECKING:
 # Consecutive DOWN readings before a bound provider is clustered: one failed GET is a blip (a
 # restart, a dropped packet); the second, one backoff later, is an outage worth pausing for.
 DOWN_PROBES_BEFORE_CLUSTER = 2
+# Orders run_cluster_tick's own _drain_orders acts on; a RELEASE row is left for run_release_tick.
+_CLUSTER_TICK_KINDS = frozenset({OrderKind.CLUSTER, OrderKind.WAKE})
 
-__all__ = ["DOWN_PROBES_BEFORE_CLUSTER", "awake_available", "run_cluster_tick"]
+__all__ = ["DOWN_PROBES_BEFORE_CLUSTER", "awake_available", "run_cluster_tick", "run_release_tick"]
 
 
 async def run_cluster_tick(
@@ -116,8 +146,15 @@ def awake_available(state: ClusterState, deps: QueenDeps) -> bool:
 async def _drain_orders(
     deps: QueenDeps, state: ClusterState, wardens: Sequence[WardenLink]
 ) -> None:
-    """Act on every pending ClusterOrder once, then mark each handled."""
+    """Act on every pending CLUSTER/WAKE order once, then mark each handled.
+
+    A RELEASE order (module docstring) is left pending for `run_release_tick`'s own drain: filtered
+    out here explicitly rather than falling into an `else` branch that used to mean "WAKE" back
+    when CLUSTER/WAKE were the only two kinds.
+    """
     for order in await deps.orders.pending():
+        if order.kind not in _CLUSTER_TICK_KINDS:
+            continue
         providers = _providers_for_order(order.kind, order.provider, deps, state)
         for provider in providers:
             if order.kind is OrderKind.CLUSTER:
@@ -190,3 +227,85 @@ async def _probe_clustered(
         reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
         if reading.state is HealthState.HEALTHY:
             await resume(provider, deps, state, wardens)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.13: run_release_tick, the RELEASE-only counterpart to _drain_orders above.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def run_release_tick(deps: QueenDeps) -> tuple[str, ...]:
+    """Drain every pending RELEASE order: revoke its lease's Cell's live grants, then mark handled.
+
+    See the module docstring for exactly what this can and cannot do in-process: it revokes grants
+    (a real, immediate effect, entirely within the Queen's own authority) but cannot itself kill
+    the Warden's processes or remove its scratch directory -- that needs a wire message this
+    dispatch does not add.
+
+    Args:
+        deps: The Queen's collaborators; `orders`, `trail`, `ledger`, `clock` and `identity` are
+            what this reads and acts through.
+
+    Returns:
+        The id of every RELEASE order this call handled, in the order `deps.orders.pending()`
+        returned them.
+    """
+    handled: list[str] = []
+    for order in await deps.orders.pending():
+        if order.kind is not OrderKind.RELEASE:
+            continue
+        await _handle_release_order(deps, order)
+        handled.append(order.id)
+    return tuple(handled)
+
+
+async def _handle_release_order(deps: QueenDeps, order: ClusterOrder) -> None:
+    """Revoke the named lease's Cell's live grants (if the lease is still known), then mark handled.
+
+    A `lease_id` this Hive's trail never recorded a `cell.leased` for (a typo, or a lease from a
+    different Hive's own database) has no Cell to revoke grants on; the order is still marked
+    handled, matching `OrderStore`'s own "consumed exactly once" contract for every other kind.
+    """
+    if order.lease_id is not None:
+        cell_id = await _cell_id_for_lease(deps, order.lease_id)
+        if cell_id is not None:
+            await _revoke_grants_for_cell(deps, cell_id)
+    await deps.orders.mark_handled(order.id, deps.clock.now())
+
+
+async def _cell_id_for_lease(deps: QueenDeps, lease_id: str) -> CellId | None:
+    """Return the Cell a `cell.leased` event on the trail recorded `lease_id` for, or None."""
+    events = await deps.trail.query(TrailQuery(kind="cell.leased", limit=MAX_QUERY_LIMIT))
+    for event in events:
+        if str(event.payload.get("lease_id")) == lease_id:
+            return CellId(event.subject_id)
+    return None
+
+
+async def _revoke_grants_for_cell(deps: QueenDeps, cell_id: CellId) -> int:
+    """Revoke every live grant on `cell_id`, skipping one still ISSUED (never drawn on).
+
+    Local import (module docstring): `hivemind.queen.forage.grants` sits inside this same
+    `hivemind.queen` package tree, and every sibling module here keeps a cross-sub-package call
+    like this local rather than module-level, the same way `hivemind.queen.cluster.protocol.
+    resume`'s own docstring explains for `hivemind.queen.dispatcher.resume_paused`.
+    """
+    from hivemind.forage import InvalidGrantTransitionError
+    from hivemind.queen.forage.grants import revoke
+
+    revoked = 0
+    for grant in tuple(deps.ledger.live_grants()):
+        if grant.cell_id != cell_id:
+            continue
+        try:
+            await revoke(
+                deps.ledger,
+                deps,
+                grant,
+                RevocationCause.RELEASED,
+                "hive cells release: the operator asked for this lease's Cell to be released.",
+            )
+        except InvalidGrantTransitionError:
+            continue  # Still ISSUED (never drawn on): nothing REVOKED can be moved from yet.
+        revoked += 1
+    return revoked

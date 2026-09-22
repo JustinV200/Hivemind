@@ -12,25 +12,26 @@ See Also:
 
 from __future__ import annotations
 
+from builders.forage import make_grant
 from builders.queen import WardenEnd, make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import HoneyClearance
-from hivemind.forage import ModelSlot
+from hivemind.forage import GrantState, ModelSlot
 from hivemind.llm import FakeLLMProvider
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import CellEvent, TrailQuery
 from hivemind.queen.cluster.health import (
     DEFAULT_HEALTHY_PROBE_INTERVAL_S,
     DEFAULT_INITIAL_BACKOFF_S,
 )
 from hivemind.queen.cluster.orders import ClusterOrder, InMemoryOrderStore, OrderKind, new_order_id
 from hivemind.queen.cluster.protocol import cluster
-from hivemind.queen.cluster.tick import awake_available, run_cluster_tick
+from hivemind.queen.cluster.tick import awake_available, run_cluster_tick, run_release_tick
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from hivemind.queen.state import ClusterState
 from waggle.clock import FakeClock
-from waggle.ids import TaskId
+from waggle.ids import CellId, TaskId, new_cell_id, new_event_id, new_hive_id, new_node_id
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -285,3 +286,94 @@ async def test_run_cluster_tick_resumes_a_recovered_provider_it_clustered_itself
 
     assert state.clustered_providers == frozenset()
     assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# run_release_tick (roadmap step 5.13): drains RELEASE orders, revokes the lease's Cell's grants.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _record_leased(
+    deps: QueenDeps, clock: FakeClock, *, cell_id: CellId, lease_id: str
+) -> None:
+    """Write one `cell.leased` event so `run_release_tick` can resolve `lease_id` to `cell_id`."""
+    event = CellEvent(
+        id=new_event_id(clock),
+        hive_id=new_hive_id(clock),
+        node_id=new_node_id(clock),
+        at=clock.now(),
+        actor="system",
+        kind="cell.leased",
+        subject_id=cell_id,
+        payload={
+            "lease_id": lease_id,
+            "holder": "warden-1",
+            "task_id": None,
+            "access_level": "FULL",
+            "comb_shield": "MEADOW",
+        },
+    )
+    await deps.trail.record(event)
+
+
+async def test_run_release_tick_revokes_the_leased_cells_live_grants_and_marks_handled() -> None:
+    clock = FakeClock()
+    orders = InMemoryOrderStore()
+    deps, _link, _warden_end = make_queen_deps(clock=clock, orders=orders)
+    cell_id = new_cell_id(clock)
+    await _record_leased(deps, clock, cell_id=cell_id, lease_id="lease-1")
+    grant = make_grant(state=GrantState.ACTIVE, clock=clock, cell_id=cell_id)
+    await deps.ledger.record_grant(grant)
+    await orders.put_order(
+        ClusterOrder(
+            id=new_order_id(clock),
+            kind=OrderKind.RELEASE,
+            provider=None,
+            requested_at=clock.now(),
+            lease_id="lease-1",
+        )
+    )
+
+    handled = await run_release_tick(deps)
+
+    assert len(handled) == 1
+    assert deps.ledger.live_grants() == ()
+    assert await orders.pending() == ()
+    revoked = await deps.trail.query(TrailQuery(kind="forage.revoked"))
+    assert [event.subject_id for event in revoked] == [grant.id]
+
+
+async def test_run_release_tick_on_an_unknown_lease_id_still_marks_handled() -> None:
+    clock = FakeClock()
+    orders = InMemoryOrderStore()
+    deps, _link, _warden_end = make_queen_deps(clock=clock, orders=orders)
+    await orders.put_order(
+        ClusterOrder(
+            id=new_order_id(clock),
+            kind=OrderKind.RELEASE,
+            provider=None,
+            requested_at=clock.now(),
+            lease_id="never-seen",
+        )
+    )
+
+    handled = await run_release_tick(deps)
+
+    assert len(handled) == 1
+    assert await orders.pending() == ()
+
+
+async def test_run_release_tick_never_touches_a_cluster_or_wake_order() -> None:
+    clock = FakeClock()
+    orders = InMemoryOrderStore()
+    deps, _link, _warden_end = make_queen_deps(clock=clock, orders=orders)
+    order = ClusterOrder(
+        id=new_order_id(clock), kind=OrderKind.CLUSTER, provider="fake", requested_at=clock.now()
+    )
+    await orders.put_order(order)
+
+    handled = await run_release_tick(deps)
+
+    assert handled == ()
+    pending = await orders.pending()
+    assert [item.id for item in pending] == [order.id]  # Left for run_cluster_tick, untouched.
