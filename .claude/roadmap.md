@@ -1040,10 +1040,11 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   thinking and returns nothing, nine times, which crashes the Drone; the manifest cap fixes it.
   The judge also rejected every outside-scratch `DIFF` the Drone proposed without postconditions
   (three to six rejections per run, about 30 s each) until the Drone reached the path through a
-  command; the tools should attach a `FILE_EXISTS` postcondition to an outside-scratch write, or
-  the rubric should not demand one (open, not Leavings). Every `hive run` mints a new Cell id, so
-  `leavings remove` needs the id from `cell.left`; `hive cells leavings list` should accept a
-  path or "the Hive Stand" (open).
+  command (`write_file` already attached `FILE_EXISTS`; the rubric demanded what no v0 kind can
+  prove). Every `hive run` mints a new Cell id, so `leavings remove` needed the id from `cell.left`.
+  All fixed 2026-09-22: a judge that cannot answer is a FAILED check the Drone reads, the code
+  budget is 4096, the rubric is v3, `leavings list` with no Cell lists everything and `remove` takes
+  `--path`; the phase 4 zero-grant hang and the missing `RELEASING -> ORPHANED` edge went with them.
 - The haiku run completes three ways: `prefer = "real"` uses the Hive Stand and zero containers;
   `prefer = "virtual"` uses three containers, each with its own Warden visible in `hive wardens
   list`; a task with `isolation = "required"` uses a Virtual Cell regardless.
