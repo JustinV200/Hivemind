@@ -32,8 +32,11 @@ from waggle.ids import (
     new_worker_id,
 )
 from waggle.messages import AlarmSeverity
+from waggle.messages.cell.leases import CellTeardownRequest
+from waggle.messages.cell.status import ReleaseCause
+from waggle.messages.control.protocol import Shutdown
 from waggle.messages.forage import GrantIssued
-from waggle.messages.labels import AccuracyBar, Postcondition, PostconditionKind, Tempo
+from waggle.messages.labels import AccuracyBar, Postcondition, PostconditionKind, Tempo, Urgency
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import (
     AlarmContext,
@@ -234,6 +237,23 @@ def test_decide_maps_heartbeat_to_record() -> None:
         interval_s=5.0,
     )
     assert decide(_item(heartbeat), _SUB_BEE, make_policy()) is WardenAction.RECORD
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        Shutdown(urgency=Urgency.IMMEDIATE, deadline_s=0.0, reason="test teardown"),
+        CellTeardownRequest(
+            cell_id=new_cell_id(_CLOCK),
+            lease_id=None,
+            urgency=Urgency.IMMEDIATE,
+            cause=ReleaseCause.COMPLETED,
+            reason="test teardown",
+        ),
+    ],
+)
+def test_decide_maps_shutdown_and_teardown_to_stop(payload: object) -> None:
+    assert decide(_item(payload), None, make_policy()) is WardenAction.STOP
 
 
 def test_decide_returns_needs_judgement_for_an_unrecognised_payload() -> None:

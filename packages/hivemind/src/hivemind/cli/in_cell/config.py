@@ -40,6 +40,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from hivemind.cell.local.config import HiveStandConfig
 from hivemind.cell.local.probe import probe_host
@@ -60,6 +61,7 @@ from waggle.ids import (
     parse_id,
 )
 from waggle.signing import Ed25519Signer, Ed25519Verifier
+from waggle.uris import check_waggle_uri, is_loopback_host
 
 # Where this dispatch's Cell keeps every lease's own scratch subdirectory (roadmap step 5.5:
 # InCellSpawnSource.lease() creates one under this root per lease). Matches the non-root `hive`
@@ -76,12 +78,14 @@ __all__ = [
     "DEFAULT_SCRATCH_ROOT",
     "InCellRuntimeConfig",
     "build_runtime_config",
+    "gateway_host",
+    "rewrite_loopback_base_url",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class InCellRuntimeConfig:
-    """Everything `hivemind.cli.in_cell.main` needs to build a CellLink and its deps.
+    """Everything `hivemind.cli.in_cell.main` needs to announce this Cell and build its Warden.
 
     Attributes:
         queen_waggle_url: Where this Cell dials out to.
@@ -141,7 +145,7 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
         scratch_root=DEFAULT_SCRATCH_ROOT,
     )
     return InCellRuntimeConfig(
-        queen_waggle_url=_require(env.queen_waggle_url, "HIVEMIND_QUEEN_WAGGLE_URL"),
+        queen_waggle_url=_require_queen_waggle_url(env.queen_waggle_url),
         hive_id=hive_id,
         queen_node_id=queen_node_id,
         node_id=new_node_id(clock),
@@ -159,6 +163,85 @@ def _require(value: str | None, var_name: str) -> str:
     if value is None:
         raise ConfigurationError(f"{var_name} must be set for the in-Cell Warden to start.")
     return value
+
+
+def _require_queen_waggle_url(value: str | None) -> str:
+    """Return `value`, validated as a URI this Cell may dial out to the Queen on.
+
+    `allow_virtual_cell_gateway_host=True` (waggle.uris): a Virtual Cell reaches the Hive Stand
+    through a host-gateway alias (`host.docker.internal`) or a private address, never loopback --
+    loopback inside the container is the container itself (ADR-0027). Validating with the
+    ordinary (loopback-only) rule here would reject exactly the address a Docker/QEMU backend is
+    expected to hand this Cell, before the real dial ever gets a chance to fail more usefully.
+
+    Raises:
+        ConfigurationError: `value` is unset, or fails `check_waggle_uri`'s widened rule.
+    """
+    raw = _require(value, "HIVEMIND_QUEEN_WAGGLE_URL")
+    try:
+        return check_waggle_uri(raw, allow_virtual_cell_gateway_host=True)
+    except ValueError as exc:
+        raise ConfigurationError(f"HIVEMIND_QUEEN_WAGGLE_URL={raw!r} is invalid: {exc}") from exc
+
+
+def rewrite_loopback_base_url(base_url: str, gateway_host: str) -> str:
+    """Rewrite a loopback LLM provider base URL to `gateway_host`, port and path unchanged.
+
+    A `ModelSlot` binding a grant names (roadmap step 8.6/8.10) may point at a provider server
+    the Hive Stand's own manifest addresses as loopback (`http://127.0.0.1:1234/v1`, a local LM
+    Studio, say). Loopback inside a Virtual Cell is the Cell itself, not the Hive Stand, so that
+    address is never reachable from in here -- exactly the same reason `HIVEMIND_QUEEN_WAGGLE_URL`
+    is a gateway address rather than loopback (ADR-0027). A container reaches the Hive Stand
+    through the same host-gateway alias its Waggle control link already dials
+    (`HIVEMIND_QUEEN_WAGGLE_URL`'s own host, `waggle.uris.VIRTUAL_CELL_GATEWAY_HOST_NAMES`), and
+    Docker/QEMU host-gateway networking preserves the host's own listening port, so only the host
+    component changes; the scheme, port, path and query are carried over unchanged.
+
+    TODO(8.x): this is the smallest correct thing for today's wire shape, not the final one.
+    `waggle.messages.forage.values.AllowedBinding`/`SourceRef` name a slot's provider and model
+    but never a base URL (a grant only ever crosses process boundaries as a manifest provider
+    *name*, resolved locally at each end), so nothing yet calls this helper with a real grant's
+    own base URL -- see `hivemind.cli.in_cell.providers` for where a future hosting-plan shape
+    that carries a Cell-relative URL would wire it in.
+
+    Args:
+        base_url: A provider's configured base URL, as `[llm.providers.<name>].base_url` names it.
+        gateway_host: The host this Cell reaches the Hive Stand through, e.g.
+            `HIVEMIND_QUEEN_WAGGLE_URL`'s own host (`host.docker.internal`, a QEMU SLIRP gateway,
+            or an operator's own private address).
+
+    Returns:
+        `base_url` unchanged when its host is not loopback (nothing to rewrite: it already names
+        something other than "this same machine"); otherwise `base_url` with only its host
+        replaced by `gateway_host`.
+    """
+    parts = urlsplit(base_url)
+    if parts.hostname is None or not is_loopback_host(parts.hostname):
+        return base_url  # Not a loopback address: already a real, Cell-reachable host (or empty).
+    # Replace only the host, keeping any port the original URL named (a loopback provider server
+    # binds the same port on the gateway alias, per the module docstring above); userinfo is never
+    # present on a manifest provider URL, so it is not carried over.
+    port_suffix = f":{parts.port}" if parts.port is not None else ""
+    new_netloc = f"{gateway_host}{port_suffix}"
+    return urlunsplit((parts.scheme, new_netloc, parts.path, parts.query, parts.fragment))
+
+
+def gateway_host(queen_waggle_url: str) -> str:
+    """Return the host this Cell reaches the Queen through, for `rewrite_loopback_base_url`.
+
+    Args:
+        queen_waggle_url: `InCellRuntimeConfig.queen_waggle_url`, already validated by
+            `build_runtime_config` (`_require_queen_waggle_url`), so it always parses.
+
+    Returns:
+        The URL's own host, e.g. `"host.docker.internal"`.
+    """
+    hostname = urlsplit(queen_waggle_url).hostname
+    # build_runtime_config already validated this URL through check_waggle_uri, which requires a
+    # parseable host; this branch only guards a caller that skipped that step (e.g. a future test).
+    if hostname is None:
+        raise ConfigurationError(f"{queen_waggle_url!r} has no host to use as a gateway host.")
+    return hostname
 
 
 def _parse_required(value: str | None, kind: IdKind, var_name: str) -> str:

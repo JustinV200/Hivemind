@@ -21,7 +21,12 @@ from pathlib import Path
 import pytest
 
 from hivemind.cell.tiers import CombShieldLevel
-from hivemind.cli.in_cell.config import DEFAULT_SCRATCH_ROOT, build_runtime_config
+from hivemind.cli.in_cell.config import (
+    DEFAULT_SCRATCH_ROOT,
+    build_runtime_config,
+    gateway_host,
+    rewrite_loopback_base_url,
+)
 from hivemind.common.errors import ConfigurationError
 from hivemind.manifest.env import read_in_cell_env
 from waggle.clock import FakeClock
@@ -116,3 +121,25 @@ def test_build_runtime_config_mints_a_fresh_node_id_and_warden_id_each_call() ->
 
     assert first.node_id != second.node_id
     assert first.warden_id != second.warden_id
+
+
+def test_gateway_host_returns_the_queen_waggle_urls_own_host() -> None:
+    assert gateway_host("ws://host.docker.internal:9443/waggle") == "host.docker.internal"
+
+
+def test_rewrite_loopback_base_url_replaces_a_loopback_host_keeping_port_and_path() -> None:
+    rewritten = rewrite_loopback_base_url("http://127.0.0.1:1234/v1", "host.docker.internal")
+
+    assert rewritten == "http://host.docker.internal:1234/v1"
+
+
+def test_rewrite_loopback_base_url_leaves_a_non_loopback_host_unchanged() -> None:
+    url = "https://api.example.com/v1"
+
+    assert rewrite_loopback_base_url(url, "host.docker.internal") == url
+
+
+def test_rewrite_loopback_base_url_handles_localhost_too() -> None:
+    rewritten = rewrite_loopback_base_url("http://localhost:9999", "host.docker.internal")
+
+    assert rewritten == "http://host.docker.internal:9999"

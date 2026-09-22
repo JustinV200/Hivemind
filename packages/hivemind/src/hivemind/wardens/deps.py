@@ -64,6 +64,7 @@ from hivemind.supervision.capping import (
 )
 from hivemind.supervision.capping.checks import Check
 from hivemind.supervision.capping.tiers import TierTable
+from hivemind.wardens.trail_sync import TrailSync
 from hivemind.workers import Worker
 from waggle.clock import Clock
 from waggle.envelope import Hop
@@ -132,6 +133,13 @@ class WardenDeps:
             ordering and spill threshold (codingrules section 8.14). `call_gate` above stays
             the Warden's own unattributed lane, used for its own awake episodes and by any
             test that never names this field.
+        trail_sync: Ships this node's own local trail segment to the Queen on this Warden's own
+            heartbeat cadence and once more from `stop()` (codingrules section 12: "a Warden that
+            is offline writes to its local segment; on reconnection the segment merges into the
+            Queen's trail"). `None` -- the default, and what the Hive Stand's own composition root
+            leaves it as -- means this Warden already records into the Queen's own store, so there
+            is nothing to ship; `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.trail_sync.
+            WaggleTrailSync` in, because a Virtual Cell's store dies with the container.
     """
 
     source: RealCellSource
@@ -166,6 +174,11 @@ class WardenDeps:
     lane_for_grant: Callable[[str, str, Tempo], CallGate] = field(
         default_factory=lambda: _default_lane_for_grant
     )
+    # Roadmap step 5.3 / ADR-0027: additive and defaulted to None, because only a Warden whose
+    # trail store does not already live on the Queen's own machine has anything to ship
+    # (`hivemind.wardens.trail_sync`'s own module docstring); every existing composition root and
+    # every existing test keeps today's behaviour by never naming this field.
+    trail_sync: TrailSync | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

@@ -1,82 +1,86 @@
-"""Define CellLink: connect this Cell out to the Queen, announce it, heartbeat, stop on order.
+"""Announce this Cell to the Queen: connect out, send CellReady, CapacityReport, CellHeartbeat.
 
-Roadmap step 5.5's own entry-point loop: "connects OUT over the WebSocket transport..., sends
-CellReady with the probed platform/capabilities/ForageCapacity, then heartbeats, and runs the
-standard loop until Shutdown/CellTeardownRequest." `CellLink` is deliberately its own small
-`waggle.loop.TickLoop` (codingrules section 11's shared loop shape), not
-`hivemind.wardens.warden.Warden`: a real `Warden` drains its Queen link for `TaskAssign`/
-`GrantIssued`/`Intervene` and dispatches them through `hivemind.wardens.autopilot`, which has no
-case for `control.shutdown` or `cell.teardown_request` today (neither message is read anywhere in
-`hivemind.wardens` as of this dispatch -- confirmed by grep before writing this module), and this
-dispatch may not add one (`wardens/warden.py`, `wardens/ticks/` and `wardens/autopilot/` are out
-of scope for roadmap step 5.5). `CellLink` owns the transport exclusively instead: one small loop
-that announces, heartbeats and watches for exactly the two messages the roadmap step names. Once
-the Queen side exists to grant work over this same link (roadmap steps 5.4/5.6, see this
-dispatch's own report), wiring a real `Warden` underneath `CellLink` -- or replacing it -- is the
-natural next step; `hivemind.wardens.spawn.in_cell.InCellSpawnSource` is already built so a
-`WardenDeps.source` for that Warden needs no new code when it arrives.
+Roadmap step 5.5's own entry-point loop used to run entirely inside a standalone `CellLink`
+(`waggle.loop.TickLoop`), because no real `hivemind.wardens.warden.Warden` was wired up to send
+`CellReady`/heartbeat/handle `Shutdown` itself. This dispatch wires that real Warden in
+(`hivemind.cli.in_cell.main`), whose own tick loop already sends its supervision `Heartbeat` and,
+through `hivemind.wardens.autopilot.table`'s new `WardenAction.STOP` case, already stops cleanly on
+`Shutdown`/`CellTeardownRequest` -- so the only thing this module still owns is the three frames
+that must go out *before* a `Warden` exists to send anything at all: a signed `CellReady` (ADR-0027:
+"the image's entry point starts a Warden, and the Warden dials out... sends a signed CellReady...
+then heartbeats"), the `CapacityReport` `CellReady` itself carries no room for
+(`waggle.messages.cell.status.CellReady`'s own shape has no `ForageCapacity` field), and one
+`CellHeartbeat` so `hivemind.queen.cell_gate.listener.CellListener`'s own readiness gate -- which
+waits for exactly `CellReady` then `CellHeartbeat`, unmodified by this dispatch -- resolves before
+this process ever calls `Warden.start()`. `Warden` itself never sends `CellHeartbeat` again after
+that: `hivemind.queen.cell_gate.listener`'s own known-gap note says today's `CellListener` never
+reads anything past that first pair anyway (this dispatch's own report names the recurring-liveness
+gap that leaves).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
-    `hivemind.cell` (Cell), `hivemind.common.tasks` (reap, reaping) and waggle
-    (envelope, ids, loop, messages, transport) only. Built and run by
-    `hivemind.cli.in_cell.main.run_in_cell_warden`.
+    `hivemind.cell` (Cell), `hivemind.forage` (ForageCapacity) and waggle (envelope, ids, messages,
+    transport) only. Built and run by `hivemind.cli.in_cell.main.run_in_cell_warden`.
 
 Key invariants:
-    - `announce()` must be called (and awaited) exactly once, before `run()`: it connects the
-      transport and sends the one `CellReady` this Cell ever sends.
-    - `run()` (inherited from `TickLoop`) never returns while the stop flag is clear; a `Shutdown`
-      or `CellTeardownRequest` envelope, or the link ending, sets it.
-    - `close()` reaps every task this loop still owns before closing the transport, so nothing is
-      ever left cancelled-but-unawaited when the event loop closing (codingrules section 11).
+    - `announce` connects the transport and sends the one `CellReady` this Cell ever sends; it
+      must be called, and awaited, before anything else is sent on `deps.transport`.
+    - `send_capacity_report` and `send_cell_heartbeat` may be called only after `announce`, and
+      `send_cell_heartbeat` only after `send_capacity_report` -- `CellListener`'s own gate accepts
+      `CellHeartbeat` at any point once `CellReady` has arrived, but sending the capacity report
+      first means a Queen that starts reading it sooner never sees a Cell reported ready with no
+      capacity behind it.
 
 See Also:
-    - .claude/roadmap.md step 5.5 for the entry point's own description.
-    - .claude/codingrules.md section 11 for the TickLoop shape and the reap/reaping helpers.
-    - waggle.messages.cell.status for CellReady/CellHeartbeat, the two messages this loop sends.
-    - waggle.messages.control.protocol for Shutdown, and waggle.messages.cell.leases for
-      CellTeardownRequest, the two messages that stop this loop.
-    - hivemind.cli.in_cell.config for CellLinkConfig, this module's own inputs.
+    - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
+      direction and the "signed CellReady first" order this module implements.
+    - waggle.messages.cell.status for CellReady/CellHeartbeat, the two messages
+      hivemind.queen.cell_gate.listener.CellListener's readiness gate waits for.
+    - waggle.messages.forage.hosting for CapacityReport, the message CellReady has no room for.
+    - hivemind.cli.in_cell.config for CellLinkDeps, this module's own inputs.
+    - hivemind.cli.in_cell.main for run_in_cell_warden, this module's one caller.
 """
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from hivemind.cell.models import Cell
 from hivemind.cell.tiers import CombShieldLevel
-from hivemind.common.tasks import reap, reaping
+from hivemind.forage import ForageCapacity
 from waggle.clock import Clock
-from waggle.envelope import Envelope, Hop, wrap
-from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
+from waggle.envelope import Hop, wrap
 from waggle.ids import HiveId, NodeId, WardenId
-from waggle.loop import TickLoop
-from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.status import CellHeartbeat, CellMode, CellReady
-from waggle.messages.control.protocol import Shutdown
+from waggle.messages.forage import CapacityReport, CapacityTrigger, LocalPoolUsage
 from waggle.transport.base import Transport
 
-__all__ = ["CellLink", "CellLinkDeps"]
+__all__ = ["CellLinkDeps", "announce", "send_capacity_report", "send_cell_heartbeat"]
+
+# The Cell has just come up with no lease and no sub-bees yet, for both frames this module sends;
+# Warden.start() (called right after this module's three sends) is what actually leases the Cell.
+_NO_LOCAL_POOL_USAGE = LocalPoolUsage(
+    sub_bees_active=0, model_vram_bytes=0, model_disk_bytes=0, seats_exported=0
+)
 
 
 @dataclass(frozen=True, slots=True)
 class CellLinkDeps:
-    """Everything one CellLink is built with (codingrules section 5.1).
+    """Everything this module's three announce functions are built with (codingrules section 5.1).
 
     Attributes:
-        transport: This Cell's own dial-out connection to the Queen; unconnected until
-            `CellLink.announce()` calls `transport.connect()`.
-        cell: This Cell's own probed description (roadmap step 5.5's `InCellSpawnSource.cells()`),
-            what `CellReady` and every `CellHeartbeat` describe.
-        warden_id: This Warden's own freshly minted id; the `sender` of every envelope this loop
-            sends.
-        hive_id: The Queen's own bee address; the `recipient` of every envelope this loop sends.
+        transport: This Cell's own dial-out connection to the Queen; unconnected until `announce`
+            calls `transport.connect()`.
+        cell: This Cell's own probed description (`hivemind.wardens.spawn.in_cell.
+            InCellSpawnSource.cells()`), what every frame this module sends describes.
+        warden_id: This Warden's own freshly minted id; the `sender` of every envelope this
+            module sends.
+        hive_id: The Queen's own bee address; the `recipient` of every envelope this module sends.
         node_id: This Cell's own freshly minted node id; stamped on every envelope's `node_id`
             (the identity the Codec's Signer signs as).
-        clock: Injected time source for every sleep, mint and timestamp.
-        heartbeat_interval_s: How often `CellHeartbeat` is sent; also the value it reports.
+        clock: Injected time source for every mint and timestamp.
+        heartbeat_interval_s: The cadence `send_cell_heartbeat` reports on
+            `CellHeartbeat.interval_s`.
         runtime_version: The installed `hivemind` distribution version, carried on `CellReady`.
     """
 
@@ -90,116 +94,57 @@ class CellLinkDeps:
     runtime_version: str
 
 
-class CellLink(TickLoop):
-    """Announce this Cell to the Queen, heartbeat on an interval, stop on Shutdown or teardown."""
+async def announce(deps: CellLinkDeps) -> None:
+    """Connect `deps.transport` and send this Cell's one signed CellReady.
 
-    def __init__(self, deps: CellLinkDeps) -> None:
-        """Build a CellLink; call `announce()` before `run()`.
+    Args:
+        deps: This module's own collaborators.
+    """
+    await deps.transport.connect()
+    await deps.transport.send(wrap(_build_cell_ready(deps), _hop(deps), clock=deps.clock))
 
-        Args:
-            deps: Every collaborator this loop needs.
-        """
-        super().__init__(deps.clock)
-        self._deps = deps
-        self._heartbeat_task: asyncio.Task[None] | None = None
-        self._receive_task: asyncio.Task[Envelope | None] | None = None
-        self._receive_iter: AsyncIterator[Envelope] = deps.transport.receive()
 
-    async def announce(self) -> None:
-        """Connect this Cell's transport and send its one CellReady. Call once before `run()`."""
-        await self._deps.transport.connect()
-        await self._deps.transport.send(
-            wrap(_build_cell_ready(self._deps), self._hop(), clock=self._deps.clock)
-        )
+async def send_capacity_report(deps: CellLinkDeps, capacity: ForageCapacity) -> None:
+    """Send this Cell's probed ForageCapacity, since CellReady carries none.
 
-    async def close(self) -> None:
-        """Reap every task this loop still owns, then close the transport. Idempotent-safe."""
-        if self._heartbeat_task is not None:
-            await reap(self._heartbeat_task)
-        if self._receive_task is not None:
-            await reap(self._receive_task)
-        await self._deps.transport.close()
+    Args:
+        deps: This module's own collaborators.
+        capacity: This Cell's own probed capacity, from `InCellSpawnConfig.capacity`
+            (`hivemind.cli.in_cell.config`).
+    """
+    report = CapacityReport(
+        cell_id=deps.cell.id,
+        trigger=CapacityTrigger.PROVISIONED,
+        host=capacity.host.to_wire(),
+        model_servers=(),  # v0: no model server runs on a base-ubuntu Cell (roadmap step 5.3).
+        max_sub_bees=capacity.max_sub_bees,
+        usage=_NO_LOCAL_POOL_USAGE,
+    )
+    await deps.transport.send(wrap(report, _hop(deps), clock=deps.clock))
 
-    async def _tick(self) -> None:
-        """Wait for whichever comes first -- the heartbeat deadline, an envelope or stop()."""
-        heartbeat_task = self._heartbeat_deadline_task()
-        receive_task = self._receive_task_handle()
-        # Throwaway: only wakes this wait early when stop() is called mid-tick (matches Warden's
-        # own _run_tick shape, codingrules section 11).
-        stop_task: asyncio.Task[bool] = asyncio.ensure_future(self._stop.wait())
-        async with reaping(stop_task):
-            done, _pending = await asyncio.wait(
-                {heartbeat_task, receive_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
-            )
-        if stop_task in done:
-            return
-        if heartbeat_task in done:
-            self._heartbeat_task = None
-            await self._send_heartbeat()
-        if receive_task in done:
-            self._receive_task = None
-            envelope = receive_task.result()
-            if envelope is None:
-                self.stop()  # The link ended; nothing more will ever arrive on it.
-                return
-            self._handle_envelope(envelope)
 
-    def _handle_envelope(self, envelope: Envelope) -> None:
-        """Stop this loop on a Shutdown or CellTeardownRequest; every other kind is ignored.
+async def send_cell_heartbeat(deps: CellLinkDeps) -> None:
+    """Send one CellHeartbeat so the Queen's readiness gate resolves (module docstring)."""
+    heartbeat = CellHeartbeat(
+        cell_id=deps.cell.id,
+        mode=CellMode.ACTIVE,
+        lease_ids=(),
+        worker_count=0,
+        # A receiver rule (waggle.messages.cell.status's own docstring): always true for MEADOW;
+        # this Cell has no tiered attestation to report otherwise (_build_cell_ready below).
+        is_shield_verified=deps.cell.comb_shield is CombShieldLevel.MEADOW,
+        interval_s=deps.heartbeat_interval_s,
+    )
+    await deps.transport.send(wrap(heartbeat, _hop(deps), clock=deps.clock))
 
-        Roadmap step 5.5 names exactly these two stop conditions; anything else (a future
-        `TaskAssign`, say) is for the real Warden this CellLink stands in for (module docstring).
-        """
-        if isinstance(envelope.payload, Shutdown | CellTeardownRequest):
-            self.stop()
 
-    async def _send_heartbeat(self) -> None:
-        """Send one CellHeartbeat reporting this Cell as ACTIVE with no leases or workers yet."""
-        heartbeat = CellHeartbeat(
-            cell_id=self._deps.cell.id,
-            mode=CellMode.ACTIVE,
-            lease_ids=(),
-            worker_count=0,
-            # A receiver rule (waggle.messages.cell.status's own docstring): always true for
-            # MEADOW; this Cell has no tiered attestation to report otherwise (_build_cell_ready).
-            is_shield_verified=self._deps.cell.comb_shield is CombShieldLevel.MEADOW,
-            interval_s=self._deps.heartbeat_interval_s,
-        )
-        await self._deps.transport.send(wrap(heartbeat, self._hop(), clock=self._deps.clock))
-
-    def _hop(self) -> Hop:
-        """This loop's own addressing: this Warden to the Queen, from this Cell's own node."""
-        return Hop(
-            sender=self._deps.warden_id, recipient=self._deps.hive_id, node_id=self._deps.node_id
-        )
-
-    def _heartbeat_deadline_task(self) -> asyncio.Task[None]:
-        """Return the in-flight heartbeat-deadline task, starting one if none is pending."""
-        if self._heartbeat_task is None:
-            self._heartbeat_task = asyncio.ensure_future(
-                self._deps.clock.sleep(self._deps.heartbeat_interval_s)
-            )
-        return self._heartbeat_task
-
-    def _receive_task_handle(self) -> asyncio.Task[Envelope | None]:
-        """Return the in-flight receive task, starting one if none is pending."""
-        if self._receive_task is None:
-            self._receive_task = asyncio.ensure_future(self._next_or_none())
-        return self._receive_task
-
-    async def _next_or_none(self) -> Envelope | None:
-        """Return the next decoded Envelope, or None once nothing more will ever arrive."""
-        try:
-            return await anext(self._receive_iter)
-        except InvalidPayloadError:
-            # The pair stays open per the Transport contract; ask for the next frame instead.
-            return await self._next_or_none()
-        except (StopAsyncIteration, ConnectionLostError, CodecError, SignatureError):
-            return None
+def _hop(deps: CellLinkDeps) -> Hop:
+    """This module's own addressing: this Warden to the Queen, from this Cell's own node."""
+    return Hop(sender=deps.warden_id, recipient=deps.hive_id, node_id=deps.node_id)
 
 
 def _build_cell_ready(deps: CellLinkDeps) -> CellReady:
-    """Build this Cell's one CellReady from its probed capabilities and this loop's own ids."""
+    """Build this Cell's one CellReady from its probed capabilities and this module's own ids."""
     platform, capabilities = deps.cell.capabilities.to_wire()
     return CellReady(
         cell_id=deps.cell.id,

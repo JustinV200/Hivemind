@@ -944,7 +944,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   is returned as a `cell.Cell` of kind `VIRTUAL`.
 - [x] **5.2 CellBackend protocol and registry.** `hive/backends/base.py` (from codingrules
   Appendix A.1), `hive/registry.py`. `hive/backends/fake.py` for tests.
-- [ ] **5.3 Base image.** `images/base-ubuntu/Dockerfile`: Ubuntu 24.04 LTS + Python + the
+- [x] **5.3 Base image.** `images/base-ubuntu/Dockerfile`: Ubuntu 24.04 LTS + Python + the
   `hivemind` runtime + a Waggle client that connects **out** to the Queen. Terminal-first. The
   image's entry point starts a **Warden**, which then spawns sub-bees inside the Cell.
   `images/base-ubuntu/README.md` explains every layer.

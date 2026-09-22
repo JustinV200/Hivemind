@@ -17,18 +17,32 @@ The image's `ENTRYPOINT` is `hivemind-in-cell`, the console script for
 2. Probes this container's own platform, capabilities and Forage capacity (the same stdlib-only
    probe `hivemind.cell.local.probe.probe_host` uses for the Hive Stand -- a Virtual Cell image is
    Ubuntu Linux too) and builds the one `Cell` it is (`hivemind.wardens.spawn.in_cell.
-   InCellSpawnSource`, the `in_cell` Warden spawn strategy, roadmap step 5.5).
+   InCellSpawnSource`, the `in_cell` Warden spawn strategy).
 3. Dials **out** to `HIVEMIND_QUEEN_WAGGLE_URL` over a signed WebSocket connection -- this image
    exposes no inbound port, so it has to be the one that connects.
-4. Sends one signed `CellReady` announcing itself, then sends a `CellHeartbeat` on an interval.
-5. Runs until a signed `Shutdown` or `CellTeardownRequest` arrives from the Queen, then stops and
-   the container exits. Destroying the container (not a graceful in-container cleanup) is the
-   Undertaker's actual teardown of a Virtual Cell -- see `hivemind.cell.in_cell`'s own module
-   docstring for why nothing here tries to leave anything "restored".
+4. Sends one signed `CellReady` announcing itself, then a `CapacityReport` naming its probed
+   `ForageCapacity`, then one `CellHeartbeat` -- the three frames `hivemind.queen.cell_gate.
+   listener.CellListener`'s own readiness gate waits for before a real Warden ever exists
+   (`hivemind.cli.in_cell.link`).
+5. Builds and starts a genuine, task-executing `hivemind.wardens.warden.Warden` over that same
+   connection (`hivemind.cli.in_cell.deps.build_in_cell_warden_deps`): it leases the one Cell it
+   is, spawns sub-bees under whatever `GrantIssued`/`TaskAssign` the Queen sends, runs their
+   acceptance and reports `TaskProgress`/`TaskResult` back, and periodically ships its own local
+   Pheromone Trail segment to the Queen as `TrailSegmentSync` (`hivemind.wardens.trail_sync`) --
+   this Cell's trail store lives and dies with the container, so that segment is this Cell's only
+   way of getting its own `warden.*`/`cell.*`/`task.*`/`llm.*` history onto the Hive's audit log.
+   Model access from inside a Cell is today's one deliberate placeholder: `hivemind.cli.in_cell.
+   providers` binds every slot to a scriptable fake, not a real provider (see "Not yet in this
+   image" below).
+6. Runs until a signed `Shutdown` or `CellTeardownRequest` arrives from the Queen, then stops --
+   every sub-bee reaped, its lease released, a final best-effort trail sync -- and the container
+   exits. Destroying the container (not a graceful in-container cleanup) is the Undertaker's
+   actual teardown of a Virtual Cell -- see `hivemind.cell.in_cell`'s own module docstring for why
+   nothing here tries to leave anything "restored".
 
 See `hivemind.cli.in_cell`'s own package docstring for the full composition-root detail, and this
-dispatch's own report (roadmap step 5.5) for exactly what the Queen side still needs before a real
-Warden can attach over this same link.
+dispatch's own report (roadmap step 5.3) for exactly what the Queen side still needs before it
+actually reads the `TrailSegmentSync` chunks this image already sends.
 
 ## Layers, in order
 
@@ -90,7 +104,8 @@ runner adds (a later roadmap step) must, at minimum:
 - Run it with every required `HIVEMIND_*` variable set against a loopback `WebSocketServer` test
   double (the same shape `packages/hivemind/tests/unit/cli/in_cell/test_main.py` already drives
   in process, without a container) and confirm it sends a signed `CellReady`, then a
-  `CellHeartbeat`, and stops cleanly on a `Shutdown`.
+  `CapacityReport`, then a `CellHeartbeat`, runs a real Warden, and stops cleanly (every sub-bee
+  reaped) on a `Shutdown`.
 - Confirm the image runs as the non-root `hive` user (`docker run ... whoami` prints `hive`).
 - Confirm no port is published or listening inside the container (`docker inspect` shows no
   `ExposedPorts`; nothing binds a socket at boot).
@@ -104,7 +119,13 @@ runner adds (a later roadmap step) must, at minimum:
   `desktop-ubuntu` (roadmap step 5.3a), not this image.
 - **The Exoskeleton bundle** (Xvfb, xdotool, PulseAudio, a browser) is `desktop-ubuntu` (roadmap
   step 6.1). This image is terminal-only by design.
-- **A full task-executing Warden.** `hivemind-in-cell` runs `hivemind.cli.in_cell.link.CellLink`,
-  a small loop that announces and heartbeats; it does not yet spawn sub-bees or run tasks, because
-  the Queen side has nothing yet to grant work over this link (see this dispatch's own report,
-  roadmap step 5.5, for exactly what steps 5.4/5.6 must add).
+- **A real model provider.** `hivemind.cli.in_cell.providers` binds every `[llm.slots]`-shaped
+  slot to a scriptable `FakeLLMProvider`, never a real vendor or local server: today's wire shape
+  (`waggle.messages.forage.values.AllowedBinding`/`SourceRef`) names a slot's provider only by its
+  manifest name, never a base URL a Virtual Cell could dial, so there is nothing yet to build a
+  real registry from (see that module's own docstring, and `hivemind.cli.in_cell.config.
+  rewrite_loopback_base_url`, the fix already written for the day a real base URL arrives).
+- **The Queen actually reading `TrailSegmentSync`.** This image's Warden already ships its own
+  trail segment (`hivemind.wardens.trail_sync`) and `hivemind.queen.trail_sync.
+  TrailSegmentReceiver` already reassembles and merges it, but nothing in `hivemind.queen` calls
+  that receiver yet -- see this dispatch's own report for exactly which drain loop should own it.

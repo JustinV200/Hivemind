@@ -65,20 +65,14 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from hivemind.cell import (
-    Cell,
-    CellSession,
-    LeaseRefusedError,
-    LeaseRequest,
-    RealCellLease,
-)
+from hivemind.cell import Cell, CellSession, LeaseRefusedError, LeaseRequest, RealCellLease
 from hivemind.cell import HoneyClearance as _HoneyClearance
 from hivemind.common.tasks import reap, reap_all, reaping
 from hivemind.forage import Ceilings, HostingPlan
 from hivemind.guard import CapabilitySet, ceiling_for
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
-from hivemind.supervision import ChildKind, ChildRef, Intervention, to_wire
+from hivemind.supervision import ChildKind, ChildRef, Intervention
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens import ticks
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
@@ -89,8 +83,14 @@ from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
 from hivemind.wardens.state import WardenState, assert_transition, clustering_update
-from waggle.envelope import Envelope, Hop, wrap
-from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
+from waggle.envelope import Envelope
+from waggle.errors import (
+    CodecError,
+    ConnectionLostError,
+    InvalidPayloadError,
+    SignatureError,
+    TransportClosedError,
+)
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
 from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
@@ -254,6 +254,12 @@ class Warden(TickLoop):
             await self._lease.release()
         self._state = WardenState.STOPPED
         await _record_event(self, "warden.stopped")
+        # Last of all, so `warden.stopped` itself is inside the shipped segment: a Warden whose
+        # trail store dies with its Cell (ADR-0027) gets one final chance to hand the Queen
+        # everything it recorded. A closed or half-closed link here is not worth failing a stop
+        # over, so this is best-effort, exactly like `ticks.heartbeat.send_heartbeat`'s own
+        # tolerance of a link the composition root already closed.
+        await _sync_trail(self)
 
     async def _tick(self) -> None:
         """Drain the queen link and every sub-bee link, order and act, then heartbeat."""
@@ -300,22 +306,7 @@ class Warden(TickLoop):
         Raises:
             UnknownSubBeeError: `child` names no current sub-bee.
         """
-        sub_bee = self._sub_bees.get(WorkerId(child))
-        if sub_bee is None:
-            raise UnknownSubBeeError(child)
-        action, slot = to_wire(intervention)
-        message = Intervene(
-            action=action,
-            subject=None,
-            task_id=sub_bee.task_id,
-            slot=slot,
-            alarm_id=None,
-            reason=intervention.reason,
-        )
-        hop = Hop(
-            sender=self._warden_id, recipient=sub_bee.worker_id, node_id=self._deps.hop.node_id
-        )
-        await sub_bee.link.send(wrap(message, hop, clock=self._deps.clock))
+        await ticks.control.send_intervention(self, child, intervention)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -345,10 +336,18 @@ async def _run_tick(warden: Warden) -> None:
         # timer, and generous enough that a sub-bee reporting on its own (shorter) interval never
         # trips it early.
         await ticks.heartbeat.raise_stalled_alarms(warden)
+        # On the same cadence, and for the same reason the staleness check shares it: one timer,
+        # not two. A Warden with no `trail_sync` (the Hive Stand's own) does nothing here.
+        await _sync_trail(warden)
     if items:
         ordered = await warden._attendant.order(tuple(items))
         for item in ordered:
             await _handle_item(warden, item)
+    if warden._stop.is_set():
+        # A Shutdown or CellTeardownRequest handled just above already ran `stop()`, which leaves
+        # this Warden STOPPED -- a terminal state `settle_after_tick`'s own `assert_transition`
+        # would (correctly) refuse to move out of.
+        return
     await ticks.assign.settle_after_tick(warden)
 
 
@@ -462,6 +461,11 @@ async def _act(
         if item.principal == _QUEEN_LINK:
             clustering_update(item.task_id, payload, warden._clustered_tasks)
         await ticks.control.forward_control(warden, sub_bee, payload)
+    elif action is WardenAction.STOP:
+        # ADR-0027 / roadmap step 5.3: the Queen's own Shutdown or CellTeardownRequest. `stop()`
+        # already stops every sub-bee, releases the lease and sets the loop's own stop flag, so
+        # `_run_tick` returns straight after this and `run()` ends on its next check.
+        await ticks.control.handle_stop(warden, payload)
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
@@ -480,6 +484,23 @@ async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> N
     elif isinstance(payload, PlanWritten):
         # Same reasoning: hivemind.queen.forage.hosting already recorded forage.plan_written.
         ticks.control.handle_plan_written(warden, payload)
+
+
+async def _sync_trail(warden: Warden) -> None:
+    """Ship this node's own trail segment to the Queen, if this Warden has a sync to ship it with.
+
+    Best-effort by design (codingrules section 12: the merge is idempotent by event id, so a send
+    lost to a closing link costs nothing but a repeat next time). A `WardenDeps.trail_sync` of
+    `None` -- every composition root but `hivemind.cli.in_cell` -- makes this a no-op.
+    """
+    if warden._deps.trail_sync is None:
+        return
+    try:
+        await warden._deps.trail_sync.sync()
+    except (TransportClosedError, ConnectionLostError):
+        # The Queen link is gone; the segment stays local and the next successful sync (or the
+        # next Cell's own) re-sends it. Never a reason to end this Warden's tick loop or its stop.
+        await _record_event(warden, "warden.offline")
 
 
 async def _record_event(warden: Warden, kind: str, **payload: JsonValue) -> None:

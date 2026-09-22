@@ -1,50 +1,85 @@
-"""The in-Cell Warden entry point: what `images/base-ubuntu`'s ENTRYPOINT runs (roadmap step 5.5).
+"""The in-Cell Warden entry point: what `images/base-ubuntu`'s ENTRYPOINT runs (roadmap step 5.3).
 
-A Virtual Cell exposes no inbound port (codingrules section 15), so the Warden that will
-eventually own it cannot be reached -- it has to reach out. This package is the composition root
-that makes that first connection real: `config` turns the container's `HIVEMIND_*` environment
-(read once, in `hivemind.manifest.env`, never here) into typed ids, Ed25519 keys and a probed
-Cell description; `link` is `CellLink`, the small `waggle.loop.TickLoop` that dials the Queen's
-Waggle URL, sends this Cell's one signed `CellReady`, heartbeats on an interval, and stops on a
-`Shutdown` or `CellTeardownRequest`; `main` wires both together as `main()`, the console-script
-target `packages/hivemind/pyproject.toml` registers and the Dockerfile's ENTRYPOINT invokes.
-Building a full task-executing `hivemind.wardens.warden.Warden` on top of this same link is the
-next step, once the Queen side can accept one (this dispatch's own report names exactly what is
-missing there); `hivemind.wardens.spawn.in_cell.InCellSpawnSource` -- already used here to probe
-this Cell -- is what that Warden's own `WardenDeps.source` will be.
+A Virtual Cell exposes no inbound port (codingrules section 15), so the Warden that owns it cannot
+be reached -- it has to reach out. This package is the composition root that makes that connection
+real, and runs a genuine task-executing Warden over it: `config` turns the container's `HIVEMIND_*`
+environment (read once, in `hivemind.manifest.env`, never here) into typed ids, Ed25519 keys and a
+probed Cell description, and carries `rewrite_loopback_base_url`/`gateway_host` for pointing a
+loopback-addressed LLM provider at the Hive Stand instead; `link` is the small module that dials the
+Queen's Waggle URL and sends the three frames that must go out before a Warden exists at all -- a
+signed `CellReady`, a `CapacityReport`, then one `CellHeartbeat` (so `hivemind.queen.cell_gate.
+listener.CellListener`'s own readiness gate resolves); `deps` composes a real `hivemind.wardens.
+warden.WardenDeps` around that same transport, `hivemind.wardens.spawn.in_cell.InCellSpawnSource`
+and a per-Cell Pheromone Trail segment that a `hivemind.wardens.trail_sync.WaggleTrailSync` ships
+back to the Queen; `providers` builds that Warden's own model door (today, a scriptable fake -- see
+`providers`'s own module docstring for the wire-shape gap that keeps a real one from being wired in
+yet); `main` wires all of it together as `main()`, the console-script target `packages/hivemind/
+pyproject.toml` registers and the Dockerfile's ENTRYPOINT invokes: announce, then build and run a
+real `hivemind.wardens.warden.Warden` until a Queen-sent `Shutdown`/`CellTeardownRequest` stops it.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). The one composition root for a Virtual Cell's own
     process; nothing above it. Calls into `hivemind.cell`, `hivemind.common`, `hivemind.manifest`,
-    `hivemind.pheromone`, `hivemind.wardens.spawn` and waggle only.
+    `hivemind.pheromone`, `hivemind.wardens` (Warden, WardenDeps, spawn, trail_sync) and waggle
+    only.
 
 Key invariants:
     - `os.environ` is read exactly once per process start (`hivemind.cli.in_cell.main.main`),
       always through `hivemind.manifest.env.read_in_cell_env` (codingrules section 13).
     - Signing is mandatory: `hivemind.cli.in_cell.config.build_runtime_config` refuses to start
       without both this Cell's own signing key and the Queen's verify key (roadmap step 1.7).
+    - The first frame this process ever sends is `CellReady`, unconditionally before anything
+      else touches the transport (ADR-0027; `hivemind.queen.cell_gate.listener.CellListener`
+      accepts nothing else first).
 
 See Also:
-    - .claude/roadmap.md step 5.5 for this package's own roadmap bullet.
+    - .claude/roadmap.md step 5.3 for this package's own roadmap bullet.
+    - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
+      direction and the "signed CellReady first" order this package implements.
     - images/base-ubuntu/README.md for the image layer that runs `main()`.
     - hivemind.wardens.spawn.in_cell for InCellSpawnSource, the `in_cell` Warden spawn strategy
       this package's own composition root builds and probes.
+    - hivemind.queen.trail_sync for TrailSegmentReceiver, the Queen-side half of the trail sync
+      this package's Warden sends -- not yet wired into any Queen-side listener (this dispatch's
+      own report names the gap).
 
 Public API:
-    - InCellRuntimeConfig, build_runtime_config: turn InCellEnv into typed config (config).
-    - CellLinkDeps, CellLink: connect, announce, heartbeat, stop (link).
+    - InCellRuntimeConfig, build_runtime_config, rewrite_loopback_base_url, gateway_host: turn
+      InCellEnv into typed config, and rewrite a loopback provider URL for a Virtual Cell (config).
+    - CellLinkDeps, announce, send_capacity_report, send_cell_heartbeat: the three frames sent
+      before a Warden exists (link).
+    - build_in_cell_warden_deps: compose a real WardenDeps for this Cell (deps).
+    - build_in_cell_provider_registry: this Warden's own model door (providers).
     - main, run_in_cell_warden: the console-script entry point and its async body (main).
 """
 
-from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
-from hivemind.cli.in_cell.link import CellLink, CellLinkDeps
+from hivemind.cli.in_cell.config import (
+    InCellRuntimeConfig,
+    build_runtime_config,
+    gateway_host,
+    rewrite_loopback_base_url,
+)
+from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
+from hivemind.cli.in_cell.link import (
+    CellLinkDeps,
+    announce,
+    send_capacity_report,
+    send_cell_heartbeat,
+)
 from hivemind.cli.in_cell.main import main, run_in_cell_warden
+from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
 
 __all__ = [
-    "CellLink",
     "CellLinkDeps",
     "InCellRuntimeConfig",
+    "announce",
+    "build_in_cell_provider_registry",
+    "build_in_cell_warden_deps",
     "build_runtime_config",
+    "gateway_host",
     "main",
+    "rewrite_loopback_base_url",
     "run_in_cell_warden",
+    "send_capacity_report",
+    "send_cell_heartbeat",
 ]

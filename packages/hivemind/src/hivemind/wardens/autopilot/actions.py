@@ -8,8 +8,10 @@ about one inbox item, before -- and, for `NEEDS_JUDGEMENT`, instead of -- ever w
 `CANCEL_TASK` are the four ways an Alarm's `hivemind.supervision.policy.PolicyAction` maps onto
 something a Warden actually does; `FORWARD_QUESTION`/`FORWARD_ANSWER`/`FORWARD_CONTROL` relay a
 message between the Queen and a sub-bee unchanged; `RECORD` notes an item (a Heartbeat, a
-`GrantIssued`, a routine `TaskProgress`) with no further action; `NEEDS_JUDGEMENT` is the one
-signal that hands the item to `hivemind.wardens.awake` instead.
+`GrantIssued`, a routine `TaskProgress`) with no further action; `STOP` is the Queen's own order to
+end this Warden (a `Shutdown` or a `CellTeardownRequest`), which stops every sub-bee, releases the
+lease and ends the tick loop; `NEEDS_JUDGEMENT` is the one signal that hands the item to
+`hivemind.wardens.awake` instead.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -48,4 +50,5 @@ class WardenAction(Enum):
     FORWARD_ANSWER = "FORWARD_ANSWER"  # The Queen's Answer, relayed to the asking sub-bee.
     FORWARD_CONTROL = "FORWARD_CONTROL"  # TaskCancel/Pause/Resume/Intervene, relayed unchanged.
     RECORD = "RECORD"  # Note it (a heartbeat, a grant, routine progress); nothing more to do.
+    STOP = "STOP"  # A Shutdown or CellTeardownRequest: stop every sub-bee and end this loop.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to wardens.awake.

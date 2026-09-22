@@ -9,9 +9,11 @@ wrapped payload's own type: `TaskAssign` and `GrantIssued` both map to a bookkee
 Warden's own tick handler (`hivemind.wardens.ticks.assign`) resolves further (a `TaskAssign` only
 actually spawns once a matching grant has arrived; the table itself does not hold that state, only
 the sub-bee table does); an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`,
-which reads only the Alarm's `kind` and `attempts`; every other recognised kind maps to a fixed
-action; anything this table has never seen returns `NEEDS_JUDGEMENT`, the one signal that hands the
-item to `hivemind.wardens.awake` instead of silently dropping it.
+which reads only the Alarm's `kind` and `attempts`; a `Shutdown` or `CellTeardownRequest` from the
+Queen maps to `STOP` (ADR-0027: the one order that ends a Warden, never a judgement call); every
+other recognised kind maps to a fixed action; anything this table has never seen returns
+`NEEDS_JUDGEMENT`, the one signal that hands the item to `hivemind.wardens.awake` instead of
+silently dropping it.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -48,6 +50,8 @@ from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
+from waggle.messages.cell.leases import CellTeardownRequest
+from waggle.messages.control.protocol import Shutdown
 from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
 from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Intervene, Question
 from waggle.messages.task import (
@@ -137,6 +141,13 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
         return WardenAction.FORWARD_CONTROL
     if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
         return WardenAction.RECORD
+    # ADR-0027 / roadmap step 5.3: the Queen's own two ways of ending a Warden. A `Shutdown` is the
+    # ordinary "stop now" order; a `CellTeardownRequest` says this Warden's own Cell is about to be
+    # destroyed, which for the Warden running *inside* that Cell means exactly the same thing --
+    # stop every sub-bee and end the loop. Both used to fall through to NEEDS_JUDGEMENT below,
+    # waking a model to decide something that is never a judgement call.
+    if isinstance(payload, Shutdown | CellTeardownRequest):
+        return WardenAction.STOP
     # A kind this table has never seen: hand off to wardens.awake rather than silently dropping it.
     return WardenAction.NEEDS_JUDGEMENT
 
