@@ -1044,9 +1044,13 @@ loopback and the real lifecycle, provider and pool; "measurably faster" is asser
 `cell.provisioning` per reused Cell, since the clocks are fake. Night Veil is proven at the
 provider level (attest green proceeds, one red check tears down, never overwinters); a Night Veil
 placement through `hive run` waits on `.claude/phase-5-virtual-cells-handoff.md` open item 3.
-**Not yet met on real containers**: Docker Desktop and QEMU are not installed on the development
-host, so the three-container run and `abscond` against a real daemon are the marked `integration`
-tests, still to be run.
+**Met on real Docker 2026-09-22** (Docker Desktop 4.91, WSL 2): the haiku goal on
+`prefer = "virtual"` provisions a container whose own Warden runs the Drone against LM Studio
+through the host gateway and verifies it (71 s end to end; 140 s on the Hive Stand), a two-step
+goal's second task reuses the first's Overwintered Cell in-process, the Cell's trail segment
+merges before teardown, and `hive cells abscond` leaves zero containers. Cross-process dormant
+reuse and Night Veil on real infrastructure remain open (`.claude/phase-5-virtual-cells-handoff.md`
+section 4a); QEMU is not installed.
 
 ### ADRs to write
 

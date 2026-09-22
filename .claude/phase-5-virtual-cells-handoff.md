@@ -117,6 +117,10 @@ needs a wildcard bind). `hive.sqlite3` in a scratch directory, `--timeout 900`.
   and destroyed; 80 s end to end against 140 s on the Hive Stand. Nothing left on the daemon.
 - Overwintering in one process: a two-step goal's second task was placed `ReuseDormant`, the
   paused container was unpaused and the same Warden verified it with no second provisioning.
+- Graceful teardown: after `task.succeeded` the Queen sends `CellTeardownRequest`, the
+  container's Warden stops and ships its last trail segment, and the Queen's trail then holds
+  both node ids (the Cell's `worker.*`, `capping.*`, `cell.released`, `warden.stopped`) before
+  `cell.destroying`; 71 s end to end.
 - Fallbacks: a Cell whose Warden never connects times out at `ready_timeout_s`, is destroyed,
   and the task lands on the Hive Stand with the reason on the trail.
 
