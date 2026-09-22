@@ -5,46 +5,57 @@ ProviderRegistry` to resolve `ModelSlot.WARDEN` (awake episodes) and every sub-b
 `ModelSlot.WORKER` (`hivemind.wardens.spawn.spawn.spawn_sub_bee`'s `deps.rebind(binding_key)`).
 The Hive Stand's own composition root (`hivemind.cli.compose.deps.build_warden_deps`) builds one
 from a loaded Hive Manifest's `[llm.providers]`/`[llm.slots]`; a Virtual Cell has no manifest of
-its own (`hivemind.manifest.env`'s own module docstring), and today's wire shape gives it nothing
-to build a real one from either: a `hivemind.wardens.warden.Warden` learns a sub-bee's *slot* and
-*grant budgets* from `waggle.messages.forage.grants.GrantIssued`, but `AllowedBinding`/`SourceRef`
-(`waggle.messages.forage.values`) name a slot's provider only by its manifest *name* and model id,
-never a base URL -- a base URL is exactly the piece `hivemind.cli.in_cell.config.
-rewrite_loopback_base_url` exists to fix up once one is available, and nothing on the wire hands
-one to this Cell yet (that module's own docstring flags the same TODO(8.x)).
+its own (`hivemind.manifest.env`'s own module docstring). Roadmap step 8.x closed the wire-shape
+gap this module used to flag as a TODO: `hivemind.cli.compose.virtual_cells` now hands a
+provisioned Cell its own copy of that table (`hivemind.hive.backends.bootstrap.QueenEndpoint.
+providers`/`.slots`), rewritten so every base URL is reachable from inside the Cell, and
+`hivemind.cli.in_cell.config.build_runtime_config` parses it back into the same
+`ProviderConfig`/`SlotBinding` shapes the Hive Stand's own registry is built from
+(`InCellRuntimeConfig.providers`/`.slots`).
 
-`build_in_cell_provider_registry` is the smallest correct thing until that lands: a
-`ProviderRegistry` with one `FakeLLMProvider` bound to `ModelSlot.WARDEN` and `ModelSlot.WORKER`,
-so the in-Cell Warden always constructs and its autopilot table (which never awaits a model,
-codingrules section 4/8.8) keeps the Hive alive with no model reachable at all; an awake episode
-or a sub-bee's tool loop that actually reaches for a model gets an honest, scriptable fake rather
-than a construction-time crash. This is a deliberate, documented placeholder, not a hidden
-default: every call site that reaches it does so through this module, never a bare
-`FakeLLMProvider()` sprinkled elsewhere.
+`build_in_cell_provider_registry` picks between that real table and today's placeholder: with a
+non-empty `config.providers`, it builds a real `ProviderRegistry` exactly the way `hivemind.cli.
+compose.deps.build_provider_registry` does; with none (the manifest carried no `[llm.providers]`
+at all, or an older Queen that predates this wiring), it falls back to one `FakeLLMProvider` bound
+to `ModelSlot.WARDEN` and `ModelSlot.WORKER`, so the in-Cell Warden always constructs and its
+autopilot table (which never awaits a model, codingrules section 4/8.8) keeps the Hive alive with
+no model reachable at all -- exactly this module's own pre-8.x behaviour, byte for byte, so every
+existing test and the fake-backend e2e (which never sets `HIVEMIND_PROVIDERS`) keep working
+unchanged.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
-    `hivemind.forage.slots` (ModelSlot), `hivemind.forage.map` (SlotBinding), `hivemind.llm`
-    (ProviderRegistry, RegistryDeps, ProviderConfig, default_factories) and waggle only.
+    `hivemind.cli.in_cell.config` (InCellRuntimeConfig), `hivemind.forage.slots` (ModelSlot),
+    `hivemind.forage.map` (SlotBinding), `hivemind.llm` (ProviderRegistry, RegistryDeps,
+    ProviderConfig, default_factories) and waggle only.
 
 Key invariants:
-    - The provider this module builds is always named `DEFAULT_IN_CELL_PROVIDER_NAME` and always
-      `kind="fake"`: nothing here ever opens a real network connection (codingrules section 15
-      "least privilege is code, not policy" -- a Cell with no real hosting plan gets no real
-      egress from this module).
-    - `[llm] offline` is passed as `False`: a fake provider has no base URL to be provably local
-      or not, and `ProviderRegistry._check_offline` only ever inspects `base_url`, so this choice
-      has no bearing on whether a real provider (once wired in) is later allowed to be remote.
+    - `config.providers` empty is the one and only branch condition (never a `kind` check,
+      `scripts/check_no_kind_branches.py`): whichever table the composition root actually sent
+      decides fake-vs-real, exactly the way `HIVEMIND_PROVIDERS`'s own absence already means
+      "no table" one layer down (`hivemind.hive.backends.bootstrap.CellBootstrap.environment()`'s
+      own Key invariants).
+    - The fallback fake provider is always named `DEFAULT_IN_CELL_PROVIDER_NAME` and always
+      `kind="fake"`: nothing on that path ever opens a real network connection (codingrules
+      section 15 "least privilege is code, not policy").
+    - The real path's `RegistryDeps.environ` is `config.environ`, this process's own full
+      environment (`hivemind.cli.in_cell.config.InCellRuntimeConfig.environ`'s own docstring):
+      `hivemind.llm.registry.ProviderRegistry._resolve_api_key` is what actually reads a key out
+      of it, by the exact `HIVEMIND_<NAME>_API_KEY`-shaped variable name each provider names.
 
 See Also:
-    - hivemind.cli.in_cell.config for rewrite_loopback_base_url, the URL-rewrite half of this gap.
+    - hivemind.cli.in_cell.config for InCellRuntimeConfig/build_runtime_config, this module's own
+      input.
     - hivemind.cli.in_cell.deps for build_in_cell_warden_deps, this module's one caller.
+    - hivemind.hive.backends.bootstrap for QueenEndpoint/CellBootstrap.environment(), where this
+      table starts its trip from the composition root.
     - hivemind.llm.registry for ProviderRegistry, ProviderConfig and default_factories.
-    - hivemind.llm.fake for FakeLLMProvider, what this registry's one provider resolves to.
+    - hivemind.llm.fake for FakeLLMProvider, what the fallback path's one provider resolves to.
 """
 
 from __future__ import annotations
 
+from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
 from hivemind.llm.registry import ProviderConfig, ProviderRegistry, RegistryDeps, default_factories
@@ -56,17 +67,33 @@ _FAKE_MODEL_ID = "in-cell-placeholder"  # Named, not a magic string repeated at 
 __all__ = ["DEFAULT_IN_CELL_PROVIDER_NAME", "build_in_cell_provider_registry"]
 
 
-def build_in_cell_provider_registry(clock: Clock) -> ProviderRegistry:
-    """Build the in-Cell Warden's own ProviderRegistry: today, a scriptable fake for every slot.
+def build_in_cell_provider_registry(clock: Clock, config: InCellRuntimeConfig) -> ProviderRegistry:
+    """Build the in-Cell Warden's own ProviderRegistry: real when `config` has a table, else fake.
 
     Args:
-        clock: Passed to the registry's `FakeLLMProvider`, for its `health()`/token readings.
+        clock: Passed to every provider this registry later constructs.
+        config: This process's own validated runtime config (`hivemind.cli.in_cell.config.
+            build_runtime_config`); `.providers`/`.slots`/`.llm_offline`/`.environ` are read.
 
     Returns:
-        A ProviderRegistry that resolves `ModelSlot.WARDEN` and `ModelSlot.WORKER` (the two slots
-        this Warden ever asks for: its own awake episodes and every sub-bee it spawns) to a
-        `FakeLLMProvider` (module docstring: the smallest correct thing until a grant's own
-        binding can name a real, Cell-reachable base URL).
+        A ProviderRegistry that resolves `ModelSlot.WARDEN` and every sub-bee's own
+        `ModelSlot.WORKER` -- against `config.providers`/`.slots` when non-empty (module
+        docstring: the real path), or a scriptable `FakeLLMProvider` otherwise.
+    """
+    if not config.providers:
+        return _build_fake_registry(clock)
+    deps = RegistryDeps(
+        factories=default_factories(), environ=config.environ, clock=clock, map=None
+    )
+    return ProviderRegistry(config.providers, config.slots, config.llm_offline, deps)
+
+
+def _build_fake_registry(clock: Clock) -> ProviderRegistry:
+    """Build the pre-8.x placeholder registry: one scriptable fake for WARDEN and WORKER.
+
+    Byte-for-byte this module's own pre-roadmap-8.x behaviour (module docstring): every existing
+    caller that never sets `HIVEMIND_PROVIDERS` -- every unit test and the fake-backend e2e -- must
+    see the identical `FakeLLMProvider` this always built.
     """
     providers = {
         DEFAULT_IN_CELL_PROVIDER_NAME: ProviderConfig(kind="fake", base_url="", default_model=None)

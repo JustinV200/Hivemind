@@ -16,6 +16,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ from hivemind.cli.in_cell.config import (
     rewrite_loopback_base_url,
 )
 from hivemind.common.errors import ConfigurationError
+from hivemind.forage.slots import Effort
 from hivemind.manifest.env import read_in_cell_env
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_hive_id, new_node_id
@@ -36,6 +38,31 @@ from waggle.signing import Ed25519Signer, Ed25519Verifier
 _CLOCK = FakeClock()
 _CELL_SIGNER = Ed25519Signer.generate()
 _QUEEN_SIGNER = Ed25519Signer.generate()
+
+_PROVIDERS_JSON = json.dumps(
+    [
+        {
+            "name": "local",
+            "kind": "openai_compat",
+            "base_url": "http://host.docker.internal:1234/v1",
+            "default_model": "local-test-model",
+            "capabilities": {"vision": False},
+            "api_key_env": "HIVEMIND_LOCAL_API_KEY",
+        }
+    ]
+)
+_SLOTS_JSON = json.dumps(
+    [
+        {
+            "key": "warden",
+            "provider": "local",
+            "model": "local-test-model",
+            "fallback": None,
+            "effort": "MEDIUM",
+            "max_output_tokens": None,
+        }
+    ]
+)
 
 
 def _full_environ(**overrides: str) -> dict[str, str]:
@@ -143,3 +170,82 @@ def test_rewrite_loopback_base_url_handles_localhost_too() -> None:
     rewritten = rewrite_loopback_base_url("http://localhost:9999", "host.docker.internal")
 
     assert rewritten == "http://host.docker.internal:9999"
+
+
+def test_build_runtime_config_defaults_to_no_providers_when_unset() -> None:
+    config = build_runtime_config(read_in_cell_env(_full_environ()), FakeClock())
+
+    assert config.providers == {}
+    assert config.slots == ()
+    assert config.llm_offline is False
+
+
+def test_build_runtime_config_parses_providers_and_slots_json() -> None:
+    environ = _full_environ(HIVEMIND_PROVIDERS=_PROVIDERS_JSON, HIVEMIND_SLOTS=_SLOTS_JSON)
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert set(config.providers) == {"local"}
+    local = config.providers["local"]
+    assert local.kind == "openai_compat"
+    assert local.base_url == "http://host.docker.internal:1234/v1"
+    assert local.default_model == "local-test-model"
+    assert local.api_key_env == "HIVEMIND_LOCAL_API_KEY"
+    assert local.capability_overrides == {"vision": False}
+    assert len(config.slots) == 1
+    assert config.slots[0].key == "warden"
+    assert config.slots[0].provider == "local"
+    assert config.slots[0].effort == Effort.MEDIUM
+
+
+def test_build_runtime_config_rejects_malformed_providers_json() -> None:
+    environ = _full_environ(HIVEMIND_PROVIDERS="not-json")
+
+    with pytest.raises(ConfigurationError, match="HIVEMIND_PROVIDERS"):
+        build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+def test_build_runtime_config_rejects_a_providers_row_with_an_unknown_kind() -> None:
+    bad = json.dumps([{"name": "local", "kind": "not-a-kind", "base_url": ""}])
+    environ = _full_environ(HIVEMIND_PROVIDERS=bad)
+
+    with pytest.raises(ConfigurationError, match="HIVEMIND_PROVIDERS"):
+        build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+def test_build_runtime_config_rejects_a_providers_array_that_is_not_json() -> None:
+    environ = _full_environ(HIVEMIND_PROVIDERS='{"not": "an array"}')
+
+    with pytest.raises(ConfigurationError, match="HIVEMIND_PROVIDERS"):
+        build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+def test_build_runtime_config_rejects_malformed_slots_json() -> None:
+    environ = _full_environ(HIVEMIND_SLOTS="not-json")
+
+    with pytest.raises(ConfigurationError, match="HIVEMIND_SLOTS"):
+        build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+def test_build_runtime_config_rejects_a_slots_row_missing_a_required_field() -> None:
+    bad = json.dumps([{"key": "warden"}])  # Missing provider/model.
+    environ = _full_environ(HIVEMIND_SLOTS=bad)
+
+    with pytest.raises(ConfigurationError, match="HIVEMIND_SLOTS"):
+        build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+def test_build_runtime_config_reads_the_llm_offline_flag() -> None:
+    environ = _full_environ(HIVEMIND_LLM_OFFLINE="true")
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.llm_offline is True
+
+
+def test_build_runtime_config_carries_the_whole_environ_through() -> None:
+    environ = _full_environ(HIVEMIND_LOCAL_API_KEY="sk-abc")
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.environ == environ

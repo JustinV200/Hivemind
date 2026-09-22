@@ -18,28 +18,69 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
+import json
+from collections.abc import Mapping
 
 import pytest
+from pydantic import SecretStr
 
 from hivemind.hive.backends.bootstrap import QueenEndpoint, mint_cell_bootstrap
+from hivemind.hive.backends.provider_table import CellProviderSpec, CellSlotSpec
 from waggle.clock import FakeClock
 from waggle.ids import CellId, NodeId, new_hive_id, new_node_id
 from waggle.signing import Ed25519Signer, public_key_hex
 
+_A_PROVIDER = CellProviderSpec(
+    name="local",
+    kind="openai_compat",
+    base_url="http://host.docker.internal:1234/v1",
+    default_model="local-test-model",
+    capabilities={"vision": False},
+    api_key_env="HIVEMIND_LOCAL_API_KEY",
+)
+_A_SLOT = CellSlotSpec(
+    key="warden",
+    provider="local",
+    model="local-test-model",
+    fallback=None,
+    effort="MEDIUM",
+    max_output_tokens=None,
+)
 
-def _make_endpoint(
-    *,
-    waggle_url: str = "wss://queen.example.org:8443/waggle",
-    queen_node_id: NodeId | None = None,
-    queen_verify_key_hex: str = "ab" * 32,
-    socks_proxy_url: str | None = None,
-) -> QueenEndpoint:
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _EndpointFields:
+    """Every `QueenEndpoint` field a test may override.
+
+    codingrules 5.1's own argument-group escape hatch: `_make_endpoint`'s own parameter count
+    would otherwise exceed the hard limit.
+    """
+
+    waggle_url: str = "wss://queen.example.org:8443/waggle"
+    queen_node_id: NodeId | None = None  # None: _make_endpoint mints a fresh one.
+    queen_verify_key_hex: str = "ab" * 32
+    socks_proxy_url: str | None = None
+    providers: tuple[CellProviderSpec, ...] = ()
+    slots: tuple[CellSlotSpec, ...] = ()
+    provider_api_keys: Mapping[str, SecretStr] = dataclasses.field(default_factory=dict)
+    llm_offline: bool = False
+
+
+def _make_endpoint(fields: _EndpointFields | None = None) -> QueenEndpoint:
     """Build a valid QueenEndpoint, with sensible defaults for every field a test ignores."""
+    fields = fields if fields is not None else _EndpointFields()
+    queen_node_id = fields.queen_node_id
+    if queen_node_id is None:
+        queen_node_id = new_node_id(FakeClock())
     return QueenEndpoint(
-        waggle_url=waggle_url,
-        queen_node_id=queen_node_id if queen_node_id is not None else new_node_id(FakeClock()),
-        queen_verify_key_hex=queen_verify_key_hex,
-        socks_proxy_url=socks_proxy_url,
+        waggle_url=fields.waggle_url,
+        queen_node_id=queen_node_id,
+        queen_verify_key_hex=fields.queen_verify_key_hex,
+        socks_proxy_url=fields.socks_proxy_url,
+        providers=fields.providers,
+        slots=fields.slots,
+        provider_api_keys=fields.provider_api_keys,
+        llm_offline=fields.llm_offline,
     )
 
 
@@ -81,16 +122,89 @@ def test_environment_renders_every_required_hivemind_variable() -> None:
     assert env["HIVEMIND_CELL_SIGNING_KEY"] == bootstrap.private_key_hex.get_secret_value()
     assert env["HIVEMIND_QUEEN_VERIFY_KEY"] == endpoint.queen_verify_key_hex
     assert "HIVEMIND_SOCKS_PROXY_URL" not in env
+    # No provider table: the fake-backend e2e and every existing caller must see byte-for-byte
+    # the same environment as before roadmap step 8.x (hivemind.cli.in_cell.providers's own
+    # docstring).
+    assert "HIVEMIND_PROVIDERS" not in env
+    assert "HIVEMIND_SLOTS" not in env
+    assert "HIVEMIND_LLM_OFFLINE" not in env
 
 
 def test_environment_includes_socks_proxy_url_only_when_set() -> None:
     clock = FakeClock()
-    endpoint = _make_endpoint(socks_proxy_url="socks5://127.0.0.1:9050")
+    endpoint = _make_endpoint(_EndpointFields(socks_proxy_url="socks5://127.0.0.1:9050"))
     bootstrap = mint_cell_bootstrap(new_hive_id(clock), endpoint, clock)
 
     env = bootstrap.environment()
 
     assert env["HIVEMIND_SOCKS_PROXY_URL"] == "socks5://127.0.0.1:9050"
+
+
+def test_environment_renders_providers_and_slots_as_a_json_round_trip() -> None:
+    clock = FakeClock()
+    endpoint = _make_endpoint(_EndpointFields(providers=(_A_PROVIDER,), slots=(_A_SLOT,)))
+    bootstrap = mint_cell_bootstrap(new_hive_id(clock), endpoint, clock)
+
+    env = bootstrap.environment()
+
+    providers = json.loads(env["HIVEMIND_PROVIDERS"])
+    slots = json.loads(env["HIVEMIND_SLOTS"])
+    assert providers == [
+        {
+            "name": "local",
+            "kind": "openai_compat",
+            "base_url": "http://host.docker.internal:1234/v1",
+            "default_model": "local-test-model",
+            "capabilities": {"vision": False},
+            "api_key_env": "HIVEMIND_LOCAL_API_KEY",
+        }
+    ]
+    assert slots == [
+        {
+            "key": "warden",
+            "provider": "local",
+            "model": "local-test-model",
+            "fallback": None,
+            "effort": "MEDIUM",
+            "max_output_tokens": None,
+        }
+    ]
+
+
+def test_environment_renders_provider_api_key_as_its_own_variable_never_in_the_json() -> None:
+    clock = FakeClock()
+    endpoint = _make_endpoint(
+        _EndpointFields(
+            providers=(_A_PROVIDER,),
+            slots=(_A_SLOT,),
+            provider_api_keys={"HIVEMIND_LOCAL_API_KEY": SecretStr("sk-super-secret")},
+        )
+    )
+    bootstrap = mint_cell_bootstrap(new_hive_id(clock), endpoint, clock)
+
+    env = bootstrap.environment()
+
+    assert env["HIVEMIND_LOCAL_API_KEY"] == "sk-super-secret"
+    # The key VALUE never rides the JSON blob, only the variable NAME (module docstring).
+    assert "sk-super-secret" not in env["HIVEMIND_PROVIDERS"]
+    assert "sk-super-secret" not in repr(endpoint)
+
+
+def test_environment_renders_llm_offline_only_when_true() -> None:
+    clock = FakeClock()
+    offline_env = mint_cell_bootstrap(
+        new_hive_id(clock),
+        _make_endpoint(_EndpointFields(providers=(_A_PROVIDER,), llm_offline=True)),
+        clock,
+    ).environment()
+    online_env = mint_cell_bootstrap(
+        new_hive_id(clock),
+        _make_endpoint(_EndpointFields(providers=(_A_PROVIDER,), llm_offline=False)),
+        clock,
+    ).environment()
+
+    assert offline_env["HIVEMIND_LLM_OFFLINE"] == "true"
+    assert "HIVEMIND_LLM_OFFLINE" not in online_env
 
 
 def test_private_key_never_appears_in_bootstrap_repr() -> None:

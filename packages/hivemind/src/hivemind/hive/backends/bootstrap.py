@@ -37,6 +37,14 @@ Key invariants:
     - `CellBootstrap.environment()` returns exactly the `HIVEMIND_*` keys
       `images/base-ubuntu/README.md`'s "Runtime configuration" table documents as required, plus
       `HIVEMIND_SOCKS_PROXY_URL` only when `endpoint.socks_proxy_url` is set.
+    - `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` (roadmap step 8.x's own gap, closed by this dispatch):
+      rendered only when `endpoint.providers`/`.slots` are non-empty, so a Cell provisioned with no
+      table at all (every pre-existing caller, and `hivemind.hive.backends.fake`'s own e2e slice)
+      renders exactly the same environment as before this change -- `hivemind.cli.in_cell.
+      providers.build_in_cell_provider_registry` keys its fake-vs-real choice on that same
+      emptiness. Every provider's own API key, when it has one, rides a separate
+      `HIVEMIND_<NAME>_API_KEY` variable (`endpoint.provider_api_keys`), never inside the JSON --
+      `hivemind.hive.backends.provider_table`'s own module docstring explains why.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -52,13 +60,19 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from pydantic import SecretStr
 
 from hivemind.cell import CellCapabilities
 from hivemind.forage import ForageCapacity
+from hivemind.hive.backends.provider_table import (
+    CellProviderSpec,
+    CellSlotSpec,
+    render_providers_json,
+    render_slots_json,
+)
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId, NodeId, new_cell_id
 from waggle.signing import Ed25519Signer, public_key_hex
@@ -73,6 +87,11 @@ _ENV_QUEEN_NODE_ID = "HIVEMIND_QUEEN_NODE_ID"
 _ENV_CELL_SIGNING_KEY = "HIVEMIND_CELL_SIGNING_KEY"
 _ENV_QUEEN_VERIFY_KEY = "HIVEMIND_QUEEN_VERIFY_KEY"
 _ENV_SOCKS_PROXY_URL = "HIVEMIND_SOCKS_PROXY_URL"
+_ENV_PROVIDERS = "HIVEMIND_PROVIDERS"
+_ENV_SLOTS = "HIVEMIND_SLOTS"
+# Reuses HIVEMIND_LLM_OFFLINE, the exact name hivemind.manifest.env.EnvOverrides/InCellEnv already
+# read on the Hive Stand and in-Cell sides respectively: one flag name, one meaning, everywhere.
+_ENV_LLM_OFFLINE = "HIVEMIND_LLM_OFFLINE"
 
 __all__ = [
     "CellBootstrap",
@@ -100,12 +119,34 @@ class QueenEndpoint:
         queen_verify_key_hex: The Queen's own Ed25519 public key, hex-encoded.
         socks_proxy_url: A SOCKS proxy Waggle should dial through, once Night Veil (roadmap step
             5.7a) routes a Cell's link over Tor; None for every other Cell.
+        providers: This Hive's own `[llm.providers]` table, decoupled (`hivemind.hive.backends.
+            provider_table.CellProviderSpec`) and with every loopback `base_url` already rewritten
+            to be reachable from inside the Cell (`hivemind.cli.compose.virtual_cells`'s own job).
+            Empty for a Cell that should keep resolving every model slot to the scriptable fake
+            (`hivemind.cli.in_cell.providers`'s own module docstring) -- every pre-existing caller.
+        slots: This Hive's own `[llm.slots]` table, decoupled the same way
+            (`hivemind.hive.backends.provider_table.CellSlotSpec`). Empty exactly when `providers`
+            is: a Cell with nothing to resolve a slot against has no bindings to carry either.
+        provider_api_keys: Every configured provider's own API key, when it has one, keyed by the
+            exact `HIVEMIND_<NAME>_API_KEY`-shaped variable name `providers`' own `api_key_env`
+            names -- never folded into `providers` itself (`hivemind.hive.backends.provider_table`'s
+            own module docstring: a key value never rides the JSON blob). A `SecretStr` end to end;
+            `environment()` is the only place any of these is unwrapped.
+        llm_offline: This Hive's own `[llm] offline` flag, carried through so the Cell's own
+            `ProviderRegistry` enforces the identical policy the Hive Stand does (roadmap step
+            8.x's own gap: a gateway-host base URL is not loopback from the Cell's own point of
+            view, so the Cell's offline check needs the same gateway carve-out
+            `waggle.uris.is_virtual_cell_gateway_host` gives the Hive Stand's link validation).
     """
 
     waggle_url: str
     queen_node_id: NodeId
     queen_verify_key_hex: str
     socks_proxy_url: str | None = None
+    providers: tuple[CellProviderSpec, ...] = ()
+    slots: tuple[CellSlotSpec, ...] = ()
+    provider_api_keys: Mapping[str, SecretStr] = field(default_factory=dict)
+    llm_offline: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +169,9 @@ class CellBootstrap:
         Returns:
             A mapping ready to hand a backend's container/VM creation call as the Cell's own
             environment. `HIVEMIND_SOCKS_PROXY_URL` is present only when `endpoint.socks_proxy_url`
-            is set; every other key is always present.
+            is set; `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` (plus every provider's own
+            `HIVEMIND_<NAME>_API_KEY`, and `HIVEMIND_LLM_OFFLINE`) only when `endpoint.providers` is
+            non-empty (this method's own Key invariants); every other key is always present.
         """
         env = {
             _ENV_QUEEN_WAGGLE_URL: self.endpoint.waggle_url,
@@ -146,6 +189,18 @@ class CellBootstrap:
         # omitting the key rather than sending an empty string keeps both sides agreeing on None.
         if self.endpoint.socks_proxy_url is not None:
             env[_ENV_SOCKS_PROXY_URL] = self.endpoint.socks_proxy_url
+        if self.endpoint.providers:
+            env[_ENV_PROVIDERS] = render_providers_json(self.endpoint.providers)
+            env[_ENV_SLOTS] = render_slots_json(self.endpoint.slots)
+            # Every provider's own key rides its own variable, never the JSON above (module
+            # docstring's own Key invariant); get_secret_value() is safe here for the same reason
+            # the signing key above is: the Cell is this key's own intended owner.
+            for var_name, secret in self.endpoint.provider_api_keys.items():
+                env[var_name] = secret.get_secret_value()
+            # Only rendered alongside a real provider table: with none, hivemind.cli.in_cell.
+            # providers never builds a registry that would consult it at all (module docstring).
+            if self.endpoint.llm_offline:
+                env[_ENV_LLM_OFFLINE] = "true"
         return env
 
 

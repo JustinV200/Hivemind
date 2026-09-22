@@ -45,6 +45,12 @@ Key invariants:
       bytes: it only extracts what `environ` holds, exactly like `read_env`; `hivemind.cli.in_cell`
       decides which fields are required and does the hex/file parsing itself, so this module's own
       "read the environment, nothing else" scope never grows a second kind of side effect.
+    - `InCellEnv.environ` carries the *whole* mapping `read_in_cell_env` was given, not just the
+      names this module otherwise extracts: `HIVEMIND_PROVIDERS`' own `api_key_env` entries name
+      variables (e.g. `HIVEMIND_ANTHROPIC_API_KEY`) this module cannot enumerate ahead of parsing
+      that JSON, and `hivemind.cli.in_cell.config` (which does parse it) has no second `os.environ`
+      of its own to read one from -- codingrules section 13 still holds, since this is the same
+      single read `read_in_cell_env` already performed, only retained rather than discarded.
 
 See Also:
     - .claude/codingrules.md section 13 for "environment variables are read in exactly one place".
@@ -185,6 +191,28 @@ class InCellEnv(BaseModel):
         description="HIVEMIND_SOCKS_PROXY_URL: a SOCKS proxy Waggle should dial through once "
         "Night Veil routes it over Tor (roadmap step 5.7a); carried here, not yet acted on.",
     )
+    providers_json: str | None = Field(
+        default=None,
+        description="HIVEMIND_PROVIDERS: this Hive's own [llm.providers] table, as a JSON array "
+        "(hivemind.hive.backends.provider_table.render_providers_json); parsed and validated by "
+        "hivemind.cli.in_cell.config, never here (extraction only, per this module's own rule).",
+    )
+    slots_json: str | None = Field(
+        default=None,
+        description="HIVEMIND_SLOTS: this Hive's own [llm.slots] table, as a JSON array "
+        "(hivemind.hive.backends.provider_table.render_slots_json); parsed the same way.",
+    )
+    llm_offline: bool | None = Field(
+        default=None,
+        description="HIVEMIND_LLM_OFFLINE: the same variable name (and meaning) "
+        "EnvOverrides.llm_offline reads for the Hive Stand, carried through so this Cell's own "
+        "ProviderRegistry enforces the identical [llm] offline policy.",
+    )
+    environ: Mapping[str, str] = Field(
+        default_factory=dict,
+        description="The whole environment mapping read_in_cell_env was given; see this module's "
+        "own Key invariants for why this one field is a passthrough rather than an extraction.",
+    )
     log_level: str | None = Field(
         default=None,
         description="HIVEMIND_LOG_LEVEL: read by hivemind.common.logging's setup, the same "
@@ -201,6 +229,11 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
 
     Returns:
         An InCellEnv with one field set per variable actually present in `environ`.
+
+    Raises:
+        ManifestError: `HIVEMIND_LLM_OFFLINE` is set to a value `_read_offline_flag` does not
+            recognise (the same rule `read_env` applies for the Hive Stand); never raised for a
+            variable that is simply absent.
     """
     signing_key = environ.get("HIVEMIND_CELL_SIGNING_KEY")
     signing_key_file = environ.get("HIVEMIND_CELL_SIGNING_KEY_FILE")
@@ -215,6 +248,10 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         queen_verify_key_hex=environ.get("HIVEMIND_QUEEN_VERIFY_KEY"),
         queen_verify_key_file=Path(verify_key_file) if verify_key_file is not None else None,
         socks_proxy_url=environ.get("HIVEMIND_SOCKS_PROXY_URL"),
+        providers_json=environ.get("HIVEMIND_PROVIDERS"),
+        slots_json=environ.get("HIVEMIND_SLOTS"),
+        llm_offline=_read_offline_flag(environ),
+        environ=environ,
         log_level=environ.get("HIVEMIND_LOG_LEVEL"),
     )
 

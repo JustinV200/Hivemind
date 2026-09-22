@@ -106,13 +106,15 @@ def _virtual_hive(
 ) -> Hive:
     """Build a Hive whose `[virtual_cells] backend = "fake"` is a ContainerSpawningFakeCellBackend.
 
-    `hivemind.cli.compose.virtual_cells._build_registry` names `FakeCellBackend` at module level;
-    swapping it for the container-spawning subclass here (rather than editing that composition
-    root) is exactly the "wrap the fake backend in a thin subclass... keep it in a builder" choice
-    this dispatch's own brief calls for.
+    `hivemind.cli.compose.virtual_cell_backends.build_registry` (the module `hivemind.cli.compose.
+    virtual_cells._build_registry` is aliased from, split out for its own line budget) names
+    `FakeCellBackend` at module level; swapping it for the container-spawning subclass here
+    (rather than editing that composition root) is exactly the "wrap the fake backend in a thin
+    subclass... keep it in a builder" choice this dispatch's own brief calls for.
     """
     monkeypatch.setattr(
-        "hivemind.cli.compose.virtual_cells.FakeCellBackend", ContainerSpawningFakeCellBackend
+        "hivemind.cli.compose.virtual_cell_backends.FakeCellBackend",
+        ContainerSpawningFakeCellBackend,
     )
     manifest = load_manifest(manifest_path, {})
     return build_hive(

@@ -101,7 +101,7 @@ def build_in_cell_warden_deps(
     identity = MemoryIdentity(
         hive_id=config.hive_id, node_id=config.node_id, actor=str(config.warden_id)
     )
-    registry = build_in_cell_provider_registry(clock)
+    registry = build_in_cell_provider_registry(clock, config)
     hop = Hop(sender=config.warden_id, recipient=config.hive_id, node_id=config.node_id)
     return WardenDeps(
         source=source,

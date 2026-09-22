@@ -38,14 +38,22 @@ See Also:
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlsplit, urlunsplit
+
+from pydantic import ValidationError
 
 from hivemind.cell.local.config import HiveStandConfig
 from hivemind.cell.local.probe import probe_host
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.common.errors import ConfigurationError
+from hivemind.forage.map import SlotBinding
+from hivemind.forage.slots import Effort
+from hivemind.llm.registry import ProviderConfig, ProviderKind
 from hivemind.manifest.env import InCellEnv
 from hivemind.wardens.spawn import InCellSpawnConfig
 from waggle.clock import Clock
@@ -72,6 +80,11 @@ DEFAULT_SCRATCH_ROOT = Path("/var/lib/hivemind/scratch")
 # a configured cadence from (this module's own docstring), so a fixed, generous constant stands in
 # until a future step threads one through CellReady/an explicit env var if that proves too coarse.
 DEFAULT_HEARTBEAT_INTERVAL_S = 15.0
+
+# Mirrors hivemind.llm.registry.ProviderKind's own three members; a HIVEMIND_PROVIDERS row naming
+# anything else is malformed input from outside this process (the Queen's own backend), never a
+# bare KeyError/ValueError (this module's own "ConfigurationError naming the variable" rule).
+_VALID_PROVIDER_KINDS = frozenset(("anthropic", "openai_compat", "fake"))
 
 __all__ = [
     "DEFAULT_HEARTBEAT_INTERVAL_S",
@@ -100,6 +113,16 @@ class InCellRuntimeConfig:
         heartbeat_interval_s: How often `CellHeartbeat` is sent.
         socks_proxy_url: A SOCKS proxy Waggle should dial through, once Night Veil wires it up
             (roadmap step 5.7a); carried unchanged, never acted on here.
+        providers: This Hive's own `[llm.providers]` table, parsed from `HIVEMIND_PROVIDERS`
+            (`hivemind.cli.in_cell.providers.build_in_cell_provider_registry`'s own input); empty
+            when the variable is unset, in which case that module keeps building today's fake.
+        slots: This Hive's own `[llm.slots]` table, parsed from `HIVEMIND_SLOTS` the same way.
+        llm_offline: This Hive's own `[llm] offline` flag, from `HIVEMIND_LLM_OFFLINE`; `False`
+            when unset, matching `hivemind.manifest.schema.llm.LlmSection.offline`'s own default.
+        environ: The full environment this process was started with, carried through only so
+            `build_in_cell_provider_registry` can resolve each provider's own API key by the exact
+            variable name `providers`' own `api_key_env` names (`hivemind.manifest.env.InCellEnv.
+            environ`'s own docstring explains why this is not a second environment read).
     """
 
     queen_waggle_url: str
@@ -112,6 +135,10 @@ class InCellRuntimeConfig:
     spawn_config: InCellSpawnConfig
     heartbeat_interval_s: float
     socks_proxy_url: str | None
+    providers: Mapping[str, ProviderConfig]
+    slots: tuple[SlotBinding, ...]
+    llm_offline: bool
+    environ: Mapping[str, str]
 
 
 def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
@@ -125,7 +152,8 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
         A fully validated InCellRuntimeConfig.
 
     Raises:
-        ConfigurationError: A required variable is missing, or an id or key is malformed.
+        ConfigurationError: A required variable is missing, an id or key is malformed, or
+            `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` is set but not valid JSON in the expected shape.
     """
     cell_id = CellId(_parse_required(env.cell_id, IdKind.CELL, "HIVEMIND_CELL_ID"))
     hive_id = HiveId(_parse_required(env.hive_id, IdKind.HIVE, "HIVEMIND_HIVE_ID"))
@@ -155,6 +183,10 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
         spawn_config=spawn_config,
         heartbeat_interval_s=DEFAULT_HEARTBEAT_INTERVAL_S,
         socks_proxy_url=env.socks_proxy_url,
+        providers=_parse_providers(env.providers_json),
+        slots=_parse_slots(env.slots_json),
+        llm_offline=env.llm_offline or False,
+        environ=env.environ,
     )
 
 
@@ -290,6 +322,93 @@ def _decode_hex(hex_text: str, var_name: str) -> bytes:
     except ValueError as exc:
         # Never the raw text in the message (codingrules section 15: secrets never in logs).
         raise ConfigurationError(f"{var_name} is not valid hex-encoded key material.") from exc
+
+
+def _parse_providers(raw: str | None) -> dict[str, ProviderConfig]:
+    """Parse `HIVEMIND_PROVIDERS` into ProviderRegistry-facing ProviderConfigs, keyed by name.
+
+    Args:
+        raw: The variable's raw JSON text (`hivemind.hive.backends.provider_table.
+            render_providers_json`'s own output), or None when this Cell has no provider table.
+
+    Returns:
+        An empty dict when `raw` is None (`hivemind.cli.in_cell.providers.
+        build_in_cell_provider_registry`'s own cue to keep building today's fake); otherwise one
+        ProviderConfig per row, in the JSON array's own order.
+
+    Raises:
+        ConfigurationError: `raw` is not a JSON array of well-formed provider rows.
+    """
+    if raw is None:
+        return {}
+    providers: dict[str, ProviderConfig] = {}
+    for row in _load_json_array(raw, "HIVEMIND_PROVIDERS"):
+        if not isinstance(row, dict):
+            raise ConfigurationError("HIVEMIND_PROVIDERS contains a row that is not a JSON object.")
+        kind = row.get("kind")
+        if kind not in _VALID_PROVIDER_KINDS:
+            raise ConfigurationError(
+                f"HIVEMIND_PROVIDERS names an unknown provider kind: {kind!r}."
+            )
+        try:
+            name = str(row["name"])
+            api_key_env = row.get("api_key_env") or None
+            providers[name] = ProviderConfig(
+                kind=cast(ProviderKind, kind),
+                base_url=str(row["base_url"]),
+                api_key_env=str(api_key_env) if api_key_env else None,
+                capability_overrides=dict(row.get("capabilities") or {}),
+                default_model=row.get("default_model"),
+            )
+        except KeyError as exc:
+            raise ConfigurationError(f"HIVEMIND_PROVIDERS row is missing {exc}.") from exc
+    return providers
+
+
+def _parse_slots(raw: str | None) -> tuple[SlotBinding, ...]:
+    """Parse `HIVEMIND_SLOTS` into forage-side SlotBindings, in the JSON array's own order.
+
+    Args:
+        raw: The variable's raw JSON text (`hivemind.hive.backends.provider_table.
+            render_slots_json`'s own output), or None when this Cell has no slot table.
+
+    Returns:
+        An empty tuple when `raw` is None; otherwise one SlotBinding per row.
+
+    Raises:
+        ConfigurationError: `raw` is not a JSON array of well-formed slot rows.
+    """
+    if raw is None:
+        return ()
+    slots: list[SlotBinding] = []
+    for row in _load_json_array(raw, "HIVEMIND_SLOTS"):
+        if not isinstance(row, dict):
+            raise ConfigurationError("HIVEMIND_SLOTS contains a row that is not a JSON object.")
+        try:
+            slots.append(
+                SlotBinding(
+                    key=row["key"],
+                    provider=row["provider"],
+                    model=row["model"],
+                    fallback=row.get("fallback"),
+                    effort=Effort(row["effort"]),
+                    max_output_tokens=row.get("max_output_tokens"),
+                )
+            )
+        except (KeyError, ValueError, ValidationError) as exc:
+            raise ConfigurationError(f"HIVEMIND_SLOTS row is malformed: {exc}") from exc
+    return tuple(slots)
+
+
+def _load_json_array(raw: str, var_name: str) -> list[object]:
+    """Parse `raw` as a JSON array, or raise ConfigurationError naming `var_name`."""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(f"{var_name} is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise ConfigurationError(f"{var_name} must be a JSON array.")
+    return parsed
 
 
 def _probe_config() -> HiveStandConfig:

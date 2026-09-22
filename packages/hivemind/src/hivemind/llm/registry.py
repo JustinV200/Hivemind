@@ -11,7 +11,12 @@ per-provider capability override replaces a base `ProviderCapabilities` field. O
 (`[llm] offline = true`, codingrules section 8.6) is enforced a second time here, at
 construction, on top of the manifest's own load-time check -- belt and braces, and the only way
 to catch a provider kind (`ANTHROPIC`) whose *default* endpoint is hosted even when its
-`base_url` is left empty.
+`base_url` is left empty. `_is_provably_local` also accepts a documented Virtual Cell gateway host
+(`waggle.uris.is_virtual_cell_gateway_host`), not only genuine loopback: this same registry builds
+a Virtual Cell's own in-Cell `ProviderRegistry`
+(`hivemind.cli.in_cell.providers.build_in_cell_provider_registry`), whose provider `base_url`s have
+already been rewritten to the gateway alias a Cell reaches the Hive Stand through -- not loopback
+from inside the Cell, but still "this same machine" for `offline`'s own purpose.
 
 This module cannot import `hivemind.manifest`: codingrules section 4 places `llm` and `manifest`
 as independent Layer 1 siblings, neither of which may import the other -- the same reason
@@ -75,7 +80,7 @@ from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
 from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
 from hivemind.llm.slots import BoundModel, resolve, resolve_key
 from waggle.clock import Clock
-from waggle.uris import is_loopback_host
+from waggle.uris import is_loopback_host, is_virtual_cell_gateway_host
 
 # Mirrors hivemind.manifest.schema.llm.ProviderKind member-for-member; llm may not import manifest
 # (codingrules section 4), so this is this module's own copy, kept in sync by a dedicated test.
@@ -274,7 +279,7 @@ def default_factories() -> Mapping[ProviderKind, ProviderFactory]:
 
 
 def _check_offline(name: str, base_url: str, offline: bool) -> None:
-    """Raise OfflineViolationError when `offline` and `base_url` is not provably loopback.
+    """Raise OfflineViolationError when `offline` and `base_url` is not provably local.
 
     Mirrors hivemind.manifest.schema.llm's own (private) loopback rule from the same public
     primitive, `waggle.uris.is_loopback_host`, rather than importing a name manifest does not
@@ -289,11 +294,24 @@ def _check_offline(name: str, base_url: str, offline: bool) -> None:
 
 
 def _is_provably_local(base_url: str) -> bool:
-    """Return True when `base_url` names a loopback host; False for empty or any other host."""
+    """Return True when `base_url` names a loopback host or a Virtual Cell gateway host.
+
+    This registry is shared by the Hive Stand's own composition root and by a Virtual Cell's own
+    in-Cell registry (`hivemind.cli.in_cell.providers.build_in_cell_provider_registry`): a
+    provider's `base_url` a Cell resolves has already been rewritten to the gateway alias it
+    reaches the Hive Stand through (`host.docker.internal`, QEMU's `10.0.2.2`, module docstring's
+    own file list), which `is_loopback_host` alone would reject as "not local" -- from inside the
+    Cell, that gateway address IS the Hive Stand's own machine (the same reasoning
+    `waggle.uris.check_waggle_uri`'s `allow_virtual_cell_gateway_host` already applies to the
+    Waggle control link). `is_virtual_cell_gateway_host` is the minimal, documented carve-out for
+    that one extra case; every other host still fails exactly as before.
+    """
     if not base_url:
         return False  # Empty means a hosted, vendor-fixed endpoint (e.g. Anthropic): never local.
     hostname = urlsplit(base_url).hostname
-    return hostname is not None and is_loopback_host(hostname)
+    if hostname is None:
+        return False
+    return is_loopback_host(hostname) or is_virtual_cell_gateway_host(hostname)
 
 
 def _resolve_api_key(

@@ -321,6 +321,52 @@ def test_provider_allows_a_loopback_base_url_while_offline() -> None:
     assert provider.name == "local"
 
 
+def test_provider_allows_a_virtual_cell_gateway_host_while_offline() -> None:
+    """A Virtual Cell's own base_url is rewritten to a gateway alias, never loopback from inside.
+
+    Roadmap step 8.x's own gap: `[llm] offline = true` must still accept it, since the gateway IS
+    the Hive Stand's own machine from inside the Cell.
+    """
+    providers = {
+        "local": make_provider_config(
+            kind="openai_compat",
+            base_url="http://host.docker.internal:1234/v1",
+            default_model="local-small",
+        )
+    }
+    registry = ProviderRegistry(providers, [], offline=True, deps=make_registry_deps())
+
+    provider = registry.provider("local")
+
+    assert provider.name == "local"
+
+
+def test_provider_allows_the_qemu_gateway_host_while_offline() -> None:
+    providers = {
+        "local": make_provider_config(
+            kind="openai_compat", base_url="http://10.0.2.2:1234/v1", default_model="local-small"
+        )
+    }
+    registry = ProviderRegistry(providers, [], offline=True, deps=make_registry_deps())
+
+    provider = registry.provider("local")
+
+    assert provider.name == "local"
+
+
+def test_provider_still_raises_offline_violation_for_a_public_host() -> None:
+    """The gateway carve-out is narrow: a real public address is still refused while offline."""
+    providers = {
+        "hosted": make_provider_config(
+            kind="openai_compat", base_url="http://8.8.8.8:1234/v1", default_model="local-small"
+        )
+    }
+    registry = ProviderRegistry(providers, [], offline=True, deps=make_registry_deps())
+
+    with pytest.raises(OfflineViolationError):
+        registry.provider("hosted")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # bound() / bound_for_key()
 # ──────────────────────────────────────────────────────────────────────────────

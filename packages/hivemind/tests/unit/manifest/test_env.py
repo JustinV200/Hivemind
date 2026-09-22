@@ -214,20 +214,26 @@ def test_read_in_cell_env_returns_all_none_when_nothing_is_set() -> None:
     assert env.queen_verify_key_hex is None
     assert env.queen_verify_key_file is None
     assert env.socks_proxy_url is None
+    assert env.providers_json is None
+    assert env.slots_json is None
+    assert env.llm_offline is None
+    assert env.environ == {}
 
 
 def test_read_in_cell_env_reads_every_recognised_variable() -> None:
-    env = read_in_cell_env(
-        {
-            "HIVEMIND_QUEEN_WAGGLE_URL": "wss://queen.example.org:8443/waggle",
-            "HIVEMIND_CELL_ID": "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "HIVEMIND_HIVE_ID": "hive_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "HIVEMIND_QUEEN_NODE_ID": "node_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "HIVEMIND_CELL_SIGNING_KEY": "aa" * 32,
-            "HIVEMIND_QUEEN_VERIFY_KEY": "bb" * 32,
-            "HIVEMIND_SOCKS_PROXY_URL": "socks5://127.0.0.1:9050",
-        }
-    )
+    raw = {
+        "HIVEMIND_QUEEN_WAGGLE_URL": "wss://queen.example.org:8443/waggle",
+        "HIVEMIND_CELL_ID": "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "HIVEMIND_HIVE_ID": "hive_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "HIVEMIND_QUEEN_NODE_ID": "node_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "HIVEMIND_CELL_SIGNING_KEY": "aa" * 32,
+        "HIVEMIND_QUEEN_VERIFY_KEY": "bb" * 32,
+        "HIVEMIND_SOCKS_PROXY_URL": "socks5://127.0.0.1:9050",
+        "HIVEMIND_PROVIDERS": '[{"name": "local"}]',
+        "HIVEMIND_SLOTS": '[{"key": "warden"}]',
+        "HIVEMIND_LLM_OFFLINE": "true",
+    }
+    env = read_in_cell_env(raw)
 
     assert env.queen_waggle_url == "wss://queen.example.org:8443/waggle"
     assert env.cell_id == "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -238,6 +244,17 @@ def test_read_in_cell_env_reads_every_recognised_variable() -> None:
     assert "aa" * 32 not in repr(env.signing_key_hex)
     assert env.queen_verify_key_hex == "bb" * 32
     assert env.socks_proxy_url == "socks5://127.0.0.1:9050"
+    assert env.providers_json == '[{"name": "local"}]'
+    assert env.slots_json == '[{"key": "warden"}]'
+    assert env.llm_offline is True
+    # The whole mapping is carried through (this module's own Key invariants), not just the
+    # names this function otherwise extracts.
+    assert env.environ == raw
+
+
+def test_read_in_cell_env_rejects_an_unrecognised_llm_offline_value() -> None:
+    with pytest.raises(ManifestError, match="HIVEMIND_LLM_OFFLINE"):
+        read_in_cell_env({"HIVEMIND_LLM_OFFLINE": "maybe"})
 
 
 def test_read_in_cell_env_reads_key_file_paths_separately_from_inline_values() -> None:

@@ -20,12 +20,14 @@ from builders.cells import make_cell
 from builders.cli import fake_manifest
 
 from hivemind.cell import CombShieldLevel
+from hivemind.cli.compose import virtual_cell_backends
+from hivemind.cli.compose.virtual_cell_backends import night_veil_socks_proxy_url
 from hivemind.cli.compose.virtual_cells import (
     _fail_closed_night_veil_probe,
-    _night_veil_socks_proxy_url,
     build_virtual_cells,
     docker_gateway_url,
 )
+from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.placement import VirtualCellsSection
 from hivemind.manifest.schema.security import SecuritySection, TierProfile
@@ -53,28 +55,51 @@ async def test_build_virtual_cells_returns_none_when_backend_unset(tmp_path: Pat
     assert parts is None
 
 
-async def test_build_virtual_cells_registers_fake_always(tmp_path: Path) -> None:
+async def test_build_virtual_cells_registers_only_fake_when_selected(tmp_path: Path) -> None:
     manifest = _load_with_virtual_cells(tmp_path)  # backend = "fake"
     clock = FakeClock()
 
     parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
 
     assert parts is not None
-    # Only "fake" here: docker/qemu are never registered unless actually selected (see
-    # hivemind.cli.compose.virtual_cells._build_registry's own docstring for why).
+    # Only "fake" here, never alongside "docker"/"qemu" (see hivemind.cli.compose.
+    # virtual_cell_backends.build_registry's own docstring: a real Docker run found placement
+    # picking "fake" first by registry.names() order when both were registered).
     assert set(parts.registry.names()) == {"fake"}
 
 
-async def test_build_virtual_cells_registers_only_the_selected_backend_plus_fake(
-    tmp_path: Path,
-) -> None:
+async def test_build_virtual_cells_registers_only_the_selected_backend(tmp_path: Path) -> None:
     manifest = _load_with_virtual_cells(tmp_path, backend="qemu")
     clock = FakeClock()
 
     parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
 
     assert parts is not None
-    assert set(parts.registry.names()) == {"fake", "qemu"}
+    assert set(parts.registry.names()) == {"qemu"}
+
+
+async def test_build_virtual_cells_docker_registry_constructs_without_a_started_listener(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`registry.get("docker")` must not raise before `CellListener.start()` has ever run.
+
+    Offline commands (`hive cells inspect`/`destroy`/`abscond`, `cli/readback/virtual*.py`) build
+    this same registry just to construct a backend and read its already-provisioned Cells back,
+    never starting the listener -- a real Docker run found this raising the listener's own "no
+    port until start()" RuntimeError before hivemind.cli.compose.virtual_cell_backends.
+    _listener_url's fallback. SdkDockerClient is swapped for FakeDockerClient so this stays a unit
+    test: no real Docker daemon is ever touched.
+    """
+    monkeypatch.setattr(virtual_cell_backends, "SdkDockerClient", FakeDockerClient)
+    manifest = _load_with_virtual_cells(tmp_path, backend="docker")
+    clock = FakeClock()
+
+    parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
+
+    assert parts is not None
+    assert set(parts.registry.names()) == {"docker"}
+    backend = parts.registry.get("docker")  # Must not raise.
+    assert backend.name == "docker"
 
 
 async def test_build_virtual_cells_fake_backend_is_constructible() -> None:
@@ -161,20 +186,20 @@ def _manifest_with_tor_socks(tmp_path: Path, tor_socks: str) -> HiveManifest:
 def test_night_veil_socks_proxy_url_is_none_for_meadow(tmp_path: Path) -> None:
     manifest = _manifest_with_tor_socks(tmp_path, "socks5://127.0.0.1:9050")
 
-    assert _night_veil_socks_proxy_url(manifest, CombShieldLevel.MEADOW) is None
+    assert night_veil_socks_proxy_url(manifest, CombShieldLevel.MEADOW) is None
 
 
 def test_night_veil_socks_proxy_url_is_none_with_no_tor_socks_configured(tmp_path: Path) -> None:
     manifest = load_manifest(fake_manifest(tmp_path))  # Default tiers: tor_socks="".
 
-    assert _night_veil_socks_proxy_url(manifest, CombShieldLevel.NIGHT_VEIL) is None
+    assert night_veil_socks_proxy_url(manifest, CombShieldLevel.NIGHT_VEIL) is None
 
 
 def test_night_veil_socks_proxy_url_reads_the_configured_tor_socks(tmp_path: Path) -> None:
     manifest = _manifest_with_tor_socks(tmp_path, "socks5://127.0.0.1:9050")
 
     assert (
-        _night_veil_socks_proxy_url(manifest, CombShieldLevel.NIGHT_VEIL)
+        night_veil_socks_proxy_url(manifest, CombShieldLevel.NIGHT_VEIL)
         == "socks5://127.0.0.1:9050"
     )
 

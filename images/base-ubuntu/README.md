@@ -31,9 +31,11 @@ The image's `ENTRYPOINT` is `hivemind-in-cell`, the console script for
    Pheromone Trail segment to the Queen as `TrailSegmentSync` (`hivemind.wardens.trail_sync`) --
    this Cell's trail store lives and dies with the container, so that segment is this Cell's only
    way of getting its own `warden.*`/`cell.*`/`task.*`/`llm.*` history onto the Hive's audit log.
-   Model access from inside a Cell is today's one deliberate placeholder: `hivemind.cli.in_cell.
-   providers` binds every slot to a scriptable fake, not a real provider (see "Not yet in this
-   image" below).
+   Model access from inside a Cell (`hivemind.cli.in_cell.providers.
+   build_in_cell_provider_registry`) resolves every slot against the operator's own
+   `[llm.providers]`/`[llm.slots]` table when the Queen provisioned one (`HIVEMIND_PROVIDERS`/
+   `HIVEMIND_SLOTS` below), or falls back to a scriptable fake with nothing reachable when it did
+   not -- see the variable table below and "Not yet in this image".
 6. Runs until a signed `Shutdown` or `CellTeardownRequest` arrives from the Queen, then stops --
    every sub-bee reaped, its lease released, a final best-effort trail sync -- and the container
    exits. Destroying the container (not a graceful in-container cleanup) is the Undertaker's
@@ -78,8 +80,11 @@ two `images/*/` directories, none of which this image's `COPY` instructions ever
 
 Read once, by `hivemind.manifest.env.read_in_cell_env`, and validated by
 `hivemind.cli.in_cell.config.build_runtime_config` (codingrules section 13: environment variables
-are read in exactly one place). No model id or provider URL is ever named here or anywhere else in
-this image (codingrules section 8.6) -- model access is entirely the Queen's own `[llm]` manifest.
+are read in exactly one place). No model id or provider URL is ever hard-coded here or anywhere
+else in this image (codingrules section 8.6): `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` below are a
+*runtime* copy of the operator's own `[llm.providers]`/`[llm.slots]` table, handed to this one
+Cell by the Queen's own composition root (`hivemind.cli.compose.virtual_cell_providers`) at
+provision time -- code in this image still never names a model or vendor itself.
 
 | Variable | Required | Meaning |
 |---|---|---|
@@ -92,6 +97,10 @@ this image (codingrules section 8.6) -- model access is entirely the Queen's own
 | `HIVEMIND_QUEEN_VERIFY_KEY` | one of these two | The Queen's own Ed25519 public key, hex-encoded. |
 | `HIVEMIND_QUEEN_VERIFY_KEY_FILE` | one of these two | A file holding the same hex text (preferred when both are set). |
 | `HIVEMIND_SOCKS_PROXY_URL` | no | A SOCKS proxy Waggle should dial through. Carried, not yet acted on -- Night Veil (roadmap step 5.7a) is what routes this over Tor; a `base-ubuntu` Cell never sets it. |
+| `HIVEMIND_PROVIDERS` | no | This Hive's own `[llm.providers]` table, as a bounded JSON array (`hivemind.hive.backends.provider_table.render_providers_json`): one object per provider, each naming its `kind`, its own Cell-reachable `base_url` (already rewritten from the Hive Stand's own loopback address), `default_model`, capability overrides and the `api_key_env` variable name its own key (if any) rides under. Absent means this Cell resolves every model slot to a scriptable fake instead (`hivemind.cli.in_cell.providers`). |
+| `HIVEMIND_SLOTS` | no | This Hive's own `[llm.slots]` table, as a bounded JSON array (`render_slots_json`); present exactly when `HIVEMIND_PROVIDERS` is. |
+| `HIVEMIND_<NAME>_API_KEY` | no | One such variable per provider named in `HIVEMIND_PROVIDERS` that actually has a key configured (e.g. `HIVEMIND_ANTHROPIC_API_KEY`) -- the exact name `[llm.providers.<name>].api_key_env` derives, never the JSON above (a key VALUE never rides that blob). |
+| `HIVEMIND_LLM_OFFLINE` | no | Mirrors the Hive Stand's own `[llm] offline` flag; `"true"` when set, absent otherwise. A gateway-alias `base_url` (`host.docker.internal`, QEMU's `10.0.2.2`) is never treated as "non-local" for this check, since it IS the Hive Stand's own machine from inside the Cell. |
 | `HIVEMIND_LOG_LEVEL` | no | The structured-logging level (`hivemind.common.logging`); `INFO` if unset. |
 
 ## Building and testing this image
@@ -119,12 +128,15 @@ runner adds (a later roadmap step) must, at minimum:
   `desktop-ubuntu` (roadmap step 5.3a), not this image.
 - **The Exoskeleton bundle** (Xvfb, xdotool, PulseAudio, a browser) is `desktop-ubuntu` (roadmap
   step 6.1). This image is terminal-only by design.
-- **A real model provider.** `hivemind.cli.in_cell.providers` binds every `[llm.slots]`-shaped
-  slot to a scriptable `FakeLLMProvider`, never a real vendor or local server: today's wire shape
-  (`waggle.messages.forage.values.AllowedBinding`/`SourceRef`) names a slot's provider only by its
-  manifest name, never a base URL a Virtual Cell could dial, so there is nothing yet to build a
-  real registry from (see that module's own docstring, and `hivemind.cli.in_cell.config.
-  rewrite_loopback_base_url`, the fix already written for the day a real base URL arrives).
+- **A real model provider** now reaches this image (roadmap step 8.x closed the gap this bullet
+  used to describe): the Queen's own composition root (`hivemind.cli.compose.
+  virtual_cell_providers`) hands a provisioned Cell its own `[llm.providers]`/`[llm.slots]` table
+  via `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` (table above), and `hivemind.cli.in_cell.providers.
+  build_in_cell_provider_registry` builds a real `ProviderRegistry` from it. What is still open:
+  `cli/compose/hive.py`'s own call to `build_virtual_cells` does not yet pass its `environ`
+  argument through, so a provider that needs an API key gets no `HIVEMIND_<NAME>_API_KEY` forwarded
+  to the Cell until that one-line wiring lands (a local server with no auth configured is
+  unaffected).
 - **The Queen actually reading `TrailSegmentSync`.** This image's Warden already ships its own
   trail segment (`hivemind.wardens.trail_sync`) and `hivemind.queen.trail_sync.
   TrailSegmentReceiver` already reassembles and merges it, but nothing in `hivemind.queen` calls

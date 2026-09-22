@@ -189,7 +189,7 @@ def build_hive(
     links = _build_links(manifest, source, clock)
     # Roadmap step 5.6: None when `[virtual_cells] backend` is unset, touching nothing else below
     # (hivemind.cli.compose.virtual_cells's own module docstring).
-    virtual_cells = build_virtual_cells(manifest, hive_stores.trail, clock)
+    virtual_cells = build_virtual_cells(manifest, hive_stores.trail, clock, environ)
     parts = HiveParts(
         manifest=manifest, registry=registry, fanner=fanner, stores=hive_stores, clock=clock
     )

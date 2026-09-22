@@ -6,14 +6,16 @@ step 5.7), so a manifest that never sets it builds a `Hive` exactly as before th
 (codingrules section 13: the composition root converts a manifest slice; nothing below it ever sees
 one). When it is set, this module builds every Layer-3/Layer-6 collaborator roadmap steps 5.1-5.9
 landed and were reconciled by this same dispatch: a `hivemind.hive.registry.BackendRegistry` with
-`"fake"` always registered plus whichever of `"docker"`/`"qemu"` the manifest actually selects
-(never all three unconditionally -- see `_build_registry`'s own docstring for why: `hivemind.hive.
-lifecycle.CellLifecycle.virtual_backend_candidates` force-constructs every registered backend on
-every placement snapshot, so an unselected, unavailable backend must never be registered at all).
-Even the selected one is still built lazily inside its own factory (its own `ConfigurationError`
--- `hivemind.hive.backends.docker.sdk_client.SdkDockerClient` already raises one naming the
-`hivemind[docker]` extra when the SDK is missing -- only surfaces the first time `.get()` actually
-constructs it), a `hivemind.queen.cell_gate.gate.QueenReadinessGate`,
+only `[virtual_cells] backend`'s own one selected name registered, never "fake" alongside a real
+one too (see `_build_registry`'s own docstring for why: a real Docker run found placement picking
+"fake" first by `registry.names()` order in a Docker-configured Hive, provisioning a fake Cell
+nothing ever connects to -- `hivemind.hive.lifecycle.CellLifecycle.virtual_backend_candidates`
+force-constructs every registered backend on every placement snapshot, so an unselected,
+unavailable backend must never be registered, and neither must a selected-but-unwanted one).
+The one registered backend is still built lazily inside its own factory (its own
+`ConfigurationError` -- `hivemind.hive.backends.docker.sdk_client.SdkDockerClient` already raises
+one naming the `hivemind[docker]` extra when the SDK is missing -- only surfaces the first time
+`.get()` actually constructs it), a `hivemind.queen.cell_gate.gate.QueenReadinessGate`,
 a `hivemind.queen.cell_gate.listener.CellListener` (built here, started/stopped with the Queen's
 own lifetime by `hivemind.cli.compose.hive.run_hive`), an `hivemind.hive.overwinter.pool.
 OverwinterPool`, a `hivemind.hive.lifecycle.CellLifecycle` and a `hivemind.queen.cell_gate.
@@ -31,22 +33,41 @@ loopback address reachable from the Queen's own process is never reachable from 
 container the same way, so a `backend = "docker"` Hive's own `waggle_url` gets `host.docker.
 internal` substituted for a loopback host, unless the operator already named an explicit
 `advertise_url` -- `hivemind.hive.backends.docker.network` (a file this dispatch may not touch) is
-untouched; this is the one place that rewrite happens instead.
+untouched; this is the one place that rewrite happens instead. An offline command (`hive cells
+inspect`/`destroy`/`abscond`, `cli/readback/virtual*.py`) builds this same registry just to
+construct a backend and read its already-provisioned Cells back, never calling `CellListener.
+start()` (only `run_hive`'s own live path does) or provisioning anything new; `_listener_url`
+falls back to a documented placeholder (`ws://127.0.0.1:0`) rather than propagating the listener's
+own "no port until start()" `RuntimeError`, so those commands can still construct the backend --
+a caller that DID try to provision through the placeholder fails at the Cell's own dial-out
+instead, the correct failure, not a masked one.
+
+A provisioned Cell also needs the operator's own `[llm.providers]`/`[llm.slots]` table to reach a
+real model provider (roadmap step 8.x's own gap): `hivemind.cli.compose.virtual_cell_providers`
+builds it from the exact same `hivemind.cli.stores.provider_configs`/`slot_bindings` conversion
+the Hive Stand's own `ProviderRegistry` is built from, rewriting every loopback `base_url` so it
+is reachable from inside the Cell (`host.docker.internal` for Docker, `hivemind.hive.backends.
+qemu.network.USER_NET_HOST_ALIAS` for QEMU, unchanged for the in-process "fake" backend), and
+resolving each provider's own API key from this composition root's own environment the same way
+`hivemind.manifest.env.provider_api_key` already does. `hivemind.hive.backends.bootstrap.
+QueenEndpoint.providers`/`.slots`/
+`.provider_api_keys`/`.llm_offline` is where all four ride to the Cell.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cell` (Cell, CellIdentity),
-    `hivemind.common.errors` (ConfigurationError), `hivemind.forage` (ForageCapacity,
-    HostCapacity), `hivemind.hive` (BackendRegistry, CellLifecycle, NetworkPolicy, OverwinterConfig,
-    OverwinterPool, OverwinterSettings, VirtualCellSpec, build_docker_backend, build_qemu_backend,
-    mint_cell_bootstrap is not used here -- backends mint their own), `hivemind.hive.backends.
-    docker` (SdkDockerClient), `hivemind.hive.backends.qemu` (ProcessQemuRunner, QemuBackendConfig),
-    `hivemind.hive.night_veil` (NightVeilProbe, the fail-closed `_fail_closed_night_veil_probe`
-    below returns), `hivemind.manifest` (HiveManifest), `hivemind.pheromone` (PheromoneTrail,
-    TrailRecorder), `hivemind.queen.cell_gate` (CellListener, CellListenerDeps,
-    LifecycleVirtualCellProvider, QueenReadinessGate, make_on_task_finished), `hivemind.queen.
-    dispatcher.snapshot` (the two hive-to-queen candidate converters), `hivemind.queen.placement`
-    (VirtualBackendCandidate) and waggle only.
+    `hivemind.cli.compose.virtual_cell_backends` (RegistryContext, build_registry,
+    docker_gateway_url, night_veil_socks_proxy_url -- this module's own backend-construction
+    half, split out for its own line budget), `hivemind.cli.stores` (open_snapshot_ledger),
+    `hivemind.forage` (ForageCapacity, HostCapacity), `hivemind.hive` (BackendRegistry,
+    CellLifecycle, NetworkPolicy, OverwinterConfig, OverwinterPool, OverwinterSettings,
+    VirtualCellSpec, mint_cell_bootstrap is not used here -- backends mint their own),
+    `hivemind.hive.night_veil` (NightVeilProbe, the fail-closed
+    `_fail_closed_night_veil_probe` below returns), `hivemind.manifest` (HiveManifest),
+    `hivemind.pheromone` (PheromoneTrail, TrailRecorder), `hivemind.queen.cell_gate`
+    (CellListener, CellListenerDeps, LifecycleVirtualCellProvider, QueenReadinessGate,
+    make_on_task_finished), `hivemind.queen.dispatcher.snapshot` (the two hive-to-queen candidate
+    converters), `hivemind.queen.placement` (VirtualBackendCandidate) and waggle only.
 
     **Night Veil probe wiring (roadmap step 5.7b, this branch closing a gap an earlier
     implementer's own report named):** `LifecycleVirtualCellProvider` now takes a `probe_factory`
@@ -64,10 +85,12 @@ Fits into the Hive:
 Key invariants:
     - `build_virtual_cells` returns `None` whenever `manifest.virtual_cells.backend` is `None`, and
       touches nothing else in that case (module docstring).
-    - The `docker`/`qemu` backend factories are only ever called by `BackendRegistry.get`, itself
-      only ever called once the Queen actually needs that backend -- neither the `docker` package
-      nor `qemu_base_image`/`qemu_vm_root` being unset can ever break building a Hive that never
-      uses that backend.
+    - The `docker`/`qemu` backend factories (`hivemind.cli.compose.virtual_cell_backends`) are only
+      ever called by `BackendRegistry.get`, itself only ever called once the Queen actually needs
+      that backend -- neither the `docker` package nor `qemu_base_image`/`qemu_vm_root` being unset
+      can ever break building a Hive that never uses that backend.
+    - `_build_registry` (aliased from that module's own `build_registry`) registers exactly one
+      backend, `section.backend`'s own selected name -- never "fake" alongside a real one.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the composition-root wiring this module implements.
@@ -79,11 +102,20 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from hivemind.cell import Cell, CellIdentity, CombShieldLevel
+from hivemind.cli.compose.virtual_cell_backends import (
+    RegistryContext as _RegistryContext,
+)
+from hivemind.cli.compose.virtual_cell_backends import (
+    build_registry as _build_registry,
+)
+from hivemind.cli.compose.virtual_cell_backends import (
+    docker_gateway_url,
+)
 from hivemind.cli.stores import open_snapshot_ledger
-from hivemind.common.errors import ConfigurationError
 from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive import (
     BackendRegistry,
@@ -93,15 +125,7 @@ from hivemind.hive import (
     OverwinterPool,
     OverwinterSettings,
     VirtualCellSpec,
-    build_docker_backend,
-    build_qemu_backend,
 )
-from hivemind.hive.backends.bootstrap import QueenEndpoint
-from hivemind.hive.backends.docker.backend import DockerCellBackend
-from hivemind.hive.backends.docker.sdk_client import SdkDockerClient
-from hivemind.hive.backends.fake import FakeCellBackend
-from hivemind.hive.backends.qemu.backend import QemuBackendConfig, QemuCellBackend
-from hivemind.hive.backends.qemu.process_runner import ProcessQemuRunner
 from hivemind.hive.night_veil import NightVeilProbe
 from hivemind.manifest import HiveManifest
 from hivemind.manifest.schema.placement import NetworkPolicyName, VirtualCellsSection
@@ -128,10 +152,9 @@ from hivemind.queen.dispatcher.snapshot import (
 from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
 from hivemind.queen.trail_sync import TrailSegmentReceiver
 from waggle.clock import Clock
-from waggle.ids import HiveId, NodeId
+from waggle.ids import HiveId
 from waggle.messages import OsFamily as WireOsFamily
-from waggle.signing import Ed25519Signer, public_key_hex
-from waggle.uris import check_waggle_uri
+from waggle.signing import Ed25519Signer
 
 # The manifest carries no `[virtual_cells] max_sub_bees` field yet (roadmap step 5.6's own gap,
 # named in this dispatch's report): every provisioned Cell's own template promises this many
@@ -147,7 +170,8 @@ class VirtualCellsParts:
     """Every collaborator `build_hive` folds into `QueenDeps` and `run_hive` starts/stops.
 
     Attributes:
-        registry: Every registered CellBackend ("fake" always; "docker"/"qemu" lazily).
+        registry: The one registered CellBackend `[virtual_cells] backend` selected, built lazily
+            (`_build_registry`'s own docstring: never "fake" alongside a real one).
         gate: Resolves once a provisioned Cell's own handshake verifies.
         listener: Accepts every Virtual Cell's outbound connection; `run_hive` starts/stops it.
         lifecycle: Owns every Virtual Cell state edge and backend call.
@@ -171,7 +195,10 @@ class VirtualCellsParts:
 
 
 def build_virtual_cells(
-    manifest: HiveManifest, trail: PheromoneTrail, clock: Clock
+    manifest: HiveManifest,
+    trail: PheromoneTrail,
+    clock: Clock,
+    environ: Mapping[str, str] | None = None,
 ) -> VirtualCellsParts | None:
     """Build every Virtual Cell collaborator, or None when `[virtual_cells] backend` is unset.
 
@@ -179,6 +206,8 @@ def build_virtual_cells(
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
         trail: Where every `cell.*` event the lifecycle drives lands.
         clock: Injected time source shared by every collaborator this builds.
+        environ: For resolving each provider's own API key (`provider_api_keys`); `None` (every
+            pre-8.x caller) resolves none -- module docstring's own "Fits into the Hive" note.
 
     Returns:
         A VirtualCellsParts ready for `hivemind.cli.compose.hive.build_hive` to fold into
@@ -187,10 +216,39 @@ def build_virtual_cells(
     section = manifest.virtual_cells
     if section.backend is None:
         return None
+    gate, listener, registry, lifecycle = _build_lifecycle(
+        manifest, section, trail, clock, environ or {}
+    )
+    return VirtualCellsParts(
+        registry=registry,
+        gate=gate,
+        listener=listener,
+        lifecycle=lifecycle,
+        provider=_build_provider(manifest, lifecycle, gate, trail, clock),
+        virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
+        dormant_cell_source=_dormant_cell_source(lifecycle),
+        on_task_finished=make_on_task_finished(lifecycle, _null_scrub),
+        on_cell_granted=make_on_cell_granted(lifecycle),
+    )
+
+
+def _build_lifecycle(
+    manifest: HiveManifest,
+    section: VirtualCellsSection,
+    trail: PheromoneTrail,
+    clock: Clock,
+    environ: Mapping[str, str],
+) -> tuple[QueenReadinessGate, CellListener, BackendRegistry, CellLifecycle]:
+    """Build the gate, listener, registry and lifecycle `build_virtual_cells` folds together.
+
+    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1).
+    """
     queen_signer = Ed25519Signer.generate()
     gate = QueenReadinessGate()
     listener = _build_listener(manifest, section, gate, queen_signer, clock)
-    ctx = _RegistryContext(manifest, section, gate, listener, queen_signer, manifest.hive.node_id)
+    ctx = _RegistryContext(
+        manifest, section, gate, listener, queen_signer, manifest.hive.node_id, environ
+    )
     registry = _build_registry(ctx, clock)
     overwinter_config = OverwinterConfig.from_section(section.overwinter)
     pool = OverwinterPool(clock, overwinter_config)
@@ -209,17 +267,7 @@ def build_virtual_cells(
         # pure overhead (and, in a short-lived test process, an unclosed file handle nothing here
         # ever gets a chance to release). Only a real backend gets the relay wired in.
         _attach_snapshot_and_trail(manifest, listener, lifecycle, trail, clock)
-    return VirtualCellsParts(
-        registry=registry,
-        gate=gate,
-        listener=listener,
-        lifecycle=lifecycle,
-        provider=_build_provider(manifest, lifecycle, gate, trail, clock),
-        virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
-        dormant_cell_source=_dormant_cell_source(lifecycle),
-        on_task_finished=make_on_task_finished(lifecycle, _null_scrub),
-        on_cell_granted=make_on_cell_granted(lifecycle),
-    )
+    return gate, listener, registry, lifecycle
 
 
 def _build_provider(
@@ -282,193 +330,6 @@ def _build_listener(
         ),
         clock,
     )
-
-
-def docker_gateway_url(listener_uri: str) -> str:
-    """Rewrite a loopback listener URI so a Docker container can dial it back.
-
-    Docker Desktop and modern Docker Engine installs both resolve `host.docker.internal` to the
-    host's own loopback from inside a container; a bare `127.0.0.1`/`localhost` inside a container
-    means the container itself, never the host (module docstring).
-
-    Args:
-        listener_uri: `CellListener.uri`, e.g. `"ws://127.0.0.1:54321"`.
-
-    Returns:
-        The same URI with a loopback host replaced by `host.docker.internal`; unchanged if the
-        host is already something else (an operator-set `advertise_url` wins over this entirely --
-        see `_endpoint_for`, this function's one caller).
-    """
-    return listener_uri.replace("127.0.0.1", "host.docker.internal").replace(
-        "localhost", "host.docker.internal"
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _RegistryContext:
-    """Everything `_build_registry`'s own lazy `docker`/`qemu` factories need (codingrules 5.1)."""
-
-    manifest: HiveManifest
-    section: VirtualCellsSection
-    gate: QueenReadinessGate
-    listener: CellListener
-    queen_signer: Ed25519Signer
-    queen_node_id: NodeId
-
-
-def _build_registry(ctx: _RegistryContext, clock: Clock) -> BackendRegistry:
-    """Register "fake" (always) plus whichever of "docker"/"qemu" is actually selected.
-
-    Deviation from a literal "always register all three" (this dispatch's own report): `hivemind.
-    hive.lifecycle.CellLifecycle.virtual_backend_candidates` -- existing code, not this dispatch's
-    own -- calls `BackendRegistry.get` for *every* registered name to read its own capabilities,
-    on every placement snapshot (`hivemind.queen.dispatcher.snapshot.build_inventory`, every
-    tick). Registering "docker"/"qemu" unconditionally would force-construct a `SdkDockerClient()`
-    (raising `ConfigurationError` without the `docker` package installed) or a `ProcessQemuRunner`
-    with no configured `vm_root`, on the very first tick, for a Hive that only asked for "fake" or
-    only actually plans to use one of the other two. Registering only "fake" (always) plus the
-    manifest's own selected `section.backend` keeps `BackendRegistry`'s own documented invariant
-    ("a Hive that never uses a given backend should never pay to construct it") intact.
-    """
-    registry = BackendRegistry()
-    # Roadmap step 5's own e2e slice (this branch): pass the listener's own QueenEndpoint so the
-    # fake backend mints a real CellBootstrap on every provision() (hivemind.hive.backends.fake's
-    # own module docstring, "endpoint" constructor argument) -- otherwise self.bootstraps stays
-    # empty and nothing (a test harness standing in for a real container) has an identity to dial
-    # the Queen's own listener back with. A *callable* (`lambda: _fake_backend_endpoint(ctx)`),
-    # resolved fresh by FakeCellBackend on every provision() call, never eagerly here: `hivemind.
-    # hive.lifecycle.CellLifecycle.reconcile` (run_hive's own module docstring: called before
-    # listener.start()) already forces this "fake" factory to run once, through BackendRegistry.
-    # get's own construct-once-and-cache contract, before the listener has a real URL to give --
-    # an eagerly-resolved endpoint would bake "not started yet" into this cached instance forever,
-    # and every Virtual Cell this Hive ever provisions would silently never mint a bootstrap.
-    # `_fake_backend_endpoint` falls back to None when the listener still has not started (e.g. a
-    # caller that seeds the fake backend directly, never running a real Hive), matching every
-    # pre-existing caller's own endpoint-less behaviour.
-    # `gate=ctx.gate`: the same real ReadinessGate every other backend factory below already
-    # receives, so provision() can call gate.expect() the way a real backend does (ADR-0027) --
-    # without it, the Queen-side gate never learns a fake-backed Cell's own key, and a real
-    # CellListener's own wait_ready() can never resolve for one (hivemind.hive.backends.fake's own
-    # module docstring, "gate" constructor argument); unused whenever endpoint resolves to None.
-    registry.register(
-        "fake",
-        lambda: FakeCellBackend(clock, endpoint=lambda: _fake_backend_endpoint(ctx), gate=ctx.gate),
-    )
-    if ctx.section.backend == "docker":
-        registry.register("docker", lambda: _build_docker(ctx, clock))
-    elif ctx.section.backend == "qemu":
-        registry.register("qemu", lambda: _build_qemu(ctx, clock))
-    return registry
-
-
-def _build_docker(ctx: _RegistryContext, clock: Clock) -> DockerCellBackend:
-    """Construct the real DockerCellBackend; only ever called once "docker" is actually needed."""
-    endpoint = _endpoint_for(ctx, docker=True)
-    factory = build_docker_backend(
-        SdkDockerClient(), ctx.gate, endpoint, clock, max_cells=ctx.section.max_cells
-    )
-    return factory()
-
-
-def _build_qemu(ctx: _RegistryContext, clock: Clock) -> QemuCellBackend:
-    """Construct the real QemuCellBackend; only ever called once "qemu" is actually needed."""
-    section = ctx.section
-    if section.qemu_base_image is None or section.qemu_vm_root is None:
-        raise ConfigurationError(
-            "[virtual_cells] backend = 'qemu' requires qemu_base_image and qemu_vm_root to both "
-            "be set."
-        )
-    vm_root = ctx.manifest.resolve_path(section.qemu_vm_root)
-    base_image = ctx.manifest.resolve_path(section.qemu_base_image)
-    config = QemuBackendConfig(base_image=base_image, vm_root=vm_root, max_cells=section.max_cells)
-    endpoint = _endpoint_for(ctx, docker=False)
-    factory = build_qemu_backend(
-        ProcessQemuRunner(vm_root), ctx.gate, endpoint, clock, config=config
-    )
-    return factory()
-
-
-def _fake_backend_endpoint(ctx: _RegistryContext) -> QueenEndpoint | None:
-    """Best-effort QueenEndpoint for the "fake" backend factory (module docstring's own note).
-
-    Roadmap step 5's own e2e slice: an in-process test harness standing in for a real container
-    dials the Queen back the same way a real backend's Cell would, so it needs a real
-    `CellBootstrap` -- which `hivemind.hive.backends.fake.FakeCellBackend` only mints when its own
-    `endpoint` constructor argument is set. That needs `ctx.listener.uri`, which only resolves once
-    `hivemind.cli.compose.hive.run_hive` has called `listener.start()`; a caller that seeds the fake
-    backend directly, without ever running a real Hive (e.g. a `hive cells` CLI readback test),
-    never starts that listener at all. Falling back to `None` there keeps `FakeCellBackend`'s own
-    pre-existing, endpoint-less behaviour (no bootstrap minted) exactly as before this branch.
-
-    Args:
-        ctx: This backend's own registry context.
-
-    Returns:
-        A real `QueenEndpoint` once the listener has started; `None` otherwise.
-    """
-    try:
-        return _endpoint_for(ctx, docker=False)
-    except RuntimeError:
-        # listener.start() has not run yet (this function's own docstring): fall back to no
-        # bootstrap, matching every caller of the "fake" backend factory from before this branch.
-        return None
-
-
-def _endpoint_for(
-    ctx: _RegistryContext, *, docker: bool, comb_shield: CombShieldLevel = CombShieldLevel.MEADOW
-) -> QueenEndpoint:
-    """Resolve the Queen's own dial-back URL, lazily (module docstring): `listener.uri` by then.
-
-    Args:
-        ctx: This backend's own registry context.
-        docker: Whether the loopback rewrite (`docker_gateway_url`) applies.
-        comb_shield: The tier the Cell(s) reached through this endpoint run at; only NIGHT_VEIL
-            ever sets `socks_proxy_url` (see `_night_veil_socks_proxy_url`). MEADOW by default,
-            matching every pre-roadmap-5.7a caller's own behaviour.
-    """
-    url = ctx.section.advertise_url
-    if url is None:
-        url = docker_gateway_url(ctx.listener.uri) if docker else ctx.listener.uri
-    validated = check_waggle_uri(url, allow_virtual_cell_gateway_host=True)
-    return QueenEndpoint(
-        waggle_url=validated,
-        queen_node_id=ctx.queen_node_id,
-        queen_verify_key_hex=public_key_hex(ctx.queen_signer.public_key_bytes),
-        socks_proxy_url=_night_veil_socks_proxy_url(ctx.manifest, comb_shield),
-    )
-
-
-def _night_veil_socks_proxy_url(manifest: HiveManifest, comb_shield: CombShieldLevel) -> str | None:
-    """Return this Hive's own `[security]` NIGHT_VEIL `tor_socks`, only for a NIGHT_VEIL endpoint.
-
-    Roadmap step 5.7a (this branch): threads `hivemind.manifest.schema.security.TierProfile.
-    tor_socks` onto `QueenEndpoint.socks_proxy_url`, the field a Night Veil Cell's own Waggle
-    transport must route through instead of the VPN tunnel (ADR-0030: sharing the tunnel with the
-    control link would let an observer at the tunnel's exit correlate anonymised work with a known
-    Hive Stand address). Report item: `_build_docker`/`_build_qemu` still build one endpoint per
-    *backend*, shared by every comb_shield that backend provisions, and neither calls `_endpoint_
-    for` with `comb_shield=NIGHT_VEIL` yet -- nothing in this composition root provisions a
-    NIGHT_VEIL Cell through a distinct backend instance today (the same gap `_fail_closed_night_
-    veil_probe` documents for attestation); this function is ready for that call once one exists.
-
-    Args:
-        manifest: This Hive's own manifest; only `security.tiers` is read.
-        comb_shield: The tier being provisioned for; every value but NIGHT_VEIL returns None.
-
-    Returns:
-        `tier.tor_socks` when a NIGHT_VEIL tier profile is configured with one; `None` otherwise
-        (either `comb_shield` is not NIGHT_VEIL, or the operator has not set `tor_socks` yet --
-        `hivemind.queen.placement.policy.check_night_veil` is what refuses placement for that).
-    """
-    if comb_shield is not CombShieldLevel.NIGHT_VEIL:
-        return None
-    # manifest.security.tiers is keyed by the wire enum (waggle.messages.CombShieldLevel), not
-    # this hivemind-side mirror (hivemind.cell.tiers's own module docstring: "the hivemind-side
-    # mirror of the same two wire enums"), so the lookup key needs converting first.
-    tier = manifest.security.tiers.get(comb_shield.to_wire())
-    if tier is None or not tier.tor_socks:
-        return None
-    return tier.tor_socks
 
 
 def _virtual_backend_source(
