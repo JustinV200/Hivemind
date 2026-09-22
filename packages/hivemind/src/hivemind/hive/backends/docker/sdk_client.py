@@ -45,11 +45,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from hivemind.common.errors import ConfigurationError
 from hivemind.hive.backends.docker.client import (
+    CommitResult,
     ContainerInfo,
     ContainerSpec,
     DockerClientError,
@@ -69,6 +71,19 @@ _INSTALL_HINT = (
     "The 'docker' package is not installed; install the 'hivemind[docker]' extra "
     "(e.g. `uv sync --extra docker`) to use SdkDockerClient."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerHandle:
+    """Bundles `SdkDockerClient._client`/`._docker`, so a module function takes this one argument.
+
+    Codingrules section 5.1's five-parameter limit: the module-level `_sync_commit_container`/
+    `_sync_remove_image`/`_sync_recreate_from_image` functions below take this instead of the two
+    separately.
+    """
+
+    client: Any
+    docker_module: Any
 
 
 class SdkDockerClient:
@@ -135,6 +150,30 @@ class SdkDockerClient:
     async def unpause_container(self, name: str) -> None:
         """See `DockerClientPort.unpause_container`."""
         await asyncio.to_thread(self._sync_container_action, name, "unpause")
+
+    async def commit_container(
+        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
+    ) -> CommitResult:
+        """See `DockerClientPort.commit_container` (roadmap step 5.10).
+
+        The blocking half lives as a module-level function, not a `_sync_*` method (codingrules
+        section 5.1's class-size limit: this class was already at its own 200-line ceiling before
+        roadmap step 5.10 added three more methods for it).
+        """
+        handle = _DockerHandle(self._client, self._docker)
+        return await asyncio.to_thread(
+            _sync_commit_container, handle, name, repository, tag, labels
+        )
+
+    async def remove_image(self, image: str) -> None:
+        """See `DockerClientPort.remove_image` (idempotent; roadmap step 5.10)."""
+        handle = _DockerHandle(self._client, self._docker)
+        await asyncio.to_thread(_sync_remove_image, handle, image)
+
+    async def recreate_from_image(self, name: str, image: str) -> None:
+        """See `DockerClientPort.recreate_from_image` (roadmap step 5.10)."""
+        handle = _DockerHandle(self._client, self._docker)
+        await asyncio.to_thread(_sync_recreate_from_image, handle, name, image)
 
     def _sync_create_network(self, spec: NetworkSpec) -> str:
         """Blocking half of create_network: runs on a worker thread, never the event loop."""
@@ -242,6 +281,87 @@ class SdkDockerClient:
             )
             for container in containers
         )
+
+
+def _sync_commit_container(
+    handle: _DockerHandle, name: str, repository: str, tag: str, labels: Mapping[str, str]
+) -> CommitResult:
+    """Blocking half of commit_container: `docker commit`, image config carries `labels`.
+
+    Module-level, not a method (see `SdkDockerClient.commit_container`'s own docstring for why):
+    `handle` bundles `SdkDockerClient._client`/`._docker`, passed explicitly.
+    """
+    try:
+        container = handle.client.containers.get(name)
+        image = container.commit(repository=repository, tag=tag, conf={"Labels": dict(labels)})
+    except handle.docker_module.errors.NotFound as exc:
+        raise DockerClientError(f"could not commit container {name!r}: not found: {exc}") from exc
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not commit container {name!r}: {exc}") from exc
+    # "Size" is docker-py's own reported layer size on the committed image's attrs; missing on
+    # some daemon versions, so 0 (an honest "unknown", not a crash) is the fallback.
+    size_bytes = int(image.attrs.get("Size", 0))
+    return CommitResult(image=f"{repository}:{tag}", size_bytes=size_bytes)
+
+
+def _sync_remove_image(handle: _DockerHandle, image: str) -> None:
+    """Blocking half of remove_image: a missing image is success, not failure."""
+    try:
+        handle.client.images.get(image).remove(force=True)
+    except handle.docker_module.errors.NotFound:
+        return  # Idempotent: nothing to remove, matching DockerClientPort's own contract.
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not remove image {image!r}: {exc}") from exc
+
+
+def _sync_recreate_from_image(handle: _DockerHandle, name: str, image: str) -> None:
+    """Blocking half of recreate_from_image: read the old container's config, then swap it."""
+    try:
+        old = handle.client.containers.get(name)
+        spec = _recreate_spec(old.attrs, image)
+        old.remove(force=True)
+        new_container = handle.client.containers.create(**spec)
+        new_container.start()
+    except handle.docker_module.errors.NotFound as exc:
+        raise DockerClientError(f"could not recreate container {name!r}: not found: {exc}") from exc
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(
+            f"could not recreate container {name!r} from {image!r}: {exc}"
+        ) from exc
+
+
+def _recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:
+    """Build docker-py `containers.create` kwargs from an existing container's own inspect attrs.
+
+    Reads the container being replaced's own network, volumes and resource limits back (rather
+    than needing the original `ContainerSpec`, which `DockerClientPort.recreate_from_image`'s own
+    docstring documents this module never receives), so the recreated container keeps everything
+    about `name`'s own runtime shape except the image it boots from.
+    """
+    host_config = attrs.get("HostConfig", {})
+    config = attrs.get("Config", {})
+    networks = attrs.get("NetworkSettings", {}).get("Networks", {})
+    network_name = next(iter(networks), None)
+    volumes = {
+        mount["Name"]: {"bind": mount["Destination"], "mode": "rw"}
+        for mount in attrs.get("Mounts", [])
+        if mount.get("Type") == "volume" and "Name" in mount
+    }
+    return {
+        "image": image,
+        "name": attrs.get("Name", "").lstrip("/"),
+        "environment": config.get("Env", []),
+        "labels": config.get("Labels") or {},
+        "network": network_name,
+        "volumes": volumes,
+        "nano_cpus": host_config.get("NanoCpus") or None,
+        "mem_limit": host_config.get("Memory") or None,
+        "pids_limit": host_config.get("PidsLimit") or None,
+        "cap_drop": host_config.get("CapDrop") or None,
+        "security_opt": host_config.get("SecurityOpt") or None,
+        "read_only": bool(host_config.get("ReadonlyRootfs", False)),
+        "tmpfs": host_config.get("Tmpfs") or {},
+    }
 
 
 def _parse_created_at(raw: str | None) -> datetime:

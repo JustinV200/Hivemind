@@ -55,7 +55,8 @@ Fits into the Hive:
     BackendCapabilities, VirtualCellRecord), `hivemind.hive.cell_state`, `hivemind.hive.errors`,
     `hivemind.hive.models`, `hivemind.hive.overwinter` (OverwinterConfig, OverwinterDecision,
     OverwinterPool, ReleaseOutcome, Scrubber, decide_release), `hivemind.hive.registry`,
-    `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
+    `hivemind.hive.snapshot.ledger` (SnapshotLedger, roadmap step 5.10: `teardown()`'s own
+    snapshot cleanup), `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
 
 Key invariants:
     - Every state change goes through `hivemind.hive.cell_state.assert_transition` (or
@@ -110,6 +111,7 @@ from hivemind.hive.overwinter.policy import (
 )
 from hivemind.hive.overwinter.pool import OverwinterPool, Scrubber
 from hivemind.hive.registry import BackendRegistry
+from hivemind.hive.snapshot.ledger import SnapshotLedger
 from hivemind.pheromone import CellEvent, PheromoneTrail
 from waggle.clock import Clock
 from waggle.ids import CellId, GrantId, HiveId, WardenId, new_event_id
@@ -259,7 +261,22 @@ class CellLifecycle:
         self._identity = identity
         self._pool = overwinter.pool if overwinter is not None else None
         self._overwinter_config = overwinter.config if overwinter is not None else None
+        # Roadmap step 5.10: set post-construction via attach_snapshot_ledger, not a constructor
+        # parameter -- __init__ is already at codingrules 5.1's five-parameter limit with
+        # registry/trail/clock/identity/overwinter, and this field is optional for every Hive
+        # that has no SnapshotLedger yet (every pre-5.10 caller keeps building unchanged).
+        self._snapshot_ledger: SnapshotLedger | None = None
         self._cells: dict[CellId, LiveVirtualCell] = {}
+
+    def attach_snapshot_ledger(self, ledger: SnapshotLedger) -> None:
+        """Attach the Hive's shared SnapshotLedger, so `teardown()` deletes a Cell's own snapshots.
+
+        Args:
+            ledger: The `hivemind.hive.snapshot.SnapshotLedger` every Snapshotter this Hive builds
+                shares (roadmap step 5.10). Optional: a `CellLifecycle` no one ever calls this on
+                simply skips the cleanup step in `teardown()`, matching pre-5.10 behaviour.
+        """
+        self._snapshot_ledger = ledger
 
     def status_of(self, cell_id: CellId) -> VirtualCellStatus | None:
         """Return `cell_id`'s current status, or None if this lifecycle has no record of it."""
@@ -518,7 +535,10 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
     """Destroy `cell_id`: RELEASED|READY|GRANTED|DORMANT -> DESTROYING -> DESTROYED.
 
     Removes the record from `lifecycle`'s table once destroyed, mirroring `CellBackend.
-    list_cells`'s own contract: a destroyed Cell is gone, not archived.
+    list_cells`'s own contract: a destroyed Cell is gone, not archived. Also deletes this Cell's
+    own snapshots from `lifecycle._snapshot_ledger`, when one is configured (roadmap step 5.10):
+    a snapshot's own image/qcow2 state dies with the Cell's backend resources, so its ledger
+    record should not outlive it either.
 
     Raises:
         CellDestroyError: The backend acknowledged the Cell but could not remove it; the record
@@ -530,6 +550,8 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
     await lifecycle._record(cell_id, "cell.destroying")
     backend = lifecycle._registry.get(record.backend)
     await backend.destroy(cell_id)  # CellDestroyError propagates; record stays DESTROYING.
+    if lifecycle._snapshot_ledger is not None:
+        lifecycle._snapshot_ledger.delete_for_cell(cell_id)  # Roadmap 5.10: snapshots die with it.
     assert_transition(record.status, VirtualCellStatus.DESTROYED, cell_id=cell_id)
     await lifecycle._record(cell_id, "cell.destroyed")
     del lifecycle._cells[cell_id]

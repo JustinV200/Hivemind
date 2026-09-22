@@ -20,7 +20,12 @@ import dataclasses
 
 import pytest
 
-from hivemind.hive.backends.docker.client import ContainerSpec, DockerClientError, NetworkSpec
+from hivemind.hive.backends.docker.client import (
+    CommitResult,
+    ContainerSpec,
+    DockerClientError,
+    NetworkSpec,
+)
 
 
 def test_docker_client_error_is_a_plain_exception() -> None:
@@ -79,3 +84,17 @@ def test_network_spec_round_trips_its_own_fields() -> None:
     assert network.name == "hivemind-cell-test-net"
     assert network.internal is True
     assert network.labels == {"a": "b"}
+
+
+def test_commit_result_round_trips_its_own_fields() -> None:
+    result = CommitResult(image="hivemind-snapshot:abc", size_bytes=4096)
+
+    assert result.image == "hivemind-snapshot:abc"
+    assert result.size_bytes == 4096
+
+
+def test_commit_result_is_frozen() -> None:
+    result = CommitResult(image="hivemind-snapshot:abc", size_bytes=4096)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.size_bytes = 1  # type: ignore[misc]  # The assignment is the test.

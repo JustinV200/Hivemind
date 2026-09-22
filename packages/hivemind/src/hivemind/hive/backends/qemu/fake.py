@@ -55,6 +55,7 @@ from waggle.ids import CellId, HiveId
 __all__ = ["FakeQemuRunner"]
 
 _FAKE_PID_START = 10_000  # Arbitrary but distinct from any real pid this dev host might have.
+_DEFAULT_SAVEVM_SIZE_BYTES = 2048  # An arbitrary but deterministic default snapshot size.
 
 
 @dataclass(slots=True)
@@ -76,6 +77,14 @@ class FakeQemuRunner:
         self._serial_lines: dict[CellId, list[str]] = {}
         self._next_pid = _FAKE_PID_START
         self._accelerator = "tcg"  # A safe, always-available default; see set_accelerator.
+        # Roadmap step 5.10: every tag this fake's savevm has recorded, per VM, so loadvm can
+        # raise for one it never saw -- mirrors a real qcow2's own internal snapshot table.
+        self._snapshots: dict[CellId, set[str]] = {}
+        self._savevm_size_bytes = _DEFAULT_SAVEVM_SIZE_BYTES
+        self._savevm_failure: str | None = None
+        self._loadvm_failure: str | None = None
+        self.savevm_calls: list[tuple[CellId, str]] = []
+        self.loadvm_calls: list[tuple[CellId, str]] = []
         # One-shot switch: start_vm normally seeds READINESS_MARKER for whatever Cell it is about
         # to start, so the shared contract suite's own generic provisioning tests never have to
         # know a marker exists (see the module docstring); a test that does know arms this first.
@@ -109,6 +118,18 @@ class FakeQemuRunner:
     def set_stop_vm_failure(self, reason: str | None) -> None:
         """Arm (or disarm, with None) the next `stop_vm` call to raise."""
         self._stop_vm_failure = reason
+
+    def set_savevm_failure(self, reason: str | None) -> None:
+        """Arm (or disarm, with None) the next `savevm` call to raise."""
+        self._savevm_failure = reason
+
+    def set_loadvm_failure(self, reason: str | None) -> None:
+        """Arm (or disarm, with None) the next `loadvm` call to raise."""
+        self._loadvm_failure = reason
+
+    def set_savevm_size_bytes(self, size: int) -> None:
+        """Arrange what every following `savevm` call reports as its own size estimate."""
+        self._savevm_size_bytes = size
 
     def set_serial_lines(self, cell_id: CellId, lines: Sequence[str]) -> None:
         """Replace whatever `cell_id`'s serial console has "printed" so far.
@@ -218,6 +239,20 @@ class FakeQemuRunner:
     async def read_serial_lines(self, cell_id: CellId) -> Sequence[str]:
         """Return whatever `set_serial_lines` last arranged; see `QemuRunnerPort`."""
         return tuple(self._serial_lines.get(cell_id, ()))
+
+    async def savevm(self, cell_id: CellId, tag: str) -> int:
+        """Record `tag` as a known snapshot for `cell_id`; see `QemuRunnerPort.savevm`."""
+        self.savevm_calls.append((cell_id, tag))
+        _fire(self, "_savevm_failure", f"VM {cell_id!r}")
+        self._snapshots.setdefault(cell_id, set()).add(tag)
+        return self._savevm_size_bytes
+
+    async def loadvm(self, cell_id: CellId, tag: str) -> None:
+        """Restore `cell_id` to `tag`; raise if `savevm` never recorded it. See `QemuRunnerPort`."""
+        self.loadvm_calls.append((cell_id, tag))
+        _fire(self, "_loadvm_failure", f"VM {cell_id!r}")
+        if tag not in self._snapshots.get(cell_id, set()):
+            raise QemuRunnerError(f"VM {cell_id!r}: no snapshot tagged {tag!r}")
 
 
 def _fire(runner: FakeQemuRunner, attr: str, subject: str) -> None:

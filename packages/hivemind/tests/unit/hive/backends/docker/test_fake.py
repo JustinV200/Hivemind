@@ -181,3 +181,94 @@ async def test_every_call_is_recorded() -> None:
     assert client.remove_container_calls == [_CONTAINER_SPEC.name]
     assert client.remove_volume_calls == [volume.name]
     assert client.remove_network_calls == [network.name]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.10: commit_container / remove_image / recreate_from_image
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_commit_container_returns_a_repository_tagged_image_ref() -> None:
+    client = FakeDockerClient()
+    await client.create_container(_CONTAINER_SPEC)
+
+    result = await client.commit_container(
+        _CONTAINER_SPEC.name, repository="hivemind-snapshot", tag="abc", labels={}
+    )
+
+    assert result.image == "hivemind-snapshot:abc"
+    assert client.commit_container_calls == [_CONTAINER_SPEC.name]
+
+
+async def test_commit_container_reports_the_arranged_size() -> None:
+    client = FakeDockerClient()
+    client.set_commit_size_bytes(4096)
+    await client.create_container(_CONTAINER_SPEC)
+
+    result = await client.commit_container(
+        _CONTAINER_SPEC.name, repository="hivemind-snapshot", tag="abc", labels={}
+    )
+
+    assert result.size_bytes == 4096
+
+
+async def test_commit_container_of_an_unknown_name_raises() -> None:
+    client = FakeDockerClient()
+
+    with pytest.raises(DockerClientError):
+        await client.commit_container(
+            "never-created", repository="hivemind-snapshot", tag="abc", labels={}
+        )
+
+
+async def test_commit_container_failure_is_one_shot() -> None:
+    client = FakeDockerClient()
+    await client.create_container(_CONTAINER_SPEC)
+    client.set_commit_container_failure("daemon busy")
+
+    with pytest.raises(DockerClientError, match="daemon busy"):
+        await client.commit_container(
+            _CONTAINER_SPEC.name, repository="hivemind-snapshot", tag="abc", labels={}
+        )
+
+    await client.commit_container(  # succeeds the second time
+        _CONTAINER_SPEC.name, repository="hivemind-snapshot", tag="abc", labels={}
+    )
+
+
+async def test_remove_image_of_an_unknown_ref_is_a_silent_no_op() -> None:
+    client = FakeDockerClient()
+
+    await client.remove_image("never-committed:tag")  # must not raise
+
+    assert client.remove_image_calls == ["never-committed:tag"]
+
+
+async def test_recreate_from_image_swaps_the_tracked_containers_own_image() -> None:
+    client = FakeDockerClient()
+    await client.create_container(_CONTAINER_SPEC)
+
+    await client.recreate_from_image(_CONTAINER_SPEC.name, "hivemind-snapshot:abc")
+
+    records = await client.list_containers({})
+    assert records[0].status == "running"
+
+
+async def test_recreate_from_image_of_an_unknown_name_raises() -> None:
+    client = FakeDockerClient()
+
+    with pytest.raises(DockerClientError):
+        await client.recreate_from_image("never-created", "hivemind-snapshot:abc")
+
+
+async def test_recreate_from_image_failure_is_one_shot() -> None:
+    client = FakeDockerClient()
+    await client.create_container(_CONTAINER_SPEC)
+    client.set_recreate_from_image_failure("daemon busy")
+
+    with pytest.raises(DockerClientError, match="daemon busy"):
+        await client.recreate_from_image(_CONTAINER_SPEC.name, "hivemind-snapshot:abc")
+
+    await client.recreate_from_image(  # succeeds the second time
+        _CONTAINER_SPEC.name, "hivemind-snapshot:abc"
+    )

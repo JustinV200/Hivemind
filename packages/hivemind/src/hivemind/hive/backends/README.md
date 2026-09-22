@@ -22,12 +22,17 @@ providers under `backends/cloud/`.
 - `DockerCellBackend` / `build_docker_backend` (`docker/`): the first working `CellBackend`, over
   a Docker daemon. See `docker/`'s own module docstrings for `DockerClientPort`, `SdkDockerClient`
   (the only module that may import the `docker` SDK), `FakeDockerClient` and what each
-  `NetworkPolicy` really enforces at the Docker level.
+  `NetworkPolicy` really enforces at the Docker level. `DockerClientPort` also carries
+  `commit_container`/`remove_image`/`recreate_from_image` (roadmap step 5.10), the narrow slice
+  `hivemind.hive.snapshot.docker.DockerSnapshotter` needs; `DockerCellBackend.client` exposes the
+  same port instance that factory builds a snapshotter over.
 - `QemuCellBackend` / `build_qemu_backend` (`qemu/`): the second working `CellBackend`, over real
   QEMU VMs. See `qemu/`'s own module docstrings for `QemuRunnerPort`, `ProcessQemuRunner` (the
   only module that may launch a `qemu-*` binary), `FakeQemuRunner`, the cloud-init documents
   `qemu/cloud_init.py` renders, and what each `NetworkPolicy` really enforces under QEMU
-  user-mode networking (below).
+  user-mode networking (below). `QemuRunnerPort` also carries `savevm`/`loadvm` (roadmap step
+  5.10, over QMP `human-monitor-command`) for `hivemind.hive.snapshot.qemu.QemuSnapshotter`;
+  `QemuCellBackend.runner` exposes the same port instance that factory builds a snapshotter over.
 - `hivemind.hive.backends.cloud`: `CloudCellBackend`, `CloudBackendConfig`, `CloudCredentials`,
   `CloudRegion`, `PricingTag` and `FakeCloudCellBackend` (the reference implementation; no real
   provider is chosen -- ADR-0026, `cloud/README.md`).

@@ -32,6 +32,14 @@ pool that keeps a dormant Cell around for fast reuse.
 - `BackendRegistry` / `CellBackendFactory` (`registry.py`): name -> `CellBackend`, for the
   composition root.
 - `HiveError` and its subclasses (`errors.py`): this package's own error tree.
+- `DockerSnapshotter` / `QemuSnapshotter` / `SnapshotLedger` / `SnapshotRecord` /
+  `SnapshotNotFoundError` / `snapshotter_for` (`snapshot/`): Snapshotter implementations for
+  Virtual Cells (roadmap step 5.10) -- a `docker commit`/recreate rollback and a QMP
+  `savevm`/`loadvm` rollback, both accounted in one shared, in-memory `SnapshotLedger` (retention
+  expiry, budget eviction). `snapshotter_for` picks the right one for a registered `CellBackend`
+  by `capabilities.can_snapshot` alone, never by name; a backend that cannot snapshot gets
+  `hivemind.cell.NoopSnapshotter` instead, so `hivemind.supervision.capping.gate.CappingGate`
+  falls back to REVERSE_DIFF (ADR-0018) with no branch of its own.
 
 ## How to test this
 
@@ -48,9 +56,16 @@ pool that keeps a dormant Cell around for fast reuse.
 
 ## Not yet built (later roadmap steps)
 
-- `night_veil.py` (5.7b), `snapshot.py` (5.10).
+- `night_veil.py` (5.7b).
 - A real `hivemind.hive.backends.cloud` provider implementation (post-1.0; see that package's own
   README for what it must add).
+
+`snapshot/` (5.10) is built: `DockerSnapshotter`, `QemuSnapshotter`, `SnapshotLedger` and
+`snapshotter_for`. Wiring a Snapshotter into a Warden's own `GateDeps.snapshotter` is not built by
+this dispatch (see `hivemind.wardens.spawn.spawn._build_capping_gate`, which still hardcodes
+`NoopSnapshotter()`, and `hivemind.cli.in_cell.deps`, which builds no Snapshotter at all -- both
+are outside this dispatch's file list; see its own report for the exact lines and the cross-Cell
+relay gap this uncovers for the in-Cell Warden case).
 
 `lifecycle.py` (5.6) is built: `CellLifecycle` is the only intended caller of
 `cell_state.assert_transition`/`assert_dormant_allowed`, and now also owns every `CellBackend` call

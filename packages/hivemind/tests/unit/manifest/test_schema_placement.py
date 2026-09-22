@@ -83,6 +83,31 @@ def test_virtual_cells_section_rejects_an_out_of_range_port() -> None:
         VirtualCellsSection(listen_port=70000)
 
 
+def test_virtual_cells_section_snapshot_fields_default_to_positive_values() -> None:
+    """Roadmap step 5.10: snapshot_retention_s/snapshot_disk_budget_mb default to a sane window."""
+    section = VirtualCellsSection()
+
+    assert section.snapshot_retention_s == 3600.0
+    assert section.snapshot_disk_budget_mb == 4096
+
+
+def test_virtual_cells_section_snapshot_fields_are_overridable() -> None:
+    section = VirtualCellsSection(snapshot_retention_s=120.0, snapshot_disk_budget_mb=1024)
+
+    assert section.snapshot_retention_s == 120.0
+    assert section.snapshot_disk_budget_mb == 1024
+
+
+def test_virtual_cells_section_rejects_a_non_positive_snapshot_retention() -> None:
+    with pytest.raises(ValidationError):
+        VirtualCellsSection(snapshot_retention_s=0.0)
+
+
+def test_virtual_cells_section_rejects_a_non_positive_snapshot_disk_budget() -> None:
+    with pytest.raises(ValidationError):
+        VirtualCellsSection(snapshot_disk_budget_mb=0)
+
+
 def test_virtual_cells_overwinter_section_defaults_are_positive() -> None:
     section = VirtualCellsOverwinterSection()
 
@@ -103,3 +128,11 @@ def test_existing_example_manifests_omit_placement_and_virtual_cells_and_load_un
     assert manifest.placement.prefer == "real"
     assert manifest.placement.allow_hive_stand is True
     assert manifest.virtual_cells.backend is None
+
+
+def test_full_toml_sets_the_snapshot_retention_and_budget_fields() -> None:
+    """Roadmap step 5.10: docs/manifests/full.toml names both fields explicitly."""
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    assert manifest.virtual_cells.snapshot_retention_s == 3600.0
+    assert manifest.virtual_cells.snapshot_disk_budget_mb == 4096

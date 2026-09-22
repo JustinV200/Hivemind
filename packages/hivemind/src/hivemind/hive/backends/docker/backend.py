@@ -26,7 +26,7 @@ Key invariants:
       ReadinessGate registration is forgotten too (codingrules Appendix A.1: all-or-nothing).
     - destroy() is idempotent even after this backend's own process restarted with no in-memory
       state: every resource name is recomputed from `cell_id` alone
-      (`hivemind.hive.backends.docker.network.network_name`, this module's own `_container_name`/
+      (`hivemind.hive.backends.docker.network.network_name`, this module's own `container_name`/
       `_volume_name`), never looked up in a table this instance might not still hold.
     - `spec.disk_bytes` is not enforced: Docker's per-container disk quota
       (`storage_opt={"size": ...}`) needs a storage driver most default installs -- Docker Desktop
@@ -85,7 +85,7 @@ _LABEL_CELL_ID = "hivemind.cell_id"
 _LABEL_IMAGE = "hivemind.image"
 _LABEL_COMB_SHIELD = "hivemind.comb_shield"
 
-__all__ = ["DockerCellBackend", "build_docker_backend"]
+__all__ = ["DockerCellBackend", "build_docker_backend", "container_name"]
 
 
 class DockerCellBackend:
@@ -128,8 +128,18 @@ class DockerCellBackend:
         return _BACKEND_NAME
 
     @property
+    def client(self) -> DockerClientPort:
+        """This backend's own DockerClientPort, for `hivemind.hive.snapshot.snapshotter_for`.
+
+        Roadmap step 5.10: the snapshotter factory builds a `DockerSnapshotter` over the exact
+        same client this backend provisions and destroys through, rather than opening a second
+        connection to the daemon.
+        """
+        return self._client
+
+    @property
     def capabilities(self) -> BackendCapabilities:
-        """Docker can snapshot (a later step) and pause; headroom tracks this instance's count."""
+        """Docker can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count."""
         headroom = (
             None if self._max_cells is None else max(0, self._max_cells - len(self._active_ids))
         )
@@ -203,7 +213,7 @@ class DockerCellBackend:
     async def destroy(self, cell_id: CellId) -> None:
         """See `CellBackend.destroy` (idempotent)."""
         try:
-            await self._client.remove_container(_container_name(cell_id), force=True)
+            await self._client.remove_container(container_name(cell_id), force=True)
             await self._client.remove_volume(_volume_name(cell_id))
             await self._client.remove_network(network_name(cell_id))
         except DockerClientError as exc:
@@ -220,13 +230,13 @@ class DockerCellBackend:
         """See `CellBackend.pause`."""
         if not self.capabilities.can_pause:
             raise BackendCapabilityError(self.name, "pause", cell_id=cell_id)
-        await self._client.pause_container(_container_name(cell_id))
+        await self._client.pause_container(container_name(cell_id))
 
     async def resume(self, cell_id: CellId) -> None:
         """See `CellBackend.resume`."""
         if not self.capabilities.can_pause:
             raise BackendCapabilityError(self.name, "resume", cell_id=cell_id)
-        await self._client.unpause_container(_container_name(cell_id))
+        await self._client.unpause_container(container_name(cell_id))
 
 
 def build_docker_backend(
@@ -265,7 +275,7 @@ def build_docker_backend(
     return factory
 
 
-def _container_name(cell_id: CellId) -> str:
+def container_name(cell_id: CellId) -> str:
     """Return this Cell's deterministic container name; mirrors `network.network_name`."""
     return f"hivemind-cell-{cell_id}"
 
@@ -295,7 +305,7 @@ def _build_container_spec(
         _LABEL_COMB_SHIELD: spec.comb_shield.value,
     }
     return ContainerSpec(
-        name=_container_name(bootstrap.cell_id),
+        name=container_name(bootstrap.cell_id),
         image=spec.image,
         environment=bootstrap.environment(),
         labels=labels,

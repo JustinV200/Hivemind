@@ -153,8 +153,17 @@ class QemuCellBackend:
         return _BACKEND_NAME
 
     @property
+    def runner(self) -> QemuRunnerPort:
+        """This backend's own QemuRunnerPort, for `hivemind.hive.snapshot.snapshotter_for`.
+
+        Roadmap step 5.10: the snapshotter factory builds a `QemuSnapshotter` over the exact same
+        runner this backend provisions and destroys through, rather than starting a second one.
+        """
+        return self._runner
+
+    @property
     def capabilities(self) -> BackendCapabilities:
-        """QEMU can snapshot (a later step) and pause; headroom tracks this instance's count."""
+        """QEMU can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count."""
         max_cells = self._config.max_cells
         headroom = None if max_cells is None else max(0, max_cells - len(self._active_ids))
         return BackendCapabilities(can_snapshot=True, can_pause=True, headroom=headroom)

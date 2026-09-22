@@ -20,11 +20,18 @@ See Also:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-from hivemind.hive.backends.qemu.process_runner import ProcessQemuRunner, probe_accelerator
+from hivemind.hive.backends.qemu.process_runner import (
+    OVERLAY_DISK_NAME,
+    ProcessQemuRunner,
+    _overlay_size_bytes,
+    probe_accelerator,
+)
+from hivemind.hive.backends.qemu.runner import QemuRunnerError
 from waggle.ids import CellId, HiveId
 
 
@@ -124,3 +131,36 @@ async def test_remove_vm_dir_on_a_missing_directory_is_a_silent_no_op(tmp_path: 
     runner = ProcessQemuRunner(tmp_path)
 
     await runner.remove_vm_dir(CellId("cell_never_started"))  # Must not raise.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.10: savevm / loadvm's own disk-estimate helper, and the Windows QMP guard.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_overlay_size_bytes_on_a_missing_file_is_zero(tmp_path: Path) -> None:
+    assert _overlay_size_bytes(tmp_path / "never_created.qcow2") == 0
+
+
+def test_overlay_size_bytes_reads_the_real_file_size(tmp_path: Path) -> None:
+    overlay = tmp_path / OVERLAY_DISK_NAME
+    overlay.write_bytes(b"x" * 1234)
+
+    assert _overlay_size_bytes(overlay) == 1234
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="exercises the Windows-only QMP guard")
+async def test_savevm_raises_the_windows_qmp_guard(tmp_path: Path) -> None:
+    """Uses the same qmp.py guard stop_vm/pause_vm/resume_vm already go through."""
+    runner = ProcessQemuRunner(tmp_path)
+
+    with pytest.raises(QemuRunnerError, match="not supported on Windows"):
+        await runner.savevm(CellId("cell_test"), "snap-1")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="exercises the Windows-only QMP guard")
+async def test_loadvm_raises_the_windows_qmp_guard(tmp_path: Path) -> None:
+    runner = ProcessQemuRunner(tmp_path)
+
+    with pytest.raises(QemuRunnerError, match="not supported on Windows"):
+        await runner.loadvm(CellId("cell_test"), "snap-1")

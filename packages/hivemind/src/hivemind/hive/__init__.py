@@ -51,11 +51,17 @@ Public API:
     - CellLifecycle, LiveVirtualCell, LifecycleDormantCell, LifecycleVirtualBackend,
       OverwinterSettings: the Virtual Cell lifecycle (roadmap step 5.6; hivemind.hive.lifecycle).
       Owns every state edge and every backend call, including the ones OverwinterPool used to make
-      itself before this branch's own reconciliation of the two modules.
+      itself before this branch's own reconciliation of the two modules. `CellLifecycle`'s
+      optional `snapshot_ledger` (roadmap step 5.10) deletes a destroyed Cell's own snapshots on
+      teardown.
     - OverwinterDecision, ReleaseOutcome, PoolView, OverwinterConfig, ReleaseDecision,
       decide_release, DormantCell, PooledCandidate, Scrubber, OverwinterPool: the Overwintering
       pool, roadmap step 5.9 (hivemind.hive.overwinter). OverwinterPool is bookkeeping and
       selection only; CellLifecycle calls it, and the backend, around every edge.
+    - DockerSnapshotter, QemuSnapshotter, SnapshotLedger, SnapshotRecord, SnapshotNotFoundError,
+      snapshotter_for: Snapshotter implementations for Virtual Cells (roadmap step 5.10;
+      hivemind.hive.snapshot). The Warden injects the right one into a sub-bee's
+      `hivemind.supervision.capping.gate.GateDeps.snapshotter`, so Capping never imports `hive`.
 """
 
 from hivemind.hive.backends import (
@@ -112,6 +118,14 @@ from hivemind.hive.overwinter import (
     decide_release,
 )
 from hivemind.hive.registry import BackendRegistry, CellBackendFactory
+from hivemind.hive.snapshot import (
+    DockerSnapshotter,
+    QemuSnapshotter,
+    SnapshotLedger,
+    SnapshotNotFoundError,
+    SnapshotRecord,
+    snapshotter_for,
+)
 
 __all__ = [
     "TRANSITIONS",
@@ -126,6 +140,9 @@ __all__ = [
     "CellProvisionError",
     "CellReadyInfo",
     "DockerCellBackend",
+    # roadmap step 5.10 (hivemind.hive.snapshot): appended as its own block for the same reason
+    # the 5.9 block above is.
+    "DockerSnapshotter",
     # roadmap step 5.9 (hivemind.hive.overwinter): appended as its own block, not interleaved
     # alphabetically above, so a concurrent edit to the rest of this list never conflicts with it.
     "DormantCell",
@@ -144,11 +161,15 @@ __all__ = [
     "PoolView",
     "PooledCandidate",
     "QemuCellBackend",
+    "QemuSnapshotter",
     "QueenEndpoint",
     "ReadinessGate",
     "ReleaseDecision",
     "ReleaseOutcome",
     "Scrubber",
+    "SnapshotLedger",
+    "SnapshotNotFoundError",
+    "SnapshotRecord",
     "UnknownBackendError",
     "UnknownCellError",
     "VirtualCellRecord",
@@ -162,4 +183,5 @@ __all__ = [
     "can_transition",
     "decide_release",
     "mint_cell_bootstrap",
+    "snapshotter_for",
 ]

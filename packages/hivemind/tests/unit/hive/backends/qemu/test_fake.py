@@ -140,3 +140,55 @@ async def test_accelerator_defaults_to_tcg_and_is_overridable() -> None:
     runner.set_accelerator("kvm")
 
     assert await runner.accelerator() == "kvm"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.10: savevm / loadvm
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_savevm_records_the_call_and_returns_the_arranged_size() -> None:
+    runner = FakeQemuRunner()
+    runner.set_savevm_size_bytes(2048)
+
+    size = await runner.savevm(_CELL_ID, "snap-1")
+
+    assert size == 2048
+    assert runner.savevm_calls == [(_CELL_ID, "snap-1")]
+
+
+async def test_savevm_then_loadvm_of_the_same_tag_does_not_raise() -> None:
+    runner = FakeQemuRunner()
+
+    await runner.savevm(_CELL_ID, "snap-1")
+    await runner.loadvm(_CELL_ID, "snap-1")  # Must not raise.
+
+    assert runner.loadvm_calls == [(_CELL_ID, "snap-1")]
+
+
+async def test_loadvm_of_a_tag_never_saved_raises() -> None:
+    runner = FakeQemuRunner()
+
+    with pytest.raises(QemuRunnerError):
+        await runner.loadvm(_CELL_ID, "never-saved")
+
+
+async def test_savevm_failure_is_one_shot() -> None:
+    runner = FakeQemuRunner()
+    runner.set_savevm_failure("qmp timeout")
+
+    with pytest.raises(QemuRunnerError, match="qmp timeout"):
+        await runner.savevm(_CELL_ID, "snap-1")
+
+    await runner.savevm(_CELL_ID, "snap-1")  # succeeds the second time
+
+
+async def test_loadvm_failure_is_one_shot() -> None:
+    runner = FakeQemuRunner()
+    await runner.savevm(_CELL_ID, "snap-1")
+    runner.set_loadvm_failure("qmp timeout")
+
+    with pytest.raises(QemuRunnerError, match="qmp timeout"):
+        await runner.loadvm(_CELL_ID, "snap-1")
+
+    await runner.loadvm(_CELL_ID, "snap-1")  # succeeds the second time

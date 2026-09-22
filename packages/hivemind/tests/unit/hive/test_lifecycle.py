@@ -26,7 +26,7 @@ import pytest
 from builders.cells import make_identity
 from builders.forage import make_capacity
 
-from hivemind.cell import CombShieldLevel
+from hivemind.cell import CombShieldLevel, SnapshotId
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.fake import FakeCellBackend
 from hivemind.hive.cell_state import VirtualCellStatus
@@ -36,6 +36,7 @@ from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
 from hivemind.hive.overwinter.policy import OverwinterConfig, OverwinterDecision, ReleaseOutcome
 from hivemind.hive.overwinter.pool import OverwinterPool
 from hivemind.hive.registry import BackendRegistry
+from hivemind.hive.snapshot.ledger import SnapshotLedger, SnapshotNotFoundError, SnapshotRecord
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery
 from waggle.clock import FakeClock
@@ -93,7 +94,10 @@ async def _no_op_scrub(cell: object) -> None:
 
 
 def _make_lifecycle(
-    backend: FakeCellBackend, *, with_pool: bool = False
+    backend: FakeCellBackend,
+    *,
+    with_pool: bool = False,
+    snapshot_ledger: SnapshotLedger | None = None,
 ) -> tuple[CellLifecycle, MemoryPheromoneTrail]:
     """Build a CellLifecycle over one registered "fake" backend, and the trail it records to.
 
@@ -102,6 +106,8 @@ def _make_lifecycle(
         with_pool: True builds a real OverwinterPool and a generous OverwinterConfig too, so
             release() can actually decide OVERWINTER; False (the default) leaves both unset, so
             release() always decides TEARDOWN (the old always_teardown default's behaviour).
+        snapshot_ledger: Roadmap step 5.10: the SnapshotLedger `teardown()` deletes a Cell's own
+            snapshots from, when one is given; None (the default) matches every pre-5.10 test.
     """
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
@@ -116,6 +122,8 @@ def _make_lifecycle(
         else None
     )
     lifecycle = CellLifecycle(registry, trail, clock, identity, overwinter=overwinter)
+    if snapshot_ledger is not None:
+        lifecycle.attach_snapshot_ledger(snapshot_ledger)
     return lifecycle, trail
 
 
@@ -231,6 +239,57 @@ async def test_teardown_is_reachable_directly_from_ready() -> None:
     """READY -> DESTROYING is a legal edge (e.g. abscond, a Cell torn down before ever granted)."""
     backend = FakeCellBackend(FakeClock())
     lifecycle, _trail = _make_lifecycle(backend)
+    cell = await lifecycle.provision(_make_spec(), "fake")
+    await lifecycle.mark_ready(cell.id)
+
+    await lifecycle.teardown(cell.id)  # Must not raise.
+
+    assert lifecycle.status_of(cell.id) is None
+
+
+async def test_teardown_deletes_the_cells_own_snapshots_from_the_ledger() -> None:
+    """Roadmap step 5.10: a destroyed Cell's own snapshots die with it."""
+    clock = FakeClock()
+    backend = FakeCellBackend(clock)
+    ledger = SnapshotLedger()
+    lifecycle, _trail = _make_lifecycle(backend, snapshot_ledger=ledger)
+    cell = await lifecycle.provision(_make_spec(), "fake")
+    await lifecycle.mark_ready(cell.id)
+    taken_at = clock.now()
+    snapshot_id = SnapshotId("snap_test_1")
+    ledger.record(
+        SnapshotRecord(
+            id=snapshot_id,
+            cell_id=cell.id,
+            taken_at=taken_at,
+            bytes_estimate=100,
+            expires_at=taken_at,
+        )
+    )
+
+    await lifecycle.teardown(cell.id)
+
+    with pytest.raises(SnapshotNotFoundError):
+        ledger.get(snapshot_id)
+
+
+async def test_teardown_with_no_snapshot_ledger_configured_still_tears_down() -> None:
+    """None (the default) skips the ledger cleanup step entirely; must not raise."""
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, _trail = _make_lifecycle(backend)  # snapshot_ledger=None, the default.
+    cell = await lifecycle.provision(_make_spec(), "fake")
+    await lifecycle.mark_ready(cell.id)
+
+    await lifecycle.teardown(cell.id)  # Must not raise.
+
+    assert lifecycle.status_of(cell.id) is None
+
+
+async def test_teardown_of_a_cell_with_no_snapshots_is_a_no_op_on_the_ledger() -> None:
+    """delete_for_cell is idempotent; a never-snapshotted Cell's teardown does not raise."""
+    backend = FakeCellBackend(FakeClock())
+    ledger = SnapshotLedger()
+    lifecycle, _trail = _make_lifecycle(backend, snapshot_ledger=ledger)
     cell = await lifecycle.provision(_make_spec(), "fake")
     await lifecycle.mark_ready(cell.id)
 

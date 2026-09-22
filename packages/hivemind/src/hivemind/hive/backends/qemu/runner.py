@@ -312,6 +312,49 @@ class QemuRunnerPort(Protocol):
         """
         ...
 
+    async def savevm(self, cell_id: CellId, tag: str) -> int:
+        """Take an internal qcow2 snapshot of `cell_id`'s own overlay disk, tagged `tag`.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.qemu.QemuSnapshotter.
+        snapshot`, via QMP `human-monitor-command` running `savevm <tag>` (QMP has never had a
+        dedicated `savevm` command of its own -- see `hivemind.hive.backends.qemu.qmp`'s own
+        module docstring). An internal snapshot lives inside the overlay's own qcow2 file: no
+        extra disk beyond that file's own growth, and it captures the VM's full device state
+        (memory, CPU registers, disks) at the moment it is taken -- unlike a Docker commit, this
+        does include in-flight process state, because qcow2 internal snapshots are a hypervisor
+        checkpoint, not a filesystem-layer commit.
+
+        Args:
+            cell_id: The VM to snapshot.
+            tag: The snapshot's own name inside the overlay disk; unique per call so `loadvm` can
+                target exactly this one later.
+
+        Returns:
+            The overlay disk's current file size in bytes, as a disk-Forage estimate
+            (`hivemind.hive.snapshot.ledger.SnapshotLedger`) -- the qcow2 file grows to hold the
+            new snapshot's own delta, so its size after the call is the best cheap proxy for how
+            much disk this snapshot itself added.
+
+        Raises:
+            QemuRunnerError: The VM is not running, or QMP reported the command failed.
+        """
+        ...
+
+    async def loadvm(self, cell_id: CellId, tag: str) -> None:
+        """Restore `cell_id`'s full device state from the internal snapshot named `tag`.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.qemu.QemuSnapshotter.
+        rollback`, via QMP `human-monitor-command` running `loadvm <tag>`.
+
+        Args:
+            cell_id: The VM to roll back.
+            tag: A tag a prior `savevm` call on this VM already wrote.
+
+        Raises:
+            QemuRunnerError: The VM is not running, or `tag` names no snapshot QEMU knows about.
+        """
+        ...
+
 
 def vm_dir_for(vm_root: Path, cell_id: CellId) -> Path:
     """Return this Cell's deterministic VM directory, recomputable with no other state.

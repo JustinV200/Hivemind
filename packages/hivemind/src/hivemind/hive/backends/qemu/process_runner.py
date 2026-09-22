@@ -85,7 +85,7 @@ from waggle.ids import CellId, HiveId
 
 # Every VM's own on-disk layout, under its vm_dir (hivemind.hive.backends.qemu.runner.vm_dir_for);
 # fixed names so every method can recompute a path from cell_id alone (ADR-0026, mirroring
-# hivemind.hive.backends.docker.backend's own _container_name/_volume_name).
+# hivemind.hive.backends.docker.backend's own container_name/_volume_name).
 OVERLAY_DISK_NAME = "overlay.qcow2"
 SEED_IMAGE_NAME = "seed.iso"
 SERIAL_LOG_NAME = "serial.log"
@@ -242,24 +242,29 @@ class ProcessQemuRunner:
 
     async def stop_vm(self, cell_id: CellId) -> None:
         """See `QemuRunnerPort.stop_vm` (QMP `quit`; idempotent, see module docstring)."""
-        await self._qmp(cell_id, "quit")
+        await _send_qmp(self._vm_root, cell_id, "quit")
 
     async def pause_vm(self, cell_id: CellId) -> None:
         """See `QemuRunnerPort.pause_vm` (QMP `stop`)."""
-        await self._qmp(cell_id, "stop")
+        await _send_qmp(self._vm_root, cell_id, "stop")
         vm_dir = vm_dir_for(self._vm_root, cell_id)
         await asyncio.to_thread(_update_metadata_paused, vm_dir, paused=True)
 
     async def resume_vm(self, cell_id: CellId) -> None:
         """See `QemuRunnerPort.resume_vm` (QMP `cont`)."""
-        await self._qmp(cell_id, "cont")
+        await _send_qmp(self._vm_root, cell_id, "cont")
         vm_dir = vm_dir_for(self._vm_root, cell_id)
         await asyncio.to_thread(_update_metadata_paused, vm_dir, paused=False)
 
-    async def _qmp(self, cell_id: CellId, command: str) -> None:
-        """Send one QMP `command` to `cell_id`'s own socket (`hivemind.hive.backends.qemu.qmp`)."""
-        socket_path = vm_dir_for(self._vm_root, cell_id) / QMP_SOCKET_NAME
-        await qmp_execute(socket_path, command, subject=f"cell {cell_id!r}")
+    async def savevm(self, cell_id: CellId, tag: str) -> int:
+        """See `QemuRunnerPort.savevm` (QMP `human-monitor-command` running `savevm <tag>`)."""
+        await _send_qmp(self._vm_root, cell_id, "human-monitor-command", f"savevm {tag}")
+        overlay_path = vm_dir_for(self._vm_root, cell_id) / OVERLAY_DISK_NAME
+        return await asyncio.to_thread(_overlay_size_bytes, overlay_path)
+
+    async def loadvm(self, cell_id: CellId, tag: str) -> None:
+        """See `QemuRunnerPort.loadvm` (QMP `human-monitor-command` running `loadvm <tag>`)."""
+        await _send_qmp(self._vm_root, cell_id, "human-monitor-command", f"loadvm {tag}")
 
     async def list_vms(self, hive_id: HiveId) -> Sequence[QemuVmRecord]:
         """See `QemuRunnerPort.list_vms` (reads every vm_dir's own cell.json, nothing in memory)."""
@@ -316,11 +321,44 @@ class ProcessQemuRunner:
         )
 
 
+async def _send_qmp(
+    vm_root: Path, cell_id: CellId, command: str, command_line: str | None = None
+) -> None:
+    """Send one QMP `command` to `cell_id`'s own socket under `vm_root`.
+
+    Module-level, not a `ProcessQemuRunner` method (codingrules section 5.1's class-size limit:
+    this class was already close to its own 200-line ceiling before roadmap step 5.10 added
+    `savevm`/`loadvm`), so every QMP-sending caller (`stop_vm`/`pause_vm`/`resume_vm`/`savevm`/
+    `loadvm`) goes through this one function instead of a `self._qmp` method.
+
+    Args:
+        vm_root: `ProcessQemuRunner._vm_root`, passed explicitly since this is not a method.
+        cell_id: The VM to send the command to.
+        command: The QMP command name (`"quit"`, `"stop"`, `"cont"`, `"human-monitor-command"`).
+        command_line: For `"human-monitor-command"` only: the HMP line to run (`"savevm <tag>"`);
+            None for every fixed command, which takes no arguments.
+    """
+    socket_path = vm_dir_for(vm_root, cell_id) / QMP_SOCKET_NAME
+    arguments = {"command-line": command_line} if command_line is not None else None
+    await qmp_execute(socket_path, command, subject=f"cell {cell_id!r}", arguments=arguments)
+
+
 def _sync_read_lines(log_path: Path) -> tuple[str, ...]:
     """Blocking half of read_serial_lines: a missing log file reads as no lines yet."""
     if not log_path.is_file():
         return ()
     return tuple(log_path.read_text(encoding="utf-8", errors="replace").splitlines())
+
+
+def _overlay_size_bytes(overlay_path: Path) -> int:
+    """Blocking half of savevm's own return value: the overlay disk's current file size.
+
+    0 for a missing overlay (should not happen for a VM this runner started, but savevm's own
+    disk-Forage estimate degrading to 0 is safer than raising over a bookkeeping read).
+    """
+    if not overlay_path.is_file():
+        return 0
+    return overlay_path.stat().st_size
 
 
 async def _run(binary: str, args: Sequence[str], subject: str) -> None:

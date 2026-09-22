@@ -5,18 +5,22 @@ directly, and never sees an SDK type: it calls this Protocol instead, which two 
 -- `hivemind.hive.backends.docker.sdk_client.SdkDockerClient` (the real thing, the only module
 that may `import docker`) and `hivemind.hive.backends.docker.fake.FakeDockerClient` (in-memory, for
 tests and `hive doctor`). Keeping the Protocol narrow (create/start/remove a container, create/
-remove a network, create/remove a volume, list containers by label, pause/unpause) rather than
-wrapping the whole Docker SDK means a fake can implement it honestly in a few hundred lines, and it
-documents exactly what this backend relies on Docker for: nothing here does image builds,
-`docker exec`, log streaming or `commit` (snapshotting is a later roadmap step, 5.10, and reuses a
-different seam, `hivemind.cell.snapshot.Snapshotter`).
+remove a network, create/remove a volume, list containers by label, pause/unpause, commit a
+container to an image and recreate one from an image) rather than wrapping the whole Docker SDK
+means a fake can implement it honestly in a few hundred lines, and it documents exactly what this
+backend relies on Docker for: nothing here does image builds, `docker exec` or log streaming.
 
-The value types below (`ContainerSpec`, `ContainerInfo`, `NetworkSpec`, `VolumeSpec`) are this
-Protocol's own request/response shapes: frozen dataclasses (codingrules 8.5), not pydantic models,
-because they never cross a process, network or file boundary -- they are how
-`hivemind.hive.backends.docker.backend` talks to whichever `DockerClientPort` it was given, all
-inside one Python process, mirroring `hivemind.hive.backends.base.VirtualCellRecord`'s own choice
-of dataclass over pydantic model for the same reason.
+Roadmap step 5.10 adds `commit_container`/`remove_image`/`recreate_from_image`: the narrow slice
+`hivemind.hive.snapshot.docker.DockerSnapshotter` needs for Capping's whole-Cell rollback
+(`hivemind.cell.snapshot.Snapshotter`), reusing this same Protocol and its two implementations
+rather than opening a second door to Docker.
+
+The value types below (`ContainerSpec`, `ContainerInfo`, `NetworkSpec`, `VolumeSpec`,
+`CommitResult`) are this Protocol's own request/response shapes: frozen dataclasses (codingrules
+8.5), not pydantic models, because they never cross a process, network or file boundary. They are
+how `hivemind.hive.backends.docker.backend` talks to whichever `DockerClientPort` it was given,
+all inside one Python process, mirroring `hivemind.hive.backends.base.VirtualCellRecord`'s own
+choice of dataclass over pydantic model for the same reason.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.docker`. Called by
@@ -51,6 +55,7 @@ from datetime import datetime
 from typing import Protocol
 
 __all__ = [
+    "CommitResult",
     "ContainerInfo",
     "ContainerSpec",
     "DockerClientError",
@@ -166,6 +171,23 @@ class VolumeSpec:
 
     name: str
     labels: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    """What `commit_container` hands back: the committed image's own ref and its reported size.
+
+    Attributes:
+        image: The image reference `recreate_from_image` can later boot a fresh container from
+            (`f"{repository}:{tag}"` for the real client; a fake's own made-up equivalent).
+        size_bytes: The committed image's own reported size, for
+            `hivemind.hive.snapshot.ledger.SnapshotLedger`'s disk-Forage accounting. Best-effort:
+            a Docker layer's reported size is an estimate of the new layer's own bytes, not a
+            precise disk delta.
+    """
+
+    image: str
+    size_bytes: int
 
 
 class DockerClientPort(Protocol):
@@ -300,5 +322,65 @@ class DockerClientPort(Protocol):
 
         Raises:
             DockerClientError: The daemon acknowledged the volume exists but refused to remove it.
+        """
+        ...
+
+    async def commit_container(
+        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
+    ) -> CommitResult:
+        """Commit `name`'s current root filesystem and image config to a new image.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
+        snapshot`. A commit captures the container's root filesystem layer and its image
+        metadata (env, cmd, entrypoint, the `labels` given here) exactly as they stand right now;
+        it does NOT capture a mounted volume (the scratch volume is unaffected) or any in-flight
+        process state (no process checkpoint -- a container recreated from the result starts
+        fresh at the image's own entrypoint, the same way starting any other container does).
+
+        Args:
+            name: The running (or stopped) container to commit.
+            repository: The committed image's own repository name.
+            tag: The committed image's own tag; unique per commit so `remove_image` can target
+                exactly this one later.
+            labels: Labels to stamp on the committed image's own config, for audit.
+
+        Returns:
+            The committed image's ref and its reported size.
+
+        Raises:
+            DockerClientError: `name` does not exist, or the daemon refused or failed to commit.
+        """
+        ...
+
+    async def remove_image(self, image: str) -> None:
+        """Remove an image. Idempotent: an image named `image` that does not exist returns normally.
+
+        Args:
+            image: The image ref (`CommitResult.image`) to remove.
+
+        Raises:
+            DockerClientError: The daemon acknowledged the image exists but refused to remove it
+                (e.g. a container still references it).
+        """
+        ...
+
+    async def recreate_from_image(self, name: str, image: str) -> None:
+        """Stop and remove the container named `name`, then recreate it, booted from `image`.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
+        rollback`. The new container keeps the old one's own name, network attachment, volume
+        mounts and resource limits (read back from the container being replaced, not from any
+        `ContainerSpec` this Protocol's caller may or may not still hold) but boots from `image`
+        instead of whatever it was running before -- undoing anything a proposal changed on the
+        root filesystem or in the image's own config, while leaving the mounted scratch volume
+        (never part of an image) exactly as it stood.
+
+        Args:
+            name: The container to replace; must currently exist.
+            image: The image (typically a prior `commit_container` result) to recreate it from.
+
+        Raises:
+            DockerClientError: `name` does not exist, or the daemon refused or failed to recreate
+                it from `image`.
         """
         ...

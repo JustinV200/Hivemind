@@ -20,6 +20,12 @@ configured at all" (the composition root never builds a template from an unset b
 Layer 1 and `hive` is Layer 3, so this module may never import it (codingrules section 4); the
 composition root converts the string once it already holds both.
 
+Roadmap step 5.10 adds ``snapshot_retention_s``/``snapshot_disk_budget_mb`` to
+``VirtualCellsSection``: how long a Capping snapshot (``hivemind.hive.snapshot``) survives and how
+much disk one Cell's own live snapshots may hold before the oldest is evicted, mirroring
+``VirtualCellsOverwinterSection.disk_budget_mb``'s own "accounted as Forage" documentation for a
+different pool of disk.
+
 Roadmap step 5.6 (this branch) adds ``listen_host``/``listen_port``/``advertise_url`` to
 ``VirtualCellsSection``: where the Queen's own `queen.cell_gate.CellListener` binds its WebSocket
 server (``listen_host``/``listen_port``, loopback by default like every other Waggle listener,
@@ -87,6 +93,12 @@ DEFAULT_OVERWINTER_MAX_DORMANT_S = 3600.0  # One hour before the Undertaker swee
 DEFAULT_OVERWINTER_DISK_BUDGET_MB = 8192  # 8 GiB of disk Forage set aside for dormant Cells.
 DEFAULT_VIRTUAL_CELLS_LISTEN_HOST = "127.0.0.1"  # Loopback: matches WebSocketServer's own default.
 DEFAULT_VIRTUAL_CELLS_LISTEN_PORT = 0  # 0: let the OS choose, like WebSocketServer's own default.
+# Roadmap step 5.10: how long a Capping snapshot survives, and how much disk one Cell's own
+# snapshots may hold, before the oldest is evicted to make room for a new one
+# (hivemind.hive.snapshot.SnapshotLedger). One hour and 4 GiB are generous defaults for a Cell
+# whose disk itself defaults to 8 GiB (DEFAULT_VIRTUAL_CELLS_DISK_BYTES above).
+DEFAULT_SNAPSHOT_RETENTION_S = 3600.0
+DEFAULT_SNAPSHOT_DISK_BUDGET_MB = 4096
 
 __all__ = [
     "DEFAULT_ALLOW_HIVE_STAND",
@@ -98,6 +110,8 @@ __all__ = [
     "DEFAULT_OVERWINTER_MAX_PER_IMAGE",
     "DEFAULT_PREFER",
     "DEFAULT_READY_TIMEOUT_S",
+    "DEFAULT_SNAPSHOT_DISK_BUDGET_MB",
+    "DEFAULT_SNAPSHOT_RETENTION_S",
     "DEFAULT_VIRTUAL_CELLS_CPU_CORES",
     "DEFAULT_VIRTUAL_CELLS_DISK_BYTES",
     "DEFAULT_VIRTUAL_CELLS_IMAGE",
@@ -240,6 +254,21 @@ class VirtualCellsSection(BaseModel):
         default=DEFAULT_MAX_CELLS,
         gt=0,
         description="The most Virtual Cells this Hive may hold running at once.",
+    )
+    snapshot_retention_s: float = Field(
+        default=DEFAULT_SNAPSHOT_RETENTION_S,
+        gt=0,
+        description="Seconds a Capping snapshot (hivemind.hive.snapshot) survives before the "
+        "next sweep expires it (roadmap step 5.10); matches the manifest's own retention policy "
+        "for anything else the Hive keeps only for a bounded window.",
+    )
+    snapshot_disk_budget_mb: int = Field(
+        default=DEFAULT_SNAPSHOT_DISK_BUDGET_MB,
+        gt=0,
+        description="Disk, in megabytes, one Cell's own live snapshots may hold; the oldest is "
+        "evicted before a new snapshot that would exceed this is recorded (hivemind.hive.snapshot."
+        "SnapshotLedger.room_for). Accounted as Forage disk, mirroring "
+        "VirtualCellsOverwinterSection.disk_budget_mb's own accounting.",
     )
     overwinter: VirtualCellsOverwinterSection = Field(
         default_factory=VirtualCellsOverwinterSection,

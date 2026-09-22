@@ -31,11 +31,13 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from hivemind.hive.backends.docker.client import (
+    CommitResult,
     ContainerInfo,
     ContainerSpec,
     DockerClientError,
@@ -44,6 +46,8 @@ from hivemind.hive.backends.docker.client import (
 )
 
 __all__ = ["FakeDockerClient"]
+
+_DEFAULT_COMMIT_SIZE_BYTES = 1024  # An arbitrary but deterministic default commit size.
 
 
 @dataclass(slots=True)
@@ -63,6 +67,10 @@ class FakeDockerClient:
         self._containers: dict[str, _TrackedContainer] = {}
         self._networks: dict[str, NetworkSpec] = {}
         self._volumes: dict[str, VolumeSpec] = {}
+        # Roadmap step 5.10: image ref -> the container it was committed from, purely for a test
+        # to assert against; recreate_from_image reads _containers, never this table.
+        self._images: dict[str, str] = {}
+        self._commit_size_bytes = _DEFAULT_COMMIT_SIZE_BYTES
         # One-shot failure reasons: set_*_failure arms the next matching call, which then clears
         # it (see the module docstring's key invariant).
         self._create_container_failure: str | None = None
@@ -70,6 +78,8 @@ class FakeDockerClient:
         self._create_network_failure: str | None = None
         self._create_volume_failure: str | None = None
         self._remove_container_failure: str | None = None
+        self._commit_container_failure: str | None = None
+        self._recreate_from_image_failure: str | None = None
         self.create_container_calls: list[ContainerSpec] = []
         self.start_container_calls: list[str] = []
         self.remove_container_calls: list[str] = []
@@ -79,6 +89,9 @@ class FakeDockerClient:
         self.remove_volume_calls: list[str] = []
         self.pause_container_calls: list[str] = []
         self.unpause_container_calls: list[str] = []
+        self.commit_container_calls: list[str] = []
+        self.remove_image_calls: list[str] = []
+        self.recreate_from_image_calls: list[tuple[str, str]] = []
 
     def set_create_container_failure(self, reason: str | None) -> None:
         """Arm (or disarm, with None) the next `create_container` call to raise."""
@@ -99,6 +112,18 @@ class FakeDockerClient:
     def set_remove_container_failure(self, reason: str | None) -> None:
         """Arm (or disarm, with None) the next `remove_container` call to raise."""
         self._remove_container_failure = reason
+
+    def set_commit_container_failure(self, reason: str | None) -> None:
+        """Arm (or disarm, with None) the next `commit_container` call to raise."""
+        self._commit_container_failure = reason
+
+    def set_recreate_from_image_failure(self, reason: str | None) -> None:
+        """Arm (or disarm, with None) the next `recreate_from_image` call to raise."""
+        self._recreate_from_image_failure = reason
+
+    def set_commit_size_bytes(self, size: int) -> None:
+        """Arrange what every following `commit_container` call reports as its `size_bytes`."""
+        self._commit_size_bytes = size
 
     async def create_network(self, spec: NetworkSpec) -> str:
         """Record and store `spec`; see `DockerClientPort.create_network`."""
@@ -180,6 +205,38 @@ class FakeDockerClient:
         tracked = self._containers.get(name)
         if tracked is not None:
             tracked.status = "running"
+
+    async def commit_container(
+        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
+    ) -> CommitResult:
+        """Record `name` as the source of a new made-up image ref; see `DockerClientPort`."""
+        self.commit_container_calls.append(name)
+        _fire(self, "_commit_container_failure", f"container {name!r}")
+        if name not in self._containers:
+            raise DockerClientError(f"container {name!r}: not found")
+        image = f"{repository}:{tag}"
+        self._images[image] = name
+        return CommitResult(image=image, size_bytes=self._commit_size_bytes)
+
+    async def remove_image(self, image: str) -> None:
+        """Drop `image` from this fake's table; see `DockerClientPort.remove_image` (idempotent)."""
+        self.remove_image_calls.append(image)
+        self._images.pop(image, None)
+
+    async def recreate_from_image(self, name: str, image: str) -> None:
+        """Replace `name`'s own tracked spec's image with `image`; see `DockerClientPort`.
+
+        A real daemon reads the old container's network/volume/resource config back before
+        removing it (`SdkDockerClient`'s own implementation); this fake already holds the full
+        `ContainerSpec` it was created with, so it only needs to swap the one field that changed.
+        """
+        self.recreate_from_image_calls.append((name, image))
+        _fire(self, "_recreate_from_image_failure", f"container {name!r}")
+        tracked = self._containers.get(name)
+        if tracked is None:
+            raise DockerClientError(f"container {name!r}: not found")
+        tracked.spec = dataclasses.replace(tracked.spec, image=image)
+        tracked.status = "running"
 
 
 def _fire(client: FakeDockerClient, attr: str, subject: str) -> None:

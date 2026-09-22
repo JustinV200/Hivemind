@@ -415,6 +415,12 @@ network_policy = "egress_only"
 ready_timeout_s = 60.0
 # The most Virtual Cells this Hive may hold running at once.
 max_cells = 4
+# Seconds a Capping snapshot (hivemind.hive.snapshot, roadmap step 5.10) survives before the next
+# sweep expires it (one hour here).
+snapshot_retention_s = 3600.0
+# Disk, in megabytes, one Cell's own live snapshots may hold before the oldest is evicted to make
+# room for a new one.
+snapshot_disk_budget_mb = 4096
 
 [virtual_cells.overwinter]
 # Whether a released Virtual Cell may ever go DORMANT instead of being torn down (docs/adr/0029).

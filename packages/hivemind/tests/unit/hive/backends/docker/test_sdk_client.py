@@ -23,7 +23,11 @@ from datetime import UTC, datetime
 import pytest
 
 from hivemind.common.errors import ConfigurationError
-from hivemind.hive.backends.docker.sdk_client import SdkDockerClient, _parse_created_at
+from hivemind.hive.backends.docker.sdk_client import (
+    SdkDockerClient,
+    _parse_created_at,
+    _recreate_spec,
+)
 
 
 def test_missing_docker_package_raises_configuration_error(
@@ -64,3 +68,47 @@ def test_parse_created_at_falls_back_to_now_for_garbage() -> None:
     parsed = _parse_created_at("not-a-timestamp")
 
     assert before <= parsed <= datetime.now(UTC)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.10: _recreate_spec, the pure inspect-attrs -> containers.create kwargs mapper.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_recreate_spec_maps_network_volumes_and_resource_limits() -> None:
+    attrs = {
+        "Name": "/hivemind-cell-test",
+        "Config": {"Env": ["A=1"], "Labels": {"hivemind.cell_id": "cell_test"}},
+        "HostConfig": {
+            "NanoCpus": 1_000_000_000,
+            "Memory": 1073741824,
+            "PidsLimit": 256,
+            "CapDrop": ["ALL"],
+            "SecurityOpt": ["no-new-privileges:true"],
+            "ReadonlyRootfs": True,
+            "Tmpfs": {"/tmp": ""},  # noqa: S108  # SAFETY: a container-internal path, not a host one.
+        },
+        "NetworkSettings": {"Networks": {"hivemind-cell-test-net": {}}},
+        "Mounts": [
+            {"Type": "volume", "Name": "hivemind-cell-test-scratch", "Destination": "/scratch"}
+        ],
+    }
+
+    spec = _recreate_spec(attrs, "hivemind-snapshot:abc")
+
+    assert spec["image"] == "hivemind-snapshot:abc"
+    assert spec["name"] == "hivemind-cell-test"  # Leading "/" stripped.
+    assert spec["network"] == "hivemind-cell-test-net"
+    assert spec["volumes"] == {"hivemind-cell-test-scratch": {"bind": "/scratch", "mode": "rw"}}
+    assert spec["nano_cpus"] == 1_000_000_000
+    assert spec["mem_limit"] == 1073741824
+    assert spec["read_only"] is True
+
+
+def test_recreate_spec_tolerates_missing_optional_sections() -> None:
+    spec = _recreate_spec({}, "hivemind-snapshot:abc")
+
+    assert spec["network"] is None
+    assert spec["volumes"] == {}
+    assert spec["nano_cpus"] is None
+    assert spec["read_only"] is False
