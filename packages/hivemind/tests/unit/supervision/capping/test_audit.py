@@ -15,8 +15,8 @@ from hivemind.supervision.capping.audit import (
     audit_completed,
 )
 from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
-from hivemind.supervision.capping.checks.judge import JudgeOutcome
-from hivemind.supervision.capping.errors import CappingError
+from hivemind.supervision.capping.checks.judge import JudgeOutcome, JudgeVerdict
+from hivemind.supervision.capping.errors import CappingError, JudgeAnswerError
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec
 from waggle.clock import FakeClock
 
@@ -219,3 +219,34 @@ async def test_audit_completed_raises_capping_error_for_an_unconfigured_rubric()
 
     with pytest.raises(CappingError, match="No judge rubric configured"):
         await audit_completed(deps, proposal, tier, AuditRates())
+
+
+class _SilentReviewer:
+    """A JudgeReviewer whose model never produces a verdict, as a dry ladder raises."""
+
+    async def review(self, request: object) -> JudgeVerdict:
+        raise JudgeAnswerError("Provider 'fake' produced unparseable output after 4 attempt(s).")
+
+
+async def test_audit_completed_records_an_inconclusive_sample_when_the_judge_cannot_answer() -> (
+    None
+):
+    # A 2 % scratch_write audit against a provider with no judge answer used to propagate out of
+    # the gate and crash the Drone mid-task (the compose-test flake of 2026-09-22).
+    deps, trail = _deps(_SilentReviewer())  # type: ignore[arg-type]
+    proposal = make_proposal(risk_tier=RiskTier.SCRATCH_WRITE)
+    tier = TierSpec(checks=(), floor=(), audit_rate=1.0)
+    rates = AuditRates()
+
+    verdict = await audit_completed(deps, proposal, tier, rates)
+
+    assert verdict is None
+    assert rates.sampled(RiskTier.SCRATCH_WRITE) == 0  # Inconclusive: neither passed nor failed.
+    events = await trail.query(TrailQuery(subject_id=proposal.id))
+    audited = [event for event in events if event.kind == "capping.audited"]
+    assert len(audited) == 1
+    assert audited[0].payload["judge_error"] is True
+    assert audited[0].payload["outcome"] is None
+    assert "unparseable" not in str(audited[0].payload)  # The error text stays off the trail.
+    alarms = await trail.query(TrailQuery(family="alarm"))
+    assert alarms == ()

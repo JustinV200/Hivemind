@@ -19,6 +19,11 @@
   are denied with `forage.denied` and fail the task; `RELEASING -> ORPHANED` so a failed
   `release()` can be retried; `leavings list` with no Cell lists every Cell, `remove --path`;
   the `#` on `ci.yml` line 1 restored.
+- The compose-test flake (`test_run_goal_works_with_zero_capability_fake_provider`, about one
+  run in seventeen) was the 2 % scratch_write audit sampling a scripted provider with no judge
+  answer: the audit path let the judge's error out of the gate and crashed the Drone mid-task.
+  `audit_completed` now records the sample as inconclusive (`capping.audited` with
+  `judge_error`) and carries on; same class of defect as the judge crash above, second path.
 
 ## Contact points for the Virtual Cells branch
 
