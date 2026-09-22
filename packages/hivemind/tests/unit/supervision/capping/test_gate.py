@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-from builders.capping import FakeLeaseView, make_action, make_postcondition, make_proposal
+from builders.capping import (
+    FakeLeaseView,
+    make_action,
+    make_judge_rubric,
+    make_postcondition,
+    make_proposal,
+)
 from builders.cells import make_cell, make_identity
 
 from hivemind.cell import CellKind, CompletedCommand, FakeSession, NoopSnapshotter
 from hivemind.guard import CapabilitySet
 from hivemind.pheromone import MemoryPheromoneTrail, TrailQuery
+from hivemind.supervision.capping.checks import Check
 from hivemind.supervision.capping.checks.deterministic import deterministic_checks
-from hivemind.supervision.capping.errors import UnknownProposalError
+from hivemind.supervision.capping.checks.judge import JudgeRequest, judge_checks
+from hivemind.supervision.capping.checks.rubrics import JudgeRubric
+from hivemind.supervision.capping.errors import JudgeAnswerError, UnknownProposalError
 from hivemind.supervision.capping.gate import CappingGate, GateDeps
 from hivemind.supervision.capping.state import ProposalState
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec, TierTable
@@ -28,6 +38,7 @@ def _deps(
     *,
     responder: dict[str, CompletedCommand] | None = None,
     allowed_paths: tuple[Path, ...] = (),
+    checks: Mapping[CheckKind, Check] | None = None,
 ) -> tuple[GateDeps, MemoryPheromoneTrail, FakeSession]:
     """Build a GateDeps scoped to a fresh scratch dir, plus the trail and session for assertions."""
     scratch_root = tmp_path / "scratch"
@@ -42,7 +53,7 @@ def _deps(
         trail=trail,
         identity=make_identity(clock),
         clock=clock,
-        checks=deterministic_checks(),
+        checks=checks if checks is not None else deterministic_checks(),
     )
     return deps, trail, session
 
@@ -258,6 +269,61 @@ async def test_gate_run_rejects_action_sequence(tmp_path: Path) -> None:
 
     assert outcome.state is ProposalState.REJECTED
     assert "unsupported in v0" in outcome.reason
+
+
+class _RaisingJudgeReviewer:
+    """A JudgeReviewer that always raises JudgeAnswerError, never returning a verdict.
+
+    Structurally implements `hivemind.supervision.capping.checks.judge.JudgeReviewer`
+    (codingrules 14.4), standing in for `hivemind.wardens.judge.ModelJudgeReviewer` on a run
+    where its bound model's structured-output ladder never produced parseable output (2026-09-21:
+    the real trail this reproduces -- nine unparseable llm.call attempts on the judge lane).
+    """
+
+    async def review(self, request: JudgeRequest) -> object:
+        """Raise unconditionally; `request` is accepted only to match the Protocol's shape."""
+        raise JudgeAnswerError(
+            "Provider 'lmstudio' produced unparseable output after 9 attempt(s): ''"
+        )
+
+
+async def test_gate_run_rejects_when_the_judge_cannot_answer(tmp_path: Path) -> None:
+    """A judge that cannot produce a verdict rejects the proposal instead of crashing the Worker.
+
+    2026-09-21 fix: the reason is readable and the trail carries a distinct judge_error marker
+    (the exception used to propagate out of JudgeCheck.run, through the gate, and kill the Worker).
+    """
+    tiers = TierTable(
+        tiers={
+            RiskTier.SCRATCH_WRITE: TierSpec(checks=(CheckKind.JUDGE,), floor=(CheckKind.JUDGE,)),
+        }
+    )
+    rubrics: dict[RiskTier, JudgeRubric] = {
+        RiskTier.SCRATCH_WRITE: make_judge_rubric(RiskTier.SCRATCH_WRITE)
+    }
+    checks = judge_checks(_RaisingJudgeReviewer(), rubrics)  # type: ignore[arg-type]
+    deps, trail, _session = _deps(tmp_path, tiers, checks=checks)
+    gate = CappingGate(deps)
+    proposal = make_proposal(risk_tier=RiskTier.SCRATCH_WRITE)
+    lease = FakeLeaseView(deps.session.scratch_dir)
+
+    proposal_id = await gate.propose(proposal)
+    outcome = await gate.run(proposal_id, CapabilitySet.parse(), lease)
+
+    # The Worker-facing outcome: REJECTED, with a reason the Drone's tool result can show
+    # (hivemind.workers.tools.proposals.describe renders outcome.reason verbatim).
+    assert outcome.state is ProposalState.REJECTED
+    assert "judge could not produce a verdict" in outcome.reason
+    assert "unparseable output after 9 attempt(s)" in outcome.reason
+
+    # The trail: one capping.checked JUDGE event, marked distinctly from an ordinary rejection.
+    events = await trail.query(TrailQuery(subject_id=proposal_id))
+    checked = [e for e in events if e.kind == "capping.checked"]
+    assert len(checked) == 1
+    assert checked[0].payload["check"] == CheckKind.JUDGE.value
+    assert checked[0].payload["outcome"] == "FAILED"
+    assert checked[0].payload["judge_error"] is True
+    assert "reason" not in checked[0].payload  # codingrules 12: never the free-text reason.
 
 
 async def test_gate_run_rejects_an_unconfigured_tier(tmp_path: Path) -> None:

@@ -24,6 +24,7 @@ from hivemind.supervision.capping.checks.judge import (
     JudgeRequest,
     judge_checks,
 )
+from hivemind.supervision.capping.errors import JudgeAnswerError
 from hivemind.supervision.capping.tiers import RiskTier
 from waggle.messages.capping import CheckKind, CheckOutcome
 
@@ -117,6 +118,37 @@ async def test_judge_check_run_fails_on_reject(tmp_path: Path) -> None:
     result = await check.run(_context(tmp_path))
 
     assert result.outcome is CheckOutcome.FAILED
+
+
+class _RaisingJudgeReviewer:
+    """A JudgeReviewer that always raises JudgeAnswerError instead of answering (test-only)."""
+
+    def __init__(self, detail: str) -> None:
+        self._detail = detail
+
+    async def review(self, request: JudgeRequest) -> object:
+        raise JudgeAnswerError(self._detail)
+
+
+async def test_judge_check_run_fails_closed_when_the_reviewer_cannot_answer(
+    tmp_path: Path,
+) -> None:
+    """A judge that cannot produce a verdict is a check outcome, not a bee crash.
+
+    2026-09-21: JudgeCheck.run must catch JudgeAnswerError and report FAILED with
+    judge_error=True, never let it propagate (the real trail: nine unparseable llm.call attempts
+    reached worker.failed).
+    """
+    reviewer = _RaisingJudgeReviewer("unparseable output after 9 attempt(s): ''")
+    rubrics = {RiskTier.SCRATCH_WRITE: make_judge_rubric(RiskTier.SCRATCH_WRITE)}
+    check = JudgeCheck(reviewer, rubrics)  # type: ignore[arg-type]
+
+    result = await check.run(_context(tmp_path))
+
+    assert result.outcome is CheckOutcome.FAILED
+    assert result.judge_error is True
+    assert "judge could not produce a verdict" in result.reason
+    assert "unparseable output after 9 attempt(s)" in result.reason
 
 
 async def test_judge_check_run_fails_closed_with_no_rubric_for_tier(tmp_path: Path) -> None:

@@ -31,7 +31,11 @@ Key invariants:
     - Every proposal state change goes through `hivemind.supervision.capping.state.
       assert_transition`; nothing in this module compares ProposalState values directly.
     - A `capping.*` event's payload never carries the human-readable `reason` a GateOutcome
-      returns; only ids, enum values (`.value`) and counts (codingrules section 12).
+      returns; only ids, enum values (`.value`) and counts (codingrules section 12). One
+      exception is a bool, never text: a JUDGE check's `capping.checked` event carries
+      `judge_error: true` when the reviewer itself could not produce a verdict (`CheckResultRecord.
+      judge_error`), distinct from an ordinary JUDGE rejection, so a trail reader can tell the two
+      apart without parsing the free-text reason on `capping.rejected`.
     - `run` never raises for an ordinary proposal failure (a check failing, a postcondition not
       holding): those are `GateOutcome`s with `state` REJECTED or ROLLED_BACK, not exceptions.
     - Every module-level helper below is private (leading underscore, not in `__all__`); a caller
@@ -274,12 +278,14 @@ async def _run_checks(
             return tuple(results), kind, "check unavailable"
         result = await check.run(context)
         results.append(result)
-        await _record_event(
-            deps,
-            context.proposal.id,
-            "capping.checked",
-            {"check": kind.value, "outcome": result.outcome.value},
-        )
+        payload: dict[str, JsonValue] = {"check": kind.value, "outcome": result.outcome.value}
+        if result.judge_error:
+            # Distinct from an ordinary JUDGE rejection (codingrules section 12: ids, enums and
+            # counts only -- this is a bool, never the reason text): the reviewer itself could not
+            # answer, so a reader of the trail can tell "the judge disagreed" apart from "the judge
+            # never got to disagree" without parsing capping.rejected's own free-text reason.
+            payload["judge_error"] = True
+        await _record_event(deps, context.proposal.id, "capping.checked", payload)
         if result.outcome is not CheckOutcome.PASSED:
             return tuple(results), kind, result.reason
     return tuple(results), None, None

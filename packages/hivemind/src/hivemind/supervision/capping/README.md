@@ -31,11 +31,14 @@ called by the proposing bee's Warden, never by the bee itself.
   RealCellLease` satisfies it structurally; this package never imports that class.
 - **Checks** (`checks/`): `Check` (protocol: `kind`, `async run(context) -> CheckResultRecord`),
   `CheckContext` (proposal, capabilities, lease, scratch_root, tier), `CheckResultRecord` (kind,
-  outcome, reason). This phase's deterministic rungs: `SchemaCheck`, `PathAllowlistCheck`,
+  outcome, reason, `judge_error` -- set only by `JudgeCheck` when its reviewer could not answer at
+  all). This phase's deterministic rungs: `SchemaCheck`, `PathAllowlistCheck`,
   `CommandAllowlistCheck`, `DiffSizeCapCheck`, and `deterministic_checks()` for the composition
   root's `Mapping[CheckKind, Check]`. The independent-review rung: `JudgeCheck` (`CheckKind.
-  JUDGE`), `JudgeReviewer` (the Protocol a model-backed implementation satisfies at the Warden
-  layer, a later dispatch), `JudgeRequest`/`JudgeVerdict`/`JudgeOutcome`, `JudgeRubric`,
+  JUDGE`; catches `JudgeAnswerError` from its reviewer and reports `FAILED` with `judge_error=True`
+  instead of propagating -- 2026-09-21: a judge that cannot produce a verdict is a check outcome,
+  not a bee crash), `JudgeReviewer` (the Protocol a model-backed implementation satisfies at the
+  Warden layer, a later dispatch), `JudgeRequest`/`JudgeVerdict`/`JudgeOutcome`, `JudgeRubric`,
   `load_judge_rubrics()` (loads `supervision/defaults/judge-rubrics.toml`), `judge_checks(reviewer,
   rubrics)` (`deterministic_checks()`'s sibling registry: `{CheckKind.JUDGE: JudgeCheck(reviewer,
   rubrics)}`), and `FakeJudgeReviewer`, a scripted `JudgeReviewer` for tests.
@@ -58,7 +61,9 @@ called by the proposing bee's Warden, never by the bee itself.
   model), `FindingsSink`/`InMemoryFindingsSink` (Nectar deposit seam; the Honey Store's own
   Nectar-backed sink lands in phase 7), `AuditDeps`, `AuditFinding`.
 - **Errors** (`errors.py`): `CappingError` (root), `UnknownProposalError`,
-  `InvalidProposalTransitionError`, `DiffApplyError`, `JudgeUnavailableError`.
+  `InvalidProposalTransitionError`, `DiffApplyError`, `JudgeUnavailableError`, `JudgeAnswerError`
+  (raised by a real `JudgeReviewer` that could not produce a verdict; caught by `JudgeCheck.run`,
+  never left to reach `CappingGate` or the Worker).
 
 ## How this phase's checks map to a tier
 
@@ -100,6 +105,18 @@ in this package. Every test that runs the gate at a `judge = true` tier register
 `hivemind.supervision.capping.checks.fake.FakeJudgeReviewer` (a scripted FIFO queue) or the
 test-only `RepeatingJudgeReviewer` (`tests/builders/capping.py`, which never runs dry, for a
 default `checks` mapping shared across many proposals in one test run).
+
+A judge that cannot answer at all -- 2026-09-21: `ModelJudgeReviewer`'s `complete_structured` call
+exhausted every rung and fallback binding on unparseable output, nine attempts, and the raised
+`hivemind.llm.errors.MalformedOutputError` used to propagate straight through `JudgeCheck.run`,
+`CappingGate.run` and into the Worker's own run loop as a crash -- is translated by
+`ModelJudgeReviewer.review` into `JudgeAnswerError` (this package's own error, since it never
+imports `hivemind.llm`) and caught by `JudgeCheck.run`, which reports `FAILED` with
+`judge_error=True` instead. `ProviderUnavailableError`/`RateLimitedError` are never translated:
+those are outages `hivemind.queen.cluster`'s Clustering rung pauses and resumes the whole Hive
+for, not a single proposal's rejection, so they propagate unchanged. The `capping.checked` trail
+event for that `CheckKind.JUDGE` rung carries `judge_error: true` in its payload, distinct from an
+ordinary JUDGE rejection, whose event carries no such key.
 
 ## How to test this
 

@@ -58,7 +58,10 @@ Warden never provisions Cells itself.
   (`hivemind.supervision.capping.checks.judge.JudgeReviewer`) a Warden's `CappingGate` calls
   through -- `complete_structured` on `ModelSlot.JUDGE`, a prompt built from the tier's rubric and
   the `JudgeRequest` alone (no proposer transcript, no hot state), through the Warden's own
-  `CallGate`.
+  `CallGate`. `review` translates a `MalformedOutputError` (the ladder exhausted every rung and
+  fallback binding on unparseable output) into `hivemind.supervision.capping.JudgeAnswerError`
+  instead of letting it propagate; `ProviderUnavailableError`/`RateLimitedError` are left
+  unchanged, since those are outages Clustering handles, not an answer failure.
 - `wardens.inbox`: `to_inbox_item`, `warden_attendant` -- the Warden's own Attendant.
 - `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
   codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter

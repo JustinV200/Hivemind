@@ -70,6 +70,16 @@ class CheckResultRecord(BaseModel):
     kind: CheckKind = Field(description="Which rung ran.")
     outcome: CheckOutcome = Field(description="The result.")
     reason: str = Field(description="Why, in one line; never recorded on the trail verbatim.")
+    # Set only by JudgeCheck.run, only when its JudgeReviewer raised instead of returning a
+    # verdict (a malformed-output reply that exhausted every rung and fallback binding): distinct
+    # from an ordinary REJECT/REQUEST_CHANGES verdict, whose reason is the judge's own scored
+    # opinion rather than a failure to score at all. hivemind.supervision.capping.gate reads this
+    # to record the same distinction on the capping.checked trail event (codingrules section 12:
+    # ids, enums and counts only, never the reason text itself).
+    judge_error: bool = Field(
+        default=False,
+        description="True only for a JUDGE check whose reviewer could not produce a verdict.",
+    )
 
 
 class Check(Protocol):
