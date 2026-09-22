@@ -1037,6 +1037,17 @@ keeps in its own store are the Basket (9.2a), a separate thing.
 - A `BLOCK` Cell Wax on the Hive Stand makes `prefer = "real"` place on a Virtual Cell with the
   wax named in the `queen.placed` reason; clearing it restores the first result.
 
+**Met 2026-09-22 against the fake backend** for every bullet but Leavings (proven on
+`feat/phase-5-leavings`): `tests/e2e/test_virtual_cells.py` and `test_virtual_cells_night_veil.py`
+run each scenario with a real in-Cell Warden per Cell in-process, a real `CellListener` on
+loopback and the real lifecycle, provider and pool; "measurably faster" is asserted as one fewer
+`cell.provisioning` per reused Cell, since the clocks are fake. Night Veil is proven at the
+provider level (attest green proceeds, one red check tears down, never overwinters); a Night Veil
+placement through `hive run` waits on `.claude/phase-5-virtual-cells-handoff.md` open item 3.
+**Not yet met on real containers**: Docker Desktop and QEMU are not installed on the development
+host, so the three-container run and `abscond` against a real daemon are the marked `integration`
+tests, still to be run.
+
 ### ADRs to write
 
 - `leavings-declared-by-the-plan-decided-by-policy.md` (why the planner declares and the bee

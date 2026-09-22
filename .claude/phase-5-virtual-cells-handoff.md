@@ -19,7 +19,7 @@ ADR-0025.
 - Gates at handover, whole repo, all green: `ruff format --check`, `ruff check`, `mypy`,
   `lint-imports` (9 contracts), the five `scripts/check_*.py`, and
   `pytest -m "not integration and not live_llm and not local_llm" packages scripts/tests`
-  (5745 passed before the e2e file; see section 4 for the e2e state).
+  (5760 passed, e2e included, about two minutes on a quiet machine).
 - Docker Desktop and QEMU are **not installed** on the development host. Every backend is proven
   against fakes and contract suites; the marked `integration` tests skip. The Docker and QEMU
   SDK/process code has never touched a real daemon. Section 5 lists what that leaves unproven.
@@ -84,10 +84,19 @@ Agreed with the Leavings session during the build (both sides kept to it):
 
 - Unit and contract suites cover every module; the backend contract suite runs over four
   harnesses; the CellSession contract over local, in-cell and fake.
-- `tests/e2e/test_virtual_cells.py` proves the phase 5 exit criteria against the fake backend
-  with a real in-Cell Warden run in-process (see the file for which scenarios pass and which are
-  `xfail(strict=True)` with a named defect). The Leavings bullet of the exit criteria is proven
-  on the other branch.
+- `tests/e2e/test_virtual_cells.py` and `test_virtual_cells_night_veil.py` prove the phase 5
+  exit criteria against the fake backend with a real in-Cell Warden run in-process per Cell:
+  prefer=virtual (three Cells, each with its own attached Warden, overwinter and teardown
+  variants), prefer=real (zero Cells), isolation=required, dormant reuse, provision failure with
+  the retry-once path, a BLOCK wax on the Hive Stand and its clearing, abscond leaving zero Cells
+  and the host left as found, and Night Veil attestation green/red at the provider level. Twelve
+  scenarios, ~20 s, no xfails. The Leavings bullet is proven on the other branch.
+- Writing that suite found four production defects, all fixed in commit `bad9fe5`: a
+  double-dispatch race between `Queen.submit_goal` and the tick loop while a provision was in
+  flight (now a per-Queen `dispatch_lock`); the lifecycle's READY -> GRANTED edge was never driven
+  by the dispatcher (now `QueenDeps.on_cell_granted`); `[placement]` was never wired into
+  `QueenDeps` by the composition root; and `common.tasks.reap` swallowed the reaping task's own
+  cancellation, so a Warden whose Queen link had closed could never be cancelled.
 - Real-run traps carried over from phase 4 still apply (`--timeout 900`, LM Studio context 16384,
   never run the e2e suite during a real `hive run`).
 
