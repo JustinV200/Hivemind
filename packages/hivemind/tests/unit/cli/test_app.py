@@ -62,3 +62,17 @@ def test_main_runs_app_with_process_argv_and_exits_zero(
     with pytest.raises(SystemExit) as exc_info:
         main()
     assert exc_info.value.code == 0
+
+
+def test_main_makes_stdout_tolerate_unencodable_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cp1252 console must not crash the CLI on an emoji in a task summary."""
+    import io
+
+    from hivemind.cli.app import _tolerate_console_encoding
+
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stream)
+    _tolerate_console_encoding()
+    stream.write("done ✅\n")
+    stream.flush()
+    assert stream.buffer.getvalue() == b"done ?\n"

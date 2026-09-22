@@ -38,6 +38,7 @@ See Also:
 
 from __future__ import annotations
 
+import sys
 from typing import Annotated
 
 import typer
@@ -152,4 +153,19 @@ def main() -> None:
     Example:
         `uv run hive --version` prints one line and exits 0.
     """
+    _tolerate_console_encoding()
     app()
+
+
+def _tolerate_console_encoding() -> None:
+    """Never let a task summary crash the CLI on a console that cannot encode it.
+
+    A Windows console (or a redirected stdout) defaults to a legacy code page such as cp1252; a
+    Drone's own summary can carry any Unicode (a real run printed a check-mark emoji and died in
+    `hive run`'s final report). Output is what the CLI is for, so an unencodable character is
+    replaced rather than fatal; the trail and the Brood Chamber still hold the exact text.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
