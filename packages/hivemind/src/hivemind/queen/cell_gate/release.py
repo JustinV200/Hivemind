@@ -59,6 +59,7 @@ from collections.abc import Awaitable, Callable
 
 from hivemind.brood_chamber import TaskOutcome, TaskStatus
 from hivemind.hive import BackendCapabilityError
+from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.overwinter import OverwinterDecision, ReleaseOutcome, Scrubber
 from waggle.ids import CellId, GrantId
@@ -81,8 +82,14 @@ def make_on_cell_granted(lifecycle: CellLifecycle) -> OnCellGranted:
     """
 
     async def _on_cell_granted(cell_id: CellId, grant_id: GrantId) -> None:
-        """Grant `cell_id` in the lifecycle if it tracks the Cell."""
-        if lifecycle.status_of(cell_id) is not None:
+        """Walk READY -> GRANTED for a Cell the lifecycle tracks; a re-grant is a no-op.
+
+        The dispatcher grants the same Cell again on a retry, a redispatch or a resume from
+        pause (hivemind.queen.dispatcher.ready), all of which reuse a Cell already GRANTED: the
+        state machine has no GRANTED -> GRANTED edge and must not be asked for one (the first
+        real Docker run crashed the whole Queen on exactly that).
+        """
+        if lifecycle.status_of(cell_id) is VirtualCellStatus.READY:
             await lifecycle.grant(cell_id, grant_id)
 
     return _on_cell_granted

@@ -26,7 +26,7 @@ from hivemind.hive.overwinter.policy import OverwinterConfig
 from hivemind.hive.overwinter.pool import OverwinterPool
 from hivemind.hive.registry import BackendRegistry
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.queen.cell_gate.release import make_on_task_finished
+from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
 from waggle.clock import FakeClock
 from waggle.ids import CellId, new_grant_id, new_hive_id, new_warden_id
 
@@ -121,3 +121,17 @@ async def test_on_task_finished_tears_down_a_failed_task_without_ever_asking_the
     assert lifecycle.status_of(cell_id) is None
     assert backend.destroy_calls == [cell_id]
     assert backend.pause_calls == []  # Never offered to decide_release at all.
+
+
+async def test_on_cell_granted_walks_ready_to_granted_once_and_ignores_a_regrant() -> None:
+    """A retry or redispatch grants an already-GRANTED Cell again; that must not raise."""
+    lifecycle, _backend = _build_lifecycle(with_pool=False)
+    cell = await lifecycle.provision(_spec(), "fake")
+    await lifecycle.mark_ready(cell.id)
+    on_cell_granted = make_on_cell_granted(lifecycle)
+
+    await on_cell_granted(cell.id, new_grant_id(FakeClock()))
+    assert lifecycle.status_of(cell.id) is VirtualCellStatus.GRANTED
+    await on_cell_granted(cell.id, new_grant_id(FakeClock()))  # A re-grant: no edge, no error.
+    assert lifecycle.status_of(cell.id) is VirtualCellStatus.GRANTED
+    await on_cell_granted(CellId("cell_untracked"), new_grant_id(FakeClock()))  # Real Cell: no-op.
