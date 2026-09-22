@@ -133,8 +133,11 @@ async def test_provision_allowlist_policy_stamps_the_allowlist_label() -> None:
     assert client.create_network_calls[0].labels["hivemind.network_allowlist"] == "api.example.com"
 
 
-async def test_provision_refuses_vpn_tor_before_creating_anything() -> None:
+async def test_provision_refuses_vpn_tor_on_any_image_but_night_veil_ubuntu() -> None:
     backend, client, gate = _make_backend(FakeClock())
+    # image defaults to "hivemind/base-ubuntu:dev" (_make_spec): the in-image kill-switch that
+    # image lacks is VPN_TOR's only real enforcement, so this must be refused before anything
+    # is created, whatever else the spec asks for.
     spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
 
     with pytest.raises(CellProvisionError, match="VPN_TOR"):
@@ -142,6 +145,23 @@ async def test_provision_refuses_vpn_tor_before_creating_anything() -> None:
 
     assert client.create_network_calls == []
     assert gate.expect_calls == []
+
+
+async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
+    backend, client, _ = _make_backend(FakeClock())
+    spec = _make_spec(
+        image="night-veil-ubuntu",
+        network_policy=NetworkPolicy.VPN_TOR,
+        comb_shield=CombShieldLevel.NIGHT_VEIL,
+    )
+
+    cell = await backend.provision(spec)
+
+    assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
+    # Docker's own network gives unrestricted outbound reach (module docstring: the in-image
+    # kill-switch is the real boundary, not Docker's own network layer).
+    assert client.create_network_calls[0].internal is False
+    assert client.create_network_calls[0].labels["hivemind.network_policy"] == "VPN_TOR"
 
 
 async def test_provision_cleans_up_on_network_create_failure() -> None:

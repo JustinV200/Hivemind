@@ -73,7 +73,11 @@ class TierProfile(BaseModel):
         default="", description="The OpenVPN profile name to use; empty when this tier needs none."
     )
     tor_socks: str = Field(
-        default="", description="The Tor SOCKS proxy address; empty when this tier needs none."
+        default="",
+        description="The Tor SOCKS proxy address a task's egress -- and, for NIGHT_VEIL, the "
+        "Waggle control channel too -- must route through; empty when this tier needs none "
+        "(roadmap step 5.7a: hivemind.queen.placement.policy.NightVeilConstraints.socks_proxy_url "
+        "is built from this field).",
     )
     route_checks: tuple[str, ...] = Field(
         default=(), description="Named route checks proving egress actually follows the profile."
@@ -85,6 +89,22 @@ class TierProfile(BaseModel):
         default="direct",
         description="How this tier's own Waggle control channel must bind: 'direct', 'vpn_only' "
         "or 'tor_hidden_service'.",
+    )
+    hidden_service_address: str = Field(
+        default="",
+        description="The Hive Stand's own Tor hidden-service (.onion) address this tier's Warden "
+        "dials for its control channel; empty for every tier but NIGHT_VEIL, which requires one "
+        "(roadmap step 5.7a: hivemind.queen.placement.policy.NightVeilConstraints."
+        "hive_stand_onion_address is built from this field). Never a clearnet address (codingrules "
+        "section 8.7: sharing the VPN tunnel with the control link would let an observer at the "
+        "tunnel's exit correlate the two).",
+    )
+    locale_profile: str = Field(
+        default="",
+        description="The fixed locale this tier's location-blind defaults pin every Cell to "
+        "(codingrules section 8.7); empty for every tier but NIGHT_VEIL, whose own default below "
+        "is 'C.UTF-8' (roadmap step 5.7a: hivemind.queen.placement.policy.NightVeilConstraints."
+        "locale_profile is built from this field).",
     )
 
 
@@ -169,7 +189,13 @@ _DEFAULT_TIER_PROFILES: dict[CombShieldLevel, TierProfile] = {
     CombShieldLevel.MEADOW: TierProfile(egress_profile="open", control_channel="direct"),
     CombShieldLevel.PROPOLIS: TierProfile(egress_profile="vpn_only", control_channel="vpn_only"),
     CombShieldLevel.NIGHT_VEIL: TierProfile(
-        egress_profile="vpn_tor", control_channel="tor_hidden_service"
+        egress_profile="vpn_tor",
+        control_channel="tor_hidden_service",
+        # Location-blind default (codingrules section 8.7); hidden_service_address and tor_socks
+        # are left empty here -- an operator must set both to their own Hive Stand's real hidden
+        # service and local Tor proxy before NIGHT_VEIL placement can ever succeed (roadmap step
+        # 5.7a: hivemind.queen.placement.policy.check_night_veil refuses an unconfigured profile).
+        locale_profile="C.UTF-8",
     ),
 }
 

@@ -36,6 +36,37 @@ def test_security_section_default_tiers_cover_all_three() -> None:
     assert section.tiers[CombShieldLevel.NIGHT_VEIL].control_channel == "tor_hidden_service"
 
 
+def test_night_veil_tier_defaults_a_location_blind_locale_but_no_onion_address() -> None:
+    # Roadmap step 5.7a: locale_profile has a sane default, but hidden_service_address is
+    # operator-set (there is no sane baked-in default for another Hive's real hidden service).
+    night_veil = SecuritySection().tiers[CombShieldLevel.NIGHT_VEIL]
+
+    assert night_veil.locale_profile == "C.UTF-8"
+    assert night_veil.hidden_service_address == ""
+
+
+def test_meadow_and_propolis_tiers_default_no_locale_or_onion_address() -> None:
+    section = SecuritySection()
+
+    for tier in (CombShieldLevel.MEADOW, CombShieldLevel.PROPOLIS):
+        assert section.tiers[tier].locale_profile == ""
+        assert section.tiers[tier].hidden_service_address == ""
+
+
+def test_tier_profile_accepts_an_explicit_hidden_service_address() -> None:
+    night_veil = SecuritySection(
+        tiers={
+            CombShieldLevel.NIGHT_VEIL: {
+                "egress_profile": "vpn_tor",
+                "hidden_service_address": "abc123.onion",
+                "locale_profile": "C.UTF-8",
+            }
+        }
+    ).tiers[CombShieldLevel.NIGHT_VEIL]
+
+    assert night_veil.hidden_service_address == "abc123.onion"
+
+
 def test_security_section_is_frozen_and_forbids_extras() -> None:
     section = SecuritySection()
 

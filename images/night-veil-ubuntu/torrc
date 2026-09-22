@@ -1,0 +1,24 @@
+# night-veil-ubuntu Tor configuration (roadmap step 5.3a).
+#
+# SOCKS on loopback only: the Warden's Waggle transport (and nothing else -- no other process on
+# this Cell has a reason to proxy through Tor directly) dials 127.0.0.1:9050 to reach the Hive
+# Stand's own hidden service (codingrules section 8.7: "the Waggle client's socket routed through
+# the Tor SOCKS proxy, not the VPN interface").
+SocksPort 127.0.0.1:9050
+
+# The control port, cookie-authenticated (no password on disk to leak): used by
+# hivemind.hive.night_veil.session_commands' own hidden_service_cmd and, in a later phase, by
+# anything that needs Tor's own circuit status rather than a plain SOCKS request.
+ControlPort 127.0.0.1:9051
+CookieAuthentication 1
+
+# No logs retained (codingrules section 12: "the Cell's local trail detail and its logs" are part
+# of the Night Veil boundary that never survives teardown -- Tor's own log is one of the "side
+# channels" ADR-0030 names). /dev/null, not a rotated file: nothing here to leak even mid-session.
+Log notice file /dev/null
+
+DataDirectory /var/lib/tor
+User debian-tor
+
+# Never advertise this Cell as a relay or bridge: it is a Tor *client* only.
+ClientOnly 1

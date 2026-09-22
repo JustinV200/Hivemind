@@ -45,7 +45,7 @@ from typing import ClassVar
 from pydantic import ValidationError
 
 from hivemind.brood_chamber import TaskDraft, TaskGraphDraft
-from hivemind.cell import Cell, HoneyClearance
+from hivemind.cell import Cell, HoneyClearance, RequestOrigin
 from hivemind.common.errors import ConfigurationError
 from hivemind.llm import (
     CallGate,
@@ -82,14 +82,19 @@ class PlannerError(ConfigurationError):
 class PlanBrief:
     """What `plan_goal` is asked to plan: the goal, its clearance ceiling and the fleet it has.
 
-    One value rather than three parameters (codingrules 5.1's parameter limit), and the natural
+    One value rather than four parameters (codingrules 5.1's parameter limit), and the natural
     unit to hand a planner: the text as the human stated it, the data-sensitivity ceiling every
-    subtask inherits, and the Cells placement will match the plan's needs against.
+    subtask inherits, the Cells placement will match the plan's needs against, and who asked for
+    the goal in the first place.
     """
 
     goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
     clearance: HoneyClearance  # Every planned subtask's own clearance label (the goal's ceiling).
     cells: Sequence[Cell] | None = None  # The attached Wardens' Cells; None omits hot state.
+    # Roadmap step 5.7a: every planned sub-task inherits the goal's own RequestOrigin, so a
+    # Night Veil sub-task planned from a human goal still reads as human-originated at placement;
+    # defaults HUMAN, matching every goal submitted through `hive run`/`hive tasks submit` today.
+    origin: RequestOrigin = RequestOrigin.HUMAN
 
 
 async def plan_goal(
@@ -135,7 +140,7 @@ async def plan_goal(
     # the ladder itself retries and steps down rungs on a malformed reply.
     result = await complete_structured(bound, request, PlanSchema, gate=gate, observer=observer)
     try:
-        return _to_graph_draft(result.value, brief.clearance)
+        return _to_graph_draft(result.value, brief.clearance, brief.origin)
     except ValidationError as exc:
         raise PlannerError(f"The planned graph for {brief.goal[:80]!r} is invalid: {exc}") from exc
 
@@ -171,14 +176,23 @@ def describe_fleet(cells: Sequence[Cell]) -> str:
     return "\n".join(lines)
 
 
-def _to_graph_draft(plan: PlanSchema, clearance: HoneyClearance) -> TaskGraphDraft:
+def _to_graph_draft(
+    plan: PlanSchema, clearance: HoneyClearance, origin: RequestOrigin
+) -> TaskGraphDraft:
     """Convert every PlannedTask into a TaskDraft; TaskGraphDraft's own validators do the rest."""
-    drafts = tuple(_to_task_draft(task, clearance) for task in plan.tasks)
+    drafts = tuple(_to_task_draft(task, clearance, origin) for task in plan.tasks)
     return TaskGraphDraft(tasks=drafts)
 
 
-def _to_task_draft(task: PlannedTask, clearance: HoneyClearance) -> TaskDraft:
-    """Convert one PlannedTask, and every criterion it carries, into a TaskDraft."""
+def _to_task_draft(
+    task: PlannedTask, clearance: HoneyClearance, origin: RequestOrigin
+) -> TaskDraft:
+    """Convert one PlannedTask, and every criterion it carries, into a TaskDraft.
+
+    Every sub-task gets the same `origin` as the goal it was planned from (roadmap step 5.7a: "the
+    planner's sub-tasks inherit the goal's origin"), never a value read off the model's own reply --
+    a planned task has no way to assert who originally asked for the goal.
+    """
     return TaskDraft(
         key=task.key,
         title=task.title,
@@ -186,6 +200,7 @@ def _to_task_draft(task: PlannedTask, clearance: HoneyClearance) -> TaskDraft:
         acceptance=tuple(_to_postcondition(item) for item in task.acceptance),
         needs=task.needs,
         clearance=min(task.clearance, clearance, key=lambda label: label.rank),
+        origin=origin,
         depends_on=task.depends_on,
     )
 

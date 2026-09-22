@@ -14,9 +14,13 @@ just enough for a `Placement.reason` to name it without decide ever reading the 
 current Cell inventory[,] each candidate's Cell Wax"; `ForageView` is the other half of `decide`'s
 signature, "what is needed to answer 'Forage covers the grant' without I/O" for a Virtual
 candidate -- a Real Cell's own free-capacity flag already lives on its `RealCandidate` and a
-backend's headroom already lives on its own `BackendCapabilities`, so `ForageView` carries only
-the one thing neither of those already has: the footprint the task's own placed bee would cost,
-checked against a candidate `VirtualCellSpec`'s own promised capacity.
+backend's headroom already lives on its own `BackendCapabilities`, so `ForageView` originally
+carried only the one thing neither of those already has: the footprint the task's own placed bee
+would cost, checked against a candidate `VirtualCellSpec`'s own promised capacity. Roadmap step
+5.7a adds two more fields to that same `ForageView`, both Night Veil-only and both defaulted so
+every pre-5.7a caller is unaffected: `request_origin` and `night_veil_hosting`, the two facts
+`hivemind.queen.placement.policy.check_night_veil` needs beyond `TaskNeeds` (see `ForageView`'s own
+docstring for why the real wiring of both is a report item rather than a change here).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
@@ -24,8 +28,9 @@ Fits into the Hive:
     do the I/O -- reading Cell Wax, the attached Wardens' own Cells, and `QueenDeps.
     virtual_backends`/`.dormant_cells` -- that fills these fields); read by `hivemind.queen.
     placement.decide.decide` and `hivemind.queen.placement.rules`. Calls into `hivemind.cell`
-    (CellCapabilities, CombShieldLevel), `hivemind.forage` (RoleFootprint), `hivemind.hive`
-    (BackendCapabilities, VirtualCellSpec) and `waggle.ids` only.
+    (CellCapabilities, CombShieldLevel, RequestOrigin), `hivemind.forage` (RoleFootprint),
+    `hivemind.hive` (BackendCapabilities, VirtualCellSpec), this package's own `policy` module
+    (NightVeilHostingView) and `waggle.ids` only.
 
 Key invariants:
     - Every type here is a frozen, slotted dataclass (codingrules section 8.5): a snapshot is a
@@ -49,9 +54,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from hivemind.cell import CellCapabilities, CombShieldLevel
+from hivemind.cell import CellCapabilities, CombShieldLevel, RequestOrigin
 from hivemind.forage import RoleFootprint
 from hivemind.hive import BackendCapabilities, VirtualCellSpec
+from hivemind.queen.placement.policy import NightVeilHostingView
 from waggle.ids import CellId, WardenId
 
 __all__ = [
@@ -165,9 +171,28 @@ class ForageView:
     one figure neither already carries: what the task's own placed bee would cost, checked against
     a candidate `VirtualCellSpec.cpu_cores`/`.memory_bytes`/`.capacity.max_sub_bees`.
 
+    `request_origin` and `night_veil_hosting` (roadmap step 5.7a) are the two facts
+    `hivemind.queen.placement.policy.check_night_veil` needs beyond `TaskNeeds` itself to judge a
+    NIGHT_VEIL placement; both default to the permissive, "assume human, nothing known to violate
+    yet" case so every existing caller that builds a `ForageView` with only `footprint=...` keeps
+    compiling and behaving exactly as before this step. The real values -- `task.spec.origin` and a
+    `NightVeilHostingView` built from `hivemind.queen.forage.night_veil.night_veil_local_only` --
+    are not yet threaded through from `hivemind.queen.dispatcher.snapshot.build_forage_view`, which
+    sits outside this dispatch's file list; this module's own report names the exact call to add
+    there once that dispatch is free to change.
+
     Attributes:
         footprint: The `RoleFootprint` of the bee this task would run as -- ordinarily
             `deps.footprints[WorkerRole.DRONE]`, the only Worker role phase 3 implements.
+        request_origin: Who asked for this task (`hivemind.cell.RequestOrigin`), read off
+            `TaskSpec.origin`; defaults to HUMAN, the only origin `hive run`/`hive tasks submit`
+            produce today (module docstring's own note on why the real wiring is a report item).
+        night_veil_hosting: What is known about whether this candidate's model slots can all
+            resolve to a local provider; defaults to `NightVeilHostingView()`, "not yet knowable"
+            (that dataclass's own docstring explains why a fresh NIGHT_VEIL provision cannot know
+            this before its Cell exists).
     """
 
     footprint: RoleFootprint
+    request_origin: RequestOrigin = RequestOrigin.HUMAN
+    night_veil_hosting: NightVeilHostingView = field(default_factory=NightVeilHostingView)

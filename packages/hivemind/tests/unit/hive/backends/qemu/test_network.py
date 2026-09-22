@@ -13,7 +13,6 @@ See Also:
 
 from __future__ import annotations
 
-import pytest
 from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
@@ -97,12 +96,20 @@ def test_plan_network_none_restricts_and_adds_a_guestfwd_relay() -> None:
     assert plan.relay_target == ("queen.internal", 9000)
 
 
-def test_plan_network_refuses_vpn_tor() -> None:
-    spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
+def test_plan_network_vpn_tor_behaves_like_egress_only_for_networking() -> None:
+    spec = _make_spec(
+        image="night-veil-ubuntu",
+        network_policy=NetworkPolicy.VPN_TOR,
+        comb_shield=CombShieldLevel.NIGHT_VEIL,
+    )
     endpoint = _make_endpoint("ws://localhost:8710")
 
-    with pytest.raises(ValueError, match="VPN_TOR"):
-        plan_network(spec, endpoint)
+    plan = plan_network(spec, endpoint)
+
+    # Roadmap step 5.7a: QEMU gives the same unrestricted outbound reach as EGRESS_ONLY -- the
+    # in-guest nftables kill-switch is VPN_TOR's real enforcement, not this network's own shape.
+    assert plan.netdev_arg == "user,id=net0"
+    assert plan.queen_waggle_url == f"ws://{USER_NET_HOST_ALIAS}:8710"
 
 
 def test_allowlist_label_constant_matches_docker_backends_own_convention() -> None:

@@ -1,0 +1,13 @@
+# night-veil-hostname.service (roadmap step 5.3a): randomise the hostname before anything else.
+[Unit]
+Description=Night Veil location-blind hostname randomisation
+DefaultDependencies=no
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/night-veil-hostname.sh
+
+[Install]
+WantedBy=sysinit.target

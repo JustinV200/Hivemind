@@ -14,7 +14,6 @@ See Also:
 
 from __future__ import annotations
 
-import pytest
 from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
@@ -101,10 +100,18 @@ def test_plan_network_stamps_hive_id_and_cell_id_labels() -> None:
     assert plan.spec.labels["hivemind.cell_id"] == cell_id
 
 
-def test_plan_network_refuses_vpn_tor() -> None:
+def test_plan_network_vpn_tor_policy_is_not_internal_and_labels_the_policy() -> None:
     cell_id = new_cell_id(FakeClock())
     # VirtualCellSpec's own validator requires VPN_TOR and NIGHT_VEIL together (hive/models.py).
-    spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    spec = _make_spec(
+        image="night-veil-ubuntu",
+        network_policy=NetworkPolicy.VPN_TOR,
+        comb_shield=CombShieldLevel.NIGHT_VEIL,
+    )
 
-    with pytest.raises(ValueError, match="VPN_TOR"):
-        plan_network(spec, cell_id)
+    plan = plan_network(spec, cell_id)
+
+    # Roadmap step 5.7a: Docker gives the same unrestricted outbound reach as EGRESS_ONLY -- the
+    # in-image nftables kill-switch is VPN_TOR's real enforcement, not this network's own shape.
+    assert plan.spec.internal is False
+    assert plan.spec.labels["hivemind.network_policy"] == "VPN_TOR"

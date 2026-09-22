@@ -60,7 +60,7 @@ from hivemind.queen.placement.inventory import (
     WaxMention,
 )
 from hivemind.queen.placement.models import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
-from hivemind.queen.placement.policy import PlacementPolicy
+from hivemind.queen.placement.policy import PlacementPolicy, check_night_veil
 from waggle.ids import CellId
 
 # The only Worker role phase 3 implements (mirrors manifest.schema.forage.REQUIRED_ROLE); a real
@@ -268,10 +268,22 @@ def _order_backends(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+_NIGHT_VEIL_LABEL = "hivemind.comb_shield"  # Mirrors hive.backends.docker's own label constant.
+
+
 def _place_night_veil(
     needs: TaskNeeds, inventory: Inventory, forage: ForageView, policy: PlacementPolicy
 ) -> Placement:
-    """Rule 2: NIGHT_VEIL is always a fresh Virtual Cell; dormant Cells are never even looked at."""
+    """Rule 2: NIGHT_VEIL is always a fresh Virtual Cell; dormant Cells are never even looked at.
+
+    Roadmap step 5.7a: ADR-0028's rule 2 also requires a human-originated request and a network
+    profile that can actually route Night Veil traffic (ADR-0030), checked by
+    `hivemind.queen.placement.policy.check_night_veil` before any backend is even considered --
+    a task that fails these never places, however much Virtual headroom is free.
+    """
+    violations = check_night_veil(needs, forage.request_origin, forage.night_veil_hosting, policy)
+    if violations:
+        raise PlacementError(f"NIGHT_VEIL placement refused: {'; '.join(violations)}.")
     eliminated: list[str] = []
     for backend in _order_backends(inventory.virtual_backends, policy):
         if not rules.virtual_has_headroom(backend.capabilities.headroom):
@@ -288,6 +300,11 @@ def _place_night_veil(
                 "comb_shield": CombShieldLevel.NIGHT_VEIL,
                 "network_policy": NetworkPolicy.VPN_TOR,
                 "network_allowlist": (),
+                # Roadmap step 5.7a: stamped on the spec itself (not only read back off
+                # spec.comb_shield) so every backend's own label-only orphan sweep
+                # (hive.backends.docker.backend._to_record, hive.backends.qemu's own equivalent)
+                # can filter on this label alone, the same way it already filters on hive_id.
+                "labels": {**base.labels, _NIGHT_VEIL_LABEL: CombShieldLevel.NIGHT_VEIL.value},
             }
         )
         return ProvisionVirtual(

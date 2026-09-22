@@ -1,0 +1,13 @@
+# night-veil-env.service (roadmap step 5.3a): bridge PID 1's own HIVEMIND_* env to systemd units.
+[Unit]
+Description=Bridge the backend's own HIVEMIND_* environment into /run/hivemind/env
+DefaultDependencies=no
+Before=hivemind-warden.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/night-veil-env.sh
+
+[Install]
+WantedBy=multi-user.target

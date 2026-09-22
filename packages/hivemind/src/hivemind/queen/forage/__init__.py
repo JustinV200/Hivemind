@@ -37,6 +37,8 @@ Public API (roadmap steps 4.7-4.8):
     - ForageRequestOutcome, grant_wanted, handle_forage_request_for_kind: ForageRequest handling
       (requests; renamed from handle_sub_bee_request, roadmap step 4.7's own leftover).
     - PlanReason, write_hosting_plan: a Cell's HostingPlan (hosting).
+    - NightVeilPlanError, night_veil_local_only, restrict_to_local: Night Veil's local-only hosting
+      plan checks (roadmap step 5.7a; night_veil).
     - set_ceilings, change_ceilings: a Warden's local-pool bounds (ceilings).
 """
 
@@ -62,6 +64,11 @@ from hivemind.queen.forage.ledger import (
     SqliteLedgerStore,
     apply_ledger_migrations,
 )
+from hivemind.queen.forage.night_veil import (
+    NightVeilPlanError,
+    night_veil_local_only,
+    restrict_to_local,
+)
 from hivemind.queen.forage.requests import (
     ForageRequestOutcome,
     grant_wanted,
@@ -77,6 +84,7 @@ __all__ = [
     "LedgerRecorder",
     "LedgerStore",
     "LocalPoolReport",
+    "NightVeilPlanError",
     "PlanReason",
     "SeatBook",
     "SpendBook",
@@ -86,7 +94,9 @@ __all__ = [
     "change_ceilings",
     "grant_wanted",
     "handle_forage_request_for_kind",
+    "night_veil_local_only",
     "renew_grants_for_warden",
+    "restrict_to_local",
     "revise",
     "revoke",
     "set_ceilings",

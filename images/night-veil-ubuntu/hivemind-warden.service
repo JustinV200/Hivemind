@@ -1,0 +1,30 @@
+# hivemind-warden.service (roadmap step 5.3a): the in-Cell Warden, started only once Tor is up.
+#
+# base-ubuntu's own image runs hivemind-in-cell directly as ENTRYPOINT (no init system needed for
+# a terminal-only Cell); night-veil-ubuntu needs systemd as PID 1 instead, to express the fixed
+# nftables -> openvpn -> tor -> Warden ordering codingrules section 8.7 requires and to give
+# hivemind.hive.night_veil.session_commands' own tor_healthy/timezone_utc checks (systemctl,
+# timedatectl) something to query. This unit is what actually starts the same console script
+# base-ubuntu's ENTRYPOINT does, just later in boot and as a supervised service instead.
+[Unit]
+Description=HiveMind in-Cell Warden (Night Veil)
+Requires=night-veil-kill-switch.service tor.service night-veil-env.service
+After=night-veil-kill-switch.service tor.service night-veil-env.service
+
+[Service]
+Type=simple
+User=hive
+Group=hive
+WorkingDirectory=/home/hive
+# Fixed: torrc's own SocksPort never varies inside this image (loopback only, port 9050).
+# HIVEMIND_QUEEN_WAGGLE_URL/_CELL_ID/_HIVE_ID/_QUEEN_NODE_ID/_CELL_SIGNING_KEY/_QUEEN_VERIFY_KEY
+# still come from the backend's own environment (hivemind.hive.backends.bootstrap.CellBootstrap.
+# environment()), passed through by EnvironmentFile below -- this unit only adds the one variable
+# that is a fact about *this image*, not about any one Cell.
+Environment=HIVEMIND_SOCKS_PROXY_URL=socks5h://127.0.0.1:9050
+EnvironmentFile=-/run/hivemind/env
+ExecStart=/opt/hivemind/venv/bin/hivemind-in-cell
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

@@ -48,9 +48,16 @@ What each policy really enforces at the QEMU level, and what it does not:
     `spec.network_allowlist` into a label for audit and for a later enforcement layer to read; see
     the TODO(5.7a) marker below, mirroring Docker's own `ALLOWLIST_LABEL`.
 
-    VPN_TOR: never reaches this module. `QemuCellBackend.provision` refuses it before calling here
-    (Night Veil needs its own image, roadmap step 5.3a, and its own routing, 5.7a), exactly as the
-    Docker backend does.
+    VPN_TOR (roadmap step 5.7a): the same unrestricted user network as EGRESS_ONLY -- QEMU's own
+    SLIRP stack cannot itself restrict outbound reach to "only the VPN endpoint and Tor's own
+    bootstrap addresses" any more than Docker's network API can (`hivemind.hive.backends.docker.
+    network`'s own module docstring). The real enforcement is the `night-veil-ubuntu` image's own
+    in-guest nftables kill-switch (roadmap step 5.3a); unlike a Docker container, a QEMU guest's
+    own init runs with full kernel privilege inside the VM, so there is no host-side capability
+    (Docker's `cap_add=NET_ADMIN` gap, see that module's own backend.py) this backend needs to
+    grant for the kill-switch to load its own ruleset. `QemuCellBackend.provision` still refuses a
+    VPN_TOR spec whose image is not `"night-veil-ubuntu"` before ever reaching here, mirroring
+    Docker's own defensive check.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.qemu`. Called by
@@ -58,11 +65,12 @@ Fits into the Hive:
     (NetworkPolicy) and hivemind.hive.backends.bootstrap (QueenEndpoint) only.
 
 Key invariants:
-    - Never called with `NetworkPolicy.VPN_TOR`: `plan_network` raises `ValueError` if it is, as a
-      defensive check on the caller's own prior guard (mirrors
-      `hivemind.hive.backends.docker.network.plan_network`'s own invariant).
     - The returned `queen_waggle_url` is always reachable from inside the guest under the returned
       `netdev_arg`: the control link (ADR-0027) must work under every network policy.
+    - VPN_TOR's own network plan is built exactly like EGRESS_ONLY's: QEMU gives unrestricted
+      outbound reach either way, and the difference between the two tiers is entirely inside the
+      guest, not in what this module asks QEMU to create (mirrors `hivemind.hive.backends.docker.
+      network`'s own VPN_TOR invariant).
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for why the control
@@ -142,21 +150,14 @@ def plan_network(spec: VirtualCellSpec, endpoint: QueenEndpoint) -> QemuNetworkP
 
     Returns:
         A QemuNetworkPlan ready for the VM's `-netdev` argument and its own environment.
-
-    Raises:
-        ValueError: `spec.network_policy` is `NetworkPolicy.VPN_TOR` (see the module docstring's
-            key invariant: the real caller never reaches this with VPN_TOR).
     """
-    if spec.network_policy is NetworkPolicy.VPN_TOR:
-        raise ValueError(
-            "plan_network never handles VPN_TOR: QemuCellBackend.provision must refuse it before "
-            "calling here (Night Veil needs its own image and routing)."
-        )
     parsed = urlsplit(endpoint.waggle_url)
     if spec.network_policy is NetworkPolicy.NONE:
         return _plan_none(parsed)
-    # EGRESS_ONLY and ALLOWLIST: full outbound NAT, so the ordinary host-loopback rewrite (if any)
-    # is all the control link needs; ALLOWLIST's own entries are audit-only (see TODO(5.7a) above).
+    # EGRESS_ONLY, ALLOWLIST and VPN_TOR: full outbound NAT, so the ordinary host-loopback rewrite
+    # (if any) is all the control link needs; ALLOWLIST's own entries are audit-only (TODO(5.7a)
+    # above) and VPN_TOR's own restriction is enforced inside the guest, not here (module
+    # docstring's VPN_TOR entry).
     return QemuNetworkPlan(netdev_arg="user,id=net0", queen_waggle_url=_reachable_url(parsed))
 
 

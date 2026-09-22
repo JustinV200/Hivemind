@@ -38,6 +38,8 @@ Public API:
       the pure snapshot `decide` reads, precomputed by its caller (inventory).
     - PlacementPolicy, VirtualSpecTemplate, Prefer: the `[placement]`-derived value object `decide`
       reads (policy).
+    - NightVeilConstraints, NightVeilHostingView, check_night_veil: the roadmap step 5.7a Night
+      Veil placement checks `decide`'s NIGHT_VEIL branch runs (policy).
     - PlacementError, decide: the pipeline itself, and the error it raises when nothing fits
       (decide).
     - rules: the individually-tested rule functions `decide` runs, reached as
@@ -55,12 +57,21 @@ from hivemind.queen.placement.inventory import (
     WaxMention,
 )
 from hivemind.queen.placement.models import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
-from hivemind.queen.placement.policy import PlacementPolicy, Prefer, VirtualSpecTemplate
+from hivemind.queen.placement.policy import (
+    NightVeilConstraints,
+    NightVeilHostingView,
+    PlacementPolicy,
+    Prefer,
+    VirtualSpecTemplate,
+    check_night_veil,
+)
 
 __all__ = [
     "DormantCandidate",
     "ForageView",
     "Inventory",
+    "NightVeilConstraints",
+    "NightVeilHostingView",
     "Placement",
     "PlacementError",
     "PlacementPolicy",
@@ -72,6 +83,7 @@ __all__ = [
     "VirtualBackendCandidate",
     "VirtualSpecTemplate",
     "WaxMention",
+    "check_night_veil",
     "decide",
     "rules",
 ]

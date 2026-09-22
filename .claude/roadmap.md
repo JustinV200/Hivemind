@@ -948,7 +948,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   `hivemind` runtime + a Waggle client that connects **out** to the Queen. Terminal-first. The
   image's entry point starts a **Warden**, which then spawns sub-bees inside the Cell.
   `images/base-ubuntu/README.md` explains every layer.
-- [ ] **5.3a Night Veil image.** `images/night-veil-ubuntu/Dockerfile` on `desktop-ubuntu`
+- [x] **5.3a Night Veil image.** `images/night-veil-ubuntu/Dockerfile` on `desktop-ubuntu`
   (6.1, so this step lands after it): OpenVPN client, Tor daemon, Tor Browser, nftables
   kill-switch rules, and the location-blind defaults baked in (UTC, fixed locale, hostname
   randomised at boot, metadata endpoints null-routed). README documents each package and each
@@ -971,7 +971,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   display or the ability to start one; OS and network scopes must match; Forage must cover the
   grant; a `BLOCK` Cell Wax (4.2a) excludes the Cell and a `CAUTION` counts against it; otherwise
   honour `prefer`. Records `queen.placed` with the reason, the wax that weighed on it included.
-- [ ] **5.7a Night Veil placement and routing constraints.** `queen/placement/policy.py` and
+- [x] **5.7a Night Veil placement and routing constraints.** `queen/placement/policy.py` and
   `queen/forage/hosting.py`: if `TaskNeeds.comb_shield = NIGHT_VEIL`, placement is Virtual-only,
   request must be explicitly human-originated, network profile must be OpenVPN + Tor with direct
   egress blocked, and every model slot in the hosting plan must resolve to local providers only
@@ -982,7 +982,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   The profile also enforces location-blind defaults
   (UTC timezone, fixed locale, randomized hostname, blocked metadata endpoints). A Real Cell's
   tier is an enrolment attribute set by the operator (11.8a); placement never changes it.
-- [ ] **5.7b Night Veil deterministic bootstrap attestation.** `hive/night_veil.py`: before
+- [x] **5.7b Night Veil deterministic bootstrap attestation.** `hive/night_veil.py`: before
   `CellReady`, attest the `night-veil-ubuntu` image (5.3a) deterministically, installing nothing
   at runtime: firewall kill-switch active,
   default route via VPN tunnel, Tor daemon healthy, Tor Browser installed and launchable, the

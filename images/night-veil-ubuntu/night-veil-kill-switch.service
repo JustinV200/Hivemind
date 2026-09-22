@@ -1,0 +1,26 @@
+# night-veil-kill-switch.service (roadmap step 5.3a).
+#
+# Loads nftables.conf's default-drop ruleset and adds a redundant blackhole route for the most
+# common cloud metadata address, before anything that could otherwise leak starts. Ordered first
+# in the whole chain (nftables -> openvpn -> tor -> the Warden, codingrules section 8.7): every
+# later unit's own `After=`/`Requires=` on this one is what enforces that order, not this file.
+[Unit]
+Description=Night Veil kill-switch (nftables default-drop ruleset)
+DefaultDependencies=no
+Before=network-pre.target openvpn-client@night-veil.service tor.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# -f: replace any prior ruleset outright (idempotent across a restart); the .conf itself is
+# read-only in this image (never edited at runtime -- night-veil-ubuntu/README.md's own point
+# that attestation checks an image, never a runtime configuration).
+ExecStart=/usr/sbin/nft -f /etc/nftables.conf
+# Redundant with the nftables rule of the same purpose (nftables.conf's own comment on why): a
+# second, independent mechanism against the same address is worth the one extra line.
+ExecStart=/usr/sbin/ip route add blackhole 169.254.169.254/32
+ExecStop=/usr/sbin/nft flush ruleset
+
+[Install]
+WantedBy=sysinit.target

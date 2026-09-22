@@ -46,6 +46,8 @@ Public API:
     - AccessLevel, CombShieldLevel, HoneyClearance: the three Cell security dimensions
       (hivemind.cell.tiers).
     - Isolation, OsFamily, TaskNeeds: what a task requires from its Cell (hivemind.cell.needs).
+    - RequestOrigin: who asked for a task to exist -- HUMAN, QUEEN or WARDEN (roadmap step 5.7a,
+      hivemind.cell.needs).
     - CellKind, CellCapabilities, Cell: what a Cell is and can do (hivemind.cell.models).
     - OutputStream, OutputChunk, ExitStatus, ExecEvent, ExecSpec, CellSession, CompletedCommand,
       run, DEFAULT_EXEC_TIMEOUT_S, resolve_scratch_path: a terminal session on a Cell
@@ -95,7 +97,7 @@ from hivemind.cell.lease import (
 )
 from hivemind.cell.lease_state import TRANSITIONS, LeaseState, assert_transition, can_transition
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
-from hivemind.cell.needs import Isolation, OsFamily, TaskNeeds
+from hivemind.cell.needs import Isolation, OsFamily, RequestOrigin, TaskNeeds
 from hivemind.cell.session import (
     DEFAULT_EXEC_TIMEOUT_S,
     CellSession,
@@ -151,6 +153,7 @@ __all__ = [
     "ProbeError",
     "RealCellLease",
     "RealCellSource",
+    "RequestOrigin",
     "Responder",
     "RestoreRecord",
     "ScratchQuotaExceededError",

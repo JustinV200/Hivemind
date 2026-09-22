@@ -93,8 +93,11 @@ async def test_provision_stamps_hive_id_label() -> None:
     assert runner.start_vm_calls[0].labels["hive_id"] == spec.hive_id
 
 
-async def test_provision_refuses_vpn_tor_before_creating_anything() -> None:
+async def test_provision_refuses_vpn_tor_on_any_image_but_night_veil_ubuntu() -> None:
     backend, runner, gate = _make_backend(FakeClock())
+    # image defaults away from "night-veil-ubuntu" (_make_spec): the in-guest kill-switch that
+    # image lacks is VPN_TOR's only real enforcement, so this must be refused before anything is
+    # created, whatever else the spec asks for.
     spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
 
     with pytest.raises(CellProvisionError, match="VPN_TOR"):
@@ -102,6 +105,22 @@ async def test_provision_refuses_vpn_tor_before_creating_anything() -> None:
 
     assert runner.start_vm_calls == []
     assert gate.expect_calls == []
+
+
+async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
+    backend, runner, _ = _make_backend(FakeClock())
+    spec = _make_spec(
+        image="night-veil-ubuntu",
+        network_policy=NetworkPolicy.VPN_TOR,
+        comb_shield=CombShieldLevel.NIGHT_VEIL,
+    )
+
+    cell = await backend.provision(spec)
+
+    assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
+    # QEMU's own SLIRP network gives unrestricted outbound reach (module docstring: the in-guest
+    # kill-switch is the real boundary, not QEMU's own network layer).
+    assert runner.start_vm_calls[0].netdev_arg == "user,id=net0"
 
 
 async def test_provision_cleans_up_on_start_vm_failure() -> None:

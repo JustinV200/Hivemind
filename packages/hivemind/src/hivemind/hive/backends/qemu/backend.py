@@ -85,6 +85,9 @@ _BACKEND_NAME = "qemu"
 # One poll of the serial console per this many seconds while waiting for READINESS_MARKER; small
 # enough that a fast-booting VM is not held up noticeably, large enough not to hammer the log file.
 _SERIAL_POLL_INTERVAL_S = 0.5
+# Roadmap step 5.7a: the only image whose own nftables kill-switch actually enforces VPN_TOR
+# (images/night-veil-ubuntu, roadmap step 5.3a); provision() refuses VPN_TOR on any other image.
+_NIGHT_VEIL_IMAGE = "night-veil-ubuntu"
 
 __all__ = ["QemuBackendConfig", "QemuCellBackend", "build_qemu_backend"]
 
@@ -171,15 +174,15 @@ class QemuCellBackend:
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         """See `CellBackend.provision`."""
         self._check_headroom(spec)
-        if spec.network_policy is NetworkPolicy.VPN_TOR:
-            # Night Veil needs its own image (roadmap 5.3a) and routing (5.7a), neither of which
-            # exists yet; refusing here is cheaper than failing partway through provisioning,
-            # mirroring DockerCellBackend's own refusal.
+        if spec.network_policy is NetworkPolicy.VPN_TOR and spec.image != _NIGHT_VEIL_IMAGE:
+            # The in-image nftables kill-switch is VPN_TOR's only real enforcement (mirrors
+            # DockerCellBackend's own refusal, hive.backends.docker.backend); a spec that does not
+            # boot that image must never be accepted, whatever else it asks for.
             raise CellProvisionError(
                 self.name,
                 spec.image,
-                "VPN_TOR requires the Night Veil image and routing (roadmap steps 5.3a/5.7a), "
-                "not yet available to the QEMU backend",
+                f"VPN_TOR requires image={_NIGHT_VEIL_IMAGE!r} (roadmap step 5.3a), so its own "
+                "kill-switch is what actually enforces this Cell's network policy",
             )
         bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
         # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify

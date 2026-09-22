@@ -54,7 +54,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from hivemind.brood_chamber.task.graph import is_acyclic_edges
 from hivemind.brood_chamber.task.state import TERMINAL_STATUSES, TaskStatus
-from hivemind.cell import HoneyClearance, TaskNeeds
+from hivemind.cell import HoneyClearance, RequestOrigin, TaskNeeds
 from waggle.messages import Postcondition
 from waggle.messages.base import (
     CellIdField,
@@ -125,6 +125,12 @@ class TaskSpec(BaseModel):
     )
     clearance: HoneyClearance = Field(
         default=HoneyClearance.C1, description="The data-sensitivity label of the task itself."
+    )
+    origin: RequestOrigin = Field(
+        default=RequestOrigin.HUMAN,
+        description="Who asked for this task to exist (roadmap step 5.7a). Defaults to HUMAN, "
+        "matching every task minted from a `hive run`/`hive tasks submit` file today; a planned "
+        "sub-task inherits its goal's own origin (hivemind.queen.planner.plan._to_task_draft).",
     )
     depends_on: tuple[TaskIdField, ...] = Field(
         default=(),
@@ -260,6 +266,12 @@ class TaskDraft(BaseModel):
     )
     clearance: HoneyClearance = Field(
         default=HoneyClearance.C1, description="The data-sensitivity label of the task itself."
+    )
+    origin: RequestOrigin = Field(
+        default=RequestOrigin.HUMAN,
+        description="Who asked for this task to exist (roadmap step 5.7a); default HUMAN matches "
+        "a hand-written or `hive run` submission. hivemind.brood_chamber.chamber.submission "
+        "carries this straight onto the minted Task's TaskSpec.origin.",
     )
     depends_on: tuple[str, ...] = Field(
         default=(),

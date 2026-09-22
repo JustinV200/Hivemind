@@ -78,6 +78,17 @@ handling, hosting plans and Ceilings per Warden.
   revision), send `waggle.messages.forage.CeilingsSet` over its `WardenLink`, and record
   `forage.ceilings_set` with the old and new `max_sub_bees`, mirroring
   `hivemind.queen.dispatcher`'s own "write, then send, then record" ordering for a grant.
+- **`night_veil`**: `night_veil_local_only(plan, forage_map) -> tuple[str, ...]` and
+  `restrict_to_local(plan, forage_map, cell_id) -> HostingPlan` (roadmap step 5.7a) -- ADR-0030's
+  "every model slot resolves to a local provider" rule for a NIGHT_VEIL Cell's own `HostingPlan`: a
+  source is local only if its `ModelSourceSpec.host_cell_id` equals the Cell's own id (the Hive
+  Stand is just another `host_cell_id` here, not a special case). `night_veil_local_only` lists
+  every violating slot (default chain included); `restrict_to_local` strips non-local sources,
+  drops a slot left with none, and raises `NightVeilPlanError` only when the default chain itself
+  cannot be made local. Read by `hivemind.queen.placement.policy.check_night_veil`'s own caller
+  (which builds a `NightVeilHostingView` from the first function's result); the call that writes a
+  restricted plan back to the ledger for a freshly provisioned Night Veil Cell is a report item
+  (the site sits in `hivemind.queen.dispatcher`, outside this dispatch's file list).
 
 ## How to test this
 

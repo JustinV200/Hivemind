@@ -84,6 +84,9 @@ _LABEL_HIVE_ID = "hivemind.hive_id"
 _LABEL_CELL_ID = "hivemind.cell_id"
 _LABEL_IMAGE = "hivemind.image"
 _LABEL_COMB_SHIELD = "hivemind.comb_shield"
+# Roadmap step 5.7a: the only image whose own nftables kill-switch actually enforces VPN_TOR
+# (images/night-veil-ubuntu, roadmap step 5.3a); provision() refuses VPN_TOR on any other image.
+_NIGHT_VEIL_IMAGE = "night-veil-ubuntu"
 
 __all__ = ["DockerCellBackend", "build_docker_backend", "container_name"]
 
@@ -148,14 +151,15 @@ class DockerCellBackend:
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         """See `CellBackend.provision`."""
         self._check_headroom(spec)
-        if spec.network_policy is NetworkPolicy.VPN_TOR:
-            # Night Veil needs its own image (roadmap 5.3a) and routing (5.7a), neither of which
-            # exists yet; refusing here is cheaper than failing partway through provisioning.
+        if spec.network_policy is NetworkPolicy.VPN_TOR and spec.image != _NIGHT_VEIL_IMAGE:
+            # The in-image nftables kill-switch is VPN_TOR's only real enforcement (module
+            # docstring); a spec that does not boot that image must never be accepted, whatever
+            # else it asks for -- refusing here is cheaper than failing partway through.
             raise CellProvisionError(
                 self.name,
                 spec.image,
-                "VPN_TOR requires the Night Veil image and routing (roadmap steps 5.3a/5.7a), "
-                "not yet available to the Docker backend",
+                f"VPN_TOR requires image={_NIGHT_VEIL_IMAGE!r} (roadmap step 5.3a), so its own "
+                "kill-switch is what actually enforces this Cell's network policy",
             )
         bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
         # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify
@@ -320,6 +324,13 @@ def _build_container_spec(
         nano_cpus=int(spec.cpu_cores * _NANOS_PER_CPU),
         mem_limit_bytes=spec.memory_bytes,
         pids_limit=_DEFAULT_PIDS_LIMIT,
+        # NOTE (roadmap step 5.7a): a VPN_TOR Cell's in-image nftables kill-switch needs
+        # CAP_NET_ADMIN to load its own ruleset at boot, which `cap_drop=("ALL",)` below would
+        # otherwise strip. `ContainerSpec` (hive.backends.docker.client) has no `cap_add` field
+        # yet to add it back selectively -- that file is outside this dispatch's own file list, so
+        # this is a report item: add `cap_add: tuple[str, ...] = ()` there, thread it through
+        # `SdkDockerClient`/`FakeDockerClient`, and pass `cap_add=("NET_ADMIN",) if spec.
+        # network_policy is NetworkPolicy.VPN_TOR else ()` here once it exists.
         cap_drop=("ALL",),
         security_opt=("no-new-privileges:true",),
         # Read-only root plus a writable tmpfs /tmp and the writable scratch volume: least

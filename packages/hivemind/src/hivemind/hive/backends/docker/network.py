@@ -32,8 +32,17 @@ What each policy really enforces at the Docker level, and what it does not:
     only stamps `spec.network_allowlist` onto a label for audit and for a later enforcement layer
     to read; see the TODO(5.7a) marker below for exactly what still has to close this gap.
 
-    VPN_TOR: never reaches this module. `DockerCellBackend.provision` refuses it before calling
-    here (Night Veil needs its own image, roadmap step 5.3a, and its own routing, 5.7a).
+    VPN_TOR (roadmap step 5.7a): the same plain bridge network as EGRESS_ONLY, labelled
+    `hivemind.network_policy=VPN_TOR` for audit. Docker's own network API can give a Night Veil
+    container outbound reach and nothing more -- it cannot itself restrict that reach to "only the
+    VPN endpoint and Tor's own bootstrap addresses" the way ADR-0030 asks for. The real enforcement
+    is the `night-veil-ubuntu` image's own in-container nftables kill-switch (roadmap step 5.3a),
+    which runs before anything else starts (that image's own README documents the exact ordering);
+    Docker's job here is only to not get in its way -- unrestricted outbound NAT, so the kill-switch
+    inside the container is what actually decides what leaves it, never Docker's own network layer.
+    `DockerCellBackend.provision` still refuses a VPN_TOR spec whose image is not
+    `"night-veil-ubuntu"` before ever reaching here (defensive: the in-image kill-switch is the
+    only real enforcement, so a spec that does not boot that image must never be accepted at all).
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.docker`. Called by
@@ -41,11 +50,11 @@ Fits into the Hive:
     (NetworkPolicy) only.
 
 Key invariants:
-    - Never called with `NetworkPolicy.VPN_TOR`: `plan_network` raises `ValueError` if it is, as a
-      defensive check on the caller's own prior guard, not as VPN_TOR's real error path (that is
-      `hive.errors.CellProvisionError`, raised by `backend.py` before this module is ever reached).
     - `host_gateway_extra_hosts()` is added to every Cell's container regardless of policy: the
       control link (ADR-0027) must work under every network policy, NONE included.
+    - VPN_TOR's own network plan is created exactly like EGRESS_ONLY's (module docstring): Docker
+      gives unrestricted outbound reach either way, and the difference between the two tiers is
+      entirely inside the container, not in what this module asks Docker to create.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for why the control
@@ -132,26 +141,22 @@ def plan_network(spec: VirtualCellSpec, cell_id: CellId) -> NetworkPlan:
     Returns:
         A NetworkPlan ready for `DockerClientPort.create_network` plus the container's own
         `extra_hosts`.
-
-    Raises:
-        ValueError: `spec.network_policy` is `NetworkPolicy.VPN_TOR` (see the module docstring's
-            key invariant: the real caller never reaches this with VPN_TOR).
     """
-    if spec.network_policy is NetworkPolicy.VPN_TOR:
-        raise ValueError(
-            "plan_network never handles VPN_TOR: DockerCellBackend.provision must refuse it "
-            "before calling here (Night Veil needs its own image and routing)."
-        )
     labels: dict[str, str] = {"hivemind.hive_id": str(spec.hive_id), "hivemind.cell_id": cell_id}
     if spec.network_policy is NetworkPolicy.ALLOWLIST:
         # See the module docstring and the TODO(5.7a) marker above: recorded for audit and for a
         # later enforcement layer, not enforced by Docker's own network API.
         labels[ALLOWLIST_LABEL] = ",".join(spec.network_allowlist)
+    if spec.network_policy is NetworkPolicy.VPN_TOR:
+        # Audit metadata only, exactly like ALLOWLIST_LABEL above: the real enforcement is the
+        # night-veil-ubuntu image's own nftables kill-switch (module docstring's VPN_TOR entry).
+        labels["hivemind.network_policy"] = NetworkPolicy.VPN_TOR.value
     return NetworkPlan(
         spec=NetworkSpec(
             name=network_name(cell_id),
-            # Only NONE withholds the outbound NAT rule; EGRESS_ONLY and ALLOWLIST both need full
-            # outbound reach at the Docker level (see the module docstring's per-policy summary).
+            # Only NONE withholds the outbound NAT rule; every other policy, VPN_TOR included,
+            # needs full outbound reach at the Docker level (module docstring's per-policy
+            # summary: VPN_TOR's own restriction is enforced inside the container, not here).
             internal=spec.network_policy is NetworkPolicy.NONE,
             labels=labels,
         ),

@@ -48,6 +48,13 @@ jobs:
       # silently never proving the Docker backend against a real container on this runner.
       - name: Build images/base-ubuntu:dev
         run: docker build -f images/base-ubuntu/Dockerfile -t hivemind/base-ubuntu:dev .
+      # roadmap step 5.3a: images/night-veil-ubuntu builds FROM hivemind/base-ubuntu:dev, so it
+      # must come after that image exists. Built here (rather than only when a Night Veil
+      # integration test needs it) so a Dockerfile regression is caught the same night as any
+      # other image's, per this workflow's own "prove it builds" role (images/night-veil-ubuntu/
+      # README.md's own build command, repository root as build context).
+      - name: Build images/night-veil-ubuntu:dev
+        run: docker build -f images/night-veil-ubuntu/Dockerfile -t hivemind/night-veil-ubuntu:dev .
       # No integration test existed until phase 5 added the first Docker Cell backend, and pytest
       # exits 5 ("no tests collected") when a marker selects nothing. Treat that one exit code as
       # success explicitly, rather than with `continue-on-error` (which would also swallow a real

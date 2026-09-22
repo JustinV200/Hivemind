@@ -19,13 +19,22 @@ import pytest
 from builders.cells import make_capabilities
 from builders.forage import make_capacity, make_footprint
 
-from hivemind.cell import CellCapabilities, CombShieldLevel, Isolation, OsFamily, TaskNeeds
+from hivemind.cell import (
+    CellCapabilities,
+    CombShieldLevel,
+    Isolation,
+    OsFamily,
+    RequestOrigin,
+    TaskNeeds,
+)
 from hivemind.forage import ForageCapacity
 from hivemind.hive import BackendCapabilities, NetworkPolicy, VirtualCellSpec
 from hivemind.queen.placement import (
     DormantCandidate,
     ForageView,
     Inventory,
+    NightVeilConstraints,
+    NightVeilHostingView,
     PlacementError,
     PlacementPolicy,
     Prefer,
@@ -91,8 +100,32 @@ def _backend(
     )
 
 
-def _forage() -> ForageView:
-    return ForageView(footprint=make_footprint())
+def _forage(
+    *,
+    request_origin: RequestOrigin = RequestOrigin.HUMAN,
+    night_veil_hosting: NightVeilHostingView | None = None,
+) -> ForageView:
+    return ForageView(
+        footprint=make_footprint(),
+        request_origin=request_origin,
+        night_veil_hosting=night_veil_hosting
+        if night_veil_hosting is not None
+        else (NightVeilHostingView()),
+    )
+
+
+def _night_veil_constraints() -> NightVeilConstraints:
+    """A fully-configured [security] Night Veil profile.
+
+    Used by every test that is not itself exercising check_night_veil's own "profile is not
+    configured" violation.
+    """
+    return NightVeilConstraints(
+        required_network_policy=NetworkPolicy.VPN_TOR,
+        hive_stand_onion_address="abc123.onion",
+        socks_proxy_url="socks5h://127.0.0.1:9050",
+        locale_profile="C.UTF-8",
+    )
 
 
 def _policy(
@@ -100,11 +133,13 @@ def _policy(
     prefer: Prefer = "real",
     allow_hive_stand: bool = True,
     role_overrides: Mapping[str, Prefer] | None = None,
+    night_veil: NightVeilConstraints | None = None,
 ) -> PlacementPolicy:
     return PlacementPolicy(
         prefer=prefer,
         allow_hive_stand=allow_hive_stand,
         role_overrides=role_overrides if role_overrides is not None else {},
+        night_veil=night_veil,
     )
 
 
@@ -176,20 +211,71 @@ def test_night_veil_always_provisions_fresh_never_dormant_even_with_a_matching_i
     dormant = _dormant(image="night-veil-ubuntu")
     inventory = Inventory(virtual_backends=(backend,), dormant=(dormant,))
     needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=_night_veil_constraints())
 
-    placement = decide(needs, inventory, _forage(), _policy())
+    placement = decide(needs, inventory, _forage(), policy)
 
     assert isinstance(placement, ProvisionVirtual)
     assert placement.spec.comb_shield is CombShieldLevel.NIGHT_VEIL
     assert placement.spec.network_policy is NetworkPolicy.VPN_TOR
     assert placement.spec.network_allowlist == ()
+    # Roadmap step 5.7a: stamped on the spec's own labels for a backend's label-only orphan sweep.
+    assert placement.spec.labels["hivemind.comb_shield"] == "NIGHT_VEIL"
 
 
 def test_night_veil_with_no_backend_raises_placement_error() -> None:
     needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=_night_veil_constraints())
 
     with pytest.raises(PlacementError, match="NIGHT_VEIL"):
-        decide(needs, Inventory(), _forage(), _policy())
+        decide(needs, Inventory(), _forage(), policy)
+
+
+def test_night_veil_requires_human_originated_request() -> None:
+    backend = _backend(image="night-veil-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=_night_veil_constraints())
+    forage = _forage(request_origin=RequestOrigin.QUEEN)
+
+    with pytest.raises(PlacementError, match="human-originated"):
+        decide(needs, Inventory(virtual_backends=(backend,)), forage, policy)
+
+
+def test_night_veil_requires_a_configured_security_profile() -> None:
+    backend = _backend(image="night-veil-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=None)  # No [security] Night Veil profile configured at all.
+
+    with pytest.raises(PlacementError, match="tier profile"):
+        decide(needs, Inventory(virtual_backends=(backend,)), _forage(), policy)
+
+
+def test_night_veil_requires_a_profile_naming_an_onion_address_and_socks_proxy() -> None:
+    backend = _backend(image="night-veil-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    incomplete = NightVeilConstraints(
+        required_network_policy=NetworkPolicy.VPN_TOR,
+        hive_stand_onion_address="",  # Not configured: this is the violation under test.
+        socks_proxy_url="socks5h://127.0.0.1:9050",
+        locale_profile="C.UTF-8",
+    )
+    policy = _policy(night_veil=incomplete)
+
+    with pytest.raises(PlacementError, match="hidden-service address"):
+        decide(needs, Inventory(virtual_backends=(backend,)), _forage(), policy)
+
+
+def test_night_veil_requires_every_model_slot_to_resolve_locally() -> None:
+    backend = _backend(image="night-veil-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=_night_veil_constraints())
+    non_local = NightVeilHostingView(
+        all_local=False, non_local_slots=("slot QUEEN: source hosted-api is not local",)
+    )
+    forage = _forage(night_veil_hosting=non_local)
+
+    with pytest.raises(PlacementError, match="resolve locally"):
+        decide(needs, Inventory(virtual_backends=(backend,)), forage, policy)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

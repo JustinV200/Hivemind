@@ -13,7 +13,11 @@ Tempo (hivemind.forage.tempo), the speed-against-accuracy setting routing, Forag
 Capping all read. This module also defines the two small enums TaskNeeds is built from:
 ``Isolation`` (the exclusivity a task demands from its Cell) and ``OsFamily``, which mirrors
 ``waggle.messages.OsFamily`` member for member because the same value travels on the wire in a
-device's capability report.
+device's capability report. ``RequestOrigin`` (roadmap step 5.7a) is a third, related enum kept
+here rather than nested inside TaskNeeds: who asked for the task to exist (HUMAN, QUEEN or
+WARDEN), carried on ``TaskSpec.origin`` and read by Night Veil placement alongside TaskNeeds, never
+as one of TaskNeeds' own fields, because "who asked" is a fact about the request, not about what
+the Cell must provide.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction). Read by queen.placement.decide (Layer 6) when it maps a
@@ -53,7 +57,30 @@ from hivemind.forage.tempo import Tempo
 MAX_NETWORK_SCOPES = 32  # Generous for one task; broader network policy belongs in the manifest.
 MAX_SCOPE_CHARS = 253  # RFC 1035's hostname length limit; the longest one scope entry can be.
 
-__all__ = ["MAX_NETWORK_SCOPES", "MAX_SCOPE_CHARS", "Isolation", "OsFamily", "TaskNeeds"]
+__all__ = [
+    "MAX_NETWORK_SCOPES",
+    "MAX_SCOPE_CHARS",
+    "Isolation",
+    "OsFamily",
+    "RequestOrigin",
+    "TaskNeeds",
+]
+
+
+class RequestOrigin(Enum):
+    """Who asked for a task to exist: a human, the Queen itself, or a Warden acting on its own.
+
+    Roadmap step 5.7a: `queen.placement.policy.check_night_veil` reads this (carried on
+    `brood_chamber.task.model.TaskSpec.origin`, never nested inside `TaskNeeds` itself, so a
+    request's provenance stays a separate fact from what its Cell must provide) to enforce
+    codingrules section 8.7's "NIGHT_VEIL requires explicit human request... and may not be
+    autonomously escalated by the Queen or a Warden": a NIGHT_VEIL task whose origin is anything
+    but HUMAN is a placement violation, however its `TaskNeeds` reads.
+    """
+
+    HUMAN = "HUMAN"  # A goal the operator submitted directly (hive run, hive tasks submit).
+    QUEEN = "QUEEN"  # The Queen planned or escalated this task on its own initiative.
+    WARDEN = "WARDEN"  # A Warden raised this task from its own autopilot judgement.
 
 
 class Isolation(Enum):
