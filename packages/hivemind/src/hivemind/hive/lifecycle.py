@@ -15,29 +15,47 @@ real logic and its own heavily-commented docstring live in a module-level functi
 do the work" split `hivemind.wardens.warden.Warden` uses for its own tick dispatch, needed here to
 keep `CellLifecycle` itself under codingrules 5.1's 200-line class limit.
 
+**Reconciled with `hivemind.hive.overwinter.pool.OverwinterPool` (this same dispatch):**
+`CellLifecycle` now owns every state edge *and* every backend call, including the ones that used to
+live on `OverwinterPool` (`pause`/`resume`/`destroy` for an Overwintered Cell). `OverwinterPool`
+itself is left with bookkeeping and selection only -- see its own module docstring. Concretely:
+`overwinter(cell_id, *, scrub)` calls `pool.admit` (bookkeeping) then `backend.pause` (the effect)
+then moves RELEASED -> DORMANT; `resume(cell_id, ...)` calls `pool.claim_by_id` (bookkeeping,
+best-effort: a Cell resumed without ever having been admitted, e.g. a direct call in a test, simply
+finds nothing there) then `backend.resume` then moves DORMANT -> READY; `claim_for_image(image)` is
+the convenience path for a caller that only has an image, not a specific `cell_id` (asks the pool
+which Cell is oldest, then calls `resume` on it); `evict_expired(now)` calls `pool.evict_expired`
+(bookkeeping: which ids are past their own deadline) then `teardown`s each one, which is what
+actually calls `backend.destroy`. `release(cell_id, outcome)` replaces the old injected
+`DecideRelease` hook with a direct call to `hivemind.hive.overwinter.policy.decide_release`, built
+from the caller's own `ReleaseOutcome`, the injected `OverwinterSettings.pool.view()` and its
+`config` -- both modules are Layer 3, so this import is legal (codingrules section 4). A
+`CellLifecycle` built with `overwinter=None` always tears down on release, the same behaviour the
+old `always_teardown` default hook gave; this is the only place that default still exists.
+
 `provision()` and `mark_ready()` are deliberately two calls, not one, even though a `CellBackend.
 provision()` call already blocks until its own `ReadinessGate` sees a signed `CellReady` and the
-first `CellHeartbeat` (`hivemind.hive.backends.base.CellBackend.provision`'s own contract): the
-roadmap's own wording names "Warden ready" as its own milestone, and `hivemind.hive.provider.
-LifecycleVirtualCellProvider` (roadmap step 5.6, this branch) needs a point after `provision()`
-where it has also confirmed the Queen-side listener produced a live `WardenLink` for this Cell
-before the Cell counts as truly READY for placement. `mark_ready()` is that second, separate edge.
+first `CellHeartbeat` (`hivemind.hive.backends.base.CellBackend.provision`'s own contract,
+ADR-0027): the roadmap's own wording names "Warden ready" as its own milestone, and `hivemind.
+queen.cell_gate.provider.LifecycleVirtualCellProvider` needs a point after `provision()` where it
+has also confirmed the Queen-side listener produced a live `WardenLink` for this Cell before the
+Cell counts as truly READY for placement. `mark_ready()` is that second, separate edge.
 
-The release decision -- overwinter or teardown -- is a policy question another implementer owns
-(`hivemind.hive.overwinter.policy`, being written on this same branch right now): rather than
-import that module (which would race a file this dispatch must not touch), `CellLifecycle` takes a
-tiny injected callable, `DecideRelease`, defaulting to `always_teardown`, so the real policy plugs
-in from the composition root once it exists. The Night Veil rule is enforced here regardless of
-what the hook decides (`hivemind.hive.cell_state.can_enter_dormant`/`assert_dormant_allowed`):
-codingrules section 8.7, "Night Veil lifecycle is teardown-only."
+The Night Veil rule is enforced independently at two points regardless of what the pool or the
+policy decide (`hivemind.hive.cell_state.can_enter_dormant`/`assert_dormant_allowed`): `release()`
+short-circuits to teardown before ever calling `decide_release` for a NIGHT_VEIL Cell, and
+`overwinter()` refuses one directly too, so neither path depends on the other to keep the rule
+(codingrules section 8.7, "Night Veil lifecycle is teardown-only").
 
 Fits into the Hive:
-    Layer 3 (sources of Cells). Called by `hivemind.hive.provider.LifecycleVirtualCellProvider`
-    (this branch) and, in a later step, the Undertaker (roadmap step 5.8) and `hive cells`
-    commands (5.13). Calls into `hivemind.cell` (Cell, CellIdentity, CombShieldLevel),
-    `hivemind.hive.backends` (BackendCapabilities, VirtualCellRecord), `hivemind.hive.cell_state`,
-    `hivemind.hive.errors`, `hivemind.hive.models`, `hivemind.hive.registry`, `hivemind.pheromone`
-    (CellEvent, PheromoneTrail) and waggle only.
+    Layer 3 (sources of Cells). Called by `hivemind.queen.cell_gate.provider.
+    LifecycleVirtualCellProvider`, `hivemind.workers.roles.undertaker` (the Queen-startup sweep's
+    dormant eviction, via `evict_expired`) and `hive cells` commands (5.13). Calls into
+    `hivemind.cell` (Cell, CellIdentity, CombShieldLevel), `hivemind.hive.backends` (
+    BackendCapabilities, VirtualCellRecord), `hivemind.hive.cell_state`, `hivemind.hive.errors`,
+    `hivemind.hive.models`, `hivemind.hive.overwinter` (OverwinterConfig, OverwinterDecision,
+    OverwinterPool, ReleaseOutcome, Scrubber, decide_release), `hivemind.hive.registry`,
+    `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
 
 Key invariants:
     - Every state change goes through `hivemind.hive.cell_state.assert_transition` (or
@@ -47,23 +65,30 @@ Key invariants:
       adds an entry (the backend itself already cleaned up any partial resource, per `CellBackend.
       provision`'s own contract), so there is never a lingering FAILED row to sweep.
     - A record whose `hivemind.cell.CombShieldLevel` is NIGHT_VEIL never reaches DORMANT: `release`
-      never returns `"overwinter"` for one, and `overwinter()` itself refuses one directly too, so
-      neither path depends on the other to keep the rule.
+      never returns `OverwinterDecision.OVERWINTER` for one, and `overwinter()` itself refuses one
+      directly too, so neither path depends on the other to keep the rule.
+    - Every `CellBackend` call this class used to delegate to `OverwinterPool` now happens here,
+      immediately around the matching pool bookkeeping call, so the abstract state
+      (`VirtualCellStatus`) and the backend's own real state never drift mid-call.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the edge sequence this module implements almost verbatim.
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for why `provision()`
       already implies "Warden ready" at the backend level, and why `mark_ready()` still exists.
-    - docs/adr/0029-overwintering-policy.md for the release-decision shape `DecideRelease` mirrors.
+    - docs/adr/0029-overwintering-policy.md for decide_release, the release-decision this module
+      now calls directly.
     - hivemind.hive.cell_state for VirtualCellStatus, TRANSITIONS and the Night Veil guard.
-    - hivemind.hive.provider for LifecycleVirtualCellProvider, this module's one Queen-side caller.
+    - hivemind.hive.overwinter for OverwinterPool (bookkeeping/selection) and decide_release (the
+      pure policy), this module's two Layer-3 collaborators.
+    - hivemind.queen.cell_gate.provider for LifecycleVirtualCellProvider, this module's Queen-side
+      caller.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from datetime import datetime
 
 from pydantic import JsonValue
 
@@ -75,8 +100,15 @@ from hivemind.hive.cell_state import (
     assert_transition,
     can_enter_dormant,
 )
-from hivemind.hive.errors import CellProvisionError, UnknownCellError
+from hivemind.hive.errors import CellProvisionError, InvalidCellTransitionError, UnknownCellError
 from hivemind.hive.models import VirtualCellSpec
+from hivemind.hive.overwinter.policy import (
+    OverwinterConfig,
+    OverwinterDecision,
+    ReleaseOutcome,
+    decide_release,
+)
+from hivemind.hive.overwinter.pool import OverwinterPool, Scrubber
 from hivemind.hive.registry import BackendRegistry
 from hivemind.pheromone import CellEvent, PheromoneTrail
 from waggle.clock import Clock
@@ -84,42 +116,32 @@ from waggle.ids import CellId, GrantId, HiveId, WardenId, new_event_id
 
 __all__ = [
     "CellLifecycle",
-    "DecideRelease",
     "LifecycleDormantCell",
     "LifecycleVirtualBackend",
     "LiveVirtualCell",
-    "ReleaseDecision",
-    "always_teardown",
+    "OverwinterSettings",
 ]
 
-# What `release()` may decide, and what a caller then asks `overwinter()`/`teardown()` to carry
-# out. A plain Literal (not an Enum): this is a return value handed straight to an `if`, never
-# stored or compared across a boundary, so a class the size-limited state machine already covers
-# (`VirtualCellStatus`) would be the wrong tool.
-ReleaseDecision = Literal["overwinter", "teardown"]
 
-# The release policy seam: pure, no I/O, matching `hivemind.hive.overwinter.policy`'s own shape
-# (a sibling implementer's module this dispatch must not import, per the module docstring).
-DecideRelease = Callable[["LiveVirtualCell", VirtualCellSpec | None], ReleaseDecision]
+@dataclass(frozen=True, slots=True)
+class OverwinterSettings:
+    """The pool and config `CellLifecycle` needs to ever decide OVERWINTER; both or neither.
 
+    Bundled into one constructor parameter (codingrules 5.1's five-parameter limit) and to make
+    "both or neither" structural rather than a runtime check: a `CellLifecycle` built with no
+    `OverwinterSettings` at all always tears down on release (the old `always_teardown` default's
+    behaviour), and one built with one always has both a pool to admit into and a config to decide
+    against.
 
-def always_teardown(cell: LiveVirtualCell, spec: VirtualCellSpec | None) -> ReleaseDecision:
-    """The default release policy: every released Virtual Cell is torn down.
-
-    `CellLifecycle`'s own default `overwinter_policy_hook`, until a composition root injects the
-    real `hivemind.hive.overwinter.policy.decide` (roadmap step 5.9). Safe on its own: never
-    overwintering is always a legal outcome, unlike the reverse.
-
-    Args:
-        cell: The released Cell's own lifecycle record.
-        spec: The `VirtualCellSpec` it was provisioned from, or None for a Cell this process only
-            ever learned about through `reconcile()` (see `LiveVirtualCell.spec`'s own docstring).
-
-    Returns:
-        `"teardown"`, always.
+    Attributes:
+        pool: Bookkeeping and selection for dormant Cells (`hivemind.hive.overwinter.pool.
+            OverwinterPool`).
+        config: The manifest's own `[virtual_cells.overwinter]` bounds, passed to
+            `hivemind.hive.overwinter.policy.decide_release` on every `release()` call.
     """
-    del cell, spec  # Unused: the module docstring's own documented default.
-    return "teardown"
+
+    pool: OverwinterPool
+    config: OverwinterConfig
 
 
 @dataclass(slots=True)
@@ -144,7 +166,8 @@ class LiveVirtualCell:
         spec: The `VirtualCellSpec` this Cell was provisioned from, when this process is the one
             that provisioned it. None for a reconciled record, since a `VirtualCellSpec` is never
             persisted anywhere a restarted Queen could read it back from (codingrules Appendix C
-            lists no store for it); `DecideRelease` implementations must handle a None spec.
+            lists no store for it); a record with no `spec` can never be Overwintered (`release`
+            falls back to teardown for one -- decide_release has nothing to check against).
         warden_id: The attached Warden's own id, once a `WardenLink` exists for this Cell.
         grant_id: The live `ForageGrant` id, once `grant()` has been called.
     """
@@ -167,7 +190,7 @@ class LifecycleDormantCell:
     A hive-layer value, deliberately not `hivemind.queen.placement.inventory.DormantCandidate`
     itself: `hive` is Layer 3 and `queen.placement` is Layer 6, so this module may never import
     it (codingrules section 4). The composition root converts one of these into the queen-layer
-    type once it already holds both (see this dispatch's own report for which layer does that).
+    type once it already holds both.
 
     Attributes:
         cell_id: The dormant Cell itself.
@@ -217,7 +240,7 @@ class CellLifecycle:
         clock: Clock,
         identity: CellIdentity,
         *,
-        overwinter_policy_hook: DecideRelease = always_teardown,
+        overwinter: OverwinterSettings | None = None,
     ) -> None:
         """Build a CellLifecycle with an empty table; call `reconcile()` before relying on it.
 
@@ -226,15 +249,16 @@ class CellLifecycle:
             trail: Where every `cell.*` event this lifecycle drives lands.
             clock: Source of every minted event id and timestamp.
             identity: The Hive, node and actor this lifecycle stamps on every trail event.
-            overwinter_policy_hook: Decides `"overwinter"` or `"teardown"` for a released Cell;
-                defaults to `always_teardown` until a composition root injects the real
-                `hivemind.hive.overwinter.policy` (roadmap step 5.9, another implementer's file).
+            overwinter: The pool and config `release()` needs to ever decide OVERWINTER; None
+                means every released Cell is torn down (the old `always_teardown` default's
+                behaviour).
         """
         self._registry = registry
         self._trail = trail
         self._clock = clock
         self._identity = identity
-        self._decide_release = overwinter_policy_hook
+        self._pool = overwinter.pool if overwinter is not None else None
+        self._overwinter_config = overwinter.config if overwinter is not None else None
         self._cells: dict[CellId, LiveVirtualCell] = {}
 
     def status_of(self, cell_id: CellId) -> VirtualCellStatus | None:
@@ -262,21 +286,29 @@ class CellLifecycle:
         """Move `cell_id` DORMANT -> READY. See `_resume`."""
         await _resume(self, cell_id, warden_id)
 
+    async def claim_for_image(self, image: str) -> CellId | None:
+        """Resume the oldest dormant Cell for `image` via the pool. See `_claim_for_image`."""
+        return await _claim_for_image(self, image)
+
     async def grant(self, cell_id: CellId, grant_id: GrantId) -> None:
         """Move `cell_id` READY -> GRANTED. See `_grant`."""
         await _grant(self, cell_id, grant_id)
 
-    async def release(self, cell_id: CellId) -> ReleaseDecision:
+    async def release(self, cell_id: CellId, outcome: ReleaseOutcome) -> OverwinterDecision:
         """Move `cell_id` GRANTED -> RELEASED, then decide overwinter/teardown. See `_release`."""
-        return await _release(self, cell_id)
+        return await _release(self, cell_id, outcome)
 
-    async def overwinter(self, cell_id: CellId) -> None:
-        """Move `cell_id` RELEASED -> DORMANT. See `_overwinter`."""
-        await _overwinter(self, cell_id)
+    async def overwinter(self, cell_id: CellId, *, scrub: Scrubber) -> None:
+        """Move `cell_id` RELEASED -> DORMANT via the pool and the backend. See `_overwinter`."""
+        await _overwinter(self, cell_id, scrub)
 
     async def teardown(self, cell_id: CellId) -> None:
         """Destroy `cell_id`. See `_teardown`."""
         await _teardown(self, cell_id)
+
+    async def evict_expired(self, now: datetime) -> tuple[CellId, ...]:
+        """Tear down every dormant Cell past its own deadline. See `_evict_expired`."""
+        return await _evict_expired(self, now)
 
     def dormant_candidates(self) -> tuple[LifecycleDormantCell, ...]:
         """Return every DORMANT Cell this lifecycle tracks. See `_dormant_candidates`."""
@@ -388,16 +420,36 @@ async def _mark_ready(
 async def _resume(lifecycle: CellLifecycle, cell_id: CellId, warden_id: WardenId | None) -> None:
     """Move `cell_id` DORMANT -> READY: resume an Overwintered Cell instead of provisioning.
 
-    The caller (`hivemind.hive.provider.LifecycleVirtualCellProvider`) is responsible for calling
-    `backend.resume(cell_id)` and waiting for the resumed Cell's fresh heartbeat before this; this
-    only records the lifecycle's own edge once that has happened.
+    Removes the pool's own bookkeeping entry for `cell_id` (best-effort: a Cell resumed without
+    ever going through `overwinter()` first -- a direct call in a test, say -- simply finds
+    nothing there), then resumes it on the backend, then moves the abstract state.
     """
     record = lifecycle._require(cell_id)
     assert_transition(record.status, VirtualCellStatus.READY, cell_id=cell_id)
+    if lifecycle._pool is not None:
+        await lifecycle._pool.claim_by_id(cell_id)
+    backend = lifecycle._registry.get(record.backend)
+    await backend.resume(cell_id)
     record.status = VirtualCellStatus.READY
     if warden_id is not None:
         record.warden_id = warden_id
     await lifecycle._record(cell_id, "cell.resumed", warden_id=warden_id)
+
+
+async def _claim_for_image(lifecycle: CellLifecycle, image: str) -> CellId | None:
+    """Resume the oldest dormant Cell for `image`, via the pool, or return None.
+
+    For a caller that only has an image, not a specific `cell_id` (unlike `resume`, which the
+    caller uses when placement already named one). Asks the pool which Cell is oldest, then
+    delegates the actual resume (backend call, state move, event) to `resume` itself.
+    """
+    if lifecycle._pool is None:
+        return None  # Nothing was ever admitted without a pool; nothing to claim.
+    dormant = await lifecycle._pool.claim(image)
+    if dormant is None:
+        return None
+    await lifecycle.resume(dormant.cell.id)
+    return dormant.cell.id
 
 
 async def _grant(lifecycle: CellLifecycle, cell_id: CellId, grant_id: GrantId) -> None:
@@ -409,33 +461,53 @@ async def _grant(lifecycle: CellLifecycle, cell_id: CellId, grant_id: GrantId) -
     await lifecycle._record(cell_id, "cell.granted", grant_id=grant_id)
 
 
-async def _release(lifecycle: CellLifecycle, cell_id: CellId) -> ReleaseDecision:
+async def _release(
+    lifecycle: CellLifecycle, cell_id: CellId, outcome: ReleaseOutcome
+) -> OverwinterDecision:
     """Move `cell_id` GRANTED -> RELEASED, then decide overwinter or teardown.
 
     Records `cell.virtual_released` (a distinct kind from `cell.released`, which already means "a
     Real Cell lease closed and the device restored" -- a different fact about a different kind of
-    Cell; see this dispatch's own report for the naming decision). Does not itself perform the
-    decided edge: the caller calls `overwinter()` or `teardown()` next.
+    Cell). Does not itself perform the decided edge: the caller calls `overwinter()` or
+    `teardown()` next, based on the returned decision.
     """
     record = lifecycle._require(cell_id)
     assert_transition(record.status, VirtualCellStatus.RELEASED, cell_id=cell_id)
     record.status = VirtualCellStatus.RELEASED
     record.grant_id = None
     await lifecycle._record(cell_id, "cell.virtual_released")
-    # The Night Veil rule is enforced here, ahead of the hook, so a released Night Veil Cell is
-    # never even offered to overwinter_policy_hook ("regardless of what the hook decides").
+    # The Night Veil rule is enforced here, ahead of the policy, so a released Night Veil Cell is
+    # never even offered to decide_release ("regardless of what the policy decides").
     if not can_enter_dormant(record.comb_shield):
-        return "teardown"
-    return lifecycle._decide_release(record, record.spec)
+        return OverwinterDecision.TEARDOWN
+    if lifecycle._pool is None or lifecycle._overwinter_config is None:
+        return OverwinterDecision.TEARDOWN  # No pool configured: always_teardown's old behaviour.
+    if record.cell is None or record.spec is None:
+        # A reconciled record this process never provisioned: decide_release has no VirtualCellSpec
+        # to check against (module docstring's own "Key invariants"), so it is never Overwintered.
+        return OverwinterDecision.TEARDOWN
+    decision = decide_release(
+        record.cell, record.spec, outcome, lifecycle._pool.view(), lifecycle._overwinter_config
+    )
+    return decision.decision
 
 
-async def _overwinter(lifecycle: CellLifecycle, cell_id: CellId) -> None:
-    """Move `cell_id` RELEASED -> DORMANT and pause it on its backend."""
+async def _overwinter(lifecycle: CellLifecycle, cell_id: CellId, scrub: Scrubber) -> None:
+    """Move `cell_id` RELEASED -> DORMANT: admit it into the pool, then pause it on the backend."""
     record = lifecycle._require(cell_id)
     assert_transition(record.status, VirtualCellStatus.DORMANT, cell_id=cell_id)
     # A second guard, independent of release()'s own decision (module docstring): even a direct
     # call to overwinter() can never move a NIGHT_VEIL Cell to DORMANT.
     assert_dormant_allowed(record.comb_shield, cell_id=cell_id)
+    if lifecycle._pool is None or record.cell is None or record.spec is None:
+        raise InvalidCellTransitionError(
+            record.status,
+            VirtualCellStatus.DORMANT,
+            cell_id=cell_id,
+            reason="No OverwinterPool is configured, or this Cell's own spec is unknown "
+            "(a reconciled record this process never provisioned).",
+        )
+    await lifecycle._pool.admit(record.cell, record.spec, scrub=scrub)
     backend = lifecycle._registry.get(record.backend)
     await backend.pause(cell_id)
     record.status = VirtualCellStatus.DORMANT
@@ -461,6 +533,29 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
     assert_transition(record.status, VirtualCellStatus.DESTROYED, cell_id=cell_id)
     await lifecycle._record(cell_id, "cell.destroyed")
     del lifecycle._cells[cell_id]
+
+
+async def _evict_expired(lifecycle: CellLifecycle, now: datetime) -> tuple[CellId, ...]:
+    """Tear down every dormant Cell past its own `dormant_until`, for the Undertaker's sweep.
+
+    Asks the pool which ids are expired (bookkeeping only, per its own module docstring), then
+    tears each one down through `teardown()` itself, so the backend call and the DORMANT ->
+    DESTROYING -> DESTROYED edges happen exactly the way any other teardown does.
+
+    Args:
+        lifecycle: The CellLifecycle whose pool and table this call acts on.
+        now: The reference time to compare every dormant Cell's own `dormant_until` against.
+
+    Returns:
+        Every evicted Cell's id, in the pool's own order; empty when `pool` is None or nothing has
+        expired.
+    """
+    if lifecycle._pool is None:
+        return ()
+    expired_ids = await lifecycle._pool.evict_expired(now)
+    for cell_id in expired_ids:
+        await lifecycle.teardown(cell_id)
+    return tuple(expired_ids)
 
 
 def _dormant_candidates(lifecycle: CellLifecycle) -> tuple[LifecycleDormantCell, ...]:

@@ -57,6 +57,7 @@ See Also:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -259,5 +260,19 @@ class VirtualCellsSection(BaseModel):
         description="The ws:// or wss:// URL a provisioned Cell is actually told to dial, when "
         "it differs from listen_host/listen_port (e.g. a Docker container reaching the host "
         "gateway alias, or a QEMU guest reaching the SLIRP gateway). None means the bound "
-        "listen_host/listen_port is reachable from the Cell directly.",
+        "listen_host/listen_port is reachable from the Cell directly, or (backend = 'docker') "
+        "that the composition root's own docker-host helper computes one "
+        "(hivemind.cli.compose.virtual_cells).",
+    )
+    qemu_base_image: Path | None = Field(
+        default=None,
+        description="The prebuilt qcow2 every Cell boots from (backend = 'qemu' only; "
+        "hivemind.hive.backends.qemu.QemuBackendConfig.base_image). Required when backend is "
+        "'qemu'; the composition root raises a ConfigurationError if it is still unset then.",
+    )
+    qemu_vm_root: Path | None = Field(
+        default=None,
+        description="The directory every QEMU VM's own working directory lives under (backend = "
+        "'qemu' only; hivemind.hive.backends.qemu.QemuBackendConfig.vm_root, and the matching "
+        "ProcessQemuRunner's own vm_root). Required when backend is 'qemu'.",
     )

@@ -48,8 +48,11 @@ pool that keeps a dormant Cell around for fast reuse.
 
 ## Not yet built (later roadmap steps)
 
-- `lifecycle.py` (5.6): the only intended caller of `cell_state.assert_transition` and
-  `assert_dormant_allowed`.
-- `night_veil.py` (5.7b), `snapshot.py` (5.10), `overwinter/` (5.9).
+- `night_veil.py` (5.7b), `snapshot.py` (5.10).
 - A real `hivemind.hive.backends.cloud` provider implementation (post-1.0; see that package's own
   README for what it must add).
+
+`lifecycle.py` (5.6) is built: `CellLifecycle` is the only intended caller of
+`cell_state.assert_transition`/`assert_dormant_allowed`, and now also owns every `CellBackend` call
+and every `overwinter/` (5.9) edge (`OverwinterPool` is bookkeeping and selection only; see both
+modules' own docstrings for the split).

@@ -70,6 +70,7 @@ from hivemind.cli.compose.deps import (
     open_default_stores,
 )
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
+from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
 from hivemind.forage import ForageMap
 from hivemind.llm import Fanner, ProviderRegistry, Responder
@@ -102,6 +103,9 @@ class Hive:
         queen: The Queen, with `warden`'s own WardenLink already attached.
         warden_link: The Queen's own end of the Queen<->Warden link; `run_hive` closes it on exit.
         clock: The injected time source every collaborator above shares.
+        virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
+            value, when `[virtual_cells] backend` is set; `None` otherwise, in which case
+            `run_hive` touches nothing Virtual-Cell-related at all (roadmap step 5.6).
     """
 
     manifest: HiveManifest
@@ -113,6 +117,7 @@ class Hive:
     queen: Queen
     warden_link: WardenLink
     clock: Clock
+    virtual_cells: VirtualCellsParts | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,10 +187,14 @@ def build_hive(
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
     source = build_hive_stand_source(manifest, hive_stores.trail, clock)
     links = _build_links(manifest, source, clock)
+    # Roadmap step 5.6: None when `[virtual_cells] backend` is unset, touching nothing else below
+    # (hivemind.cli.compose.virtual_cells's own module docstring).
+    virtual_cells = build_virtual_cells(manifest, hive_stores.trail, clock)
     parts = HiveParts(
         manifest=manifest, registry=registry, fanner=fanner, stores=hive_stores, clock=clock
     )
-    return _assemble_hive(parts, forage_map, source, links, ledger)
+    extras = _AssemblyExtras(forage_map=forage_map, ledger=ledger, virtual_cells=virtual_cells)
+    return _assemble_hive(parts, source, links, extras)
 
 
 def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) -> HiveLinks:
@@ -200,17 +209,26 @@ def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) 
     return build_hive_links(manifest.hive.id, manifest.hive.node_id, cell, clock)
 
 
+@dataclass(frozen=True, slots=True)
+class _AssemblyExtras:
+    """Builder outputs `_assemble_hive` needs beyond `parts`/`source`/`links` (codingrules 5.1)."""
+
+    forage_map: ForageMap
+    ledger: ForageLedger
+    virtual_cells: VirtualCellsParts | None
+
+
 def _assemble_hive(
-    parts: HiveParts,
-    forage_map: ForageMap,
-    source: HiveStandSource,
-    links: HiveLinks,
-    ledger: ForageLedger,
+    parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
     """Build the Warden and Queen from `parts`, attach the link, and wrap it all as a Hive."""
     warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
-    queen = Queen(build_queen_deps(parts, forage_map, ledger))
+    queen = Queen(build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells))
     queen.attach_warden(links.queen_link)
+    if extras.virtual_cells is not None:
+        # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
+        # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
+        extras.virtual_cells.provider.bind_queen(queen)
     return Hive(
         manifest=parts.manifest,
         stores=parts.stores,
@@ -221,6 +239,7 @@ def _assemble_hive(
         queen=queen,
         warden_link=links.queen_link,
         clock=parts.clock,
+        virtual_cells=extras.virtual_cells,
     )
 
 
@@ -235,6 +254,14 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
         Control to the caller, with `hive.queen` and `hive.warden` both ticking as background
         tasks; call `hive.queen.submit_goal`/`run_goal` inside the `async with` block.
     """
+    if hive.virtual_cells is not None:
+        # Roadmap step 5.6: reconcile the live table from every registered backend's own
+        # list_cells (hivemind.hive.lifecycle.CellLifecycle.reconcile's own contract: called once,
+        # before any other method), then start accepting Virtual Cells' own control connections --
+        # both before hive.warden.start()/the TaskGroup below, so a Cell dialling back in while the
+        # Queen is still coming up is never dropped for connecting "too early".
+        await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+        await hive.virtual_cells.listener.start(hive.queen)
     await hive.warden.start()
     # Structured concurrency (codingrules section 11): both loops are owned by this one
     # asyncio.TaskGroup, which awaits them to completion when the block below exits, whether
@@ -254,6 +281,10 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             await hive.queen.stop()
             await hive.warden.stop()
             await asyncio.gather(queen_task, warden_task)
+            if hive.virtual_cells is not None:
+                # Stop accepting and close every Virtual Cell connection last: nothing above this
+                # still reads from a WardenLink once the Queen and Warden are both fully stopped.
+                await hive.virtual_cells.listener.stop()
             # Closing the Queen's own end wakes the Warden's queen_link.receive() with a clean
             # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
             # is left awaiting a link neither side will ever write to again.

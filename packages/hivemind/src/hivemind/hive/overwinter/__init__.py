@@ -30,8 +30,9 @@ See Also:
 Public API:
     - OverwinterDecision, ReleaseOutcome, PoolView, OverwinterConfig, ReleaseDecision,
       decide_release: the pure Overwintering rule (hivemind.hive.overwinter.policy).
-    - DormantCell, PooledCandidate, Scrubber, OverwinterPool: the pool itself
-      (hivemind.hive.overwinter.pool).
+    - DormantCell, PooledCandidate, Scrubber, OverwinterPool: bookkeeping and selection for
+      dormant Cells; every backend call and trail write these used to make now lives on
+      hivemind.hive.lifecycle.CellLifecycle instead (hivemind.hive.overwinter.pool).
 """
 
 from hivemind.hive.overwinter.policy import (

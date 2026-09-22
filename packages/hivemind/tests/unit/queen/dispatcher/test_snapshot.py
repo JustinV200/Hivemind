@@ -12,14 +12,23 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Sequence
+
 from builders.queen import make_queen_deps
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.hive import BackendCapabilities
+from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import MemoryContext, WaxSeverity
 from hivemind.memory.cell_wax.writes import WaxProposalInput, propose_wax, write_wax
 from hivemind.queen.deps import QueenDeps
-from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
+from hivemind.queen.dispatcher.snapshot import (
+    build_forage_view,
+    build_inventory,
+    dormant_candidate_from_lifecycle,
+    virtual_backend_candidate_from_lifecycle,
+)
 from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
 from waggle.ids import CellId
 from waggle.messages.cell.wax import WaxDecision, WaxOrigin
@@ -114,3 +123,70 @@ async def test_build_forage_view_carries_the_drone_footprint() -> None:
 
     assert forage_view.footprint is not None
     await warden_end.close()
+
+
+async def test_build_inventory_prefers_the_live_virtual_backend_source_over_the_static_tuple() -> (
+    None
+):
+    stale = VirtualBackendCandidate(
+        name="docker", capabilities=BackendCapabilities(can_snapshot=False, can_pause=True)
+    )
+    live = VirtualBackendCandidate(
+        name="qemu", capabilities=BackendCapabilities(can_snapshot=False, can_pause=True)
+    )
+    deps, link, warden_end = make_queen_deps(virtual_backends=(stale,))
+    deps = dataclasses.replace(deps, virtual_backend_source=lambda: _once((live,)))
+
+    inventory = await build_inventory(deps, (link,))
+
+    assert inventory.virtual_backends == (live,)
+    await warden_end.close()
+
+
+async def test_build_inventory_prefers_the_live_dormant_cell_source_over_the_static_tuple() -> None:
+    stale = DormantCandidate(
+        cell_id=CellId("cell_stale"), warden_id=None, image="x", comb_shield=CombShieldLevel.MEADOW
+    )
+    live = DormantCandidate(
+        cell_id=CellId("cell_live"), warden_id=None, image="x", comb_shield=CombShieldLevel.MEADOW
+    )
+    deps, link, warden_end = make_queen_deps(dormant_cells=(stale,))
+    deps = dataclasses.replace(deps, dormant_cell_source=lambda: _once((live,)))
+
+    inventory = await build_inventory(deps, (link,))
+
+    assert inventory.dormant == (live,)
+    await warden_end.close()
+
+
+async def test_virtual_backend_candidate_from_lifecycle_converts_name_and_capabilities() -> None:
+    hive_backend = LifecycleVirtualBackend(
+        name="qemu",
+        capabilities=BackendCapabilities(can_snapshot=False, can_pause=True, headroom=3),
+    )
+
+    candidate = virtual_backend_candidate_from_lifecycle(hive_backend)
+
+    assert candidate.name == "qemu"
+    assert candidate.capabilities.headroom == 3
+    assert candidate.specs == ()
+
+
+async def test_dormant_candidate_from_lifecycle_converts_every_field() -> None:
+    hive_dormant = LifecycleDormantCell(
+        cell_id=CellId("cell_x"),
+        warden_id=None,
+        image="base-ubuntu",
+        comb_shield=CombShieldLevel.MEADOW,
+    )
+
+    candidate = dormant_candidate_from_lifecycle(hive_dormant)
+
+    assert candidate.cell_id == CellId("cell_x")
+    assert candidate.image == "base-ubuntu"
+    assert candidate.comb_shield is CombShieldLevel.MEADOW
+
+
+async def _once[T](value: Sequence[T]) -> tuple[T, ...]:
+    """An awaitable that returns `value`, for a fake virtual_backend_source/dormant_cell_source."""
+    return tuple(value)

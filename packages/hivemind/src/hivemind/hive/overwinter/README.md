@@ -13,15 +13,18 @@ the next task with the same image starts in seconds; Night Veil Cells are never 
   rule (Night Veil, single-use, whole-Cell rollback, BLOCK wax, backend can pause, room per image,
   room in total, disk budget) is its own small function in `_RULES`, walked in order; the first
   veto wins.
-- `pool.py` -- `OverwinterPool(backend, clock, config, trail, identity)`: the effectful half.
-  `admit(cell, spec, *, scrub)` scrubs (an injected `Scrubber`) and pauses a released Cell,
-  recording it dormant; `claim(image)` resumes the oldest dormant Cell for that image; `evict_
-  expired(now)` destroys every Cell past its own `dormant_until` (the Undertaker's sweep calls
-  this); `view()` reports occupancy for `decide_release`'s own `PoolView`; `dormant_candidates()`
-  reports every dormant Cell as a `PooledCandidate` -- not `hivemind.queen.placement.inventory.
-  DormantCandidate` directly, since `hive` (Layer 3) may never import `queen` (Layer 6); a Layer-6
-  caller converts one row at a time. `admit_all_idle(...)` is the hook a long Clustering outage
-  calls in a batch; wiring a trigger for it in `queen/cluster/` belongs to a different dispatch.
+- `pool.py` -- `OverwinterPool(clock, config)`: bookkeeping and selection only. `admit(cell, spec,
+  *, scrub)` scrubs (an injected `Scrubber`) and records a released Cell dormant, but does not
+  pause it; `claim(image)`/`claim_by_id(cell_id)` select and remove a dormant entry, but do not
+  resume it; `evict_expired(now)` returns the ids past their own `dormant_until`, but does not
+  destroy them; `view()` reports occupancy for `decide_release`'s own `PoolView`;
+  `dormant_candidates()` reports every dormant Cell as a `PooledCandidate` -- not
+  `hivemind.queen.placement.inventory.DormantCandidate` directly, since `hive` (Layer 3) may never
+  import `queen` (Layer 6); a Layer-6 caller converts one row at a time. `admit_all_idle(...)` is
+  the hook a long Clustering outage calls in a batch; wiring a trigger for it in `queen/cluster/`
+  belongs to a different dispatch. Every actual backend call (`pause`/`resume`/`destroy`) and
+  every `cell.*` trail event now lives on `hivemind.hive.lifecycle.CellLifecycle`, which calls into
+  this pool immediately around each one -- see that module's own docstring for the reconciliation.
 
 ## How to test this
 

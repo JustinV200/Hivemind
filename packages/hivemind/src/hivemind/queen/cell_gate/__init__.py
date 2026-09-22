@@ -25,15 +25,28 @@ See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
       direction this package's whole shape follows.
     - hivemind.hive.backends.bootstrap for the ReadinessGate Protocol QueenReadinessGate satisfies.
-    - hivemind.hive.provider for LifecycleVirtualCellProvider, this package's one intended caller.
+    - hivemind.queen.cell_gate.provider for LifecycleVirtualCellProvider, this package's own
+      `hivemind.queen.deps.VirtualCellProvider` implementation (roadmap step 5.6).
 
 Public API:
     - QueenReadinessGate: the real, Queen-side ReadinessGate (hivemind.queen.cell_gate.gate).
     - CellListener, CellListenerDeps: the accepting WebSocket listener
       (hivemind.queen.cell_gate.listener).
+    - LifecycleVirtualCellProvider: the real VirtualCellProvider, over a CellLifecycle
+      (hivemind.queen.cell_gate.provider).
+    - make_on_task_finished: builds the callable QueenDeps.on_task_finished holds, for releasing a
+      Virtual Cell once its task ends (hivemind.queen.cell_gate.release).
 """
 
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps
+from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
+from hivemind.queen.cell_gate.release import make_on_task_finished
 
-__all__ = ["CellListener", "CellListenerDeps", "QueenReadinessGate"]
+__all__ = [
+    "CellListener",
+    "CellListenerDeps",
+    "LifecycleVirtualCellProvider",
+    "QueenReadinessGate",
+    "make_on_task_finished",
+]

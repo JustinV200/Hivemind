@@ -38,7 +38,7 @@ Undertaker, Drone and HouseBee, each implementing the shared Worker protocol.
   step with exponential backoff (`RetryPolicy`). `sweep.py` (`sweep_orphans`, `SweepDeps`,
   `SweepReport`, `orphan_virtual_cells`/`orphan_real_leases` as the pure decision halves) is the
   Queen-startup sweep for orphans of both kinds, plus expired dormant Cells via
-  `hivemind.hive.overwinter.pool.OverwinterPool.evict_expired`. `schedule.py`
+  `hivemind.hive.lifecycle.CellLifecycle.evict_expired`. `schedule.py`
   (`UndertakerSweepSchedule`) is the pure timer a future periodic sweep checks, mirroring
   `house_bee/schedule.py`. `CellKind` matters to exactly two callers in the whole codebase
   (codingrules section 8.7): `queen.placement` and this package's own `role.py`

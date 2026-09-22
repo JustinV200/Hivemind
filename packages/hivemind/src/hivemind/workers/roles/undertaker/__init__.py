@@ -25,8 +25,9 @@ See Also:
     - .claude/codingrules.md section 8.7 for the CellKind branch `role.py` is one of two allowed
       callers of.
     - hivemind.workers.roles.house_bee for HouseBee, the autopilot-only shape this package mirrors.
-    - hivemind.hive.overwinter for OverwinterPool.evict_expired, sweep_orphans's dormant-eviction
-      collaborator.
+    - hivemind.hive.lifecycle for CellLifecycle.evict_expired, sweep_orphans's dormant-eviction
+      collaborator (it calls hivemind.hive.overwinter.pool.OverwinterPool.evict_expired itself,
+      then tears each expired Cell down on the backend).
 
 Public API:
     - Undertaker, UndertakerDeps, RetryPolicy, GrantRevoker, WaxRetirer, LeavingsRemover,

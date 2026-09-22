@@ -50,12 +50,12 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
-from hivemind.brood_chamber import BroodChamber, Task
+from hivemind.brood_chamber import BroodChamber, Task, TaskOutcome
 from hivemind.cell import Cell
 from hivemind.forage import (
     ForageMap,
@@ -81,7 +81,7 @@ from hivemind.queen.state import ClusterState
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
 from waggle.envelope import Hop
-from waggle.ids import WardenId
+from waggle.ids import CellId, WardenId
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
@@ -111,7 +111,30 @@ _DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT
 _DEFAULT_SWEEP_INTERVAL_S = 3_600.0  # One hour.
 _DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
 
-__all__ = ["Housekeeping", "MemoryBudget", "QueenDeps", "VirtualCellProvider", "WardenLink"]
+__all__ = [
+    "DormantCellSource",
+    "Housekeeping",
+    "MemoryBudget",
+    "OnTaskFinished",
+    "QueenDeps",
+    "VirtualBackendSource",
+    "VirtualCellProvider",
+    "WardenLink",
+]
+
+# roadmap step 5.6/5.9's own live-feed seam (this dispatch's own reconciliation): QueenDeps.
+# virtual_backends/dormant_cells started as plain static tuples (roadmap step 5.7); these three
+# additive callables let hivemind.cli.compose.build_hive feed them from a live
+# hivemind.hive.lifecycle.CellLifecycle instead, without hivemind.queen.dispatcher.snapshot ever
+# importing hive.lifecycle itself (queen.dispatcher.snapshot converts the hive-layer candidate
+# types into queen.placement.inventory ones; see that module's own docstring). None (every default)
+# means "no live source": hivemind.queen.dispatcher.snapshot.build_inventory falls back to the
+# static tuples exactly as it did before this dispatch, so every pre-5.6 test is unaffected.
+VirtualBackendSource = Callable[[], Awaitable[tuple[VirtualBackendCandidate, ...]]]
+DormantCellSource = Callable[[], Awaitable[tuple[DormantCandidate, ...]]]
+# hivemind.queen.cell_gate.release.make_on_task_finished builds the one real implementation; see
+# that module's own docstring for what it does with a finished task's own Cell.
+OnTaskFinished = Callable[[CellId, TaskOutcome], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +321,21 @@ class QueenDeps:
             `ReuseDormant` Placement into a `WardenLink` (`VirtualCellProvider`, defined above).
             `None` (the default) means a Virtual Placement is a `PlacementError` instead of being
             acquired; roadmap step 5.6 is the first to inject a real one.
+        virtual_backend_source: Feeds `virtual_backends` live from a running `hivemind.hive.
+            lifecycle.CellLifecycle` instead of the static tuple above, when set.
+            `hivemind.queen.dispatcher.snapshot.build_inventory` calls this (converting the
+            hive-layer candidates it returns into `queen.placement.inventory` ones) instead of
+            reading `virtual_backends` directly, whenever it is not `None`. `None` (the default)
+            keeps every pre-5.6 test's own static-tuple behaviour.
+        dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for
+            `dormant_cells`.
+        on_task_finished: Told about every finished task's own Cell (`CellId`, its
+            `hivemind.brood_chamber.TaskOutcome`), unconditionally, by `hivemind.queen.ticks.
+            results.complete_task`. `None` (the default) is a no-op; `hivemind.queen.cell_gate.
+            release.make_on_task_finished` builds the real implementation, over a `CellLifecycle`,
+            which itself keys off whether that lifecycle recognises the Cell at all -- this field
+            is how a Virtual Cell's own release/overwinter/teardown gets triggered without the
+            Queen ever reading `cell.kind` outside placement (codingrules section 8.7).
     """
 
     chamber: BroodChamber
@@ -346,3 +384,8 @@ class QueenDeps:
     virtual_backends: tuple[VirtualBackendCandidate, ...] = field(default_factory=tuple)
     dormant_cells: tuple[DormantCandidate, ...] = field(default_factory=tuple)
     virtual_provider: VirtualCellProvider | None = None
+    # This dispatch's own reconciliation (roadmap 5.6/5.9): additive, every one defaulted to None
+    # so every earlier test's own static-tuple QueenDeps keeps building and behaving unchanged.
+    virtual_backend_source: VirtualBackendSource | None = None
+    dormant_cell_source: DormantCellSource | None = None
+    on_task_finished: OnTaskFinished | None = None

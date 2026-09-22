@@ -11,9 +11,11 @@ are the pure decision for the first two (codingrules section 8.3: "pure core, ef
 each independently testable with plain lists in, a tuple of ids out; `sweep_orphans` itself is the
 effectful caller that queries the backend and the trail, calls the pure functions, and hands every
 id found to `hivemind.workers.roles.undertaker.role.Undertaker`'s own idempotent operations. The
-third kind (dormant eviction) has no pure half here at all: `hivemind.hive.overwinter.pool.
-OverwinterPool.evict_expired` already is both the decision and the effect, so this module's own
-dormant-eviction phase is one call, whose returned ids are folded straight into the report.
+third kind (dormant eviction) has no pure half here at all: `hivemind.hive.lifecycle.CellLifecycle.
+evict_expired` already is both the decision and the effect (it asks `hivemind.hive.overwinter.pool.
+OverwinterPool.evict_expired` for the expired ids, bookkeeping only, then tears each one down
+itself), so this module's own dormant-eviction phase is one call, whose returned ids are folded
+straight into the report.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.undertaker`. Called once, by
@@ -38,8 +40,8 @@ See Also:
       orphans of both kinds from backend labels and the trail").
     - .claude/codingrules.md section 8.3 for "pure core, effectful edges".
     - hivemind.workers.roles.undertaker.role for Undertaker, destroy_virtual and release_real.
-    - hivemind.hive.overwinter.pool for OverwinterPool.evict_expired, the dormant-eviction phase's
-      own decision-and-effect.
+    - hivemind.hive.lifecycle for CellLifecycle.evict_expired, the dormant-eviction phase's own
+      decision-and-effect.
 """
 
 from __future__ import annotations
@@ -105,7 +107,7 @@ class SweepDeps:
         known_live_cells: Returns every Cell id the live lifecycle table still recognises.
         lease_finder: Resolves an orphaned lease id to the actual lease object, or None.
         evict_dormant: Destroys every dormant Cell past its own `dormant_until`
-            (`hivemind.hive.overwinter.pool.OverwinterPool.evict_expired`).
+            (`hivemind.hive.lifecycle.CellLifecycle.evict_expired`).
     """
 
     undertaker: Undertaker

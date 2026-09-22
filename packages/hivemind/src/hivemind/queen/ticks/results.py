@@ -25,6 +25,10 @@ Fits into the Hive:
 Key invariants:
     - `complete_task` calls `dispatch_ready` immediately afterward, so a dependant task is placed
       without waiting for the next tick.
+    - `complete_task` tells `deps.on_task_finished` (roadmap step 5.6/5.9's own release seam, this
+      dispatch's own minimal edit) about the reporting Warden's own Cell before `dispatch_ready`
+      runs, so a Virtual Cell it releases is never still GRANTED when the next placement decision
+      reads `deps.virtual_backends`/`.dormant_cells`.
     - `retry_task` never inspects an attempt ceiling itself, and never changes the task's own
       chamber status: the ceiling decision already happened in
       `hivemind.queen.autopilot.table.decide`; this function only carries out the resend.
@@ -43,7 +47,7 @@ from collections.abc import Sequence
 from hivemind.brood_chamber import TaskOutcome, TaskStatus
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, redispatch
-from waggle.ids import TaskId
+from waggle.ids import TaskId, WardenId
 from waggle.messages.task import ArtifactRef, TaskResult
 
 MAX_FAIL_SUMMARY_CHARS = 2_000  # Matches brood_chamber.task.model.MAX_SUMMARY_CHARS's own bound.
@@ -52,7 +56,10 @@ __all__ = ["MAX_FAIL_SUMMARY_CHARS", "complete_task", "fail_task", "retry_task"]
 
 
 async def complete_task(
-    deps: QueenDeps, wardens: Sequence[WardenLink], payload: TaskResult
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    payload: TaskResult,
+    warden_id: WardenId | None = None,
 ) -> None:
     """Record a Warden-verified success and place whatever it unblocks.
 
@@ -61,6 +68,11 @@ async def complete_task(
         wardens: Every Warden currently attached; dispatch_ready places among these.
         payload: The Warden's own verified TaskResult(SUCCEEDED); `checked_by` becomes
             `TaskOutcome.verified_by`.
+        warden_id: The Warden that reported this result, when the caller has it (`hivemind.queen.
+            queen`'s own inbox item already names one). Roadmap step 5.6/5.9's own release seam:
+            when given and `deps.on_task_finished` is set, that Warden's own Cell is told the task
+            finished (`hivemind.queen.cell_gate.release.make_on_task_finished`'s own no-op for a
+            Cell the lifecycle does not track -- see `QueenDeps.on_task_finished`'s own docstring).
     """
     outcome = TaskOutcome(
         status=TaskStatus.SUCCEEDED,
@@ -70,7 +82,19 @@ async def complete_task(
         spend_usd=payload.spend,
     )
     await deps.chamber.complete(payload.task_id, outcome)
+    await _notify_cell_finished(deps, wardens, warden_id, outcome)
     await dispatch_ready(deps, wardens)  # A dependant task may now be ready.
+
+
+async def _notify_cell_finished(
+    deps: QueenDeps, wardens: Sequence[WardenLink], warden_id: WardenId | None, outcome: TaskOutcome
+) -> None:
+    """Tell `deps.on_task_finished` about `warden_id`'s own Cell, when both are known."""
+    if deps.on_task_finished is None or warden_id is None:
+        return
+    link = next((w for w in wardens if w.warden_id == warden_id), None)
+    if link is not None:
+        await deps.on_task_finished(link.cell.id, outcome)
 
 
 async def retry_task(

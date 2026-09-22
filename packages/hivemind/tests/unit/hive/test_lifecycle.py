@@ -5,17 +5,22 @@ Fits into the Hive:
     (codingrules section 3). Walks the roadmap step 5.6 edge sequence end to end against
     FakeCellBackend, asserts the recorded cell.* events land in order, and checks the Night Veil
     guard, reconciliation and provision-failure paths the module docstring names as key
-    invariants.
+    invariants. Since this dispatch's own reconciliation of CellLifecycle and OverwinterPool, also
+    exercises `overwinter()`/`resume()`/`claim_for_image()`/`evict_expired()` calling into both a
+    real (in-memory) OverwinterPool and FakeCellBackend's own pause/resume/destroy.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
     - hivemind.hive.lifecycle for CellLifecycle, the class under test.
+    - hivemind.hive.overwinter.pool for OverwinterPool, its bookkeeping collaborator.
     - hivemind.hive.backends.fake for FakeCellBackend, every test's one backend.
 """
 
 from __future__ import annotations
+
+from datetime import timedelta
 
 import pytest
 from builders.cells import make_identity
@@ -26,8 +31,10 @@ from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.fake import FakeCellBackend
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.errors import CellProvisionError, InvalidCellTransitionError, UnknownCellError
-from hivemind.hive.lifecycle import CellLifecycle, DecideRelease, LiveVirtualCell, always_teardown
+from hivemind.hive.lifecycle import CellLifecycle, OverwinterSettings
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.overwinter.policy import OverwinterConfig, OverwinterDecision, ReleaseOutcome
+from hivemind.hive.overwinter.pool import OverwinterPool
 from hivemind.hive.registry import BackendRegistry
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery
@@ -56,16 +63,59 @@ def _night_veil_spec(**overrides: object) -> VirtualCellSpec:
     )
 
 
+def _outcome(**overrides: object) -> ReleaseOutcome:
+    """Build a ReleaseOutcome that clears every ADR-0029 rule, overridable per test."""
+    fields: dict[str, object] = {
+        "rolled_back_whole_cell": False,
+        "has_block_wax": False,
+        "single_use": False,
+        "backend_can_pause": True,
+    }
+    fields.update(overrides)
+    return ReleaseOutcome(**fields)  # type: ignore[arg-type]
+
+
+def _overwinter_config(**overrides: object) -> OverwinterConfig:
+    """Build a generous OverwinterConfig, overridable per test."""
+    fields: dict[str, object] = {
+        "enabled": True,
+        "max_cells": 10,
+        "max_per_image": 10,
+        "max_dormant_s": 3600.0,
+        "disk_budget_mb": 1024 * 1024,  # Generous: _make_spec's own default disk is 10 GB.
+    }
+    fields.update(overrides)
+    return OverwinterConfig(**fields)  # type: ignore[arg-type]
+
+
+async def _no_op_scrub(cell: object) -> None:
+    """A Scrubber that does nothing; most tests don't care what scrubbing does."""
+
+
 def _make_lifecycle(
-    backend: FakeCellBackend, *, decide: DecideRelease = always_teardown
+    backend: FakeCellBackend, *, with_pool: bool = False
 ) -> tuple[CellLifecycle, MemoryPheromoneTrail]:
-    """Build a CellLifecycle over one registered "fake" backend, and the trail it records to."""
+    """Build a CellLifecycle over one registered "fake" backend, and the trail it records to.
+
+    Args:
+        backend: The FakeCellBackend to register under "fake".
+        with_pool: True builds a real OverwinterPool and a generous OverwinterConfig too, so
+            release() can actually decide OVERWINTER; False (the default) leaves both unset, so
+            release() always decides TEARDOWN (the old always_teardown default's behaviour).
+    """
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
     registry = BackendRegistry()
     registry.register("fake", lambda: backend)
     identity = make_identity(clock)
-    lifecycle = CellLifecycle(registry, trail, clock, identity, overwinter_policy_hook=decide)
+    overwinter = (
+        OverwinterSettings(
+            pool=OverwinterPool(clock, _overwinter_config()), config=_overwinter_config()
+        )
+        if with_pool
+        else None
+    )
+    lifecycle = CellLifecycle(registry, trail, clock, identity, overwinter=overwinter)
     return lifecycle, trail
 
 
@@ -114,25 +164,27 @@ async def test_mark_ready_moves_provisioning_to_ready_and_records_it() -> None:
 
 async def test_full_happy_path_records_every_edge_in_order() -> None:
     backend = FakeCellBackend(FakeClock())
-    lifecycle, trail = _make_lifecycle(backend, decide=lambda cell, spec: "overwinter")
+    lifecycle, trail = _make_lifecycle(backend, with_pool=True)
     cell = await lifecycle.provision(_make_spec(), "fake")
     await lifecycle.mark_ready(cell.id)
     grant_id = new_grant_id(FakeClock())
 
     await lifecycle.grant(cell.id, grant_id)
-    decision = await lifecycle.release(cell.id)
-    assert decision == "overwinter"
-    await lifecycle.overwinter(cell.id)
+    decision = await lifecycle.release(cell.id, _outcome())
+    assert decision is OverwinterDecision.OVERWINTER
+    await lifecycle.overwinter(cell.id, scrub=_no_op_scrub)
     assert lifecycle.status_of(cell.id) is VirtualCellStatus.DORMANT
+    assert backend.pause_calls == [cell.id]
 
     await lifecycle.resume(cell.id)
     assert lifecycle.status_of(cell.id) is VirtualCellStatus.READY
+    assert backend.resume_calls == [cell.id]
 
     await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
-    decision = await lifecycle.release(cell.id)
-    # The hook is unconditional ("overwinter" every time); this second release is torn down
-    # anyway, proving teardown() works from RELEASED without ever calling overwinter() again.
-    assert decision == "overwinter"
+    decision = await lifecycle.release(cell.id, _outcome(single_use=True))
+    # single_use vetoes OVERWINTER this time, proving teardown() works from RELEASED without a
+    # second overwinter() call.
+    assert decision is OverwinterDecision.TEARDOWN
     await lifecycle.teardown(cell.id)
 
     assert lifecycle.status_of(cell.id) is None  # Removed once DESTROYED.
@@ -149,6 +201,18 @@ async def test_full_happy_path_records_every_edge_in_order() -> None:
         "cell.destroying",
         "cell.destroyed",
     ]
+
+
+async def test_release_without_a_pool_always_tears_down() -> None:
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, _trail = _make_lifecycle(backend)  # No pool: the old always_teardown default.
+    cell = await lifecycle.provision(_make_spec(), "fake")
+    await lifecycle.mark_ready(cell.id)
+    await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
+
+    decision = await lifecycle.release(cell.id, _outcome())
+
+    assert decision is OverwinterDecision.TEARDOWN
 
 
 async def test_teardown_calls_backend_destroy_and_removes_the_record() -> None:
@@ -176,47 +240,102 @@ async def test_teardown_is_reachable_directly_from_ready() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Night Veil: never dormant, regardless of the release hook.
+# claim_for_image: the convenience path for a caller with only an image, not a cell_id.
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-async def test_release_forces_teardown_for_night_veil_even_with_an_overwinter_hook() -> None:
+async def test_claim_for_image_resumes_the_oldest_dormant_cell() -> None:
     backend = FakeCellBackend(FakeClock())
-    lifecycle, _trail = _make_lifecycle(backend, decide=lambda cell, spec: "overwinter")
+    lifecycle, _trail = _make_lifecycle(backend, with_pool=True)
+    cell = await lifecycle.provision(_make_spec(image="base-ubuntu"), "fake")
+    await lifecycle.mark_ready(cell.id)
+    await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
+    await lifecycle.release(cell.id, _outcome())
+    await lifecycle.overwinter(cell.id, scrub=_no_op_scrub)
+
+    resumed_id = await lifecycle.claim_for_image("base-ubuntu")
+
+    assert resumed_id == cell.id
+    assert lifecycle.status_of(cell.id) is VirtualCellStatus.READY
+    assert backend.resume_calls == [cell.id]
+
+
+async def test_claim_for_image_returns_none_when_nothing_matches() -> None:
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, _trail = _make_lifecycle(backend, with_pool=True)
+
+    assert await lifecycle.claim_for_image("no-such-image") is None
+
+
+async def test_claim_for_image_returns_none_without_a_pool() -> None:
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, _trail = _make_lifecycle(backend)  # No pool.
+
+    assert await lifecycle.claim_for_image("base-ubuntu") is None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# evict_expired: pool bookkeeping selects the ids, the lifecycle tears each one down.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_evict_expired_tears_down_every_cell_past_its_own_deadline() -> None:
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, trail = _make_lifecycle(backend, with_pool=True)
+    cell = await lifecycle.provision(_make_spec(), "fake")
+    await lifecycle.mark_ready(cell.id)
+    await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
+    await lifecycle.release(cell.id, _outcome())
+    await lifecycle.overwinter(cell.id, scrub=_no_op_scrub)
+
+    # FakeClock() with no `start` always begins at the same fixed instant (waggle.clock's own
+    # docstring), which is also what `lifecycle`'s own internal clock reads here: nothing in this
+    # test ever calls `.advance()`, so a fresh FakeClock().now() and the lifecycle's own `now()`
+    # still agree.
+    far_future = FakeClock().now() + timedelta(hours=2)  # Past the default 3600s max_dormant_s.
+    evicted = await lifecycle.evict_expired(far_future)
+
+    assert evicted == (cell.id,)
+    assert lifecycle.status_of(cell.id) is None
+    assert backend.destroy_calls == [cell.id]
+    assert (await _kinds_for(trail, cell.id))[-2:] == ["cell.destroying", "cell.destroyed"]
+
+
+async def test_evict_expired_returns_empty_without_a_pool() -> None:
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, _trail = _make_lifecycle(backend)  # No pool.
+
+    assert await lifecycle.evict_expired(FakeClock().now()) == ()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Night Veil: never dormant, regardless of the pool or the policy.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_release_forces_teardown_for_night_veil_even_with_a_pool() -> None:
+    backend = FakeCellBackend(FakeClock())
+    lifecycle, _trail = _make_lifecycle(backend, with_pool=True)
     cell = await lifecycle.provision(_night_veil_spec(), "fake")
     await lifecycle.mark_ready(cell.id)
     await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
 
-    decision = await lifecycle.release(cell.id)
+    decision = await lifecycle.release(cell.id, _outcome())
 
-    assert decision == "teardown"
+    assert decision is OverwinterDecision.TEARDOWN
 
 
 async def test_overwinter_itself_refuses_a_night_veil_cell_regardless_of_release() -> None:
     """A direct overwinter() call is refused too: release()'s own decision is not the only guard."""
     backend = FakeCellBackend(FakeClock())
-    lifecycle, _trail = _make_lifecycle(backend)
+    lifecycle, _trail = _make_lifecycle(backend, with_pool=True)
     cell = await lifecycle.provision(_night_veil_spec(), "fake")
     await lifecycle.mark_ready(cell.id)
     await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
-    await lifecycle.release(cell.id)  # Now RELEASED, regardless of what it returned.
+    await lifecycle.release(cell.id, _outcome())  # Now RELEASED, regardless of what it returned.
 
     with pytest.raises(InvalidCellTransitionError, match="Night Veil"):
-        await lifecycle.overwinter(cell.id)
-
-
-async def test_default_hook_always_tears_down() -> None:
-    backend = FakeCellBackend(FakeClock())
-    lifecycle, _trail = _make_lifecycle(backend)  # No decide= override: always_teardown.
-    cell = await lifecycle.provision(_make_spec(), "fake")
-    await lifecycle.mark_ready(cell.id)
-    await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
-
-    decision = await lifecycle.release(cell.id)
-
-    assert decision == "teardown"
-    stub = LiveVirtualCell(cell.id, VirtualCellStatus.RELEASED, "fake", "x", CombShieldLevel.MEADOW)
-    assert always_teardown(stub, None) == "teardown"
+        await lifecycle.overwinter(cell.id, scrub=_no_op_scrub)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -315,14 +434,14 @@ async def test_mark_ready_twice_raises_invalid_transition() -> None:
 
 async def test_dormant_candidates_lists_only_dormant_cells() -> None:
     backend = FakeCellBackend(FakeClock())
-    lifecycle, _trail = _make_lifecycle(backend, decide=lambda cell, spec: "overwinter")
+    lifecycle, _trail = _make_lifecycle(backend, with_pool=True)
     ready_cell = await lifecycle.provision(_make_spec(), "fake")
     await lifecycle.mark_ready(ready_cell.id)
     dormant_cell = await lifecycle.provision(_make_spec(), "fake")
     await lifecycle.mark_ready(dormant_cell.id)
     await lifecycle.grant(dormant_cell.id, new_grant_id(FakeClock()))
-    await lifecycle.release(dormant_cell.id)
-    await lifecycle.overwinter(dormant_cell.id)
+    await lifecycle.release(dormant_cell.id, _outcome())
+    await lifecycle.overwinter(dormant_cell.id, scrub=_no_op_scrub)
 
     candidates = lifecycle.dormant_candidates()
 

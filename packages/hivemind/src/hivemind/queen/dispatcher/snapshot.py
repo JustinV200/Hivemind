@@ -40,9 +40,12 @@ from collections.abc import Sequence
 
 from hivemind.cell import Cell, HoneyClearance
 from hivemind.forage import RoleFootprint
+from hivemind.hive import VirtualCellSpec
+from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import WaxSeverity, WaxState
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.placement import (
+    DormantCandidate,
     ForageView,
     Inventory,
     RealCandidate,
@@ -52,7 +55,12 @@ from hivemind.queen.placement import (
 from waggle.ids import CellId
 from waggle.messages.task import WorkerRole
 
-__all__ = ["build_forage_view", "build_inventory"]
+__all__ = [
+    "build_forage_view",
+    "build_inventory",
+    "dormant_candidate_from_lifecycle",
+    "virtual_backend_candidate_from_lifecycle",
+]
 
 
 async def build_inventory(
@@ -83,8 +91,17 @@ async def build_inventory(
     footprint = deps.footprints[WorkerRole.DRONE]
     blocked, cautioned = await _wax_maps(deps)
     real = tuple(_real_candidate(link, footprint) for link in wardens)
-    backends = virtual_backends if virtual_backends is not None else deps.virtual_backends
-    dormant = tuple(cell for cell in deps.dormant_cells if cell.cell_id not in exclude_dormant)
+    if virtual_backends is not None:
+        backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
+    elif deps.virtual_backend_source is not None:
+        backends = await deps.virtual_backend_source()
+    else:
+        backends = deps.virtual_backends
+    if deps.dormant_cell_source is not None:
+        live_dormant = await deps.dormant_cell_source()
+        dormant = tuple(cell for cell in live_dormant if cell.cell_id not in exclude_dormant)
+    else:
+        dormant = tuple(cell for cell in deps.dormant_cells if cell.cell_id not in exclude_dormant)
     return Inventory(
         real=real, virtual_backends=backends, dormant=dormant, blocked=blocked, cautioned=cautioned
     )
@@ -101,6 +118,54 @@ def build_forage_view(deps: QueenDeps) -> ForageView:
         The `ForageView` `decide()` reads for this one placement decision.
     """
     return ForageView(footprint=deps.footprints[WorkerRole.DRONE])
+
+
+def virtual_backend_candidate_from_lifecycle(
+    backend: LifecycleVirtualBackend, specs: tuple[VirtualCellSpec, ...] = ()
+) -> VirtualBackendCandidate:
+    """Convert one hive-layer `LifecycleVirtualBackend` into a queen-layer candidate.
+
+    `hive` (Layer 3) may never import `queen` (Layer 6), so `hivemind.hive.lifecycle.
+    CellLifecycle.virtual_backend_candidates` returns its own hive-layer value instead; this is
+    where the conversion happens, on the Layer-6 side that already imports both (module docstring:
+    "converting the lifecycle's hive-layer candidate types to queen.placement.inventory types in
+    snapshot.py"). `hivemind.cli.compose` calls this once per backend, per tick, to build the
+    closure it sets on `QueenDeps.virtual_backend_source`.
+
+    Args:
+        backend: One backend, as `CellLifecycle.virtual_backend_candidates` reports it (name and
+            remaining headroom only -- it tracks no `VirtualCellSpec`s of its own).
+        specs: The `VirtualCellSpec`s this backend can provision right now, in preference order;
+            `hive.lifecycle` carries none of its own (module docstring's own key invariant on
+            `LifecycleVirtualBackend`), so the composition root supplies them from the manifest's
+            own `[virtual_cells]` section. Defaults to empty, matching a caller that has none yet.
+
+    Returns:
+        The equivalent `VirtualBackendCandidate`.
+    """
+    return VirtualBackendCandidate(
+        name=backend.name, capabilities=backend.capabilities, specs=specs
+    )
+
+
+def dormant_candidate_from_lifecycle(cell: LifecycleDormantCell) -> DormantCandidate:
+    """Convert one hive-layer `LifecycleDormantCell` into a queen-layer `DormantCandidate`.
+
+    See `virtual_backend_candidate_from_lifecycle`'s own docstring for why this conversion lives
+    here rather than in `hive.lifecycle` itself.
+
+    Args:
+        cell: One dormant Cell, as `CellLifecycle.dormant_candidates` reports it.
+
+    Returns:
+        The equivalent `DormantCandidate`.
+    """
+    return DormantCandidate(
+        cell_id=cell.cell_id,
+        warden_id=cell.warden_id,
+        image=cell.image,
+        comb_shield=cell.comb_shield,
+    )
 
 
 def _real_candidate(link: WardenLink, footprint: RoleFootprint) -> RealCandidate:

@@ -504,32 +504,33 @@ async def _act(
     queen: Queen, action: QueenAction, item: InboxItem, task: Task | None, warden_id: WardenId
 ) -> None:
     """Carry out one decided QueenAction; a payload-type mismatch (a stale wire kind) is a no-op."""
-    payload = item.payload
-    if isinstance(payload, TaskResult):
-        await _act_on_task_result(queen, action, payload)
-    elif isinstance(payload, AlarmRaised):
+    if isinstance(item.payload, TaskResult):
+        await _act_on_task_result(queen, action, item.payload, warden_id)
+    elif isinstance(item.payload, AlarmRaised):
         handling = AlarmHandling(
             human_inbox=queen._human_inbox,
             warden_id=warden_id,
-            payload=payload,
+            payload=item.payload,
             action=action,
             attempts=queen._attempts,
             pending_alarms=queen._pending_alarms,
         )
         await ticks.alarms.handle_alarm(queen._deps, queen.wardens, handling)
-    elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(payload, Question):
-        chamber_question = await questions.handle_question(queen._deps, payload)
-        queen._open_questions[payload.question_id] = payload.task_id
-        queen._question_wire_ids[chamber_question.id] = payload.question_id
+    elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(item.payload, Question):
+        chamber_question = await questions.handle_question(queen._deps, item.payload)
+        queen._open_questions[item.payload.question_id] = item.payload.task_id
+        queen._question_wire_ids[chamber_question.id] = item.payload.question_id
         queen._question_envelope_ids[chamber_question.id] = MessageId(item.id)
-    elif isinstance(payload, Answer):
+    elif isinstance(item.payload, Answer):
         pass  # ROUTE_ANSWER: no wire path produces this in v0 (see hivemind.queen.questions).
 
 
-async def _act_on_task_result(queen: Queen, action: QueenAction, payload: TaskResult) -> None:
+async def _act_on_task_result(
+    queen: Queen, action: QueenAction, payload: TaskResult, warden_id: WardenId
+) -> None:
     """Carry out COMPLETE_TASK, RETRY_TASK or FAIL_TASK for a TaskResult."""
     if action is QueenAction.COMPLETE_TASK:
-        await ticks.results.complete_task(queen._deps, queen.wardens, payload)
+        await ticks.results.complete_task(queen._deps, queen.wardens, payload, warden_id)
         await _resolve_pending_alarm(queen, payload.task_id)
     elif action is QueenAction.RETRY_TASK:
         attempt = _next_attempt(queen, payload.task_id)
@@ -540,9 +541,8 @@ async def _act_on_task_result(queen: Queen, action: QueenAction, payload: TaskRe
 
 def _next_attempt(queen: Queen, task_id: TaskId) -> int:
     """Advance and return `task_id`'s own retry counter, starting from 1 (its first attempt)."""
-    next_value = queen._attempts.get(task_id, 1) + 1
-    queen._attempts[task_id] = next_value
-    return next_value
+    queen._attempts[task_id] = queen._attempts.get(task_id, 1) + 1
+    return queen._attempts[task_id]
 
 
 async def _resolve_pending_alarm(queen: Queen, task_id: TaskId) -> None:

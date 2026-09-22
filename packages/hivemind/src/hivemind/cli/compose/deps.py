@@ -42,6 +42,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +53,7 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
 from hivemind.cli.compose.links import HiveLinks
+from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import (
     build_registry,
     open_chamber,
@@ -334,7 +336,12 @@ def _lane_for_grant(parts: HiveParts) -> Callable[[str, str, Tempo], CallGate]:
     )
 
 
-def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedger) -> QueenDeps:
+def build_queen_deps(
+    parts: HiveParts,
+    forage_map: ForageMap,
+    ledger: ForageLedger,
+    virtual_cells: VirtualCellsParts | None = None,
+) -> QueenDeps:
     """Build the Queen's own QueenDeps from `[forage]`/`[supervision]`/`[memory]` and shared parts.
 
     Args:
@@ -343,10 +350,21 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         ledger: The Queen's live book of Forage, built by `build_ledger` ahead of `build_fanner`
             (roadmap step 4.8's own wiring step: `build_fanner` needs it too, before `QueenDeps`
             itself can exist to carry it).
+        virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
+            value, when `[virtual_cells] backend` is set; folded into `QueenDeps.virtual_provider`/
+            `.virtual_backend_source`/`.dormant_cell_source`/`.on_task_finished`. `None` (the
+            default, and every pre-5.6 caller) leaves those four fields at their own defaults,
+            keeping placement Real-only.
 
     Returns:
         A QueenDeps ready for `hivemind.queen.Queen(deps)`.
     """
+    base = _base_queen_deps(parts, forage_map, ledger)
+    return _with_virtual_cells(base, virtual_cells)
+
+
+def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedger) -> QueenDeps:
+    """Build every `QueenDeps` field `build_queen_deps` set before roadmap step 5.6's own field."""
     manifest = parts.manifest
     supervision = manifest.supervision
     forage = manifest.forage
@@ -370,7 +388,7 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,
-        # roadmap step 4.8: the same ForageLedger build_hive already built (see this function's
+        # roadmap step 4.8: the same ForageLedger build_hive already built (see build_queen_deps's
         # own docstring), restored from whatever its SqliteLedgerStore already held.
         ledger=ledger,
         # Roadmap step 4.9: a SqliteOrderStore over the same [hive] db file (hive cluster/wake
@@ -380,6 +398,19 @@ def build_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         # Roadmap step 4.3: the manifest's own sweep cadence for the Queen's House Bee sweep.
         sweep_interval_s=manifest.memory.sweep_interval_s,
         hot_window_s=manifest.memory.hot_window_s,
+    )
+
+
+def _with_virtual_cells(base: QueenDeps, virtual_cells: VirtualCellsParts | None) -> QueenDeps:
+    """Fold the live Virtual Cell seam into `base`, additive; `base` unchanged when `None`."""
+    if virtual_cells is None:
+        return base
+    return dataclasses.replace(
+        base,
+        virtual_provider=virtual_cells.provider,
+        virtual_backend_source=virtual_cells.virtual_backend_source,
+        dormant_cell_source=virtual_cells.dormant_cell_source,
+        on_task_finished=virtual_cells.on_task_finished,
     )
 
 
