@@ -19,8 +19,8 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -29,9 +29,11 @@ from hivemind.hive.backends.qemu.process_runner import (
     OVERLAY_DISK_NAME,
     ProcessQemuRunner,
     _overlay_size_bytes,
+    _read_qmp_port,
+    _write_metadata,
     probe_accelerator,
 )
-from hivemind.hive.backends.qemu.runner import QemuRunnerError
+from hivemind.hive.backends.qemu.runner import QemuRunnerError, QemuVmSpec
 from waggle.ids import CellId, HiveId
 
 
@@ -149,18 +151,60 @@ def test_overlay_size_bytes_reads_the_real_file_size(tmp_path: Path) -> None:
     assert _overlay_size_bytes(overlay) == 1234
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="exercises the Windows-only QMP guard")
-async def test_savevm_raises_the_windows_qmp_guard(tmp_path: Path) -> None:
-    """Uses the same qmp.py guard stop_vm/pause_vm/resume_vm already go through."""
+async def test_savevm_on_a_never_started_vm_raises_no_transport_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A never-started VM has no persisted qmp_port, so this falls back to a Unix address.
+
+    On a host with no Unix-socket transport (forced here via monkeypatch so the assertion holds on
+    every platform this suite runs on, mirroring hivemind.hive.backends.qemu.qmp's own probe-based
+    tests), that has nothing left to try and raises instead of silently no-op-ing.
+    """
+    monkeypatch.delattr(asyncio, "open_unix_connection", raising=False)
     runner = ProcessQemuRunner(tmp_path)
 
-    with pytest.raises(QemuRunnerError, match="not supported on Windows"):
+    with pytest.raises(QemuRunnerError, match="no Unix-socket"):
         await runner.savevm(CellId("cell_test"), "snap-1")
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="exercises the Windows-only QMP guard")
-async def test_loadvm_raises_the_windows_qmp_guard(tmp_path: Path) -> None:
+async def test_loadvm_on_a_never_started_vm_raises_no_transport_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delattr(asyncio, "open_unix_connection", raising=False)
     runner = ProcessQemuRunner(tmp_path)
 
-    with pytest.raises(QemuRunnerError, match="not supported on Windows"):
+    with pytest.raises(QemuRunnerError, match="no Unix-socket"):
         await runner.loadvm(CellId("cell_test"), "snap-1")
+
+
+async def test_start_vm_in_tcp_qmp_mode_persists_the_port_for_a_later_send(tmp_path: Path) -> None:
+    """A runner forced into TCP-QMP mode writes a real qmp_port a later call can read back.
+
+    Exercises _write_metadata/_read_qmp_port's own round trip with no real qemu-system-x86_64
+    needed: start_vm's own subprocess launch is what actually needs the real binary, so this test
+    calls the persistence helpers directly instead, mirroring how this module's other tests avoid
+    needing a real QEMU install (module docstring).
+    """
+    vm_dir = tmp_path / "cell_test"
+    vm_dir.mkdir()
+    spec = QemuVmSpec(
+        cell_id=CellId("cell_test"),
+        hive_id=HiveId("hive_test"),
+        image="base-ubuntu",
+        vm_dir=vm_dir,
+        overlay_disk_path=vm_dir / "overlay.qcow2",
+        seed_image_path=vm_dir / "seed.iso",
+        cpu_cores=1,
+        memory_bytes=512 * 1024 * 1024,
+        accelerator="tcg",
+        netdev_arg="user,id=net0",
+        labels={},
+    )
+
+    _write_metadata(spec, pid=4321, qmp_port=55123)
+
+    assert _read_qmp_port(vm_dir) == 55123
+
+
+def test_read_qmp_port_on_a_missing_metadata_file_is_none(tmp_path: Path) -> None:
+    assert _read_qmp_port(tmp_path / "never_created") is None

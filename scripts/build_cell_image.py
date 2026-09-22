@@ -31,7 +31,15 @@ environment has no network access to fetch Ubuntu's current SHA256SUMS file eith
 has been written carefully and reviewed by reading, never run -- the same caveat
 `images/base-ubuntu/Dockerfile` states for itself. `UBUNTU_CLOUD_IMAGE_SHA256` is a placeholder a
 maintainer must replace before a real build (see its own comment); the script refuses to proceed
-while it still holds that placeholder, rather than silently skipping verification.
+while the *effective* digest (see below) still holds that placeholder, rather than silently
+skipping verification.
+
+Roadmap step 5.11 (this branch) adds two ways to supply the real digest without editing this file:
+`--sha256 <digest>` on the command line, or `HIVEMIND_QEMU_BASE_IMAGE_SHA256` in the environment
+(`hivemind.manifest.env.read_build_image_sha256_override`, codingrules section 13's "environment
+variables are read in exactly one place"). `--sha256` wins when both are given; either one replaces
+the bundled placeholder for this run only, so a CI job or a one-off build can pin the digest it
+just fetched from `UBUNTU_CLOUD_IMAGE_SHA256SUMS_URL` without a code change.
 
 Fits into the Hive:
     Layer: none (a dev/build-time script, not shipped code). Produces
@@ -56,6 +64,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -63,6 +72,8 @@ import tempfile
 import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
+
+from hivemind.manifest.env import read_build_image_sha256_override
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / "images" / "base-ubuntu" / "vm" / "base-ubuntu.qcow2"
@@ -102,30 +113,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         0 on success, 1 if a required tool is missing or the digest was not updated from its
         placeholder, matching every other `scripts/check_*.py` gate's own exit-code convention.
     """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--output", type=Path, default=DEFAULT_OUTPUT, help="Where to write the qcow2."
-    )
-    parser.add_argument(
-        "--disk-size",
-        default=DEFAULT_DISK_SIZE,
-        help=f"Final disk size (default {DEFAULT_DISK_SIZE}).",
-    )
-    args = parser.parse_args(argv)
+    args = _build_arg_parser().parse_args(argv)
 
     tools = _require_tools()
     if tools is None:
         return 1
     qemu_img, qemu_system = tools
-    if UBUNTU_CLOUD_IMAGE_SHA256.startswith("UNVERIFIED-PLACEHOLDER"):
-        print(
-            "UBUNTU_CLOUD_IMAGE_SHA256 is still a placeholder; fetch the real digest from "
-            f"{UBUNTU_CLOUD_IMAGE_SHA256SUMS_URL} and update this script before building for real."
-        )
+    expected_sha256 = _expected_sha256_or_refuse(args.sha256)
+    if expected_sha256 is None:
         return 1
 
     try:
-        _build(qemu_img, qemu_system, args.output, args.disk_size)
+        _build(qemu_img, qemu_system, args.output, args.disk_size, expected_sha256)
     except (
         ValueError,
         RuntimeError,
@@ -139,6 +138,59 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print(f"Built {args.output}")
     return 0
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build this script's own argparse parser; split out of `main` for its own line budget."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--output", type=Path, default=DEFAULT_OUTPUT, help="Where to write the qcow2."
+    )
+    parser.add_argument(
+        "--disk-size",
+        default=DEFAULT_DISK_SIZE,
+        help=f"Final disk size (default {DEFAULT_DISK_SIZE}).",
+    )
+    parser.add_argument(
+        "--sha256",
+        default=None,
+        help="Override UBUNTU_CLOUD_IMAGE_SHA256 for this run (also settable via "
+        "HIVEMIND_QEMU_BASE_IMAGE_SHA256); required once the bundled placeholder has not yet "
+        "been replaced in this file.",
+    )
+    return parser
+
+
+def _expected_sha256_or_refuse(cli_sha256: str | None) -> str | None:
+    """Resolve the digest to verify against, or print the refusal message and return None.
+
+    Split out of `main` purely to keep it under codingrules 5.1's 50-line function limit; the
+    refusal message itself is unchanged from before `--sha256`/the env override existed, just
+    updated to mention both new ways to supply the real digest.
+    """
+    expected_sha256 = _resolve_expected_sha256(cli_sha256)
+    if expected_sha256.startswith("UNVERIFIED-PLACEHOLDER"):
+        print(
+            "UBUNTU_CLOUD_IMAGE_SHA256 is still a placeholder; fetch the real digest from "
+            f"{UBUNTU_CLOUD_IMAGE_SHA256SUMS_URL} and pass it with --sha256, set "
+            "HIVEMIND_QEMU_BASE_IMAGE_SHA256, or update this script before building for real."
+        )
+        return None
+    return expected_sha256
+
+
+def _resolve_expected_sha256(cli_sha256: str | None) -> str:
+    """Return the digest to verify against.
+
+    Precedence: `--sha256`, then `HIVEMIND_QEMU_BASE_IMAGE_SHA256`, then the bundled
+    `UBUNTU_CLOUD_IMAGE_SHA256` constant (module docstring: the flag wins when both are given).
+    """
+    if cli_sha256 is not None:
+        return cli_sha256
+    env_override = read_build_image_sha256_override(os.environ)
+    if env_override is not None:
+        return env_override
+    return UBUNTU_CLOUD_IMAGE_SHA256
 
 
 def _require_tools() -> tuple[str, str] | None:
@@ -156,14 +208,16 @@ def _require_tools() -> tuple[str, str] | None:
     return qemu_img, qemu_system
 
 
-def _build(qemu_img: str, qemu_system: str, output: Path, disk_size: str) -> None:
+def _build(
+    qemu_img: str, qemu_system: str, output: Path, disk_size: str, expected_sha256: str
+) -> None:
     """Download, verify, resize and provision `output`; the body of `main`'s own try block."""
     with tempfile.TemporaryDirectory(prefix="hivemind-build-cell-image-") as raw_tmp_dir:
         tmp_dir = Path(raw_tmp_dir)
         cloud_image = tmp_dir / "ubuntu-24.04-server-cloudimg-amd64.img"
         print(f"Downloading {UBUNTU_CLOUD_IMAGE_URL} ...")
         _download(UBUNTU_CLOUD_IMAGE_URL, cloud_image)
-        _verify_sha256(cloud_image, UBUNTU_CLOUD_IMAGE_SHA256)
+        _verify_sha256(cloud_image, expected_sha256)
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cloud_image, output)
         print(f"Resizing to {disk_size} ...")

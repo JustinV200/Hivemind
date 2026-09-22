@@ -15,13 +15,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from builders.cells import make_cell
 from builders.cli import fake_manifest
 
-from hivemind.cli.compose.virtual_cells import build_virtual_cells, docker_gateway_url
+from hivemind.cell import CombShieldLevel
+from hivemind.cli.compose.virtual_cells import (
+    _fail_closed_night_veil_probe,
+    _night_veil_socks_proxy_url,
+    build_virtual_cells,
+    docker_gateway_url,
+)
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.placement import VirtualCellsSection
+from hivemind.manifest.schema.security import SecuritySection, TierProfile
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from waggle.clock import FakeClock
+from waggle.messages import CombShieldLevel as WireCombShieldLevel
 
 
 def _load_with_virtual_cells(tmp_path: Path, **overrides: object) -> HiveManifest:
@@ -128,3 +138,47 @@ async def test_qemu_backend_raises_configuration_error_without_base_image_or_vm_
 def test_docker_gateway_url_rewrites_loopback_host() -> None:
     assert docker_gateway_url("ws://127.0.0.1:54321") == "ws://host.docker.internal:54321"
     assert docker_gateway_url("ws://localhost:9000") == "ws://host.docker.internal:9000"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.7a/5.7b: the Night Veil socks-proxy wiring and the fail-closed probe.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _manifest_with_tor_socks(tmp_path: Path, tor_socks: str) -> HiveManifest:
+    manifest = load_manifest(fake_manifest(tmp_path))
+    tiers = dict(manifest.security.tiers)
+    tiers[WireCombShieldLevel.NIGHT_VEIL] = TierProfile(
+        egress_profile="vpn_tor", control_channel="tor_hidden_service", tor_socks=tor_socks
+    )
+    return manifest.model_copy(
+        update={
+            "security": SecuritySection(tiers=tiers, default_comb_shield=WireCombShieldLevel.MEADOW)
+        }
+    )
+
+
+def test_night_veil_socks_proxy_url_is_none_for_meadow(tmp_path: Path) -> None:
+    manifest = _manifest_with_tor_socks(tmp_path, "socks5://127.0.0.1:9050")
+
+    assert _night_veil_socks_proxy_url(manifest, CombShieldLevel.MEADOW) is None
+
+
+def test_night_veil_socks_proxy_url_is_none_with_no_tor_socks_configured(tmp_path: Path) -> None:
+    manifest = load_manifest(fake_manifest(tmp_path))  # Default tiers: tor_socks="".
+
+    assert _night_veil_socks_proxy_url(manifest, CombShieldLevel.NIGHT_VEIL) is None
+
+
+def test_night_veil_socks_proxy_url_reads_the_configured_tor_socks(tmp_path: Path) -> None:
+    manifest = _manifest_with_tor_socks(tmp_path, "socks5://127.0.0.1:9050")
+
+    assert (
+        _night_veil_socks_proxy_url(manifest, CombShieldLevel.NIGHT_VEIL)
+        == "socks5://127.0.0.1:9050"
+    )
+
+
+def test_fail_closed_night_veil_probe_raises_a_clear_error() -> None:
+    with pytest.raises(NotImplementedError, match="no real probe wired up"):
+        _fail_closed_night_veil_probe(make_cell())

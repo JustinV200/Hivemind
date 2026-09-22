@@ -324,14 +324,11 @@ def _build_container_spec(
         nano_cpus=int(spec.cpu_cores * _NANOS_PER_CPU),
         mem_limit_bytes=spec.memory_bytes,
         pids_limit=_DEFAULT_PIDS_LIMIT,
-        # NOTE (roadmap step 5.7a): a VPN_TOR Cell's in-image nftables kill-switch needs
-        # CAP_NET_ADMIN to load its own ruleset at boot, which `cap_drop=("ALL",)` below would
-        # otherwise strip. `ContainerSpec` (hive.backends.docker.client) has no `cap_add` field
-        # yet to add it back selectively -- that file is outside this dispatch's own file list, so
-        # this is a report item: add `cap_add: tuple[str, ...] = ()` there, thread it through
-        # `SdkDockerClient`/`FakeDockerClient`, and pass `cap_add=("NET_ADMIN",) if spec.
-        # network_policy is NetworkPolicy.VPN_TOR else ()` here once it exists.
         cap_drop=("ALL",),
+        # Roadmap step 5.7a: a VPN_TOR Cell's in-image nftables kill-switch needs CAP_NET_ADMIN to
+        # load its own ruleset at boot, which cap_drop=("ALL",) above would otherwise strip; every
+        # other network policy gets nothing back (least privilege, codingrules 15).
+        cap_add=("NET_ADMIN",) if spec.network_policy is NetworkPolicy.VPN_TOR else (),
         security_opt=("no-new-privileges:true",),
         # Read-only root plus a writable tmpfs /tmp and the writable scratch volume: least
         # privilege (codingrules 15) without breaking a Python process that expects /tmp to exist.

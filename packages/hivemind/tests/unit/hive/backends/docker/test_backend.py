@@ -162,6 +162,17 @@ async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> Non
     # kill-switch is the real boundary, not Docker's own network layer).
     assert client.create_network_calls[0].internal is False
     assert client.create_network_calls[0].labels["hivemind.network_policy"] == "VPN_TOR"
+    # Roadmap step 5.7a: cap_drop=("ALL",) would otherwise strip the CAP_NET_ADMIN the in-image
+    # nftables kill-switch needs to load its own ruleset at boot; VPN_TOR gets it back.
+    assert client.create_container_calls[0].cap_add == ("NET_ADMIN",)
+
+
+async def test_provision_grants_no_extra_capabilities_off_vpn_tor() -> None:
+    backend, client, _ = _make_backend(FakeClock())
+
+    await backend.provision(_make_spec(network_policy=NetworkPolicy.EGRESS_ONLY))
+
+    assert client.create_container_calls[0].cap_add == ()
 
 
 async def test_provision_cleans_up_on_network_create_failure() -> None:

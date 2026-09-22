@@ -117,7 +117,7 @@ async def _retry_once(
         inventory = await build_inventory(
             deps, wardens, exclude_dormant=frozenset({placement.cell_id})
         )
-    retry = decide(task.spec.needs, inventory, build_forage_view(deps), deps.placement_policy)
+    retry = decide(task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy)
     if isinstance(retry, ReuseReal):
         link = _attached(wardens, retry.warden_id)
         if link is None:

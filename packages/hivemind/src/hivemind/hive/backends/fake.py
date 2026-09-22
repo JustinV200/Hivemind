@@ -14,6 +14,16 @@ within `spec.ready_timeout_s` -- or times out when the delay exceeds it. Every c
 (`provision_calls`, `destroy_calls`, `pause_calls`, `resume_calls`) so a test can assert on what
 was actually asked for.
 
+Roadmap step 5's own e2e slice (this branch) adds an optional `endpoint` constructor argument:
+when given, `provision()` also mints a real `hivemind.hive.backends.bootstrap.CellBootstrap` via
+`mint_cell_bootstrap` for the Cell it just built (recorded in `self.bootstraps`, keyed by the
+minted `CellId`), the same identity a real backend would mint and pass into a real container's
+environment. This is what lets an e2e test run a genuinely real in-Cell Warden
+(`hivemind.cli.in_cell.main.run_in_cell_warden(bootstrap.environment(), clock)`) as an asyncio task
+standing in for "the container", against a real Queen-side listener, with only the container
+runtime itself faked. `endpoint=None` (the default) keeps every pre-existing caller's own
+behaviour unchanged: no bootstrap is minted, and `self.bootstraps` stays empty.
+
 FakeReadinessGate implements `hivemind.hive.backends.bootstrap.ReadinessGate` the same way:
 `wait_ready` returns a default `CellReadyInfo` (or one arranged with `set_ready_info`) as soon as
 it is called, unless `set_never_ready` is armed for that Cell, in which case it awaits the fake
@@ -65,7 +75,12 @@ from datetime import datetime
 from hivemind.cell import AccessLevel, Cell, CellCapabilities, CellKind, OsFamily
 from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
-from hivemind.hive.backends.bootstrap import CellReadyInfo
+from hivemind.hive.backends.bootstrap import (
+    CellBootstrap,
+    CellReadyInfo,
+    QueenEndpoint,
+    mint_cell_bootstrap,
+)
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
@@ -100,13 +115,22 @@ class _TrackedCell:
 class FakeCellBackend:
     """An in-memory CellBackend: provisions, destroys, pauses and lists Cells with no real infra."""
 
-    def __init__(self, clock: Clock, capabilities: BackendCapabilities | None = None) -> None:
+    def __init__(
+        self,
+        clock: Clock,
+        capabilities: BackendCapabilities | None = None,
+        *,
+        endpoint: QueenEndpoint | None = None,
+    ) -> None:
         """Create a FakeCellBackend with nothing provisioned yet.
 
         Args:
             clock: Source of every minted CellId and every recorded timestamp.
             capabilities: What this fake declares it can do; defaults to can_snapshot=False,
                 can_pause=True, headroom=None (unbounded) so most tests need not think about it.
+            endpoint: When given, `provision()` also mints a real `CellBootstrap` for every Cell
+                it builds (module docstring's own e2e slice addition); `None` (the default) skips
+                that entirely, matching every pre-existing caller's own behaviour.
         """
         self._clock = clock
         self._capabilities = (
@@ -114,6 +138,7 @@ class FakeCellBackend:
             if capabilities is not None
             else BackendCapabilities(can_snapshot=False, can_pause=True, headroom=None)
         )
+        self._endpoint = endpoint
         self._cells: dict[CellId, _TrackedCell] = {}
         self._provision_failure_reason: str | None = None
         self._destroy_failure_reason: str | None = None
@@ -122,6 +147,7 @@ class FakeCellBackend:
         self.destroy_calls: list[CellId] = []
         self.pause_calls: list[CellId] = []
         self.resume_calls: list[CellId] = []
+        self.bootstraps: dict[CellId, CellBootstrap] = {}
 
     @property
     def name(self) -> str:
@@ -185,13 +211,28 @@ class FakeCellBackend:
         headroom = self._capabilities.headroom
         if headroom is not None and len(self._cells) >= headroom:
             raise CellProvisionError(self.name, spec.image, f"at its headroom of {headroom} cells")
-        cell = _build_cell(spec, self.name, new_cell_id(self._clock))
+        cell_id = self._mint_cell_id(spec)
+        cell = _build_cell(spec, self.name, cell_id)
         # hive_id first so a caller's own spec.labels can never shadow the id the sweep relies on.
         labels = {**spec.labels, "hive_id": spec.hive_id}
         self._cells[cell.id] = _TrackedCell(
             cell=cell, status=VirtualCellStatus.READY, labels=labels, created_at=self._clock.now()
         )
         return cell
+
+    def _mint_cell_id(self, spec: VirtualCellSpec) -> CellId:
+        """Return a fresh CellId, minting and recording a real CellBootstrap when `endpoint` is set.
+
+        With no `endpoint` (the default), this is just `new_cell_id` -- pre-existing behaviour,
+        unchanged. With one, the bootstrap's own `mint_cell_bootstrap`-minted `cell_id` is used
+        instead of a second, independent one, so `self.bootstraps[cell.id]` always agrees with the
+        Cell this call actually builds (module docstring's own e2e slice addition).
+        """
+        if self._endpoint is None:
+            return new_cell_id(self._clock)
+        bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
+        self.bootstraps[bootstrap.cell_id] = bootstrap
+        return bootstrap.cell_id
 
     async def destroy(self, cell_id: CellId) -> None:
         """Remove `cell_id` from this backend's table; see `CellBackend.destroy` (idempotent)."""

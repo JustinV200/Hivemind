@@ -18,6 +18,7 @@ Fits into the Hive:
     `hivemind.cell.source` (CellIdentity), `hivemind.cli.in_cell.config`/`.deps`/`.link`,
     `hivemind.cli.version`, `hivemind.common.logging`, `hivemind.manifest.env` (read_in_cell_env),
     `hivemind.pheromone.trail.memory` (this Cell's own local trail segment),
+    `hivemind.wardens.deps` (WardenDeps, `on_deps_built`'s own parameter type),
     `hivemind.wardens.spawn` (InCellSpawnSource), `hivemind.wardens.warden` (Warden) and
     `hivemind.wardens.state` (WardenState) only.
 
@@ -32,6 +33,12 @@ Key invariants:
       action, `hivemind.wardens.ticks.control.handle_stop`), so `run_in_cell_warden` only calls it
       again itself when `run()` ended some other way -- calling an already-stopped Warden's
       `stop()` a second time would re-release its lease and double-record `warden.stopped`.
+    - `on_deps_built`, when given, is called exactly once, with the freshly built `WardenDeps`,
+      after `_connect_and_announce` has already sent this Cell's `CellReady`/`CapacityReport`/
+      `CellHeartbeat` but strictly before `Warden.start()`/`.run()` -- so a caller can script
+      `deps.bound.provider` (the same seam `hivemind.cli.in_cell.deps`'s own test module,
+      `test_deps.py`, reaches by calling `build_in_cell_warden_deps` directly) without this
+      function needing a global or environment-driven way to reach the in-Cell provider registry.
 
 See Also:
     - .claude/roadmap.md step 5.5 for this entry point's own description.
@@ -50,7 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell import link as cell_link
@@ -60,6 +67,7 @@ from hivemind.cli.version import collect_version_info
 from hivemind.common.logging import configure_logging, get_logger
 from hivemind.manifest.env import read_in_cell_env
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
@@ -72,20 +80,32 @@ __all__ = ["main", "run_in_cell_warden"]
 _LOG = get_logger(__name__)
 
 
-async def run_in_cell_warden(environ: Mapping[str, str], clock: Clock) -> None:
+async def run_in_cell_warden(
+    environ: Mapping[str, str],
+    clock: Clock,
+    *,
+    on_deps_built: Callable[[WardenDeps], None] | None = None,
+) -> None:
     """Read `environ`, connect this Cell to the Queen, and run a real Warden until it stops.
 
     Args:
         environ: The process's own environment mapping, read exactly once here (already read by
             the caller, never `os.environ` itself -- codingrules section 13).
         clock: Injected time source for every id minted, every sleep and every timestamp.
+        on_deps_built: Injected, never global (module docstring's own key invariant): called once
+            with the freshly built `WardenDeps`, after this Cell has announced itself but before
+            `Warden.start()`/`.run()`. `None` (the default, every production caller) skips it;
+            an e2e test uses it to script `deps.bound.provider` (a `FakeLLMProvider`) the same
+            way `hivemind.cli.in_cell.deps`'s own test module reaches it, without this module
+            needing to expose a second, lower-level entry point.
     """
     config = build_runtime_config(read_in_cell_env(environ), clock)
     transport, source, trail = await _connect_and_announce(config, clock)
 
-    warden = Warden(
-        config.warden_id, build_in_cell_warden_deps(config, source, transport, trail, clock)
-    )
+    deps = build_in_cell_warden_deps(config, source, transport, trail, clock)
+    if on_deps_built is not None:
+        on_deps_built(deps)
+    warden = Warden(config.warden_id, deps)
     await warden.start()
     _LOG.info("cell.warden.started", warden_id=config.warden_id)
     try:

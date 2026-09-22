@@ -28,6 +28,8 @@ import pytest
 
 from hivemind.cli.in_cell.main import run_in_cell_warden
 from hivemind.common.errors import ConfigurationError
+from hivemind.llm.fake import FakeLLMProvider
+from hivemind.wardens.deps import WardenDeps
 from waggle.clock import SystemClock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
@@ -109,3 +111,42 @@ async def test_run_in_cell_warden_connects_announces_and_stops_on_shutdown() -> 
 async def test_run_in_cell_warden_raises_on_missing_configuration() -> None:
     with pytest.raises(ConfigurationError):
         await run_in_cell_warden({}, SystemClock())
+
+
+async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider() -> None:
+    """The injection seam roadmap step 5's e2e slice needs: script the provider, never a global."""
+    queen_signer = Ed25519Signer.generate()
+    server = WebSocketServer(Codec(signer=queen_signer))
+    await server.start()
+    try:
+        hive_id = new_hive_id(_CLOCK)
+        queen_node_id = new_node_id(_CLOCK)
+        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer)
+        seen_calls: list[WardenDeps] = []
+
+        def _on_deps_built(deps: WardenDeps) -> None:
+            seen_calls.append(deps)
+            assert isinstance(deps.bound.provider, FakeLLMProvider)
+
+        run_task = asyncio.ensure_future(
+            run_in_cell_warden(environ, SystemClock(), on_deps_built=_on_deps_built)
+        )
+        connections = server.connections()
+        server_transport = await asyncio.wait_for(anext(connections), timeout=WAIT_S)
+        server_receive = server_transport.receive()
+        ready_envelope = await asyncio.wait_for(anext(server_receive), timeout=WAIT_S)
+        await asyncio.wait_for(anext(server_receive), timeout=WAIT_S)  # CapacityReport.
+        await asyncio.wait_for(anext(server_receive), timeout=WAIT_S)  # CellHeartbeat.
+
+        shutdown_hop = Hop(sender=hive_id, recipient=ready_envelope.sender, node_id=queen_node_id)
+        shutdown = Shutdown(urgency=Urgency.IMMEDIATE, deadline_s=0.0, reason="test teardown")
+        await server_transport.send(wrap(shutdown, shutdown_hop, clock=_CLOCK))
+        await asyncio.wait_for(run_task, timeout=WAIT_S)
+
+        # By the time the whole run has finished, on_deps_built must already have run exactly
+        # once (this function's own docstring: strictly before Warden.start()/.run()); asserting
+        # it here, after the run completed, avoids a cross-task race against the exact moment it
+        # was called relative to the server's own receive queue draining.
+        assert len(seen_calls) == 1
+    finally:
+        await server.close()

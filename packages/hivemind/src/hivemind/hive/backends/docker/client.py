@@ -99,6 +99,10 @@ class ContainerSpec:
         mem_limit_bytes: Memory limit in bytes.
         pids_limit: Maximum process count; bounds a fork bomb inside the Cell.
         cap_drop: Linux capabilities to drop; `("ALL",)` for the least-privilege default.
+        cap_add: Linux capabilities to add back, on top of `cap_drop`; empty for every Cell but
+            one on `hivemind.hive.NetworkPolicy.VPN_TOR`, which needs `("NET_ADMIN",)` to manage
+            its own tunnel interface and nftables kill-switch (roadmap step 5.7a,
+            `hivemind.hive.backends.docker.backend`'s own docstring names the exact rule).
         security_opt: Docker `--security-opt` values; `("no-new-privileges:true",)` by default.
         read_only_rootfs: Whether the container's root filesystem is read-only (the scratch volume
             and any tmpfs mounts stay writable regardless).
@@ -120,6 +124,7 @@ class ContainerSpec:
     security_opt: tuple[str, ...]
     read_only_rootfs: bool
     tmpfs: Mapping[str, str] = field(default_factory=dict)
+    cap_add: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

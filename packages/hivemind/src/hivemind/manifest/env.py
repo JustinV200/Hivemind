@@ -19,8 +19,12 @@ Fits into the Hive:
     Layer 1 (foundational services; capacity as data). ``read_env``/``apply_env`` are called by
     ``hivemind.manifest.loader.load_manifest`` when a caller passes an `environ` mapping;
     ``provider_api_key`` directly by whatever constructs a provider adapter; ``read_in_cell_env``
-    by ``hivemind.cli.in_cell``, the in-Cell Warden's own composition root. Calls into
-    ``hivemind.manifest.errors`` and ``hivemind.manifest.schema`` only.
+    by ``hivemind.cli.in_cell``, the in-Cell Warden's own composition root. ``read_build_image_
+    sha256_override`` is the same rule for a third caller (roadmap step 5.11, this branch):
+    ``scripts/build_cell_image.py`` is a dev/build-time script with no Hive Manifest and no Cell of
+    its own, but it still reads one ``HIVEMIND_*`` value (an operator-supplied override for the
+    Ubuntu cloud image's expected digest), so that read lives here too rather than opening a fourth
+    site. Calls into ``hivemind.manifest.errors`` and ``hivemind.manifest.schema`` only.
 
 Key invariants:
     - No module outside this one reads `os.environ` for a `HIVEMIND_*` name (codingrules section
@@ -71,6 +75,7 @@ __all__ = [
     "InCellEnv",
     "apply_env",
     "provider_api_key",
+    "read_build_image_sha256_override",
     "read_env",
     "read_in_cell_env",
 ]
@@ -296,6 +301,27 @@ def provider_api_key(name: str, spec: ProviderSpec, environ: Mapping[str, str]) 
     var_name = spec.api_key_env or f"HIVEMIND_{name.upper()}_API_KEY"
     raw = environ.get(var_name)
     return SecretStr(raw) if raw is not None else None
+
+
+def read_build_image_sha256_override(environ: Mapping[str, str]) -> str | None:
+    """Read HIVEMIND_QEMU_BASE_IMAGE_SHA256, the digest override `scripts/build_cell_image.py` uses.
+
+    That script refuses to build past its own bundled `UBUNTU_CLOUD_IMAGE_SHA256` while it still
+    holds the documented placeholder; this lets an operator who already knows the real digest for
+    the release they are pinning (e.g. read fresh from Ubuntu's own SHA256SUMS file) pass it
+    without editing the script (`--sha256` on the CLI is the other way; that script prefers the
+    flag when both are given).
+
+    Args:
+        environ: A raw environment mapping, e.g. `os.environ` at the script's own composition
+            root; this function never reads `os.environ` itself (codingrules section 13).
+
+    Returns:
+        The raw digest string if the variable is set, else None. Not validated as hex or length
+        here (extraction only, module docstring): `scripts/build_cell_image.py` compares it
+        against the real download's own computed digest, which already rejects a wrong value.
+    """
+    return environ.get("HIVEMIND_QEMU_BASE_IMAGE_SHA256")
 
 
 def _read_offline_flag(environ: Mapping[str, str]) -> bool | None:

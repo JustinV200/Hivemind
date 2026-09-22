@@ -23,7 +23,16 @@ uv run python scripts/build_cell_image.py
 1. Downloads the official Ubuntu 24.04 LTS server cloud image (`UBUNTU_CLOUD_IMAGE_URL`, already
    qcow2-format despite its `.img` extension) and verifies its SHA256 against
    `UBUNTU_CLOUD_IMAGE_SHA256`, a constant a maintainer must keep current -- see that constant's
-   own comment for exactly where to read the real digest from before every rebuild.
+   own comment for exactly where to read the real digest from before every rebuild. The script
+   refuses to proceed while the *effective* digest is still the bundled placeholder; pass the real
+   one without editing the file either with `--sha256 <digest>` or by setting
+   `HIVEMIND_QEMU_BASE_IMAGE_SHA256` (`--sha256` wins when both are given), e.g.:
+
+   ```sh
+   uv run python scripts/build_cell_image.py --sha256 <digest-from-SHA256SUMS>
+   # or
+   HIVEMIND_QEMU_BASE_IMAGE_SHA256=<digest-from-SHA256SUMS> uv run python scripts/build_cell_image.py
+   ```
 2. Copies it to `base-ubuntu.qcow2` and grows it to `--disk-size` (default `8G`; a Cell's own
    `VirtualCellSpec.disk_bytes` is the real ceiling `QemuCellBackend` enforces per Cell).
 3. Boots it once, seeded with a one-time provisioning cloud-init document, to install Python,

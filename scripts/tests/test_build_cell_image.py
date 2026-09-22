@@ -94,3 +94,57 @@ def test_build_provisioning_seed_raises_a_clear_error_with_no_iso_tool(
 
     with pytest.raises(RuntimeError, match="genisoimage"):
         build_cell_image._build_provisioning_seed(tmp_path)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.11: overriding the placeholder digest without editing this file.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_resolve_expected_sha256_prefers_the_cli_flag_over_the_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIVEMIND_QEMU_BASE_IMAGE_SHA256", "ee" * 32)
+
+    assert build_cell_image._resolve_expected_sha256("ff" * 32) == "ff" * 32
+
+
+def test_resolve_expected_sha256_falls_back_to_the_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HIVEMIND_QEMU_BASE_IMAGE_SHA256", "ee" * 32)
+
+    assert build_cell_image._resolve_expected_sha256(None) == "ee" * 32
+
+
+def test_resolve_expected_sha256_falls_back_to_the_bundled_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HIVEMIND_QEMU_BASE_IMAGE_SHA256", raising=False)
+
+    assert (
+        build_cell_image._resolve_expected_sha256(None)
+        == build_cell_image.UBUNTU_CLOUD_IMAGE_SHA256
+    )
+
+
+def test_main_accepts_a_cli_sha256_override_and_proceeds_past_the_placeholder_check(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Tools present and a real-looking digest supplied: main() must reach _build rather than
+    # refusing at the placeholder check. _build itself is stubbed out (no network/QEMU here,
+    # module docstring) so this test only proves the gate was passed, not the download pipeline.
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.delenv("HIVEMIND_QEMU_BASE_IMAGE_SHA256", raising=False)
+    monkeypatch.setattr(
+        build_cell_image,
+        "_build",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("stub")),
+    )
+
+    exit_code = build_cell_image.main(["--sha256", "ab" * 32])
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "placeholder" not in output
+    assert "Build failed: stub" in output

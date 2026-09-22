@@ -72,13 +72,11 @@ KnownLiveCells = Callable[[], Awaitable[frozenset[CellId]]]
 LeaseFinder = Callable[[LeaseId], Awaitable[RealCellLease | None]]
 DormantEvictor = Callable[[datetime], Awaitable[Sequence[CellId]]]
 
-# cell.* is the nearest existing family for a whole-sweep summary; no dedicated "a sweep ran" kind
-# exists yet (hivemind.queen.ticks.housekeeping's own House Bee sweep has the same gap, by its own
-# module docstring). cell.destroyed is the closest fit: every branch of this sweep either destroys
-# a Virtual Cell, releases a lease (also a teardown) or evicts an expired dormant Cell (a destroy
-# too), so "something was torn down at Queen startup" is the summary's own meaning. A dedicated
-# cell.orphans_swept kind would say this precisely (reported to the orchestrator).
-_SWEEP_SUMMARY_KIND = "cell.destroyed"
+# cell.orphans_swept is the dedicated summary kind (pheromone.events.families, phase 5 housekeeping,
+# this branch): earlier this reused cell.destroyed, the nearest existing family member, because no
+# "a sweep ran" kind existed yet. A summary is not itself a destroy, so it now has its own kind and
+# never shows up mixed into a query for individual cell.destroyed events.
+_SWEEP_SUMMARY_KIND = "cell.orphans_swept"
 
 __all__ = [
     "DormantEvictor",

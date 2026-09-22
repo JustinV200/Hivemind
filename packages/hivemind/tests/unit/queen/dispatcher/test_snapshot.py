@@ -15,9 +15,14 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Sequence
 
+from builders.forage import make_source
 from builders.queen import make_queen_deps
+from builders.tasks import make_task, make_task_spec
 
-from hivemind.cell import CombShieldLevel, HoneyClearance
+from hivemind.brood_chamber import TaskStatus
+from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin
+from hivemind.forage import ForageMap, HostingPlan, SlotPlan, SourceChain
+from hivemind.forage.slots import ModelSlot
 from hivemind.hive import BackendCapabilities
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import MemoryContext, WaxSeverity
@@ -30,7 +35,8 @@ from hivemind.queen.dispatcher.snapshot import (
     virtual_backend_candidate_from_lifecycle,
 )
 from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
-from waggle.ids import CellId
+from waggle.clock import FakeClock
+from waggle.ids import CellId, new_cell_id
 from waggle.messages.cell.wax import WaxDecision, WaxOrigin
 
 
@@ -118,10 +124,55 @@ async def test_build_inventory_exclude_dormant_drops_the_named_cell() -> None:
 
 async def test_build_forage_view_carries_the_drone_footprint() -> None:
     deps, _link, warden_end = make_queen_deps()
+    task = make_task()
 
-    forage_view = build_forage_view(deps)
+    forage_view = build_forage_view(deps, task)
 
     assert forage_view.footprint is not None
+    await warden_end.close()
+
+
+async def test_build_forage_view_carries_the_task_s_own_request_origin() -> None:
+    deps, _link, warden_end = make_queen_deps()
+    task = make_task(spec=make_task_spec(origin=RequestOrigin.QUEEN))
+
+    forage_view = build_forage_view(deps, task)
+
+    assert forage_view.request_origin is RequestOrigin.QUEEN
+    await warden_end.close()
+
+
+async def test_build_forage_view_defaults_night_veil_hosting_with_no_cell_id() -> None:
+    deps, _link, warden_end = make_queen_deps()
+    task = make_task()  # PENDING: cell_id is None, no placement decided yet.
+
+    forage_view = build_forage_view(deps, task)
+
+    assert forage_view.night_veil_hosting.all_local is True
+    assert forage_view.night_veil_hosting.non_local_slots == ()
+    await warden_end.close()
+
+
+async def test_build_forage_view_checks_an_existing_hosting_plan_for_task_cell_id() -> None:
+    clock = FakeClock()
+    deps, _link, warden_end = make_queen_deps(clock=clock)
+    cell_id = new_cell_id(clock)
+    local_source = make_source(source_id="local", host_cell_id=cell_id)
+    hosted_source = make_source(source_id="hosted", host_cell_id=None)
+    deps = dataclasses.replace(deps, map=ForageMap((local_source, hosted_source), clock))
+    plan = HostingPlan(
+        cell_id=cell_id,
+        default=SourceChain(primary="local", fallbacks=()),
+        slots=(SlotPlan(slot=ModelSlot.WORKER, chain=SourceChain(primary="hosted", fallbacks=())),),
+        reason="test plan for the Night Veil hosting check",
+    )
+    await deps.ledger.decisions.record_plan(plan)
+    task = make_task(status=TaskStatus.RUNNING, clock=clock, cell_id=cell_id)
+
+    forage_view = build_forage_view(deps, task)
+
+    assert forage_view.night_veil_hosting.all_local is False
+    assert forage_view.night_veil_hosting.non_local_slots != ()
     await warden_end.close()
 
 

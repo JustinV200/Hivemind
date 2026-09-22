@@ -232,6 +232,7 @@ class SdkDockerClient:
                 mem_limit=spec.mem_limit_bytes,
                 pids_limit=spec.pids_limit,
                 cap_drop=list(spec.cap_drop),
+                cap_add=list(spec.cap_add),
                 security_opt=list(spec.security_opt),
                 read_only=spec.read_only_rootfs,
                 # No `ports`/`publish_all_ports`: a Virtual Cell publishes no inbound port under

@@ -1010,7 +1010,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   before any proposal in the `irreversible` or `device_command` tiers on a Virtual Cell and rolls
   the whole Cell back when postconditions fail. Snapshots are accounted as Forage (disk) and
   expire with the manifest's retention.
-- [ ] **5.11 QEMU backend.** `hive/backends/qemu.py`: prebuilt qcow2 (`images/base-ubuntu/vm/` from
+- [x] **5.11 QEMU backend.** `hive/backends/qemu.py`: prebuilt qcow2 (`images/base-ubuntu/vm/` from
   `scripts/build_cell_image.py`), cloud-init for the Waggle endpoint and Warden bootstrap, serial
   console for readiness. Same contract suite.
 - [x] **5.12 Cloud backend interface.** `hive/backends/cloud/base.py` with credentials via

@@ -363,6 +363,12 @@ class Undertaker:
         `InvalidLeaseTransitionError` (`RELEASING -> RELEASING` is not a legal edge) instead of
         trying the releaser again. Only the grant revocation that follows is retried.
 
+        TODO(merge): `hivemind.cell.lease_state` belongs to another branch; once it lands, consider
+        a `RELEASING -> LEASED` recovery edge there for a `LeaseReleaser` that failed mid-flight, so
+        this method could retry instead of stranding the lease. Not added here: that state machine
+        is out of scope for this branch, and the recovery semantics (does a retried releaser re-run
+        partial work?) are that branch's call, not this role's.
+
         Args:
             lease: The lease to release.
 

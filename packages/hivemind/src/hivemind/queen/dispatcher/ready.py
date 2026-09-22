@@ -190,7 +190,9 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     BLOCKED.
     """
     inventory = await build_inventory(deps, wardens)
-    placement = decide(task.spec.needs, inventory, build_forage_view(deps), deps.placement_policy)
+    placement = decide(
+        task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
+    )
     link, placement = await resolve_link(deps, wardens, task, placement)
     await _record_placed(deps, task, placement)
     await deps.chamber.assign(

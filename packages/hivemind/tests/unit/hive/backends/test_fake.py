@@ -27,13 +27,13 @@ from builders.forage import make_capacity
 
 from hivemind.cell import AccessLevel, CellKind
 from hivemind.hive.backends.base import BackendCapabilities
-from hivemind.hive.backends.bootstrap import CellReadyInfo
+from hivemind.hive.backends.bootstrap import CellReadyInfo, QueenEndpoint
 from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
 from hivemind.hive.models import VirtualCellSpec
 from waggle.clock import FakeClock
-from waggle.ids import CellId, new_cell_id, new_hive_id
+from waggle.ids import CellId, new_cell_id, new_hive_id, new_node_id
 
 
 def _make_spec(**overrides: object) -> VirtualCellSpec:
@@ -80,6 +80,52 @@ async def test_provision_capabilities_follow_the_exoskeleton_flag(exoskeleton: b
     assert cell.capabilities.has_display is exoskeleton
     assert cell.capabilities.has_audio is exoskeleton
     assert cell.capabilities.can_start_display is exoskeleton
+
+
+def _endpoint() -> QueenEndpoint:
+    clock = FakeClock()
+    return QueenEndpoint(
+        waggle_url="ws://127.0.0.1:0",
+        queen_node_id=new_node_id(clock),
+        queen_verify_key_hex="ab" * 32,
+    )
+
+
+async def test_provision_with_no_endpoint_mints_no_bootstrap() -> None:
+    backend = FakeCellBackend(FakeClock())
+
+    cell = await backend.provision(_make_spec())
+
+    assert backend.bootstraps == {}
+    assert cell.id not in backend.bootstraps
+
+
+async def test_provision_with_an_endpoint_mints_a_real_bootstrap_for_the_cell() -> None:
+    backend = FakeCellBackend(FakeClock(), endpoint=_endpoint())
+    spec = _make_spec()
+
+    cell = await backend.provision(spec)
+
+    assert cell.id in backend.bootstraps
+    bootstrap = backend.bootstraps[cell.id]
+    assert bootstrap.cell_id == cell.id
+    assert bootstrap.hive_id == spec.hive_id
+    # environment() renders the exact HIVEMIND_* variables a real container would get.
+    env = bootstrap.environment()
+    assert env["HIVEMIND_CELL_ID"] == cell.id
+    assert env["HIVEMIND_HIVE_ID"] == spec.hive_id
+
+
+async def test_provision_with_an_endpoint_mints_a_fresh_bootstrap_per_cell() -> None:
+    backend = FakeCellBackend(FakeClock(), endpoint=_endpoint())
+
+    first = await backend.provision(_make_spec())
+    second = await backend.provision(_make_spec())
+
+    assert len(backend.bootstraps) == 2
+    assert (
+        backend.bootstraps[first.id].public_key_hex != backend.bootstraps[second.id].public_key_hex
+    )
 
 
 async def test_provisioned_cell_is_listed_under_its_hive_id() -> None:

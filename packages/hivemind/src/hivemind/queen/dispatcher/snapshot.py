@@ -38,16 +38,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, HoneyClearance
 from hivemind.forage import RoleFootprint
 from hivemind.hive import VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import WaxSeverity, WaxState
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.forage.night_veil import night_veil_local_only
 from hivemind.queen.placement import (
     DormantCandidate,
     ForageView,
     Inventory,
+    NightVeilHostingView,
     RealCandidate,
     VirtualBackendCandidate,
     WaxMention,
@@ -107,17 +110,48 @@ async def build_inventory(
     )
 
 
-def build_forage_view(deps: QueenDeps) -> ForageView:
-    """Build the pure ForageView `decide` reads: the placed bee's own RoleFootprint.
+def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
+    """Build the pure ForageView `decide` reads: the footprint plus the Night Veil facts.
+
+    Roadmap step 5.7a (this branch, closing a gap an earlier implementer's own report named):
+    `request_origin` and `night_veil_hosting` used to sit at their permissive defaults forever,
+    since nothing threaded the real values through from here. `request_origin` is simply `task.
+    spec.origin` (`hivemind.queen.placement.policy.check_night_veil`'s own "who asked" input).
+    `night_veil_hosting` stays at its own permissive default (`hivemind.queen.placement.policy.
+    NightVeilHostingView`'s own docstring: "not yet knowable, nothing known to violate") unless
+    `task.cell_id` already names a Cell with a written `HostingPlan` -- true only when `decide` is
+    re-run for a task still nominally tied to one (a retry, or a re-dispatch after Clustering),
+    never on a fresh NIGHT_VEIL provision's first decide() call, which has no Cell yet to check.
 
     Args:
         deps: The Queen's collaborators; `deps.footprints[WorkerRole.DRONE]` is the only Worker
             role phase 3 implements, matching every other footprint lookup in this dispatch.
+            `deps.ledger`/`deps.map` are read only when `task.cell_id` is already set.
+        task: The task this placement decision is for.
 
     Returns:
         The `ForageView` `decide()` reads for this one placement decision.
     """
-    return ForageView(footprint=deps.footprints[WorkerRole.DRONE])
+    return ForageView(
+        footprint=deps.footprints[WorkerRole.DRONE],
+        request_origin=task.spec.origin,
+        night_veil_hosting=_night_veil_hosting(deps, task),
+    )
+
+
+def _night_veil_hosting(deps: QueenDeps, task: Task) -> NightVeilHostingView:
+    """Check `task.cell_id`'s own written HostingPlan, or fall back to the permissive default.
+
+    Falls back when no Cell -- or no plan for one -- is known yet; see `build_forage_view`'s own
+    docstring for exactly when that is.
+    """
+    if task.cell_id is None:
+        return NightVeilHostingView()
+    plan = deps.ledger.decisions.plan_for(task.cell_id)
+    if plan is None:
+        return NightVeilHostingView()
+    violations = night_veil_local_only(plan, deps.map)
+    return NightVeilHostingView(all_local=not violations, non_local_slots=violations)
 
 
 def virtual_backend_candidate_from_lifecycle(

@@ -23,7 +23,11 @@ Vocabulary (family -> kind -> when it is recorded):
         `released` above, which is a Real Cell's own lease closing); resumed (an Overwintered
         Virtual Cell woke back to READY); destroying (a CellBackend.destroy call began, before
         `destroyed`); provision_failed (a CellLifecycle.provision call's own backend.provision
-        raised).
+        raised); evicted (the Undertaker force-released a stale Real Cell lease or expired
+        Overwintered Cell outside the normal `released`/`destroyed` path -- distinct from both, so
+        an operator can tell a sweep-forced ending from a task-driven one); orphans_swept (one
+        Undertaker sweep pass's rollup: how many Cells it evicted or destroyed, roadmap step
+        5.0-adjacent housekeeping).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
         report, no transition); blocked (RUNNING -> BLOCKED, a question was asked); answered
@@ -180,6 +184,11 @@ class CellEvent(PheromoneEvent):
             "cell.resumed",
             "cell.destroying",
             "cell.provision_failed",
+            # Phase 5 housekeeping (this branch): an earlier implementer wished for these two so
+            # the Undertaker's own sweep actions stop overloading cell.destroyed, which is meant
+            # for a normal CellBackend.destroy call, not a stale-lease eviction or a sweep rollup.
+            "cell.evicted",
+            "cell.orphans_swept",
         }
     )
 

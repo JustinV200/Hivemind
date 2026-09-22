@@ -24,11 +24,16 @@ module has been written carefully and reviewed by reading, never run against a r
       how `FakeDockerClient.remove_container` treats a missing resource as success. There is no
       SIGTERM/SIGKILL fallback in this dispatch; a VM whose QMP endpoint has wedged needs an
       operator's own `qemu-system-x86_64` process inspection until a later step adds one.
-    - QMP runs over a Unix domain socket (`asyncio.open_unix_connection`), which is Linux/macOS
-      only -- `asyncio` has no Unix-socket support on Windows, in typeshed's own stub as well as
-      at runtime. `stop_vm`/`pause_vm`/`resume_vm` raise `QemuRunnerError` on Windows instead of
-      silently no-op-ing; a Windows host needs a TCP QMP endpoint instead, not built in this
-      dispatch (see this package's own README's "Not yet built" section).
+    - QMP runs over a Unix domain socket (`asyncio.open_unix_connection`) by default, which does
+      not exist on this dev host's own asyncio build (Windows; confirmed by probing
+      `hasattr(asyncio, "open_unix_connection")`, ADR-0026). Roadmap step 5.11 (this branch) adds a
+      loopback TCP QMP option for exactly that host: `_default_qmp_over_tcp` probes the same
+      attribute (never `sys.platform`) to decide, per instance, whether `start_vm` allocates a free
+      loopback port and passes `-qmp tcp:127.0.0.1:<port>,server,nowait` instead of the Unix form;
+      the chosen port is persisted in `cell.json` (`qmp_port`) so a later `stop_vm`/`pause_vm`/
+      `resume_vm`/`savevm`/`loadvm` call -- possibly from a freshly restarted process, per
+      ADR-0026's "orphans are recoverable from labels alone" -- can rebuild the same address with no
+      other state.
     - The NoCloud seed image is built by shelling out to `genisoimage` or `mkisofs`, whichever
       `shutil.which` finds first; neither installed raises `QemuRunnerError` with a clear
       install hint, mirroring `hivemind.hive.backends.docker.sdk_client`'s own
@@ -69,11 +74,12 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import socket
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hivemind.hive.backends.qemu.qmp import qmp_execute
+from hivemind.hive.backends.qemu.qmp import TcpQmpAddress, UnixQmpAddress, qmp_execute
 from hivemind.hive.backends.qemu.runner import (
     QemuRunnerError,
     QemuVmHandle,
@@ -130,6 +136,7 @@ class ProcessQemuRunner:
         *,
         qemu_img_bin: str = "qemu-img",
         qemu_system_bin: str = "qemu-system-x86_64",
+        qmp_over_tcp: bool | None = None,
     ) -> None:
         """Create a ProcessQemuRunner rooted at `vm_root`.
 
@@ -142,10 +149,14 @@ class ProcessQemuRunner:
             qemu_img_bin: The `qemu-img` executable name or path; overridable for a non-PATH
                 install.
             qemu_system_bin: The `qemu-system-x86_64` executable name or path.
+            qmp_over_tcp: Force every VM this runner starts onto loopback TCP QMP (True) or the
+                Unix-socket form (False); `None` (the default) auto-detects via
+                `_default_qmp_over_tcp`, the module's own probe (roadmap step 5.11).
         """
         self._vm_root = vm_root
         self._qemu_img_bin = qemu_img_bin
         self._qemu_system_bin = qemu_system_bin
+        self._qmp_over_tcp = qmp_over_tcp if qmp_over_tcp is not None else _default_qmp_over_tcp()
         # Probed at most once per runner instance: the host's own accelerator support never
         # changes mid-process, so re-probing on every provision() would only add latency.
         self._accelerator_cache: str | None = None
@@ -226,7 +237,11 @@ class ProcessQemuRunner:
 
     async def start_vm(self, spec: QemuVmSpec) -> QemuVmHandle:
         """See `QemuRunnerPort.start_vm` (a plain, non-daemonized child; see module docstring)."""
-        args = await self._build_qemu_args(spec)
+        # A free loopback port is allocated only when this runner is in TCP-QMP mode; a socket
+        # bind()/close() is a syscall, not filesystem I/O, but it still runs off the event loop
+        # per codingrules section 11's "every blocking call runs through asyncio".
+        qmp_port = await asyncio.to_thread(_allocate_free_port) if self._qmp_over_tcp else None
+        args = _build_qemu_args(spec, qmp_port)
         try:
             process = await asyncio.create_subprocess_exec(
                 self._qemu_system_bin,
@@ -237,7 +252,7 @@ class ProcessQemuRunner:
             )
         except OSError as exc:
             raise QemuRunnerError(f"could not start {self._qemu_system_bin!r}: {exc}") from exc
-        await asyncio.to_thread(_write_metadata, spec, process.pid)
+        await asyncio.to_thread(_write_metadata, spec, process.pid, qmp_port)
         return QemuVmHandle(cell_id=spec.cell_id, pid=process.pid, vm_dir=spec.vm_dir)
 
     async def stop_vm(self, cell_id: CellId) -> None:
@@ -292,44 +307,65 @@ class ProcessQemuRunner:
         log_path = vm_dir_for(self._vm_root, cell_id) / SERIAL_LOG_NAME
         return await asyncio.to_thread(_sync_read_lines, log_path)
 
-    async def _build_qemu_args(self, spec: QemuVmSpec) -> tuple[str, ...]:
-        """Build the full qemu-system-x86_64 argument list for `spec`."""
-        memory_mib = max(1, spec.memory_bytes // (1024 * 1024))
-        return (
-            "-name",
-            f"hivemind-cell-{spec.cell_id}",
-            "-m",
-            str(memory_mib),
-            "-smp",
-            str(spec.cpu_cores),
-            "-accel",
-            spec.accelerator,
-            "-drive",
-            f"file={spec.overlay_disk_path},if=virtio,format=qcow2",
-            "-drive",
-            f"file={spec.seed_image_path},if=virtio,format=raw,media=cdrom",
-            "-netdev",
-            spec.netdev_arg,
-            "-device",
-            "virtio-net-pci,netdev=net0",
-            "-serial",
-            f"file:{spec.vm_dir / SERIAL_LOG_NAME}",
-            "-qmp",
-            f"unix:{spec.vm_dir / QMP_SOCKET_NAME},server,nowait",
-            "-display",
-            "none",
-        )
+
+def _build_qemu_args(spec: QemuVmSpec, qmp_port: int | None) -> tuple[str, ...]:
+    """Build the full qemu-system-x86_64 argument list for `spec`.
+
+    Module-level, not a `ProcessQemuRunner` method: it reads only its own two arguments, and
+    pulling it out keeps the class within codingrules 5.1's 200-line class-size limit (mirrors
+    `_send_qmp`'s own reasoning, just below).
+
+    Args:
+        spec: Everything else the VM needs.
+        qmp_port: The loopback TCP port to pass `-qmp tcp:127.0.0.1:<port>,server,nowait`
+            (roadmap step 5.11); `None` uses the Unix-socket form instead.
+    """
+    memory_mib = max(1, spec.memory_bytes // (1024 * 1024))
+    qmp_arg = (
+        f"tcp:127.0.0.1:{qmp_port},server,nowait"
+        if qmp_port is not None
+        else f"unix:{spec.vm_dir / QMP_SOCKET_NAME},server,nowait"
+    )
+    return (
+        "-name",
+        f"hivemind-cell-{spec.cell_id}",
+        "-m",
+        str(memory_mib),
+        "-smp",
+        str(spec.cpu_cores),
+        "-accel",
+        spec.accelerator,
+        "-drive",
+        f"file={spec.overlay_disk_path},if=virtio,format=qcow2",
+        "-drive",
+        f"file={spec.seed_image_path},if=virtio,format=raw,media=cdrom",
+        "-netdev",
+        spec.netdev_arg,
+        "-device",
+        "virtio-net-pci,netdev=net0",
+        "-serial",
+        f"file:{spec.vm_dir / SERIAL_LOG_NAME}",
+        "-qmp",
+        qmp_arg,
+        "-display",
+        "none",
+    )
 
 
 async def _send_qmp(
     vm_root: Path, cell_id: CellId, command: str, command_line: str | None = None
 ) -> None:
-    """Send one QMP `command` to `cell_id`'s own socket under `vm_root`.
+    """Send one QMP `command` to `cell_id`'s own endpoint under `vm_root`.
 
     Module-level, not a `ProcessQemuRunner` method (codingrules section 5.1's class-size limit:
     this class was already close to its own 200-line ceiling before roadmap step 5.10 added
     `savevm`/`loadvm`), so every QMP-sending caller (`stop_vm`/`pause_vm`/`resume_vm`/`savevm`/
     `loadvm`) goes through this one function instead of a `self._qmp` method.
+
+    Reads `cell_id`'s own `cell.json` for a persisted `qmp_port` rather than trusting this
+    instance's own `_qmp_over_tcp` flag (roadmap step 5.11): a freshly restarted process has no
+    memory of which VMs were started in TCP mode, only what `start_vm` already wrote to disk
+    (ADR-0026: "orphans are recoverable from labels alone").
 
     Args:
         vm_root: `ProcessQemuRunner._vm_root`, passed explicitly since this is not a method.
@@ -338,9 +374,15 @@ async def _send_qmp(
         command_line: For `"human-monitor-command"` only: the HMP line to run (`"savevm <tag>"`);
             None for every fixed command, which takes no arguments.
     """
-    socket_path = vm_dir_for(vm_root, cell_id) / QMP_SOCKET_NAME
+    vm_dir = vm_dir_for(vm_root, cell_id)
+    qmp_port = await asyncio.to_thread(_read_qmp_port, vm_dir)
+    address = (
+        TcpQmpAddress(host="127.0.0.1", port=qmp_port)
+        if qmp_port is not None
+        else UnixQmpAddress(path=vm_dir / QMP_SOCKET_NAME)
+    )
     arguments = {"command-line": command_line} if command_line is not None else None
-    await qmp_execute(socket_path, command, subject=f"cell {cell_id!r}", arguments=arguments)
+    await qmp_execute(address, command, subject=f"cell {cell_id!r}", arguments=arguments)
 
 
 def _sync_read_lines(log_path: Path) -> tuple[str, ...]:
@@ -377,8 +419,56 @@ async def _run(binary: str, args: Sequence[str], subject: str) -> None:
         )
 
 
-def _write_metadata(spec: QemuVmSpec, pid: int) -> None:
-    """Write this VM's cell.json: the one source list_vms reads back (no in-memory table)."""
+def _default_qmp_over_tcp() -> bool:
+    """True when this host's asyncio has no Unix-socket QMP transport (roadmap step 5.11).
+
+    A probe, not an OS-name check (mirrors `hivemind.hive.backends.qemu.qmp`'s own reasoning):
+    `asyncio.open_unix_connection` simply is not an attribute of the `asyncio` module on this
+    dev host's own build (Windows), which is both more accurate than testing `sys.platform` and
+    easier for a test to fake by monkeypatching the attribute instead of the OS name.
+    """
+    return not hasattr(asyncio, "open_unix_connection")
+
+
+def _allocate_free_port() -> int:
+    """Ask the OS for a free loopback TCP port, then release it for qemu to bind.
+
+    A small TOCTOU race is possible (another process could claim the port between this call and
+    `qemu-system-x86_64` binding it) but is the standard, simplest way to pick a free port and
+    matches what every other "find me a free port" caller in the ecosystem does; a collision
+    surfaces as `qemu-system-x86_64` failing to start, which `start_vm` already turns into a clear
+    `QemuRunnerError`.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _read_qmp_port(vm_dir: Path) -> int | None:
+    """Read `cell.json`'s own `qmp_port`, or None if there is no metadata file or no port.
+
+    Blocking filesystem I/O (codingrules section 11); `_send_qmp` runs this in a worker thread.
+    """
+    metadata_path = vm_dir / METADATA_NAME
+    if not metadata_path.is_file():
+        return None
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None  # A half-written cell.json: nothing to read yet (mirrors _read_metadata).
+    port = payload.get("qmp_port")
+    return int(port) if port is not None else None
+
+
+def _write_metadata(spec: QemuVmSpec, pid: int, qmp_port: int | None) -> None:
+    """Write this VM's cell.json: the one source list_vms/_read_qmp_port read back.
+
+    Args:
+        spec: The VM's own spec.
+        pid: The started process's own pid.
+        qmp_port: The loopback TCP port `start_vm` allocated for this VM's `-qmp` argument, or
+            None when it used the Unix-socket form (roadmap step 5.11).
+    """
     payload = {
         "cell_id": str(spec.cell_id),
         "hive_id": str(spec.hive_id),
@@ -387,6 +477,7 @@ def _write_metadata(spec: QemuVmSpec, pid: int) -> None:
         "created_at": datetime.now(UTC).isoformat(),
         "pid": pid,
         "paused": False,
+        "qmp_port": qmp_port,
     }
     (spec.vm_dir / METADATA_NAME).write_text(json.dumps(payload), encoding="utf-8")
 

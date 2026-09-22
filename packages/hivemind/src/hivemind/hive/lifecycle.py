@@ -585,9 +585,12 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
 async def _evict_expired(lifecycle: CellLifecycle, now: datetime) -> tuple[CellId, ...]:
     """Tear down every dormant Cell past its own `dormant_until`, for the Undertaker's sweep.
 
-    Asks the pool which ids are expired (bookkeeping only, per its own module docstring), then
-    tears each one down through `teardown()` itself, so the backend call and the DORMANT ->
-    DESTROYING -> DESTROYED edges happen exactly the way any other teardown does.
+    Asks the pool which ids are expired (bookkeeping only, per its own module docstring), records
+    a `cell.evicted` marker for each one (distinct from `cell.destroyed`: this ending was forced by
+    the sweep finding a stale deadline, not requested by a task or an operator -- phase 5
+    housekeeping, this branch), then tears each one down through `teardown()` itself, so the
+    backend call and the DORMANT -> DESTROYING -> DESTROYED edges still happen exactly the way any
+    other teardown does.
 
     Args:
         lifecycle: The CellLifecycle whose pool and table this call acts on.
@@ -601,6 +604,7 @@ async def _evict_expired(lifecycle: CellLifecycle, now: datetime) -> tuple[CellI
         return ()
     expired_ids = await lifecycle._pool.evict_expired(now)
     for cell_id in expired_ids:
+        await lifecycle._record(cell_id, "cell.evicted", reason="dormant_until expired")
         await lifecycle.teardown(cell_id)
     return tuple(expired_ids)
 

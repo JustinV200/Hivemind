@@ -35,16 +35,31 @@ untouched; this is the one place that rewrite happens instead.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
-    `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cell` (CellIdentity),
+    `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cell` (Cell, CellIdentity),
     `hivemind.common.errors` (ConfigurationError), `hivemind.forage` (ForageCapacity,
     HostCapacity), `hivemind.hive` (BackendRegistry, CellLifecycle, NetworkPolicy, OverwinterConfig,
     OverwinterPool, OverwinterSettings, VirtualCellSpec, build_docker_backend, build_qemu_backend,
     mint_cell_bootstrap is not used here -- backends mint their own), `hivemind.hive.backends.
     docker` (SdkDockerClient), `hivemind.hive.backends.qemu` (ProcessQemuRunner, QemuBackendConfig),
-    `hivemind.manifest` (HiveManifest), `hivemind.pheromone` (PheromoneTrail), `hivemind.queen.
-    cell_gate` (CellListener, CellListenerDeps, LifecycleVirtualCellProvider, QueenReadinessGate,
-    make_on_task_finished), `hivemind.queen.dispatcher.snapshot` (the two hive-to-queen candidate
-    converters), `hivemind.queen.placement` (VirtualBackendCandidate) and waggle only.
+    `hivemind.hive.night_veil` (NightVeilProbe, the fail-closed `_fail_closed_night_veil_probe`
+    below returns), `hivemind.manifest` (HiveManifest), `hivemind.pheromone` (PheromoneTrail,
+    TrailRecorder), `hivemind.queen.cell_gate` (CellListener, CellListenerDeps,
+    LifecycleVirtualCellProvider, QueenReadinessGate, make_on_task_finished), `hivemind.queen.
+    dispatcher.snapshot` (the two hive-to-queen candidate converters), `hivemind.queen.placement`
+    (VirtualBackendCandidate) and waggle only.
+
+    **Night Veil probe wiring (roadmap step 5.7b, this branch closing a gap an earlier
+    implementer's own report named):** `LifecycleVirtualCellProvider` now takes a `probe_factory`
+    it calls to attest a freshly provisioned NIGHT_VEIL Cell before `mark_ready`
+    (`hivemind.queen.cell_gate.provider`'s own module docstring). The real
+    `hive.night_veil.SessionNightVeilProbe` needs a live `hivemind.cell.CellSession` bound to the
+    Cell being attested, and `WardenLink` (`hivemind.queen.deps`) carries only a Waggle
+    `Transport` today -- no session-opening seam exists yet from the Queen to a Virtual Cell.
+    Rather than defaulting to `FakeNightVeilProbe` here (codingrules 14.4: fakes are for tests,
+    never a silent production default), `_fail_closed_night_veil_probe` below raises a clear,
+    actionable error the moment a NIGHT_VEIL placement is actually attempted, so the gap fails
+    loudly instead of attesting against fabricated results. Report item: replace it with a
+    `SessionNightVeilProbe` factory once a Queen-side `CellSession` path exists.
 
 Key invariants:
     - `build_virtual_cells` returns `None` whenever `manifest.virtual_cells.backend` is `None`, and
@@ -66,7 +81,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivemind.cell import CellIdentity, CombShieldLevel
+from hivemind.cell import Cell, CellIdentity, CombShieldLevel
 from hivemind.cli.stores import open_snapshot_ledger
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage import ForageCapacity, HostCapacity
@@ -87,9 +102,10 @@ from hivemind.hive.backends.docker.sdk_client import SdkDockerClient
 from hivemind.hive.backends.fake import FakeCellBackend
 from hivemind.hive.backends.qemu.backend import QemuBackendConfig, QemuCellBackend
 from hivemind.hive.backends.qemu.process_runner import ProcessQemuRunner
+from hivemind.hive.night_veil import NightVeilProbe
 from hivemind.manifest import HiveManifest
 from hivemind.manifest.schema.placement import NetworkPolicyName, VirtualCellsSection
-from hivemind.pheromone import PheromoneTrail
+from hivemind.pheromone import PheromoneTrail, TrailRecorder
 from hivemind.queen.cell_gate import (
     CellListener,
     CellListenerDeps,
@@ -190,11 +206,30 @@ def build_virtual_cells(
         gate=gate,
         listener=listener,
         lifecycle=lifecycle,
-        provider=LifecycleVirtualCellProvider(lifecycle, gate),
+        provider=_build_provider(manifest, lifecycle, gate, trail, clock),
         virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
         dormant_cell_source=_dormant_cell_source(lifecycle),
         on_task_finished=make_on_task_finished(lifecycle, _null_scrub),
     )
+
+
+def _build_provider(
+    manifest: HiveManifest,
+    lifecycle: CellLifecycle,
+    gate: QueenReadinessGate,
+    trail: PheromoneTrail,
+    clock: Clock,
+) -> LifecycleVirtualCellProvider:
+    """Build the real VirtualCellProvider.
+
+    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1).
+    `_fail_closed_night_veil_probe` is this Hive's own probe_factory until a Queen-side
+    CellSession path exists (module docstring's own "Night Veil probe wiring").
+    """
+    recorder = TrailRecorder(
+        trail=trail, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
+    )
+    return LifecycleVirtualCellProvider(lifecycle, gate, recorder, _fail_closed_night_veil_probe)
 
 
 def _attach_snapshot_and_trail(
@@ -322,8 +357,18 @@ def _build_qemu(ctx: _RegistryContext, clock: Clock) -> QemuCellBackend:
     return factory()
 
 
-def _endpoint_for(ctx: _RegistryContext, *, docker: bool) -> QueenEndpoint:
-    """Resolve the Queen's own dial-back URL, lazily (module docstring): `listener.uri` by then."""
+def _endpoint_for(
+    ctx: _RegistryContext, *, docker: bool, comb_shield: CombShieldLevel = CombShieldLevel.MEADOW
+) -> QueenEndpoint:
+    """Resolve the Queen's own dial-back URL, lazily (module docstring): `listener.uri` by then.
+
+    Args:
+        ctx: This backend's own registry context.
+        docker: Whether the loopback rewrite (`docker_gateway_url`) applies.
+        comb_shield: The tier the Cell(s) reached through this endpoint run at; only NIGHT_VEIL
+            ever sets `socks_proxy_url` (see `_night_veil_socks_proxy_url`). MEADOW by default,
+            matching every pre-roadmap-5.7a caller's own behaviour.
+    """
     url = ctx.section.advertise_url
     if url is None:
         url = docker_gateway_url(ctx.listener.uri) if docker else ctx.listener.uri
@@ -332,7 +377,41 @@ def _endpoint_for(ctx: _RegistryContext, *, docker: bool) -> QueenEndpoint:
         waggle_url=validated,
         queen_node_id=ctx.queen_node_id,
         queen_verify_key_hex=public_key_hex(ctx.queen_signer.public_key_bytes),
+        socks_proxy_url=_night_veil_socks_proxy_url(ctx.manifest, comb_shield),
     )
+
+
+def _night_veil_socks_proxy_url(manifest: HiveManifest, comb_shield: CombShieldLevel) -> str | None:
+    """Return this Hive's own `[security]` NIGHT_VEIL `tor_socks`, only for a NIGHT_VEIL endpoint.
+
+    Roadmap step 5.7a (this branch): threads `hivemind.manifest.schema.security.TierProfile.
+    tor_socks` onto `QueenEndpoint.socks_proxy_url`, the field a Night Veil Cell's own Waggle
+    transport must route through instead of the VPN tunnel (ADR-0030: sharing the tunnel with the
+    control link would let an observer at the tunnel's exit correlate anonymised work with a known
+    Hive Stand address). Report item: `_build_docker`/`_build_qemu` still build one endpoint per
+    *backend*, shared by every comb_shield that backend provisions, and neither calls `_endpoint_
+    for` with `comb_shield=NIGHT_VEIL` yet -- nothing in this composition root provisions a
+    NIGHT_VEIL Cell through a distinct backend instance today (the same gap `_fail_closed_night_
+    veil_probe` documents for attestation); this function is ready for that call once one exists.
+
+    Args:
+        manifest: This Hive's own manifest; only `security.tiers` is read.
+        comb_shield: The tier being provisioned for; every value but NIGHT_VEIL returns None.
+
+    Returns:
+        `tier.tor_socks` when a NIGHT_VEIL tier profile is configured with one; `None` otherwise
+        (either `comb_shield` is not NIGHT_VEIL, or the operator has not set `tor_socks` yet --
+        `hivemind.queen.placement.policy.check_night_veil` is what refuses placement for that).
+    """
+    if comb_shield is not CombShieldLevel.NIGHT_VEIL:
+        return None
+    # manifest.security.tiers is keyed by the wire enum (waggle.messages.CombShieldLevel), not
+    # this hivemind-side mirror (hivemind.cell.tiers's own module docstring: "the hivemind-side
+    # mirror of the same two wire enums"), so the lookup key needs converting first.
+    tier = manifest.security.tiers.get(comb_shield.to_wire())
+    if tier is None or not tier.tor_socks:
+        return None
+    return tier.tor_socks
 
 
 def _virtual_backend_source(
@@ -398,6 +477,28 @@ def _network_policy(name: NetworkPolicyName) -> NetworkPolicy:
         "egress_only": NetworkPolicy.EGRESS_ONLY,
         "allowlist": NetworkPolicy.ALLOWLIST,
     }[name]
+
+
+def _fail_closed_night_veil_probe(cell: Cell) -> NightVeilProbe:
+    """Refuse to attest any NIGHT_VEIL Cell: no Queen-side CellSession path exists yet.
+
+    Roadmap step 5.7b's own gap (module docstring's "Night Veil probe wiring"): a real
+    `hive.night_veil.SessionNightVeilProbe` needs a live `hivemind.cell.CellSession` for the Cell
+    being attested, and nothing here can build one from a bare `hivemind.cell.Cell` yet -- the
+    same missing seam `_null_scrub` below documents for Overwintering's own scrub step. Raising
+    here, rather than quietly handing back a `FakeNightVeilProbe`, means a NIGHT_VEIL placement
+    fails loudly and immediately instead of "passing" an attestation that checked nothing real
+    (codingrules 14.4: fakes are for tests, never a silent production default).
+
+    Raises:
+        NotImplementedError: Always; `LifecycleVirtualCellProvider._attest_or_teardown` catches
+            this like any other probe failure, tears `cell` down and raises `CellProvisionError`.
+    """
+    raise NotImplementedError(
+        f"Night Veil attestation has no real probe wired up yet for Cell {cell.id}: no "
+        "CellSession path exists from the Queen to a Virtual Cell (roadmap step 5.7b's own gap). "
+        "Wire a SessionNightVeilProbe factory here once one does."
+    )
 
 
 async def _null_scrub(cell: object) -> None:

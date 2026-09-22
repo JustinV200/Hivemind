@@ -26,7 +26,8 @@ from builders.cells import make_identity
 from builders.forage import make_capacity
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import Cell
+from hivemind.cell import Cell, CombShieldLevel
+from hivemind.hive import NetworkPolicy
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.hive.backends.fake import FakeCellBackend
@@ -34,12 +35,14 @@ from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.errors import CellProvisionError
 from hivemind.hive.lifecycle import CellLifecycle, OverwinterSettings
 from hivemind.hive.models import VirtualCellSpec
+from hivemind.hive.night_veil import CheckResult, CheckStatus, FakeNightVeilProbe
 from hivemind.hive.overwinter.policy import OverwinterConfig, OverwinterDecision, ReleaseOutcome
 from hivemind.hive.overwinter.pool import OverwinterPool
 from hivemind.hive.registry import BackendRegistry
+from hivemind.pheromone import TrailQuery, TrailRecorder
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
+from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider, NightVeilProbeFactory
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import ProvisionVirtual, ReuseDormant
 from waggle.clock import FakeClock
@@ -115,6 +118,16 @@ def _spec(**overrides: object) -> VirtualCellSpec:
     return VirtualCellSpec(**fields)
 
 
+def _night_veil_spec(**overrides: object) -> VirtualCellSpec:
+    """A NIGHT_VEIL VirtualCellSpec: comb_shield and network_policy must be set together."""
+    fields: dict[str, object] = {
+        "comb_shield": CombShieldLevel.NIGHT_VEIL,
+        "network_policy": NetworkPolicy.VPN_TOR,
+    }
+    fields.update(overrides)
+    return _spec(**fields)
+
+
 def _overwinter_config() -> OverwinterConfig:
     return OverwinterConfig(
         enabled=True, max_cells=10, max_per_image=10, max_dormant_s=3600.0, disk_budget_mb=1024**3
@@ -126,9 +139,27 @@ def _fake_task() -> Task:
     return None  # type: ignore[return-value]
 
 
+def _always_green_probe(cell: Cell) -> FakeNightVeilProbe:
+    """The default `probe_factory` for `_build`.
+
+    Every check passes, matching a MEADOW-only test suite's own expectations until a test
+    explicitly asks for a red check.
+    """
+    del cell
+    return FakeNightVeilProbe()
+
+
 def _build(
-    gated: bool = True, with_pool: bool = False
-) -> tuple[LifecycleVirtualCellProvider, CellLifecycle, list[WardenLink], QueenReadinessGate]:
+    gated: bool = True,
+    with_pool: bool = False,
+    probe_factory: NightVeilProbeFactory | None = None,
+) -> tuple[
+    LifecycleVirtualCellProvider,
+    CellLifecycle,
+    list[WardenLink],
+    QueenReadinessGate,
+    MemoryPheromoneTrail,
+]:
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
     registry = BackendRegistry()
@@ -149,14 +180,23 @@ def _build(
         if with_pool
         else None
     )
-    lifecycle = CellLifecycle(registry, trail, clock, make_identity(clock), overwinter=overwinter)
-    provider = LifecycleVirtualCellProvider(lifecycle, gate)
+    identity = make_identity(clock)
+    lifecycle = CellLifecycle(registry, trail, clock, identity, overwinter=overwinter)
+    recorder = TrailRecorder(
+        trail=trail, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
+    )
+    provider = LifecycleVirtualCellProvider(
+        lifecycle,
+        gate,
+        recorder,
+        probe_factory if probe_factory is not None else _always_green_probe,
+    )
     provider.bind_queen(_StubQueen(wardens))
-    return provider, lifecycle, wardens, gate
+    return provider, lifecycle, wardens, gate, trail
 
 
 async def test_acquire_provisions_and_returns_the_attached_link() -> None:
-    provider, lifecycle, wardens, _gate = _build()
+    provider, lifecycle, wardens, _gate, _trail = _build()
     placement = ProvisionVirtual(spec=_spec(), backend="fake", reason="test")
 
     link = await provider.acquire(placement, _fake_task())
@@ -166,7 +206,7 @@ async def test_acquire_provisions_and_returns_the_attached_link() -> None:
 
 
 async def test_acquire_provision_never_ready_raises_and_never_returns_a_link() -> None:
-    provider, lifecycle, _wardens, _gate = _build(gated=False)
+    provider, lifecycle, _wardens, _gate, _trail = _build(gated=False)
     # The plain FakeCellBackend never touches the gate at all (module docstring): a real backend's
     # own provision() would already have raised CellProvisionError internally before ever getting
     # here (hivemind.hive.lifecycle's own documented contract), so this simulates a backend that
@@ -187,7 +227,7 @@ async def test_acquire_provision_never_ready_raises_and_never_returns_a_link() -
 
 async def test_acquire_reuse_dormant_finds_the_still_attached_link() -> None:
     """A resumed Cell whose connection stayed open (Docker-style pause) needs no fresh handshake."""
-    provider, lifecycle, _wardens, _gate = _build(with_pool=True)
+    provider, lifecycle, _wardens, _gate, _trail = _build(with_pool=True)
     placement = ProvisionVirtual(spec=_spec(), backend="fake", reason="test")
     provisioned = await provider.acquire(placement, _fake_task())
     cell_id = provisioned.cell.id
@@ -214,7 +254,7 @@ async def test_acquire_reuse_dormant_finds_the_still_attached_link() -> None:
 
 async def test_acquire_reuse_dormant_tears_down_when_no_link_is_found() -> None:
     """A resumed Cell whose connection did NOT survive the pause: no fallback link, so it fails."""
-    provider, lifecycle, wardens, _gate = _build(with_pool=True)
+    provider, lifecycle, wardens, _gate, _trail = _build(with_pool=True)
     placement = ProvisionVirtual(spec=_spec(), backend="fake", reason="test")
     provisioned = await provider.acquire(placement, _fake_task())
     cell_id = provisioned.cell.id
@@ -236,3 +276,68 @@ async def test_acquire_reuse_dormant_tears_down_when_no_link_is_found() -> None:
         await provider.acquire(dormant, _fake_task())
 
     assert lifecycle.status_of(cell_id) is None  # Torn down after the failed resume.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 5.7b / ADR-0030: Night Veil attestation before mark_ready.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_acquire_night_veil_all_green_passes_through_to_ready() -> None:
+    provider, lifecycle, wardens, _gate, _trail = _build()
+    placement = ProvisionVirtual(spec=_night_veil_spec(), backend="fake", reason="test")
+
+    link = await provider.acquire(placement, _fake_task())
+
+    assert link in wardens
+    assert lifecycle.status_of(link.cell.id) is VirtualCellStatus.READY
+
+
+async def test_acquire_night_veil_a_red_check_tears_down_and_names_it() -> None:
+    def _red_probe(cell: Cell) -> FakeNightVeilProbe:
+        del cell
+        return FakeNightVeilProbe(
+            overrides={
+                "kill_switch_active": CheckResult(
+                    status=CheckStatus.FAIL, detail="nftables kill-switch is not loaded."
+                )
+            }
+        )
+
+    provider, lifecycle, _wardens, _gate, _trail = _build(probe_factory=_red_probe)
+    placement = ProvisionVirtual(spec=_night_veil_spec(), backend="fake", reason="test")
+
+    with pytest.raises(CellProvisionError, match="kill_switch_active"):
+        await provider.acquire(placement, _fake_task())
+
+    # Same documented gap as test_acquire_provision_never_ready_raises_and_never_returns_a_link:
+    # attestation runs before mark_ready, so the record is still PROVISIONING when teardown is
+    # attempted, and hivemind.hive.cell_state.TRANSITIONS has no PROVISIONING -> DESTROYING edge;
+    # _teardown_best_effort swallows that and moves on. What matters for this test's own claim is
+    # that the Cell never reached READY (and so was never handed back as a link).
+    tracked = lifecycle.live_cells()
+    assert len(tracked) == 1
+    assert tracked[0].status is VirtualCellStatus.PROVISIONING
+
+
+async def test_acquire_night_veil_records_the_attested_event_even_on_a_red_check() -> None:
+    """ADR-0030: a failed attestation is still a per-check trail record, not a silent downgrade."""
+
+    def _red_probe(cell: Cell) -> FakeNightVeilProbe:
+        del cell
+        return FakeNightVeilProbe(
+            overrides={
+                "tor_healthy": CheckResult(status=CheckStatus.FAIL, detail="tor.service is down.")
+            }
+        )
+
+    provider, _lifecycle, _wardens, _gate, trail = _build(probe_factory=_red_probe)
+    placement = ProvisionVirtual(spec=_night_veil_spec(), backend="fake", reason="test")
+
+    with pytest.raises(CellProvisionError):
+        await provider.acquire(placement, _fake_task())
+
+    events = await trail.query(TrailQuery(kind="cell.attested"))
+    assert len(events) == 1
+    assert events[0].payload["passed"] is False
+    assert events[0].payload["tor_healthy"] == {"status": "FAIL", "detail": "tor.service is down."}
