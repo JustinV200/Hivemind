@@ -46,6 +46,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from urllib.parse import urlsplit, urlunsplit
 
 from hivemind.cell import CombShieldLevel
 from hivemind.cli.compose.virtual_cell_providers import (
@@ -260,23 +261,33 @@ def _listener_url(ctx: RegistryContext, *, docker: bool, required: bool) -> str:
 
 
 def docker_gateway_url(listener_uri: str) -> str:
-    """Rewrite a loopback listener URI so a Docker container can dial it back.
+    """Rewrite a listener URI so a Docker container can dial it back.
 
     Docker Desktop and modern Docker Engine installs both resolve `host.docker.internal` to the
-    host's own loopback from inside a container; a bare `127.0.0.1`/`localhost` inside a container
-    means the container itself, never the host (module docstring).
+    host from inside a container; a bare `127.0.0.1`/`localhost` inside a container means the
+    container itself, never the host (module docstring). A wildcard bind (`0.0.0.0`, `::`) is
+    rewritten too: it is what `[virtual_cells] listen_host` must be for a container to reach the
+    listener at all, and a Cell handed `ws://0.0.0.0:<port>` dials itself and is refused (the
+    first real Docker run did exactly that).
 
     Args:
-        listener_uri: `CellListener.uri`, e.g. `"ws://127.0.0.1:54321"`.
+        listener_uri: `CellListener.uri`, e.g. `"ws://0.0.0.0:54321"`.
 
     Returns:
-        The same URI with a loopback host replaced by `host.docker.internal`; unchanged if the
-        host is already something else (an operator-set `advertise_url` wins over this entirely --
-        see `_endpoint_for`, this function's one caller).
+        The same URI with a loopback or wildcard host replaced by `host.docker.internal`;
+        unchanged if the host is already something else (an operator-set `advertise_url` wins
+        over this entirely -- see `_endpoint_for`, this function's one caller).
     """
-    return listener_uri.replace("127.0.0.1", _DOCKER_GATEWAY_HOST).replace(
-        "localhost", _DOCKER_GATEWAY_HOST
-    )
+    parts = urlsplit(listener_uri)
+    if parts.hostname not in _HOSTS_UNREACHABLE_FROM_A_CONTAINER:
+        return listener_uri
+    netloc = _DOCKER_GATEWAY_HOST if parts.port is None else f"{_DOCKER_GATEWAY_HOST}:{parts.port}"
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
+# Hosts that name the listener's own machine from the host's point of view but the container
+# itself from inside one: loopback, and the wildcard binds a reachable listener uses.
+_HOSTS_UNREACHABLE_FROM_A_CONTAINER = frozenset({"127.0.0.1", "localhost", "0.0.0.0", "::"})  # noqa: S104  # SAFETY: matched, never bound, here.
 
 
 def night_veil_socks_proxy_url(manifest: HiveManifest, comb_shield: CombShieldLevel) -> str | None:

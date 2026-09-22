@@ -163,6 +163,10 @@ async def test_qemu_backend_raises_configuration_error_without_base_image_or_vm_
 def test_docker_gateway_url_rewrites_loopback_host() -> None:
     assert docker_gateway_url("ws://127.0.0.1:54321") == "ws://host.docker.internal:54321"
     assert docker_gateway_url("ws://localhost:9000") == "ws://host.docker.internal:9000"
+    # A wildcard bind is what a reachable listener uses; a Cell must never be handed it as a host.
+    assert docker_gateway_url("ws://0.0.0.0:58753") == "ws://host.docker.internal:58753"
+    assert docker_gateway_url("ws://[::]:58753") == "ws://host.docker.internal:58753"
+    assert docker_gateway_url("wss://hive.example:8710") == "wss://hive.example:8710"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
