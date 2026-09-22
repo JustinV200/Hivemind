@@ -20,9 +20,9 @@ ADR-0025.
   `lint-imports` (9 contracts), the five `scripts/check_*.py`, and
   `pytest -m "not integration and not live_llm and not local_llm" packages scripts/tests`
   (5760 passed, e2e included, about two minutes on a quiet machine).
-- Docker Desktop and QEMU are **not installed** on the development host. Every backend is proven
-  against fakes and contract suites; the marked `integration` tests skip. The Docker and QEMU
-  SDK/process code has never touched a real daemon. Section 5 lists what that leaves unproven.
+- **Docker Desktop 4.91 (engine 29.8, WSL 2) is installed on the development host as of
+  2026-09-22**, and the Docker backend is proven for real (section 4a). QEMU is not installed;
+  the QEMU backend is still fake-tested only.
 - Line endings: working copy CRLF, git normalises to LF; ignore the warnings.
 - Run `uv` with `env -u VIRTUAL_ENV uv ...` from this worktree: a stale `VIRTUAL_ENV` from the
   main checkout once made `uv pip install` land packages in the wrong venv (`docker`, `pywin32` in
@@ -100,11 +100,44 @@ Agreed with the Leavings session during the build (both sides kept to it):
 - Real-run traps carried over from phase 4 still apply (`--timeout 900`, LM Studio context 16384,
   never run the e2e suite during a real `hive run`).
 
+## 4a. What the real Docker runs proved (2026-09-22)
+
+Run with the operator's `hive.toml` plus `[placement] prefer = "virtual"`, `[virtual_cells]
+backend = "docker"`, `default_image = "hivemind/base-ubuntu:dev"`, `listen_host = "0.0.0.0"`,
+and the provider `base_url` pointed at a small loopback-to-all-interfaces forwarder (LM Studio
+binds `127.0.0.1` only; a container reaches the host through `host.docker.internal`, which
+needs a wildcard bind). `hive.sqlite3` in a scratch directory, `--timeout 900`.
+
+- `images/base-ubuntu` builds (244 MB); `hive cells` and `tests/integration/*docker*` pass
+  against the daemon: provision → `CellReady` + heartbeat in about 4 s, docker-commit snapshot
+  and recreate-rollback with the recreated Cell re-announcing, `inspect`, `abscond`.
+- A real goal on `prefer = "virtual"`: the Queen plans on LM Studio, provisions a container, the
+  container's own Warden (reaching LM Studio through the gateway, with the provider table the
+  compose root hands it) runs the Drone and verifies the task in ~11 s, the Cell is released
+  and destroyed; 80 s end to end against 140 s on the Hive Stand. Nothing left on the daemon.
+- Overwintering in one process: a two-step goal's second task was placed `ReuseDormant`, the
+  paused container was unpaused and the same Warden verified it with no second provisioning.
+- Fallbacks: a Cell whose Warden never connects times out at `ready_timeout_s`, is destroyed,
+  and the task lands on the Hive Stand with the reason on the trail.
+
+Defects those runs found, all fixed on this branch: venv shebangs baked from the builder path
+(entry point missing); the listener started after `reconcile` (Docker backend needs its port);
+the retry path zeroing the static backend tuple; the fake backend registered beside Docker and
+chosen first; offline CLI needing a started listener; `ws://0.0.0.0` handed to a Cell; a
+re-grant crashing the Queen on `GRANTED -> GRANTED`; `common.tasks.reap` swallowing
+cancellation; the CLI dying on an emoji on a cp1252 console; abscond deferring a Virtual Cell's
+own in-Cell lease. Remember to rebuild the image after any source change: a container runs the
+package as built, not the checkout.
+
+Still not proven for real: cross-process dormant reuse (a paused Cell's Warden dials the
+previous Queen's port and verifies the previous Queen's key; needs a fixed `listen_port` and the
+persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU.
+
 ## 5. Open items, in suggested order
 
-1. **Install Docker Desktop and run `pytest -m integration`.** `tests/integration/test_docker_backend.py`
-   provisions the real `images/base-ubuntu` image against a loopback Waggle server. The
-   integration workflow must also `uv sync --extra docker` for the SDK to be present.
+1. **CI still lacks a Docker-enabled runner**: `.github/workflows/integration.yml` builds the
+   image but its `uv sync` must add `--all-extras` (or `--extra docker`) for the SDK. Locally,
+   `pytest -m integration` now passes against Docker Desktop.
 2. **Provider base URLs inside a Cell.** Grants name a provider binding, not a URL, so the in-Cell
    provider registry is a fake (`cli/in_cell/providers.py`). Phase 8's hosting plan should carry
    Cell-relative URLs; `rewrite_loopback_base_url` is the interim helper.
