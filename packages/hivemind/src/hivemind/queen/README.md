@@ -53,7 +53,13 @@ every assignment goes to a Warden, over Waggle.
   Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
   over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
   attached" means, so every later dispatch to the same Warden is a no-op here. The `TaskAssign` it
-  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b).
+  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b). A fresh grant that computes to
+  `max_sub_bees < 1` is never sent to the Warden: `_send_grant_and_assign` records `forage.denied`
+  (the allocator's own reason plus the free-memory/reserve/seat figures that produced zero) and
+  fails the task at once instead (`.claude/phase-4-handoff.md` section 4.2 item 1 -- a grant that
+  empty used to be sent anyway, park the task RUNNING with a `GRANT_EXCEEDED` escalation, and time
+  out silently). `redispatch` (a RUNNING retry) and `resume_paused` (a `resume_from` resume) both
+  funnel through the same `_send_grant_and_assign` and fail the same way.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules

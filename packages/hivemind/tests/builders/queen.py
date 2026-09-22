@@ -5,9 +5,11 @@ shipped default supervision data: an in-memory `hivemind.brood_chamber.BroodCham
 (`MemoryTaskStore`), `hivemind.memory.InMemoryMemoryStore`, `hivemind.pheromone.trail.memory.
 MemoryPheromoneTrail`, a `FakeClock` shared by every collaborator, `docs/supervision/default-
 policy.toml` loaded for real (the same table production loads), a `hivemind.llm.DirectCallGate`
-(no metering), a `ForageMap` with one `"fake-worker"` source, and `bound_for`/`rebind` over a
-scriptable `FakeLLMProvider`, resolving four `[llm.slots]` rows: `"queen"`, `"attendant"`,
-`"worker"` (whose `fallback` is `"worker_fallback"`, so an e2e REBIND has somewhere to go) and
+(no metering), a `ForageMap` with one `"fake-worker"` source declaring `FORAGE_SOURCE_SEATS` seats
+(enough to clear QueenDeps' own default `RoyalReserve`, module constant's own comment), and
+`bound_for`/`rebind` over a scriptable `FakeLLMProvider`, resolving four `[llm.slots]` rows:
+`"queen"`, `"attendant"`, `"worker"` (whose `fallback` is `"worker_fallback"`, so an e2e REBIND
+has somewhere to go) and
 `"worker_fallback"`. It also builds one attached `hivemind.queen.deps.WardenLink` over a fresh
 `waggle.transport.memory.MemoryTransport` pair, and `WardenEnd`, the Warden-side half of that same
 pair: it wraps the Warden's own end, mirroring `builders.wardens.QueenEnd` with the direction
@@ -84,8 +86,29 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_PROVIDER_NAME = "fake"
 _WORKER_MODEL = "test-model"
 _WORKER_FALLBACK_MODEL = "test-model-strong"
+# The default "fake-worker" ModelSource's own declared seats (hivemind.forage.allocate's
+# `_reachable_seats` caps this at Abundance.seats_free too, `builders.forage.make_source`'s own
+# default of 4). A bare `make_source(...)` leaves this at 1, which QueenDeps' own default
+# RoyalReserve(seats=1) fully claims: reachable_seats lands at 0 and every fresh grant this
+# fixture computes -- through hivemind.queen.dispatcher, the only place that used to send such a
+# grant anyway -- comes out at max_sub_bees == 0 (`.claude/phase-4-handoff.md` section 4.2 item 1,
+# "the fixture's default reserve has to change with it"). Since the dispatcher's own zero-grant
+# fix denies and fails the task at that grant instead of sending it, an ordinary test built over
+# this fixture needs a grant of at least one bee to see the assignment it expects; 4 leaves 3 after
+# the default reserve claims one, comfortably clearing the headroom margin too (see
+# test_overriding_reserve_reaches_the_allocator_and_can_zero_it_out, which exhausts this pool on
+# purpose to prove the arithmetic still reaches hivemind.forage.allocate.grant). Public (no
+# leading underscore) so a test that needs to exhaust the pool on purpose can import the same
+# figure rather than hard-coding a copy of it.
+FORAGE_SOURCE_SEATS = 4
 
-__all__ = ["DEFAULT_PUMP_LIMIT", "WardenEnd", "make_queen_deps", "plan_responder"]
+__all__ = [
+    "DEFAULT_PUMP_LIMIT",
+    "FORAGE_SOURCE_SEATS",
+    "WardenEnd",
+    "make_queen_deps",
+    "plan_responder",
+]
 
 
 def make_queen_deps(
@@ -175,9 +198,17 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
 
 
 def _build_forage_map(clock: Clock) -> ForageMap:
-    """Build a ForageMap with one source matching the default "worker" binding."""
+    """Build a ForageMap with one source matching the default "worker" binding.
+
+    `seats=FORAGE_SOURCE_SEATS` (module constant): see its own comment for why a bare
+    `make_source(...)`'s single seat is not enough to clear QueenDeps' own default RoyalReserve.
+    """
     source = make_source(
-        source_id="fake-worker", provider=_DEFAULT_PROVIDER_NAME, model=_WORKER_MODEL, grade=3
+        source_id="fake-worker",
+        provider=_DEFAULT_PROVIDER_NAME,
+        model=_WORKER_MODEL,
+        grade=3,
+        seats=FORAGE_SOURCE_SEATS,
     )
     return ForageMap([source], clock=clock)
 
