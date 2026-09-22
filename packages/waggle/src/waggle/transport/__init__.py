@@ -65,6 +65,7 @@ from waggle.transport.websocket_client import (
     RECONNECT_FACTOR,
     RECONNECT_INITIAL_S,
     RECONNECT_MAX_S,
+    DialOptions,
     WebSocketClientTransport,
 )
 from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
@@ -85,6 +86,7 @@ __all__ = [
     "RECONNECT_FACTOR",
     "RECONNECT_INITIAL_S",
     "RECONNECT_MAX_S",
+    "DialOptions",
     "MemoryTransport",
     "Transport",
     "WebSocketClientTransport",

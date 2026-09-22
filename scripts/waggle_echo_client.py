@@ -67,7 +67,7 @@ from waggle.messages import (
 )
 from waggle.messages.task.assignment import WorkerRole
 from waggle.messages.task.reports import TaskStage
-from waggle.transport import DEFAULT_HOST, WebSocketClientTransport
+from waggle.transport import DEFAULT_HOST, DialOptions, WebSocketClientTransport
 
 QUEUED_PINGS = 3  # Enough to show ordering on replay; the exit criterion says "an outbox".
 CONNECT_TIMEOUT_S = 15.0  # The first dial: the server printed READY, so this is loopback latency.
@@ -114,7 +114,10 @@ async def _play(port: int, keys_dir: Path, outbox_path: Path) -> int:
         sender=keyring.own.address, recipient=keyring.peer.address, node_id=keyring.own.node_id
     )
     client = WebSocketClientTransport(
-        uri, keyring.codec, clock, max_attempts=RECONNECT_ATTEMPTS, open_timeout_s=DIAL_TIMEOUT_S
+        uri,
+        keyring.codec,
+        clock,
+        options=DialOptions(max_attempts=RECONNECT_ATTEMPTS, open_timeout_s=DIAL_TIMEOUT_S),
     )
     # Act 1: a plain request and a signed one, each answered by a correlated reply.
     async with asyncio.timeout(CONNECT_TIMEOUT_S):

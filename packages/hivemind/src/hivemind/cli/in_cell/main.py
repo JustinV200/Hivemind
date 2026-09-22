@@ -73,7 +73,7 @@ from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
 from waggle.clock import Clock, SystemClock
 from waggle.codec import Codec
-from waggle.transport.websocket_client import WebSocketClientTransport
+from waggle.transport.websocket_client import DialOptions, WebSocketClientTransport
 
 __all__ = ["main", "run_in_cell_warden"]
 
@@ -154,7 +154,10 @@ async def _connect_and_announce(
     # The gateway carve-out matches build_runtime_config's own validation of this URL: from inside
     # a container, loopback is the Cell itself, so the Queen is reached through the host gateway.
     transport = WebSocketClientTransport(
-        config.queen_waggle_url, codec, clock, allow_virtual_cell_gateway_host=True
+        config.queen_waggle_url,
+        codec,
+        clock,
+        options=DialOptions(allow_virtual_cell_gateway_host=True),
     )
     # This Cell's own local Pheromone Trail segment (codingrules section 12: "A Warden that is
     # offline writes to its local segment; on reconnection the segment merges into the Queen's

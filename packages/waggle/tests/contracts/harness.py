@@ -42,7 +42,7 @@ from waggle.codec import Codec
 from waggle.transport.base import Transport
 from waggle.transport.memory import MemoryTransport
 from waggle.transport.websocket import WebSocketTransport
-from waggle.transport.websocket_client import WebSocketClientTransport
+from waggle.transport.websocket_client import DialOptions, WebSocketClientTransport
 from waggle.transport.websocket_server import WebSocketServer
 
 KINDS = ("memory", "websocket")  # Every Transport that ships; the suite runs once per entry.
@@ -240,8 +240,7 @@ class WebSocketLink:
             listener.uri,
             client_codec,
             FakeClock(),
-            max_attempts=1,
-            open_timeout_s=DIAL_TIMEOUT_S,
+            options=DialOptions(max_attempts=1, open_timeout_s=DIAL_TIMEOUT_S),
         )
         async with asyncio.timeout(WAIT_S):
             await client.connect()

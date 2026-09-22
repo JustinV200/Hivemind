@@ -37,6 +37,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import InvalidHandshake
@@ -65,8 +66,31 @@ __all__ = [
     "RECONNECT_FACTOR",
     "RECONNECT_INITIAL_S",
     "RECONNECT_MAX_S",
+    "DialOptions",
     "WebSocketClientTransport",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class DialOptions:
+    """How ``WebSocketClientTransport`` dials: bundled so the constructor stays at five parameters.
+
+    Attributes:
+        max_attempts: Dials per ``connect`` before ConnectFailedError; at least 1.
+        open_timeout_s: Real seconds one attempt may spend on TCP connect plus the handshake
+            before it counts as failed.
+        allow_virtual_cell_gateway_host: Accept a ``ws://`` URI on a Virtual Cell's host-gateway
+            alias or private address (``waggle.uris.check_waggle_uri``). Set only by a Virtual
+            Cell's own in-Cell entry point, whose loopback is the Cell itself, never the Hive
+            Stand (ADR-0027).
+    """
+
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    open_timeout_s: float = OPEN_TIMEOUT_S
+    allow_virtual_cell_gateway_host: bool = False
+
+
+DEFAULT_DIAL_OPTIONS = DialOptions()  # One frozen instance; the constructor's own default.
 
 
 class WebSocketClientTransport:
@@ -77,45 +101,35 @@ class WebSocketClientTransport:
     """
 
     def __init__(
-        self,
-        uri: str,
-        codec: Codec,
-        clock: Clock,
-        *,
-        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-        open_timeout_s: float = OPEN_TIMEOUT_S,
-        allow_virtual_cell_gateway_host: bool = False,
+        self, uri: str, codec: Codec, clock: Clock, *, options: DialOptions = DEFAULT_DIAL_OPTIONS
     ) -> None:
         """Remember where to dial and how; nothing is dialled until ``connect``.
 
         Args:
             uri: The Hive Stand's listener, ``wss://host:port`` anywhere or ``ws://`` on a
-                loopback host only -- or, with ``allow_virtual_cell_gateway_host``, on a Virtual
-                Cell's host-gateway alias or private address too (``check_waggle_uri``).
-            allow_virtual_cell_gateway_host: Set only by a Virtual Cell's own in-Cell entry
-                point, whose loopback is the Cell itself, never the Hive Stand (ADR-0027).
+                loopback host only -- or, with ``options.allow_virtual_cell_gateway_host``, on a
+                Virtual Cell's host-gateway alias or private address too (``check_waggle_uri``).
             codec: Encodes every send and decodes every receive; its limit is the dial's
                 max_size.
             clock: The injected Clock every backoff wait goes through.
-            max_attempts: Dials per ``connect`` before ConnectFailedError; at least 1.
-            open_timeout_s: Real seconds one attempt may spend on TCP connect plus the
-                handshake before it counts as failed.
+            options: How to dial: attempts before giving up, the per-attempt open timeout, and
+                the Virtual Cell gateway carve-out (``DialOptions``).
 
         Raises:
-            ValueError: ``uri`` is not a WebSocket URI, uses ws:// off loopback, or
-                ``max_attempts`` is below 1.
+            ValueError: ``uri`` is not a WebSocket URI, uses ws:// off an allowed host, or
+                ``options.max_attempts`` is below 1.
         """
         # Checked once here, not per dial, so a misconfigured address fails at construction in
         # the composition root rather than inside a reconnect loop (spec section 6).
         self._uri = check_waggle_uri(
-            uri, allow_virtual_cell_gateway_host=allow_virtual_cell_gateway_host
+            uri, allow_virtual_cell_gateway_host=options.allow_virtual_cell_gateway_host
         )
-        if max_attempts < 1:
-            raise ValueError(f"max_attempts must be at least 1, got {max_attempts}.")
+        if options.max_attempts < 1:
+            raise ValueError(f"max_attempts must be at least 1, got {options.max_attempts}.")
         self._codec = codec
         self._clock = clock
-        self._max_attempts = max_attempts
-        self._open_timeout_s = open_timeout_s
+        self._max_attempts = options.max_attempts
+        self._open_timeout_s = options.open_timeout_s
         self._inner: WebSocketTransport | None = None  # The current connection, once dialled.
         self._closed = False  # close() was called since the last connect().
 

@@ -48,7 +48,7 @@ from waggle.transport.base import (
     CLOSE_PROTOCOL_ERROR,
 )
 from waggle.transport.websocket import WebSocketTransport
-from waggle.transport.websocket_client import WebSocketClientTransport
+from waggle.transport.websocket_client import DialOptions, WebSocketClientTransport
 from waggle.transport.websocket_server import WebSocketServer
 
 MakeEnvelope = Callable[..., Envelope]
@@ -78,7 +78,9 @@ async def signed_server(signed_codec: Codec) -> AsyncIterator[WebSocketServer]:
 
 async def _dial(server: WebSocketServer, codec: Codec) -> WebSocketClientTransport:
     """A connected client transport for ``server``; the FakeClock never sleeps on success."""
-    client = WebSocketClientTransport(server.uri, codec, FakeClock(), max_attempts=1)
+    client = WebSocketClientTransport(
+        server.uri, codec, FakeClock(), options=DialOptions(max_attempts=1)
+    )
     async with asyncio.timeout(WAIT_S):
         await client.connect()
     return client
