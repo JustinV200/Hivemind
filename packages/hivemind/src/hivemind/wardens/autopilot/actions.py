@@ -8,10 +8,12 @@ about one inbox item, before -- and, for `NEEDS_JUDGEMENT`, instead of -- ever w
 `CANCEL_TASK` are the four ways an Alarm's `hivemind.supervision.policy.PolicyAction` maps onto
 something a Warden actually does; `FORWARD_QUESTION`/`FORWARD_ANSWER`/`FORWARD_CONTROL` relay a
 message between the Queen and a sub-bee unchanged; `RECORD` notes an item (a Heartbeat, a
-`GrantIssued`, a routine `TaskProgress`) with no further action; `STOP` is the Queen's own order to
+`GrantIssued`, a routine `TaskProgress`, or a `CellSnapshotReply`/`CellRollbackReply` the Warden's
+own `RelaySnapshotter` resolves) with no further action; `STOP` is the Queen's own order to
 end this Warden (a `Shutdown` or a `CellTeardownRequest`), which stops every sub-bee, releases the
-lease and ends the tick loop; `NEEDS_JUDGEMENT` is the one signal that hands the item to
-`hivemind.wardens.awake` instead.
+lease and ends the tick loop; `RELEASE_LEASE` (roadmap step 5.13) is the Queen's own narrower
+order that stops every sub-bee and releases the lease the same way but leaves this Warden running;
+`NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.wardens.awake` instead.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -51,4 +53,6 @@ class WardenAction(Enum):
     FORWARD_CONTROL = "FORWARD_CONTROL"  # TaskCancel/Pause/Resume/Intervene, relayed unchanged.
     RECORD = "RECORD"  # Note it (a heartbeat, a grant, routine progress); nothing more to do.
     STOP = "STOP"  # A Shutdown or CellTeardownRequest: stop every sub-bee and end this loop.
+    RELEASE_LEASE = "RELEASE_LEASE"  # A Queen-sent Intervene(RELEASE_LEASE): stop every sub-bee,
+    # release this Warden's own lease (idempotent), then report LeaseReleased. Roadmap step 5.13.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to wardens.awake.

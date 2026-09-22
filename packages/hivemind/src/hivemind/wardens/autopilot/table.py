@@ -10,8 +10,12 @@ Warden's own tick handler (`hivemind.wardens.ticks.assign`) resolves further (a 
 actually spawns once a matching grant has arrived; the table itself does not hold that state, only
 the sub-bee table does); an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`,
 which reads only the Alarm's `kind` and `attempts`; a `Shutdown` or `CellTeardownRequest` from the
-Queen maps to `STOP` (ADR-0027: the one order that ends a Warden, never a judgement call); every
-other recognised kind maps to a fixed action; anything this table has never seen returns
+Queen maps to `STOP` (ADR-0027: the one order that ends a Warden, never a judgement call); a
+Queen-sent `Intervene(RELEASE_LEASE)` maps to `RELEASE_LEASE` (roadmap step 5.13: the narrower
+order that releases the lease but leaves this Warden running, decided ahead of the generic
+`Intervene` -> `FORWARD_CONTROL` branch); a `CellSnapshotReply`/`CellRollbackReply` (roadmap step
+5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`;
+every other recognised kind maps to a fixed action; anything this table has never seen returns
 `NEEDS_JUDGEMENT`, the one signal that hands the item to `hivemind.wardens.awake` instead of
 silently dropping it.
 
@@ -51,9 +55,17 @@ from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
 from waggle.messages.cell.leases import CellTeardownRequest
+from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.control.protocol import Shutdown
 from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
-from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Intervene, Question
+from waggle.messages.supervision import (
+    AlarmRaised,
+    Answer,
+    Heartbeat,
+    Intervene,
+    InterventionAction,
+    Question,
+)
 from waggle.messages.task import (
     TaskAssign,
     TaskCancel,
@@ -137,10 +149,9 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
         return WardenAction.FORWARD_QUESTION
     if isinstance(payload, Answer):
         return WardenAction.FORWARD_ANSWER
-    if isinstance(payload, TaskCancel | TaskPause | TaskResume | Intervene):
-        return WardenAction.FORWARD_CONTROL
-    if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
-        return WardenAction.RECORD
+    control = _decide_control_or_record(payload)
+    if control is not None:
+        return control
     # ADR-0027 / roadmap step 5.3: the Queen's own two ways of ending a Warden. A `Shutdown` is the
     # ordinary "stop now" order; a `CellTeardownRequest` says this Warden's own Cell is about to be
     # destroyed, which for the Warden running *inside* that Cell means exactly the same thing --
@@ -150,6 +161,29 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
         return WardenAction.STOP
     # A kind this table has never seen: hand off to wardens.awake rather than silently dropping it.
     return WardenAction.NEEDS_JUDGEMENT
+
+
+def _decide_control_or_record(payload: object) -> WardenAction | None:
+    """Return the WardenAction for a control-lever or RECORD-only payload; None for neither.
+
+    Split out of `decide` itself purely to stay under codingrules 5.1's cyclomatic-complexity
+    limit as this table has grown more recognised kinds; carries no behaviour of its own beyond
+    the isinstance checks decide would otherwise inline.
+    """
+    if isinstance(payload, Intervene) and payload.action is InterventionAction.RELEASE_LEASE:
+        # Roadmap step 5.13: the Queen's own narrower order (stop every sub-bee, release the
+        # lease, keep running) -- always addressed to this Warden itself (subject is None), never
+        # a lever to relay to a sub-bee, so it is decided before the generic FORWARD_CONTROL branch.
+        return WardenAction.RELEASE_LEASE
+    if isinstance(payload, TaskCancel | TaskPause | TaskResume | Intervene):
+        return WardenAction.FORWARD_CONTROL
+    if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
+        return WardenAction.RECORD
+    if isinstance(payload, CellSnapshotReply | CellRollbackReply):
+        # Roadmap step 5.10's own follow-up gap (the snapshot relay): resolved by this Warden's
+        # own RelaySnapshotter, never a judgement call.
+        return WardenAction.RECORD
+    return None
 
 
 def _decide_alarm(

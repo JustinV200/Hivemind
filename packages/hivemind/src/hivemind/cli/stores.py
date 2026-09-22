@@ -90,6 +90,7 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStor
 from hivemind.common.sqlite import connect
 from hivemind.forage import Abundance, ForageMap, ModelSource
 from hivemind.forage.map import SlotBinding
+from hivemind.hive.snapshot import SqliteSnapshotLedger
 from hivemind.llm import (
     ProviderConfig,
     ProviderFactory,
@@ -140,6 +141,7 @@ __all__ = [
     "open_cluster_orders",
     "open_ledger",
     "open_memory",
+    "open_snapshot_ledger",
     "open_trail",
     "provider_configs",
     "resolve_db",
@@ -262,6 +264,26 @@ def open_cluster_orders(db: Path) -> SqliteOrderStore:
         return await SqliteOrderStore.create(connection, SystemClock())
 
     return asyncio.run(_open())
+
+
+def open_snapshot_ledger(db: Path) -> SqliteSnapshotLedger:
+    """Open `db` and return a ready SqliteSnapshotLedger, applying its migration first.
+
+    Roadmap step 5.10's own follow-up gap: `hivemind.cli.compose.virtual_cells.build_virtual_cells`
+    and `hivemind.cli.readback.virtual_offline.build_snapshotter` both call this so `hive cells
+    snapshot`/`hive cells rollback` and the running Queen's own `hivemind.queen.cell_gate.snapshot.
+    CellSnapshotHandler` all read and write the same durable book, unlike the in-memory
+    `hivemind.hive.snapshot.SnapshotLedger` a test builds directly.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteSnapshotLedger whose `snapshot_records` table exists and is current.
+    """
+    # SqliteSnapshotLedger.create is synchronous (its own module docstring explains why), unlike
+    # every other open_* here: no asyncio.run seam is needed to reach it.
+    return SqliteSnapshotLedger.create(connect(db), SystemClock())
 
 
 def load_manifest_or_exit(path: Path) -> HiveManifest:

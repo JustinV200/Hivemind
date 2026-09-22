@@ -23,19 +23,18 @@ module docstring explains why this reuses the CLUSTER/WAKE table rather than a s
 this is the running Queen's own drain for it, called separately from `run_cluster_tick` (so
 `_drain_orders` below now filters to `{CLUSTER, WAKE}` explicitly, leaving a RELEASE row for this
 function instead of falling into its own `else` branch, which used to mean "WAKE" whenever the
-order was not CLUSTER, back when only two kinds existed). What it can do from here, in-process, is
-deliberately narrow and documented as such: the Queen holds no reference to the Warden's own
-`hivemind.cell.RealCellLease` object (leases are opened and released by whichever Warden holds
-them, reached only through Waggle wire messages -- `Intervene`'s own `InterventionAction` carries
-no "release your lease" lever yet), so this cannot itself kill the Warden's processes or remove its
-scratch directory. What it *can* do, entirely within the Queen's own authority, is revoke every
-live Forage grant on the lease's Cell (`hivemind.queen.forage.grants.revoke`, the same call
-`hivemind.workers.roles.undertaker.role.Undertaker.release_real`'s own `GrantRevoker` makes) --
-stopping further spend against that Cell at once -- and mark the order handled so it is not
-retried forever. A full live release additionally needs a new Queen -> Warden wire message and
-Warden-side handling; flagged in this dispatch's own report as the open question for whoever adds
-that lever. `hive cells abscond` (roadmap step 5.13, `hivemind.cli.readback.virtual`) is the
-guaranteed path to fully close a lease once its own Warden process is not running to cooperate.
+order was not CLUSTER, back when only two kinds existed). Two things happen for a lease whose Cell
+this Queen still recognises: every live Forage grant on that Cell is revoked
+(`hivemind.queen.forage.grants.revoke`, the same call `hivemind.workers.roles.undertaker.role.
+Undertaker.release_real`'s own `GrantRevoker` makes), stopping further spend against it at once,
+and an `Intervene(RELEASE_LEASE)` is sent to the Warden that owns it (found by `cell_id` among the
+attached `wardens`, the same lookup `hivemind.queen.cluster.protocol`'s own `_send_task_pause`
+uses) so that Warden actually stops its sub-bees and releases the lease itself -- the lever
+`waggle.messages.supervision.InterventionAction` was missing until this dispatch (PROTOCOL_MINOR
+5). The order is marked handled either way, so a lease this Queen's own trail never recorded (or
+whose Warden is no longer attached, e.g. a crashed process) does not retry forever; `hive cells
+abscond` (roadmap step 5.13, `hivemind.cli.readback.virtual`) stays the guaranteed path to fully
+close a lease once its own Warden process is not running to cooperate at all.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's cluster
@@ -86,8 +85,10 @@ from hivemind.queen.cluster.triggers import (
     providers_of,
 )
 from hivemind.queen.state import ClusterState
+from waggle.envelope import wrap
 from waggle.ids import CellId
 from waggle.messages.forage.values import RevocationCause
+from waggle.messages.supervision import Intervene, InterventionAction
 
 if TYPE_CHECKING:
     # Only for the type hints below: see hivemind.queen.cluster.protocol's own TYPE_CHECKING
@@ -234,17 +235,16 @@ async def _probe_clustered(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-async def run_release_tick(deps: QueenDeps) -> tuple[str, ...]:
-    """Drain every pending RELEASE order: revoke its lease's Cell's live grants, then mark handled.
+async def run_release_tick(deps: QueenDeps, wardens: Sequence[WardenLink]) -> tuple[str, ...]:
+    """Drain every pending RELEASE order: revoke grants, tell the Warden to release, mark handled.
 
-    See the module docstring for exactly what this can and cannot do in-process: it revokes grants
-    (a real, immediate effect, entirely within the Queen's own authority) but cannot itself kill
-    the Warden's processes or remove its scratch directory -- that needs a wire message this
-    dispatch does not add.
+    See the module docstring for exactly what this does for a lease whose Cell is still known.
 
     Args:
         deps: The Queen's collaborators; `orders`, `trail`, `ledger`, `clock` and `identity` are
             what this reads and acts through.
+        wardens: Every Warden currently attached, so the one holding the lease's Cell can be sent
+            `Intervene(RELEASE_LEASE)`.
 
     Returns:
         The id of every RELEASE order this call handled, in the order `deps.orders.pending()`
@@ -254,23 +254,48 @@ async def run_release_tick(deps: QueenDeps) -> tuple[str, ...]:
     for order in await deps.orders.pending():
         if order.kind is not OrderKind.RELEASE:
             continue
-        await _handle_release_order(deps, order)
+        await _handle_release_order(deps, order, wardens)
         handled.append(order.id)
     return tuple(handled)
 
 
-async def _handle_release_order(deps: QueenDeps, order: ClusterOrder) -> None:
-    """Revoke the named lease's Cell's live grants (if the lease is still known), then mark handled.
+async def _handle_release_order(
+    deps: QueenDeps, order: ClusterOrder, wardens: Sequence[WardenLink]
+) -> None:
+    """Revoke the named lease's Cell's live grants, tell its Warden to release, then mark handled.
 
     A `lease_id` this Hive's trail never recorded a `cell.leased` for (a typo, or a lease from a
-    different Hive's own database) has no Cell to revoke grants on; the order is still marked
-    handled, matching `OrderStore`'s own "consumed exactly once" contract for every other kind.
+    different Hive's own database) has no Cell to act on; the order is still marked handled,
+    matching `OrderStore`'s own "consumed exactly once" contract for every other kind. Likewise, a
+    Cell whose Warden is not currently attached (a crashed process, or one that has not reconnected
+    yet) has its grants revoked but no Intervene to send -- there is nothing this tick can do about
+    that beyond what it already did; `hive cells abscond` is the operator's own fallback.
     """
     if order.lease_id is not None:
         cell_id = await _cell_id_for_lease(deps, order.lease_id)
         if cell_id is not None:
             await _revoke_grants_for_cell(deps, cell_id)
+            await _send_release_lease(deps, wardens, cell_id, order.lease_id)
     await deps.orders.mark_handled(order.id, deps.clock.now())
+
+
+async def _send_release_lease(
+    deps: QueenDeps, wardens: Sequence[WardenLink], cell_id: CellId, lease_id: str
+) -> None:
+    """Send Intervene(RELEASE_LEASE) to the attached Warden that owns `cell_id`, if any."""
+    link = next((link for link in wardens if link.cell.id == cell_id), None)
+    if link is None:
+        return  # Not currently attached; grants are already revoked, and this tick can do no more.
+    message = Intervene(
+        action=InterventionAction.RELEASE_LEASE,
+        subject=None,  # Always the recipient itself (module docstring, waggle spec section 8.3).
+        task_id=None,
+        slot=None,
+        binding=None,
+        alarm_id=None,
+        reason=f"hive cells release: the operator asked for lease {lease_id} to be released.",
+    )
+    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
 
 
 async def _cell_id_for_lease(deps: QueenDeps, lease_id: str) -> CellId | None:

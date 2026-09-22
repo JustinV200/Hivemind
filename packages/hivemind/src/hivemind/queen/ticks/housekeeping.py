@@ -105,7 +105,7 @@ async def run_housekeeping(
     # Roadmap step 5.13: drains RELEASE orders (`hive cells release`) the same tick, separately
     # from CLUSTER/WAKE -- see hivemind.queen.cluster.tick's own module docstring for why this is
     # a second call rather than one more branch inside run_cluster_tick's own order drain.
-    await run_release_tick(deps)
+    await run_release_tick(deps, wardens)
     now = deps.clock.now()
     if deps.housekeeping.last_sweep_at is None:
         # First tick ever: seed the timer instead of sweeping immediately (module docstring's own

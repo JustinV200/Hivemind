@@ -204,6 +204,7 @@ class Queen(TickLoop):
             The goal's own id (the first task minted from the plan).
         """
         bound = self._deps.bound_for(ModelSlot.QUEEN)
+        # PlanBrief.origin defaults to RequestOrigin.HUMAN (roadmap step 5.7a's own default).
         brief = PlanBrief(goal, clearance, [link.cell for link in self.wardens])
         draft = await plan_goal(brief, bound, gate=self._deps.call_gate)
         minted = await self._deps.chamber.submit(draft)

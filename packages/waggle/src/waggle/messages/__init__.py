@@ -44,7 +44,8 @@ Public API:
     - Forage (forage): CapacityReport, GrantIssued, GrantRevoked, ForageRequest,
       ForageReply, HostingDecided, CeilingsSet, PlanWritten.
     - Cell (cell): CellReady, CellHeartbeat, CellTeardownRequest,
-      CellRequest, LeaseOpened, LeaseReleased, CellWaxProposed, CellWaxWritten, CellWaxCleared.
+      CellRequest, LeaseOpened, LeaseReleased, CellWaxProposed, CellWaxWritten, CellWaxCleared,
+      CellSnapshotRequest, CellSnapshotReply, CellRollbackRequest, CellRollbackReply.
     - Session (session): SessionOpen, SessionExec, SessionStdin,
       SessionOutput, SessionExit, SessionPutFile, SessionGetFile, SessionClose.
     - Honey (honey): NectarDeposit, HoneyQuery, HoneyResponse.
@@ -71,6 +72,10 @@ from waggle.messages.cell import (
     CellHeartbeat,
     CellReady,
     CellRequest,
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
     CellTeardownRequest,
     CellWaxCleared,
     CellWaxProposed,
@@ -179,6 +184,10 @@ __all__ = [
     "CellHeartbeat",
     "CellReady",
     "CellRequest",
+    "CellRollbackReply",
+    "CellRollbackRequest",
+    "CellSnapshotReply",
+    "CellSnapshotRequest",
     "CellTeardownRequest",
     "CellWaxCleared",
     "CellWaxProposed",

@@ -1,4 +1,4 @@
-"""Tests for the cell family: EXAMPLES for all nine classes, plus the cell.status module itself.
+"""Tests for the cell family: EXAMPLES for all thirteen classes, plus the cell.status module.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Holds EXAMPLES, one valid instance of every
@@ -6,11 +6,11 @@ Fits into the Hive:
     per-family checks; pins for every class the JSON round trip and the rejection of an extra
     field; and for waggle.messages.cell.status (CellReady, CellHeartbeat, AttestationCheck,
     TaskNeedsReport and the family's non-wax enums) every bound and validator spec section 8.5
-    names. The lease messages are tested in test_leases.py and the wax messages in
-    test_wax.py.
+    names. The lease messages are tested in test_leases.py, the wax messages in test_wax.py and
+    the snapshot relay messages in test_snapshot.py.
 
 Key invariants:
-    - EXAMPLES holds exactly one instance of each of the nine cell message classes.
+    - EXAMPLES holds exactly one instance of each of the thirteen cell message classes.
 
 See Also:
     - waggle.messages.cell.status, leases and wax for the modules under test.
@@ -29,6 +29,12 @@ from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 from waggle.messages.base import MAX_REASON_CHARS, WaggleMessage
 from waggle.messages.cell.leases import CellRequest, CellTeardownRequest, LeaseOpened, LeaseReleased
+from waggle.messages.cell.snapshot import (
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
+)
 from waggle.messages.cell.status import (
     MAX_ATTESTATION_CHECKS,
     MAX_CHECK_DETAIL_CHARS,
@@ -87,6 +93,10 @@ CELL_CLASSES: tuple[type[WaggleMessage], ...] = (
     CellWaxProposed,
     CellWaxWritten,
     CellWaxCleared,
+    CellSnapshotRequest,
+    CellSnapshotReply,
+    CellRollbackRequest,
+    CellRollbackReply,
 )
 
 # Member names in declaration order, per spec section 8.5; every value equals its name.
@@ -221,6 +231,24 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         cause=WaxClearCause.EXPIRED,
         reason="Expired on the nightly sweep.",
     ),
+    CellSnapshotRequest(
+        cell_id=CELL_ID,
+        purpose="An irreversible Capping proposal is about to apply.",
+    ),
+    CellSnapshotReply(
+        cell_id=CELL_ID,
+        snapshot_id="snap_docker_cell_01-20260101t000000000000-0",
+        error=None,
+    ),
+    CellRollbackRequest(
+        cell_id=CELL_ID,
+        snapshot_id="snap_docker_cell_01-20260101t000000000000-0",
+    ),
+    CellRollbackReply(
+        cell_id=CELL_ID,
+        ok=True,
+        error=None,
+    ),
 )
 
 
@@ -271,9 +299,19 @@ def test_cell_message_rejects_an_extra_field(example: WaggleMessage) -> None:
         _rebuild(example, hop_count=1)
 
 
+_NO_REASON_FIELD = (
+    CellReady,
+    CellHeartbeat,
+    CellSnapshotRequest,
+    CellSnapshotReply,
+    CellRollbackRequest,
+    CellRollbackReply,
+)
+
+
 @pytest.mark.parametrize(
     "example",
-    [example for example in EXAMPLES if not isinstance(example, CellReady | CellHeartbeat)],
+    [example for example in EXAMPLES if not isinstance(example, _NO_REASON_FIELD)],
     ids=lambda example: type(example).__name__,
 )
 def test_reason_is_bounded_by_the_shared_limit(example: WaggleMessage) -> None:

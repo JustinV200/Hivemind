@@ -44,7 +44,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from hivemind.cell import RealCellSource
+from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
 from hivemind.forage.tempo import Tempo
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
@@ -140,6 +140,14 @@ class WardenDeps:
             leaves it as -- means this Warden already records into the Queen's own store, so there
             is nothing to ship; `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.trail_sync.
             WaggleTrailSync` in, because a Virtual Cell's store dies with the container.
+        snapshotter: Handed to every sub-bee's own `CappingGate` (`hivemind.wardens.spawn.spawn.
+            _build_capping_gate`) as `GateDeps.snapshotter`. Defaults to `NoopSnapshotter()`
+            (every Real Cell source's own answer, and the Hive Stand's own composition root's,
+            since the Hive Stand can build a real `hivemind.hive.snapshot.snapshotter_for` one
+            directly). `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.snapshot_relay.
+            RelaySnapshotter` in instead: a Virtual Cell's own Warden cannot reach the host
+            backend itself (ADR-0027), so it asks the Queen over `queen_link` (roadmap step
+            5.10's own follow-up gap).
     """
 
     source: RealCellSource
@@ -179,6 +187,10 @@ class WardenDeps:
     # (`hivemind.wardens.trail_sync`'s own module docstring); every existing composition root and
     # every existing test keeps today's behaviour by never naming this field.
     trail_sync: TrailSync | None = None
+    # Roadmap step 5.10's own follow-up gap (the snapshot relay): additive, defaulted to
+    # NoopSnapshotter so a WardenDeps built before this dispatch (every existing test) keeps
+    # building and behaving unchanged.
+    snapshotter: Snapshotter = field(default_factory=NoopSnapshotter)
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

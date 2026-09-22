@@ -55,8 +55,9 @@ Fits into the Hive:
     BackendCapabilities, VirtualCellRecord), `hivemind.hive.cell_state`, `hivemind.hive.errors`,
     `hivemind.hive.models`, `hivemind.hive.overwinter` (OverwinterConfig, OverwinterDecision,
     OverwinterPool, ReleaseOutcome, Scrubber, decide_release), `hivemind.hive.registry`,
-    `hivemind.hive.snapshot.ledger` (SnapshotLedger, roadmap step 5.10: `teardown()`'s own
-    snapshot cleanup), `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
+    `hivemind.hive.snapshot.ledger` (SnapshotLedgerPort, roadmap step 5.10: `teardown()`'s own
+    snapshot cleanup), `hivemind.hive.backends.base` (CellBackend, `snapshot_target`'s own return
+    type), `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
 
 Key invariants:
     - Every state change goes through `hivemind.hive.cell_state.assert_transition` (or
@@ -94,7 +95,7 @@ from datetime import datetime
 from pydantic import JsonValue
 
 from hivemind.cell import Cell, CellIdentity, CombShieldLevel
-from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
+from hivemind.hive.backends.base import BackendCapabilities, CellBackend, VirtualCellRecord
 from hivemind.hive.cell_state import (
     VirtualCellStatus,
     assert_dormant_allowed,
@@ -111,7 +112,7 @@ from hivemind.hive.overwinter.policy import (
 )
 from hivemind.hive.overwinter.pool import OverwinterPool, Scrubber
 from hivemind.hive.registry import BackendRegistry
-from hivemind.hive.snapshot.ledger import SnapshotLedger
+from hivemind.hive.snapshot.ledger import SnapshotLedgerPort
 from hivemind.pheromone import CellEvent, PheromoneTrail
 from waggle.clock import Clock
 from waggle.ids import CellId, GrantId, HiveId, WardenId, new_event_id
@@ -265,14 +266,15 @@ class CellLifecycle:
         # parameter -- __init__ is already at codingrules 5.1's five-parameter limit with
         # registry/trail/clock/identity/overwinter, and this field is optional for every Hive
         # that has no SnapshotLedger yet (every pre-5.10 caller keeps building unchanged).
-        self._snapshot_ledger: SnapshotLedger | None = None
+        self._snapshot_ledger: SnapshotLedgerPort | None = None
         self._cells: dict[CellId, LiveVirtualCell] = {}
 
-    def attach_snapshot_ledger(self, ledger: SnapshotLedger) -> None:
+    def attach_snapshot_ledger(self, ledger: SnapshotLedgerPort) -> None:
         """Attach the Hive's shared SnapshotLedger, so `teardown()` deletes a Cell's own snapshots.
 
         Args:
-            ledger: The `hivemind.hive.snapshot.SnapshotLedger` every Snapshotter this Hive builds
+            ledger: The `hivemind.hive.snapshot.SnapshotLedgerPort` (in-memory or durable) every
+                Snapshotter this Hive builds
                 shares (roadmap step 5.10). Optional: a `CellLifecycle` no one ever calls this on
                 simply skips the cleanup step in `teardown()`, matching pre-5.10 behaviour.
         """
@@ -282,6 +284,29 @@ class CellLifecycle:
         """Return `cell_id`'s current status, or None if this lifecycle has no record of it."""
         record = self._cells.get(cell_id)
         return record.status if record is not None else None
+
+    def snapshot_target(self, cell_id: CellId) -> tuple[CellBackend, Cell] | None:
+        """Return `cell_id`'s own backend and Cell, for a snapshot or rollback request.
+
+        Roadmap step 5.10's own follow-up gap: `hivemind.queen.cell_gate.snapshot.
+        CellSnapshotHandler` calls this to answer a Warden's `CellSnapshotRequest`/
+        `CellRollbackRequest` (the snapshot relay, since a Virtual Cell's own Warden cannot reach
+        the host backend itself, ADR-0027) without needing a `CellLifecycle` accessor of its own
+        for every field it happens to want.
+
+        Args:
+            cell_id: The Cell a snapshot or rollback was asked for.
+
+        Returns:
+            `(backend, cell)` when this lifecycle tracks `cell_id` and holds a full `Cell` for it
+            (module docstring's own `LiveVirtualCell.cell`: None for a record `reconcile()` only
+            learned about from backend labels); `None` otherwise -- both cases the caller answers
+            with an error reply, never a crash.
+        """
+        record = self._cells.get(cell_id)
+        if record is None or record.cell is None:
+            return None
+        return self._registry.get(record.backend), record.cell
 
     def live_cells(self) -> tuple[LiveVirtualCell, ...]:
         """Return every Cell this lifecycle currently tracks, in no particular order."""

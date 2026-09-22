@@ -1002,7 +1002,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   `hive/overwinter/pool.py`. Placement prefers a dormant Cell with the right image. Clustering uses
   the pool for long outages. Night Veil Cells are excluded. A dormant Cell's volume keeps its
   resident Basket blobs (9.2a), so a reused Cell starts with them.
-- [ ] **5.10 Snapshots for Capping.** `hive/snapshot.py`: `DockerSnapshotter` and
+- [x] **5.10 Snapshots for Capping.** `hive/snapshot.py`: `DockerSnapshotter` and
   `QemuSnapshotter` implementing the `Snapshotter` protocol from `cell/snapshot.py` (3.10)
   (Docker commit, QEMU snapshot; a documented no-op with a warning for backends that cannot). The
   Warden injects its Cell's `Snapshotter` into the Capping gate, so Capping never imports `hive`.

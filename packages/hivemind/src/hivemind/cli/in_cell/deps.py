@@ -13,7 +13,8 @@ Fits into the Hive:
     `hivemind.forage.slots` (ModelSlot), `hivemind.llm.ladders.gate` (DirectCallGate),
     `hivemind.memory` (InMemoryMemoryStore, MemoryIdentity), `hivemind.pheromone` (PheromoneTrail),
     `hivemind.supervision` (load_policy), `hivemind.supervision.capping` (deterministic_checks,
-    load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.spawn` (InCellSpawnSource),
+    load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
+    (RelaySnapshotter), `hivemind.wardens.spawn` (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
     (Drone), `hivemind.cli.in_cell.providers` and waggle only.
 
@@ -44,6 +45,7 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision import load_policy
 from hivemind.supervision.capping import deterministic_checks, load_tiers
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from hivemind.workers import Worker
@@ -120,16 +122,30 @@ def build_in_cell_warden_deps(
         heartbeat_interval_s=config.heartbeat_interval_s,
         worker_heartbeat_interval_s=DEFAULT_WORKER_HEARTBEAT_INTERVAL_S,
         missed_heartbeats_before_stalled=DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED,
-        # This Cell's own store dies with the container (WardenDeps.trail_sync's own docstring):
-        # ship its segment to the Queen on this Warden's heartbeat cadence and once more on stop.
         trail_sync=_build_trail_sync(config, queen_link, trail, clock),
+        snapshotter=_build_snapshotter(config, queen_link, hop, clock),
     )
+
+
+def _build_snapshotter(
+    config: InCellRuntimeConfig, queen_link: Transport, hop: Hop, clock: Clock
+) -> RelaySnapshotter:
+    """Build the RelaySnapshotter that asks the Queen to snapshot/roll back this Cell.
+
+    This Cell's own Warden cannot reach the host's Docker daemon or QEMU process (ADR-0027): ask
+    the Queen over the same queen_link instead (roadmap step 5.10's own follow-up gap).
+    """
+    return RelaySnapshotter(config.spawn_config.cell_id, queen_link, hop, clock)
 
 
 def _build_trail_sync(
     config: InCellRuntimeConfig, queen_link: Transport, trail: PheromoneTrail, clock: Clock
 ) -> WaggleTrailSync:
-    """Build the WaggleTrailSync that ships this Cell's own trail segment to the Queen."""
+    """Build the WaggleTrailSync that ships this Cell's own trail segment to the Queen.
+
+    This Cell's own store dies with the container (`WardenDeps.trail_sync`'s own docstring):
+    ship its segment to the Queen on this Warden's heartbeat cadence and once more on stop.
+    """
     return WaggleTrailSync(
         TrailSyncDeps(
             trail=trail,

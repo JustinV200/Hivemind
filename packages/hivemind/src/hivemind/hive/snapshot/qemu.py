@@ -51,7 +51,11 @@ from datetime import UTC, timedelta
 
 from hivemind.cell import Cell, SnapshotId
 from hivemind.hive.backends.qemu.runner import QemuRunnerPort
-from hivemind.hive.snapshot.ledger import SnapshotLedger, SnapshotNotFoundError, SnapshotRecord
+from hivemind.hive.snapshot.ledger import (
+    SnapshotLedgerPort,
+    SnapshotNotFoundError,
+    SnapshotRecord,
+)
 from waggle.clock import Clock
 from waggle.ids import CellId
 
@@ -73,7 +77,7 @@ class QemuSnapshotter:
     def __init__(
         self,
         runner: QemuRunnerPort,
-        ledger: SnapshotLedger,
+        ledger: SnapshotLedgerPort,
         clock: Clock,
         *,
         retention_s: float = DEFAULT_RETENTION_S,

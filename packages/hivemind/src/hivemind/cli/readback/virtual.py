@@ -274,6 +274,7 @@ async def _snapshot(manifest: HiveManifest, trail: PheromoneTrail, cell_id: str)
     snapshotter = build_snapshotter(
         backend,
         clock,
+        manifest.resolve_path(manifest.hive.db),
         retention_s=section.snapshot_retention_s,
         disk_budget_bytes=section.snapshot_disk_budget_mb * 1024 * 1024,
     )
@@ -307,6 +308,7 @@ async def _rollback(
     snapshotter = build_snapshotter(
         backend,
         clock,
+        manifest.resolve_path(manifest.hive.db),
         retention_s=section.snapshot_retention_s,
         disk_budget_bytes=section.snapshot_disk_budget_mb * 1024 * 1024,
     )

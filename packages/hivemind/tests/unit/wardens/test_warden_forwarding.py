@@ -21,19 +21,35 @@ import asyncio
 from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_context, make_outcome, yield_then
 
+from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.wardens.ticks.control import forward_control
 from hivemind.wardens.ticks.questions import forward_answer, forward_question
 from hivemind.wardens.warden import Warden
 from hivemind.workers.runtime import RuntimeDeps, WorkerRuntime
 from hivemind.workers.state import WorkerState
+from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
-from waggle.ids import new_message_id, new_task_id, new_worker_id
+from waggle.ids import TaskId, new_message_id, new_task_id, new_worker_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Answer, AnswerSource, Question
 from waggle.messages.task import TaskCancel, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
+
+
+def _control_item(clock: Clock, task_id: TaskId | None, payload_kind: str) -> InboxItem:
+    """A minimal InboxItem wrapping a control payload, from the Queen link (module docstring)."""
+    return InboxItem(
+        id="test-item",
+        kind=InboxKind.WAGGLE_MESSAGE,
+        received_at=clock.now(),
+        principal="queen",
+        severity=None,
+        task_id=task_id,
+        payload_kind=payload_kind,
+        payload=None,
+    )
 
 
 async def _make_sub_bee(warden: Warden) -> tuple[SubBee, MemoryTransport]:
@@ -85,8 +101,9 @@ async def test_forward_control_relays_task_cancel_to_the_sub_bees_own_link() -> 
     warden = Warden(warden_id, deps)
     sub_bee, other_end = await _make_sub_bee(warden)
     cancel = TaskCancel(task_id=sub_bee.task_id, grace_s=0.0, reason="stop")
+    item = _control_item(deps.clock, sub_bee.task_id, "task.cancel")
 
-    await forward_control(warden, sub_bee, cancel)
+    await forward_control(warden, item, sub_bee, cancel)
 
     envelope = await anext(other_end.receive())
     assert envelope.payload == cancel
@@ -98,10 +115,15 @@ async def test_forward_control_relays_pause_and_resume() -> None:
     deps, _queen_end, warden_id = make_warden_deps()
     warden = Warden(warden_id, deps)
     sub_bee, other_end = await _make_sub_bee(warden)
+    pause_item = _control_item(deps.clock, sub_bee.task_id, "task.pause")
+    resume_item = _control_item(deps.clock, sub_bee.task_id, "task.resume")
 
-    await forward_control(warden, sub_bee, TaskPause(task_id=sub_bee.task_id, reason="pause"))
+    await forward_control(
+        warden, pause_item, sub_bee, TaskPause(task_id=sub_bee.task_id, reason="pause")
+    )
     await forward_control(
         warden,
+        resume_item,
         sub_bee,
         TaskResume(task_id=sub_bee.task_id, attempt=1, resume_from=None, slot=None, reason="go"),
     )
@@ -115,9 +137,11 @@ async def test_forward_control_relays_pause_and_resume() -> None:
 async def test_forward_control_is_a_no_op_when_no_sub_bee_is_named() -> None:
     deps, _queen_end, warden_id = make_warden_deps()
     warden = Warden(warden_id, deps)
-    cancel = TaskCancel(task_id=new_task_id(deps.clock), grace_s=0.0, reason="stop")
+    task_id = new_task_id(deps.clock)
+    cancel = TaskCancel(task_id=task_id, grace_s=0.0, reason="stop")
+    item = _control_item(deps.clock, task_id, "task.cancel")
 
-    await forward_control(warden, None, cancel)  # must not raise
+    await forward_control(warden, item, None, cancel)  # must not raise
 
 
 async def test_forward_question_then_forward_answer_round_trip_by_question_id() -> None:

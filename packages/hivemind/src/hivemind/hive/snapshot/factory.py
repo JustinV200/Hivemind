@@ -48,7 +48,7 @@ from hivemind.hive.backends.base import CellBackend
 from hivemind.hive.backends.docker.backend import DockerCellBackend
 from hivemind.hive.backends.qemu.backend import QemuCellBackend
 from hivemind.hive.snapshot.docker import DEFAULT_RETENTION_S, DockerSnapshotter
-from hivemind.hive.snapshot.ledger import SnapshotLedger
+from hivemind.hive.snapshot.ledger import SnapshotLedgerPort
 from hivemind.hive.snapshot.qemu import QemuSnapshotter
 from waggle.clock import Clock
 
@@ -57,12 +57,12 @@ __all__ = ["snapshotter_for"]
 # A builder takes (backend, ledger, clock, retention_s, disk_budget_bytes) and returns a
 # Snapshotter over that backend's own client/runner port; see the module docstring for why this
 # is keyed by type rather than branched with isinstance.
-_Builder = Callable[[CellBackend, SnapshotLedger, Clock, float, "int | None"], Snapshotter]
+_Builder = Callable[[CellBackend, SnapshotLedgerPort, Clock, float, "int | None"], Snapshotter]
 
 
 def snapshotter_for(
     backend: CellBackend,
-    ledger: SnapshotLedger,
+    ledger: SnapshotLedgerPort,
     clock: Clock,
     *,
     retention_s: float = DEFAULT_RETENTION_S,
@@ -98,7 +98,7 @@ def snapshotter_for(
 
 def _build_docker_snapshotter(
     backend: CellBackend,
-    ledger: SnapshotLedger,
+    ledger: SnapshotLedgerPort,
     clock: Clock,
     retention_s: float,
     disk_budget_bytes: int | None,
@@ -120,7 +120,7 @@ def _build_docker_snapshotter(
 
 def _build_qemu_snapshotter(
     backend: CellBackend,
-    ledger: SnapshotLedger,
+    ledger: SnapshotLedgerPort,
     clock: Clock,
     retention_s: float,
     disk_budget_bytes: int | None,

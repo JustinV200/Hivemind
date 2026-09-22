@@ -206,7 +206,7 @@ def test_reason_is_bounded_by_the_shared_limit(message_type: type[WaggleMessage]
 
 
 def test_intervention_action_has_exactly_the_spec_members_with_values_equal_to_names() -> None:
-    names = ["COMPACT", "CHECKPOINT", "HANDOFF", "REBIND", "TAKEOVER", "CANCEL"]
+    names = ["COMPACT", "CHECKPOINT", "HANDOFF", "REBIND", "TAKEOVER", "CANCEL", "RELEASE_LEASE"]
     enum_type: type[Enum] = InterventionAction
 
     assert [member.name for member in enum_type] == names

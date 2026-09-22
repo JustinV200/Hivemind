@@ -58,10 +58,15 @@ Public API:
       decide_release, DormantCell, PooledCandidate, Scrubber, OverwinterPool: the Overwintering
       pool, roadmap step 5.9 (hivemind.hive.overwinter). OverwinterPool is bookkeeping and
       selection only; CellLifecycle calls it, and the backend, around every edge.
-    - DockerSnapshotter, QemuSnapshotter, SnapshotLedger, SnapshotRecord, SnapshotNotFoundError,
-      snapshotter_for: Snapshotter implementations for Virtual Cells (roadmap step 5.10;
-      hivemind.hive.snapshot). The Warden injects the right one into a sub-bee's
-      `hivemind.supervision.capping.gate.GateDeps.snapshotter`, so Capping never imports `hive`.
+    - DockerSnapshotter, QemuSnapshotter, SnapshotLedgerPort, SnapshotLedger, SqliteSnapshotLedger,
+      SnapshotRecord, SnapshotNotFoundError, snapshotter_for: Snapshotter implementations for
+      Virtual Cells (roadmap step 5.10; hivemind.hive.snapshot). The Warden injects the right one
+      into a sub-bee's `hivemind.supervision.capping.gate.GateDeps.snapshotter`, so Capping never
+      imports `hive`; `SqliteSnapshotLedger` is the durable `SnapshotLedgerPort` a rollback in a
+      separate CLI process needs.
+    - CheckStatus, CheckResult, Attestation, CHECK_NAMES, attest, NightVeilProbe,
+      FakeNightVeilProbe, SessionProbeConfig, SessionNightVeilProbe, run_checks, attest_cell:
+      deterministic Night Veil bootstrap attestation, roadmap step 5.7b (hivemind.hive.night_veil).
 """
 
 from hivemind.hive.backends import (
@@ -105,6 +110,19 @@ from hivemind.hive.lifecycle import (
     OverwinterSettings,
 )
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.night_veil import (
+    CHECK_NAMES,
+    Attestation,
+    CheckResult,
+    CheckStatus,
+    FakeNightVeilProbe,
+    NightVeilProbe,
+    SessionNightVeilProbe,
+    SessionProbeConfig,
+    attest,
+    attest_cell,
+    run_checks,
+)
 from hivemind.hive.overwinter import (
     DormantCell,
     OverwinterConfig,
@@ -122,13 +140,17 @@ from hivemind.hive.snapshot import (
     DockerSnapshotter,
     QemuSnapshotter,
     SnapshotLedger,
+    SnapshotLedgerPort,
     SnapshotNotFoundError,
     SnapshotRecord,
+    SqliteSnapshotLedger,
     snapshotter_for,
 )
 
 __all__ = [
+    "CHECK_NAMES",
     "TRANSITIONS",
+    "Attestation",
     "BackendCapabilities",
     "BackendCapabilityError",
     "BackendRegistry",
@@ -139,6 +161,8 @@ __all__ = [
     "CellLifecycle",
     "CellProvisionError",
     "CellReadyInfo",
+    "CheckResult",
+    "CheckStatus",
     "DockerCellBackend",
     # roadmap step 5.10 (hivemind.hive.snapshot): appended as its own block for the same reason
     # the 5.9 block above is.
@@ -147,6 +171,7 @@ __all__ = [
     # alphabetically above, so a concurrent edit to the rest of this list never conflicts with it.
     "DormantCell",
     "FakeCellBackend",
+    "FakeNightVeilProbe",
     "FakeReadinessGate",
     "HiveError",
     "InvalidCellTransitionError",
@@ -154,6 +179,7 @@ __all__ = [
     "LifecycleVirtualBackend",
     "LiveVirtualCell",
     "NetworkPolicy",
+    "NightVeilProbe",
     "OverwinterConfig",
     "OverwinterDecision",
     "OverwinterPool",
@@ -167,9 +193,13 @@ __all__ = [
     "ReleaseDecision",
     "ReleaseOutcome",
     "Scrubber",
+    "SessionNightVeilProbe",
+    "SessionProbeConfig",
     "SnapshotLedger",
+    "SnapshotLedgerPort",
     "SnapshotNotFoundError",
     "SnapshotRecord",
+    "SqliteSnapshotLedger",
     "UnknownBackendError",
     "UnknownCellError",
     "VirtualCellRecord",
@@ -177,11 +207,14 @@ __all__ = [
     "VirtualCellStatus",
     "assert_dormant_allowed",
     "assert_transition",
+    "attest",
+    "attest_cell",
     "build_docker_backend",
     "build_qemu_backend",
     "can_enter_dormant",
     "can_transition",
     "decide_release",
     "mint_cell_bootstrap",
+    "run_checks",
     "snapshotter_for",
 ]

@@ -25,7 +25,7 @@ Fits into the Hive:
     shutdown-hygiene fix); `hivemind.wardens.ticks.alarms.retire_sub_bee` has the same
     cancel-without-reaping shape on its own respawn path and would want this same helper, but that
     module sat outside this dispatch's own file list. Calls into
-    `hivemind.cell` (NoopSnapshotter, CellIdentity, TaskNeeds), `hivemind.common.tasks` (reap),
+    `hivemind.cell` (CellIdentity, TaskNeeds), `hivemind.common.tasks` (reap),
     `hivemind.forage.slots` (ModelSlot), `hivemind.pheromone` (WorkerEvent),
     `hivemind.supervision.capping` (CappingGate, GateDeps), `hivemind.workers` (everything a
     Worker's role may use) and waggle only.
@@ -66,7 +66,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from hivemind.cell import Cell, CellSession, NoopSnapshotter, RealCellLease, TaskNeeds
+from hivemind.cell import Cell, CellSession, RealCellLease, TaskNeeds
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
@@ -237,13 +237,15 @@ def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
     Roadmap step 4.10: an `AuditingCappingGate`, not a plain `CappingGate`, so a terminal proposal
     at a tier the table marks ungated in real time is still sampled for after-the-fact judge
     review, using this Warden's own `WardenDeps.judge_reviewer`/`.judge_rubrics`/`.audit_sampler`/
-    `.findings_sink`/`.audit_rates`.
+    `.findings_sink`/`.audit_rates`. `snapshotter` is this Warden's own `WardenDeps.snapshotter`
+    (roadmap step 5.10's own follow-up gap): `NoopSnapshotter()` by default, or a
+    `hivemind.wardens.snapshot_relay.RelaySnapshotter` for a Virtual Cell's own Warden.
     """
     deps = ctx.deps
     return AuditingCappingGate(
         GateDeps(
             session=ctx.session,
-            snapshotter=NoopSnapshotter(),
+            snapshotter=deps.snapshotter,
             cell=ctx.cell,
             tiers=deps.tiers,
             trail=deps.trail,

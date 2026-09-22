@@ -5,7 +5,7 @@ Fits into the Hive:
     row, the shape rules every spec obeys (a request never replies, a reply target is always a
     request), the three lookups in both directions on the control family as the sample, the
     UnknownKindError each raises on a miss, and the duplicate and dangling-reply checks the
-    module runs on itself at import. The full sixty-six-kind order and one example of every
+    module runs on itself at import. The full seventy-kind order and one example of every
     kind are in test_registry_catalogue.py.
 
 Key invariants:

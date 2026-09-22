@@ -27,18 +27,40 @@ from dataclasses import dataclass
 from builders.cells import make_capabilities
 from builders.queen import make_queen_deps
 
+from hivemind.pheromone import TrailQuery
+from hivemind.pheromone.events import CellEvent
+from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
+from hivemind.queen.trail_sync import TrailSegmentReceiver
+from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
-from waggle.ids import CellId, HiveId, NodeId, WardenId, new_cell_id, new_node_id, new_warden_id
+from waggle.ids import (
+    CellId,
+    HiveId,
+    NodeId,
+    WardenId,
+    new_cell_id,
+    new_event_id,
+    new_node_id,
+    new_warden_id,
+)
+from waggle.messages.cell.snapshot import (
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
+)
 from waggle.messages.cell.status import CellHeartbeat, CellMode, CellReady
 from waggle.messages.labels import AccessLevel as WireAccessLevel
 from waggle.messages.labels import CombShieldLevel as WireCombShieldLevel
+from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_hex
+from waggle.transport.memory import MemoryTransport
 from waggle.transport.websocket_client import WebSocketClientTransport
 
 WAIT_S = 5.0  # Bounds every await that could hang; loopback answers in milliseconds.
@@ -102,7 +124,7 @@ class _FakeQueenCell:
 
 @dataclass(frozen=True, slots=True)
 class _Scenario:
-    """A started CellListener, its own Queen, gate, and the ids a test dials it as."""
+    """A started CellListener, its own Queen, gate, trail and the ids a test dials it as."""
 
     listener: CellListener
     queen: Queen
@@ -110,6 +132,7 @@ class _Scenario:
     queen_signer: Ed25519Signer
     queen_node_id: NodeId
     hive_id: HiveId
+    trail: MemoryPheromoneTrail
 
 
 async def _build_scenario() -> _Scenario:
@@ -130,7 +153,21 @@ async def _build_scenario() -> _Scenario:
     )
     queen = Queen(deps)
     await listener.start(queen)
-    return _Scenario(listener, queen, gate, queen_signer, queen_node_id, deps.identity.hive_id)
+    assert isinstance(deps.trail, MemoryPheromoneTrail)
+    return _Scenario(
+        listener, queen, gate, queen_signer, queen_node_id, deps.identity.hive_id, deps.trail
+    )
+
+
+async def _attach(scenario: _Scenario) -> tuple[_FakeQueenCell, WebSocketClientTransport]:
+    """Dial, verify and attach one fake Cell to `scenario`'s own listener; return it, connected."""
+    cell = _FakeQueenCell(scenario.listener)
+    await scenario.gate.expect(cell.cell_id, public_key_hex(cell.signer.public_key_bytes))
+    transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer)
+    await cell.send_ready(transport, scenario.hive_id)
+    await cell.send_heartbeat(transport, scenario.hive_id)
+    await asyncio.wait_for(_until(lambda: cell.warden_id in _attached_ids(scenario.queen)), WAIT_S)
+    return cell, transport
 
 
 async def test_listener_attaches_a_warden_link_once_ready_and_heartbeat_arrive() -> None:
@@ -169,6 +206,95 @@ async def test_listener_never_attaches_an_unexpected_cell() -> None:
     await scenario.listener.stop()
 
 
+class _FakeSnapshotHandler:
+    """A CellSnapshotHandler stand-in.
+
+    This module tests the listener's own dispatch, not a real backend
+    (hivemind.queen.cell_gate.snapshot's own module has that coverage).
+    """
+
+    async def snapshot(self, request: CellSnapshotRequest) -> CellSnapshotReply:
+        return CellSnapshotReply(cell_id=request.cell_id, snapshot_id="snap_test", error=None)
+
+    async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
+        return CellRollbackReply(cell_id=request.cell_id, ok=True, error=None)
+
+
+async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelope() -> None:
+    scenario = await _build_scenario()
+    scenario.listener.bind_snapshot_handler(_FakeSnapshotHandler())
+    cell, transport = await _attach(scenario)
+
+    request = CellSnapshotRequest(cell_id=cell.cell_id, purpose="test")
+    envelope = wrap(request, cell._hop(scenario.hive_id), clock=FakeClock())
+    await transport.send(envelope)
+    reply_envelope = await asyncio.wait_for(anext(transport.receive()), WAIT_S)
+
+    assert isinstance(reply_envelope.payload, CellSnapshotReply)
+    assert reply_envelope.correlation_id == envelope.id
+    assert reply_envelope.payload.snapshot_id == "snap_test"
+
+    await transport.close()
+    await scenario.listener.stop()
+
+
+async def test_listener_merges_a_trail_segment_sync_into_the_queens_trail() -> None:
+    scenario = await _build_scenario()
+    scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
+    cell, transport = await _attach(scenario)
+
+    clock = FakeClock()
+    source_trail = MemoryPheromoneTrail(clock)
+    event = CellEvent(
+        id=new_event_id(clock),
+        hive_id=scenario.hive_id,
+        node_id=cell.node_id,
+        at=clock.now(),
+        actor="system",
+        kind="cell.provisioned",
+        subject_id=cell.cell_id,
+        payload={},
+    )
+    await source_trail.record(event)
+    chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
+    await transport.send(wrap(chunk, cell._hop(scenario.hive_id), clock=clock))
+
+    async def _merged() -> bool:
+        return bool(await scenario.trail.query(TrailQuery(kind="cell.provisioned")))
+
+    await asyncio.wait_for(_until_async(_merged), WAIT_S)
+
+    await transport.close()
+    await scenario.listener.stop()
+
+
+async def _one_trail_segment_sync_chunk(
+    clock: FakeClock, cell: _FakeQueenCell, source_trail: MemoryPheromoneTrail, hive_id: HiveId
+) -> TrailSegmentSync:
+    """Sync `source_trail` over a real WaggleTrailSync and return its one chunk (small export)."""
+    sender_transport, receiver_transport = MemoryTransport.pair(Codec(), Codec())
+    sync = WaggleTrailSync(
+        TrailSyncDeps(
+            trail=source_trail,
+            transport=sender_transport,
+            node_id=cell.node_id,
+            cell_id=cell.cell_id,
+            warden_id=cell.warden_id,
+            hive_id=hive_id,
+            clock=clock,
+        )
+    )
+    await sync.sync()
+    await receiver_transport.close()
+    chunks = [
+        envelope.payload
+        async for envelope in receiver_transport.receive()
+        if isinstance(envelope.payload, TrailSegmentSync)
+    ]
+    assert len(chunks) == 1  # One small event fits in one chunk (MAX_CHUNK_BYTES).
+    return chunks[0]
+
+
 def _attached_ids(queen: Queen) -> set[WardenId]:
     """Return every currently attached WardenId, for a before/after membership check."""
     return {link.warden_id for link in queen.wardens}
@@ -183,4 +309,11 @@ async def _until(condition: object) -> None:
     """
     assert callable(condition)
     while not condition():  # noqa: ASYNC110 - polling shared state, see docstring.
+        await asyncio.sleep(0.01)
+
+
+async def _until_async(condition: object) -> None:
+    """Same as `_until`, for a zero-arg async condition (an `await`-ing query, not shared state)."""
+    assert callable(condition)
+    while not await condition():  # noqa: ASYNC110 - polling shared state, see _until's docstring.
         await asyncio.sleep(0.01)

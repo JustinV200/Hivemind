@@ -67,6 +67,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivemind.cell import CellIdentity, CombShieldLevel
+from hivemind.cli.stores import open_snapshot_ledger
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive import (
@@ -92,6 +93,7 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.queen.cell_gate import (
     CellListener,
     CellListenerDeps,
+    CellSnapshotHandler,
     LifecycleVirtualCellProvider,
     QueenReadinessGate,
     make_on_task_finished,
@@ -102,6 +104,7 @@ from hivemind.queen.dispatcher.snapshot import (
     virtual_backend_candidate_from_lifecycle,
 )
 from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
+from hivemind.queen.trail_sync import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.ids import HiveId, NodeId
 from waggle.messages import OsFamily as WireOsFamily
@@ -175,6 +178,13 @@ def build_virtual_cells(
         identity,
         overwinter=OverwinterSettings(pool=pool, config=overwinter_config),
     )
+    if section.backend in ("docker", "qemu"):
+        # "fake" (dev/test only) never declares can_snapshot=True (hivemind.hive.backends.fake's
+        # own default), so it would only ever draw NoopSnapshotter -- opening a real SQLite
+        # connection to attach a SnapshotLedgerPort no Cell of that backend can ever use would be
+        # pure overhead (and, in a short-lived test process, an unclosed file handle nothing here
+        # ever gets a chance to release). Only a real backend gets the relay wired in.
+        _attach_snapshot_and_trail(manifest, listener, lifecycle, trail, clock)
     return VirtualCellsParts(
         registry=registry,
         gate=gate,
@@ -185,6 +195,28 @@ def build_virtual_cells(
         dormant_cell_source=_dormant_cell_source(lifecycle),
         on_task_finished=make_on_task_finished(lifecycle, _null_scrub),
     )
+
+
+def _attach_snapshot_and_trail(
+    manifest: HiveManifest,
+    listener: CellListener,
+    lifecycle: CellLifecycle,
+    trail: PheromoneTrail,
+    clock: Clock,
+) -> None:
+    """Wire the snapshot relay and the offline trail sync into `listener` and `lifecycle`.
+
+    Roadmap step 5.10's own follow-up gap (the snapshot relay): a durable ledger so `hive cells
+    snapshot`/`hive cells rollback` and this running Queen all read and write the same book, and
+    the handler `listener` answers a Warden's own `CellSnapshotRequest`/`CellRollbackRequest`
+    through -- bound after `listener` exists (the same late-binding shape `LifecycleVirtualCell
+    Provider.bind_queen` already uses), since `listener` itself has to exist first for
+    `_build_registry`'s own lazy endpoint closures.
+    """
+    ledger = open_snapshot_ledger(manifest.resolve_path(manifest.hive.db))
+    lifecycle.attach_snapshot_ledger(ledger)
+    listener.bind_snapshot_handler(CellSnapshotHandler(lifecycle, ledger, clock))
+    listener.bind_trail_receiver(TrailSegmentReceiver(trail))
 
 
 def _build_listener(

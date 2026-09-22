@@ -57,11 +57,14 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.2"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.5"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 2  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 5  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
-# Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c).
+# Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 1.3 and
+# 1.4 are minor bumps made on another branch (not merged here yet, so this branch's own history
+# jumps straight from 2 to 5); 5 for the Virtual Cell snapshot relay (cell.snapshot_request/_reply,
+# cell.rollback_request/_reply) and InterventionAction.RELEASE_LEASE, this dispatch's own additions.
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

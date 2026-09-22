@@ -1,6 +1,8 @@
 # Waggle protocol specification
 
-Protocol version `1.2`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.5` (`1.3` and `1.4` are minor bumps made on another branch, not merged into
+this history yet -- this document's own version jumps straight from `1.2` to `1.5`). This document
+is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -21,7 +23,7 @@ This specification covers:
 - the envelope every message travels in (section 2) and the three message shapes (section 3);
 - how the protocol is versioned (section 4), framed and bounded (section 5) and signed (section 6);
 - the error message and its stable code table (section 7);
-- the complete message catalogue, ten families and sixty-six kinds (section 8);
+- the complete message catalogue, ten families and seventy kinds (section 8);
 - the transports (section 9), the offline outbox (section 10) and conformance (section 11);
 - the design questions the catalogue settled and why (section 12).
 
@@ -393,6 +395,10 @@ Warden).
 | `cell.wax_proposed` | `CellWaxProposed` | request | none | any bee -> Queen | Propose a Cell Wax caution about a Cell. |
 | `cell.wax_written` | `CellWaxWritten` | event | `cell.wax_proposed` | Queen -> Warden | Deliver a written Cell Wax note. |
 | `cell.wax_cleared` | `CellWaxCleared` | event | `cell.wax_proposed` | Queen -> Warden | Announce a Cell Wax note as cleared. |
+| `cell.snapshot_request` | `CellSnapshotRequest` | request | none | Warden -> Queen | Ask the Queen to snapshot the sender's own Cell. |
+| `cell.snapshot_reply` | `CellSnapshotReply` | reply | `cell.snapshot_request` | Queen -> Warden | Return the new snapshot's id, or why it failed. |
+| `cell.rollback_request` | `CellRollbackRequest` | request | none | Warden -> Queen | Ask the Queen to roll the sender's own Cell back to a snapshot. |
+| `cell.rollback_reply` | `CellRollbackReply` | reply | `cell.rollback_request` | Queen -> Warden | Report whether the rollback succeeded. |
 | `session.open` | `SessionOpen` | request | none | Warden -> Pollen Packet | Open the terminal session for a lease. |
 | `session.exec` | `SessionExec` | request | none | Warden -> Pollen Packet | Run one program inside the session. |
 | `session.stdin` | `SessionStdin` | event | none | Warden -> Pollen Packet | Feed bytes or a signal to a running exec. |
@@ -674,7 +680,9 @@ Family enums and value models:
   - `goal` (`str`, max 1000), `progress` (`str`, max 2000), `decisions` (`tuple[str, ...]`, max
     16 items each max 500), `open_threads` (`tuple[str, ...]`, max 16 items each max 500);
     total characters at most 8000 (validator).
-- `InterventionAction`: `COMPACT`, `CHECKPOINT`, `HANDOFF`, `REBIND`, `TAKEOVER`, `CANCEL`.
+- `InterventionAction`: `COMPACT`, `CHECKPOINT`, `HANDOFF`, `REBIND`, `TAKEOVER`, `CANCEL`,
+  `RELEASE_LEASE` (PROTOCOL_MINOR 5: Queen -> Warden only, stop every sub-bee and release the
+  recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None).
 - `AnswerSource`: `HUMAN`, `QUEEN`, `WARDEN`. Who answered; the human is not a bee address.
 
 #### Heartbeat
@@ -751,8 +759,9 @@ Return the requested bee's telemetry and compacted view, labelled with its clear
 #### Intervene
 
 Pull one of the supervisor's levers on a child or one of its sub-bees: compact, checkpoint,
-handoff, rebind to a slot, takeover or cancel. Wardens hold the same levers over their sub-bees
-minus takeover with the Queen's slot.
+handoff, rebind to a slot, takeover, cancel, or (PROTOCOL_MINOR 5, Queen -> Warden only) release
+the recipient's own lease. Wardens hold the same levers over their sub-bees minus takeover with
+the Queen's slot.
 
 - `action` (`InterventionAction`): the lever pulled.
 - `subject` (`WorkerId | None`): the recipient's sub-bee the action targets; None means the
@@ -1153,6 +1162,53 @@ with its destroyed Virtual Cell.
 - `cell_id` (`CellId`): the Cell it marked.
 - `cause` (`WaxClearCause`): why it left.
 - `reason` (`str`): the decision text; expiry names the sweep.
+
+#### The snapshot relay (PROTOCOL_MINOR 5)
+
+A Virtual Cell's own Warden runs inside the Cell (ADR-0027) and so cannot reach the host's Docker
+daemon or QEMU process to snapshot or roll back its own Cell before a risky Capping proposal
+(ADR-0018); only the Queen, on the Hive Stand, holds that backend. These four messages are the
+relay: a snapshot or rollback request travels Warden -> Queen and its reply Queen -> Warden. Both
+replies carry their own outcome rather than falling back to `control.error`, so a timed-out or
+failed request always resolves to `hivemind.cell.SnapshotUnsupportedError` on the asking Warden's
+own `RelaySnapshotter`, which makes the Capping gate fall back to REVERSE_DIFF (ADR-0018) exactly
+as it would for a Real Cell's `NoopSnapshotter`.
+
+##### CellSnapshotRequest
+
+Ask the Queen to snapshot the sender's own Cell.
+
+- `cell_id` (`CellId`): the Cell to snapshot; always the sender's own Cell.
+- `purpose` (`str`): why: the Capping tier or proposal kind this snapshot precedes. Min 1, max
+  `MAX_REASON_CHARS`.
+
+##### CellSnapshotReply
+
+Answer with a new snapshot id, or why one could not be taken.
+
+- `cell_id` (`CellId`): the Cell the request named.
+- `snapshot_id` (`str | None`): the new snapshot's id; set exactly when `error` is None (validator).
+  Min 1, max 256 characters; no `IdKind` exists for it yet.
+- `error` (`str | None`): why no snapshot was taken -- an unknown Cell, or one whose backend
+  cannot snapshot at all; set exactly when `snapshot_id` is None (validator). Min 1, max
+  `MAX_REASON_CHARS`.
+
+##### CellRollbackRequest
+
+Ask the Queen to roll the sender's own Cell back to a snapshot it already took.
+
+- `cell_id` (`CellId`): the Cell to roll back; always the sender's own Cell.
+- `snapshot_id` (`str`): an id a prior `CellSnapshotReply` on this Cell returned. Min 1, max 256
+  characters.
+
+##### CellRollbackReply
+
+Report whether the rollback succeeded.
+
+- `cell_id` (`CellId`): the Cell the request named.
+- `ok` (`bool`): whether the Cell was restored to the named snapshot.
+- `error` (`str | None`): why the rollback failed -- an unknown Cell, an unknown snapshot id, or a
+  backend failure; set exactly when `ok` is False (validator). Min 1, max `MAX_REASON_CHARS`.
 
 ### 8.6 session (`messages/session/`)
 

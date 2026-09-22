@@ -82,7 +82,7 @@ from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
-from hivemind.wardens.state import WardenState, assert_transition, clustering_update
+from hivemind.wardens.state import WardenState, assert_transition
 from waggle.envelope import Envelope
 from waggle.errors import (
     CodecError,
@@ -93,6 +93,7 @@ from waggle.errors import (
 )
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
+from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
 from waggle.messages.supervision import (
     AlarmRaised,
@@ -455,17 +456,17 @@ async def _act(
     elif action is WardenAction.FORWARD_CONTROL and isinstance(
         payload, TaskCancel | TaskPause | TaskResume | Intervene
     ):
-        # Roadmap step 4.9 (Clustering): read by `ticks.assign.settle_after_tick`'s own
-        # ACTIVE <-> CLUSTERED
-        # move; `clustering_update`'s own docstring explains the decision this applies.
-        if item.principal == _QUEEN_LINK:
-            clustering_update(item.task_id, payload, warden._clustered_tasks)
-        await ticks.control.forward_control(warden, sub_bee, payload)
+        await ticks.control.forward_control(warden, item, sub_bee, payload)
     elif action is WardenAction.STOP:
         # ADR-0027 / roadmap step 5.3: the Queen's own Shutdown or CellTeardownRequest. `stop()`
         # already stops every sub-bee, releases the lease and sets the loop's own stop flag, so
         # `_run_tick` returns straight after this and `run()` ends on its next check.
         await ticks.control.handle_stop(warden, payload)
+    elif action is WardenAction.RELEASE_LEASE and isinstance(payload, Intervene):
+        # Roadmap step 5.13: the Queen's own narrower order. Unlike STOP, this Warden keeps
+        # running afterwards; `ticks.assign.settle_after_tick` (still called below) settles it
+        # back to WATCH on its own once `_sub_bees` is empty.
+        await ticks.control.handle_release_lease(warden, payload)
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
@@ -484,6 +485,11 @@ async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> N
     elif isinstance(payload, PlanWritten):
         # Same reasoning: hivemind.queen.forage.hosting already recorded forage.plan_written.
         ticks.control.handle_plan_written(warden, payload)
+    elif isinstance(payload, CellSnapshotReply | CellRollbackReply):
+        # Roadmap step 5.10's own follow-up gap: resolve this Warden's own RelaySnapshotter,
+        # never a trail write of its own (the Capping gate's own proposal handling records
+        # whatever it does with the snapshot/rollback outcome).
+        ticks.control.handle_snapshot_reply(warden, payload)
 
 
 async def _sync_trail(warden: Warden) -> None:

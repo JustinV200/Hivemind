@@ -40,6 +40,18 @@ pool that keeps a dormant Cell around for fast reuse.
   by `capabilities.can_snapshot` alone, never by name; a backend that cannot snapshot gets
   `hivemind.cell.NoopSnapshotter` instead, so `hivemind.supervision.capping.gate.CappingGate`
   falls back to REVERSE_DIFF (ADR-0018) with no branch of its own.
+- `CheckStatus` / `CheckResult` / `Attestation` / `CHECK_NAMES` / `attest` / `NightVeilProbe` /
+  `FakeNightVeilProbe` / `SessionProbeConfig` / `SessionNightVeilProbe` / `run_checks` /
+  `attest_cell` (`night_veil/`, roadmap step 5.7b): deterministic Night Veil bootstrap attestation
+  before `CellReady` -- one `NightVeilProbe` check per codingrules 8.7 requirement, `attest` the
+  pure all-or-nothing judgement (a documented `NOT_APPLICABLE` for `webrtc_leak_blocked` until
+  browser automation exists, never a silent downgrade), `attest_cell` the effectful edge that runs
+  every check and records exactly one `cell.attested` trail event, win or lose. `FakeNightVeilProbe`
+  is what a composition root uses until `images/night-veil-ubuntu` (5.3a) is attestable for real;
+  `SessionNightVeilProbe` runs each check as a fixed, documented command over a `CellSession`. The
+  hook to gate `CellReady` on this before `mark_ready` (and tear the Cell down on a red result) is
+  a report item: it sits in `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider.
+  acquire`, outside this dispatch's file list.
 
 ## How to test this
 
@@ -56,7 +68,6 @@ pool that keeps a dormant Cell around for fast reuse.
 
 ## Not yet built (later roadmap steps)
 
-- `night_veil.py` (5.7b).
 - A real `hivemind.hive.backends.cloud` provider implementation (post-1.0; see that package's own
   README for what it must add).
 

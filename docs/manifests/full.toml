@@ -357,6 +357,13 @@ route_checks = ["default_route_via_vpn", "tor_circuit_established"]
 dns_leak_checks = ["resolver_is_vpn_provided", "no_direct_dns_queries"]
 # Its own Waggle control channel binds through a hidden service, never the open network.
 control_channel = "tor_hidden_service"
+# The Hive Stand's own Tor hidden-service address the Cell's Waggle transport dials (roadmap step
+# 5.7a); a placeholder here -- an operator sets this to their own Hive Stand's real .onion address
+# before Night Veil placement can succeed (hivemind.queen.placement.policy.check_night_veil refuses
+# an unconfigured profile).
+hidden_service_address = "hivestand0000000000000000000000000000000000000000000000.onion"
+# Night Veil's own location-blind default locale (codingrules section 8.7).
+locale_profile = "C.UTF-8"
 
 [honey.clearance]
 # The clearance a new item gets absent other evidence.

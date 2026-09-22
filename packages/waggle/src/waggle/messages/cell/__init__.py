@@ -5,9 +5,11 @@ one unit of compute, real (a borrowed device) or virtual (a VM or container), an
 always-on supervisor of one Cell) speaks for it. ``status`` holds the Cell's own life (ready, its
 heartbeat, its needs report); ``leases`` the tenancy lifecycle (a Cell asked for, a lease opened, a
 teardown asked for, a lease released); ``wax`` the Cell Wax notes, Queen-written cautions about one
-Cell, proposed, written and cleared. This package is the family's face: a caller imports any of its
-messages, enums or value models from here without knowing which module defines them. The bounds
-each module names stay in that module, because the spec makes the number normative, not the name.
+Cell, proposed, written and cleared; ``snapshot`` (PROTOCOL_MINOR 5) the snapshot relay a Virtual
+Cell's own Warden uses to ask the Queen, the one side that can reach the host backend, to snapshot
+or roll back its Cell. This package is the family's face: a caller imports any of its messages,
+enums or value models from here without knowing which module defines them. The bounds each module
+names stay in that module, because the spec makes the number normative, not the name.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -22,8 +24,8 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.5 for the family's normative fields and rules.
-    - waggle.messages.cell.status, waggle.messages.cell.leases and waggle.messages.cell.wax for
-      the definitions.
+    - waggle.messages.cell.status, waggle.messages.cell.leases, waggle.messages.cell.wax and
+      waggle.messages.cell.snapshot for the definitions.
 
 Public API:
     - Status (status): AttestationCheck, CellHeartbeat, CellMode, CellReady, IsolationNeed,
@@ -31,9 +33,17 @@ Public API:
     - Leases (leases): CellRequest, CellTeardownRequest, LeaseOpened, LeaseReleased.
     - Wax (wax): CellWaxCleared, CellWaxProposed, CellWaxWritten, WaxClearCause, WaxDecision,
       WaxOrigin, WaxSeverity.
+    - Snapshot (snapshot): CellSnapshotRequest, CellSnapshotReply, CellRollbackRequest,
+      CellRollbackReply.
 """
 
 from waggle.messages.cell.leases import CellRequest, CellTeardownRequest, LeaseOpened, LeaseReleased
+from waggle.messages.cell.snapshot import (
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
+)
 from waggle.messages.cell.status import (
     AttestationCheck,
     CellHeartbeat,
@@ -59,6 +69,10 @@ __all__ = [
     "CellMode",
     "CellReady",
     "CellRequest",
+    "CellRollbackReply",
+    "CellRollbackRequest",
+    "CellSnapshotReply",
+    "CellSnapshotRequest",
     "CellTeardownRequest",
     "CellWaxCleared",
     "CellWaxProposed",

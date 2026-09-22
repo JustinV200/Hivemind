@@ -36,8 +36,9 @@ Fits into the Hive:
     `Queen` it is given. Calls into `hivemind.cell` (CellCapabilities), `hivemind.forage`
     (ForageCapacity, HostCapacity), `hivemind.queen.attach` (detach_warden), `hivemind.queen.deps`
     (WardenLink), `hivemind.queen.queen` (Queen), `hivemind.queen.cell_gate.gate`
-    (QueenReadinessGate), waggle (codec, envelope, errors, ids, signing, transport) and the
-    `waggle.messages.cell` family only.
+    (QueenReadinessGate), `hivemind.queen.cell_gate.snapshot` (CellSnapshotHandler),
+    `hivemind.queen.trail_sync` (TrailSegmentReceiver), waggle (codec, envelope, errors, ids,
+    signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
 
 Key invariants:
     - Every accepted connection's first frame must verify as a signed `CellReady` naming a
@@ -49,6 +50,10 @@ Key invariants:
       or closed outright; none is left open and un-tracked.
     - `_handle_connection` always calls `hivemind.queen.attach.detach_warden` on its own way out
       once attached, whether the connection ended cleanly or the listener is stopping.
+    - A `CellSnapshotRequest`/`CellRollbackRequest` is answered on the same connection it arrived
+      on, correlated to its own envelope id; a `TrailSegmentSync` is handed to `trail_receiver`
+      and never answered (the wire kind is an event, not a request). Both are no-ops when
+      `CellListenerDeps` names no handler/receiver (roadmap step 5.10/ADR-0027's own follow-up).
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -62,6 +67,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from typing import Protocol
 
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
@@ -71,18 +77,26 @@ from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.queen import Queen
+from hivemind.queen.trail_sync import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.codec import Codec
-from waggle.envelope import Hop
+from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import CodecError, ConnectionLostError, SignatureError, UnknownSignerError
 from waggle.ids import CellId, HiveId, IdKind, NodeId, WardenId, parse_id
+from waggle.messages.cell.snapshot import (
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
+)
 from waggle.messages.cell.status import CellHeartbeat, CellReady
 from waggle.messages.labels import OsFamily
+from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_from_hex
 from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
 
-__all__ = ["CellListener", "CellListenerDeps"]
+__all__ = ["CellListener", "CellListenerDeps", "SnapshotRequestHandler"]
 
 # A placeholder ForageCapacity for a Cell that has reported CellReady/CellHeartbeat but no
 # forage.capacity_report (CapacityReport): today's only sender, hivemind.cli.in_cell.link.CellLink,
@@ -103,6 +117,23 @@ _PLACEHOLDER_CAPACITY = ForageCapacity(
     local_seats=(),
     max_sub_bees=0,
 )
+
+
+class SnapshotRequestHandler(Protocol):
+    """Answers a CellSnapshotRequest/CellRollbackRequest this listener drains.
+
+    A structural Protocol, not a base class, so `hivemind.queen.cell_gate.snapshot.
+    CellSnapshotHandler` (the one production implementation) and a test's own stand-in both
+    satisfy it without either importing the other.
+    """
+
+    async def snapshot(self, request: CellSnapshotRequest) -> CellSnapshotReply:
+        """Answer `request`; see `CellSnapshotHandler.snapshot`."""
+        ...
+
+    async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
+        """Answer `request`; see `CellSnapshotHandler.rollback`."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,21 +166,48 @@ class CellListener:
 
         Args:
             deps: Every collaborator this listener needs.
-            clock: Passed through to nothing today (no id minted here); held for a future step
-                that needs to timestamp a rejected connection on the trail.
+            clock: Stamps every `CellSnapshotReply`/`CellRollbackReply` this listener sends back;
+                held for a future step that also needs to timestamp a rejected connection on the
+                trail.
         """
-        del clock  # Unused for now; kept in the signature so a later step need not widen it.
+        self._clock = clock
         self._deps = deps
         codec = Codec(signer=deps.queen_signer, verifier=_GateVerifier(deps.gate))
         self._server = WebSocketServer(codec, host=deps.host, port=deps.port)
         self._accept_task: asyncio.Task[None] | None = None
         self._handlers: set[asyncio.Task[None]] = set()
         self._queen: Queen | None = None
+        # Late-bound (the same shape `hivemind.queen.cell_gate.provider.
+        # LifecycleVirtualCellProvider.bind_queen` already uses, for the identical reason): the
+        # composition root's own `CellSnapshotHandler`/`TrailSegmentReceiver` need this listener
+        # to already exist (for `_build_registry`'s own lazy endpoint closures), so neither can be
+        # a `CellListenerDeps` field passed in at construction. `None` means neither kind this
+        # listener may see is answered or merged -- a Hive with no Virtual backend wired for
+        # snapshotting or offline trail sync yet.
+        self._snapshot_handler: SnapshotRequestHandler | None = None
+        self._trail_receiver: TrailSegmentReceiver | None = None
 
     @property
     def uri(self) -> str:
         """The URI a Cell dials to reach this listener (`ws://host:port`); see `start()` first."""
         return self._server.uri
+
+    def bind_snapshot_handler(self, handler: SnapshotRequestHandler) -> None:
+        """Answer every snapshot relay request this listener drains through `handler` from now on.
+
+        Args:
+            handler: Built over the same `hivemind.hive.lifecycle.CellLifecycle` and
+                `hivemind.hive.snapshot.SnapshotLedgerPort` the composition root wires up.
+        """
+        self._snapshot_handler = handler
+
+    def bind_trail_receiver(self, receiver: TrailSegmentReceiver) -> None:
+        """Merge every `swarm.trail_segment_sync` this listener drains into `receiver` from now on.
+
+        Args:
+            receiver: Built over the Queen's own Pheromone Trail.
+        """
+        self._trail_receiver = receiver
 
     async def start(self, queen: Queen) -> None:
         """Bind the listener and begin accepting connections, attaching each to `queen`.
@@ -202,14 +260,33 @@ class CellListener:
         self._queen.attach_warden(link)
         self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
         try:
-            async for _ in transport.receive():
-                pass  # Heartbeats and future GrantIssued/TaskAssign frames now flow through the
-                # Warden's own tick, which drains this same WardenLink; this loop only detects
-                # when the connection itself ends.
+            async for envelope in transport.receive():
+                # Heartbeats and future GrantIssued/TaskAssign frames still flow through the
+                # Warden's own tick, which drains this same WardenLink; this loop only answers
+                # the two kinds a Warden cannot reach the Queen's own collaborators any other
+                # way for (the snapshot relay, the offline trail sync) and otherwise falls
+                # through, same as before.
+                await self._dispatch(transport, link.hop, envelope)
         except (ConnectionLostError, CodecError, SignatureError):
             pass
         finally:
             await detach_warden(self._queen, binding.warden_id)
+
+    async def _dispatch(self, transport: WebSocketTransport, hop: Hop, envelope: Envelope) -> None:
+        """Answer a snapshot relay request, or merge a trail segment chunk; else do nothing."""
+        payload = envelope.payload
+        if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
+            snapshot_reply = await self._snapshot_handler.snapshot(payload)
+            await transport.send(
+                wrap(snapshot_reply, hop, clock=self._clock, correlation_id=envelope.id)
+            )
+        elif isinstance(payload, CellRollbackRequest) and self._snapshot_handler is not None:
+            rollback_reply = await self._snapshot_handler.rollback(payload)
+            await transport.send(
+                wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
+            )
+        elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
+            await self._trail_receiver.receive(payload)
 
 
 class _GateVerifier:

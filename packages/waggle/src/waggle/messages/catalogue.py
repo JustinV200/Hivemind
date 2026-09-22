@@ -46,6 +46,10 @@ from waggle.messages.cell import (
     CellHeartbeat,
     CellReady,
     CellRequest,
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
     CellTeardownRequest,
     CellWaxCleared,
     CellWaxProposed,
@@ -154,7 +158,7 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("forage.hosting_decided", HostingDecided, _EVENT, None),
     ("forage.ceilings_set", CeilingsSet, _EVENT, None),
     ("forage.plan_written", PlanWritten, _EVENT, None),
-    # cell (spec section 8.5): readiness, leases and Cell Wax cautions.
+    # cell (spec section 8.5): readiness, leases, Cell Wax cautions and the snapshot relay.
     ("cell.ready", CellReady, _EVENT, None),
     ("cell.heartbeat", CellHeartbeat, _EVENT, None),
     ("cell.teardown_request", CellTeardownRequest, _REQUEST, None),
@@ -164,6 +168,12 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("cell.wax_proposed", CellWaxProposed, _REQUEST, None),
     ("cell.wax_written", CellWaxWritten, _EVENT, "cell.wax_proposed"),
     ("cell.wax_cleared", CellWaxCleared, _EVENT, "cell.wax_proposed"),
+    # PROTOCOL_MINOR 5: the snapshot relay a Virtual Cell's own Warden uses (it cannot reach the
+    # host backend itself, ADR-0027) to ask the Queen to snapshot or roll back its Cell.
+    ("cell.snapshot_request", CellSnapshotRequest, _REQUEST, None),
+    ("cell.snapshot_reply", CellSnapshotReply, _REPLY, "cell.snapshot_request"),
+    ("cell.rollback_request", CellRollbackRequest, _REQUEST, None),
+    ("cell.rollback_reply", CellRollbackReply, _REPLY, "cell.rollback_request"),
     # session (spec section 8.6): the terminal session a Warden drives on a device.
     ("session.open", SessionOpen, _REQUEST, None),
     ("session.exec", SessionExec, _REQUEST, None),

@@ -34,7 +34,8 @@ SPEC_PATH = Path(__file__).resolve().parents[3] / "docs" / "waggle" / "spec.md"
 CATALOGUE_HEADING = "## 8. Message catalogue"  # The section whose first table is the catalogue.
 TABLE_HEADER = "| Kind | Class | Shape | Replies to | Direction | Summary |"
 COLUMN_COUNT = 6  # The header's columns; a row with any other count is a broken table.
-EXPECTED_ROWS = 66  # The catalogue's size in protocol 1.0; a new kind bumps this with the spec.
+EXPECTED_ROWS = 70  # The catalogue's size; a new kind bumps this with the spec (66 in protocol
+# 1.0, 70 from PROTOCOL_MINOR 5's own four cell.snapshot_*/cell.rollback_* additions).
 
 _KIND_CELL = re.compile(r"^`([a-z][a-z_]*\.[a-z][a-z_]*)`$")  # `<family>.<snake_name>`
 _CLASS_CELL = re.compile(r"^`([A-Z][A-Za-z]*)`$")  # `PascalCase`, the class name.
@@ -56,7 +57,7 @@ def rows() -> tuple[CatalogueRow, ...]:
     return _catalogue_rows(SPEC_PATH.read_text(encoding="utf-8"))
 
 
-def test_the_catalogue_table_has_exactly_sixty_six_rows(rows: tuple[CatalogueRow, ...]) -> None:
+def test_the_catalogue_table_has_exactly_expected_rows(rows: tuple[CatalogueRow, ...]) -> None:
     assert len(rows) == EXPECTED_ROWS
 
 

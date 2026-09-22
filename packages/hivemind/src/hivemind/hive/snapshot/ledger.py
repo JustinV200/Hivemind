@@ -39,11 +39,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Protocol
 
 from hivemind.cell import SnapshotId
 from waggle.ids import CellId
 
-__all__ = ["SnapshotLedger", "SnapshotNotFoundError", "SnapshotRecord"]
+__all__ = ["SnapshotLedger", "SnapshotLedgerPort", "SnapshotNotFoundError", "SnapshotRecord"]
 
 
 class SnapshotNotFoundError(Exception):
@@ -86,12 +87,60 @@ class SnapshotRecord:
     expires_at: datetime
 
 
+class SnapshotLedgerPort(Protocol):
+    """The book of every live snapshot: what `DockerSnapshotter`/`QemuSnapshotter` need from it.
+
+    Roadmap step 5.13's own gap (a durable ledger): `SnapshotLedger` (below) is the in-memory
+    implementation used in tests and by a Hive with no database file; `hivemind.hive.snapshot.
+    sqlite_ledger.SqliteSnapshotLedger` is the durable one a CLI composition root builds instead,
+    so `hive cells rollback` in a separate process can see what an earlier `hive cells snapshot`
+    recorded. Every method here is synchronous on both implementations (`SqliteSnapshotLedger`'s
+    own module docstring explains why), so `DockerSnapshotter`/`QemuSnapshotter` call either the
+    same way, with no `await`.
+    """
+
+    def record(self, record: SnapshotRecord) -> None:
+        """Add `record` to the ledger, keyed by its own id. See `SnapshotLedger.record`."""
+        ...
+
+    def get(self, snapshot_id: SnapshotId) -> SnapshotRecord:
+        """Return the record for `snapshot_id`. See `SnapshotLedger.get`."""
+        ...
+
+    def disk_used_bytes(self, cell_id: CellId) -> int:
+        """Total bytes every live snapshot for `cell_id` accounts for. See `SnapshotLedger`."""
+        ...
+
+    def oldest_for_cell(self, cell_id: CellId) -> SnapshotId | None:
+        """Oldest live snapshot id for `cell_id`, or None. See `SnapshotLedger.oldest_for_cell`."""
+        ...
+
+    def room_for(
+        self, cell_id: CellId, incoming_bytes: int, budget_bytes: int | None
+    ) -> SnapshotId | None:
+        """The snapshot id to evict for `incoming_bytes`, or None. See `SnapshotLedger.room_for`."""
+        ...
+
+    def expire(self, now: datetime) -> tuple[SnapshotId, ...]:
+        """Remove and return every snapshot expired at or before `now`. See `SnapshotLedger`."""
+        ...
+
+    def delete(self, snapshot_id: SnapshotId) -> None:
+        """Remove one snapshot's record. See `SnapshotLedger.delete`."""
+        ...
+
+    def delete_for_cell(self, cell_id: CellId) -> tuple[SnapshotId, ...]:
+        """Remove and return every snapshot recorded for `cell_id`. See `SnapshotLedger`."""
+        ...
+
+
 class SnapshotLedger:
     """The Hive's in-memory book of every live snapshot, across every backend.
 
     Owns one mutable table (codingrules section 8.5, documented): `_records`, keyed by
     `SnapshotId`. Shared across every `DockerSnapshotter`/`QemuSnapshotter` this Hive builds, so
-    a Cell's own accounting is one number regardless of which backend it runs on.
+    a Cell's own accounting is one number regardless of which backend it runs on. Satisfies
+    `SnapshotLedgerPort` structurally, with no inheritance needed.
     """
 
     def __init__(self) -> None:

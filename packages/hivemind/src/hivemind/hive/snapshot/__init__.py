@@ -35,8 +35,11 @@ See Also:
       Real-Cell implementation this package's two classes stand beside.
 
 Public API:
-    - SnapshotRecord, SnapshotLedger, SnapshotNotFoundError: the shared in-memory book of every
-      live snapshot (hivemind.hive.snapshot.ledger).
+    - SnapshotRecord, SnapshotLedgerPort, SnapshotLedger, SnapshotNotFoundError: the shared book
+      of every live snapshot, its Protocol and the in-memory implementation
+      (hivemind.hive.snapshot.ledger).
+    - SqliteSnapshotLedger (hivemind.hive.snapshot.sqlite_ledger): the durable SnapshotLedgerPort
+      implementation, so a rollback in a separate CLI process can see an earlier snapshot.
     - DockerSnapshotter (hivemind.hive.snapshot.docker), QemuSnapshotter
       (hivemind.hive.snapshot.qemu): the two backend-specific Snapshotter implementations.
     - snapshotter_for (hivemind.hive.snapshot.factory): chooses a Cell's own Snapshotter by
@@ -45,14 +48,22 @@ Public API:
 
 from hivemind.hive.snapshot.docker import DockerSnapshotter
 from hivemind.hive.snapshot.factory import snapshotter_for
-from hivemind.hive.snapshot.ledger import SnapshotLedger, SnapshotNotFoundError, SnapshotRecord
+from hivemind.hive.snapshot.ledger import (
+    SnapshotLedger,
+    SnapshotLedgerPort,
+    SnapshotNotFoundError,
+    SnapshotRecord,
+)
 from hivemind.hive.snapshot.qemu import QemuSnapshotter
+from hivemind.hive.snapshot.sqlite_ledger import SqliteSnapshotLedger
 
 __all__ = [
     "DockerSnapshotter",
     "QemuSnapshotter",
     "SnapshotLedger",
+    "SnapshotLedgerPort",
     "SnapshotNotFoundError",
     "SnapshotRecord",
+    "SqliteSnapshotLedger",
     "snapshotter_for",
 ]

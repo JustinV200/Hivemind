@@ -21,12 +21,15 @@ Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
     assign`'s own module docstring for why). Calls into `hivemind.wardens.ticks.alarms`
-    (rebind_sub_bee) and waggle only.
+    (rebind_sub_bee), `hivemind.wardens.state` (clustering_update), `hivemind.wardens.spawn`
+    (stop_sub_bee), `hivemind.wardens.snapshot_relay` (RelaySnapshotter), `hivemind.supervision.
+    attendant` (InboxItem) and waggle only.
 
 Key invariants:
-    - `forward_control` is a no-op, not an error, when `sub_bee` is None (the Queen named a task
-      this Warden no longer has a sub-bee running, e.g. it already finished): a stale control
-      message from the Queen is not this module's contract to enforce.
+    - `forward_control` relays nothing, but still runs its own Clustering bookkeeping, when
+      `sub_bee` is None (the Queen named a task this Warden no longer has a sub-bee running, e.g.
+      it already finished): a stale control message from the Queen is not this module's contract
+      to enforce.
     - A Queen-sent `Intervene` reaching this Warden is always from the Queen link (a sub-bee never
       sends one to its own Warden), so no further sender check is needed before treating a REBIND
       action as this module's own rebind path rather than a plain relay.
@@ -51,17 +54,25 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reap
 from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
 from hivemind.supervision import Intervention, to_wire
+from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.errors import UnknownSubBeeError
+from hivemind.wardens.snapshot_relay import RelaySnapshotter
+from hivemind.wardens.spawn import stop_sub_bee
+from hivemind.wardens.state import clustering_update
 from hivemind.wardens.ticks.alarms import rebind_sub_bee
 from waggle.envelope import Hop, wrap
 from waggle.ids import WorkerId
+from waggle.messages.cell import LeaseReleased, ReleaseCause
+from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, PlanWritten
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.task import TaskCancel, TaskPause, TaskResume
 
 if TYPE_CHECKING:
+    from hivemind.cell import LeaseReleaseReport, RealCellLease
     from hivemind.wardens.spawn.sub_bee import SubBee
     from hivemind.wardens.warden import Warden
 
@@ -69,11 +80,14 @@ __all__ = [
     "forward_control",
     "handle_ceilings_set",
     "handle_plan_written",
+    "handle_release_lease",
+    "handle_snapshot_reply",
     "handle_stop",
     "send_intervention",
 ]
 
 _Control = TaskCancel | TaskPause | TaskResume | Intervene
+_QUEEN_LINK = "queen"  # Mirrors hivemind.wardens.warden's own InboxItem.principal key.
 
 _LOG = get_logger(__name__)
 
@@ -101,14 +115,22 @@ async def handle_stop(warden: Warden, payload: object) -> None:
     await warden.stop()
 
 
-async def forward_control(warden: Warden, sub_bee: SubBee | None, payload: _Control) -> None:
+async def forward_control(
+    warden: Warden, item: InboxItem, sub_bee: SubBee | None, payload: _Control
+) -> None:
     """Relay `payload` to `sub_bee`, or actually carry out a Queen-sent Intervene(REBIND).
 
     Args:
-        warden: The owning Warden (read directly; see the module docstring).
+        warden: The owning Warden (read and written directly; see the module docstring).
+        item: The InboxItem `payload` came from; `item.principal`/`.task_id` decide the roadmap
+            step 4.9 (Clustering) ACTIVE <-> CLUSTERED bookkeeping below.
         sub_bee: The sub-bee `payload` concerns; a no-op when None (module docstring).
         payload: The control message to relay: TaskCancel, TaskPause, TaskResume or Intervene.
     """
+    # Roadmap step 4.9 (Clustering): read by `hivemind.wardens.ticks.assign.settle_after_tick`'s
+    # own ACTIVE <-> CLUSTERED move; `clustering_update`'s own docstring explains the decision.
+    if item.principal == _QUEEN_LINK:
+        clustering_update(item.task_id, payload, warden._clustered_tasks)
     if sub_bee is None:
         return
     if isinstance(payload, Intervene) and payload.action is InterventionAction.REBIND:
@@ -195,3 +217,72 @@ def handle_plan_written(warden: Warden, payload: PlanWritten) -> None:
         default=SourceChain.from_wire(payload.default),
         reason=payload.reason,
     )
+
+
+async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
+    """Carry out a Queen-sent Intervene(RELEASE_LEASE): stop every sub-bee, release the lease.
+
+    Roadmap step 5.13's own missing lever (`hivemind.queen.cluster.tick.run_release_tick`):
+    unlike `handle_stop` (ADR-0027's Shutdown/CellTeardownRequest, which ends this whole Warden),
+    this Warden's own Cell is not being destroyed here -- only its lease. `settle_after_tick`
+    (called right after every `_act`, `hivemind.wardens.ticks.assign`'s own module docstring)
+    settles this Warden back to WATCH on its own once `_sub_bees` is empty, so this handler never
+    touches `warden._state` itself. Idempotent: `RealCellLease.release()` is idempotent, and a
+    Warden already lease-less (WATCH since `start()` was refused) simply has nothing to release
+    or report.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+        payload: The Queen's own Intervene(RELEASE_LEASE); only `.reason` is read.
+    """
+    for sub_bee in tuple(warden._sub_bees.values()):
+        # Cooperative first, cancel-and-reap only as stop_sub_bee's own bounded fallback: never
+        # left cancelled-but-unawaited (codingrules section 11), mirroring Warden.stop's own loop.
+        await stop_sub_bee(sub_bee, warden._deps.clock)
+        receive_task = warden._receive_tasks.pop(sub_bee.worker_id, None)
+        if receive_task is not None:
+            await reap(receive_task)
+        await sub_bee.link.close()
+    warden._sub_bees.clear()
+    warden._sub_bee_iters.clear()
+    lease = warden._lease
+    if lease is None:
+        return  # Nothing held (already released, or never leased one): idempotent, nothing to
+        # report either -- there is no lease_id for a Queen that asked about one this Warden
+        # never opened.
+    report = await lease.release()
+    warden._lease = None
+    await _send_lease_released(warden, lease, report, payload.reason)
+
+
+async def _send_lease_released(
+    warden: Warden, lease: RealCellLease, report: LeaseReleaseReport, reason: str
+) -> None:
+    """Send `cell.lease_released` to the Queen for `lease`'s own outcome."""
+    message = LeaseReleased(
+        lease_id=lease.id,
+        cell_id=lease.cell_id,
+        holder=lease.holder,
+        cause=ReleaseCause.COMPLETED,
+        is_restored=report.is_restored,
+        killed_processes=report.killed_processes,
+        residual_paths=tuple(str(path) for path in report.residual_paths),
+        reason=reason,
+    )
+    await warden._deps.queen_link.send(wrap(message, warden._deps.hop, clock=warden._deps.clock))
+
+
+def handle_snapshot_reply(warden: Warden, payload: CellSnapshotReply | CellRollbackReply) -> None:
+    """Resolve this Warden's own RelaySnapshotter with a CellSnapshotReply/CellRollbackReply.
+
+    A no-op, not an error, when `WardenDeps.snapshotter` is not a RelaySnapshotter (every Real
+    Cell's own Warden, whose snapshotter is the default NoopSnapshotter): only a Virtual Cell's
+    own Warden ever sends the request this answers.
+
+    Args:
+        warden: The owning Warden (read directly; see the module docstring).
+        payload: The Queen's own reply.
+    """
+    snapshotter = warden._deps.snapshotter
+    if isinstance(snapshotter, RelaySnapshotter):
+        snapshotter.handle_reply(payload)

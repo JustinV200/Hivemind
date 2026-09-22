@@ -62,6 +62,7 @@ from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.ids import HiveId, MessageId, NodeId, WardenId, new_hive_id, new_node_id, new_warden_id
 from waggle.messages.base import WaggleMessage
+from waggle.messages.cell.leases import LeaseReleased
 from waggle.messages.forage import ForageRequest
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmRaised, Answer, AnswerSource, Heartbeat, Question
@@ -256,6 +257,7 @@ class QueenEnd:
         self.alarms: list[AlarmRaised] = []
         self.questions: list[Question] = []
         self.forage_requests: list[ForageRequest] = []
+        self.lease_released: list[LeaseReleased] = []  # Roadmap step 5.13: cell.lease_released.
         # supervision.answer is a reply: its envelope must carry the correlation_id of the
         # Question envelope it answers, tracked here so `answer` can supply it.
         self._question_envelope_ids: dict[MessageId, MessageId] = {}
@@ -364,6 +366,11 @@ class QueenEnd:
         await self.pump_until(lambda: bool(self.questions), limit=limit)
         return self.questions[-1]
 
+    async def wait_for_lease_released(self, limit: int = DEFAULT_PUMP_LIMIT) -> LeaseReleased:
+        """Pump until at least one LeaseReleased has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.lease_released), limit=limit)
+        return self.lease_released[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Warden's own receive() ends cleanly."""
         await self._transport.close()
@@ -382,3 +389,5 @@ class QueenEnd:
             self._question_envelope_ids[payload.question_id] = envelope.id
         elif isinstance(payload, ForageRequest):
             self.forage_requests.append(payload)
+        elif isinstance(payload, LeaseReleased):
+            self.lease_released.append(payload)

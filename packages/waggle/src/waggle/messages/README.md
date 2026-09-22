@@ -27,7 +27,7 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`). Enums that only one
   family uses live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all
-  sixty-six kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
+  seventy kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
   `all_kinds`. Message classes never carry their own kind.
 
 Rules every family follows: every id field uses a base.py alias; every `reason` is bounded by

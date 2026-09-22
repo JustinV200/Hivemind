@@ -12,11 +12,12 @@ See Also:
 
 from __future__ import annotations
 
+from builders.cells import make_cell
 from builders.forage import make_grant
 from builders.queen import WardenEnd, make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CellKind, HoneyClearance
 from hivemind.forage import GrantState, ModelSlot
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import CellEvent, TrailQuery
@@ -32,6 +33,7 @@ from hivemind.queen.queen import Queen
 from hivemind.queen.state import ClusterState
 from waggle.clock import FakeClock
 from waggle.ids import CellId, TaskId, new_cell_id, new_event_id, new_hive_id, new_node_id
+from waggle.messages.supervision import InterventionAction
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -334,13 +336,40 @@ async def test_run_release_tick_revokes_the_leased_cells_live_grants_and_marks_h
         )
     )
 
-    handled = await run_release_tick(deps)
+    # No attached Warden owns cell_id (a fresh, unrelated one): the grant revoke still runs, and
+    # there is simply nothing to send the Intervene(RELEASE_LEASE) to.
+    handled = await run_release_tick(deps, ())
 
     assert len(handled) == 1
     assert deps.ledger.live_grants() == ()
     assert await orders.pending() == ()
     revoked = await deps.trail.query(TrailQuery(kind="forage.revoked"))
     assert [event.subject_id for event in revoked] == [grant.id]
+
+
+async def test_run_release_tick_sends_release_lease_to_the_owning_warden() -> None:
+    """The core of roadmap step 5.13: the attached Warden that owns the leased Cell is told."""
+    clock = FakeClock()
+    orders = InMemoryOrderStore()
+    cell = make_cell(kind=CellKind.REAL, clock=clock)
+    deps, link, warden_end = make_queen_deps(clock=clock, orders=orders, cell=cell)
+    await _record_leased(deps, clock, cell_id=cell.id, lease_id="lease-1")
+    await orders.put_order(
+        ClusterOrder(
+            id=new_order_id(clock),
+            kind=OrderKind.RELEASE,
+            provider=None,
+            requested_at=clock.now(),
+            lease_id="lease-1",
+        )
+    )
+
+    handled = await run_release_tick(deps, (link,))
+    intervene = await warden_end.wait_for_intervene()
+
+    assert len(handled) == 1
+    assert intervene.action is InterventionAction.RELEASE_LEASE
+    assert intervene.subject is None
 
 
 async def test_run_release_tick_on_an_unknown_lease_id_still_marks_handled() -> None:
@@ -357,7 +386,7 @@ async def test_run_release_tick_on_an_unknown_lease_id_still_marks_handled() -> 
         )
     )
 
-    handled = await run_release_tick(deps)
+    handled = await run_release_tick(deps, ())
 
     assert len(handled) == 1
     assert await orders.pending() == ()
@@ -372,7 +401,7 @@ async def test_run_release_tick_never_touches_a_cluster_or_wake_order() -> None:
     )
     await orders.put_order(order)
 
-    handled = await run_release_tick(deps)
+    handled = await run_release_tick(deps, ())
 
     assert handled == ()
     pending = await orders.pending()

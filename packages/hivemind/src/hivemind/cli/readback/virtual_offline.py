@@ -19,9 +19,10 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.readback`. Called only by
     `hivemind.cli.readback.virtual`. Calls into `hivemind.cell` (RealCellLease, LeaseFacts,
     AccessLevel, CombShieldLevel, Cell, CellCapabilities, Snapshotter), `hivemind.cell.local`
-    (HiveStandLeaseReleaser), `hivemind.forage` (ForageCapacity, HostCapacity), `hivemind.hive`
-    (BackendRegistry, VirtualCellRecord), `hivemind.hive.snapshot` (SnapshotLedger,
-    snapshotter_for, a lazy in-function import -- see `build_snapshotter`'s own docstring),
+    (HiveStandLeaseReleaser), `hivemind.cli.stores` (open_snapshot_ledger, a lazy in-function
+    import alongside `hivemind.hive.snapshot`, same reason), `hivemind.forage` (ForageCapacity,
+    HostCapacity), `hivemind.hive` (BackendRegistry, VirtualCellRecord), `hivemind.hive.snapshot`
+    (snapshotter_for, a lazy in-function import -- see `build_snapshotter`'s own docstring),
     `hivemind.pheromone` (PheromoneTrail, TrailQuery, MAX_QUERY_LIMIT, ForageEvent),
     `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.workers.roles.undertaker` and waggle
     only.
@@ -368,7 +369,12 @@ def placeholder_cell(record: VirtualCellRecord) -> Cell:
 
 
 def build_snapshotter(
-    backend: CellBackend, clock: Clock, *, retention_s: float, disk_budget_bytes: int | None
+    backend: CellBackend,
+    clock: Clock,
+    db: Path,
+    *,
+    retention_s: float,
+    disk_budget_bytes: int | None,
 ) -> Snapshotter:
     """Return `backend`'s own `Snapshotter`, via `hivemind.hive.snapshot.snapshotter_for`.
 
@@ -377,32 +383,35 @@ def build_snapshotter(
     package; importing it here, inside this function, rather than at this module's own top level
     keeps this module importable even on a gate run from before that package landed.
 
-    A `hive cells snapshot`/`rollback` pair invoked as two separate CLI processes has one
-    documented limitation this dispatch cannot close from here: `DockerSnapshotter`/
-    `QemuSnapshotter` each keep their own snapshot-id-to-image mapping in memory, in the instance
-    `snapshotter_for` builds (its own module docstring: built for a long-lived Warden holding one
-    `GateDeps.snapshotter` for its whole life, not a stateless CLI spanning two processes), so a
-    `rollback` invocation's own fresh instance never sees what an earlier, separate `snapshot`
-    invocation recorded -- only a snapshot backend that declares `capabilities.can_snapshot=False`
-    (`NoopSnapshotter`, whose own `rollback` always raises regardless) is unaffected, since there
-    is nothing to round-trip in the first place. Flagged in this dispatch's own report as the open
-    integration question for whoever gives `hive cells snapshot`/`rollback` a durable ledger to
-    share across processes.
+    Roadmap step 5.10's own follow-up gap, now closed: `DockerSnapshotter`/`QemuSnapshotter` each
+    keep their own snapshot-id-to-image mapping in memory, in the instance `snapshotter_for`
+    builds, so what used to make a `hive cells snapshot`/`rollback` pair invoked as two separate
+    CLI processes fail was never that in-memory map alone -- it was pairing it with an in-memory
+    `SnapshotLedger` too, which forgot every `SnapshotRecord` the moment the `snapshot` process
+    exited. `hivemind.cli.stores.open_snapshot_ledger` opens the same durable
+    `SqliteSnapshotLedger` the running Queen's own `hivemind.queen.cell_gate.snapshot.
+    CellSnapshotHandler` reads and writes, backed by `db`, so a `rollback` invocation's own fresh
+    `DockerSnapshotter`/`QemuSnapshotter` instance at least finds the record an earlier `snapshot`
+    invocation left; only a snapshot backend that declares `capabilities.can_snapshot=False`
+    (`NoopSnapshotter`) needs no ledger at all, since there is nothing to round-trip.
 
     Args:
         backend: The Virtual Cell's own backend; only `.capabilities` and, when it can snapshot,
             its own type are read (`snapshotter_for`'s own "never by name").
         clock: Injected time source, passed straight through.
+        db: The Hive's SQLite database file (`[hive] db`), opened as the durable
+            `SqliteSnapshotLedger` every Snapshotter this call builds shares.
         retention_s: Manifest `[virtual_cells] snapshot_retention_s`.
         disk_budget_bytes: Manifest `[virtual_cells] snapshot_disk_budget_mb`, converted to bytes.
 
     Returns:
-        `NoopSnapshotter()` when `backend` cannot snapshot; otherwise a fresh, in-memory-only
-        `DockerSnapshotter`/`QemuSnapshotter` over a fresh `SnapshotLedger()`.
+        `NoopSnapshotter()` when `backend` cannot snapshot; otherwise a `DockerSnapshotter`/
+        `QemuSnapshotter` over the durable `SqliteSnapshotLedger` at `db`.
     """
-    from hivemind.hive.snapshot import SnapshotLedger, snapshotter_for
+    from hivemind.cli.stores import open_snapshot_ledger
+    from hivemind.hive.snapshot import snapshotter_for
 
-    ledger = SnapshotLedger()
+    ledger = open_snapshot_ledger(db)
     return snapshotter_for(
         backend, ledger, clock, retention_s=retention_s, disk_budget_bytes=disk_budget_bytes
     )

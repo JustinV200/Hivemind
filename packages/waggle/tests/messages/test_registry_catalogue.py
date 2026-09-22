@@ -1,4 +1,4 @@
-"""Tests for the full Waggle catalogue: sixty-six kinds, one example of each, the package face.
+"""Tests for the full Waggle catalogue: seventy kinds, one example of each, the package face.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins the registry's kind order to the spec's
@@ -86,6 +86,10 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "cell.wax_proposed",
     "cell.wax_written",
     "cell.wax_cleared",
+    "cell.snapshot_request",
+    "cell.snapshot_reply",
+    "cell.rollback_request",
+    "cell.rollback_reply",
     "session.open",
     "session.exec",
     "session.stdin",
@@ -163,8 +167,8 @@ ALL_EXAMPLES: tuple[WaggleMessage, ...] = tuple(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_all_kinds_lists_the_sixty_six_catalogue_kinds_in_table_order() -> None:
-    assert len(CATALOGUE_KINDS) == 66
+def test_all_kinds_lists_the_catalogue_kinds_in_table_order() -> None:
+    assert len(CATALOGUE_KINDS) == 70
     assert all_kinds() == CATALOGUE_KINDS
 
 

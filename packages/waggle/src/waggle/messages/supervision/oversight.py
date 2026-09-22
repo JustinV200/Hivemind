@@ -97,6 +97,11 @@ class InterventionAction(Enum):
     REBIND = "REBIND"  # Move the bee to another model slot; slot is required.
     TAKEOVER = "TAKEOVER"  # The supervisor resumes the task itself from the bee's Handoff.
     CANCEL = "CANCEL"
+    # PROTOCOL_MINOR 5 (roadmap step 5.13): the Queen tells a Warden to stop every sub-bee and
+    # release its own lease, idempotently, then report LeaseReleased -- subject is always None
+    # (this lever targets the recipient itself, never one of its sub-bees), matching CANCEL's own
+    # shape rather than REBIND's (no slot). See waggle.messages.cell for the lease it releases.
+    RELEASE_LEASE = "RELEASE_LEASE"
 
 
 # A reason field, as the catalogue conventions fix it: always named `reason`, always bounded by
@@ -216,8 +221,9 @@ class InspectReply(WaggleMessage):
 class Intervene(WaggleMessage):
     """Pull a supervisor lever on a child or one of its sub-bees (supervision.intervene, an event).
 
-    Compact, checkpoint, handoff, rebind to a slot, takeover or cancel. Wardens hold the same
-    levers over their sub-bees minus takeover with the Queen's slot. `binding` (PROTOCOL_MINOR 2)
+    Compact, checkpoint, handoff, rebind to a slot, takeover, cancel, or (PROTOCOL_MINOR 5, the
+    Queen -> Warden lever only) release the recipient's own lease. Wardens hold the same levers
+    over their sub-bees minus takeover with the Queen's slot. `binding` (PROTOCOL_MINOR 2)
     is an optional, additional REBIND hint: a `[llm.slots]` manifest key the sender already
     resolved (the Queen's own fallback-chain lookup, for instance), so a receiving Warden can
     respawn on it directly instead of searching its own grant.
