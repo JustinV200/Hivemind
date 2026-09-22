@@ -251,10 +251,21 @@ async def open_real_leases(trail: PheromoneTrail) -> tuple[LeaseOrphan, ...]:
         str(event.payload.get("lease_id"))
         for event in await trail.query(TrailQuery(kind="cell.released", limit=MAX_QUERY_LIMIT))
     }
+    # A Virtual Cell's own Warden leases its Cell too, and that `cell.leased` reaches this trail
+    # through segment sync, but its `cell.released` never does: the Cell is destroyed (or paused)
+    # from outside, so the lease dies with it. Those are not Real leases to release; a Cell this
+    # Hive provisioned is one it destroys, never one it hands back (the first real Docker run's
+    # abscond deferred exactly such a lease to a Queen that could never have released it).
+    virtual_cell_ids = {
+        event.subject_id
+        for event in await trail.query(TrailQuery(kind="cell.provisioned", limit=MAX_QUERY_LIMIT))
+    }
     orphans: list[LeaseOrphan] = []
     for event in leased:
         lease_id = event.payload.get("lease_id")
         if lease_id is None or str(lease_id) in released_ids:
+            continue
+        if event.subject_id in virtual_cell_ids:
             continue
         orphans.append(
             LeaseOrphan(

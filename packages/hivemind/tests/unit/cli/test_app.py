@@ -75,5 +75,4 @@ def test_main_makes_stdout_tolerate_unencodable_output(monkeypatch: pytest.Monke
     _tolerate_console_encoding()
     stream.write("done ✅\n")
     stream.flush()
-    assert stream.buffer.getvalue() == b"done ?
-"
+    assert stream.buffer.getvalue() == b"done ?\n"

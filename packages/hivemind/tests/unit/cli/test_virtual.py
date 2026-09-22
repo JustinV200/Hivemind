@@ -33,6 +33,7 @@ from typer.testing import CliRunner
 from hivemind.cell import CellKind, FakeCellSource
 from hivemind.cli.app import app
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
+from hivemind.cli.readback.virtual_offline import open_real_leases
 from hivemind.cli.stores import open_cluster_orders, open_trail
 from hivemind.hive import VirtualCellSpec
 from hivemind.manifest import HiveManifest, load_manifest
@@ -367,3 +368,38 @@ def test_abscond_with_nothing_to_clean_up_reports_left_as_found(tmp_path: Path) 
     assert result.exit_code == 0, result.output
     assert "containers_destroyed:      0" in result.output
     assert "left_as_found:             True" in result.output
+
+
+def test_open_real_leases_ignores_a_virtual_cells_own_lease(tmp_path: Path) -> None:
+    """A Cell this Hive provisioned leases itself from inside; that lease dies with the Cell."""
+    db_path = tmp_path / "hive.sqlite3"
+    trail = open_trail(db_path)
+    clock = FakeClock()
+    cell_id = new_cell_id(clock)
+    provisioned = CellEvent(
+        id=new_event_id(clock),
+        hive_id=new_hive_id(clock),
+        node_id=new_node_id(clock),
+        at=clock.now(),
+        actor="system",
+        kind="cell.provisioned",
+        subject_id=cell_id,
+        payload={"backend": "docker", "image": "base-ubuntu"},
+    )
+    asyncio.run(trail.record(provisioned))
+    leased = provisioned.model_copy(
+        update={
+            "id": new_event_id(clock),
+            "kind": "cell.leased",
+            "payload": {
+                "lease_id": "lease_virtual",
+                "holder": new_warden_id(clock),
+                "task_id": None,
+                "access_level": "FULL",
+                "comb_shield": "MEADOW",
+            },
+        }
+    )
+    asyncio.run(trail.record(leased))
+
+    assert asyncio.run(open_real_leases(trail)) == ()
