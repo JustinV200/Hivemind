@@ -106,9 +106,12 @@ def test_check_no_kind_branches_allows_placement_to_branch_on_kind(
 def test_check_no_kind_branches_allows_the_undertaker_to_branch_on_kind(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # roadmap step 5.8 built the Undertaker as a package (workers/roles/undertaker/), not the
+    # single module codingrules 8.7 originally named; the allowlist fragment (and this fixture)
+    # now matches the package path, exercised here via one of its modules.
     sample = _write(
         tmp_path,
-        "packages/hivemind/src/hivemind/workers/roles/undertaker.py",
+        "packages/hivemind/src/hivemind/workers/roles/undertaker/role.py",
         "def clean_up(cell):\n    if cell.kind == CellKind.REAL:\n        pass\n",
     )
 

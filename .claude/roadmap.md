@@ -991,14 +991,14 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   checks passing, and direct egress blocked. Location-blind checks must also pass: geolocation APIs
   denied, metadata endpoints unreachable, timezone pinned to UTC, locale pinned to profile, and
   WebRTC local-IP leak test blocked. Fail placement if any check is red.
-- [ ] **5.8 Undertaker role.** `workers/roles/undertaker.py`: destroys Virtual Cells idempotently,
+- [x] **5.8 Undertaker role.** `workers/roles/undertaker.py`: destroys Virtual Cells idempotently,
   releases Real Cell leases idempotently, revokes their grants, retires a destroyed Virtual Cell's
   Cell Wax (handed to ripening once phase 7 lands; a Real Cell's wax outlives its leases), retries
   with backoff. On Queen
   startup sweeps orphans of both kinds from backend labels and the trail. Destroying a Virtual
   Cell marks its Leavings ledger rows (5.0a) removed, since the paths died with the Cell;
   releasing a Real Cell never touches a ledgered path.
-- [ ] **5.9 Overwintering pool.** `hive/overwinter/policy.py` (pure, Virtual only),
+- [x] **5.9 Overwintering pool.** `hive/overwinter/policy.py` (pure, Virtual only),
   `hive/overwinter/pool.py`. Placement prefers a dormant Cell with the right image. Clustering uses
   the pool for long outages. Night Veil Cells are excluded. A dormant Cell's volume keeps its
   resident Basket blobs (9.2a), so a reused Cell starts with them.

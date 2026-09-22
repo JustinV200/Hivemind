@@ -17,7 +17,8 @@ Fits into the Hive:
 Key invariants:
     - The allowlist is exactly three places, matching codingrules 8.7 and 6.1's "Placement" and
       "Worker roles" rows: `hivemind/queen/placement/` (the placement decision itself),
-      `hivemind/workers/roles/undertaker.py` (release-vs-destroy), and `hivemind/cell/` (where
+      `hivemind/workers/roles/undertaker/` (release-vs-destroy; a package since roadmap step 5.8,
+      not the single module codingrules 8.7 originally named), and `hivemind/cell/` (where
       `CellKind` is defined -- codingrules 6.1: "Cell (either kind) | cell | ... CellKind ...").
     - Test files are exempt everywhere: asserting a Cell's kind in a test is verifying behaviour,
       not branching on it in production code.
@@ -40,7 +41,10 @@ from pathlib import Path
 # and every module under it are covered by one entry.
 ALLOWED_PATH_FRAGMENTS = (
     "hivemind/queen/placement/",
-    "hivemind/workers/roles/undertaker.py",
+    # roadmap step 5.8 built the Undertaker as a package (workers/roles/undertaker/), not the
+    # single module codingrules 8.7 originally named; the fragment now matches the whole package
+    # (every module under it, __init__.py included), not one file.
+    "hivemind/workers/roles/undertaker/",
     "hivemind/cell/",
 )
 

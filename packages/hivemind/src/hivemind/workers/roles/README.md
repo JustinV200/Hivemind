@@ -29,7 +29,25 @@ Undertaker, Drone and HouseBee, each implementing the shared Worker protocol.
   whole thing, since demotion and Cell Wax expiry need no model call. See `hivemind.workers.roles.
   house_bee`'s own docstring for the full shape.
 
-## Public API (roadmap 3.16, extended by 4.3)
+- `undertaker/` -- `Undertaker` (roadmap step 5.8): the cleanup role. `role.py` (`Undertaker`, the
+  `Worker`-protocol adapter, autopilot-only -- it never awaits a model or imports `hivemind.llm`)
+  offers `destroy_virtual(cell_id)` (via the injected `CellBackend`, then the injected
+  `GrantRevoker`, `WaxRetirer` and `LeavingsRemover` Protocols) and `release_real(lease)` (via
+  `RealCellLease.release()`, already idempotent, then the `GrantRevoker` alone -- a Real Cell's
+  release never retires wax or touches a ledgered path). Both operations retry every effectful
+  step with exponential backoff (`RetryPolicy`). `sweep.py` (`sweep_orphans`, `SweepDeps`,
+  `SweepReport`, `orphan_virtual_cells`/`orphan_real_leases` as the pure decision halves) is the
+  Queen-startup sweep for orphans of both kinds, plus expired dormant Cells via
+  `hivemind.hive.overwinter.pool.OverwinterPool.evict_expired`. `schedule.py`
+  (`UndertakerSweepSchedule`) is the pure timer a future periodic sweep checks, mirroring
+  `house_bee/schedule.py`. `CellKind` matters to exactly two callers in the whole codebase
+  (codingrules section 8.7): `queen.placement` and this package's own `role.py`
+  (`scripts/check_no_kind_branches.py` allowlists `hivemind/workers/roles/undertaker/`, the
+  package path, not a single file). See `hivemind.workers.roles.undertaker`'s own docstring for
+  the full shape, including the ten-line adapter `LeavingsRemover` documents for
+  `hivemind.cell.leavings.LeavingsStore` once that (unmerged, another-branch) module lands.
+
+## Public API (roadmap 3.16, extended by 4.3 and 5.8)
 
 See the `Public API:` section of `__init__.py` for the full, current list.
 
