@@ -36,8 +36,8 @@ See Also:
       for the enforcement points that call it.
 
 Public API:
-    - CapabilityFamily, ScopeKind, Capability, CapabilitySet: the capability grammar
-      (capabilities).
+    - CapabilityFamily, ScopeKind, Capability, CapabilitySet, glob_literal: the capability
+      grammar, and the escape every path embedded in a glob scope goes through (capabilities).
     - CELL_EFFECT_FAMILIES, governs, admits, ceiling_for, cap_to_access, fill_scratch,
       SCRATCH_PLACEHOLDER: what each AccessLevel permits, as data (access).
     - EnforcementPoint, PrincipalKind, PrincipalRef, PolicyContext, PolicyRequest,
@@ -62,7 +62,13 @@ from hivemind.guard.access import (
     fill_scratch,
     governs,
 )
-from hivemind.guard.capabilities import Capability, CapabilityFamily, CapabilitySet, ScopeKind
+from hivemind.guard.capabilities import (
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+    ScopeKind,
+    glob_literal,
+)
 from hivemind.guard.enforcer import Enforcer
 from hivemind.guard.errors import (
     CapabilityWideningError,
@@ -127,6 +133,7 @@ __all__ = [
     "classify",
     "evaluate",
     "fill_scratch",
+    "glob_literal",
     "governs",
     "load_guard_policy",
     "proposed_set",
