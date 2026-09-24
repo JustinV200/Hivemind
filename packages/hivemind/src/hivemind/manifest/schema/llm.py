@@ -14,7 +14,19 @@ import both) a plain dict of only the fields actually set, to merge onto whateve
 layer already has in hand. ``LlmSection``'s own validators are what keep the slot table honest:
 every key lowercase, every ``ModelSlot`` bound to something, every binding's provider declared,
 every fallback reachable and acyclic, and ``offline = true`` refusing any provider that is not
-provably local.
+provably local (an ``IN_PROCESS_KINDS`` member excepted -- roadmap step 7.1, ADR-0032: it never
+opens a ``base_url`` at all, so it is provably local by construction).
+
+Roadmap step 7.1 adds the embedder's own boundary: ``ProviderSpec.embedding`` is an
+``EmbeddingOptions`` (batch size, device, whether to ever reach a model hub) that applies only
+when a provider is asked to embed, and a new ``LlmSection`` validator refuses binding an
+``EMBEDDING_ONLY_KINDS`` provider (``sentence_transformers``, which has no chat endpoint at all)
+to any ``[llm.slots]`` key except ``embedder`` itself or a key reachable only through the
+embedder's own fallback chain -- so a manifest can never accidentally send a Worker's chat calls
+to a provider that cannot answer them. ``ProviderKind``, ``EMBEDDING_ONLY_KINDS`` and
+``IN_PROCESS_KINDS`` mirror ``hivemind.llm.registry``'s own copies member-for-member (that module
+cannot import this one, for the same Layer 1 sibling reason above); a dedicated test keeps the two
+sides in sync.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -77,18 +89,31 @@ DEFAULT_PROVIDER_SEATS = (
     4  # A modest concurrency default; the manifest raises it for a busier Hive.
 )
 
-# The three adapters codingrules section 8.1 lists today; a fourth needs a codingrules update
+# The four adapters codingrules section 8.1 lists today; a fifth needs a codingrules update
 # before it needs a manifest change, so this stays a closed Literal rather than a bare str.
-ProviderKind = Literal["anthropic", "openai_compat", "fake"]
+ProviderKind = Literal["anthropic", "openai_compat", "fake", "sentence_transformers"]
+
+# Kinds with no chat endpoint at all (roadmap 7.1): mirrors hivemind.llm.registry.
+# EMBEDDING_ONLY_KINDS member-for-member (llm may not import manifest, and vice versa; see the
+# module docstring). The LlmSection validator below is what enforces this at load time.
+EMBEDDING_ONLY_KINDS: frozenset[ProviderKind] = frozenset({"sentence_transformers"})
+
+# Kinds that run inside this process and so are provably local under offline = true regardless of
+# base_url (an in-process kind opens no base_url at all); mirrors hivemind.llm.registry.
+# IN_PROCESS_KINDS member-for-member, for the same reason.
+IN_PROCESS_KINDS: frozenset[ProviderKind] = frozenset({"sentence_transformers"})
 
 __all__ = [
     "API_KEY_ENV_PATTERN",
     "DEFAULT_PROVIDER_SEATS",
     "DEFAULT_PROVIDER_TIMEOUT_S",
     "DEFAULT_REQUEST_TIMEOUT_S",
+    "EMBEDDING_ONLY_KINDS",
+    "IN_PROCESS_KINDS",
     "MANIFEST_KEY_PATTERN",
     "MAX_MANIFEST_KEY_CHARS",
     "CapabilityOverrides",
+    "EmbeddingOptions",
     "LlmSection",
     "ProviderKind",
     "ProviderSpec",
@@ -159,6 +184,35 @@ class CapabilityOverrides(BaseModel):
         return self.model_dump(exclude_none=True)
 
 
+class EmbeddingOptions(BaseModel):
+    """``[llm.providers.<name>.embedding]``: options that apply only when this provider embeds.
+
+    Every field is optional or defaulted because most providers never serve the ``EMBEDDER`` slot
+    at all; a provider that does reads these instead of a family of new top-level ``ProviderSpec``
+    fields that would apply to its chat calls too.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    batch_size: int | None = Field(
+        default=None,
+        gt=0,
+        description="How many texts to send per embed call; None lets the adapter's own "
+        "default decide.",
+    )
+    device: str | None = Field(
+        default=None,
+        description="The in-process device to load the model on ('cpu', 'cuda', 'mps'); None "
+        "lets the library choose. Ignored by a kind that is not in-process.",
+    )
+    local_files_only: bool = Field(
+        default=False,
+        description="Never reach a model hub; only load from an already-cached or local path. "
+        "The composition root forces this True whenever [llm] offline = true, regardless of "
+        "what this field says.",
+    )
+
+
 class ProviderSpec(BaseModel):
     """``[llm.providers.<name>]``: one model provider a Hive may call, keyed by name."""
 
@@ -194,6 +248,11 @@ class ProviderSpec(BaseModel):
         default_factory=CapabilityOverrides,
         description="Corrections to the adapter's own declared capabilities; every field left "
         "unset means 'trust the adapter'.",
+    )
+    embedding: EmbeddingOptions = Field(
+        default_factory=EmbeddingOptions,
+        description="Options that apply only when this provider is asked to embed (roadmap 7.1); "
+        "ignored by a provider no [llm.slots] row ever binds to the EMBEDDER slot.",
     )
 
 
@@ -295,16 +354,79 @@ class LlmSection(BaseModel):
 
     @model_validator(mode="after")
     def _offline_refuses_hosted_or_non_loopback_providers(self) -> LlmSection:
-        """Reject a provider [llm] offline = true cannot prove is local."""
+        """Reject a provider [llm] offline = true cannot prove is local.
+
+        An ``IN_PROCESS_KINDS`` member (``sentence_transformers``) never opens a ``base_url`` at
+        all (roadmap 7.1), so it is exempt: provably local by construction, whatever
+        ``base_url`` happens to hold (commonly left empty).
+        """
         if not self.offline:
             return self
         for name, spec in self.providers.items():
+            if spec.kind in IN_PROCESS_KINDS:
+                continue
             if not _is_provably_local(spec.base_url):
                 raise ValueError(
                     f"[llm] offline = true but [llm.providers.{name}] is not provably local "
                     f"(base_url={spec.base_url!r}); every provider must have a loopback base_url."
                 )
         return self
+
+    @model_validator(mode="after")
+    def _embedding_only_kinds_serve_only_the_embedder_slot(self) -> LlmSection:
+        """Reject an EMBEDDING_ONLY_KINDS provider bound outside the embedder's own chain.
+
+        Runs after ``_every_fallback_exists_and_never_cycles``/``_every_model_slot_is_bound``
+        (definition order; pydantic v2 runs ``mode="after"`` validators in the order they are
+        declared), but does not depend on that: ``_reachable_keys`` below stops at a repeated key
+        on its own, so a still-cyclic table it might see is walked safely, never looped forever.
+        """
+        allowed = _keys_only_the_embedder_slot_reaches(self.slots)
+        for key, binding in self.slots.items():
+            spec = self.providers.get(binding.provider)
+            if spec is None:
+                continue  # Reported by _every_binding_names_a_declared_provider instead.
+            if spec.kind in EMBEDDING_ONLY_KINDS and key not in allowed:
+                raise ValueError(
+                    f"[llm.slots.{key}] binds provider {binding.provider!r}, an embedding-only "
+                    f"kind ({spec.kind!r}), which may serve only 'embedder' or a key reachable "
+                    "only through the embedder's own fallback chain."
+                )
+        return self
+
+
+def _keys_only_the_embedder_slot_reaches(slots: dict[str, SlotBinding]) -> set[str]:
+    """Return every [llm.slots] key that only the embedder slot's own chain ever reaches.
+
+    A key qualifies when the embedder slot's own walk reaches it (embedder itself, or a fallback
+    of a fallback of it) AND no *other* ModelSlot's own walk ever reaches the same key -- a key a
+    chat slot's chain also passes through is not "only" the embedder's, however it got there.
+    """
+    reach_counts: dict[str, int] = {}
+    embedder_reach: set[str] = set()
+    for slot in ModelSlot:
+        reached = _reachable_keys(slot.manifest_key, slots)
+        for key in reached:
+            reach_counts[key] = reach_counts.get(key, 0) + 1
+        if slot is ModelSlot.EMBEDDER:
+            embedder_reach = reached
+    return {key for key in embedder_reach if reach_counts.get(key, 0) == 1}
+
+
+def _reachable_keys(start: str, slots: dict[str, SlotBinding]) -> set[str]:
+    """Return every key visited walking `.fallback` from `start` (`start` itself included).
+
+    Safe against a still-cyclic `slots` table on its own (the `current not in visited` loop
+    condition stops the walk the moment a key repeats), independent of whether the cycle
+    validator has already run for this model.
+    """
+    visited: set[str] = set()
+    current: str | None = start
+    while current is not None and current not in visited:
+        visited.add(current)
+        binding = slots.get(current)
+        current = binding.fallback if binding is not None else None
+    return visited
 
 
 def _walk_fallback_chain(start: str, table: dict[str, SlotBinding]) -> None:

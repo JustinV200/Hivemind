@@ -40,6 +40,7 @@ MAX_RAW_PREVIEW_CHARS = 200  # Enough to see the shape of a malformed reply; nev
 __all__ = [
     "MAX_RAW_PREVIEW_CHARS",
     "ContextTooLongError",
+    "EmbeddingUnsupportedError",
     "LLMError",
     "MalformedOutputError",
     "OfflineViolationError",
@@ -238,6 +239,28 @@ class ProviderRequestError(LLMError):
         )
         self.status_code = status_code
         self.error_type = error_type
+
+
+class EmbeddingUnsupportedError(LLMError):
+    """Raise when a slot resolves to a provider kind with no embedding factory (ADR-0032).
+
+    The composition root turns this into "no embedder" for that Hive (ADR-0032: "degrade, never
+    fail closed"), logged once, rather than letting it crash whatever asked for the EMBEDDER slot.
+    """
+
+    code: ClassVar[str] = "hivemind.llm.embedding_unsupported"
+
+    def __init__(self, provider: str, kind: str) -> None:
+        """Build the error for a provider whose kind cannot serve an embedding call.
+
+        Args:
+            provider: The manifest `[llm.providers.<name>]` key that was asked to embed.
+            kind: That provider's `kind` (e.g. `"anthropic"`), which has no embedding factory.
+        """
+        super().__init__(
+            f"Provider {provider!r} (kind {kind!r}) does not support embeddings.", provider=provider
+        )
+        self.kind = kind
 
 
 class OfflineViolationError(LLMError):

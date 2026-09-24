@@ -415,6 +415,10 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
         Every `[llm.providers]` row, keyed by its own manifest name, as a ProviderConfig; each
         one's `default_model` is that provider's first `[llm.slots]` model id, regardless of kind
         (see this module's Key invariants) -- `None` only for a configured provider no slot binds.
+        Each row's embedding options (roadmap 7.1) carry straight through from `spec.embedding`,
+        except `embedding_local_files_only`, which this composition root forces `True` whenever
+        `manifest.llm.offline` is set, regardless of what the manifest itself said: an in-process
+        embedder must never reach a model hub on a Hive proven offline.
     """
     default_models = _first_model_by_provider(manifest)
     return {
@@ -425,6 +429,9 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
             timeout_s=spec.timeout_s,
             capability_overrides=spec.capabilities.as_overrides(),
             default_model=default_models.get(name),
+            embedding_batch_size=spec.embedding.batch_size,
+            embedding_device=spec.embedding.device,
+            embedding_local_files_only=spec.embedding.local_files_only or manifest.llm.offline,
         )
         for name, spec in manifest.llm.providers.items()
     }

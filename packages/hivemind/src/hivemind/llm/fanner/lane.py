@@ -43,13 +43,22 @@ Key invariants:
     - `Fanner` never refuses a call: with no fallback left, `FannerLane.complete` makes the call on
       the current binding regardless of any spill reason it found.
 
+Roadmap step 7.1 (ADR-0032) adds `FannerLane.embed`, metering an
+`hivemind.llm.embedding.provider.EmbeddingProvider` call the same way for seats and rate limits,
+but never spilling: an embedding fallback only ever exists for the same model id, so there is
+nothing this lane should decide about it that `hivemind.llm.embedding.gate.EmbedGate` does not
+already. Its full walk lives in the sibling module `hivemind.llm.fanner.embed`, imported here as
+`embed_through_fanner`, so this method is a thin delegate rather than a second copy of
+`complete`'s own machinery.
+
 See Also:
     - .claude/codingrules.md section 8.10 for the Fanner's role, spill-over and the two pools.
     - docs/adr/0009-structured-output-and-tool-call-degradation-ladders.md for the CallGate seam
       this lane implements.
     - docs/adr/0015-forage-map-seats-footprints-and-the-fanner.md for the map/Fanner split this
       module's `ForageMap.observe`/`set_abundance` calls close.
-    - hivemind.llm.fanner.seats, .limiter, .spill, .recorder for this module's collaborators.
+    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for why `embed` never spills.
+    - hivemind.llm.fanner.seats, .limiter, .spill, .recorder, .embed for this module's own siblings.
 """
 
 from __future__ import annotations
@@ -62,7 +71,10 @@ from datetime import timedelta
 from hivemind.forage.map import ForageMap
 from hivemind.forage.models import ModelSource
 from hivemind.forage.tempo import Tempo
+from hivemind.llm.embedding.bound import BoundEmbedder
+from hivemind.llm.embedding.models import EmbeddingRequest, EmbeddingResponse
 from hivemind.llm.errors import RateLimitedError
+from hivemind.llm.fanner.embed import embed_through_fanner
 from hivemind.llm.fanner.limiter import ProviderRateLimiter, RateLimit, estimate_tokens
 from hivemind.llm.fanner.recorder import LlmEventRecorder
 from hivemind.llm.fanner.seats import SeatMeter
@@ -220,11 +232,10 @@ class Fanner:
 
 
 class FannerLane:
-    """One caller's CallGate onto the Fanner: metering, spill-over and event recording.
+    """One caller's CallGate (and EmbedGate) onto the Fanner: metering and event recording.
 
-    Implements `hivemind.llm.ladders.gate.CallGate` exactly (structurally, per codingrules 8.1's
-    Protocol convention -- no explicit subclassing needed), so a ladder can take a lane as its
-    `gate=` with no code of its own aware the Fanner exists.
+    Implements both Protocols exactly (structurally, codingrules 8.1), so a caller takes a lane
+    as its gate with no code of its own aware the Fanner exists.
     """
 
     def __init__(
@@ -301,6 +312,10 @@ class FannerLane:
                     raise  # Nowhere to spill to; the caller sees the same error it would have.
                 current = current.fallback
                 continue
+
+    async def embed(self, bound: BoundEmbedder, request: EmbeddingRequest) -> EmbeddingResponse:
+        """Meter one embed call through `bound`; a thin delegate to `hivemind.llm.fanner.embed`."""
+        return await embed_through_fanner(self._fanner, self._tempo, bound, request)
 
     async def _meter(
         self, current: BoundModel, request: LLMRequest, source: ModelSource | None

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -30,6 +31,7 @@ from hivemind.cli.in_cell.config import (
 )
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage.slots import Effort
+from hivemind.llm.registry import ProviderKind
 from hivemind.manifest.env import read_in_cell_env
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_hive_id, new_node_id
@@ -220,6 +222,18 @@ def test_build_runtime_config_rejects_a_providers_row_with_an_unknown_kind() -> 
 
     with pytest.raises(ConfigurationError, match="HIVEMIND_PROVIDERS"):
         build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+@pytest.mark.parametrize("kind", get_args(ProviderKind))
+def test_build_runtime_config_accepts_every_provider_kind_the_hive_stand_knows(kind: str) -> None:
+    # The Hive Stand ships its whole provider table to every Virtual Cell; a kind the Cell did not
+    # know (roadmap 7.1's sentence_transformers) would make the Cell refuse to start at all.
+    row = json.dumps([{"name": "any", "kind": kind, "base_url": ""}])
+    environ = _full_environ(HIVEMIND_PROVIDERS=row)
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.providers["any"].kind == kind
 
 
 def test_build_runtime_config_rejects_a_providers_array_that_is_not_json() -> None:

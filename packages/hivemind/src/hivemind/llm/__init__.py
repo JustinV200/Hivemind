@@ -77,6 +77,15 @@ Public API (roadmap step 3.12a, extended by step 4.7a):
     - Rate limiting: RateLimit, the manifest-configured ceiling `ProviderRateLimiter` prefers a
       provider's own reported `RateLimitSnapshot` figures over, once it has them.
     - Trail recording: LlmEventRecorder, NullLlmEventRecorder, TrailLlmEventRecorder.
+
+Public API (roadmap step 7.1, ADR-0032):
+    - The embedding boundary (`hivemind.llm.embedding`): EmbeddingRequest, EmbeddingResponse,
+      MAX_EMBED_TEXTS, EmbeddingCapabilities, EmbeddingProvider, FakeEmbedding,
+      FAKE_EMBED_MODEL_ID, BoundEmbedder, EmbedGate, DirectEmbedGate.
+    - The new error (`hivemind.llm.errors`): EmbeddingUnsupportedError.
+    - Registry additions (`hivemind.llm.registry`): EMBEDDING_ONLY_KINDS, IN_PROCESS_KINDS,
+      EmbeddingFactory, default_embedding_factories; `ProviderKind` now includes
+      `"sentence_transformers"`, and `ProviderRegistry` gains `embedder()`.
 """
 
 from hivemind.llm.capabilities import (
@@ -86,9 +95,22 @@ from hivemind.llm.capabilities import (
     ProviderCapabilities,
     ProviderHealth,
 )
+from hivemind.llm.embedding import (
+    FAKE_EMBED_MODEL_ID,
+    MAX_EMBED_TEXTS,
+    BoundEmbedder,
+    DirectEmbedGate,
+    EmbeddingCapabilities,
+    EmbeddingProvider,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    EmbedGate,
+    FakeEmbedding,
+)
 from hivemind.llm.errors import (
     MAX_RAW_PREVIEW_CHARS,
     ContextTooLongError,
+    EmbeddingUnsupportedError,
     LLMError,
     MalformedOutputError,
     OfflineViolationError,
@@ -168,7 +190,10 @@ from hivemind.llm.models import (
 from hivemind.llm.prompts import PromptName, SectionLabel, load_prompt, render
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.registry import (
+    EMBEDDING_ONLY_KINDS,
+    IN_PROCESS_KINDS,
     PENDING_KINDS,
+    EmbeddingFactory,
     MissingDefaultModelError,
     ProviderConfig,
     ProviderFactory,
@@ -176,6 +201,7 @@ from hivemind.llm.registry import (
     ProviderRegistry,
     RegistryDeps,
     apply_overrides,
+    default_embedding_factories,
     default_factories,
 )
 from hivemind.llm.slots import (
@@ -190,12 +216,16 @@ __all__ = [
     "CHARS_PER_TOKEN_ESTIMATE",
     "DEFAULT_SEATS",
     "DEFAULT_THROTTLE_S",
+    "EMBEDDING_ONLY_KINDS",
+    "FAKE_EMBED_MODEL_ID",
     "FAKE_MODEL_ID",
     "FULL_CONTEXT_WINDOW_DEFAULT",
+    "IN_PROCESS_KINDS",
     "JSON_MODE_RETRIES",
     "LLM_CALL_KIND",
     "LLM_SPILL_KIND",
     "LLM_THROTTLED_KIND",
+    "MAX_EMBED_TEXTS",
     "MAX_RAW_PREVIEW_CHARS",
     "MAX_TOOL_ROUNDS_DEFAULT",
     "NATIVE_SCHEMA_RETRIES",
@@ -205,12 +235,22 @@ __all__ = [
     "SPILL_WAIT_FRACTION",
     "TEXT_STREAM_CHUNK_COUNT",
     "TOOL_NAME_PATTERN",
+    "BoundEmbedder",
     "BoundModel",
     "CallGate",
     "CompositeLlmEventRecorder",
     "ContentPart",
     "ContextTooLongError",
     "DirectCallGate",
+    "DirectEmbedGate",
+    "EmbedGate",
+    "EmbeddingCapabilities",
+    "EmbeddingFactory",
+    "EmbeddingProvider",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
+    "EmbeddingUnsupportedError",
+    "FakeEmbedding",
     "FakeLLMProvider",
     "FallbackNote",
     "FallbackReason",
@@ -271,6 +311,7 @@ __all__ = [
     "Usage",
     "apply_overrides",
     "complete_structured",
+    "default_embedding_factories",
     "default_factories",
     "load_prompt",
     "render",

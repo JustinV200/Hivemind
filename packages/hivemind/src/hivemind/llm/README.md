@@ -162,6 +162,44 @@ fan their wings to regulate the hive's airflow.
   4.7a's own **`DEFAULT_THROTTLE_S`** (`60.0`): how long `FannerLane` throttles a source for when
   a `RateLimitedError` carries no `retry_after_s` hint.
 
+## Public API (roadmap step 7.1, ADR-0032)
+
+The embedding boundary (`hivemind.llm.embedding`): turns text into vectors, the same "one door"
+shape as the chat boundary above, but its own package because it needed several files.
+
+- **The boundary models** (`hivemind.llm.embedding.models`): `EmbeddingRequest` (`texts: tuple[str,
+  ...]`, 1 to `MAX_EMBED_TEXTS = 256`, each at least one character) and `EmbeddingResponse`
+  (`vectors`, one tuple of floats per text in order; `model`; `dimensions`; `usage: Usage`, a
+  validator rejecting a vector whose length or finiteness disagrees with `dimensions`).
+- **Capabilities** (`hivemind.llm.embedding.capabilities`): `EmbeddingCapabilities` (`dimensions:
+  int | None`, `max_batch`, `max_input_chars`, `normalized`).
+- **The one door** (`hivemind.llm.embedding.provider`): `EmbeddingProvider`, a `typing.Protocol`
+  with `name`, `capabilities`, `embed` and `health`. Implementations: `hivemind.llm.providers.
+  openai_compat.embedding.OpenAICompatEmbedding` (`/embeddings` on the same servers the chat
+  adapter speaks to), `hivemind.llm.providers.sentence_transformers.SentenceTransformersEmbedding`
+  (in-process, an optional extra), and `FakeEmbedding` below.
+- **The fake** (`hivemind.llm.embedding.fake`): `FakeEmbedding`, a deterministic feature-hashing
+  `EmbeddingProvider` -- word tokens and character trigrams hashed with `hashlib.blake2b` (never
+  Python's own salted `hash()`) into an L2-normalised vector, so lexically similar texts land near
+  each other reproducibly. `set_available(False)` simulates an outage; `calls` counts every
+  `embed()` call, so a test can assert batching.
+- **The resolved binding** (`hivemind.llm.embedding.bound`): `BoundEmbedder`, mirroring
+  `BoundModel` except a `.fallback` link is only ever built when it serves the *same* model id
+  (ADR-0032: two embedding models' vectors are not comparable).
+- **The call seam** (`hivemind.llm.embedding.gate`): `EmbedGate` and `DirectEmbedGate`, mirroring
+  `CallGate`/`DirectCallGate`; `DirectEmbedGate` walks `bound.fallback` on
+  `ProviderUnavailableError` only (safe here, unlike a chat spill, because the fallback is
+  guaranteed same-model).
+- **Resolving the slot** (`hivemind.llm.registry`): `ProviderRegistry.embedder(slot=ModelSlot.
+  EMBEDDER) -> BoundEmbedder` walks `[llm.slots]` the same way `bound()` does, but caches a
+  provider per `(name, model)` pair, raises `EmbeddingUnsupportedError` when the primary binding's
+  kind has no embedding factory (`anthropic` today), and cuts a fallback chain at the first
+  different model id. `EMBEDDING_ONLY_KINDS` (`sentence_transformers`, no chat factory) and
+  `IN_PROCESS_KINDS` (provably local under `[llm] offline = true` with no `base_url` at all) are
+  both mirrored in `hivemind.manifest.schema.llm`, kept in sync by a dedicated test.
+- **`hive llm test embedder`**: embeds one short text through the resolved slot and prints the
+  model, its vector dimension and the latency, in place of a completion's usage and reply.
+
 ## How to test this
 
 ```bash

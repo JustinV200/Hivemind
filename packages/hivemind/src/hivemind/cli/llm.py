@@ -5,8 +5,12 @@ Three commands, each a thin typer layer over `hivemind.llm.registry.ProviderRegi
 its declared shape and a live health probe; `slots` lists every `hivemind.forage.slots.ModelSlot`
 resolved to its current binding, price and fallback chain; `test` resolves one slot and sends a
 single small completion through it, the way `hivemind.llm.ladders.gate.DirectCallGate` would, to
-prove a binding actually answers before a real goal depends on it. No rule about what a provider or
-a slot binding *is* lives here; every one of those lives in `hivemind.llm` and `hivemind.forage`
+prove a binding actually answers before a real goal depends on it -- except for `EMBEDDER`
+(roadmap step 7.1), which has no completion to send: `test` embeds one short text through
+`ProviderRegistry.embedder()` instead, the way `hivemind.llm.embedding.gate.DirectEmbedGate`
+would, and prints the model, its vector dimension and the latency in place of usage and a reply.
+No rule about what a provider or a slot binding *is* lives here; every one of those lives in
+`hivemind.llm` and `hivemind.forage`
 (codingrules section 2's CLI row: "commands call into subsystem APIs, never contain logic"). This
 module is the CLI's own composition root for one loaded `HiveManifest`'s worth of `os.environ`
 reads (codingrules section 13: environment variables are read in exactly one place, `manifest.env`,
@@ -58,14 +62,19 @@ from hivemind.cli.stores import (
 )
 from hivemind.forage import ModelSlot
 from hivemind.llm import (
+    BoundEmbedder,
     BoundModel,
     DirectCallGate,
+    DirectEmbedGate,
+    EmbeddingRequest,
+    EmbeddingUnsupportedError,
     LLMError,
     LLMRequest,
     Message,
     OfflineViolationError,
     ProviderRegistry,
     Role,
+    UnknownProviderError,
     Usage,
 )
 from hivemind.manifest import HiveManifest, provider_api_key
@@ -123,7 +132,9 @@ class _SlotRow(BaseModel):
     provider: str = Field(description="The provider name serving this binding.")
     model: str = Field(description="The provider's own model id.")
     effort: str = Field(description="How hard this binding asks the model to think.")
-    context_window: int = Field(description="This binding's context window, in tokens.")
+    context_window: int | None = Field(
+        description="This binding's context window, in tokens; None for an embedding binding."
+    )
     price: str = Field(description="Per-million-token price, or '-' when the Forage map has none.")
     fallback_chain: str = Field(description="Every binding key in the chain, as 'a -> b -> c'.")
 
@@ -135,6 +146,15 @@ class _TestResult:
     latency_s: float
     usage: Usage
     first_line: str
+
+
+@dataclass(frozen=True, slots=True)
+class _EmbedTestResult:
+    """What `hive llm test embedder` prints: elapsed time, the model and its dimension."""
+
+    latency_s: float
+    model: str
+    dimensions: int
 
 
 @app.command("providers")
@@ -156,7 +176,7 @@ def slots_command(manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOpti
     """List every ModelSlot resolved to its current binding, price and fallback chain."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
-    rows = tuple(_slot_row(registry.bound(slot)) for slot in ModelSlot)
+    rows = tuple(_slot_row_for(registry, slot) for slot in ModelSlot)
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return
@@ -174,23 +194,38 @@ def test_command(
         str, typer.Option("--prompt", help="Override the default one-word test prompt.")
     ] = DEFAULT_TEST_PROMPT,
 ) -> None:
-    """Resolve SLOT and send one small completion through it; print latency, usage and the reply."""
+    """Resolve SLOT and send one small completion (or embed) through it; print the result."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
     model_slot = ModelSlot.from_manifest_key(slot)
     try:
-        result = asyncio.run(_run_test_call(registry, model_slot, prompt))
+        if model_slot is ModelSlot.EMBEDDER:
+            # EMBEDDER has no completion to run; embed one short text instead (roadmap 7.1).
+            _print_embed_test_result(asyncio.run(_run_embed_test_call(registry, prompt)))
+            return
+        _print_test_result(asyncio.run(_run_test_call(registry, model_slot, prompt)))
     except LLMError as exc:
         # Every call failure the provider boundary can raise is a typed LLMError (codingrules
         # section 8.6); its own message already names the provider and the reason.
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+
+
+def _print_test_result(result: _TestResult) -> None:
+    """Print a completion test's latency, usage and reply, in `hive llm test`'s fixed format."""
     typer.echo(f"latency: {result.latency_s:.2f}s")
     typer.echo(
         f"usage: input={result.usage.input_tokens} output={result.usage.output_tokens} "
         f"cost_usd={result.usage.cost_usd}"
     )
     typer.echo(f"reply: {result.first_line}")
+
+
+def _print_embed_test_result(result: _EmbedTestResult) -> None:
+    """Print an embed test's model, dimension and latency, in `hive llm test embedder`'s format."""
+    typer.echo(f"model: {result.model}")
+    typer.echo(f"dimension: {result.dimensions}")
+    typer.echo(f"latency: {result.latency_s:.2f}s")
 
 
 async def _provider_rows(
@@ -227,8 +262,27 @@ async def _probe_health(registry: ProviderRegistry, name: str) -> str:
         # [llm] offline=true refuses a non-loopback provider at construction (codingrules 8.6);
         # show that refusal instead of letting it fail the whole command.
         return "refused: offline"
+    except UnknownProviderError:
+        # An embedding-only kind (roadmap 7.1) has no chat door; its health is read through the
+        # EMBEDDER slot's own binding instead of failing the whole table.
+        return await _probe_embedder_health(registry, name)
     reading = await provider.health()
     return f"{reading.state.value.lower()}: {reading.detail}"
+
+
+async def _probe_embedder_health(registry: ProviderRegistry, name: str) -> str:
+    """Probe `name` through the EMBEDDER chain, or say it serves nothing this Hive binds."""
+    try:
+        current: BoundEmbedder | None = registry.embedder()
+    except LLMError:
+        return "embedding-only: not bound to the embedder slot"
+    # Walk the chain: `name` may be a same-model fallback rather than the primary link.
+    while current is not None:
+        if current.provider.name == name:
+            reading = await current.provider.health()
+            return f"{reading.state.value.lower()}: {reading.detail}"
+        current = current.fallback
+    return "embedding-only: not bound to the embedder slot"
 
 
 def _print_provider_table(rows: tuple[_ProviderRow, ...]) -> None:
@@ -240,6 +294,42 @@ def _print_provider_table(rows: tuple[_ProviderRow, ...]) -> None:
             f"{row.name:<16}  {row.kind:<14}  {row.base_url:<34}  {row.seats:>5}  {key:<3}  "
             f"{row.health}"
         )
+
+
+def _slot_row_for(registry: ProviderRegistry, slot: ModelSlot) -> _SlotRow:
+    """Resolve one slot's row: EMBEDDER through `embedder()`, every other slot through `bound()`.
+
+    An embedding-only provider (roadmap 7.1's `sentence_transformers`) has no chat door at all, so
+    `bound()` cannot resolve the EMBEDDER slot when one serves it; an EMBEDDER bound to a chat-only
+    kind is still listed through `bound()`, since the binding exists and the Honey Store merely
+    degrades to full-text search on that Hive (ADR-0032).
+    """
+    if slot is not ModelSlot.EMBEDDER:
+        return _slot_row(registry.bound(slot))
+    try:
+        return _embedder_row(registry.embedder(slot))
+    except EmbeddingUnsupportedError:
+        return _slot_row(registry.bound(slot))
+
+
+def _embedder_row(bound: BoundEmbedder) -> _SlotRow:
+    """Build the EMBEDDER slot's row from a resolved BoundEmbedder (no effort, no window)."""
+    keys = []
+    current: BoundEmbedder | None = bound
+    while current is not None:
+        keys.append(current.binding)
+        current = current.fallback
+    price = bound.cost_per_million_input_usd
+    return _SlotRow(
+        slot=bound.slot.manifest_key,
+        binding=bound.binding,
+        provider=bound.provider.name,
+        model=bound.model,
+        effort="-",
+        context_window=None,
+        price="-" if price is None else f"${price:.2f} per M in",
+        fallback_chain=" -> ".join(keys),
+    )
 
 
 def _slot_row(bound: BoundModel) -> _SlotRow:
@@ -282,8 +372,14 @@ def _print_slot_table(rows: tuple[_SlotRow, ...]) -> None:
     for row in rows:
         typer.echo(
             f"{row.slot:<12}  {row.binding:<14}  {row.provider:<12}  {row.model:<20}  "
-            f"{row.effort:<7}  {row.context_window:>8}  {row.price:<20}  {row.fallback_chain}"
+            f"{row.effort:<7}  {_window(row.context_window):>8}  {row.price:<20}  "
+            f"{row.fallback_chain}"
         )
+
+
+def _window(context_window: int | None) -> str:
+    """Format a slot row's context window, '-' for an embedding binding that has none."""
+    return "-" if context_window is None else str(context_window)
 
 
 async def _run_test_call(registry: ProviderRegistry, slot: ModelSlot, prompt: str) -> _TestResult:
@@ -305,3 +401,19 @@ async def _run_test_call(registry: ProviderRegistry, slot: ModelSlot, prompt: st
     latency_s = clock.monotonic() - start
     first_line = response.text.splitlines()[0] if response.text else ""
     return _TestResult(latency_s=latency_s, usage=response.usage, first_line=first_line)
+
+
+async def _run_embed_test_call(registry: ProviderRegistry, text: str) -> _EmbedTestResult:
+    """Resolve the EMBEDDER slot and embed one short text through it, timed on a fresh Clock."""
+    bound = registry.embedder()
+    request = EmbeddingRequest(texts=(text,))
+    clock = SystemClock()
+    start = clock.monotonic()
+    # This await talks to whatever the resolved binding's provider is (a hosted server, an
+    # in-process model, or FakeEmbedding in this package's own tests); DirectEmbedGate walks a
+    # same-model fallback on an outage, so a manual test matches what a real caller would see.
+    response = await DirectEmbedGate().embed(bound, request)
+    latency_s = clock.monotonic() - start
+    return _EmbedTestResult(
+        latency_s=latency_s, model=response.model, dimensions=response.dimensions
+    )

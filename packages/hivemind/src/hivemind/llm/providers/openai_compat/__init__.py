@@ -8,7 +8,9 @@ sub-package is the adapter roadmap step 3.7 asks for: `OpenAICompatConfig` (the 
 `OpenAICompatProvider` (the `hivemind.llm.provider.LLMProvider` implementation built from it).
 `mapping.py`, `client.py` and `rate_limit.py` (roadmap step 4.7a's own header-parsing sibling to
 `mapping.py`), this package's other three modules, are private: neither an OpenAI wire field name
-nor an `httpx` type is meant to be seen from outside this package.
+nor an `httpx` type is meant to be seen from outside this package. Roadmap step 7.1 adds this
+package's embedding half: `OpenAICompatEmbeddingConfig` and `OpenAICompatEmbedding`
+(`embedding.py`), speaking `POST /embeddings` on the same servers over the same `client.py`.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.providers`. Imported
@@ -35,8 +37,20 @@ See Also:
 Public API:
     - OpenAICompatConfig: this provider's validated configuration.
     - OpenAICompatProvider: the LLMProvider implementation, with `.create(name, config, clock)`.
+    - OpenAICompatEmbeddingConfig: this provider's validated embedding configuration (roadmap 7.1).
+    - OpenAICompatEmbedding: the EmbeddingProvider implementation, with the same `.create(name,
+      config, clock)` shape.
 """
 
+from hivemind.llm.providers.openai_compat.embedding import (
+    OpenAICompatEmbedding,
+    OpenAICompatEmbeddingConfig,
+)
 from hivemind.llm.providers.openai_compat.provider import OpenAICompatConfig, OpenAICompatProvider
 
-__all__ = ["OpenAICompatConfig", "OpenAICompatProvider"]
+__all__ = [
+    "OpenAICompatConfig",
+    "OpenAICompatEmbedding",
+    "OpenAICompatEmbeddingConfig",
+    "OpenAICompatProvider",
+]

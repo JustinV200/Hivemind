@@ -62,6 +62,22 @@ length becomes `ContextTooLongError`; every other 4xx becomes `ProviderRequestEr
 talks to `httpx` directly (bypassing that mapping) so it can tell a 5xx (`DEGRADED`) apart from a
 connection failure or a 401 (`DOWN`).
 
+## Embeddings (roadmap step 7.1)
+
+`embedding.py`'s `OpenAICompatEmbedding` speaks the same servers' `POST /embeddings`:
+`{"model": ..., "input": [...]}` in, `{"data": [{"index": ..., "embedding": [...]}], "usage": {
+"prompt_tokens": ...}}` out. It shares `client.py` for the HTTP mechanics but has nothing to do
+with `mapping.py`'s streaming/tool-call machinery -- one request, one response, batched
+client-side by `min(config.batch_size, DEFAULT_MAX_BATCH)` and truncated to `config.
+max_input_chars` per text. `OpenAICompatEmbeddingConfig.model` is the embedding model id (a
+provider used for both chat and embeddings binds two different models on the same `base_url`, one
+per `[llm.slots]` row -- `hivemind.llm.registry.ProviderRegistry.embedder` supplies whichever
+model the resolved `[llm.slots.embedder]` binding names, never `OpenAICompatConfig.model`).
+`capabilities.dimensions` is unknown (`None`) until the first response is decoded, then fixed for
+the life of the instance; a later response of a different dimension is refused with a typed
+`ProviderRequestError` rather than silently accepted (ADR-0032). `capabilities.normalized` is
+always `False`: this adapter cannot confirm what a given server or model actually returns.
+
 ## Running a live test later
 
 No live test exists yet (roadmap step 3.7 says not to write one). When one is added, it belongs

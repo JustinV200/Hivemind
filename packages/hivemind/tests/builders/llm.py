@@ -46,6 +46,7 @@ import dataclasses
 from hivemind.cli.stores import provider_configs, slot_bindings
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
+from hivemind.llm.embedding import BoundEmbedder, EmbeddingRequest, EmbeddingResponse, FakeEmbedding
 from hivemind.llm.fake import FakeLLMProvider, text_response, tool_call_response
 from hivemind.llm.fanner import FannerDeps, NullLlmEventRecorder
 from hivemind.llm.models import (
@@ -67,6 +68,9 @@ __all__ = [
     "bindings_from_manifest",
     "make_binding",
     "make_bound",
+    "make_bound_embedder",
+    "make_embed_request",
+    "make_embed_response",
     "make_fanner_deps",
     "make_provider_config",
     "make_registry_deps",
@@ -147,6 +151,62 @@ def make_tool_call(**overrides: object) -> ToolCall:
     fields: dict[str, object] = {"id": "call_1", "name": "test_tool", "arguments": {}}
     fields.update(overrides)
     return ToolCall(**fields)
+
+
+def make_embed_request(**overrides: object) -> EmbeddingRequest:
+    """Build a valid EmbeddingRequest, filling in every required field with a plain default.
+
+    Args:
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated EmbeddingRequest carrying one short text.
+    """
+    fields: dict[str, object] = {"texts": ("hello world",)}
+    fields.update(overrides)
+    return EmbeddingRequest(**fields)
+
+
+def make_embed_response(**overrides: object) -> EmbeddingResponse:
+    """Build a valid EmbeddingResponse, filling in every required field with a plain default.
+
+    Args:
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated EmbeddingResponse: one 4-dimension vector, a small nonzero Usage.
+    """
+    fields: dict[str, object] = {
+        "vectors": ((0.5, 0.5, 0.5, 0.5),),
+        "model": "test-embed-model",
+        "dimensions": 4,
+        "usage": Usage(input_tokens=3, output_tokens=0),
+    }
+    fields.update(overrides)
+    return EmbeddingResponse(**fields)
+
+
+def make_bound_embedder(**overrides: object) -> BoundEmbedder:
+    """Build a valid BoundEmbedder over a fresh FakeEmbedding, for the Fanner/gate tests to call.
+
+    `**overrides: object` mirrors `make_bound`'s own reasoning (codingrules 5.1's parameter
+    limit, `dataclasses.replace`'s keyword typing).
+
+    Args:
+        **overrides: Field values that replace the defaults below, most commonly `provider` (to
+            script or inspect it) and `fallback` (to build a chain).
+
+    Returns:
+        A validated BoundEmbedder bound to `ModelSlot.EMBEDDER` on a fresh FakeEmbedding.
+    """
+    base = BoundEmbedder(
+        slot=ModelSlot.EMBEDDER,
+        binding="embedder",
+        provider=FakeEmbedding(clock=FakeClock()),
+        model="test-embed-model",
+        cost_per_million_input_usd=0.5,
+    )
+    return dataclasses.replace(base, **overrides)  # type: ignore[arg-type]
 
 
 def make_bound(**overrides: object) -> BoundModel:
