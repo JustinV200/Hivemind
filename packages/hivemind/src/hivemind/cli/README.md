@@ -97,7 +97,10 @@ typer layer that calls into a subsystem's public API and never contains logic of
   not `app.add_typer` -- unlike every other group in this package, it has no subcommand of its own
   (`hive run "goal"`, not `hive run run "goal"`), and the pinned typer version does not collapse a
   single-command `add_typer` sub-app onto its parent's own name (verified empirically; see this
-  module's own docstring).
+  module's own docstring). `--clearance` stays `C1` by default; its help says that Honey learned
+  on the Hive Stand (`C2` by the provenance floor) reaches a `C1` goal once it is lowered
+  (ADR-0034; see `hive honey review` below), or at once with `--clearance C2`, which also reads
+  personal data.
 - `readback/` -- three commands grouped into a sub-package (codingrules section 5.6: `cli/` itself
   stays within the ten-module limit) because they share one shape: each reconstructs what it shows
   from a stored artifact this Hive already writes for another reason, never a live link into a
@@ -350,9 +353,10 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
 
 ## Command groups (phase 7 steps 7.10 and 7.11)
 
-- `honey/` (a package: `query.py`, `browse.py`, `maintain.py`, plus a shared `context.py`, the
-  browser's memory-backed `sources.py` and `render.py` for output, codingrules section 5.1's
-  300-line limit) -- `hive honey`, the operator's door into the Honey Store (the cold tier).
+- `honey/` (a package: `query.py`, `browse.py`, `maintain.py`, `review.py`, plus a shared
+  `context.py`, the browser's memory-backed `sources.py` and `render.py` for output, codingrules
+  section 5.1's 300-line limit) -- `hive honey`, the operator's door into the Honey Store (the
+  cold tier).
   `--manifest`, `--db` and `--clearance C0|C1|C2` (default C2: the most sensitive label the
   operator reads) belong to the group, so they come right after `honey` and before the
   subcommand (`hive honey --manifest hive.toml --clearance C1 ls /hive`). The operator reads as
@@ -367,23 +371,37 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
       scope kind, tainted and retired counts, vectors per embedding model (ADR-0032's coverage per
       model) and the vector backend.
     - `ripen --now` runs the House Bee's whole pass (`HouseBeeRipening.run_pass()`: drain every
-      queued operator note into HUMAN Nectar, then `Ripener.run_pass()`) against the Hive's own
-      file, built exactly as the running Hive builds it (`open_honey_store`, then
-      `build_honey_access` over a registry and Fanner from `hivemind.cli.compose`), attributed to
-      the Hive Stand's own stable Cell id (`hivemind.cell.hive_stand_cell_id`, derived from the
-      manifest's `[hive] node_id`, since this invocation leases no Hive Stand of its own), and
-      prints how many notes it drained, what the pass did, and each model slot's binding, or why
-      it has none (the pass still runs: heuristic summaries, no vectors). Without `--now` it says
-      how much Nectar and how many notes are waiting, and how often a running House Bee acts.
-    - `reembed` repeats `Ripener.embed_pending()` until a pass embeds nothing (nothing pending, or
-      no progress; at most `MAX_REEMBED_PASSES`), then prints how many rows it embedded for the
-      current model and the vector count per model; with no usable embedder, or rows still
-      pending after a pass that embedded nothing, it exits 1 with the reason.
+      queued operator note into HUMAN Nectar, then `Ripener.run_pass()`, then ADR-0034's label
+      lowering: file a proposal for each newly eligible Nectar and ask the clearance judge about
+      waiting ones) against the Hive's own file, built exactly as the running Hive builds it
+      (`open_honey_store`, then `build_honey_access` over a registry and Fanner from
+      `hivemind.cli.compose`), attributed to the Hive Stand's own stable Cell id
+      (`hivemind.cell.hive_stand_cell_id`, derived from the manifest's `[hive] node_id`, since this
+      invocation leases no Hive Stand of its own), and prints how many notes it drained, what the
+      pass ripened, how many lowering proposals it filed and what the judge decided (lowered,
+      rejected, unanswered, handed to the human), and each model slot's binding (ripener,
+      embedder, judge), or why it has none (the pass still runs: heuristic summaries, no vectors,
+      proposals left for the human). A judge outage fails the pass with its typed error (exit 1)
+      after ripening and filing are committed. Without `--now` it says how much Nectar and how
+      many notes are waiting, and how often a running House Bee acts.
+    - `reembed [--prune]` repeats `Ripener.embed_pending()` until a pass embeds nothing (nothing
+      pending, or no progress; at most `MAX_REEMBED_PASSES`), then prints how many rows it
+      embedded for the current model and the vector count per model; with no usable embedder, or
+      rows still pending after a pass that embedded nothing, it exits 1 with the reason. With
+      `--prune` (ADR-0033) it then calls `hivemind.honey_store.prune_vectors` for the bound
+      EMBEDDER's model, recorded as the human's act (`honey.vectors_pruned`): every other model's
+      vectors are dropped and listed per model, but only when every live row has a vector for the
+      bound model; otherwise it refuses on stderr with how many rows still lack one, deletes
+      nothing and exits 1, like any other refusal in the group.
     - `ls [PATH] [--limit N] [--offset N] [--json]` and `cat PATH [--json]` walk the folder tree of
       `hivemind.honey_store.browse` (`/hive`, `/cells/<cell>` and its `wax` folder, `/bees/<bee>`,
       `/tasks/<task>`, `/bee-bread`); every listed item shows its clearance and provenance, and a
-      document the reader may not see is "not found" (exit 1), exactly like a missing one. These
-      need no model binding: the browser is built over the store and the memory store alone.
+      document the reader may not see is "not found" (exit 1), exactly like a missing one. `cat`
+      of a Honey row also lists, under its fields, every other source that deposited the same
+      text (`HoneyDocument.sources`, ADR-0033: task, Cell, bee, when, origin, tier, declared label
+      and source key, never content), only when there are any; `--json` carries them as
+      `document.sources`. These need no model binding: the browser is built over the store and
+      the memory store alone.
     - `propose PATH TITLE TEXT` proposes a note from a folder: from a Cell's folder a PROPOSED Cell
       Wax note (C2, `WaxOrigin.HUMAN`) filed through `hivemind.memory.propose_wax` for a running
       Queen's next tick to judge; anywhere else a note queued with `honey.note_proposed` for the
@@ -392,15 +410,37 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
       `clearance.check_lowering` with approver HUMAN, lowers (`honey.label_lowered`) one Honey
       row's label through `HoneyRelabeller`; asking for the label a row already has writes
       nothing. The events carry both labels, the approver and the reason, with the human as actor.
-  A path or an input the browser refuses exits 2; any other typed refusal exits 1 with its code
-  on stderr, never a traceback.
+    - `review [--limit N] [--json]` (ADR-0034) lists label lowering proposals, waiting ones first
+      (PROPOSED, then REJECTED, which the human may still lower, then LOWERED): each one's state,
+      id, from and to labels, attempts, its Nectar's SUMMARY row path (for `cat`) and title (only
+      within `--clearance`; ids and labels always), the Ripener's reason, the judge's reasons,
+      who decided it and when (with the judge's rubric id, or the human's reason) and the note
+      saying why it waits for the human; then how many wait for the judge and for the human. It
+      needs no model binding. `review approve ID --reason TEXT` lowers as the human (from
+      PROPOSED, or from REJECTED: the human is the last word) and `review deny ID --reason TEXT`
+      rejects (from PROPOSED), both through `LabelLowering.decide` under the human's identity
+      (actor `human`, approver HUMAN; the reason is kept on the proposal, never on the trail). An
+      unknown id or a forbidden edge exits 1 with its code, an empty or overlong reason exits 2,
+      and an approval whose target no longer stands prints the rejection and exits 1. `review
+      --judge` runs the judge's review step (`LabelLowering.review_pending()`, closing the
+      registry in the same event loop) over waiting proposals now, the way `ripen --now` runs a
+      pass, prints its counts and how each proposal it was asked about now stands; with no JUDGE
+      binding, or `[honey.lowering] enabled = false`, it says so and exits 1. `--judge` or
+      `--json` beside `approve`/`deny`, or the two together, exit 2 rather than being ignored.
+  A path or an input the browser refuses, and a review reason the Honey Store refuses, exit 2; any
+  other typed refusal exits 1 with its code on stderr, never a traceback.
 
 `tests/unit/cli/honey/` drives every command through `CliRunner` against a `fake_manifest` Hive
 and its real SQLite file (`harness.py`): Nectar seeded through the real `NectarIntake`, ripened by
 `ripen --now` itself (the `FakeEmbedding` behind the fake EMBEDDER gives real vectors), then
-`query`, `stats`, `ls`, `cat`, `propose` both ways, `relabel` both ways with its trail events, and
-`reembed` after a real manifest edit rebinds the embedder to another model; the degraded paths
-rebind it to a hosted kind with no embeddings. `harness.invoke` wraps each run in
+`query`, `stats`, `ls`, `cat` (with a content duplicate's extra source), `propose` both ways,
+`relabel` both ways with its trail events, and `reembed` (and `--prune`, both pruning and
+refusing) after a real manifest edit rebinds the embedder to another model; the degraded paths
+rebind it to a hosted kind with no embeddings. `test_review.py` stores a ripened Hive Stand
+deposit only the floor holds at C2 (`harness.seed_eligible`), files its proposal as a House Bee
+with no judge would, then lists, approves, denies and judges it; `harness.script_judge` answers
+the JUDGE slot through the real registry's `fake` responder seam, so `--judge` and `ripen --now`
+run the real `ModelClearanceJudge`. `harness.invoke` wraps each run in
 `structlog.testing.capture_logs()`: the CLI configures no logging, and structlog's default prints
 every log line (the store's own `honey_store.vector_backend`, for one) to stdout, in front of
 the JSON a test parses.

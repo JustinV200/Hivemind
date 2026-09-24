@@ -14,6 +14,14 @@ one (`hive run run "goal"`) -- verified against this repository's pinned typer v
 writing this module, rather than assumed. `hivemind.cli.app` registers it directly on the root
 application with `app.command("run")(run_command)` instead.
 
+`--clearance` is the goal's own HoneyClearance (data-sensitivity label), C1 by default: an ordinary
+goal never reads personal data unasked. Everything learned on the Hive Stand (the machine the
+Queen runs on, a borrowed Real Cell) enters the Honey Store (the Hive's knowledge base) as C2 by
+the provenance floor, so a C1 goal reads it only once its label has been lowered (ADR-0034: the
+House Bee proposes a lowering when the Ripener reads the text as less sensitive, and the
+independent clearance judge or the operator decides it; `hive honey review` lists and decides
+proposals), or at once with `--clearance C2`, which also lets the goal read personal data.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script (`hivemind.cli.app`). Calls into `hivemind.cell` (HoneyClearance),
@@ -33,6 +41,8 @@ See Also:
     - .claude/roadmap.md step 3.21 for this command's own roadmap bullet.
     - .claude/codingrules.md section 10 for the three allowed broad `except Exception` sites.
     - hivemind.cli.compose for build_hive/run_hive/run_goal/GoalReport, this module's own seam.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for how Hive Stand
+      Honey reaches a C1 goal.
 """
 
 from __future__ import annotations
@@ -96,7 +106,9 @@ ClearanceOption = Annotated[
     str,
     typer.Option(
         "--clearance",
-        help="The goal's own HoneyClearance: C0, C1 or C2.",
+        help="The goal's own HoneyClearance: C0, C1 or C2. Honey learned on the Hive Stand is C2 "
+        "until lowered: a C1 goal reads it once it is lowered (see `hive honey review`), or at "
+        "once with --clearance C2, which also reads personal data.",
         callback=_validate_clearance,
     ),
 ]

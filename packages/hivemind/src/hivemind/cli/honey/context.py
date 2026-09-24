@@ -6,22 +6,25 @@ Nectar, raw findings, ripened into Honey, searchable knowledge). Its group callb
 to repeat them) and `cli_context` loads the manifest once a command body runs, so a subcommand's
 `--help` never needs one. The operator reads as
 `operator_reader` (every scope, up to `--clearance`). Commands that call a model (`query`,
-`ripen --now`, `reembed`) open the Honey Store the one way the Hive does -- `open_honey_store`,
-then `build_honey_access` over a registry and Fanner built as `hivemind.cli.compose` builds them
--- and probe the EMBEDDER and RIPENER bindings so a missing one is printed with its reason instead
-of failing; commands that only read or record (`stats`, `ls`, `cat`, `propose`, `relabel`) open
-the store alone and need no model binding at all.
+`ripen --now`, `reembed`, `review --judge`) open the Honey Store the one way the Hive does --
+`open_honey_store`, then `build_honey_access` over a registry and Fanner built as
+`hivemind.cli.compose` builds them -- and probe the EMBEDDER, RIPENER and JUDGE bindings so a
+missing one is printed with its reason instead of failing; commands that only read or record
+(`stats`, `ls`, `cat`, `propose`, `relabel`, `review` and its human decisions) open the store
+alone and need no model binding at all.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside the CLI's `honey` command group. Imported
-    by `hivemind.cli.honey.query`, `.browse` and `.maintain`. Calls into `hivemind.cli.stores`,
-    `hivemind.cli.compose`, `hivemind.honey_store`, `hivemind.forage`, `hivemind.llm` (only for
-    the typed errors a binding probe catches) and `hivemind.manifest`.
+    by `hivemind.cli.honey.query`, `.browse`, `.maintain` and `.review`. Calls into
+    `hivemind.cli.stores`, `hivemind.cli.compose`, `hivemind.honey_store`, `hivemind.forage`,
+    `hivemind.llm` (only for the typed errors a binding probe catches) and `hivemind.manifest`.
 
 Key invariants:
     - The Honey Store is only ever built through `open_honey_store` and `build_honey_access`.
     - Every error a command body reports is a typed `HiveMindError`, turned into one stderr line
       and a non-zero exit by `run_or_exit`; no command prints a traceback for one.
+    - The JUDGE probe honours `[honey.lowering] enabled = false` exactly as `build_honey_access`
+      does: the slot is reported as unused for that reason and never resolved.
 
 See Also:
     - hivemind.cli.compose.honey for build_honey_access, the one way the Honey Store is built.
@@ -41,7 +44,7 @@ import typer
 
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose.deps import build_fanner, build_provider_registry
-from hivemind.cli.compose.honey import build_honey_access
+from hivemind.cli.compose.honey import JUDGE_DISABLED, build_honey_access
 from hivemind.cli.stores import (
     DEFAULT_MANIFEST,
     DbOption,
@@ -53,15 +56,17 @@ from hivemind.cli.stores import (
 )
 from hivemind.common.errors import HiveMindError
 from hivemind.forage import ModelSlot
-from hivemind.honey_store import HoneyAccess, HoneyIdentity, HoneyReader
+from hivemind.honey_store import HoneyAccess, HoneyIdentity, HoneyReader, LoweringInputError
 from hivemind.honey_store.browse import BrowseInputError, BrowsePathError, operator_reader
 from hivemind.llm import ProviderRegistry
-from hivemind.manifest import HiveManifest
+from hivemind.manifest import HiveManifest, HoneyLoweringSection
 from waggle.clock import SystemClock
 
 HUMAN_ACTOR = "human"  # Every write these commands record is the operator's own act.
 EXIT_REFUSED = 1  # The Hive refused or could not do what was asked.
 EXIT_BAD_INPUT = 2  # The command line itself was wrong (a path, a title), as typer's own usage.
+# What the operator typed and the Honey Store refused as input, not as a decision: exit 2.
+_BAD_INPUT_ERRORS = (BrowsePathError, BrowseInputError, LoweringInputError)
 
 # `--clearance`, shared by every reading command through the group callback.
 ClearanceOption = Annotated[
@@ -118,10 +123,11 @@ class SlotStatus:
 
 @dataclass(frozen=True, slots=True)
 class BindingStatus:
-    """The two slots the Honey Store calls: EMBEDDER (vectors) and RIPENER (summaries)."""
+    """The slots the Honey Store calls: EMBEDDER, RIPENER and the clearance judge on JUDGE."""
 
     embedder: SlotStatus  # Without it, rows get no vectors and search is full text only.
     ripener: SlotStatus  # Without it, summaries are heuristic.
+    judge: SlotStatus  # Without it, every lowering proposal waits for the human (ADR-0034).
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +184,7 @@ def reader_for(cli_ctx: HoneyCliContext) -> HoneyReader:
 
 
 def human_identity(manifest: HiveManifest) -> HoneyIdentity:
-    """Return the identity the operator's own writes (a note, a relabel) are recorded under.
+    """Return the identity the operator's own writes (a note, a relabel, a review) are under.
 
     Args:
         manifest: The loaded Hive Manifest.
@@ -198,19 +204,20 @@ def open_access(cli_ctx: HoneyCliContext) -> OpenedHoney:
         cli_ctx: The shared context.
 
     Returns:
-        The HoneyAccess `build_honey_access` built (either slot may be missing, never an error),
+        The HoneyAccess `build_honey_access` built (any slot may be missing, never an error),
         and each slot's model or the reason it has none.
     """
     manifest = cli_ctx.manifest
     clock = SystemClock()
     store = open_honey_store(cli_ctx.db)
     # One live Forage map shared by the registry and the Fanner, as hivemind.cli.compose does,
-    # and the Fanner records every embedding and summary call on the Hive's own trail.
+    # and the Fanner records every embedding, summary and judge call on the Hive's own trail.
     forage_map = build_forage_map(manifest, clock)
     registry = build_provider_registry(manifest, os.environ, clock, forage_map, None)
     fanner = build_fanner(manifest, forage_map, open_trail(cli_ctx.db), clock)
     access = build_honey_access(manifest, store, registry, fanner, clock)
-    return OpenedHoney(access=access, bindings=_probe_bindings(registry), registry=registry)
+    bindings = _probe_bindings(registry, manifest.honey.lowering)
+    return OpenedHoney(access=access, bindings=bindings, registry=registry)
 
 
 def run_or_exit[ResultT](work: Coroutine[object, None, ResultT]) -> ResultT:
@@ -223,12 +230,14 @@ def run_or_exit[ResultT](work: Coroutine[object, None, ResultT]) -> ResultT:
         Whatever `work` returned.
 
     Raises:
-        typer.Exit: EXIT_BAD_INPUT for a path or input the browser refused, EXIT_REFUSED for any
-            other HiveMindError; the message goes to stderr, never as a traceback.
+        typer.Exit: EXIT_BAD_INPUT for a path, text or reason the Honey Store refused as input,
+            EXIT_REFUSED for any other HiveMindError; the message goes to stderr, never as a
+            traceback.
     """
     try:
         return asyncio.run(work)
-    except (BrowsePathError, BrowseInputError) as exc:
+    except _BAD_INPUT_ERRORS as exc:
+        # The operator's own input (a path, a note, a review reason): usage, like typer's own.
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=EXIT_BAD_INPUT) from exc
     except HiveMindError as exc:
@@ -237,11 +246,18 @@ def run_or_exit[ResultT](work: Coroutine[object, None, ResultT]) -> ResultT:
         raise typer.Exit(code=EXIT_REFUSED) from exc
 
 
-def _probe_bindings(registry: ProviderRegistry) -> BindingStatus:
-    """Resolve EMBEDDER and RIPENER the way build_honey_access does, keeping why either failed."""
+def _probe_bindings(registry: ProviderRegistry, lowering: HoneyLoweringSection) -> BindingStatus:
+    """Resolve the three slots the way build_honey_access does, keeping why any one failed."""
+    # Lowering switched off: the judge is never resolved, exactly as build_honey_access skips it.
+    judge = (
+        _probe(lambda: registry.bound(ModelSlot.JUDGE).model)
+        if lowering.enabled
+        else SlotStatus(model=None, reason=JUDGE_DISABLED)
+    )
     return BindingStatus(
         embedder=_probe(lambda: registry.embedder(ModelSlot.EMBEDDER).model),
         ripener=_probe(lambda: registry.bound(ModelSlot.RIPENER).model),
+        judge=judge,
     )
 
 

@@ -1,9 +1,10 @@
-"""Tests for hivemind.cli.honey.maintain: `hive honey ripen`, `reembed` and `relabel`.
+"""Tests for hivemind.cli.honey.maintain: `hive honey ripen`, `reembed [--prune]` and `relabel`.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/honey/maintain.py (codingrules section 3). Drives the real typer app
-    against a real fake-provider manifest and SQLite file (`harness`); an embedder change is a
-    real manifest edit, exactly what an operator does.
+    against a real fake-provider manifest and SQLite file (`harness`); an embedder change, or
+    switching label lowering off, is a real manifest edit, exactly what an operator does, and the
+    JUDGE slot is scripted through the real registry (`harness.script_judge`).
 
 Key invariants:
     - None: this module holds tests only.
@@ -18,18 +19,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from unit.cli.honey.harness import (
+    append_toml,
     bind_embedder,
     invoke,
     make_hive,
+    proposals,
     rows,
+    script_judge,
+    seed_eligible,
     seed_nectar,
     trail_events,
 )
 
+import hivemind.cli.honey.maintain as maintain_module
 from hivemind.cell import HoneyClearance, hive_stand_cell_id
-from hivemind.honey_store import NectarOrigin
+from hivemind.honey_store import LabelApprover, LoweringState, NectarOrigin
 from hivemind.manifest import load_manifest
+
+_BUILD_LOG = "pytest passed: 42 tests on the build box in 3.1 seconds."
 
 
 def _seeded(tmp_path: Path, count: int = 2) -> Path:
@@ -81,15 +90,17 @@ def test_ripen_now_drains_a_proposed_note_into_human_honey_attributed_to_the_hiv
     assert row.cell_id == expected_cell_id
 
 
-def test_ripen_now_runs_one_pass_and_names_both_slots(tmp_path: Path) -> None:
+def test_ripen_now_runs_one_pass_and_names_every_slot(tmp_path: Path) -> None:
     manifest = _seeded(tmp_path)
 
     result = invoke(manifest, "ripen", "--now")
 
     assert result.exit_code == 0, result.output
     assert "ripened 2 Nectar into 2 Honey rows" in result.stdout
+    assert "filed 0 label lowering proposal(s)" in result.stdout  # Declared C1 off a Virtual Cell.
     assert "ripener: test-model" in result.stdout
     assert "embedder: test-model" in result.stdout
+    assert "judge: test-model" in result.stdout
     assert len(rows(manifest)) == 2
     assert len(trail_events(manifest, "honey.ripened")) == 2
 
@@ -120,6 +131,74 @@ def test_reembed_after_an_embedder_change_counts_vectors_per_model(tmp_path: Pat
     assert "test-model: 2 vectors" in first.stdout
     assert again.exit_code == 0, again.output
     assert "re-embedded 0 rows for test-embed-2" in again.stdout
+
+
+def test_ripen_now_files_and_the_judge_lowers_an_eligible_deposit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-0034: the House Bee's whole pass, run here, files the proposal and asks the judge."""
+    manifest = make_hive(tmp_path)
+    seed_eligible(manifest, _BUILD_LOG)
+    seen = script_judge(monkeypatch, "APPROVE")
+
+    result = invoke(manifest, "ripen", "--now")
+
+    assert result.exit_code == 0, result.output
+    assert "filed 1 label lowering proposal(s); judge review: lowered=1" in result.stdout
+    assert "judge: test-model" in result.stdout
+    assert len(seen) == 1
+    (lowered,) = proposals(manifest, LoweringState.LOWERED)
+    assert lowered.approver is LabelApprover.JUDGE
+
+
+def test_ripen_now_with_lowering_switched_off_files_but_never_asks_a_judge(
+    tmp_path: Path,
+) -> None:
+    # The fake JUDGE is unscripted here: any call to it would fail the pass with exit 1.
+    manifest = make_hive(tmp_path)
+    seed_eligible(manifest, _BUILD_LOG)
+    append_toml(manifest, "[honey.lowering]\nenabled = false")
+
+    result = invoke(manifest, "ripen", "--now")
+
+    assert result.exit_code == 0, result.output
+    assert "filed 1 label lowering proposal(s); judge review: lowered=0" in result.stdout
+    assert "judge: none ([honey.lowering] enabled = false)" in result.stdout
+    assert len(proposals(manifest, LoweringState.PROPOSED)) == 1
+
+
+def test_reembed_prune_drops_every_other_models_vectors_as_the_human(tmp_path: Path) -> None:
+    manifest = _seeded(tmp_path)
+    assert invoke(manifest, "ripen", "--now").exit_code == 0
+    bind_embedder(manifest, model="test-embed-2")
+
+    result = invoke(manifest, "reembed", "--prune")
+
+    assert result.exit_code == 0, result.output
+    assert "re-embedded 2 rows for test-embed-2" in result.stdout
+    assert "pruned every embedding model but test-embed-2:" in result.stdout
+    assert "    test-model: 2 vectors dropped" in result.stdout
+    assert "  test-embed-2: 2 vectors" in result.stdout
+    assert "  test-model: 2 vectors\n" not in result.stdout
+    (event,) = trail_events(manifest, "honey.vectors_pruned")
+    assert (event.actor, event.payload["dropped_rows"]) == ("human", 2)
+
+
+def test_reembed_prune_refuses_while_a_row_lacks_a_vector_and_deletes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _seeded(tmp_path)
+    assert invoke(manifest, "ripen", "--now").exit_code == 0
+    bind_embedder(manifest, model="test-embed-2")
+    # The runaway guard at zero: no embedding pass runs, so the backlog is never drained.
+    monkeypatch.setattr(maintain_module, "MAX_REEMBED_PASSES", 0)
+
+    result = invoke(manifest, "reembed", "--prune")
+
+    assert result.exit_code == 1
+    assert "prune refused: 2 live row(s) still lack a test-embed-2 vector" in result.stderr
+    assert "  test-model: 2 vectors" in result.stdout  # Nothing was deleted.
+    assert trail_events(manifest, "honey.vectors_pruned") == []
 
 
 def test_reembed_without_an_embedder_exits_1_with_the_reason(tmp_path: Path) -> None:

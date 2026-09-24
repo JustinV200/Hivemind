@@ -33,6 +33,7 @@ from hivemind.cli.honey.context import (
     reader_for,
     run_or_exit,
 )
+from hivemind.honey_store import LoweringInputError
 from hivemind.honey_store.browse import BrowseNotFoundError, BrowsePathError
 from hivemind.honey_store.scope import is_readable
 from hivemind.manifest import load_manifest
@@ -46,7 +47,7 @@ def _context(tmp_path: Path, clearance: HoneyClearance = HoneyClearance.C2) -> H
     )
 
 
-@pytest.mark.parametrize("command", ["query", "ls", "cat", "relabel", "reembed"])
+@pytest.mark.parametrize("command", ["query", "ls", "cat", "relabel", "reembed", "review"])
 def test_a_subcommands_help_needs_no_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
 ) -> None:
@@ -94,6 +95,27 @@ def test_open_access_reports_both_slots_bound(tmp_path: Path) -> None:
     assert opened.bindings.embedder.reason is None
 
 
+def test_open_access_reports_the_judge_slot_or_that_lowering_is_switched_off(
+    tmp_path: Path,
+) -> None:
+    cli_ctx = _context(tmp_path)
+    switched_off = cli_ctx.manifest.honey.lowering.model_copy(update={"enabled": False})
+    honey = cli_ctx.manifest.honey.model_copy(update={"lowering": switched_off})
+    off = HoneyCliContext(
+        manifest=cli_ctx.manifest.model_copy(update={"honey": honey}),
+        db=cli_ctx.db,
+        clearance=cli_ctx.clearance,
+    )
+
+    bound = open_access(cli_ctx)
+    unused = open_access(off)
+
+    assert (bound.bindings.judge.model, bound.bindings.judge.reason) == ("test-model", None)
+    assert unused.bindings.judge.model is None
+    assert unused.bindings.judge.reason == "[honey.lowering] enabled = false"
+    assert unused.access.judge is None  # build_honey_access built no judge either.
+
+
 def test_open_access_reports_why_a_slot_cannot_serve(tmp_path: Path) -> None:
     cli_ctx = _context(tmp_path)
     bind_embedder(tmp_path / "hive.toml", hosted=True)
@@ -119,6 +141,7 @@ async def _raise(error: Exception) -> None:
     ("error", "code"),
     [
         (BrowsePathError("/x", "no such folder"), EXIT_BAD_INPUT),
+        (LoweringInputError("it is empty"), EXIT_BAD_INPUT),
         (BrowseNotFoundError("/hive/x"), EXIT_REFUSED),
     ],
 )

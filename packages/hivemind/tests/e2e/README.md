@@ -57,8 +57,15 @@ exist to catch problems that only show up when every layer runs at once.
   the Queen deposits the verified outcome, one ripening pass turns it into Honey, and the second
   run's `TaskAssign` carries it (`queen.honey_consulted` on the trail) and the second Drone makes
   fewer model calls; run at both capability levels, the 8,192-token "none" window included; (b)
-  the same at C1 attaches nothing (Hive Stand Honey is C2 by provenance); (c) a Handoff written at
-  t0 is deposited by the House Bee's sweep a day later, ripened, and found with full provenance.
+  the same at C1 attaches nothing (Hive Stand Honey is C2 by provenance, and a Ripener that
+  records no reading proposes no lowering); (c) a Handoff written at t0 is deposited by the House
+  Bee's sweep a day later, ripened, and found with full provenance; (d) at the default C1, the
+  Ripener reads the first outcome as C1 and the clearance judge approves the lowering proposal
+  (ADR-0034), so the second run's `TaskAssign` carries it, with `honey.lowering_proposed` and
+  `honey.label_lowered` (approver JUDGE) on the trail; (e) the same with the judge rejecting
+  attaches nothing, and `hive honey review` shows the proposal REJECTED. `honey_runs.py` is not
+  a test module: it holds the scripted two-run Hive (the plan, the Drone, the RIPENER's and both
+  judges' replies) the cases share.
 - `test_honey_wire.py` (`@pytest.mark.e2e`) -- roadmap step 7.8: a real Queen tick handler, a real
   Warden running its own loop and a real `WorkerRuntime` using the real `recall`/`remember` tools,
   over memory transports and a seeded SQLite Honey Store. Proves a query's round trip hop by hop

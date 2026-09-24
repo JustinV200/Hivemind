@@ -158,6 +158,33 @@ def test_cat_prints_a_honey_row_in_full(tmp_path: Path) -> None:
     assert (as_json["kind"], as_json["document"]["id"]) == ("HONEY", row.id)
 
 
+def test_cat_lists_a_rows_other_depositors_under_it_only_when_there_are_any(
+    tmp_path: Path,
+) -> None:
+    """ADR-0033: a content duplicate from another task is listed under the row, never merged."""
+    manifest = make_hive(tmp_path)
+    text = "The staging config lives at /etc/widgets/staging.toml."
+    first = seed_nectar(manifest, text)
+    repeat_task = new_task_id(SystemClock())
+    repeated = seed_nectar(manifest, text, task_id=repeat_task)
+    seed_nectar(manifest, "A deposit nobody repeated.")
+    assert invoke(manifest, "ripen", "--now").exit_code == 0
+    shared = next(row for row in rows(manifest) if row.nectar_id == first.id)
+    alone = next(row for row in rows(manifest) if row.nectar_id != first.id)
+
+    shown = invoke(manifest, "cat", shared.path)
+    single = invoke(manifest, "cat", alone.path)
+    as_json = json.loads(invoke(manifest, "cat", shared.path, "--json").stdout)
+
+    assert repeated.id == first.id  # Deduplicated by content onto the first deposit's row.
+    assert "also deposited by (1):" in shown.stdout
+    assert f"task={repeat_task}" in shown.stdout
+    assert "declared=C1" in shown.stdout
+    assert "also deposited by" not in single.stdout
+    (source,) = as_json["document"]["sources"]
+    assert source["task_id"] == repeat_task
+
+
 def test_cat_exits_1_for_nothing_visible_and_2_for_a_folder(tmp_path: Path) -> None:
     manifest = make_hive(tmp_path)
 

@@ -228,6 +228,18 @@ def test_run_command_exits_2_on_timeout(tmp_path: Path, monkeypatch: pytest.Monk
     assert result.exit_code == 2, result.output
 
 
+def test_run_help_says_how_hive_stand_honey_reaches_a_c1_goal() -> None:
+    """ADR-0034: the C1 default stays, and the help names both ways Hive Stand Honey is read."""
+    result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0, result.output
+    # Rich wraps the help inside a box: drop the box's edges and re-join the words.
+    text = " ".join(result.stdout.replace("\u2502", " ").split())
+    assert "a C1 goal reads it once it is lowered (see `hive honey review`)" in text
+    assert "or at once with --clearance C2" in text
+    assert "[default: C1]" in text
+
+
 def test_run_command_exits_2_on_a_missing_manifest(tmp_path: Path) -> None:
     result = runner.invoke(app, ["run", _GOAL, "--manifest", str(tmp_path / "missing.toml")])
 
