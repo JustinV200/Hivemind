@@ -202,9 +202,32 @@ The subagent dispatched for this hit the usage limit before writing anything. Th
    - an infeasible Scout holding its dependents back;
    - one flow through the real Queen, Warden and roles: a goal planned as Scout → Forager, where the Scout reports the login form's targets, the Forager's brief shows the recon, and it logs in to the fake site with its URL_MATCHES and ELEMENT_TEXT acceptance passing.
 
-### 4.3 The phase 6 exit criteria, end to end (not started)
+### 4.3 The phase 6 exit criteria, end to end (done, 2026-09-24)
 
-The roadmap's three bullets (near roadmap line 1188), and what can be proven here:
+`T/e2e/test_phase6_exit_criteria.py` (plus `T/e2e/phase6_exit_helpers.py`, the shared plan,
+scripts and assertions) proves all three bullets below for real, on this sandbox: a Linux Real
+Cell with a lease-started Xvfb, openbox and a real Chromium; a `desktop-ubuntu` Virtual Cell
+(`ContainerSpawningFakeCellBackend`, an in-process in-Cell Warden on this host's own real
+peripherals) with a deliberately wrong click rolled back and alarmed; the browser-only variant of
+(a), which needs no X11 toolchain and so is the one placement that also runs unmodified on a
+Windows Hive Stand -- `docs/runbooks/phase6-windows-exit-check.md` is what an operator runs there
+to prove that leg for real. Three scenarios, ~20s here, no xfails.
+
+A real Docker run (base-ubuntu then desktop-ubuntu rebuilt from this tree, `[placement] prefer =
+"virtual"`, a scripted OpenAI-compatible stub server on the host reached through
+`host.docker.internal`) proved the same login goal end to end against the real `openai_compat`
+adapter and a real container: succeeded in 8.8s, one attempt, nothing left running.
+
+Found and fixed along the way, in `hivemind.supervision.capping.audit` (`audit_completed`,
+`review_applied`): both only caught `JudgeAnswerError` for "the judge could not answer", but
+`WardenDeps.judge_reviewer` defaults to a bare `FakeJudgeReviewer()` with nothing scripted (no
+Virtual Cell's Warden has a real `ModelJudgeReviewer` wired), whose own "queue is empty" signal is
+a different exception, `JudgeUnavailableError` -- uncaught, it crashed the Drone exactly the way
+the 2026-09-22 flake this module already guards against did, on a real Docker run's 10%
+`network_egress` audit sample. Both call sites now catch both; two new unit tests
+(`..._for_an_unscripted_reviewer`) cover it.
+
+The roadmap's three bullets (near roadmap line 1188), for reference:
 
 1. **The fixture login succeeds in three placements.**
    - A Linux Real Cell with a lease-started Xvfb can run here, on the Hive Stand.
