@@ -100,7 +100,7 @@ def _codec(parameters: str) -> str | None:
 
 # The tables below are keyed by the enum's own members, so they can only follow its definition;
 # they are read at call time, never at import, so their position costs nothing.
-_OPUS_CONTAINERS = frozenset({AudioMediaType.OGG_OPUS, AudioMediaType.WEBM_OPUS})
+_OPUS_CONTAINERS = frozenset({AudioMediaType.OGG_OPUS, AudioMediaType.WEBM_OPUS})  # Opus-only.
 
 # Every spelling senders are known to use, folded onto its member. `audio/opus` is what some
 # tools label an .opus file, which is Opus in Ogg.

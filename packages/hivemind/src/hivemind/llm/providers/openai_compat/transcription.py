@@ -71,7 +71,7 @@ UNSUPPORTED_MEDIA_TYPE_STATUS = 415  # What a server answers a format it cannot 
 _VERBOSE_FORMAT = "verbose_json"  # The response format whose answer carries timed segments.
 _UPLOAD_STEM = "clip"  # The upload's filename before its extension; servers read the extension.
 _UNAUTHORIZED_STATUSES = frozenset({401, 403})  # Credentials refused: as unusable as no answer.
-_OK_STATUS = 200
+_OK_STATUS = 200  # Success, and the status a 2xx answer's own read errors carry.
 
 __all__ = [
     "CONNECT_TIMEOUT_S",

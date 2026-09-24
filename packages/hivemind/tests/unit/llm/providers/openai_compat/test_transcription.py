@@ -35,7 +35,7 @@ from hivemind.llm.providers.openai_compat import (
     OpenAICompatTranscriptionConfig,
 )
 from hivemind.llm.providers.openai_compat.transcription import CONNECT_TIMEOUT_S
-from hivemind.llm.transcription import AudioClip, AudioMediaType
+from hivemind.llm.transcription import AudioClip, AudioMediaType, TranscriptionCapabilities
 from waggle.clock import FakeClock
 
 BASE_URL = "http://127.0.0.1:9/v1"
@@ -238,6 +238,7 @@ async def test_create_without_a_key_sends_no_authorization_and_bounds_both_phase
     provider = OpenAICompatTranscription.create("p", _config(timeout_s=42.0), FakeClock())
 
     assert "authorization" not in provider._http.headers
+    assert provider.capabilities == TranscriptionCapabilities.full()
     assert provider._http.timeout.connect == CONNECT_TIMEOUT_S
     assert provider._http.timeout.read == 42.0
     await provider.aclose()

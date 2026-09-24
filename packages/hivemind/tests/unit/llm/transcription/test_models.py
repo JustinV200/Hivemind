@@ -125,6 +125,20 @@ def test_from_upload_refuses_a_clip_past_the_byte_ceiling() -> None:
     assert excinfo.value.problem is ClipProblem.TOO_LARGE
 
 
+def test_from_upload_reports_a_value_only_the_model_rejects_as_malformed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Loosening the module's own ceiling past the model field's bound leaves exactly one rule
+    # unchecked by from_upload, so the model's own refusal is what reaches the caller.
+    monkeypatch.setattr(models_module, "MAX_CLIP_SECONDS", MAX_CLIP_SECONDS * 2)
+
+    with pytest.raises(InvalidAudioClipError) as excinfo:
+        AudioClip.from_upload(_OPUS_BYTES, "audio/mpeg", duration_s=MAX_CLIP_SECONDS + 1)
+
+    assert excinfo.value.problem is ClipProblem.MALFORMED
+    assert isinstance(excinfo.value.__cause__, ValidationError)
+
+
 def test_a_wav_clip_built_directly_must_state_its_headers_own_duration() -> None:
     with pytest.raises(ValidationError, match="must match its header"):
         AudioClip(data=silent_wav(1.0), media_type=AudioMediaType.WAV, duration_s=0.1)

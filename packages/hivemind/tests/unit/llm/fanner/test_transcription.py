@@ -14,6 +14,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import timedelta
 
@@ -34,9 +35,11 @@ from hivemind.llm.fanner.recorder import TrailLlmEventRecorder
 from hivemind.llm.registry import ProviderRegistry
 from hivemind.llm.transcription import (
     AudioChunk,
+    AudioClip,
     AudioMediaType,
     BoundTranscriber,
     FakeTranscription,
+    Transcript,
     TranscriptionUnsupportedError,
 )
 from hivemind.pheromone import LlmEvent, MemoryPheromoneTrail, TrailQuery
@@ -74,6 +77,19 @@ def _bound(
         cost_per_audio_minute_usd=price,
         fallback=fallback,
     )
+
+
+class _BlockingTranscription(FakeTranscription):
+    """A FakeTranscription whose calls wait on `released`, so a test can hold a seat open."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name=name)
+        self.released = asyncio.Event()
+
+    async def transcribe(self, clip: AudioClip, language: str | None = None) -> Transcript:
+        """Wait until released, then answer from the script."""
+        await self.released.wait()
+        return await super().transcribe(clip, language)
 
 
 async def _events(trail: MemoryPheromoneTrail) -> list[LlmEvent]:
@@ -194,6 +210,32 @@ async def test_a_throttled_head_spills_to_the_fallback_without_calling_the_head(
     assert transcript.text == _WORDS
     assert head.calls == []
     assert kinds == [("llm.spill", "head"), ("llm.call", "tail")]
+
+
+async def test_a_call_that_queued_past_its_latency_budget_spills_to_the_fallback() -> None:
+    fanner, trail, clock = _build_fanner()  # One seat per provider: DEFAULT_SEATS.
+    head, tail = _BlockingTranscription("head"), FakeTranscription(name="tail")
+    head.script(_WORDS)
+    tail.script("from the fallback")
+    # A tight budget: any real queueing exceeds SPILL_WAIT_FRACTION of it.
+    metered = MeteredTranscriber(
+        fanner,
+        _bound(head, fallback=_bound(tail, binding="hosted_ears")),
+        Tempo(latency_budget_s=0.001),
+    )
+
+    blocker = asyncio.ensure_future(metered.transcribe(make_clip()))
+    await asyncio.sleep(0)  # Takes head's only seat and blocks inside the call.
+    waiting = asyncio.ensure_future(metered.transcribe(make_clip()))
+    await asyncio.sleep(0)  # Queues behind it on the seat meter.
+    clock.advance(1.0)  # The queued call's measured wait now exceeds its budget.
+    head.released.set()
+    spilled, first = await waiting, await blocker
+
+    spills = [event for event in await _events(trail) if event.kind == "llm.spill"]
+    assert (first.text, spilled.text) == (_WORDS, "from the fallback")
+    assert [event.payload["reason"] for event in spills] == ["QUEUE_WAIT_EXCEEDED"]
+    assert fanner.in_flight("head") == 0
 
 
 async def test_a_rate_limited_head_is_throttled_and_the_call_spills_to_the_fallback() -> None:

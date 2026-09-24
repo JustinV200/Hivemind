@@ -57,7 +57,7 @@ MAX_TRANSCRIPT_SEGMENTS = 2_000  # A segment every 0.3 s for ten minutes; real s
 MAX_LANGUAGE_CHARS = 32  # "en" from most servers, "english" from some; never a sentence.
 _DURATION_TOLERANCE_S = 1e-6  # Float noise allowed between a WAV's stated and header duration.
 _MAX_LANGUAGE_SUBTAG_CHARS = 3  # ISO 639-1 codes are two letters, ISO 639-2/3 three.
-_MIN_LANGUAGE_SUBTAG_CHARS = 2
+_MIN_LANGUAGE_SUBTAG_CHARS = 2  # No language code is a single letter.
 
 __all__ = [
     "MAX_CLIP_BYTES",
@@ -78,7 +78,7 @@ __all__ = [
 _BYTES_MODEL_CONFIG = ConfigDict(
     frozen=True, extra="forbid", ser_json_bytes="base64", val_json_bytes="base64"
 )
-_MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+_MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")  # For the text-only models.
 
 
 class AudioClip(BaseModel):

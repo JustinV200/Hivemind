@@ -182,7 +182,7 @@ makes:
 
 ```python
 transcriber = bind_transcriber(registry, fanner, Tempo(latency_budget_s=10.0))  # at startup
-clip = AudioClip.from_upload(data, "audio/webm;codecs=opus", duration_s=4.2)    # per clip
+clip = AudioClip.from_upload(data, "audio/webm;codecs=opus", duration_s=4.2)  # per clip
 transcript = await transcriber.transcribe(clip, language="en-US")
 ```
 
