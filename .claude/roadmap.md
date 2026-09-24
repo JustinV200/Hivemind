@@ -1110,11 +1110,14 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   ExoskeletonHandle` picks backends from capabilities, starts what is missing through the session,
   registers every process with the lease, and `detach()` stops exactly those. A test asserts no
   display process exists after a terminal-only task.
-- [ ] **6.5 Exoskeleton tools.** `workers/tools/exoskeleton.py`: `see`, `click`, `type`, `press`,
+- [x] **6.5 Exoskeleton tools.** `workers/tools/exoskeleton.py`: `see`, `click`, `type`, `press`,
   `scroll`, `listen`, `say`. Screenshots never logged. `see` is offered only when the bound model
   declares `vision`; `listen` returns a `Transcript` through 6.5a unless the bound model declares
   `audio`. Every action tool takes an optional declared postcondition (expected URL, element text,
-  or a region that should change) that the Capping gate verifies afterwards.
+  or a region that should change) that the Capping gate verifies afterwards. Landed as the
+  `workers/tools/exoskeleton/` package (plus `move`, the `browser_*` tools and read-only
+  `browser_snapshot`/`browser_read`); media tools are offered only when every fallback binding
+  takes their media too, and images and audio travel as `ToolResultPart.media`.
 - [x] **6.5a Ears: the transcription provider.** `llm/transcription.py` (`TranscriptionProvider`:
   `transcribe(audio, language) -> Transcript` with segments and timestamps, `stream(chunks)` for
   push-to-talk, `capabilities`, `health`; `Transcript` and `TranscriptSegment` are HiveMind's own
@@ -1125,27 +1128,36 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   through `ModelSlot.TRANSCRIBER` (3.4), metered by the Fanner, listed on the Forage map as a
   source with its own grade. Contract suite over all three with fixture clips. The same provider
   serves the human's voice at the Entrance (10.5f); Buzz is only its first caller.
-- [ ] **6.6 Flight recorder.** `exoskeleton/recorder.py`: while an Exoskeleton is attached,
+- [x] **6.6 Flight recorder.** `exoskeleton/recorder.py`: while an Exoskeleton is attached,
   record every action with its arguments, the screenshot before and after, the accessibility tree
   or DOM snapshot where the fast path has one, the declared postcondition and its result. The
   recording is stored as Nectar with references from the episode record, never in logs or on the
   trail, redacted for secrets at the source. A vision-capable judge (4.10) reviews a recording
   against the goal for the `irreversible` tier before the next step, and sampled audit (4.10)
-  reviews the rest after the fact. The Observation Hive plays recordings back (12.4).
+  reviews the rest after the fact. The Observation Hive plays recordings back (12.4). Landed as the
+  `exoskeleton/recorder/` package: the SQLite store in the Hive's database (two tables), a Bee
+  Bread `RECORDING` reference, the judge's review through `exoskeleton/surface/evidence.py` and
+  `AuditingCappingGate`, and `hive recordings list/show/export` (a self-contained HTML playback)
+  until the Observation Hive exists.
 - [ ] **6.7 Structural assertions and rehearsal.** For browser work the gate prefers assertions
   on structure over pixels: URL, accessibility tree, element text. A browser procedure that will
   be reused is rehearsed against a fixture or staging site first and then promoted as a tool
   through the Royal Jelly Lab (9.3), so production runs execute a capped procedure rather than an
   improvised one.
-- [ ] **6.8 Fake exoskeleton.** `exoskeleton/*/fake.py`; contract suite over real and fake,
-  including the recorder.
+- [x] **6.8 Fake exoskeleton.** `exoskeleton/*/fake.py`; contract suite over real and fake,
+  including the recorder. Landed as three suites: `test_exoskeleton_contract.py` (display, input,
+  audio over the fakes and real X11/PulseAudio), `test_browser_contract.py` (the fake browser and
+  real Chromium) and `test_recording_store_contract.py` (in-memory and SQLite).
 - [ ] **6.9 Forager role.** `workers/roles/forager.py`: bounded see/act loop; page content to
   `Nectar`.
 - [ ] **6.10 Scout role.** `workers/roles/scout.py`: recon with a strict budget returning a
   `ScoutReport` the Queen uses before committing Foragers.
-- [ ] **6.11 Playwright fast path.** `exoskeleton/browser/playwright.py`: headed in the Cell's
+- [x] **6.11 Playwright fast path.** `exoskeleton/browser/playwright.py`: headed in the Cell's
   display when one exists, headless otherwise; `browser_*` tools that also work without vision
   through the accessibility tree. The only Exoskeleton on Windows and macOS Real Cells for 1.0.
+  Landed as the `exoskeleton/browser/playwright/` package, with `ChromiumLauncher` starting the
+  lease's own Chromium over CDP; the Windows and macOS locator paths are written but not yet run
+  on those systems (ADR-0031's known limits).
 - [x] **6.12 Placement integration.** `TaskNeeds.exoskeleton` drives placement: a Real Cell
   qualifies if it has or can start a display, or the task is browser-only; otherwise a
   `desktop-ubuntu` Virtual Cell.
