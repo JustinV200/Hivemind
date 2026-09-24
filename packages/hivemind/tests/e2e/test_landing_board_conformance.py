@@ -6,13 +6,15 @@ works. ``e2e.landing_client`` is that program: it imports no Hive code, finds ev
 method and path in the committed document, signs from ``x-hive-signing`` alone, and accepts a
 reply only when its status is declared and its body matches the declared schema. Against
 ``hive serve``'s own composition over real loopback sockets (``e2e.entrance_stand``: a real Queen,
-Warden and Drone over a scripted provider, the operator at the Hive Stand), the client learns the
-Hive's id, redeems an invite and is refused while pending, logs in once approved, subscribes to
-the live push stream with a signed first frame, submits a goal (202), answers the question the
-Queen routed to the human, sees it withdrawn and the goal completed by push, reads the goal back,
-chats with the Queen and reads the chat on its stream, then logs out. Refusals are checked the same
-way: a bad signature, a replayed nonce and a stale timestamp; and, on a remote listener in ``vpn``
-mode on a test address, every loopback-only operation is a 404.
+Warden and Drone over a scripted provider, the operator at the Hive Stand), the client reads the
+Hive's id, redeems an invite (a second redemption is refused) and is refused while pending, logs
+in once approved, subscribes to the live push stream with a signed first frame, submits a goal
+(202), answers the question the Queen routed to the human, sees it withdrawn and the goal completed
+by push, reads the goal back, chats with the Queen and reads the chat and its stream, then logs
+out. Refusals are checked the same way: a bad signature, a replayed nonce, a stale timestamp, a
+bare token and a capability the device lacks. Against the builders' serving rig, whose remote
+listener runs a ``vpn`` plan on a test address and whose push service records deliveries, every
+loopback-only operation is a 404 on the remote listener, and a webhook verifies under the Hive key.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -25,9 +27,10 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 import sys
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -35,9 +38,10 @@ from pathlib import Path
 import httpx
 import pytest
 from builders.entrance import PASSWORD
-from builders.entrance.serving import RigOptions, serving
+from builders.entrance.serving import RigOptions, ServingRig, serving
 from e2e.entrance_stand import ANSWER, CHAT, GOAL, QUESTION, REPLY, Stand, build_served, standing
 from e2e.landing_client import (
+    EVENT_ID_HEADER,
     DeviceKey,
     GenericClient,
     LandingBoard,
@@ -47,6 +51,7 @@ from e2e.landing_client import (
     StreamFeed,
     sha256_hex,
 )
+from unit.entrance.push.support import HOOK_HOST, HOOK_URL
 
 from hivemind.cli.compose.entrance import ServedHive
 from hivemind.manifest import HiveManifest
@@ -60,15 +65,20 @@ CLIENT_IMPORTS = frozenset({"httpx", "websockets", "cryptography", "e2e"}) | fro
     sys.stdlib_module_names
 )
 STALE_S = 3600  # A timestamp an hour old: far outside any request_skew_s.
+AUTH_FAILED = "hivemind.entrance.authentication_failed"  # Every session refusal's one code.
+
+# Approves a pending device at the Hive Stand, given its id.
+type Approve = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
 class _Device:
-    """An enrolled device as the program knows it: its key, its id and the Hive it joined."""
+    """An enrolled device as the program knows it: key, id, the Hive and its pinned key."""
 
     key: DeviceKey
     device_id: str
     hive_id: str
+    hive_key_hex: str
 
 
 @asynccontextmanager
@@ -78,11 +88,8 @@ async def _client(base_url: str) -> AsyncIterator[GenericClient]:
         yield GenericClient(http, LandingBoard.load(DOCUMENT))
 
 
-async def _enrol(client: GenericClient, stand: Stand | None, code: str) -> _Device:
-    """Redeem ``code`` with a fresh Ed25519 key; while pending, the device cannot log in."""
-    hive = await client.call(Request("GET", "/v1/enrol/hive"))
-    hive_id = str(hive.data["hive_id"])
-    key = DeviceKey.generate()
+def _redemption(client: GenericClient, key: DeviceKey, hive_id: str, code: str) -> Request:
+    """The request redeeming ``code`` with ``key``, signed over ``hive-enrol-v1``."""
     proof = {
         "hive_id": hive_id,
         "code_sha256": sha256_hex(code.encode("utf-8")),
@@ -94,17 +101,24 @@ async def _enrol(client: GenericClient, stand: Stand | None, code: str) -> _Devi
         "signature": key.sign(client.rules.message("hive-enrol-v1", proof)),
         "description": {"name": "garden-bot", "platform": "Linux", "user_agent": "conformance"},
     }
-    redeemed = await client.call(Request("POST", "/v1/enrol/ed25519", body=body))
-    assert redeemed.status == 202
+    return Request("POST", "/v1/enrol/ed25519", body=body)
+
+
+async def _enrol(client: GenericClient, code: str, approve: Approve) -> _Device:
+    """Redeem ``code`` with a fresh key: refused again and while pending, then approved."""
+    hive = await client.call(Request("GET", "/v1/enrol/hive"))
+    hive_id, key = str(hive.data["hive_id"]), DeviceKey.generate()
+    redeemed = await client.call(_redemption(client, key, hive_id, code))
+    again = await client.call(_redemption(client, DeviceKey.generate(), hive_id, code))
     device_id = str(redeemed.data["device_id"])
-    # PENDING: the declared refusal, the same one every device that may not log in gets.
     asked = Request("POST", "/v1/auth/challenge", body={"device_id": device_id})
     pending = await client.call(asked)
-    assert pending.status == 401
-    assert pending.data["error"] == "hivemind.entrance.authentication_failed"
-    if stand is not None:
-        await stand.approve(device_id)
-    return _Device(key, device_id, hive_id)
+    await approve(device_id)
+
+    assert redeemed.status == 202
+    assert (again.status, again.data["error"]) == (403, "hivemind.entrance.enrolment_refused")
+    assert (pending.status, pending.data["error"]) == (401, AUTH_FAILED)
+    return _Device(key, device_id, hive_id, str(redeemed.data["hive_public_key_hex"]))
 
 
 async def _login(client: GenericClient, device: _Device, password: str) -> Session:
@@ -137,7 +151,7 @@ def test_a_program_written_from_the_document_submits_subscribes_answers_and_chat
 async def _conformance(manifest: HiveManifest, served: ServedHive) -> None:
     """The async body of the scenario above."""
     async with standing(manifest, served) as stand, _client(stand.loopback_url) as client:
-        device = await _enrol(client, stand, await stand.invite())
+        device = await _enrol(client, await stand.invite(), stand.approve)
         session = await _login(client, device, stand.password)
         me = await client.call(Request("GET", "/v1/devices/me"), session)
         request_id = await _submit_subscribe_answer(client, stand, session)
@@ -168,8 +182,7 @@ async def _subscribed(
 async def _submit_subscribe_answer(client: GenericClient, stand: Stand, session: Session) -> str:
     """Subscribe to push, submit the goal, answer its question; return the goal request id."""
     async with _subscribed(client, stand, session) as push:
-        goal = Request("POST", "/v1/goals", body={"text": GOAL})
-        accepted = await client.call(goal, session)
+        accepted = await client.call(Request("POST", "/v1/goals", body={"text": GOAL}), session)
         asked = await push.until("question_waiting")
         inbox = await client.call(Request("GET", "/v1/inbox"), session)
         questions = inbox.data["questions"]
@@ -211,7 +224,7 @@ async def _chat(client: GenericClient, stand: Stand, session: Session) -> None:
     assert first["type"] == "chat" and first["entry"] == lines[0]
 
 
-def test_a_bad_signature_a_replayed_nonce_and_a_stale_timestamp_are_refused_as_declared(
+def test_a_bad_signature_a_replay_a_stale_timestamp_and_a_missing_capability_are_refused(
     tmp_path: Path,
 ) -> None:
     manifest, served = build_served(tmp_path)
@@ -220,9 +233,9 @@ def test_a_bad_signature_a_replayed_nonce_and_a_stale_timestamp_are_refused_as_d
 
 
 async def _refusals(manifest: HiveManifest, served: ServedHive) -> None:
-    """Send one good signed request, then the ways a signed request is refused."""
+    """Send one good signed request, then each way a request is refused."""
     async with standing(manifest, served) as stand, _client(stand.loopback_url) as client:
-        device = await _enrol(client, stand, await stand.invite())
+        device = await _enrol(client, await stand.invite(), stand.approve)
         session = await _login(client, device, stand.password)
         me = Request("GET", "/v1/devices/me")
         good = client.prepare(me, session)
@@ -234,18 +247,16 @@ async def _refusals(manifest: HiveManifest, served: ServedHive) -> None:
             "unsigned": await client.send(_unsigned(client.prepare(me, session))),
             "anonymous": await client.send(replace(good, headers={})),
         }
+        # The device role's proposed set never holds entrance:steward.
+        denied = await client.call(Request("GET", "/v1/entrance/pending"), session)
 
     statuses = {name: reply.status for name, reply in answers.items()}
-    assert statuses == {
-        "good": 200,
-        "replayed": 401,
-        "bad signature": 401,
-        "stale": 401,
-        "unsigned": 401,
-        "anonymous": 401,
+    assert statuses == {"good": 200} | dict.fromkeys(list(statuses)[1:], 401)
+    assert {reply.data["error"] for name, reply in answers.items() if name != "good"} == {
+        AUTH_FAILED
     }
-    refusals = [reply.data["error"] for name, reply in answers.items() if name != "good"]
-    assert set(refusals) == {"hivemind.entrance.authentication_failed"}
+    assert (denied.status, denied.data["capability"]) == (403, "entrance:steward")
+    assert denied.data["error"] == "hivemind.entrance.capability_denied"
 
 
 def _tampered(prepared: Prepared) -> Prepared:
@@ -268,40 +279,95 @@ def _unsigned(prepared: Prepared) -> Prepared:
     return replace(prepared, headers={"Authorization": prepared.headers["Authorization"]})
 
 
-async def test_every_loopback_only_operation_is_a_404_on_the_remote_listener() -> None:
-    # The rig's remote listener is a vpn-mode plan on a second loopback port, plain HTTP: `hive
-    # serve` itself refuses a vpn bind on loopback, so a test cannot put its remote listener here.
-    board = LandingBoard.load(DOCUMENT)
-    async with serving(RigOptions(remote=True)) as rig:
-        remote = GenericClient(rig.client(remote=True).http, board)
-        local = GenericClient(rig.client().http, board)
-        console, console_session = await rig.console_session()
-        invite = await console.call(console_session, "POST", "/v1/entrance/invites", {"label": "x"})
-        device = await _enrol(remote, None, str(invite.json()["code"]))
-        path = f"/v1/entrance/pending/{device.device_id}/approve"
+async def _rig_device(rig: ServingRig, client: GenericClient) -> tuple[_Device, Session]:
+    """Enrol ``client``'s device in a serving rig, approved by the rig's console; log it in."""
+    console, console_session = await rig.console_session()
+    invite = await console.call(console_session, "POST", "/v1/entrance/invites", {"label": "bot"})
+
+    async def approve(device_id: str) -> None:
+        """Approve at the Hive Stand with the device role's proposed set."""
+        path = f"/v1/entrance/pending/{device_id}/approve"
         body = {"name": "garden-bot", "capabilities": None, "spend_cap_usd_per_day": 1.0}
         approved = await console.call(console_session, "POST", path, body)
         assert approved.status_code == 200, approved.text
-        session = await _login(remote, device, PASSWORD)
+
+    device = await _enrol(client, str(invite.json()["code"]), approve)
+    return device, await _login(client, device, PASSWORD)
+
+
+async def test_every_loopback_only_operation_is_a_404_on_the_remote_listener() -> None:
+    # The rig's remote listener is a vpn-mode plan on a second loopback port, plain HTTP: `hive
+    # serve` itself refuses a vpn bind on loopback, so a test cannot put its remote listener there.
+    board = LandingBoard.load(DOCUMENT)
+    async with serving(RigOptions(remote=True)) as rig:
+        remote = GenericClient(rig.client(remote=True).http, board)
+        device, session = await _rig_device(rig, remote)
+        # Loopback-only, or mounted only under a manifest switch the rig leaves off.
         absent = [
             operation
             for operation in board.operations()
             if "remote" not in operation.listeners or "x-hive-switch" in operation.spec
         ]
-        replies = {}
-        for operation in absent:
-            params = dict.fromkeys(_parameters(operation.template), device.device_id)
-            request = Request(operation.method, operation.template, params)
-            replies[(operation.method, operation.template)] = await remote.call(request, session)
-        own_listener = await local.call(Request("GET", "/v1/devices/me"), session)
+        replies = [
+            await remote.call(
+                Request(
+                    op.method, op.template, dict.fromkeys(_names(op.template), device.device_id)
+                ),
+                session,
+            )
+            for op in absent
+        ]
+        local = GenericClient(rig.client().http, board)
+        elsewhere = await local.call(Request("GET", "/v1/devices/me"), session)
 
-    assert absent and {reply.status for reply in replies.values()} == {404}
-    assert own_listener.status == 401  # A session works only on the listener it was opened on.
+    assert absent and {reply.status for reply in replies} == {404}
+    assert {reply.data["error"] for reply in replies} == {"hivemind.entrance.not_found"}
+    assert elsewhere.status == 401  # A session works only on the listener it was opened on.
 
 
-def _parameters(template: str) -> list[str]:
+def _names(template: str) -> list[str]:
     """The names of a path template's parameters."""
     return [part[1:-1] for part in template.split("/") if part.startswith("{")]
+
+
+async def test_a_webhook_notice_verifies_under_the_hive_key_and_carries_its_event_id() -> None:
+    board = LandingBoard.load(DOCUMENT)
+    async with serving() as rig:
+        client = GenericClient(rig.client().http, board)
+        device, session = await _rig_device(rig, client)
+        hook = {"channel": "webhook", "endpoint": HOOK_URL}
+        subscribed = await client.call(
+            Request("POST", "/v1/push/subscriptions", body=hook), session
+        )
+        hive_key = await client.call(Request("GET", "/v1/push/hive-key"), session)
+        # Another device asking to join is a security event, pushed to every other device.
+        console, console_session = await rig.console_session()
+        invite = await console.call(console_session, "POST", "/v1/entrance/invites", {"label": "x"})
+        await rig.client().enrol(str(invite.json()["code"]))
+        await rig.until(lambda: any(_to_hook(rig)))
+        delivery = _to_hook(rig)[0]
+
+    notice = json.loads(delivery.content)
+    board.check(notice, {"$ref": "#/components/schemas/PushNotice"}, "a webhook body")
+    # HTTP header names are case-insensitive: httpx's mapping reads them as a receiver would.
+    headers = delivery.headers
+    subscription_id = str(subscribed.data["id"])
+    assert hive_key.data["public_key_hex"] == device.hive_key_hex
+    assert client.rules.webhook_holds(
+        device.hive_key_hex, subscription_id, headers, delivery.content
+    )
+    assert not client.rules.webhook_holds(
+        device.hive_key_hex, "sub_other", headers, delivery.content
+    )
+    assert (notice["kind"], notice["event_id"]) == ("security_event", headers[EVENT_ID_HEADER])
+
+
+def _to_hook(rig: ServingRig) -> list[httpx.Request]:
+    """Every delivery the rig's fake push service received for the webhook's host."""
+    # A delivery connects to the address the destination guard pinned; Host names the receiver.
+    return [
+        request for request in rig.push_service.requests if request.headers["host"] == HOOK_HOST
+    ]
 
 
 def test_the_generic_client_imports_nothing_from_the_hive() -> None:

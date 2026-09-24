@@ -30,7 +30,8 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from e2e.landing_client.document import as_object
 from e2e.landing_client.schema import SchemaError
@@ -59,8 +60,19 @@ _NONCE_FLOOR = re.compile(r"at least (\d+) random bytes")  # Read from x-hive-si
 # Where the bearer token goes in the documented Authorization value; a placeholder, not a secret.
 _TOKEN_PLACEHOLDER = "<token>"  # noqa: S105 -- x-hive-signing's placeholder text, not a credential
 _LINE_BREAKS = ("\n", "\r")  # What would let one field forge another line.
+# The dedupe header x-hive-signing's "webhooks" sentence names beside the two signing headers.
+EVENT_ID_HEADER = "X-Hive-Event-Id"
 
-__all__ = ["FIELD_SLOTS", "DeviceKey", "Session", "SigningRules", "b64url", "sha256_hex"]
+__all__ = [
+    "EVENT_ID_HEADER",
+    "FIELD_SLOTS",
+    "DeviceKey",
+    "Session",
+    "SigningRules",
+    "b64url",
+    "b64url_decode",
+    "sha256_hex",
+]
 
 
 def b64url(data: bytes) -> str:
@@ -73,6 +85,18 @@ def b64url(data: bytes) -> str:
         The text, without ``=`` padding.
     """
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def b64url_decode(text: str) -> bytes:
+    """Decode unpadded base64url (a signature a webhook carries).
+
+    Args:
+        text: The text, without padding.
+
+    Returns:
+        The bytes it encodes.
+    """
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
 def sha256_hex(data: bytes) -> str:
@@ -149,6 +173,9 @@ class SigningRules:
         if floor is None:
             raise SchemaError("x-hive-signing does not say how many random bytes a nonce needs")
         self._nonce_bytes = int(floor.group(1))
+        # The dedupe header is named only in prose; a renamed one must fail here, not silently.
+        if EVENT_ID_HEADER not in str(signing.get("webhooks")):
+            raise SchemaError(f"x-hive-signing's webhooks no longer name {EVENT_ID_HEADER}")
         self._check_example(as_object(signing.get("example"), "example"))
 
     def message(self, tag: str, values: Mapping[str, str]) -> bytes:
@@ -234,6 +261,34 @@ class SigningRules:
         values = {"target": target, "timestamp": str(stamp), "nonce": nonce}
         signature = session.key.sign(self.message(tag, values))
         return {"token": session.token, "timestamp": stamp, "nonce": nonce, "signature": signature}
+
+    def webhook_holds(
+        self, hive_key_hex: str, subscription_id: str, headers: Mapping[str, str], body: bytes
+    ) -> bool:
+        """Return whether a webhook delivery is signed by the Hive, for this subscription.
+
+        Args:
+            hive_key_hex: The Hive's public key, pinned at enrolment (64 lowercase hex).
+            subscription_id: The subscription the delivery claims to be for.
+            headers: The delivery's headers.
+            body: The delivery's exact body bytes.
+
+        Returns:
+            True when the signature over ``hive-webhook-v1`` verifies.
+        """
+        values = {
+            "subscription_id": subscription_id,
+            "event_id": headers[EVENT_ID_HEADER],
+            "timestamp": headers[self._headers["timestamp"]],
+            "body_sha256": sha256_hex(body),
+        }
+        public = Ed25519PublicKey.from_public_bytes(bytes.fromhex(hive_key_hex))
+        signature = b64url_decode(headers[self._headers["signature"]])
+        try:
+            public.verify(signature, self.message("hive-webhook-v1", values))
+        except InvalidSignature:
+            return False
+        return True
 
     def _check_example(self, example: Mapping[str, object]) -> None:
         """Rebuild the document's worked example; refuse to sign if it does not reproduce."""

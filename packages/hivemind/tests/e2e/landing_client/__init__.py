@@ -25,16 +25,26 @@ See Also:
 Public API:
     - LandingBoard, Operation, Stream, as_object: the document.
     - SchemaError, validate: the schema subset.
-    - DeviceKey, Session, SigningRules, b64url, sha256_hex: keys and signed strings.
+    - DeviceKey, Session, SigningRules, EVENT_ID_HEADER, b64url, b64url_decode, sha256_hex:
+      keys, signed strings and webhook verification.
     - GenericClient, Request, Prepared, Reply, StreamFeed: calls and streams.
 """
 
 from e2e.landing_client.client import GenericClient, Prepared, Reply, Request, StreamFeed
 from e2e.landing_client.document import LandingBoard, Operation, Stream, as_object
 from e2e.landing_client.schema import SchemaError, validate
-from e2e.landing_client.signing import DeviceKey, Session, SigningRules, b64url, sha256_hex
+from e2e.landing_client.signing import (
+    EVENT_ID_HEADER,
+    DeviceKey,
+    Session,
+    SigningRules,
+    b64url,
+    b64url_decode,
+    sha256_hex,
+)
 
 __all__ = [
+    "EVENT_ID_HEADER",
     "DeviceKey",
     "GenericClient",
     "LandingBoard",
@@ -49,6 +59,7 @@ __all__ = [
     "StreamFeed",
     "as_object",
     "b64url",
+    "b64url_decode",
     "sha256_hex",
     "validate",
 ]
