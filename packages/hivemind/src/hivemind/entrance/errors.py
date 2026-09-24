@@ -11,7 +11,7 @@ can react by category without knowing the Entrance. Every class carries its own 
 ``code`` (codingrules section 10), the form an error takes once it crosses the Landing Board (the
 Entrance's versioned API). Roadmap step 10.5e adds the refusals of login and sessions (one generic
 ``AuthenticationFailedError``), step-up, pending confirmations, the travel lock and the Entrance
-Reducer.
+Reducer; the read routes add ``CellNotFoundError``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Raised by
@@ -57,6 +57,7 @@ __all__ = [
     "AuthenticationFailedError",
     "BreakGlassRefusedError",
     "CapabilityCeilingError",
+    "CellNotFoundError",
     "ChallengeRejectedError",
     "ConfirmationRefusedError",
     "ConsoleProtectedError",
@@ -193,6 +194,21 @@ class DeviceNotFoundError(EntranceError, NotFoundError):
         """
         super().__init__(f"No enrolled device {device_id} exists in the Entrance tables.")
         self.device_id = device_id
+
+
+class CellNotFoundError(EntranceError, NotFoundError):
+    """Raise when no Cell the Hive knows (attached or tracked by the lifecycle) has the id."""
+
+    code: ClassVar[str] = "hivemind.entrance.cell_not_found"
+
+    def __init__(self, cell_id: str) -> None:
+        """Build the error for a Cell no Warden supervises and no lifecycle tracks.
+
+        Args:
+            cell_id: The id that was looked up.
+        """
+        super().__init__(f"No Cell {cell_id} is attached to the Queen or tracked as Virtual.")
+        self.cell_id = cell_id
 
 
 class DeviceAlreadyExistsError(EntranceError, ConflictError):

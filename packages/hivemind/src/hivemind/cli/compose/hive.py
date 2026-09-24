@@ -83,13 +83,14 @@ from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_
 from hivemind.cli.stores import build_forage_map
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.entrance.notify import HumanChannelRelay
+from hivemind.entrance.streams import TelemetryBoard
 from hivemind.forage import ForageMap
 from hivemind.guard import Enforcer
 from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
-from hivemind.queen import ForageLedger, Queen, WardenLink, sync_answers_from_chamber
+from hivemind.queen import ForageLedger, Queen, QueenDeps, WardenLink, sync_answers_from_chamber
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
@@ -132,6 +133,10 @@ class Hive:
         human_channel: The Queen's HumanChannel: a relay that drops every call until `hive
             serve` binds it to the Hive Entrance's push channel (`hive run` never does, which
             is QueenDeps' own no-op default in effect).
+        queen_deps: The deps the Queen was built with: `hive serve` hands the Entrance her Forage
+            ledger, slot bindings, Clustering state and health poller from them, to read only.
+        telemetry: Every Heartbeat the Queen records (her `on_heartbeat` hook is its `record`),
+            for the Entrance's telemetry view; `hive run` leaves it unread.
         virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
             value, when `[virtual_cells] backend` is set; `None` otherwise, in which case
             `run_hive` touches nothing Virtual-Cell-related at all (roadmap step 5.6).
@@ -148,6 +153,8 @@ class Hive:
     clock: Clock
     enforcer: Enforcer
     human_channel: HumanChannelRelay
+    queen_deps: QueenDeps
+    telemetry: TelemetryBoard
     virtual_cells: VirtualCellsParts | None = None
 
 
@@ -305,7 +312,13 @@ def _assemble_hive(
     # Roadmap step 10.5: the Queen tells devices through a relay `hive serve` binds to the
     # Entrance's push channel once that exists (the Entrance is built inside the event loop).
     relay = HumanChannelRelay()
-    queen = Queen(replace(queen_deps, scanner=scanner, human_channel=relay))
+    # Roadmap step 10.5: Heartbeats never reach the trail, so the Entrance's telemetry view
+    # follows them through this board, which the Queen feeds from her first tick.
+    telemetry = TelemetryBoard()
+    queen_deps = replace(
+        queen_deps, scanner=scanner, human_channel=relay, on_heartbeat=telemetry.record
+    )
+    queen = Queen(queen_deps)
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
@@ -322,6 +335,8 @@ def _assemble_hive(
         clock=parts.clock,
         enforcer=parts.enforcer,
         human_channel=relay,
+        queen_deps=queen_deps,
+        telemetry=telemetry,
         virtual_cells=extras.virtual_cells,
     )
 

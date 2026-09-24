@@ -138,7 +138,7 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
     port = int(loopback.getsockname()[1])
     push, sockets = _push(parts), SocketRegistry()
     shared = _shared(parts, push, sockets, port)
-    listeners = EntranceListeners(loopback, _remote_setup(parts))
+    listeners = EntranceListeners(loopback, _remote_setup(parts), parts.clock)
     seams = ReducerSeams(listeners, sockets, shared.seams.notifier)
     reducer = EntranceReducer(shared.records, shared.book, seams)
     hub = StreamHub(parts.tables.trail, parts.clock, parts.settings.poll_interval_s)
@@ -150,7 +150,7 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
         push=_push_services(parts, push),
         guards=_guards(parts, shared, served[Listener.LOOPBACK].enrolment),
         reducer=reducer,
-        streams=StreamServices(hub, sockets),
+        streams=_streams(parts, hub, sockets),
         rules=_rules(parts),
         door=listeners,
         clock=parts.clock,
@@ -159,6 +159,12 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
     follower = ReduceOrderFollower(hub, reducer, shared.records.trail)
     workers = EntranceWorkers(hub, push.outbox, follower)
     return BuiltEntrance(HiveEntrance(services, listeners, workers), PushHumanChannel(push.outbox))
+
+
+def _streams(parts: EntranceParts, hub: StreamHub, sockets: SocketRegistry) -> StreamServices:
+    """The live views' hub, sockets, first-frame deadline and backlog, from the settings."""
+    settings = parts.settings
+    return StreamServices(hub, sockets, settings.hello_deadline_s, settings.stream_backlog)
 
 
 def _shared(parts: EntranceParts, push: _Push, sockets: SocketRegistry, port: int) -> _Shared:

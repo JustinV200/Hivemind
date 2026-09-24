@@ -7,8 +7,8 @@ forwarding-header check, the per-address rate limit); ``admit`` is the authentic
 (the signed request exactly as sent, the per-device rate, the travel lock, each capability at the
 guard's Entrance route enforcement point, a denial counting toward the burst lock); ``step_up``
 guards sensitive actions (a program's request held for a person); ``handlers`` answers every
-refusal with its status and a small body; ``errors`` are the gate's own refusals; ``services`` and
-``params`` are what a route is handed.
+refusal with its status and a small body; ``errors`` are the gate's own refusals; ``services``,
+``reads`` (the stores and live tables read directly) and ``params`` are what a route is handed.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Used by
@@ -34,9 +34,9 @@ Public API:
     - ErrorBody, install_error_handlers, status_for, INVALID_REQUEST_CODE, NOT_FOUND_CODE,
       ROUTER_REFUSAL_CODE: answers (handlers).
     - StepUpRequiredError, CapabilityDeniedError, RateLimitedError: the gate's refusals (errors).
-    - EntranceServices, QueenDoor, HiveReads, PushServices, GateGuards, EntranceRules,
-      StreamServices, DoorControl, ListenerDeps, get_services, get_listener: the services
-      (services).
+    - EntranceServices, QueenDoor, PushServices, GateGuards, EntranceRules, StreamServices,
+      DoorControl, ListenerDeps, get_services, get_listener: the services (services).
+    - HiveReads, HiveCensus, VirtualCellCensus, LlmReads: what is read directly (reads).
     - Services, Here, CallerParam, ArrivalParam: a route's parameters (params).
 """
 
@@ -72,12 +72,12 @@ from hivemind.entrance.gate.middleware import (
     SecurityHeaders,
 )
 from hivemind.entrance.gate.params import ArrivalParam, CallerParam, Here, Services
+from hivemind.entrance.gate.reads import HiveCensus, HiveReads, LlmReads, VirtualCellCensus
 from hivemind.entrance.gate.services import (
     DoorControl,
     EntranceRules,
     EntranceServices,
     GateGuards,
-    HiveReads,
     ListenerDeps,
     PushServices,
     QueenDoor,
@@ -128,8 +128,10 @@ __all__ = [
     "ErrorBody",
     "GateGuards",
     "Here",
+    "HiveCensus",
     "HiveReads",
     "ListenerDeps",
+    "LlmReads",
     "LoopbackGate",
     "PushServices",
     "QueenDoor",
@@ -143,6 +145,7 @@ __all__ = [
     "StepUpRequiredError",
     "StreamServices",
     "Switch",
+    "VirtualCellCensus",
     "arrival_of",
     "authorise",
     "current_arrival",

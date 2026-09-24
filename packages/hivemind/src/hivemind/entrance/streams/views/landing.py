@@ -1,4 +1,4 @@
-"""Define the live views: the chat, the push channel, and the Entrance's security events.
+"""Define the Landing Board's own live views: the chat, the push channel, the security events.
 
 Clients never poll (codingrules 8.11); each view is a WebSocket declared as a ``SocketSpec`` and
 served through the shared lifecycle in ``hivemind.entrance.streams.socket``. ``/v1/chat/stream``
@@ -7,12 +7,14 @@ the Queen's chat log whenever the trail moves, and at least every ``CHAT_RESYNC_
 may be appended just after the event that accompanies it. ``/v1/push/stream`` is the live push
 channel: the socket is attached to the ``LivePush`` hub and receives the same content-free notices
 webhooks and Web Push carry. ``/v1/entrance/stream`` sends every Entrance security event from the
-trail. A new view is one endpoint and one row in ``VIEWS``.
+trail. Each subscription to the hub is bounded by the Entrance's stream backlog, so a reader
+that lags is closed with FELL_BEHIND. The Hive's own views (trail, telemetry, Forage, tasks,
+episodes, Cells) are the modules beside this one.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.streams``. ``VIEWS``
-    joins the route table in ``hivemind.entrance.app``. Calls into the stream hub, the chat log
-    and the live push hub.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.streams.views``. Its
+    ``LANDING_VIEWS`` join the route table through ``hivemind.entrance.streams.views.VIEWS``.
+    Calls into the stream hub, the chat log and the live push hub.
 
 Key invariants:
     - The chat view needs ``entrance:submit`` and ``honey:clearance:c2``, like reading the chat.
@@ -38,6 +40,7 @@ from hivemind.entrance.models import ChatFrame, SecurityFrame, chat_line, securi
 from hivemind.entrance.push import LiveSender, LiveSocketClosedError, PushNotice
 from hivemind.entrance.streams.errors import CloseReason, StreamClosedError
 from hivemind.entrance.streams.socket import StreamContext, send_frame, serve_socket
+from hivemind.entrance.streams.views.pump import trail_subscription
 from hivemind.pheromone import PheromoneEvent
 from hivemind.queen import ChatQuery
 from hivemind.queen.chat import MAX_CHAT_PAGE
@@ -56,7 +59,7 @@ _SECURITY_ACCESS = session_with("observe")
 
 __all__ = [
     "CHAT_RESYNC_S",
-    "VIEWS",
+    "LANDING_VIEWS",
     "chat_stream",
     "live_sender",
     "push_stream",
@@ -139,7 +142,7 @@ async def _follow_chat(context: StreamContext, after: int | None) -> CloseReason
     """Send chat lines after the cursor until the socket or the subscription closes."""
     chat = context.services.hive.chat
     cursor = after if after is not None else await _newest_seq(context)
-    subscription = context.services.streams.hub.subscribe("chat", _moves_the_chat)
+    subscription = trail_subscription(context, "chat", _moves_the_chat)
     try:
         while True:
             # Latency: one local indexed read of the chat table.
@@ -183,7 +186,7 @@ async def _live_push(context: StreamContext) -> CloseReason:
 
 async def _follow_security(context: StreamContext) -> CloseReason:
     """Send every security event the hub delivers until something closes."""
-    subscription = context.services.streams.hub.subscribe("security", _is_security_event)
+    subscription = trail_subscription(context, "security", _is_security_event)
     try:
         while True:
             for event in await subscription.next_batch():
@@ -205,7 +208,7 @@ def _is_security_event(event: PheromoneEvent) -> bool:
     return event.kind.startswith(_ENTRANCE_PREFIX) or event.kind in _DOOR_KINDS
 
 
-VIEWS: tuple[SocketSpec, ...] = (
+LANDING_VIEWS: tuple[SocketSpec, ...] = (
     SocketSpec(
         path="/v1/chat/stream",
         listeners=BOTH_LISTENERS,

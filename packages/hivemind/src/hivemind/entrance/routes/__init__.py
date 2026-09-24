@@ -7,9 +7,11 @@ Handlers are thin: validate (the models in ``hivemind.entrance.models``), author
 call a subsystem's public API (the Queen for every write into the Hive, the Entrance's own flows
 for the door), shape the reply. The resources built so far: ``auth`` (login, logout, step-up),
 ``enrol`` (redeeming an invite), ``entrance`` (the door: mode, reduce, reopen, invites, approvals,
-the steward route, held requests), ``devices``, ``goals``, ``chat``, ``inbox`` and ``push``. The
-live streams are views in ``hivemind.entrance.streams``. Later resources (tasks, cells, wardens,
-forage, episodes, tools, honey, trail, swarm, llm) join by adding a module and one line to
+the steward route, held requests), ``devices``, ``goals``, ``chat``, ``inbox`` and ``push``;
+``hive`` holds the Hive's read resources (``tasks``, ``cells``, ``wardens``, ``forage``,
+``episodes``, ``trail``, ``llm``), and ``later`` the resources the contract names before the
+phases that fill them (``tools``, ``honey``, ``swarm``, each answering 501). The live streams are
+views in ``hivemind.entrance.streams``. A new resource joins by adding a module and one line to
 ``registry``.
 
 Fits into the Hive:

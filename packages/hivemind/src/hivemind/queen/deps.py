@@ -355,8 +355,7 @@ class QueenDeps:
             300.0, matching the dispatcher's prior module constant.
         ledger: The Queen's live book of Forage (roadmap step 4.7): every Cell's latest
             capacity, every live shared grant and the headroom they leave. Defaults to a fresh,
-            in-memory-only `ForageLedger()` sharing `reserve`'s own default, so a caller that
-            never names this field (every pre-4.7 test) still builds a valid QueenDeps.
+            in-memory `ForageLedger()`, so a caller that never names it still builds.
         orders: Roadmap step 4.9 (Clustering): the durable `hive cluster`/`hive wake` rows
             `hivemind.queen.cluster.tick.run_cluster_tick` polls every tick. Defaults to a fresh
             `InMemoryOrderStore()`, matching every other roadmap-4.9-and-earlier test.
@@ -428,12 +427,10 @@ class QueenDeps:
             one of them is local to the Cell it is issued for, like a source that Cell serves
             itself (roadmap step 10.3a: a Night Veil grant names local bindings only). Defaults
             to none, so a Night Veil grant fails closed unless a composition root states them.
-        on_heartbeat: Told about every Heartbeat she receives, once she has recorded it
-            (`OnHeartbeat`); the Hive Entrance's telemetry board in `hive serve`, None (nobody)
-            by default. A Heartbeat never reaches the trail, so this is its one way out.
-        intake_lock: Serialises every goal-request edge (`hivemind.queen.intake.writes`): her
-            intake drain, a plan finishing beside her tick and a revocation arriving through the
-            Hive Entrance each move a request from the row as it stands, one at a time.
+        on_heartbeat: Handed every Heartbeat she records, its one way out (it never reaches the
+            trail): the Hive Entrance's telemetry board in `hive serve`; None (nobody) by default.
+        intake_lock: Serialises her goal-request edges (`hivemind.queen.intake.writes`): intake, a
+            plan landing beside her tick and a revocation each move the row as it stands.
     """
 
     chamber: BroodChamber
@@ -462,8 +459,7 @@ class QueenDeps:
     reserve: RoyalReserve = field(default_factory=RoyalReserve)
     grant_ttl_s: float = _DEFAULT_GRANT_TTL_S
     ledger: ForageLedger = field(default_factory=ForageLedger)
-    # Roadmap step 4.9 (Clustering): additive fields, every one defaulted so a QueenDeps built
-    # before this dispatch (every existing test) keeps building unchanged.
+    # Roadmap step 4.9 (Clustering): defaulted, so a QueenDeps built without them still builds.
     orders: OrderStore = field(default_factory=InMemoryOrderStore)
     health_poller: HealthPoller = field(default_factory=HealthPoller)
     provider_lookup: ProviderLookup | None = None
@@ -471,9 +467,7 @@ class QueenDeps:
     # can read her mode without reaching into the kernel, and so queen.py stays inside its
     # size cap (codingrules 5.1); exactly one per Queen, like every other mutable store here.
     cluster_state: ClusterState = field(default_factory=ClusterState)
-    # Roadmap step 4.3's own wiring step (the House Bee sweep on the Queen's own timer): additive
-    # fields, every one defaulted so a QueenDeps built before this dispatch (every existing test)
-    # keeps building unchanged.
+    # Roadmap step 4.3 (the House Bee sweep on the Queen's own timer): defaulted, like those above.
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S
     hot_window_s: float = _DEFAULT_HOT_WINDOW_S
@@ -483,8 +477,7 @@ class QueenDeps:
     virtual_backends: tuple[VirtualBackendCandidate, ...] = field(default_factory=tuple)
     dormant_cells: tuple[DormantCandidate, ...] = field(default_factory=tuple)
     virtual_provider: VirtualCellProvider | None = None
-    # This dispatch's own reconciliation (roadmap 5.6/5.9): additive, every one defaulted to None
-    # so every earlier test's own static-tuple QueenDeps keeps building and behaving unchanged.
+    # Roadmap 5.6/5.9 (live feeds): defaulted to None, so the static tuples above stay in force.
     virtual_backend_source: VirtualBackendSource | None = None
     dormant_cell_source: DormantCellSource | None = None
     on_task_finished: OnTaskFinished | None = None
@@ -506,7 +499,6 @@ class QueenDeps:
     scanner: ContentScanner = field(default_factory=default_content_scanner)
     # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil grant fails closed.
     in_process_providers: frozenset[str] = frozenset()
-    # Roadmap step 10.5 (the Entrance's read side): defaulted, so a Queen built without an
-    # Entrance tells nobody of her Heartbeats, and one lock per Queen guards her request edges.
+    # Roadmap step 10.5 (the Entrance's read side): defaulted; one intake lock per Queen.
     on_heartbeat: OnHeartbeat | None = None
     intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

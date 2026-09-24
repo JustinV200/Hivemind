@@ -2,8 +2,9 @@
 
 A Landing Board route is thin (ADR-0032): it validates, authorises, calls a subsystem's public API
 and shapes the reply. What it calls is here, built once by the composition root: ``QueenDoor``
-(the Queen's methods the Entrance writes through), ``HiveReads`` (the stores it reads directly,
-since reading never changes state), ``PushServices``, ``GateGuards`` (the Guard's enforcer, the
+(the Queen's methods the Entrance writes through), ``HiveReads`` (the stores and live tables it
+reads directly, since reading never changes state; ``hivemind.entrance.gate.reads``),
+``PushServices``, ``GateGuards`` (the Guard's enforcer, the
 denial-burst lock, the rate limiter), ``EntranceRules`` (the thresholds routes decide with),
 ``DoorControl`` (the running listeners, as routes see them) and the Entrance's own reducer, streams
 and sockets, in one ``EntranceServices``. ``ListenerDeps`` is what
@@ -36,7 +37,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Protocol
 
-from hivemind.brood_chamber import AnswerSource, BroodChamber, Task
+from hivemind.brood_chamber import AnswerSource, Task
 from hivemind.cell import HoneyClearance
 from hivemind.common.errors import InvariantViolationError
 from hivemind.entrance.auth.confirm import DEFAULT_CONFIRMATION_TTL
@@ -44,10 +45,11 @@ from hivemind.entrance.auth.limits import DenialCounter, RateLimiter
 from hivemind.entrance.auth.login import AuthDeps
 from hivemind.entrance.auth.session.models import Listener
 from hivemind.entrance.enrol.deps import EnrolmentDeps
+from hivemind.entrance.gate.reads import HiveReads
 from hivemind.entrance.push import LivePush, PushDispatcher
 from hivemind.entrance.reducer import EntranceReducer
 from hivemind.guard import Enforcer
-from hivemind.queen import ChatLog, GoalRequest, GoalRequestStore, HumanInbox
+from hivemind.queen import GoalRequest, HumanInbox
 from hivemind.supervision import Alarm
 from waggle.clock import Clock
 from waggle.ids import DeviceId, MessageId, TaskId
@@ -62,7 +64,6 @@ __all__ = [
     "EntranceRules",
     "EntranceServices",
     "GateGuards",
-    "HiveReads",
     "ListenerDeps",
     "PushServices",
     "QueenDoor",
@@ -150,21 +151,6 @@ class DoorControl(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class HiveReads:
-    """The Hive's stores the Entrance reads directly (reading never changes state, ADR-0032).
-
-    Attributes:
-        goal_requests: The Queen's goal-request table.
-        chat: The Queen's chat log.
-        chamber: The Brood Chamber (questions waiting on the human).
-    """
-
-    goal_requests: GoalRequestStore
-    chat: ChatLog
-    chamber: BroodChamber
-
-
-@dataclass(frozen=True, slots=True)
 class PushServices:
     """The push channel as routes see it.
 
@@ -222,10 +208,15 @@ class StreamServices:
     Attributes:
         hub: Follows the trail once and fans events out to every view.
         sockets: Every live socket, by session, device and listener, so each closes on time.
+        hello_deadline_s: How long a socket may take to send its authenticating first frame
+            (ADR-0033's five seconds, from the settings; a test injects a short one).
+        backlog: How far a view's subscription may fall behind before it is closed.
     """
 
     hub: StreamHub
     sockets: SocketRegistry
+    hello_deadline_s: float
+    backlog: int
 
 
 @dataclass(frozen=True, slots=True)

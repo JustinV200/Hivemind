@@ -28,12 +28,14 @@ from pathlib import Path
 
 import httpx
 
+from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, HiveAuthority
 from hivemind.entrance.gate import HiveReads, QueenDoor
 from hivemind.entrance.push import Resolver, SubscriptionStore, VapidSigner, system_resolver
 from hivemind.entrance.runtime.tls import NoCertificates, RevokedSerials
 from hivemind.entrance.store import EntranceStore
+from hivemind.entrance.streams import DEFAULT_BACKLOG
 from hivemind.guard import Enforcer, GuardPolicy
 from hivemind.manifest import EntranceSection
 from hivemind.pheromone import DEFAULT_POLL_INTERVAL_S, PheromoneTrail
@@ -64,6 +66,9 @@ class EntranceSettings:
         web_root: The Observation Hive's build directory, served when it exists.
         tunnel_env: The tunnel child's environment (``tunnel_environment``); None when no tunnel.
         poll_interval_s: How often the stream hub polls the trail once caught up.
+        hello_deadline_s: How long a socket may take to authenticate its first frame; ADR-0033's
+            five seconds, shorter only in a test that waits it out.
+        stream_backlog: How far a live view may fall behind before it is closed as too slow.
     """
 
     section: EntranceSection
@@ -73,6 +78,8 @@ class EntranceSettings:
     web_root: Path | None = None
     tunnel_env: Mapping[str, str] | None = field(default=None, repr=False)
     poll_interval_s: float = DEFAULT_POLL_INTERVAL_S
+    hello_deadline_s: float = SOCKET_HELLO_DEADLINE_S
+    stream_backlog: int = DEFAULT_BACKLOG
 
 
 @dataclass(frozen=True, slots=True)

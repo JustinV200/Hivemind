@@ -4,9 +4,11 @@ The Hive Entrance runs in the Queen's own process and event loop (ADR-0032). ``p
 the ``hive serve`` composition root hands it (the tables, the Hive, the keys, what the manifest
 decides); ``build`` wires every collaborator once over those parts and the loopback socket the root
 bound; ``entrance`` is ``HiveEntrance``, the running Entrance from its start-up checks to a clean
-stop; ``listeners`` runs the loopback listener and, while exposed and open, the remote one and its
-tunnel child; ``server`` is one uvicorn server on one bound socket; ``tls`` keeps the remote
-listener's TLS context current; ``seams`` implements enrolment's offboarder and goal ledger.
+stop; ``listeners`` runs the loopback listener (restarted with bounded backoff if it fails) and,
+while exposed and open, the remote one and its tunnel child; ``server`` is one uvicorn server on one
+bound socket; ``tls`` keeps the remote listener's TLS context current; ``seams`` implements
+enrolment's offboarder and goal ledger; ``recovery`` commits, on start, a confirmed goal a crash
+kept from being submitted.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by
@@ -26,11 +28,13 @@ Public API:
       the Entrance is built from (parts).
     - build_entrance, BuiltEntrance, RELYING_PARTY_NAME, LOOPBACK_RP_ID: the wiring (build).
     - HiveEntrance, EntranceWorkers, SWEEP_INTERVAL_S: the running Entrance (entrance).
-    - EntranceListeners, RemoteSetup, TunnelLaunch, FailureHandler: the listeners (listeners).
+    - EntranceListeners, RemoteSetup, TunnelLaunch, FailureHandler, LOOPBACK_RESTART_FIRST_S,
+      LOOPBACK_RESTART_MAX_S: the listeners (listeners).
     - ListenerServer, bind_listener, GRACEFUL_SHUTDOWN_S, STOP_TIMEOUT_S, LOOPBACK_NAME: one
       server on one socket (server).
     - RemoteTls, RevokedSerials, NoCertificates: the remote listener's TLS (tls).
     - EntranceOffboarder, QueenGoalLedger: enrolment's seams (seams).
+    - submit_confirmed_goals: what a crash interrupted, carried out on start (recovery).
 """
 
 from hivemind.entrance.runtime.build import (
@@ -41,6 +45,8 @@ from hivemind.entrance.runtime.build import (
 )
 from hivemind.entrance.runtime.entrance import SWEEP_INTERVAL_S, EntranceWorkers, HiveEntrance
 from hivemind.entrance.runtime.listeners import (
+    LOOPBACK_RESTART_FIRST_S,
+    LOOPBACK_RESTART_MAX_S,
     EntranceListeners,
     FailureHandler,
     RemoteSetup,
@@ -54,6 +60,7 @@ from hivemind.entrance.runtime.parts import (
     EntranceTables,
     IPAddress,
 )
+from hivemind.entrance.runtime.recovery import submit_confirmed_goals
 from hivemind.entrance.runtime.seams import EntranceOffboarder, QueenGoalLedger
 from hivemind.entrance.runtime.server import (
     GRACEFUL_SHUTDOWN_S,
@@ -67,6 +74,8 @@ from hivemind.entrance.runtime.tls import NoCertificates, RemoteTls, RevokedSeri
 __all__ = [
     "GRACEFUL_SHUTDOWN_S",
     "LOOPBACK_NAME",
+    "LOOPBACK_RESTART_FIRST_S",
+    "LOOPBACK_RESTART_MAX_S",
     "LOOPBACK_RP_ID",
     "RELYING_PARTY_NAME",
     "STOP_TIMEOUT_S",
@@ -92,4 +101,5 @@ __all__ = [
     "TunnelLaunch",
     "bind_listener",
     "build_entrance",
+    "submit_confirmed_goals",
 ]

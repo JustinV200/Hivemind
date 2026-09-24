@@ -3,13 +3,15 @@
 ``HiveEntrance.run`` is the Entrance's whole life inside ``hive serve`` (ADR-0032), in one task
 group beside the Queen's. Before anything listens it settles what a restart may have left: every
 session is re-judged against its device's standing, every push subscription of a device no longer
-APPROVED is deleted before the first delivery, lapsed devices and held requests are expired, and a
-Guard Bee's reduce order recorded while no Entrance followed the trail is obeyed. Then it serves the
-loopback listener, starts the remote one only when the persisted mode is OPEN and the plan exposes
-one, and runs its background work: the stream hub, the push outbox, the reduce-order follower and a
-sweep that expires devices and held requests on time. A listener that fails after start is logged,
-the remote one reduces the Entrance, and either raises an Alarm to the human; the Queen never
-stops for it. ``stop`` closes every socket with a reason, stops both listeners and the background
+APPROVED is deleted before the first delivery, lapsed devices and held requests are expired, a
+goal a person confirmed whose request a crash kept from being committed is committed now
+(``recovery``), and a Guard Bee's reduce order recorded while no Entrance followed the trail is
+obeyed. Then it serves the loopback listener, starts the remote one only when the persisted mode is
+OPEN and the plan exposes one, and runs its background work: the stream hub, the push outbox, the
+reduce-order follower and a sweep that expires devices and held requests on time. A listener that
+fails after start is logged and raises an Alarm to the human: the remote one reduces the Entrance,
+the loopback one is restarted with bounded backoff (``listeners``); the Queen never stops for
+either. ``stop`` closes every socket with a reason, stops both listeners and the background
 work, and lets ``run`` return.
 
 Fits into the Hive:
@@ -40,6 +42,7 @@ from hivemind.entrance.gate import EntranceServices
 from hivemind.entrance.notify import PushOutbox
 from hivemind.entrance.reducer import EntranceMode, ReduceReason
 from hivemind.entrance.runtime.listeners import EntranceListeners
+from hivemind.entrance.runtime.recovery import submit_confirmed_goals
 from hivemind.entrance.streams import CloseReason, ReduceOrderFollower, StreamHub
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from waggle.ids import new_alarm_id
@@ -140,9 +143,16 @@ class HiveEntrance:
         await services.push.dispatcher.revalidate(approved)
         await expire_due(enrolment)
         await expire_pending(enrolment.records)
+        # A confirmed goal whose request a crash kept from being committed is committed now.
+        recovered = await submit_confirmed_goals(services)
         # An order recorded while no Entrance followed the trail is obeyed now.
         await self._workers.follower.catch_up()
-        log.info("entrance.settled", sessions_ended=ended, approved_devices=len(approved))
+        log.info(
+            "entrance.settled",
+            sessions_ended=ended,
+            approved_devices=len(approved),
+            goals_recovered=len(recovered),
+        )
 
     async def _sweep(self) -> None:
         """Expire lapsed devices and held requests on time, until cancelled."""
@@ -167,7 +177,7 @@ class HiveEntrance:
         after = (
             "the Entrance was reduced to loopback only; reopen it on loopback once fixed"
             if listener is Listener.REMOTE
-            else "restart hive serve to get the Hive Stand's own door back"
+            else "the Entrance is restarting it with backoff; check the Hive Stand if it stays down"
         )
         return Alarm(
             id=new_alarm_id(clock),

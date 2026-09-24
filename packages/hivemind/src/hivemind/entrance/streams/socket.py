@@ -1,8 +1,9 @@
 """Serve one WebSocket view: authenticate its first frame, run the view, close it on time.
 
 Every live view of the Hive Entrance shares one lifecycle (ADR-0033). The socket is accepted, then
-must send a first frame within ``SOCKET_HELLO_DEADLINE_S`` carrying its session's token and a
-signature over ``hive-ws-v1``, the path, a timestamp and a nonce (a browser cannot set headers on a
+must send a first frame within the deadline (``StreamServices.hello_deadline_s``: ADR-0033's
+``SOCKET_HELLO_DEADLINE_S``, five seconds) carrying its session's token and a signature over
+``hive-ws-v1``, the path, a timestamp and a nonce (a browser cannot set headers on a
 socket); a browser session's ``Origin`` must be the Entrance's own. The session is then policed
 like any request (rate, travel lock, the view's capability at the Entrance route point). While the
 view runs, four things race and the first to finish closes the socket with its reason: the view
@@ -35,11 +36,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from hivemind.common.logging import get_logger
-from hivemind.entrance.auth.session import (
-    SOCKET_HELLO_DEADLINE_S,
-    SocketOpening,
-    authenticate_websocket,
-)
+from hivemind.entrance.auth.session import SocketOpening, authenticate_websocket
 from hivemind.entrance.errors import AuthenticationFailedError
 from hivemind.entrance.gate.admit import Caller, arrival_of, police
 from hivemind.entrance.gate.errors import (
@@ -143,7 +140,7 @@ async def _hello(
     arrival = arrival_of(websocket.client.host if websocket.client else None, here.listener)
     try:
         # ADR-0033: a socket that has not authenticated within the deadline is closed.
-        async with asyncio.timeout(SOCKET_HELLO_DEADLINE_S):
+        async with asyncio.timeout(services.streams.hello_deadline_s):
             frame = await websocket.receive_text()
     except (TimeoutError, KeyError, *_GONE):
         await _close(websocket, CloseReason.AUTHENTICATION_FAILED)

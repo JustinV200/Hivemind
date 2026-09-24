@@ -34,9 +34,10 @@ from unit.entrance.push.support import OWN_ADDRESS, Recorder, StaticResolver
 
 from hivemind.common.secrets import MemorySecretStore
 from hivemind.entrance.auth import SoftPasskey
+from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import CONSOLE_CAPABILITIES, DeviceStatus, EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, ListenerPlan
-from hivemind.entrance.gate import HiveReads
+from hivemind.entrance.gate import HiveReads, LlmReads
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.push import (
     MemorySubscriptionStore,
@@ -55,6 +56,7 @@ from hivemind.entrance.runtime import (
     build_entrance,
 )
 from hivemind.entrance.store import MemoryEntranceStore
+from hivemind.entrance.streams import DEFAULT_BACKLOG, TelemetryBoard
 from hivemind.llm import FakeLLMProvider
 from hivemind.manifest import EntranceExposure, EntranceSection
 from hivemind.queen import Queen
@@ -92,6 +94,8 @@ class RigOptions:
         push_statuses: What the fake push service answers, in order (then 201).
         provider: The Queen's scripted model provider; a silent one when omitted.
         remote_host: Where the remote listener binds (an address this host lacks fails).
+        hello_deadline_s: How long a socket may take to send its first frame.
+        stream_backlog: How far a live view may fall behind before it is closed.
     """
 
     remote: bool = False
@@ -99,6 +103,8 @@ class RigOptions:
     push_statuses: tuple[int, ...] = ()
     provider: FakeLLMProvider | None = None
     remote_host: str = LOOPBACK_HOST
+    hello_deadline_s: float = SOCKET_HELLO_DEADLINE_S
+    stream_backlog: int = DEFAULT_BACKLOG
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +132,7 @@ class ServingRig:
     queen: Queen
     deps: QueenDeps
     warden_end: WardenEnd
+    telemetry: TelemetryBoard
     store: MemoryEntranceStore
     push_service: Recorder
     console: DeviceKey
@@ -249,9 +256,9 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
     """
     active = options if options is not None else RigOptions()
     clock = SystemClock()
-    relay = HumanChannelRelay()
+    relay, telemetry = HumanChannelRelay(), TelemetryBoard()
     deps, link, warden_end = make_queen_deps(
-        clock, fake_provider=active.provider, human_channel=relay
+        clock, fake_provider=active.provider, human_channel=relay, on_heartbeat=telemetry.record
     )
     queen = Queen(deps)
     await queen.attach_warden(link)
@@ -262,7 +269,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
         parts = EntranceParts(
             settings=_settings(deps, active),
             tables=EntranceTables(store=store, push=push_store, trail=deps.trail),
-            hive=_hive(queen, deps),
+            hive=_hive(queen, deps, telemetry),
             keys=await _keys(clock),
             clock=clock,
             http=push_http,
@@ -276,6 +283,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             queen=queen,
             deps=deps,
             warden_end=warden_end,
+            telemetry=telemetry,
             store=store,
             push_service=recorder,
             console=console,
@@ -285,13 +293,28 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             yield rig
 
 
-def _hive(queen: Queen, deps: QueenDeps) -> EntranceHive:
-    """The Hive as the Entrance sees it: the Queen's door, her stores, her enforcer."""
+def _hive(queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard) -> EntranceHive:
+    """The Hive as the Entrance sees it: the Queen's door, her stores and tables, her enforcer."""
+    # Every provider the bindings name is the rig's fake one.
+    llm = LlmReads(
+        providers={binding.provider: "fake" for binding in deps.bindings},
+        bindings=deps.bindings,
+        cluster=deps.cluster_state,
+        health=deps.health_poller,
+    )
+    reads = HiveReads(
+        goal_requests=deps.goal_requests,
+        chat=deps.chat,
+        chamber=deps.chamber,
+        trail=deps.trail,
+        memory=deps.memory,
+        ledger=deps.ledger,
+        census=queen,
+        telemetry=telemetry,
+        llm=llm,
+    )
     return EntranceHive(
-        queen=queen,
-        reads=HiveReads(deps.goal_requests, deps.chat, deps.chamber),
-        enforcer=deps.enforcer,
-        policy=deps.enforcer.policy,
+        queen=queen, reads=reads, enforcer=deps.enforcer, policy=deps.enforcer.policy
     )
 
 
@@ -338,6 +361,8 @@ def _settings(deps: QueenDeps, options: RigOptions) -> EntranceSettings:
         goal_spend_cap_usd=GOAL_SPEND_CAP_USD,
         plan=plan,
         poll_interval_s=0.02,
+        hello_deadline_s=options.hello_deadline_s,
+        stream_backlog=options.stream_backlog,
     )
 
 

@@ -123,17 +123,29 @@ class ListenerServer:
         """Whether the server started and has not finished."""
         return self._server.started and not self._finished.is_set()
 
+    @property
+    def started(self) -> bool:
+        """Whether the server ever started accepting connections."""
+        return self._server.started
+
     async def serve(self) -> None:
         """Serve until ``stop``; an OSError from the socket propagates to the caller.
 
         Raises:
             OSError: The socket failed under the server.
         """
+        clean = False
         try:
             await self._server.serve(sockets=[self._sock])
+            clean = True
         finally:
+            # uvicorn shuts itself down only after a clean main loop: a server that failed mid-run
+            # left its listening server and connections open, and its address must be free again.
+            if not clean:
+                self._abandon()
+            self._sock.close()
             self._finished.set()
-            log.info("entrance.listener_finished", port=self._port)
+            log.info("entrance.listener_finished", port=self._port, clean=clean)
 
     async def stop(self) -> None:
         """Stop gracefully within one second, then force; idempotent."""
@@ -149,6 +161,13 @@ class ListenerServer:
         except TimeoutError:
             self._server.force_exit = True
             log.warning("entrance.listener_forced", port=self._port)
+
+    def _abandon(self) -> None:
+        """Close what a server that failed mid-run left open: its listening server, its sockets."""
+        for server in getattr(self._server, "servers", ()):
+            server.close()
+        for connection in list(self._server.server_state.connections):
+            connection.shutdown()
 
 
 class _QuietServer(uvicorn.Server):

@@ -22,6 +22,16 @@ from __future__ import annotations
 from hivemind.entrance.gate.spec import RouteSpec
 from hivemind.entrance.routes import auth, chat, devices, enrol, goals, inbox, push
 from hivemind.entrance.routes.entrance import DOOR_ROUTES, ENROLMENT_ROUTES, HELD_ROUTES
+from hivemind.entrance.routes.hive import (
+    CELL_ROUTES,
+    EPISODE_ROUTES,
+    FORAGE_ROUTES,
+    LLM_ROUTES,
+    TASK_ROUTES,
+    TRAIL_ROUTES,
+    WARDEN_ROUTES,
+)
+from hivemind.entrance.routes.later import HONEY_ROUTES, SWARM_ROUTES, TOOL_ROUTES
 
 __all__ = ["RESOURCE_ROUTES"]
 
@@ -37,4 +47,14 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     chat.ROUTES,
     inbox.ROUTES,
     push.ROUTES,
+    TASK_ROUTES,
+    CELL_ROUTES,
+    WARDEN_ROUTES,
+    FORAGE_ROUTES,
+    EPISODE_ROUTES,
+    TRAIL_ROUTES,
+    LLM_ROUTES,
+    TOOL_ROUTES,
+    HONEY_ROUTES,
+    SWARM_ROUTES,
 )

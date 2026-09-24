@@ -3,13 +3,16 @@
 The loopback listener's socket is bound before anything starts (a loopback listener that cannot
 bind refuses to start ``hive serve``, and the port it got shapes the loopback origin and relying
 party the applications are built with, so the applications are mounted afterwards). It serves for
-as long as the Entrance runs. The remote one exists only when the exposure plan names it and the
+as long as the Entrance runs, and because it is the only door the Hive is administered through, a
+loopback listener that fails after start is restarted on the same address with bounded backoff
+(half a second, doubling to at most thirty), for as long as the Entrance runs; the failure handler
+is told once per outage. The remote one exists only when the exposure plan names it and the
 Entrance is OPEN (ADR-0033): ``start`` builds its TLS context over a fresh revocation list, binds
 its socket, serves it, and in tunnel mode starts the tunnel client as a supervised child; ``stop``
 stops the server and the child together, within about a second. These two are the Entrance
 Reducer's ``RemoteListenerControl``. After start, a listener that fails never stops the Queen: the
 failure handler is told (the running Entrance reduces for the remote listener and raises an Alarm
-to the human). The listeners are also the routes' ``DoorControl``.
+to the human either way). The listeners are also the routes' ``DoorControl``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.runtime``. Built by the
@@ -19,6 +22,8 @@ Fits into the Hive:
 Key invariants:
     - Every server and the tunnel child run as tasks of the Entrance's own task group.
     - ``stop`` is idempotent and leaves no remote server or tunnel child running.
+    - The loopback listener is restarted after any failure until ``stop_all``, never stopped by one;
+      every wait between restarts is on the injected clock and ends at once on ``stop_all``.
 
 See Also:
     - hivemind.entrance.reducer for ``RemoteListenerControl``.
@@ -38,6 +43,7 @@ from starlette.types import ASGIApp
 
 from hivemind.common.errors import InvariantViolationError
 from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reap
 from hivemind.entrance.auth.session.models import Listener
 from hivemind.entrance.expose import ListenerPlan, TunnelSupervisor
 from hivemind.entrance.runtime.server import ListenerServer, bind_listener
@@ -47,10 +53,19 @@ from waggle.ids import DeviceId
 
 # Told which listener failed and why (an exception's name); never raises into a server's task.
 FailureHandler = Callable[[Listener, str], Awaitable[None]]
+LOOPBACK_RESTART_FIRST_S = 0.5  # First wait before restarting the loopback door: it is urgent.
+LOOPBACK_RESTART_MAX_S = 30.0  # The backoff's cap: a stubborn failure is retried twice a minute.
 
 log = get_logger(__name__)
 
-__all__ = ["EntranceListeners", "FailureHandler", "RemoteSetup", "TunnelLaunch"]
+__all__ = [
+    "LOOPBACK_RESTART_FIRST_S",
+    "LOOPBACK_RESTART_MAX_S",
+    "EntranceListeners",
+    "FailureHandler",
+    "RemoteSetup",
+    "TunnelLaunch",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,15 +101,22 @@ class RemoteSetup:
 class EntranceListeners:
     """The loopback listener, and the remote one while exposed and open."""
 
-    def __init__(self, loopback: socket.socket, remote: RemoteSetup | None) -> None:
+    def __init__(self, loopback: socket.socket, remote: RemoteSetup | None, clock: Clock) -> None:
         """Hold the listeners; nothing serves until ``mount``, ``attach`` and ``serve_loopback``.
 
         Args:
             loopback: The loopback listener's socket, already bound.
             remote: How to start the remote listener; None in loopback mode.
+            clock: Paces the loopback listener's restart backoff.
         """
-        self._loopback_socket = loopback
+        self._loopback_socket: socket.socket | None = loopback
+        # Where the loopback door is rebound after a failure: the very address it first got.
+        host, port = loopback.getsockname()[:2]
+        self._loopback_address: tuple[str, int] = (str(host), int(port))
         self._setup = remote
+        self._clock = clock
+        # Set by stop_all: the loopback listener is stopped for good, never restarted.
+        self._closing = asyncio.Event()
         # Replaced by the running Entrance (on_failure); until then a failure is only logged.
         self._on_failure: FailureHandler = _log_failure
         self._apps: Mapping[Listener, ASGIApp] = {}
@@ -105,8 +127,13 @@ class EntranceListeners:
 
     @property
     def loopback_port(self) -> int:
-        """The port the loopback listener is bound to."""
-        return int(self._loopback_socket.getsockname()[1])
+        """The port the loopback listener is bound to (the same across restarts)."""
+        return self._loopback_address[1]
+
+    @property
+    def loopback_listening(self) -> bool:
+        """Whether the loopback listener is serving right now."""
+        return self._loopback is not None and self._loopback.serving
 
     @property
     def exposed(self) -> bool:
@@ -148,16 +175,26 @@ class EntranceListeners:
         self._group = group
 
     async def serve_loopback(self) -> None:
-        """Serve the loopback listener until it stops; a failure is reported, never raised.
+        """Serve the loopback listener until ``stop_all``, restarting it with backoff on failure.
 
         Raises:
             InvariantViolationError: No application was mounted for it.
         """
-        self._loopback = ListenerServer(self._app(Listener.LOOPBACK), self._loopback_socket)
-        try:
-            await self._loopback.serve()
-        except OSError as error:
-            await self._on_failure(Listener.LOOPBACK, type(error).__name__)
+        delay, told = LOOPBACK_RESTART_FIRST_S, False
+        while True:
+            failure, served = await self._serve_loopback_once()
+            if failure is None:
+                return  # stop_all asked it to stop: the Entrance is going away.
+            # A listener that had been serving starts a new outage: backoff and telling reset.
+            if served:
+                delay, told = LOOPBACK_RESTART_FIRST_S, False
+            if not told:
+                await self._on_failure(Listener.LOOPBACK, failure)
+                told = True
+            log.warning("entrance.loopback_restarting", failure=failure, delay_s=delay)
+            if await self._pause(delay):
+                return
+            delay = min(delay * 2, LOOPBACK_RESTART_MAX_S)
 
     async def start(self) -> None:
         """Start the remote listener (and the tunnel child), if exposed and not running yet."""
@@ -192,11 +229,12 @@ class EntranceListeners:
                 group.create_task(tunnel.stop())
 
     async def stop_all(self) -> None:
-        """Stop both listeners (the Entrance is shutting down)."""
+        """Stop both listeners for good (the Entrance is shutting down)."""
+        self._closing.set()
         await self.stop()
         if self._loopback is not None:
             await self._loopback.stop()
-        else:
+        if self._loopback_socket is not None:
             self._loopback_socket.close()
 
     async def device_revoked(self, device_id: DeviceId) -> None:
@@ -215,6 +253,37 @@ class EntranceListeners:
         if app is None:
             raise InvariantViolationError(f"No application was mounted for {listener.value}.")
         return app
+
+    async def _serve_loopback_once(self) -> tuple[str | None, bool]:
+        """Serve the loopback listener once: why it ended (None when asked), and if it served."""
+        try:
+            # The first run serves the socket the root bound; a restart binds the same address.
+            sock = self._loopback_socket or bind_listener(*self._loopback_address)
+        except OSError as error:
+            return type(error).__name__, False
+        self._loopback_socket = None
+        server = ListenerServer(self._app(Listener.LOOPBACK), sock)
+        self._loopback = server
+        try:
+            await server.serve()
+        except OSError as error:
+            failure: str = type(error).__name__
+        else:
+            failure = "exited"
+        # stop_all sets the flag before stopping it: an exit after that is the one asked for.
+        return (None if self._closing.is_set() else failure), server.started
+
+    async def _pause(self, delay_s: float) -> bool:
+        """Wait out one backoff step on the clock; True when ``stop_all`` came first."""
+        closing = asyncio.ensure_future(self._closing.wait())
+        pause = asyncio.ensure_future(self._clock.sleep(delay_s))
+        try:
+            # External wait: the backoff on the injected clock, or the Entrance stopping.
+            await asyncio.wait({closing, pause}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            await reap(closing)
+            await reap(pause)
+        return self._closing.is_set()
 
     async def _serve_remote(self, server: ListenerServer) -> None:
         """Serve the remote listener; a failure (or an exit nobody asked for) is reported."""

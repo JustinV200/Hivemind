@@ -52,7 +52,7 @@ from hivemind.entrance.expose import (
     plan_exposure,
     tunnel_environment,
 )
-from hivemind.entrance.gate import HiveReads
+from hivemind.entrance.gate import HiveReads, LlmReads
 from hivemind.entrance.push import (
     Resolver,
     SqliteSubscriptionStore,
@@ -260,15 +260,31 @@ def _settings(served: ServedHive, plan: ExposurePlan) -> EntranceSettings:
 
 
 def _entrance_hive(hive: Hive) -> EntranceHive:
-    """Hand the Entrance the Queen's door, the stores it reads, and the Hive's one enforcer."""
-    stores = hive.stores
+    """Hand the Entrance the Queen's door, what it reads directly, and the Hive's one enforcer."""
+    stores, deps = hive.stores, hive.queen_deps
+    # Providers by name and kind only: the view never shows a key, its variable or a base URL.
+    providers = {name: spec.kind for name, spec in hive.manifest.llm.providers.items()}
+    llm = LlmReads(
+        providers=providers,
+        bindings=deps.bindings,
+        cluster=deps.cluster_state,
+        health=deps.health_poller,
+    )
+    virtual = hive.virtual_cells
+    reads = HiveReads(
+        goal_requests=stores.goal_requests,
+        chat=stores.chat,
+        chamber=stores.chamber,
+        trail=stores.trail,
+        memory=stores.memory,
+        ledger=deps.ledger,
+        census=hive.queen,  # Her Wardens and their pulse, read-only (HiveCensus).
+        telemetry=hive.telemetry,
+        llm=llm,
+        virtual_cells=virtual.lifecycle if virtual is not None else None,
+    )
     return EntranceHive(
-        queen=hive.queen,
-        reads=HiveReads(
-            goal_requests=stores.goal_requests, chat=stores.chat, chamber=stores.chamber
-        ),
-        enforcer=hive.enforcer,
-        policy=hive.enforcer.policy,
+        queen=hive.queen, reads=reads, enforcer=hive.enforcer, policy=hive.enforcer.policy
     )
 
 
