@@ -26,7 +26,10 @@ from hivemind.guard.policy.evaluate import (
     HELD_RULE,
     NOT_HELD_RULE,
     SCOPE_RULE,
+    STATE_FLOOR_RULE,
+    TIER_FLOOR_RULE,
     evaluate,
+    floor_decision,
     refusal,
 )
 from hivemind.guard.policy.models import (
@@ -164,15 +167,55 @@ def test_the_access_level_ceiling_runs_before_the_deny_list() -> None:
     assert decision.rule == f"{ACCESS_LEVEL_RULE}.read_only"
 
 
-def test_no_tier_floor_exists_yet() -> None:
-    # Roadmap step 10.3a fills the floor hook; until then a Night Veil context changes nothing.
+# ──────────────────────────────────────────────────────────────────────────────
+# The floors: run first, refuse whatever is held (roadmap step 10.3a)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_tier_floor_refuses_a_held_capability_with_its_own_rule() -> None:
     context = PolicyContext(
         comb_shield=CombShieldLevel.NIGHT_VEIL,
         bound_tier=CombShieldLevel.NIGHT_VEIL,
         origin=RequestOrigin.QUEEN,
     )
 
-    assert evaluate(_request("geo:city", "geo:*", context=context), _POLICY).allowed is True
+    decision = evaluate(_request("geo:city", "geo:*", context=context), _POLICY)
+
+    assert decision.allowed is False
+    assert decision.rule == f"{TIER_FLOOR_RULE}.night_veil_location"
+    assert decision.reason.endswith("a Night Veil Cell is location-blind, so geo is never granted.")
+
+
+def test_a_state_floor_refuses_a_bee_loopback_whatever_it_holds() -> None:
+    decision = evaluate(_request("net:127.0.0.1", "net:*"), _POLICY)
+
+    assert decision.allowed is False
+    assert decision.rule == f"{STATE_FLOOR_RULE}.loopback"
+
+
+def test_the_floors_run_before_the_access_level_ceiling() -> None:
+    # A SCRATCH Cell would refuse `net` itself; the floor answers first, so its rule is recorded.
+    context = PolicyContext(access_level=AccessLevel.SCRATCH)
+
+    decision = evaluate(_request("net:localhost", "net:*", context=context), _POLICY)
+
+    assert decision.rule == f"{STATE_FLOOR_RULE}.loopback"
+
+
+def test_floor_decision_is_none_when_no_floor_applies_even_if_nothing_is_held() -> None:
+    # The floors alone say nothing about the held set: a point checks that elsewhere.
+    assert floor_decision(_request("exec:git"), _POLICY) is None
+
+
+def test_floor_decision_refuses_what_a_floor_forbids_with_the_points_escalation() -> None:
+    policy = load_guard_policy(None, GuardSection(escalation={"tool_invocation": "alarm"}))
+
+    decision = floor_decision(_request("exec:/x/.venv/bin/hive", "exec:*"), policy)
+
+    assert decision is not None
+    assert decision.allowed is False
+    assert decision.rule == f"{STATE_FLOOR_RULE}.entry_points"
+    assert decision.escalation is EscalationAction.ALARM
 
 
 # ──────────────────────────────────────────────────────────────────────────────

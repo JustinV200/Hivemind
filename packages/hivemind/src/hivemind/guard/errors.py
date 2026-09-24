@@ -9,7 +9,9 @@ set doing the attenuating allows (`CapabilityWideningError`) -- the one operatio
 section 15 forbids outright ("Capabilities and Forage only attenuate down the tree") -- and a
 Guard policy (the shipped TOML, an operator's `policy_file`, or the manifest's `[guard]` table)
 that names an unknown role, point or action, or carries an entry that is not a capability
-(`GuardPolicyError`).
+(`GuardPolicyError`). Roadmap step 10.3a adds a fourth, for the one network question the Guard
+asks before a tool connects: a destination host that does not resolve to any address
+(`UnresolvableHostError`), which leaves nothing checked to connect to.
 
 `CapabilityWideningError` maps cleanly onto `hivemind.common.errors.PermissionDeniedError` ("the
 caller lacks the AccessLevel or capability an operation requires"): asking `attenuate` for a
@@ -51,6 +53,7 @@ __all__ = [
     "GuardError",
     "GuardPolicyError",
     "InvalidCapabilityError",
+    "UnresolvableHostError",
 ]
 
 
@@ -123,3 +126,25 @@ class GuardPolicyError(GuardError):
     """
 
     code: ClassVar[str] = "hivemind.guard.invalid_policy"
+
+
+class UnresolvableHostError(GuardError):
+    """Raise when a destination host does not resolve to any address a connection could use.
+
+    Raised by `hivemind.guard.net.resolve.resolve_host` for a name the resolver does not know, an
+    answer with no address in it, or a lookup that did not finish in time. The caller refuses to
+    connect: with no address checked, there is nothing the Guard has allowed.
+    """
+
+    code: ClassVar[str] = "hivemind.guard.unresolvable_host"
+
+    def __init__(self, host: str, reason: str) -> None:
+        """Build the error for a host that resolved to nothing usable.
+
+        Args:
+            host: The host that did not resolve, quoted in the message.
+            reason: What went wrong, briefly: the resolver's error class, or "no address".
+        """
+        super().__init__(f"Host {host!r} did not resolve to an address ({reason}).")
+        self.host = host
+        self.reason = reason

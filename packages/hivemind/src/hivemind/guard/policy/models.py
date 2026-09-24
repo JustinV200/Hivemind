@@ -4,24 +4,30 @@
 `PolicyDecision`. A request names the principal acting (`PrincipalRef`: its kind, its id and the
 policy role its set came from), the enforcement point it is passing, the one capability that
 action needs, the set the principal holds, and the context the tier floors and the access-level
-rule read (`PolicyContext`). A decision says allowed or not, the stable id of the rule that
-decided, a reason sentence a human can read on the trail, and what a denial escalates to
-(`EscalationAction`). Every model is a frozen boundary value, because a decision is recorded on the
-trail and will be returned by the Landing Board.
+rule read (`PolicyContext`). Roadmap step 10.3a gives the context four more facts a floor needs
+and only the enforcement point knows: whether a model binding is local, the Waggle control link a
+Cell will dial, the addresses a `net` host resolved to, and what the task's goal request says. A
+decision says allowed or not, the stable id of the rule that decided, a reason sentence a human
+can read on the trail, and what a denial escalates to (`EscalationAction`). Every model is a
+frozen boundary value, because a decision is recorded on the trail and will be returned by the
+Landing Board.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by every enforcement point
     (roadmap step 10.3) and passed to `hivemind.guard.enforcer.Enforcer.check`; read by
     `hivemind.guard.policy.evaluate`. Calls into `hivemind.cell` (the tier enums and
-    RequestOrigin), `hivemind.guard.capabilities`, `.points` and waggle (id validation).
+    RequestOrigin), `hivemind.guard.capabilities`, `.facts`, `.points` and waggle (id validation).
 
 Key invariants:
     - A principal's id matches its kind: the Queen acts as her Hive id, a Warden and a Worker as
       their own ids, a device as its device id, and the operator as `"human"`, the trail's own
       literal for the person, since the operator has no minted id.
     - Every `PolicyContext` field is optional because absence is meaningful: None means "not on
-      a Cell" (no tier, no access level), "not yet placed" (no bound tier) or "not a task"
-      (no origin), and a rule that needs a missing fact does not apply.
+      a Cell" (no tier, no access level), "not yet placed" (no bound tier), "not a task" (no
+      origin, no goal request) or "not this kind of action" (no binding, no control link, nothing
+      resolved), and a rule that needs a missing fact does not apply. The one exception is stated
+      where it lives: a Night Veil `llm` need is itself a binding, so an absent `binding_local`
+      there means locality was never shown, and the floor refuses it.
     - A decision's `escalation` is carried on an allow too, so a decision is always one shape;
       it is only acted on when `allowed` is False.
 
@@ -38,10 +44,11 @@ from collections.abc import Mapping
 from enum import Enum
 from types import MappingProxyType
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, model_validator
 
 from hivemind.cell import AccessLevel, CombShieldLevel, RequestOrigin
 from hivemind.guard.capabilities import Capability, CapabilitySet
+from hivemind.guard.policy.facts import ControlLink, GoalRequestFacts
 from hivemind.guard.policy.points import EnforcementPoint
 from waggle.ids import IdKind
 from waggle.messages.base import check_id
@@ -49,7 +56,8 @@ from waggle.messages.base import check_id
 OPERATOR_ID = "human"  # The operator's principal id: the trail's own literal for the person.
 _ROLE_PATTERN = r"^[a-z][a-z_]*$"  # A policy role name: a lowercase `[guard.roles]` key.
 _MAX_ROLE_CHARS = 64  # Role names are short keys ("guard_bee"), never prose.
-_MAX_RULE_CHARS = 128  # A rule id is a short dotted name ("guard.tier_floor.night_veil").
+_MAX_RULE_CHARS = 128  # A rule id is a short dotted name ("guard.tier_floor.night_veil_location").
+_MAX_RESOLVED_ADDRESSES = 64  # A host resolves to a handful of addresses; more is a hostile answer.
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -148,6 +156,30 @@ class PolicyContext(BaseModel):
         default=None,
         description="Who asked for the task to exist (HUMAN, QUEEN, WARDEN); None when the "
         "action is not a task's.",
+    )
+    # Roadmap step 10.3a: facts only the enforcement point knows, each read by one floor.
+    binding_local: bool | None = Field(
+        default=None,
+        description="Whether the model binding being checked is served locally: by an adapter "
+        "running in the binding process, from its own loopback, or from a source hosted on the "
+        "Cell itself. None when the action binds no model.",
+    )
+    control_link: ControlLink | None = Field(
+        default=None,
+        description="The Waggle control link a Cell being provisioned will dial the Queen "
+        "through; None when the action provisions no Cell.",
+    )
+    resolved_addresses: tuple[IPvAnyAddress, ...] | None = Field(
+        default=None,
+        max_length=_MAX_RESOLVED_ADDRESSES,
+        description="Every address the needed net host resolved to, when the enforcement point "
+        "resolved it before asking (the HTTP tool does); None when nothing was resolved, so only "
+        "the host as written is judged.",
+    )
+    goal_request: GoalRequestFacts | None = Field(
+        default=None,
+        description="What the durable goal request the task was planned from says, read from "
+        "its stored row; None when the action is not a task's, or the task cites no request.",
     )
 
 

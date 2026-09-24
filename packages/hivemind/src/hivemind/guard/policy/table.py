@@ -7,13 +7,16 @@ capability set that role starts from, the capabilities no one may exercise whate
 (the deny list), and what a denial at each enforcement point escalates to. A role's set may name
 the `{scratch}` placeholder, which only a lease can fill, so a role keeps those entries as
 validated strings and `hivemind.guard.policy.roles.role_set` substitutes them per lease; every
-other entry is already a parsed `Capability`.
+other entry is already a parsed `Capability`. Roadmap step 10.3a adds the Hive's own state
+(`HiveState`: its database, secret store and manifest paths, and the Hive Stand's own addresses),
+which the Hive-state floor refuses every bee; it is not configuration an operator writes but facts
+a composition root states once, from the manifest and the machine, so it defaults to nothing.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by `hivemind.guard.policy.
     defaults`; held by a composition root and by `hivemind.wardens.deps.WardenDeps.guard`; read
-    by `hivemind.guard.policy.roles` and `.evaluate`. Calls into `hivemind.guard.capabilities`,
-    `.models` and `.points`.
+    by `hivemind.guard.policy.roles`, `.evaluate` and `.floors`. Calls into
+    `hivemind.guard.capabilities`, `.hive_state`, `.models` and `.points`.
 
 Key invariants:
     - Frozen: a policy is built once at start and never changes while the Hive runs; its mappings
@@ -31,9 +34,10 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from hivemind.guard.capabilities import CapabilitySet
+from hivemind.guard.policy.hive_state import HiveState
 from hivemind.guard.policy.models import EscalationAction
 from hivemind.guard.policy.points import EnforcementPoint
 from waggle.messages.task import WorkerRole
@@ -84,11 +88,15 @@ class GuardPolicy:
         deny: Capabilities no principal may exercise, whatever it holds; checked at every
             enforcement point before the held set, and removed from every Warden's set.
         escalation: What a denial at a point escalates to; a point absent here refuses.
+        hive_state: The Hive's own state paths and the Hive Stand's own addresses, which the
+            Hive-state floor refuses every bee (roadmap step 10.3a, ADR-0033); empty until a
+            composition root states them, which still leaves the fixed parts of that floor on.
     """
 
     roles: Mapping[str, RoleDefaults]
     deny: CapabilitySet
     escalation: Mapping[EnforcementPoint, EscalationAction]
+    hive_state: HiveState = field(default_factory=HiveState)
 
     def escalation_for(self, point: EnforcementPoint) -> EscalationAction:
         """Return what a denial at `point` escalates to.
