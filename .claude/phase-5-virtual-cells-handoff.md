@@ -3,8 +3,8 @@
 > For an agent starting with a clean context. Roadmap steps 5.1 to 5.13, 5.3a, 5.7a and 5.7b were
 > implemented on 2026-09-21 on branch `feat/phase-5-virtual-cells`, by an orchestrator dispatching
 > one subagent per step or pair of steps, in a separate git worktree while another session built
-> Leavings (5.0a to 5.0e) on `feat/phase-5-leavings` in the main checkout. Neither branch has been
-> merged into the other yet; section 3 is the merge plan.
+> Leavings (5.0a to 5.0e) on `feat/phase-5-leavings` in the main checkout. **Merged 2026-09-23**:
+> `main` is the merge commit of both branches; section 3 records how the merge was resolved.
 
 Read first: `CLAUDE.md`, `.claude/codingrules.md` sections 4, 5, 8.7, 8.12, 12, 17 and Appendix C,
 `.claude/roadmap.md` phase 5, and ADRs `docs/adr/0026-*` to `0030-*`. The Leavings branch owns
@@ -12,9 +12,9 @@ ADR-0025.
 
 ## 1. Where things stand
 
-- Branch `feat/phase-5-virtual-cells`, cut from `main` at `2563154`, in the worktree
-  `C:\Justin\Projects\HiveMind\Hivemind-virtual-cells`. One commit per step or step pair; not
-  pushed.
+- `main` is the merge of `feat/phase-5-leavings` and `feat/phase-5-virtual-cells` (2026-09-23),
+  not pushed. The Virtual Cells work was built in the worktree
+  `C:\Justin\Projects\HiveMind\Hivemind-virtual-cells`, one commit per step or step pair.
 - Every box 5.1 to 5.13 plus 5.3a, 5.7a, 5.7b is ticked. 5.0a to 5.0e are the other branch's.
 - Gates at handover, whole repo, all green: `ruff format --check`, `ruff check`, `mypy`,
   `lint-imports` (9 contracts), the five `scripts/check_*.py`, and
@@ -50,7 +50,15 @@ ADR-0025.
 | Waggle | `waggle/messages/cell/snapshot.py`, `oversight.py`, `docs/waggle/spec.md` | Version 1.5: four snapshot messages and `InterventionAction.RELEASE_LEASE`. 1.3 and 1.4 belong to the Leavings branch. |
 | Trail | `pheromone/events/families.py` | New `cell.*` kinds appended at the end of the cell block: provisioning, granted, virtual_released, resumed, destroying, provision_failed, evicted, orphans_swept. |
 
-## 3. Merge plan with `feat/phase-5-leavings`
+## 3. Merge with `feat/phase-5-leavings` (done 2026-09-23)
+
+Resolved as agreed below, both sides kept in full; the merge commit's message and
+`.claude/phase-5-leavings-handoff.md` have the details. Beyond conflict markers the merge also:
+folded the Leavings zero-grant fail-fast into `queen/dispatcher/ready.py`; made `queen/trail/` a
+package (`queen/` hit the ten-module cap); wired the Undertaker's `LeavingsRemover` to the
+Leavings ledger (`workers/roles/undertaker/leavings.py`); let `release_real` retry through the
+new `RELEASING -> ORPHANED` edge; split `test_gate.py`'s snapshot tests into `test_gate_snapshot.py`.
+The merged tree passed every gate (6082 tests, Docker integration included) and a real Docker run.
 
 Agreed with the Leavings session during the build (both sides kept to it):
 
