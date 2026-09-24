@@ -1553,7 +1553,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   `guard.entrance_*` event (a trail kind has exactly one dot).
   *The Observation Hive's approve and revoke screens are 12.8a's; the loopback routes they call
   are these, and `hive entrance` drives the same routes today.*
-- [ ] **10.5e Login, sessions, step-up and the Entrance Reducer.** `entrance/auth/`: login is
+- [x] **10.5e Login, sessions, step-up and the Entrance Reducer.** `entrance/auth/`: login is
   the device key (a passkey assertion with user verification, or a signed challenge) plus the
   operator password; sessions carry `session_ttl_hours` and `idle_timeout_minutes` and are bound
   to the device key (a token presented without a matching device signature is refused); step-up
@@ -1571,6 +1571,10 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   anything. Tests: a stolen session token without the device key is refused; an approve request
   on the remote listener is a 404; the Reducer closes a live WebSocket subscription within a
   second.
+  *The Guard Bee's door rules (failure bursts, cross-device lockouts, invite abuse, request
+  forgery) reduce a real Entrance under `hive serve` since 10.6. Supersedure, Sting Cut and
+  Absconding are 13.2a's, 13.4's and 13.4a's to build; their step-up and typed-phrase checks are
+  here for them. No route changes a device's key yet; the step that adds one requires step-up.*
 - [x] **10.5f Voice in at the Landing Board.** `entrance/voice/`: `POST /v1/chat/audio` for
   clips and an audio frame type on the chat WebSocket for push-to-talk, both from enrolled devices
   only; transcription on `ModelSlot.TRANSCRIBER` through 6.5a, so the Hive Stand's own Whisper
