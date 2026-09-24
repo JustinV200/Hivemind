@@ -6,7 +6,10 @@ each declaring its rows as `RouteSpec`s: method, path, the listeners that serve 
 `hivemind.entrance.app.route_table` builds both listeners' applications and the OpenAPI document
 from it. Adding a resource is one module and one line in the registry. Routes are thin: validate,
 authorise (the gate does it from the row), call a subsystem's public API, shape the reply; every
-write into the Hive goes through the Queen's door.
+write into the Hive goes through the Queen's door, and every read goes straight to the stores and
+the Queen's live tables (`gate.HiveReads`). `hive/` holds the Hive's read routes (tasks, Cells,
+Wardens, Forage, episodes, trail, LLM); `later/` holds the resources a later phase fills, each
+answering 501 with the phase that builds it.
 
 ## The route table
 
@@ -57,17 +60,51 @@ own session.
 | DELETE | /v1/push/subscriptions/{subscription_id} | L+R | entrance:push | push |
 | GET | /v1/push/vapid-key | L+R | entrance:push | read |
 | GET | /v1/push/hive-key | L+R | entrance:push | read |
+| GET | /v1/tasks | L+R | observe | read |
+| GET | /v1/tasks/{task_id} | L+R | observe | read |
+| GET | /v1/tasks/{task_id}/brief | L+R | observe +c2 | read |
+| GET | /v1/cells | L+R | observe | read |
+| GET | /v1/cells/{cell_id} | L+R | observe | read |
+| GET | /v1/wardens | L+R | observe | read |
+| GET | /v1/forage | L+R | observe | read |
+| GET | /v1/episodes | L+R | observe:thoughts +c2 | read |
+| GET | /v1/trail | L+R | observe | read |
+| GET | /v1/llm | L+R | observe | read |
+| GET | /v1/tools | L+R | observe (501 until phase 9) | read |
+| GET | /v1/honey | L+R | observe (501 until phase 7) | read |
+| GET | /v1/swarm | L+R | observe (501 until phase 11) | read |
 
-The WebSocket views (`hivemind.entrance.streams`, first frame within five seconds):
-`/v1/chat/stream` (entrance:submit +c2), `/v1/push/stream` (entrance:push),
-`/v1/entrance/stream` (observe), all on both listeners. Each listener also serves
-`GET /v1/openapi.json` (the committed document, unauthenticated) and, when it has been built, the
-Observation Hive's front end.
+`GET /v1/tasks` pages by keyset (`goal_id`, `status`, `after` = the previous page's `next_after`,
+`limit` up to 500) and answers no task's words; `/brief` holds them. `GET /v1/trail` takes
+`family`, `kind`, `subject_id`, `newest_first`, `limit` (up to 500) and the cursor a page's `next`
+names (`since` or `until`, and `skip`, the events at exactly that instant already read); an unknown
+query parameter is a 422. `GET /v1/episodes` answers the newest records first, optionally one
+bee's (`principal`), up to `limit`.
+
+The WebSocket views (`hivemind.entrance.streams.views`, first frame within five seconds), all on
+both listeners, each fed from durable state and closed with FELL_BEHIND past its backlog; the
+OpenAPI document lists them under `x-hive-streams`:
+
+| Path | Access | What each frame carries |
+|---|---|---|
+| /v1/chat/stream | entrance:submit +c2 | a chat line as it is written |
+| /v1/push/stream | entrance:push | a content-free push notice |
+| /v1/entrance/stream | observe | an Entrance security event |
+| /v1/trail/stream | observe | a trail event (`family`, `kind` filters) |
+| /v1/telemetry/stream | observe:thoughts +c2 | one bee's sample from a Heartbeat (`warden_id` filter) |
+| /v1/forage/stream | observe | a `forage.*` event, its grant now, the headroom after it |
+| /v1/tasks/stream | observe | a changed task, no words, in one principal's graph (`principal`: queen or a Warden's id) |
+| /v1/episodes/stream | observe:thoughts +c2 | a new episode record (`principal` filter) |
+| /v1/cells/stream | observe | every Cell once, then each Cell whose status changed |
+
+Each listener also serves `GET /v1/openapi.json` (the committed document, unauthenticated) and,
+when it has been built, the Observation Hive's front end.
 
 ## How to test this
 
 `tests/unit/entrance/test_app.py` walks the table (every row declares its listeners and access,
 no loopback-only row is served remotely, the Observation Hive's credentials reach no mutating route
 beyond the Queen's inbox, their own session and push); `tests/unit/entrance/routes/` exercises the
-resources over a real listener; `tests/unit/entrance/test_landing_board.py` fails when the committed
-document drifts from this table.
+resources over a real listener (`hive/` and `later/` mirror the read routes);
+`tests/unit/entrance/streams/views/` opens every live view; `tests/unit/entrance/test_landing_board.py`
+fails when the committed document drifts from this table.

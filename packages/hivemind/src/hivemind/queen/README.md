@@ -85,6 +85,16 @@ every assignment goes to a Warden, over Waggle.
   (read through the chamber) and Alarms (held in memory) awaiting the human; `propose_wax_from_chat`
   (roadmap step 4.2a) is the smallest hook for a human-typed Cell Wax proposal, building the same
   wire `CellWaxProposed` shape (`origin=HUMAN`, `proposer=None`) `queen.ticks.wax` judges either way.
+- `queen.chat` (roadmap step 10.5, ADR-0032): the human end of her inbox, reached by the Hive
+  Entrance through `ChatDoor`. When a device is revoked, `withdraw.refuse_unplanned` refuses its
+  goal requests not planned yet (RECEIVED, AWAITING_CONFIRMATION, PLANNING) and
+  `withdraw.stop_goal` stops a goal's unfinished tasks, telling each placed one's Warden with a
+  `TaskCancel` before recording it CANCELLED (a goal whose Warden cannot be told is left running,
+  and named so). Every goal-request edge is moved from the row as it stands, under
+  `QueenDeps.intake_lock`, so a refusal and a plan landing beside her tick never overwrite each
+  other; a plan that lands after its request was refused is stopped at once.
+- `QueenDeps.on_heartbeat`: handed every Heartbeat once she has recorded it, its one way out (a
+  Heartbeat never reaches the trail); the Hive Entrance's telemetry board in `hive serve`.
 - `record_event` (`trail.py`): the one place a `queen.*` trail event is built.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A

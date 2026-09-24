@@ -10,8 +10,8 @@ It runs inside `hive serve`, in the Queen's own process and event loop (ADR-0032
 it makes into the Hive goes through the Queen's door.
 
 Roadmap steps 10.4, 10.5a (remote exposure), 10.5b (push), 10.5d (device enrolment), 10.5e
-(login, sessions, step-up and the Entrance Reducer) and 10.5 (the application, its routes, streams
-and runtime, `hive serve`) landed what is below.
+(login, sessions, step-up and the Entrance Reducer) and 10.5 (the application, its routes, the
+Hive's read routes and live views, and the runtime, `hive serve`) landed what is below.
 
 ## Layout
 
@@ -24,14 +24,15 @@ and runtime, `hive serve`) landed what is below.
 | `store/` | The Entrance tables; every change is written with its `guard.*` trail event in one transaction. |
 | `push/` | The push channels (webhooks, Web Push, the live socket hub, the dispatcher); its own README. |
 | `expose/` | Remote exposure: the pure mode check, the Hive's certificate authority and the mutual-TLS context, the tunnel client, the loopback Host check; its own README. |
-| `gate/` | What every request passes: the route table's rows (`spec`), the ASGI wrappers (`middleware`: security headers, the loopback check, the per-address limit, the body limit), admission (`admit`: the signed request, the per-device limit, the travel lock, each capability at `EnforcementPoint.ENTRANCE_ROUTE`), step-up, the error handlers, and the services a route is handed. |
-| `models/` | The Landing Board's request and response models, one module per resource. |
-| `routes/` | One module per resource, each declaring its rows; `registry` lists them; its own README holds the route table. |
-| `streams/` | The live views: `StreamHub` (one trail follower, bounded queues), the socket registry and lifecycle, the chat, push and security views, and the follower obeying a Guard Bee's `guard.reduce_ordered`. |
+| `gate/` | What every request passes: the route table's rows (`spec`), the ASGI wrappers (`middleware`: security headers, the loopback check, the per-address limit, the body limit), admission (`admit`: the signed request, the per-device limit, the travel lock, each capability at `EnforcementPoint.ENTRANCE_ROUTE`), step-up, the error handlers, the services a route is handed, and `reads` (`HiveReads`: the stores and live tables the Entrance reads directly). |
+| `models/` | The Landing Board's request and response models, one module per resource; `views/` holds the Hive's read models (tasks, Cells, Wardens, Forage, episodes, trail, LLM, the not-built answer) and every live view's frame. |
+| `reads/` | The read side the routes and views share: `census` (every Cell and Warden, joined from the Warden links, the Virtual Cell lifecycle, the trail, the Brood Chamber, the Queen's pulse, the telemetry board and the ledger), `trail` (a filtered page from a cursor), `llm` (providers as the Queen judges them, and every binding). |
+| `routes/` | One module per resource, each declaring its rows; `hive/` holds the Hive's read routes, `later/` the resources a later phase fills (answering 501); `registry` lists them; its own README holds the route table. |
+| `streams/` | The live views: `StreamHub` (one trail follower), `StreamSubscription` (a bounded queue, closed with FELL_BEHIND past its backlog), `TelemetryBoard` (every Heartbeat the Queen hands its `on_heartbeat` hook), the socket registry and lifecycle, `views/` (the Landing Board's chat, push and security views, and the Hive's trail, telemetry, Forage, task-graph, episode and Cell-status views), and the follower obeying a Guard Bee's `guard.reduce_ordered`. |
 | `notify/` | `PushOutbox` (notices off the caller's path, ordered per ref), `PushHumanChannel` (the Queen's `HumanChannel`), `PushSecurityNotifier`, `HumanChannelRelay`. |
 | `app.py` | Builds both FastAPI applications from one route table (the remote one mounts only `REMOTE` rows). |
 | `landing_board.py` | Generates the OpenAPI document (`docs/entrance/openapi.json`) from the same table. |
-| `runtime/` | `build_entrance` (the wiring), `HiveEntrance` (start-up checks, both listeners, background work, a clean stop), the listeners on uvicorn, the TLS context, the offboarder and goal ledger. |
+| `runtime/` | `build_entrance` (the wiring), `HiveEntrance` (start-up checks, both listeners, background work, a clean stop), the listeners on uvicorn (the loopback one restarted with backoff when it fails), the TLS context, the offboarder and goal ledger, and `recovery` (a confirmed goal a crash kept from the Queen, committed on start). |
 
 ## How a request travels
 
@@ -58,6 +59,48 @@ A WebSocket view authenticates its first frame (within five seconds) the same wa
 view, the client, the socket registry (a logout, a lock, a revocation or a reduction closes it with
 its reason) and a session watchdog.
 
+## Reads and live views
+
+Reads never change state, so the read routes and the live views read the Hive's stores and the
+Queen's live tables directly (`gate.HiveReads`), never through the Queen: the Brood Chamber, the
+Pheromone Trail, memory, the Queen's goal-request table and chat log, her Forage ledger, her
+attached Wardens with their pulse (`HiveCensus`, which the Queen satisfies with read-only
+properties), the provider bindings with her Clustering state and health poller, and the Virtual
+Cell lifecycle's table. What is personal is decided per field: a task's title, objective,
+criteria, summaries and artifact paths are C2 (written from the human's goal), so the task views
+carry none of them and `GET /v1/tasks/{id}/brief` answers them behind `honey:clearance:c2`; the
+trail views leave out the title `task.submitted` records for the same reason; episode records and
+telemetry samples are a bee's own words, behind `observe:thoughts` and C2. No view carries an API
+key, a key's variable or a base URL.
+
+Every live view is a WebSocket fed by one follower of the trail (`StreamHub`) through a bounded
+subscription; a reader that falls further behind than the Entrance's stream backlog (512 items)
+is closed with FELL_BEHIND (4409) and reconnects from its cursor, so a slow client never slows the
+feed. The one feed not on the trail is telemetry: Heartbeats never reach it, so the composition
+root sets the Queen's `on_heartbeat` hook to a `TelemetryBoard`, which keeps each Warden's newest
+Heartbeat (the Wardens read counts its sub-bees from it) and fans every one out the same way.
+
+The view models live in `models/views/`, not in `hivemind.observation`: the import-linter layer
+table makes `entrance` and `observation` independent siblings, so the Entrance, which serves
+these models and publishes them in the OpenAPI document, could not import them from there.
+
+## When a listener fails
+
+A listener that fails after start never stops the Queen. The remote one reduces the Entrance to
+loopback and raises an Alarm (reopening is a loopback action, after step-up). The loopback one is
+the only door the Hive is administered through, so it is rebound on the same address and served
+again, half a second after the failure and doubling to at most thirty seconds while it keeps
+failing, with one Alarm per outage.
+
+## Rate limits in tunnel mode
+
+In `tunnel` mode the remote listener binds loopback and only the supervised tunnel client reaches
+it. A TCP tunnel carries no client address (and forwarding headers are never trusted), so the
+per-address limit sees every remote request as coming from the tunnel's loopback address: it bounds
+the tunnel as a whole, not each client behind it. The per-device limit still holds for every
+device, since it is charged once a request is authenticated to its device, whatever address it
+arrived from.
+
 ## Public API
 
 The face (`hivemind.entrance`) re-exports the credential primitives, the enrolled-device model,
@@ -66,12 +109,14 @@ runtime are reached through their own modules, so importing the face never loads
 
 - `hivemind.entrance.runtime`: `EntranceParts` (and its `EntranceSettings`, `EntranceTables`,
   `EntranceHive`, `EntranceKeys`), `build_entrance`, `BuiltEntrance`, `HiveEntrance`,
-  `EntranceListeners`, `ListenerServer`, `bind_listener`, `RemoteTls`.
+  `EntranceListeners`, `ListenerServer`, `bind_listener`, `RemoteTls`, `submit_confirmed_goals`.
+- `hivemind.entrance.gate`: besides the gate, `HiveReads`, `HiveCensus`, `LlmReads` and
+  `VirtualCellCensus`, what the composition root hands the read side.
 - `hivemind.entrance.app`: `route_table`, `build_listener_app`, `ListenerOptions`, `OPENAPI_PATH`.
 - `hivemind.entrance.landing_board`: `openapi_document`, `render_document`, `write_document`,
   `DOCUMENT_PATH`.
-- `hivemind.entrance.gate`, `hivemind.entrance.streams`, `hivemind.entrance.notify`: their faces
-  list every name.
+- `hivemind.entrance.streams` (with `TelemetryBoard`), `hivemind.entrance.notify`,
+  `hivemind.entrance.reads`, `hivemind.entrance.models.views`: their faces list every name.
 
 Nothing in the Entrance stores a password, an invite code, a session token or a private key in
 the clear, and no log line or trail event carries a code, a key, a token, a signature, a password
@@ -91,9 +136,11 @@ uv run --frozen pytest packages/hivemind/tests/unit/entrance \
 ```
 
 The route, gate, stream and runtime tests run a real Entrance (`builders.entrance.serving`): uvicorn
-on loopback ports over a real Queen, push deliveries to a recording fake push service, and a device
-client (`builders.entrance.landing`) that enrols (Ed25519 or passkey), logs in and signs exactly as a
-program or a browser does. `tests/e2e/test_hive_serve.py` runs `hive serve`'s own composition over
+on loopback ports over a real Queen whose Warden runs on the Hive Stand's Cell, push deliveries to a
+recording fake push service, and a device client (`builders.entrance.landing`) that enrols (Ed25519
+or passkey), logs in and signs exactly as a program or a browser does; `builders.entrance.views`
+opens the live views as a device does. A rig's settings can shorten the first-frame deadline and
+the stream backlog, and its seed writes what a restart would find before the Entrance starts. `tests/e2e/test_hive_serve.py` runs `hive serve`'s own composition over
 the Hive's SQLite file with a scripted provider: the console approves a program, which submits a
 goal the Hive finishes and reads the Queen's reply. After changing a route or a model, run
 `uv run --frozen python scripts/write_landing_board.py` and commit `docs/entrance/openapi.json`;

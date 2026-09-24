@@ -10,7 +10,8 @@ class stay within codingrules 5.1's size limits.
   the same `to_wire` machinery `Queen.intervene` uses.
 - `liveness.WardenLiveness`, `.record_heartbeat`, `.check_liveness`: track each attached Warden's
   own pulse, and mark one offline (raising an Alarm at the human) after it misses
-  `heartbeat_miss_limit` heartbeats. `.renew_grants_on_heartbeat` extends every live grant a
+  `heartbeat_miss_limit` heartbeats; a recorded Heartbeat is then handed to
+  `QueenDeps.on_heartbeat` when one is set (the Hive Entrance's telemetry board). `.renew_grants_on_heartbeat` extends every live grant a
   Heartbeat's own Warden holds; `.check_liveness`'s own sweep also calls
   `hivemind.queen.forage.grants.sweep_expired` every tick, unconditionally, so a grant whose lease
   lapses returns to the pool the same tick it expires. `.handle_infrastructure_item` is the one
