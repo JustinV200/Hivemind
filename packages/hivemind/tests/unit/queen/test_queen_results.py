@@ -192,12 +192,10 @@ async def test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_
 
 
 async def test_an_infeasible_scout_fails_without_retry_and_holds_its_dependent_back() -> None:
-    """Roadmap step 6.10: SUCCEEDED but infeasible is FAIL_TASK, never RETRY_TASK; dependent cut.
+    """Roadmap 6.10, through the real Queen tick: FAIL_TASK, never RETRY_TASK; dependent cut.
 
-    Drives hivemind.queen.autopilot.table._decide_task_result, hivemind.queen.queen._act_on_task_
-    result and hivemind.queen.ticks.results.fail_task_from_result through the real Queen tick,
-    the same way test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_fails does
-    for an ordinary FAILED result.
+    Drives autopilot.table._decide_task_result, queen._act_on_task_result and
+    ticks.results.fail_task_from_result, as the ordinary FAILED-result test does.
     """
     provider = FakeLLMProvider(responder=plan_responder(_scout_then_child_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider, alarm_attempt_limit=2)

@@ -7,9 +7,9 @@ exist until phase 7 (roadmap step 4.1: "large tool results become Nectar with a 
 Nectar's actual home; until then, Bee Bread holds it and the reference is this entry's own id).
 `deposit_transcript` is what `hivemind.memory.checkpoint.write_checkpoint` calls to make good on
 codingrules section 8.9's "one mechanism, many names": "checkpoint, write a Handoff, deposit the
-transcript as Nectar, resume..." -- `deposit_tool_result` is exposed here for a Worker's tool loop
-to call later (not wired into `hivemind.workers` by this dispatch: workers/ belongs to another
-implementer). `deposit_handoff_ref` is the other half of "Stored Handoffs... are entries too"
+transcript as Nectar, resume..." -- `deposit_tool_result` is what the Forager
+(`hivemind.workers.roles.forager.nectar`) calls to keep every page it reads as Nectar (roadmap
+6.9). `deposit_handoff_ref` is the other half of "Stored Handoffs... are entries too"
 (roadmap step 4.2): it indexes an already-stored Handoff by the `memory.checkpoint` event id that
 names it, so `hivemind.memory.bee_bread.index.BeeBread.by_task`/`.between` surface Handoffs without
 a second store-level search path. `deposit_hot_state_item` is what
@@ -112,8 +112,9 @@ async def deposit_tool_result(
 ) -> BeeBreadEntry:
     """Deposit an oversized tool result in full as a TOOL_RESULT entry.
 
-    Exposed for a Worker's tool loop to call once a tool result is too large for hot state; not
-    wired into any caller by this dispatch (workers/ is owned by another implementer).
+    Called by a Worker's tool loop for a result worth keeping whole: the Forager deposits every
+    page it reads through here as Nectar (`hivemind.workers.roles.forager.nectar`), until phase
+    7's Honey Store takes Nectar in.
 
     Args:
         text: The tool result text, capped by `BeeBreadEntry.payload`'s own field limit.

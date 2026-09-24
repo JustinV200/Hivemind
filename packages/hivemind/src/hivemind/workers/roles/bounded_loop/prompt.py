@@ -25,9 +25,9 @@ Key invariants:
       itself declares `token_counting`; every other binding gets a plain `hivemind.memory.
       EstimateCounter` (codingrules section 8.9: "provider count where available, else an
       estimate with margin").
-    - `brief_for` renders `assignment.recon` only when it is non-empty, and only the four fields
-      the design names (summary, targets, suggested steps, risks) -- never `findings` itself,
-      which the design's own enumeration leaves out.
+    - `brief_for` renders `assignment.recon` only when it is non-empty: each report's summary,
+      findings, targets, suggested steps and risks, so what the Scout established reaches the
+      Forager and is not rediscovered.
     - Scout prose in `recon` is untrusted model output: rendered inside one delimited,
       `<<<scout_findings>>> ... <<<end scout_findings>>>` block, the same style
       `hivemind.llm.prompts.loader` uses for a durable-state section, never as an instruction
@@ -231,9 +231,9 @@ def _recon_lines(recon: tuple[ScoutReport, ...]) -> list[str]:
     """Render every Scout report `recon` carries, or nothing when there are none (roadmap 6.10).
 
     Untrusted model prose (codingrules section 15): delimited and labelled, so a reader (model or
-    human) can always tell it apart from an instruction. Renders each report's summary, targets,
-    suggested steps and risks; leaving `assignment.recon` empty (every Drone task, and most
-    Forager and Scout ones) keeps this function's output exactly what it always was.
+    human) can always tell it apart from an instruction. Renders each report's summary, findings,
+    targets, suggested steps and risks; leaving `assignment.recon` empty (every Drone task, and
+    most Forager and Scout ones) keeps this function's output exactly what it always was.
     """
     if not recon:
         return []
@@ -246,6 +246,8 @@ def _recon_lines(recon: tuple[ScoutReport, ...]) -> list[str]:
     for index, report in enumerate(recon, start=1):
         lines.append(f"\nScout report {index} of {len(recon)} (feasible={report.feasible}):")
         lines.append(f"- summary: {report.summary}")
+        if report.findings:
+            lines.append(f"- findings: {'; '.join(report.findings)}")
         if report.targets:
             lines.append(f"- targets: {'; '.join(report.targets)}")
         if report.suggested_steps:

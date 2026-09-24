@@ -49,8 +49,8 @@ from waggle.messages.task import SCOUT_REPORT_FILE, ScoutReport, TaskAssign, Wor
 SCOUT_MAX_ROUNDS = 6  # Roadmap step 6.10: "a strict budget of about 6 rounds."
 SCOUT_ROLE = "scout"  # Principal.role for every Scout episode, matching DRONE_ROLE's shape.
 _EXHAUSTED_SUMMARY = (
-    "Ran out of rounds before filing a report; treat this task as not yet assessed rather than "
-    "as cleared to proceed."
+    "Ended without filing a report (ran out of rounds, or stopped without calling "
+    "report_findings); treat this work as not yet assessed rather than as cleared to proceed."
 )
 
 __all__ = ["SCOUT_MAX_ROUNDS", "Scout"]

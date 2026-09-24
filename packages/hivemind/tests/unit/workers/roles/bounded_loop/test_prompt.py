@@ -31,7 +31,7 @@ def test_brief_omits_the_recon_block_when_there_is_none() -> None:
     assert "scout_findings" not in text
 
 
-def test_brief_renders_summary_targets_steps_and_risks_for_each_scout_report() -> None:
+def test_brief_renders_every_part_of_each_scout_report() -> None:
     ctx = make_context(bound=make_bound())
     report = ScoutReport(
         feasible=True,
@@ -51,9 +51,7 @@ def test_brief_renders_summary_targets_steps_and_risks_for_each_scout_report() -
     assert "https://fixture.test/login" in text
     assert "Fill username" in text
     assert "disabled until both fields" in text
-    # The design's own enumeration lists summary, targets, suggested steps and risks -- not
-    # `findings` itself; that field's own text must not leak into the brief.
-    assert "The page loads over https." not in text
+    assert "- findings: The page loads over https." in text  # What the Scout established.
 
 
 def test_brief_numbers_multiple_scout_reports() -> None:

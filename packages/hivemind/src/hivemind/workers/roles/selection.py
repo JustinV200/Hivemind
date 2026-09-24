@@ -32,6 +32,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import ClassVar
 
 from hivemind.workers.base import Worker
@@ -40,6 +41,14 @@ from hivemind.workers.roles.drone import Drone
 from hivemind.workers.roles.forager import Forager
 from hivemind.workers.roles.scout import Scout
 from waggle.messages.task import WorkerRole
+
+# WHY: a registry, not an if chain (codingrules 8.4): a new role is one more row here. Each value
+# builds a fresh instance, because a Worker is built per attempt and never shared.
+_WORKERS: Mapping[WorkerRole, Callable[[], Worker]] = {
+    WorkerRole.DRONE: Drone,
+    WorkerRole.FORAGER: Forager,
+    WorkerRole.SCOUT: Scout,
+}
 
 __all__ = ["UnsupportedWorkerRoleError", "worker_for"]
 
@@ -80,10 +89,7 @@ def worker_for(role: WorkerRole) -> Worker:
         UnsupportedWorkerRoleError: `role` is GUARD_BEE, HOUSE_BEE or UNDERTAKER -- none of which
             a Queen ever assigns through a TaskAssign (module docstring).
     """
-    if role is WorkerRole.DRONE:
-        return Drone()
-    if role is WorkerRole.FORAGER:
-        return Forager()
-    if role is WorkerRole.SCOUT:
-        return Scout()
-    raise UnsupportedWorkerRoleError(role)
+    build = _WORKERS.get(role)
+    if build is None:
+        raise UnsupportedWorkerRoleError(role)
+    return build()
