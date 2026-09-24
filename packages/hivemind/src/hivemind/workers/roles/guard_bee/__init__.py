@@ -42,7 +42,7 @@ Public API (roadmap 10.6):
     - RequestLedger, Disposition, request_target: the request limits (requests).
     - FindingResponder, ResponderDeps, AuditRaise, Response, build_report, REDUCE_ORDERED_KIND:
       reporting and acting (respond).
-    - GuardReportSink, InMemoryGuardReportSink, GuardDeposit: the C2 seam (sink).
+    - GuardReportSink, InMemoryGuardReportSink, GuardDeposit, HIVE_SCOPE: the C2 seam (sink).
     - GuardBeeError, GuardRulesError: its errors (hivemind.workers.errors).
 """
 
@@ -101,6 +101,7 @@ from hivemind.workers.roles.guard_bee.rules import (
     load_guard_rules,
 )
 from hivemind.workers.roles.guard_bee.sink import (
+    HIVE_SCOPE,
     GuardDeposit,
     GuardReportSink,
     InMemoryGuardReportSink,
@@ -117,6 +118,7 @@ __all__ = [
     "DEFAULT_LANE_CAPACITY",
     "GUARD_BEE_ROLE",
     "HIVE_KEY",
+    "HIVE_SCOPE",
     "INDEX_HORIZON_S",
     "INDEX_KINDS",
     "JUDGE_NEED",

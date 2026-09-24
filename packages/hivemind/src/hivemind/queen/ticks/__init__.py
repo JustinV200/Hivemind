@@ -23,7 +23,9 @@ the manifest's own `sweep_interval_s` is due. Roadmap step 10.5 (ADR-0032) adds 
 `awake` (`run_awake`, one stateless episode per `NEEDS_JUDGEMENT` item, a human message's words
 fenced and labelled untrusted in its trigger), `chat` (the human's waiting messages into the inbox,
 a `REPLY`'s words out, each message stamped handled once decided) and `intake` (every durable goal
-request settled, held or planned, one plan at a time beside the tick).
+request settled, held or planned, one plan at a time beside the tick). Roadmap step 10.6 adds
+`guard_bee` (`run_guard_bee`, one Guard Bee round beside the House Bee's sweep), a package of one
+module because this directory already holds the ten modules codingrules 5.6 allows.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -41,9 +43,10 @@ See Also:
       for `forage` and liveness's own grant renewal and expiry sweep; step 4.2a for `wax`.
     - hivemind.queen.queen for Queen, the one caller of every module here.
 
-Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3, 10.5):
+Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3, 10.5, 10.6):
     - alarms, liveness, results, forage, wax, housekeeping: the tick-handler modules.
     - awake, chat, intake: the awake episode, the chat and the goal requests (step 10.5).
+    - guard_bee: the Guard Bee's round on the Queen's tick (step 10.6).
 """
 
 from hivemind.queen.ticks import (
@@ -51,6 +54,7 @@ from hivemind.queen.ticks import (
     awake,
     chat,
     forage,
+    guard_bee,
     housekeeping,
     intake,
     liveness,
@@ -63,6 +67,7 @@ __all__ = [
     "awake",
     "chat",
     "forage",
+    "guard_bee",
     "housekeeping",
     "intake",
     "liveness",

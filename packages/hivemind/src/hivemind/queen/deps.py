@@ -28,6 +28,8 @@ untrusted-content scanner a human's chat message passes through before her episo
 she receives is handed to (the composition root wires it to the Entrance's telemetry stream, since
 a Heartbeat never reaches the trail), and `intake_lock`, which serialises every goal-request edge so
 a revocation from the Entrance and her own intake never move one request from a stale value.
+Roadmap step 10.6 adds the Guard Bee (the Hive's security watcher) she runs on her own tick beside
+the House Bee's sweep (`guard_bee`), optional until the composition root builds one.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -41,7 +43,8 @@ Fits into the Hive:
     (HealthPoller, OrderStore, InMemoryOrderStore -- roadmap step 4.9),
     `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.queen.placement`
     (PlacementPolicy, VirtualBackendCandidate, DormantCandidate, Placement -- roadmap step 5.7),
-    `hivemind.supervision` and waggle only.
+    `hivemind.supervision`, `hivemind.workers.roles.guard_bee` (GuardBee -- roadmap step 10.6)
+    and waggle only.
 
 Key invariants:
     - `QueenDeps` and `WardenLink` are frozen and slotted (codingrules section 8.5): neither is
@@ -99,6 +102,7 @@ from hivemind.queen.placement import (
 )
 from hivemind.queen.state import ClusterState
 from hivemind.supervision import EscalationPolicy
+from hivemind.workers.roles.guard_bee import GuardBee
 from waggle.clock import Clock
 from waggle.envelope import Hop
 from waggle.ids import CellId, GrantId, WardenId
@@ -346,19 +350,16 @@ class QueenDeps:
         footprints: Every `[forage.roles.<role>]` footprint, forage-side, keyed by
             `waggle.messages.task.WorkerRole`; `hivemind.queen.dispatcher` reads
             `footprints[WorkerRole.DRONE]` for every fresh grant it computes (roadmap step 3.21,
-            second half). Defaults to a single DRONE entry matching the constant the dispatcher
-            used before this field existed.
-        reserve: The `[forage.reserve]` Royal Reserve every fresh grant subtracts first. Defaults
-            to `RoyalReserve()` (its own manifest-sensible defaults), matching the dispatcher's
-            prior module constant.
-        grant_ttl_s: The `[forage] grant_ttl_s` every fresh grant expires after. Defaults to
-            300.0, matching the dispatcher's prior module constant.
+            second half). Defaults to a single DRONE entry.
+        reserve: The `[forage.reserve]` Royal Reserve every fresh grant subtracts first; defaults
+            to `RoyalReserve()`.
+        grant_ttl_s: The `[forage] grant_ttl_s` every fresh grant expires after (default 300.0).
         ledger: The Queen's live book of Forage (roadmap step 4.7): every Cell's latest
             capacity, every live shared grant and the headroom they leave. Defaults to a fresh,
             in-memory `ForageLedger()`, so a caller that never names it still builds.
         orders: Roadmap step 4.9 (Clustering): the durable `hive cluster`/`hive wake` rows
-            `hivemind.queen.cluster.tick.run_cluster_tick` polls every tick. Defaults to a fresh
-            `InMemoryOrderStore()`, matching every other roadmap-4.9-and-earlier test.
+            `hivemind.queen.cluster.tick.run_cluster_tick` polls every tick; defaults to a fresh
+            `InMemoryOrderStore()`.
         cluster_state: The Queen's own mode and the set of clustered providers
             (`hivemind.queen.state.ClusterState`), read by `run_cluster_tick` and by
             `awake_available` before every awake episode. Defaults to RUNNING with none.
@@ -422,6 +423,7 @@ class QueenDeps:
             words pass through before her awake episode reads them (`hivemind.queen.ticks.awake.
             scan_human_text`); the composition root's, keyed from the Hive's secret store. Defaults
             to the shipped patterns and thresholds with an in-memory key.
+        guard_bee: The Guard Bee her tick runs (step 10.6, `build_guard_bee`); None runs none.
         in_process_providers: The `[llm.providers]` names whose model runs inside whichever
             process binds it (`hivemind.llm.registry.IN_PROCESS_KINDS`), so a grant binding on
             one of them is local to the Cell it is issued for, like a source that Cell serves
@@ -502,3 +504,4 @@ class QueenDeps:
     # Roadmap step 10.5 (the Entrance's read side): defaulted; one intake lock per Queen.
     on_heartbeat: OnHeartbeat | None = None
     intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
