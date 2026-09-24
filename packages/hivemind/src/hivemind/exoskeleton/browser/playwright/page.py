@@ -8,9 +8,10 @@ one must match (`browser.targets`). Reads come back as structure and bounded (`b
 Playwright's aria snapshot of the page, with every password field's value blanked out because
 Playwright prints field values verbatim; the page's visible text; one element's text, and never a
 password's. A navigation waits for the document to commit and then to load, so a page that
-redirects itself on load (a login guard) is followed rather than reported as interrupted, and a
-failed load's error page, which Chromium commits a moment after the failure is reported, does not
-fail the next navigation it overlaps. Checkpoint
+redirects itself on load (a login guard) is followed rather than reported as interrupted; a failed
+navigation waits for the error page Chromium commits a moment after the failure is reported, so it
+cannot overlap (and drop) the next navigation, and a navigation an error page still displaced is
+asked for once more. Checkpoint
 and restore are `.storage`'s; restore then reloads the checkpoint's URL.
 
 Fits into the Hive:
@@ -34,6 +35,8 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -64,9 +67,14 @@ from hivemind.exoskeleton.frames import Frame
 from waggle.clock import Clock
 from waggle.messages.capping import ElementTarget
 
-# How Playwright words a commit another navigation overlapped. Chromium does not cancel ours for
-# it: a failed load's error page arriving late, say, commits first and then ours goes on.
+# How Playwright words a commit another navigation overlapped (a page redirecting itself, say).
 _INTERRUPTED = "interrupted by another navigation"
+# Where Chromium shows a failed load. Playwright reports the failure before Chromium commits this
+# page, and a commit that late overlaps the next navigation and can drop it: about one run in ten
+# of the contract suite's missing-page clause read the title of a page still loading (2026-09-24).
+# So a failed navigation first waits for its error page to land, within ERROR_PAGE_WAIT_S.
+_ERROR_PAGE = "chrome-error://"
+ERROR_PAGE_WAIT_S = 2.0  # Chromium commits it within tens of milliseconds; this is a bound.
 # A secret this long is cut out of a snapshot wherever it appears; a shorter one could match
 # ordinary words, so it is cut only where a field's value is printed.
 MIN_ANYWHERE_CHARS = 4
@@ -248,14 +256,52 @@ class PlaywrightBrowser:
 
     async def _load(self, url: str) -> None:
         """Commit `url`, then wait for the page to load wherever that navigation settles."""
+        if not await self._commit(url) and self._page.url.startswith(_ERROR_PAGE):
+            # Overlapped, and what overlapped it was a failed load's error page landing in our
+            # place: nothing is in flight now, so asking again collides with nothing.
+            await self._commit(url)
+        await self._page.wait_for_load_state("load", timeout=self._navigation_ms)
+
+    async def _commit(self, url: str) -> bool:
+        """Start loading `url` and wait for it to commit; False when another navigation overlapped.
+
+        A failure is settled before it is raised: Chromium commits the failed load's error page a
+        moment after Playwright reports the failure, and that commit must not overlap whatever
+        the bee does next.
+
+        Raises:
+            PlaywrightError: The navigation failed for any other reason (a network error, a
+                missing file, a timeout): that failure is real.
+        """
+        landed: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+
+        def on_navigated(frame: PageFrame) -> None:
+            # Only the main frame's error page counts; the first one settles the failure.
+            main = frame == self._page.main_frame
+            if main and frame.url.startswith(_ERROR_PAGE) and not landed.done():
+                landed.set_result(None)
+
+        self._page.on("framenavigated", on_navigated)
         try:
             await self._page.goto(url, wait_until="commit", timeout=self._navigation_ms)
         except PlaywrightError as error:
-            # Overlapped, not cancelled: re-issuing it would only overlap it again, so the wait
-            # below lets it land. Any other failure (a network error, a timeout) is real.
-            if _INTERRUPTED not in error.message:
-                raise
-        await self._page.wait_for_load_state("load", timeout=self._navigation_ms)
+            if _INTERRUPTED in error.message:
+                # Overlapped, not cancelled: let the navigation that overlapped ours land.
+                await self._page.wait_for_load_state("load", timeout=self._navigation_ms)
+                return False
+            await self._settle(landed)
+            raise
+        finally:
+            self._page.remove_listener("framenavigated", on_navigated)
+        return True
+
+    async def _settle(self, landed: asyncio.Future[None]) -> None:
+        """Wait, briefly, for a failed load's error page to commit and load; never raise."""
+        # A failure without an error page (a timeout, a closed page) simply runs out the bound.
+        with contextlib.suppress(TimeoutError, PlaywrightError):
+            async with asyncio.timeout(ERROR_PAGE_WAIT_S):
+                await landed
+                await self._page.wait_for_load_state("load", timeout=self._navigation_ms)
 
     async def _passwords(self, frame: PageFrame) -> list[str]:
         """Return the non-empty values of one frame's password fields."""
