@@ -79,15 +79,15 @@ def marked_wav(marker: bytes, seconds: float = DEFAULT_SECONDS) -> bytes:
     Returns:
         The complete file, RIFF header included, its header duration exactly `seconds`.
     """
-    frames = round(seconds * DEFAULT_SAMPLE_RATE) * _SAMPLE_WIDTH_BYTES
+    samples = round(seconds * DEFAULT_SAMPLE_RATE) * _SAMPLE_WIDTH_BYTES  # In bytes.
     planted = marker + b"\x00" * (len(marker) % _SAMPLE_WIDTH_BYTES)
-    assert len(planted) <= frames, "the marker must fit inside the clip"
+    assert len(planted) <= samples, "the marker must fit inside the clip"
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as writer:
         writer.setnchannels(_MONO)
         writer.setsampwidth(_SAMPLE_WIDTH_BYTES)
         writer.setframerate(DEFAULT_SAMPLE_RATE)
-        writer.writeframes(planted + b"\x00" * (frames - len(planted)))
+        writer.writeframes(planted + b"\x00" * (samples - len(planted)))
     return buffer.getvalue()
 
 

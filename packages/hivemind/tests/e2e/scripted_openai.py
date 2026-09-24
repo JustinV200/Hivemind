@@ -10,8 +10,10 @@ A manifest binds each slot to its own model name (`scripted-queen`, `scripted-wo
 planning call (her prompt carries the planner's `<<<user>>>` goal section) gets a plan; her awake
 episode gets a decision, a REPLY when the human's message is in its prompt; a Drone gets its
 tool rounds, counted from the tool results already in the conversation (so a respawn restarts the
-script); the judge approves; the transcriber returns the scripted words. The same app runs inside
-a test's own event loop (`serve`) or as its own process (`python scripted_openai.py --port N`).
+script); the judge approves; the transcriber returns the scripted words, chosen by a byte run the
+test planted in the clip's samples when the scenario maps one (`heard`), so one run can speak a goal
+and then an answer. The same app runs inside a test's own event loop (`serve`) or as its own
+process (`python scripted_openai.py --port N`).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 10 exit-criteria
@@ -140,7 +142,9 @@ class Scenario:
         files: The files the Drone writes (and the plan's acceptance checks), scratch-relative.
         question: When set, the Drone first asks the human this and writes only once answered.
         reply: What the Queen says when the human writes to her in the chat.
-        transcript: What the transcriber hears in any clip.
+        transcript: What the transcriber hears in a clip no `heard` marker matches.
+        heard: `(marker, words)` pairs: a clip whose bytes hold the marker is heard as the words
+            (in-process only: a scenario file for `--scenario` cannot carry bytes).
         extra_tasks: More plan entries, appended after the root task (e.g. a dependant).
         writes: The files the Drone actually writes; None writes every one of `files`, and an
             empty tuple writes nothing, so the root task's acceptance check fails.
@@ -152,6 +156,11 @@ class Scenario:
     transcript: str = "Write a haiku about bees."
     extra_tasks: tuple[Mapping[str, object], ...] = field(default=())
     writes: tuple[str, ...] | None = None
+    heard: tuple[tuple[bytes, str], ...] = ()
+
+    def words_for(self, upload: bytes) -> str:
+        """What the transcriber hears in an upload: the first marker's words, or `transcript`."""
+        return next((words for marker, words in self.heard if marker in upload), self.transcript)
 
     def plan(self, goal: str) -> dict[str, object]:
         """The plan the planner answers for `goal`: one root task, plus any extra tasks."""
@@ -187,9 +196,8 @@ def build_app(scenario: Scenario) -> Starlette:
         return JSONResponse(_completion(body, message))
 
     async def transcribe(request: Request) -> Response:
-        # The multipart body is read (and discarded) so the client sees a normal exchange.
-        await request.body()
-        words = scenario.transcript
+        # The multipart body is read whole, only to pick the scripted words; nothing keeps it.
+        words = scenario.words_for(await request.body())
         segment = {"id": 0, "start": 0.0, "end": 1.0, "text": words}
         return JSONResponse(
             {"text": words, "language": "en", "duration": 1.0, "segments": [segment]}
