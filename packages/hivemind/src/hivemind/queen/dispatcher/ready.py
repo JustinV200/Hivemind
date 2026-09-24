@@ -41,6 +41,12 @@ respectively) hit this same choke point and fail the same way, since both funnel
 left here is the narrower case of a Cell that fits on paper but has no headroom left by the time
 the grant is sized.
 
+Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
+point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
+`PlacementError` (a Night Veil rule broken for good) cancels the task with its reason at once,
+`chamber.assign` binds the task to its Cell's tier, and `queen.placed` names the goal request a
+placement stands on.
+
 Roadmap step 10.3 (ADR-0031) wires two enforcement points through here. `placement`: a
 `PlacementError` now records its own message on `queen.decided` (it used to record only
 "placement_failed"), and when the task's goal set alone left no candidate (`PlacementError.
@@ -110,6 +116,7 @@ from hivemind.queen.authority import goal_held, request_for, task_context
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.acquire import resolve_link
 from hivemind.queen.dispatcher.grants import authorize_grant
+from hivemind.queen.dispatcher.night_veil import check_night_veil_placement
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
@@ -245,6 +252,8 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     must never find the chamber still reading ASSIGNED while it tries to move a RUNNING task to
     BLOCKED.
     """
+    # Roadmap steps 10.3a/c: a Night Veil task meets the tier's floors before any Cell is chosen.
+    await check_night_veil_placement(deps, task)
     inventory = await build_inventory(deps, wardens)
     placement = decide(
         task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
@@ -285,6 +294,11 @@ async def _record_placement_failure(deps: QueenDeps, task: Task, error: Placemen
     """
     detail = str(error)[:MAX_PAYLOAD_STRING_CHARS]
     await record_event(deps, "queen.decided", task.id, reason="placement_failed", detail=detail)
+    if error.final and not error.denied:
+        # Roadmap step 10.3a: a Night Veil rule broken for good, refused once and loudly; its
+        # guard.denied, when a floor refused, is already on the trail.
+        await deps.chamber.cancel(task.id, detail)
+        return
     # Capacity and fit failures are transient (a Cell frees up, a backend returns): only a goal
     # ceiling that excludes every candidate is final.
     if not error.denied:
@@ -318,6 +332,9 @@ async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> N
         payload["backend"] = placement.backend
     else:
         payload["cell_id"] = placement.cell_id
+    if task.spec.goal_request_id is not None:
+        # ADR-0031: the durable request a placement stands on (a Night Veil one's human ask).
+        payload["goal_request_id"] = task.spec.goal_request_id
     await record_event(deps, "queen.placed", task.id, **payload)
 
 

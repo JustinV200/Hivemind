@@ -85,7 +85,9 @@ class PlacementError(QueenError):
 
     code: ClassVar[str] = "hivemind.queen.placement_error"
 
-    def __init__(self, message: str, denied: tuple[Capability, ...] = ()) -> None:
+    def __init__(
+        self, message: str, denied: tuple[Capability, ...] = (), *, final: bool = False
+    ) -> None:
         """Build the error.
 
         Args:
@@ -93,9 +95,13 @@ class PlacementError(QueenError):
             denied: The capabilities the goal's set lacked, only when those alone left no
                 candidate (roadmap step 10.3): the dispatcher records one `guard.denied` for
                 each. Empty for any other failure, however many candidates the goal excluded.
+            final: True when no later pass could place the task either (roadmap step 10.3a: a
+                Night Veil rule the task or this Hive's configuration breaks), so the
+                dispatcher cancels it with this message rather than retrying every tick.
         """
         super().__init__(message)
         self.denied = denied
+        self.final = final
 
 
 def decide(
@@ -309,12 +315,7 @@ def _place_night_veil(
     `hivemind.queen.placement.policy.check_night_veil` before any backend is even considered --
     a task that fails these never places, however much Virtual headroom is free.
     """
-    violations = check_night_veil(needs, forage.request_origin, forage.night_veil_hosting, policy)
-    if violations:
-        raise PlacementError(f"NIGHT_VEIL placement refused: {'; '.join(violations)}.")
-    # The goal ceiling, once, for the tier every candidate here really carries (roadmap step
-    # 10.3): every spec below is re-stamped NIGHT_VEIL, so its own listed tier is never checked.
-    _check_night_veil_ceiling(forage)
+    _check_night_veil_rules(needs, forage, policy)
     unceiled = dataclasses.replace(forage, goal_capabilities=None)
     eliminated: list[str] = []
     for backend in _order_backends(inventory.virtual_backends, policy):
@@ -348,6 +349,23 @@ def _place_night_veil(
         eliminated.append("No Virtual backend is registered")
     named = "; ".join(eliminated) if eliminated else "no candidates in inventory"
     raise PlacementError(f"NIGHT_VEIL requires a Virtual Cell but none fit: {named}.")
+
+
+def _check_night_veil_rules(needs: TaskNeeds, forage: ForageView, policy: PlacementPolicy) -> None:
+    """Refuse a NIGHT_VEIL placement ADR-0030's rules or the goal's own set forbid.
+
+    Raises:
+        PlacementError: A Night Veil rule is broken (final), or the goal lacks `cell:virtual` or
+            the tier (`denied` names it).
+    """
+    violations = check_night_veil(needs, forage.request_origin, forage.night_veil_hosting, policy)
+    if violations:
+        # Loud and once (roadmap step 10.3a): an incomplete tier profile or a non-human origin is
+        # no better on the next tick, so the task is cancelled with every violation named.
+        raise PlacementError(f"NIGHT_VEIL placement refused: {'; '.join(violations)}.", final=True)
+    # The goal ceiling, once, for the tier every candidate here really carries (roadmap step
+    # 10.3): every spec below is re-stamped NIGHT_VEIL, so its own listed tier is never checked.
+    _check_night_veil_ceiling(forage)
 
 
 def _check_night_veil_ceiling(forage: ForageView) -> None:

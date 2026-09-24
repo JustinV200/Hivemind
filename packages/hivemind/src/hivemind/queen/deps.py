@@ -414,6 +414,11 @@ class QueenDeps:
             words pass through before her awake episode reads them (`hivemind.queen.ticks.awake.
             scan_human_text`); the composition root's, keyed from the Hive's secret store. Defaults
             to the shipped patterns and thresholds with an in-memory key.
+        in_process_providers: The `[llm.providers]` names whose model runs inside whichever
+            process binds it (`hivemind.llm.registry.IN_PROCESS_KINDS`), so a grant binding on
+            one of them is local to the Cell it is issued for, like a source that Cell serves
+            itself (roadmap step 10.3a: a Night Veil grant names local bindings only). Defaults
+            to none, so a Night Veil grant fails closed unless a composition root states them.
     """
 
     chamber: BroodChamber
@@ -490,3 +495,5 @@ class QueenDeps:
     planning: PlanningLane = field(default_factory=PlanningLane)
     # Roadmap step 10.6b: defaulted so every QueenDeps built without one still scans chat words.
     scanner: ContentScanner = field(default_factory=default_content_scanner)
+    # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil grant fails closed.
+    in_process_providers: frozenset[str] = frozenset()

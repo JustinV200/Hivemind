@@ -89,19 +89,22 @@ def goal_held(task: Task) -> CapabilitySet | None:
 
 
 def task_context(task: Task, cell: Cell | None = None) -> PolicyContext:
-    """Return where `task`'s action happens: its requested tier and origin, and its Cell's facts.
+    """Return where `task`'s action happens: its bound tier and origin, and its Cell's facts.
 
     Args:
         task: The task the action is for.
         cell: The Cell it is on or about to be on, when one is known.
 
     Returns:
-        A PolicyContext the tier floors (roadmap step 10.3a) and the access-level rule read.
+        A PolicyContext the tier floors (roadmap step 10.3a) and the access-level rule read. Its
+        `bound_tier` is the tier the task was bound to at assignment (roadmap step 10.3b), or,
+        for a task not placed yet, the tier it asks for.
     """
+    bound = task.bound_tier if task.bound_tier is not None else task.spec.needs.comb_shield
     return PolicyContext(
         comb_shield=cell.comb_shield if cell is not None else None,
         access_level=cell.access_level if cell is not None else None,
-        bound_tier=task.spec.needs.comb_shield,
+        bound_tier=bound,
         origin=task.spec.origin,
     )
 

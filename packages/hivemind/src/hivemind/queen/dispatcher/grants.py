@@ -8,7 +8,11 @@ level, `hivemind.queen.authority.warden_held`) and, when the task's goal carries
 set: a binding either set does not allow is removed, each removal a `guard.denied` on the trail
 through her `Enforcer`, and a seat reservation left naming no binding's source is dropped with it.
 What is left is the grant she sends; a grant left with no binding at all is refused by the caller
-(`hivemind.queen.dispatcher.ready`) exactly like a grant that allows no sub-bee.
+(`hivemind.queen.dispatcher.ready`) exactly like a grant that allows no sub-bee. Roadmap step
+10.3a: each check's context carries the task's bound tier and whether the binding is local to the
+Cell (a source that Cell serves itself, or a provider that runs in process,
+`QueenDeps.in_process_providers`), so the Guard's Night Veil floor removes every hosted or Hive
+Stand binding from a Night Veil grant, whatever either set holds.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -34,6 +38,7 @@ from __future__ import annotations
 
 from hivemind.brood_chamber import Task
 from hivemind.forage import ForageGrant
+from hivemind.forage.errors import UnknownSourceError
 from hivemind.forage.models import AllowedBinding
 from hivemind.guard import Capability, CapabilityFamily, CapabilitySet, EnforcementPoint
 from hivemind.queen.authority import goal_held, request_for, task_context, warden_held
@@ -85,7 +90,8 @@ async def _binding_allowed(
     one `guard.denied` per removed binding, never two.
     """
     needed = Capability(family=CapabilityFamily.LLM, scope=binding.slot.manifest_key)
-    context = task_context(task, link.cell)
+    local = _binding_local(deps, link, binding)
+    context = task_context(task, link.cell).model_copy(update={"binding_local": local})
     for set_held in held:
         if set_held is None:
             continue  # The operator's own goal: no ceiling to check against.
@@ -94,3 +100,13 @@ async def _binding_allowed(
         if not decision.allowed:
             return False
     return True
+
+
+def _binding_local(deps: QueenDeps, link: WardenLink, binding: AllowedBinding) -> bool:
+    """Return whether `binding` draws on its Cell's own source or an in-process provider."""
+    try:
+        source = deps.map.get(binding.source_id)
+    except UnknownSourceError:
+        return False  # A source the map no longer knows is never shown local (fail closed).
+    spec = source.spec
+    return spec.host_cell_id == link.cell.id or spec.provider in deps.in_process_providers
