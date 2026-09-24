@@ -50,8 +50,8 @@ Public API:
       hivemind.cell.needs).
     - CellKind, CellCapabilities, Cell: what a Cell is and can do (hivemind.cell.models).
     - OutputStream, OutputChunk, ExitStatus, ExecEvent, ExecSpec, CellSession, CompletedCommand,
-      run, DEFAULT_EXEC_TIMEOUT_S, resolve_scratch_path: a terminal session on a Cell
-      (hivemind.cell.session); BackgroundSpec, BackgroundProcess: what its `start` takes and
+      run, DEFAULT_EXEC_TIMEOUT_S, SCRATCH_DIR_MODE, resolve_scratch_path: a terminal session on
+      a Cell (hivemind.cell.session); BackgroundSpec, BackgroundProcess: what its `start` takes and
       returns for a long-running process (roadmap step 6.4).
     - LeaseState, TRANSITIONS, can_transition, assert_transition: a lease's state machine
       (hivemind.cell.lease_state).
@@ -103,6 +103,7 @@ from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.needs import Isolation, OsFamily, RequestOrigin, TaskNeeds
 from hivemind.cell.session import (
     DEFAULT_EXEC_TIMEOUT_S,
+    SCRATCH_DIR_MODE,
     BackgroundProcess,
     BackgroundSpec,
     CellSession,
@@ -122,6 +123,7 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel, HoneyClearance
 __all__ = [
     "DEFAULT_EXEC_TIMEOUT_S",
     "NOOP_SNAPSHOT_ID",
+    "SCRATCH_DIR_MODE",
     "TRANSITIONS",
     "AccessLevel",
     "BackgroundProcess",

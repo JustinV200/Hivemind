@@ -53,7 +53,7 @@ from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
 from hivemind.cell.lease import LeaseFacts, LeaseRequest, RealCellLease
 from hivemind.cell.lease_state import LeaseState
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
-from hivemind.cell.session import CellSession
+from hivemind.cell.session import SCRATCH_DIR_MODE, CellSession
 from hivemind.cell.source import CellIdentity
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.forage import ForageCapacity
@@ -157,7 +157,8 @@ class InCellSpawnSource:
         self._check_refusal(request)
         lease_id = new_lease_id(self._clock)
         scratch_root = self._scratch_root / lease_id
-        scratch_root.mkdir(parents=True, exist_ok=True)
+        # Private to the Cell's own user, exactly as the Hive Stand's lease scratch is.
+        scratch_root.mkdir(mode=SCRATCH_DIR_MODE, parents=True, exist_ok=True)
         facts = LeaseFacts(
             id=lease_id,
             cell_id=self._cell.id,

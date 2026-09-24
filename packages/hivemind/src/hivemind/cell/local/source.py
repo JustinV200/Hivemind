@@ -49,7 +49,7 @@ from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.releaser import HiveStandLeaseReleaser
 from hivemind.cell.local.session import LocalProcessSession
 from hivemind.cell.models import Cell, CellKind
-from hivemind.cell.session import CellSession
+from hivemind.cell.session import SCRATCH_DIR_MODE, CellSession
 from hivemind.cell.source import CellIdentity
 from hivemind.pheromone import PheromoneTrail
 from waggle.clock import Clock
@@ -136,7 +136,10 @@ class HiveStandSource:
         self._prepare_scratch_root(request)
         lease_id = new_lease_id(self._clock)
         scratch_root = self._config.scratch_root / lease_id
-        scratch_root.mkdir(parents=True, exist_ok=True)
+        # Private to the Hive's own user (POSIX; Windows ignores the mode): a lease's scratch can
+        # hold a display cookie, a browser profile's session cookies and fetched pages, none of
+        # which another local account on a shared Real Cell may read (ADR-0031).
+        scratch_root.mkdir(mode=SCRATCH_DIR_MODE, parents=True, exist_ok=True)
         facts = LeaseFacts(
             id=lease_id,
             cell_id=self._cell_id,

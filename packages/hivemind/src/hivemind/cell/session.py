@@ -54,9 +54,11 @@ from hivemind.cell.errors import PathNotAllowedError
 from hivemind.common.errors import InvariantViolationError
 
 DEFAULT_EXEC_TIMEOUT_S = 60.0  # Generous for a one-off shell command; long tools set their own.
+SCRATCH_DIR_MODE = 0o700  # A lease's scratch directory: readable only by the user the Hive runs as.
 
 __all__ = [
     "DEFAULT_EXEC_TIMEOUT_S",
+    "SCRATCH_DIR_MODE",
     "BackgroundProcess",
     "BackgroundSpec",
     "CellSession",

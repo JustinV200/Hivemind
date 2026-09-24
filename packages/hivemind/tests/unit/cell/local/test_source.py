@@ -16,11 +16,14 @@ See Also:
 
 from __future__ import annotations
 
+import stat
+import sys
 from pathlib import Path
 
 import pytest
 from builders.cells import make_hive_stand_config, make_identity, make_lease_request
 
+from hivemind.cell import SCRATCH_DIR_MODE
 from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local.source import HiveStandSource
@@ -59,6 +62,25 @@ async def test_a_first_lease_creates_a_scratch_root_that_does_not_exist_yet(
     assert scratch_root.is_dir()
     assert lease.scratch_root.is_dir()
     assert lease.scratch_root.parent == scratch_root
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits; Windows ignores them")
+async def test_a_lease_scratch_directory_is_private_to_the_hives_own_user(tmp_path: Path) -> None:
+    # A lease's scratch holds the Exoskeleton's display cookie and a browser profile's cookies;
+    # created with the process umask (0755 typically), any other local account could read them.
+    clock = FakeClock()
+    source = HiveStandSource(
+        make_hive_stand_config(tmp_path / "scratch"),
+        make_identity(clock=clock),
+        MemoryPheromoneTrail(clock),
+        clock,
+        _leavings(clock),
+    )
+    cell = (await source.cells())[0]
+
+    lease = await source.lease(make_lease_request(clock=clock, cell_id=cell.id))
+
+    assert stat.S_IMODE(lease.scratch_root.stat().st_mode) == SCRATCH_DIR_MODE
 
 
 async def test_a_scratch_root_that_cannot_be_created_refuses_the_lease(tmp_path: Path) -> None:

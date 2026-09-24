@@ -18,12 +18,15 @@ See Also:
 
 from __future__ import annotations
 
+import stat
+import sys
 from pathlib import Path
 
 import pytest
 from builders.cells import make_capabilities, make_identity, make_lease_request
 from builders.forage import make_capacity
 
+from hivemind.cell import SCRATCH_DIR_MODE
 from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.in_cell import InCellSession
 from hivemind.cell.models import CellKind
@@ -79,6 +82,16 @@ async def test_lease_opens_and_open_session_returns_an_in_cell_session(tmp_path:
     assert isinstance(session, InCellSession)
     assert session.scratch_dir == lease.scratch_root
     assert lease.scratch_root.exists()  # A fresh scratch subdirectory was created.
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits; Windows ignores them")
+async def test_a_lease_scratch_directory_is_private_to_the_cells_own_user(tmp_path: Path) -> None:
+    source = _build_source(tmp_path)
+    cell = (await source.cells())[0]
+
+    lease = await source.lease(make_lease_request(cell_id=cell.id, access_level=AccessLevel.FULL))
+
+    assert stat.S_IMODE(lease.scratch_root.stat().st_mode) == SCRATCH_DIR_MODE
 
 
 async def test_lease_refuses_a_request_for_a_different_cell_id(tmp_path: Path) -> None:
