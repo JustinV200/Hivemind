@@ -46,7 +46,9 @@ import typer
 
 from hivemind.cli import capping, forage, llm, memory, tasks, trail
 from hivemind.cli.entrance import app as entrance_app
+from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
+from hivemind.cli.remote import app as remote_app
 from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
 from hivemind.cli.version import collect_version_info, format_version
@@ -102,6 +104,10 @@ app.command("serve")(serve_command)
 # Roadmap step 10.8: keep the Hive Entrance from the Hive Stand (the operator password, devices,
 # the door), each decision made as the console device over a running serve's loopback listener.
 app.add_typer(entrance_app, name="entrance")
+# Roadmap step 10.8: this device's side of a remote Hive (`hive remote enrol`; `hive run --remote`
+# and `hive inbox --remote` are options of the commands above), and the Hive's Waggle-side keys.
+app.add_typer(remote_app, name="remote")
+app.add_typer(keys_app, name="keys")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,

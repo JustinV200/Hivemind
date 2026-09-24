@@ -32,8 +32,8 @@ from typing import Annotated
 import typer
 
 from hivemind.cli.entrance.console import Stand, run_console, run_offline
-from hivemind.cli.entrance.render import devices_table, shown
-from hivemind.cli.landing import LandingError, SignedIn
+from hivemind.cli.entrance.render import devices_table
+from hivemind.cli.landing import LandingError, SignedIn, shown
 from hivemind.cli.stores import JsonOption
 from hivemind.entrance.enrol import ConsoleDeps, DeviceStatus, EnrolledDevice, unlock_console
 from hivemind.entrance.models import (

@@ -19,11 +19,15 @@ the two options past codingrules 5.1's five-parameter cap (`--json` and `--comb-
 step 10.3c: `--comb-shield` names the goal's tier explicitly, and the goal is then asked for as a
 durable goal request, the one way Night Veil work is initiated (`hivemind.cli.compose.request`);
 a request the Queen refuses (a Night Veil goal that asks where its Cell is, say) prints as a
-refusal, not a failure. Without it, the goal is submitted directly, exactly as before.
+refusal, not a failure. Without it, the goal is submitted directly, exactly as before. Roadmap
+step 10.8: with `--remote [--profile P] [--password-stdin]` (three more context-carried options)
+no Hive is built here at all; the goal goes to a remote Hive through its Entrance, as the device
+`hive remote enrol` enrolled, and is followed there (`hivemind.cli.remote.remote_run`).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
-    console script (`hivemind.cli.app`). Calls into `hivemind.cell` (HoneyClearance),
+    console script (`hivemind.cli.app`). Calls into `hivemind.cli.remote` (for `--remote`),
+    `hivemind.cell` (HoneyClearance),
     `hivemind.cli.compose`, `hivemind.cli.stores`, `hivemind.manifest`, `hivemind.pheromone` and
     waggle only.
 
@@ -60,6 +64,15 @@ from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.cli.compose import GoalReport, Hive, build_hive, run_goal, run_hive
 from hivemind.cli.compose.hive import run_requested_goal
 from hivemind.cli.compose.request import GoalAsk, GoalNotPlannedError
+from hivemind.cli.landing import PASSWORD_STDIN, carried_flag, carried_text
+from hivemind.cli.remote import (
+    DEFAULT_PROFILE,
+    PROFILE,
+    REMOTE,
+    RemoteRun,
+    remote_run,
+)
+from hivemind.cli.remote import GoalAsk as RemoteGoal
 from hivemind.cli.stores import DEFAULT_MANIFEST, ManifestOption, load_manifest_or_exit
 from hivemind.pheromone import PheromoneEvent
 from waggle.clock import SystemClock
@@ -174,6 +187,8 @@ class RunCommand(TyperCommand):
                 "goal request (roadmap step 10.3c).",
             )
         )
+        # Roadmap step 10.8: the same goal given to a remote Hive through its Entrance instead.
+        self.params.extend(option.as_click() for option in (REMOTE, PROFILE, PASSWORD_STDIN))
 
 
 def run_command(
@@ -187,6 +202,17 @@ def run_command(
     # `--json` and `--comb-shield` arrive on the context (`RunCommand`'s own docstring).
     as_json = bool(ctx.meta.get(_JSON_META, False))
     tier: CombShieldLevel | None = ctx.meta.get(_COMB_SHIELD_META)
+    # `--remote`: not this process's Hive, but a remote one, as this device (roadmap 10.8).
+    if carried_flag(ctx, REMOTE):
+        remote_run(
+            RemoteRun(
+                goal=RemoteGoal(goal, HoneyClearance[clearance], tier),
+                timeout_s=timeout,
+                as_json=as_json,
+                profile=carried_text(ctx, PROFILE) or DEFAULT_PROFILE,
+                from_stdin=carried_flag(ctx, PASSWORD_STDIN),
+            )
+        )
     loaded = load_manifest_or_exit(manifest)
     # build_hive must run outside any event loop: hivemind.cli.stores.open_trail/open_chamber/
     # open_memory (which a stores=None build_hive calls through open_default_stores) each run

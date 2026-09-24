@@ -4,9 +4,8 @@ Everything a device says about itself (its name, platform and User-Agent) reache
 unauthenticated route from a device nobody trusts yet, and the Hive's own text can quote a model's
 words; on a terminal, a control character, an escape sequence or a bidirectional override in such a
 string could rewrite what the operator sees at the one moment it matters, the approval (ADR-0033:
-"every approval surface ... escapes every string the device supplied"). ``shown`` is that escape,
-applied to every such string before it is printed: anything Python does not call printable becomes
-its Python escape (a backslash, then its code point), and the line is bounded. ``device_lines`` is
+"every approval surface ... escapes every string the device supplied"). ``hivemind.cli.landing.
+shown`` is that escape, applied here to every such string before it is printed. ``device_lines`` is
 the approval view (the key's fingerprint, the passkey backup flags, the self-description),
 ``device_row`` one line of a table, and ``invite_lines`` the invite as the Hive Stand prints it:
 the grouped code, the link, the Hive's id, the command a program or laptop enrols with, and the
@@ -14,7 +13,8 @@ link as a terminal QR code (segno).
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.entrance``. Used by the ``hive entrance``
-    commands. Calls into ``segno`` and the Landing Board's view models only.
+    commands. Calls into ``segno``, ``hivemind.cli.landing.shown`` and the Landing Board's view
+    models only.
 
 Key invariants:
     - No string a device or a model wrote is printed without ``shown``.
@@ -36,41 +36,12 @@ from urllib.parse import urlsplit
 
 import segno
 
+from hivemind.cli.landing import shown
 from hivemind.entrance.models import DeviceView, InviteView
 
-MAX_SHOWN_CHARS = 120  # One foreign string on one terminal line; the rest is marked cut.
 QR_ERROR_LEVEL = "m"  # The Entrance's own choice for an invite's QR (enrol/invite.py).
-_CUT = "..."  # Marks a string cut at MAX_SHOWN_CHARS.
 
-__all__ = [
-    "MAX_SHOWN_CHARS",
-    "device_lines",
-    "device_row",
-    "devices_table",
-    "invite_lines",
-    "shown",
-    "stamp",
-]
-
-
-def shown(text: str | None, limit: int = MAX_SHOWN_CHARS) -> str:
-    """Escape a string someone else wrote so a terminal prints it as text, never as control.
-
-    Args:
-        text: The foreign string, or None.
-        limit: The most characters to print before cutting.
-
-    Returns:
-        The string with every non-printable character (controls, escape sequences, bidirectional
-        and other format characters, line breaks) as its Python escape, cut to ``limit``;
-        ``-`` for None or empty.
-    """
-    if not text:
-        return "-"
-    escaped = "".join(
-        character if character.isprintable() else _escape(character) for character in text
-    )
-    return escaped if len(escaped) <= limit else escaped[: limit - len(_CUT)] + _CUT
+__all__ = ["device_lines", "device_row", "devices_table", "invite_lines", "stamp"]
 
 
 def stamp(moment: datetime | None) -> str:
@@ -177,13 +148,3 @@ def _origin(url: str) -> str:
     """The Entrance's origin, from an invite link."""
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}"
-
-
-def _escape(character: str) -> str:
-    """The escape of one non-printable character, as Python writes it in a string literal."""
-    code = ord(character)
-    if code <= 0xFF:
-        return f"\\x{code:02x}"
-    if code <= 0xFFFF:
-        return f"\\u{code:04x}"
-    return f"\\U{code:08x}"

@@ -36,7 +36,7 @@ from typing import Annotated
 import typer
 
 from hivemind.cli.entrance.console import MANIFEST, YES, Stand, run_console
-from hivemind.cli.entrance.render import device_lines, invite_lines, shown
+from hivemind.cli.entrance.render import device_lines, invite_lines
 from hivemind.cli.landing import (
     PASSWORD_STDIN,
     CarriedOption,
@@ -45,6 +45,7 @@ from hivemind.cli.landing import (
     carried_command,
     carried_flag,
     carried_text,
+    shown,
 )
 from hivemind.cli.stores import JsonOption
 from hivemind.entrance.models import (

@@ -27,12 +27,11 @@ See Also:
 Public API:
     - app: the ``hive entrance`` typer group (group).
     - console_session, offline_console, entrance_tables, run_console, run_offline, refusing,
-      describe, Stand, ConsoleCommand, ConsoleUnavailableError, MANIFEST, YES, OFFLINE_HOLDER:
-      acting as the console (console).
+      Stand, ConsoleCommand, ConsoleUnavailableError, MANIFEST, YES, OFFLINE_HOLDER: acting as
+      the console (console).
     - hold_serve_lock, publish_serve_record, read_serve_record, ServeRecord, HiveBusyError,
       SERVE_HOLDER, LOCK_SUFFIX, RECORD_SUFFIX: the serve lock and record (serving).
-    - shown, device_lines, device_row, devices_table, invite_lines, stamp: what is printed
-      (render).
+    - device_lines, device_row, devices_table, invite_lines, stamp: what is printed (render).
 """
 
 from hivemind.cli.entrance.console import (
@@ -43,7 +42,6 @@ from hivemind.cli.entrance.console import (
     ConsoleUnavailableError,
     Stand,
     console_session,
-    describe,
     entrance_tables,
     offline_console,
     refusing,
@@ -56,7 +54,6 @@ from hivemind.cli.entrance.render import (
     device_row,
     devices_table,
     invite_lines,
-    shown,
     stamp,
 )
 from hivemind.cli.entrance.serving import (
@@ -84,7 +81,6 @@ __all__ = [
     "Stand",
     "app",
     "console_session",
-    "describe",
     "device_lines",
     "device_row",
     "devices_table",
@@ -97,6 +93,5 @@ __all__ = [
     "refusing",
     "run_console",
     "run_offline",
-    "shown",
     "stamp",
 ]

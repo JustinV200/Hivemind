@@ -54,6 +54,7 @@ from hivemind.cli.landing import (
     carried_command,
     carried_flag,
     carried_path,
+    describe,
     entrance_address,
     open_http,
     read_password,
@@ -102,7 +103,6 @@ __all__ = [
     "ConsoleUnavailableError",
     "Stand",
     "console_session",
-    "describe",
     "entrance_tables",
     "offline_console",
     "refusing",
@@ -329,18 +329,3 @@ def _refuse(verb: str, exc: Exception) -> NoReturn:
     """Print why ``hive entrance <verb>`` could not act, and exit 1."""
     typer.echo(f"hive entrance {verb} refused: {describe(exc)}", err=True)
     raise typer.Exit(code=1) from exc
-
-
-def describe(exc: Exception) -> str:
-    """Say what went wrong in one line; a refused value is named by its field, never shown.
-
-    Args:
-        exc: What a command caught.
-
-    Returns:
-        The line.
-    """
-    if isinstance(exc, ValidationError):
-        fields = ", ".join(".".join(str(part) for part in error["loc"]) for error in exc.errors())
-        return f"these values are not valid: {fields or 'the input'}."
-    return str(exc)

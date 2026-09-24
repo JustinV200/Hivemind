@@ -1,4 +1,4 @@
-"""Test hivemind.cli.entrance.render: a foreign string never reaches a terminal as control.
+"""Test hivemind.cli.entrance.render: the approval view, a device row and an invite as printed.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/entrance/render.py (codingrules section 3).
@@ -11,9 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
-from hivemind.cli.entrance import device_lines, device_row, invite_lines, shown
+from hivemind.cli.entrance import device_lines, device_row, invite_lines
 from hivemind.entrance.enrol import DeviceDescription, DeviceStatus
 from hivemind.entrance.models import DeviceView, InviteView
 
@@ -40,27 +38,6 @@ def _view(description: DeviceDescription | None) -> DeviceView:
         approved_at=None,
         last_seen_at=None,
     )
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("Pixel 9", "Pixel 9"),
-        ("evil\x1b[2J", "evil\\x1b[2J"),  # An escape sequence that would clear the screen.
-        ("abc‮dcba", "abc\\u202edcba"),  # A right-to-left override that reverses what follows.
-        ("two\nlines", "two\\x0alines"),
-        ("", "-"),
-        (None, "-"),
-    ],
-)
-def test_shown_escapes_everything_a_terminal_would_act_on(text: str | None, expected: str) -> None:
-    assert shown(text) == expected
-
-
-def test_shown_cuts_a_long_string_and_says_so() -> None:
-    cut = shown("x" * 500, limit=20)
-
-    assert len(cut) == 20 and cut.endswith("...")
 
 
 def test_the_approval_view_shows_the_fingerprint_backup_flags_and_self_description() -> None:

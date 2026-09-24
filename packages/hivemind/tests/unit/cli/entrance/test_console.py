@@ -17,16 +17,13 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 from builders.entrance.auth import PASSWORD, WRONG_PASSWORD
 from builders.entrance.stand import stand_manifest
-from pydantic import ValidationError
 from typer.testing import CliRunner, Result
 
 from hivemind.cli.app import app
-from hivemind.cli.entrance import ServeRecord, describe, entrance_tables, publish_serve_record
+from hivemind.cli.entrance import ServeRecord, entrance_tables, publish_serve_record
 from hivemind.entrance.enrol import DeviceStatus, trail_kind
-from hivemind.entrance.models import ApprovalBody
 from hivemind.manifest import load_manifest
 from waggle.clock import SystemClock
 
@@ -107,18 +104,6 @@ def test_no_password_on_stdin_is_refused_in_a_sentence(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "--password-stdin found no line for the operator password" in result.output
-
-
-def test_a_refused_value_is_named_by_its_field_never_shown() -> None:
-    with pytest.raises(ValidationError) as refused:
-        ApprovalBody.model_validate(
-            {"name": "laptop", "spend_cap_usd_per_day": -1, "capabilities": ["secret\nvalue"]}
-        )
-
-    said = describe(refused.value)
-
-    assert "spend_cap_usd_per_day" in said and "capabilities.0" in said
-    assert "secret" not in said and "-1" not in said
 
 
 async def _lock_console(path: Path) -> None:

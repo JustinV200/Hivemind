@@ -7,9 +7,9 @@ clients: the Hive Stand's own console (``hive entrance ...``, over the loopback 
 laptop's enrolled key (``hive remote``, ``hive run --remote``, ``hive inbox --remote``). This
 package is what both share: the signing (every string built by ``hivemind.entrance.auth``), the
 client that logs in and steps up, the WebSocket views authenticated by their first frame, the
-transport that verifies TLS, the password prompt, the refusals as sentences, and the options the
-commands carry on their context. The session token and the password live in this process's
-memory for one command, never on disk and never in output.
+transport that verifies TLS, the password prompt, the refusals as sentences, foreign text escaped
+for a terminal, and the options the commands carry on their context. The session token and the
+password live in this process's memory for one command, never on disk and never in output.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli``. Used by ``hivemind.cli.entrance``,
@@ -39,6 +39,7 @@ Public API:
       (errors).
     - CarriedOption, carried_command, carried_group, carried_flag, carried_text, carried_path,
       PASSWORD_STDIN: options carried on the context (options).
+    - shown, describe, MAX_SHOWN_CHARS: foreign text and failures, safe on a terminal (text).
 """
 
 from hivemind.cli.landing.client import LandingClient, LandingSession, SignedIn, signed_in
@@ -87,6 +88,7 @@ from hivemind.cli.landing.stream import (
     ViewClosedError,
     open_view,
 )
+from hivemind.cli.landing.text import MAX_SHOWN_CHARS, describe, shown
 from hivemind.cli.landing.transport import EntranceAddress, entrance_address, open_http
 
 __all__ = [
@@ -95,6 +97,7 @@ __all__ = [
     "CURRENT_PROMPT",
     "FELL_BEHIND",
     "FORBIDDEN",
+    "MAX_SHOWN_CHARS",
     "NEW_PROMPT",
     "PASSWORD_STDIN",
     "PROMPT",
@@ -121,6 +124,7 @@ __all__ = [
     "carried_group",
     "carried_path",
     "carried_text",
+    "describe",
     "enrol_signature",
     "entrance_address",
     "first_frame",
@@ -130,6 +134,7 @@ __all__ = [
     "read_new_password",
     "read_password",
     "request_headers",
+    "shown",
     "sign",
     "signed_in",
 ]
