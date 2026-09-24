@@ -90,6 +90,15 @@ Fits into the Hive:
     `fake` silently dropped every `TrailSegmentSync` a Cell's own Warden ever shipped, which is why
     the graceful stop alone was not enough (see that function's own comment for the full story).
 
+    **The Night Veil boundary (codingrules section 12):** `build_virtual_cells` builds it
+    (`hivemind.cli.compose.night_veil.build_night_veil`) around the trail it is handed, which in
+    a running Hive is already the `VeiledTrail` `build_hive` wrapped the stores in, so the Queen
+    and the Virtual side share one set of ephemeral segments. The lifecycle, the attestation's
+    recorder and the provider all record through that trail; the lifecycle gets the boundary
+    (`attach_night_veil`, which opens, purges and sweeps), the provider binds a Night Veil task
+    into it, and the segment receiver keeps a Night Veil Cell's shipped segment out of the trail.
+    `VirtualCellsParts.night_veil` carries it to the Queen's deps and to an Absconding.
+
     **Night Veil probe wiring (roadmap step 5.7b, this branch closing a gap an earlier
     implementer's own report named):** `LifecycleVirtualCellProvider` now takes a `probe_factory`
     it calls to attest a freshly provisioned NIGHT_VEIL Cell before `mark_ready`
@@ -127,6 +136,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from hivemind.cell import Cell, CellIdentity, CombShieldLevel
+from hivemind.cli.compose.night_veil import build_night_veil
 from hivemind.cli.compose.virtual_cell_backends import (
     RegistryContext as _RegistryContext,
 )
@@ -147,10 +157,10 @@ from hivemind.hive import (
     OverwinterSettings,
     VirtualCellSpec,
 )
-from hivemind.hive.night_veil import NightVeilProbe
+from hivemind.hive.night_veil import NightVeilBoundary, NightVeilProbe
 from hivemind.manifest import HiveManifest
 from hivemind.manifest.schema.placement import NetworkPolicyName, VirtualCellsSection
-from hivemind.pheromone import PheromoneTrail, TrailRecorder
+from hivemind.pheromone import PheromoneTrail, TrailRecorder, VeiledTrail
 from hivemind.queen.cell_gate import (
     CellListener,
     CellListenerDeps,
@@ -206,6 +216,8 @@ class VirtualCellsParts:
         on_cell_granted: `QueenDeps.on_cell_granted`'s own implementation.
         retire_all: Awaited by `run_hive` at shutdown to tear down every Virtual Cell this
             process still tracks, dormant ones included (hivemind.queen.cell_gate.shutdown).
+        night_veil: The Night Veil boundary every Virtual Cell's records pass through; its
+            segments become `QueenDeps.night_veil`, and an Absconding purges through it.
     """
 
     registry: BackendRegistry
@@ -218,6 +230,7 @@ class VirtualCellsParts:
     on_task_finished: OnTaskFinished
     on_cell_granted: OnCellGranted
     retire_all: RetireAll
+    night_veil: NightVeilBoundary
 
 
 def build_virtual_cells(
@@ -232,14 +245,13 @@ def build_virtual_cells(
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
-        trail: Where every `cell.*` event the lifecycle drives lands.
+        trail: What every Virtual Cell record goes through: a running Hive's own `VeiledTrail`,
+            or a plain trail an offline command opened (the boundary then wraps it here).
         clock: Injected time source shared by every collaborator this builds.
-        environ: For resolving each provider's own API key (`provider_api_keys`); `None` (every
-            pre-8.x caller) resolves none -- module docstring's own "Fits into the Hive" note.
-        hive_signer: The Hive's persisted key (`load_or_mint_hive_signer`), which the Queen
-            signs every Virtual Cell frame with; `build_hive` always passes it, so a Cell that
-            outlives a Queen restart still verifies the next Queen. `None` (offline `hive cells`
-            commands, which never provision) mints a throwaway key for this process only.
+        environ: Resolves each provider's own API key (`provider_api_keys`); `None` resolves none.
+        hive_signer: The Hive's persisted key (`load_or_mint_hive_signer`) the Queen signs every
+            Virtual Cell frame with, so a Cell outliving a Queen restart verifies the next Queen;
+            `None` (offline `hive cells` commands, never provisioning) mints a throwaway key.
 
     Returns:
         A VirtualCellsParts ready for `hivemind.cli.compose.hive.build_hive` to fold into
@@ -248,14 +260,15 @@ def build_virtual_cells(
     section = manifest.virtual_cells
     if section.backend is None:
         return None
+    # One boundary for the whole Virtual side, around the trail it records through (docstring).
+    night_veil = build_night_veil(manifest, trail, clock)
     gate, listener, registry, lifecycle = _build_lifecycle(
-        manifest, trail, clock, environ or {}, hive_signer
+        manifest, night_veil.veiled, clock, environ or {}, hive_signer
     )
-    provider = _build_provider(manifest, lifecycle, gate, trail, clock)
-    # Reuses provider's own late-bound Queen reference (`bind_queen`, called once by
-    # hivemind.cli.compose.hive._assemble_hive) rather than adding a second bind_queen call site
-    # not in this dispatch's allowed-to-fix list (hivemind.queen.cell_gate.quiesce's own module
-    # docstring): a Queen does not exist yet at this point, so only a getter closure can reach it.
+    lifecycle.attach_night_veil(night_veil)
+    provider = _build_provider(manifest, lifecycle, gate, night_veil.veiled, clock)
+    # No Queen exists yet: only a getter over the provider's own late-bound one (`bind_queen`,
+    # hivemind.queen.cell_gate.quiesce's own docstring) can reach her at teardown time.
     quiesce = make_quiesce(lambda: provider.queen, clock)
     return VirtualCellsParts(
         registry=registry,
@@ -268,12 +281,13 @@ def build_virtual_cells(
         on_task_finished=make_on_task_finished(lifecycle, _null_scrub, quiesce),
         on_cell_granted=make_on_cell_granted(lifecycle),
         retire_all=make_retire_all(lifecycle, quiesce),
+        night_veil=night_veil,
     )
 
 
 def _build_lifecycle(
     manifest: HiveManifest,
-    trail: PheromoneTrail,
+    trail: VeiledTrail,
     clock: Clock,
     environ: Mapping[str, str],
     hive_signer: Ed25519Signer | None,
@@ -311,7 +325,8 @@ def _build_lifecycle(
     # local trail was lost even when `hivemind.queen.cell_gate.quiesce.make_quiesce` gave its
     # Warden a clean chance to ship it (this dispatch's own fix, confirmed missing by the phase 5
     # e2e slice: the Queen's trail held only her own node id for a finished Virtual Cell's task).
-    listener.bind_trail_receiver(TrailSegmentReceiver(trail))
+    # A Night Veil Cell's segment goes to its ephemeral segment instead (codingrules 12).
+    listener.bind_trail_receiver(TrailSegmentReceiver(trail, trail.segments))
     if section.backend in ("docker", "qemu"):
         # "fake" (dev/test only) never declares can_snapshot=True (hivemind.hive.backends.fake's
         # own default), so it would only ever draw NoopSnapshotter -- opening a real SQLite
@@ -326,7 +341,7 @@ def _build_provider(
     manifest: HiveManifest,
     lifecycle: CellLifecycle,
     gate: QueenReadinessGate,
-    trail: PheromoneTrail,
+    trail: VeiledTrail,
     clock: Clock,
 ) -> LifecycleVirtualCellProvider:
     """Build the real VirtualCellProvider.
@@ -338,7 +353,9 @@ def _build_provider(
     recorder = TrailRecorder(
         trail=trail, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
     )
-    return LifecycleVirtualCellProvider(lifecycle, gate, recorder, _fail_closed_night_veil_probe)
+    return LifecycleVirtualCellProvider(
+        lifecycle, gate, recorder, _fail_closed_night_veil_probe, night_veil=trail.segments
+    )
 
 
 def _attach_snapshot(

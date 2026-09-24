@@ -12,18 +12,29 @@ Waggle transport dials through: a bare `host:port` names Tor's own SOCKS port, w
 names itself, so it is spoken as `socks5h`. `in_process_providers` and `local_providers` name the
 `[llm.providers]` that serve locally, for the grant and slot-binding points' local-only rule.
 
+The tier's retention boundary is built here too (codingrules section 12, ADR-0030). `veil_trail`
+wraps the Hive's durable trail in the `VeiledTrail` every Queen-side writer records through, once,
+when a Virtual side exists (only a Virtual Cell can be Night Veil); `build_night_veil` builds the
+rest of the boundary around that same trail (or around a plain one, for an offline `hive cells`
+command): the purge, whose durable half deletes with its own connection to the Hive's file, opened
+at the first purge, and whose side channels are `SideChannels()`, every one a registered seam today.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.deps` (the placement policy and both locality sets) and
-    `hivemind.cli.compose.virtual_cell_backends` (the link). Calls into `hivemind.cell`,
-    `hivemind.cli.stores` (provider_configs), `hivemind.hive` (NetworkPolicy, NightVeilLink),
-    `hivemind.llm.registry` (runs_in_process, runs_locally), `hivemind.manifest` and
+    `hivemind.cli.compose.virtual_cell_backends` (the link), and by `hivemind.cli.compose.hive` and
+    `hivemind.cli.compose.virtual_cells` (the boundary). Calls into `hivemind.cell`,
+    `hivemind.cli.stores` (provider_configs), `hivemind.hive` (NetworkPolicy, NightVeilLink,
+    NightVeilBoundary), `hivemind.llm.registry` (runs_in_process, runs_locally),
+    `hivemind.manifest`, `hivemind.pheromone` (the retention boundary) and
     `hivemind.queen.placement` (NightVeilConstraints) only.
 
 Key invariants:
     - Nothing here fills in a missing hidden-service address or proxy: an unset value stays
       unset, so the refusal names it rather than a guessed default being dialled.
     - A provider is local only by its configuration (`runs_locally`), never by its name.
+    - One Hive has one set of ephemeral segments: `build_night_veil` reuses the segments of a
+      trail `veil_trail` already wrapped, so the Queen and the Virtual side share one boundary.
 
 See Also:
     - docs/adr/0030-night-veil-retention-and-clearance-boundary.md for the tier's boundary.
@@ -36,21 +47,37 @@ from hivemind.cell import CombShieldLevel
 from hivemind.cli.stores import provider_configs
 from hivemind.hive import NetworkPolicy
 from hivemind.hive.backends.bootstrap import NightVeilLink
+from hivemind.hive.night_veil import NightVeilBoundary
 from hivemind.llm.registry import runs_in_process, runs_locally
 from hivemind.manifest import HiveManifest
 from hivemind.manifest.schema.security import TierProfile
+from hivemind.pheromone import (
+    EphemeralSegments,
+    LazySqliteSegmentPurge,
+    MemoryPheromoneTrail,
+    MemorySegmentPurge,
+    NightVeilTeardownPurge,
+    PheromoneTrail,
+    SegmentPurge,
+    SideChannels,
+    TrailRecorder,
+    VeiledTrail,
+)
 from hivemind.queen.placement import NightVeilConstraints
+from waggle.clock import Clock
 
 _VPN_TOR_EGRESS = "vpn_tor"  # The one `egress_profile` Night Veil can honour (ADR-0030).
 _TOR_SOCKS_SCHEME = "socks5h://"  # Tor's SOCKS port resolves names: a .onion never meets DNS.
 _SCHEME_SEPARATOR = "://"
 
 __all__ = [
+    "build_night_veil",
     "in_process_providers",
     "local_providers",
     "night_veil_constraints",
     "night_veil_link",
     "tor_socks_url",
+    "veil_trail",
 ]
 
 
@@ -136,6 +163,68 @@ def local_providers(manifest: HiveManifest) -> frozenset[str]:
     """
     configs = provider_configs(manifest)
     return frozenset(name for name, config in configs.items() if runs_locally(config))
+
+
+def veil_trail(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) -> PheromoneTrail:
+    """Return the trail every Queen-side writer records through: veiled when a Virtual side exists.
+
+    Args:
+        manifest: The loaded manifest; `[virtual_cells] backend` is read.
+        trail: The Hive's durable trail.
+        clock: Stamps the ephemeral segments' own exports.
+
+    Returns:
+        `trail` itself when no Virtual backend is configured (no Cell can be Night Veil), else a
+        `VeiledTrail` over it with fresh, empty ephemeral segments.
+    """
+    if manifest.virtual_cells.backend is None:
+        return trail
+    return _veiled(trail, clock)
+
+
+def build_night_veil(
+    manifest: HiveManifest, trail: PheromoneTrail, clock: Clock
+) -> NightVeilBoundary:
+    """Build the Night Veil boundary around `trail`, sharing its segments if it is already veiled.
+
+    Args:
+        manifest: The loaded manifest; the Hive's id, node and database file are read.
+        trail: The `veil_trail` a running Hive records through, or a plain durable trail (an
+            offline `hive cells` command), which gets a boundary of its own.
+        clock: Stamps every record the purge makes.
+
+    Returns:
+        The boundary the lifecycle, the provider, the segment receiver and the Queen share.
+    """
+    veiled = trail if isinstance(trail, VeiledTrail) else _veiled(trail, clock)
+    recorder = TrailRecorder(
+        trail=veiled.durable, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
+    )
+    purge = NightVeilTeardownPurge(
+        _segment_purge(manifest, veiled.durable),
+        SideChannels().registered(),  # Every side channel is a registered seam today.
+        recorder,
+        ephemeral=veiled.segments,
+    )
+    return NightVeilBoundary(
+        segments=veiled.segments, veiled=veiled, purge=purge, recorder=recorder
+    )
+
+
+def _veiled(trail: PheromoneTrail, clock: Clock) -> VeiledTrail:
+    """Wrap `trail` in a `VeiledTrail` over fresh, empty ephemeral segments."""
+    return VeiledTrail(trail, EphemeralSegments(clock))
+
+
+def _segment_purge(manifest: HiveManifest, durable: PheromoneTrail) -> SegmentPurge:
+    """Return the durable half of the purge: the in-memory trail's own, or the Hive's SQLite file.
+
+    The composition root knows which store it opened: a test's in-memory trail is purged in
+    place; the Hive's own trail lives in `[hive] db`, which the purge opens itself, lazily.
+    """
+    if isinstance(durable, MemoryPheromoneTrail):
+        return MemorySegmentPurge(durable)
+    return LazySqliteSegmentPurge(manifest.resolve_path(manifest.hive.db))
 
 
 def _profile(manifest: HiveManifest) -> TierProfile | None:

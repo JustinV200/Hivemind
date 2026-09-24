@@ -38,7 +38,12 @@ from hivemind.pheromone import (
 )
 from hivemind.pheromone.errors import DuplicateEventError
 from hivemind.pheromone.events import CellEvent, PheromoneEvent, TaskEvent
-from hivemind.pheromone.retention import MemorySegmentPurge, SegmentPurge, SqliteSegmentPurge
+from hivemind.pheromone.retention import (
+    LazySqliteSegmentPurge,
+    MemorySegmentPurge,
+    SegmentPurge,
+    SqliteSegmentPurge,
+)
 from waggle.clock import FakeClock
 from waggle.ids import NodeId, new_cell_id, new_event_id, new_hive_id, new_node_id, new_task_id
 
@@ -308,15 +313,23 @@ def test_a_segment_carrying_an_event_from_another_node_is_rejected_at_constructi
 _PurgePair = tuple[SegmentPurge, PheromoneTrail]
 
 
-@pytest.fixture(params=_TRAIL_KINDS)
+# The lazy SQLite purge opens its own connection to the trail's file at its first purge, the way
+# the Night Veil boundary's composition root (hivemind.cli.compose.night_veil) builds it.
+_PURGE_KINDS = (*_TRAIL_KINDS, "sqlite-lazy")
+
+
+@pytest.fixture(params=_PURGE_KINDS)
 async def segment_purge_pair(request: pytest.FixtureRequest, tmp_path: Path) -> _PurgePair:
     """A (SegmentPurge, PheromoneTrail) pair of the parametrised kind, sharing one store."""
     clock = FakeClock()
     if request.param == "memory":
         memory_trail = MemoryPheromoneTrail(clock)
         return MemorySegmentPurge(memory_trail), memory_trail
-    connection = connect(tmp_path / "hive.sqlite3")
+    database = tmp_path / "hive.sqlite3"
+    connection = connect(database)
     sqlite_trail = await SqlitePheromoneTrail.create(connection, clock)
+    if request.param == "sqlite-lazy":
+        return LazySqliteSegmentPurge(database), sqlite_trail
     return SqliteSegmentPurge(connection), sqlite_trail
 
 

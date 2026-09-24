@@ -30,13 +30,16 @@ Public API:
     - SKELETON_KINDS, ATTESTED_KIND, SUMMARY_KIND, TierCount, skeleton_event, tier_counts: what
       survives a Night Veil Cell and the per-tier Capping counts (skeleton).
     - EphemeralSegments, Veiling, TakenSegment: the Queen-side ephemeral segments (segments).
-    - VeiledTrail: the trail decorator every Queen-side writer records through (trail).
+    - VeiledTrail, segments_of: the trail decorator every Queen-side writer records through, and
+      the segments behind it (trail).
     - NightVeilTeardownPurge, PurgeReport, TrailRecorder, SegmentPurge, SqliteSegmentPurge,
-      MemorySegmentPurge, SideChannelPurger, SideChannels, SIDE_CHANNEL_TIMEOUT_S: the purge.
+      LazySqliteSegmentPurge, MemorySegmentPurge, SideChannelPurger, SideChannels,
+      SIDE_CHANNEL_TIMEOUT_S: the purge.
 """
 
 from hivemind.pheromone.retention.purge import (
     SIDE_CHANNEL_TIMEOUT_S,
+    LazySqliteSegmentPurge,
     MemorySegmentPurge,
     NightVeilTeardownPurge,
     PurgeReport,
@@ -55,7 +58,7 @@ from hivemind.pheromone.retention.skeleton import (
     skeleton_event,
     tier_counts,
 )
-from hivemind.pheromone.retention.trail import VeiledTrail
+from hivemind.pheromone.retention.trail import VeiledTrail, segments_of
 
 __all__ = [
     "ATTESTED_KIND",
@@ -63,6 +66,7 @@ __all__ = [
     "SKELETON_KINDS",
     "SUMMARY_KIND",
     "EphemeralSegments",
+    "LazySqliteSegmentPurge",
     "MemorySegmentPurge",
     "NightVeilTeardownPurge",
     "PurgeReport",
@@ -75,6 +79,7 @@ __all__ = [
     "TrailRecorder",
     "VeiledTrail",
     "Veiling",
+    "segments_of",
     "skeleton_event",
     "tier_counts",
 ]

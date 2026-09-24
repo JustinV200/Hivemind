@@ -1,4 +1,4 @@
-"""Reassemble TrailSegmentSync chunks from a remote Warden and merge the segment into the trail.
+"""Reassemble TrailSegmentSync chunks from a remote Warden; merge the segment, or veil it.
 
 The Queen-side half of `hivemind.wardens.trail_sync` (codingrules section 12: "The trail is one
 logical log made of per-node segments. A Warden that is offline writes to its local segment; on
@@ -7,19 +7,22 @@ records into a store that dies with the container, so it ships its segment over 
 as `waggle.messages.swarm.TrailSegmentSync` chunks; `TrailSegmentReceiver` is what turns those back
 into a `hivemind.pheromone.TrailSegment` and merges it, keyed by the sending node id.
 
-Deliberately standalone, and deliberately not wired in: nothing in `hivemind.queen` calls this
-module yet. The Cell-facing connection is drained in two places -- `hivemind.queen.cell_gate.
-listener.CellListener._handle_connection` reads it only to notice when it ends, and the attached
-`hivemind.queen.deps.WardenLink` is drained by the Queen's own tick -- and choosing which of those
-should recognise `swarm.trail_segment_sync` (and whether an unmerged chunk should answer with a
-`control.error`) is an orchestration decision, not this module's. The contract this module offers
-is one call: hand it every `TrailSegmentSync` that arrives, in any order of interleaving between
-senders, and it merges each complete export exactly once.
+`hivemind.queen.cell_gate.listener.CellListener` hands this every `swarm.trail_segment_sync` its
+connections carry (bound by the composition root, `hivemind.cli.compose.virtual_cells`). The
+contract this module offers is one call: hand it every `TrailSegmentSync` that arrives, in any
+order of interleaving between senders, and it merges each complete export exactly once.
+
+A Night Veil Cell's segment is never merged into the trail (codingrules section 12: its
+execution records live in an ephemeral segment keyed to the Cell). Given the Night Veil boundary's
+`EphemeralSegments`, `receive` offers every complete export to it first, keyed by the Cell the
+chunk names: a Night Veil Cell's segment waits there, whole, until the Cell's teardown purges it,
+and a segment arriving after that purge is dropped. Every other Cell's segment merges into the
+trail exactly as before.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen`. Calls into
-    `hivemind.pheromone` (PheromoneTrail, TrailSegment) and waggle (ids, messages) only; it touches
-    no Queen state, so whichever drain loop ends up owning it needs nothing else from here.
+    `hivemind.pheromone` (PheromoneTrail, TrailSegment, EphemeralSegments) and waggle (ids,
+    messages) only; it touches no Queen state, so the listener that drains it needs nothing else.
 
 Key invariants:
     - A segment is merged exactly once per export: the `final` chunk triggers the merge and the
@@ -32,6 +35,8 @@ Key invariants:
       truncated segment would put un-auditable gaps into the Hive's audit record.
     - Merging is idempotent by event id (`PheromoneTrail.merge_segment`), so a sender that
       re-ships an export after a dropped connection inserts nothing the second time.
+    - A Night Veil Cell's segment never reaches the trail: it goes to the ephemeral segments, or
+      nowhere once the Cell is purged.
     - `receive` never raises for an ordinary out-of-order or duplicate chunk; it only raises the
       two typed errors above, both of which mean "this export is not mergeable at all".
 
@@ -49,9 +54,9 @@ from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
-from hivemind.pheromone import PheromoneTrail, TrailSegment
+from hivemind.pheromone import EphemeralSegments, PheromoneTrail, TrailSegment
 from hivemind.wardens.trail_sync import SEGMENT_FORMAT_VERSION
-from waggle.ids import NodeId
+from waggle.ids import CellId, NodeId
 from waggle.messages.swarm import TrailSegmentSync
 
 __all__ = [
@@ -123,14 +128,17 @@ class TrailSegmentReceiver:
     export currently being reassembled, and empties again as each one's `final` chunk arrives.
     """
 
-    def __init__(self, trail: PheromoneTrail) -> None:
-        """Build a receiver that merges into `trail`.
+    def __init__(self, trail: PheromoneTrail, night_veil: EphemeralSegments | None = None) -> None:
+        """Build a receiver that merges into `trail`, veiling each Night Veil Cell's segment.
 
         Args:
-            trail: The Queen's own Pheromone Trail; every accepted segment is merged into it under
-                the sending node's own id, so events from different nodes never collide.
+            trail: The Queen's own Pheromone Trail; every accepted segment no Night Veil Cell owns
+                is merged into it under the sending node's own id, so nodes never collide.
+            night_veil: The Night Veil boundary's ephemeral segments (module docstring); None
+                merges every segment into `trail`, for a Hive with no Virtual side.
         """
         self._trail = trail
+        self._night_veil = night_veil
         self._partials: dict[_GroupKey, _Partial] = {}
 
     async def receive(self, message: TrailSegmentSync) -> int:
@@ -143,9 +151,10 @@ class TrailSegmentReceiver:
                 `message.warden_id` its `sender` -- because only the caller holds the envelope.
 
         Returns:
-            The number of events actually inserted into the trail, once `message.final` completed
-            an export; `0` for every non-final chunk (nothing has been merged yet) and for a
-            re-merged export whose events the trail already holds.
+            The number of events actually inserted, once `message.final` completed an export (into
+            the trail, or into a Night Veil Cell's ephemeral segment); `0` for every non-final
+            chunk (nothing has been merged yet), for a re-merged export whose events are already
+            held, and for a Night Veil Cell's segment arriving after its purge.
 
         Raises:
             UnknownSegmentFormatError: `message.segment_format_version` is not one this Hive reads.
@@ -183,6 +192,12 @@ class TrailSegmentReceiver:
                 node_id,
                 f"it holds {len(segment.events)} events, not the {message.event_count} promised",
             )
+        # A Night Veil Cell's segment waits in its ephemeral segment instead (module docstring);
+        # None means the boundary owns no such Cell, so the segment merges as it always has.
+        if self._night_veil is not None:
+            veiled = await self._night_veil.merge(CellId(message.cell_id), segment)
+            if veiled is not None:
+                return veiled
         # TrailSegment's own validator already refused a segment carrying another node's events,
         # so merging is keyed by node id by construction: nothing here re-checks it.
         return await self._trail.merge_segment(segment)

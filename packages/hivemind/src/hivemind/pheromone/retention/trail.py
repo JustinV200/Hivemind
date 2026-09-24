@@ -12,10 +12,16 @@ the durable trail untouched, exactly as before, and an event about one sends onl
 trail and the whole event to the Cell's ephemeral segment while the Cell lives. Reads, exports and
 merges pass straight through: nothing veiled is ever on the durable trail to be read.
 
+The trail a Queen records through is also how her own code reaches the boundary: `segments_of`
+returns the segments behind a `VeiledTrail` (None behind any other trail, a Hive with no Virtual
+side), which is where the Queen files a Night Veil Cell's Warden as she attaches it and expects a
+Night Veil goal's tasks as she plans it, with no second handle on her deps.
+
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.pheromone.retention`.
     Built by `hivemind.cli.compose.night_veil` over the Hive's durable trail and handed to every
-    Queen-side writer in its place. Implements `hivemind.pheromone.trail.PheromoneTrail`. Calls
+    Queen-side writer in its place; `segments_of` is read by `hivemind.queen.attach` and
+    `hivemind.queen.goal_submission`. Implements `hivemind.pheromone.trail.PheromoneTrail`. Calls
     into `hivemind.pheromone.retention.segments`, `...retention.skeleton`, `hivemind.pheromone.
     events` and `hivemind.pheromone.trail` only.
 
@@ -43,7 +49,7 @@ from hivemind.pheromone.retention.skeleton import skeleton_event
 from hivemind.pheromone.trail.protocol import PheromoneTrail, TrailQuery, TrailSegment
 from waggle.ids import NodeId
 
-__all__ = ["VeiledTrail"]
+__all__ = ["VeiledTrail", "segments_of"]
 
 
 class VeiledTrail:
@@ -63,6 +69,11 @@ class VeiledTrail:
     def durable(self) -> PheromoneTrail:
         """The wrapped durable trail, for a writer that must bypass the boundary (the purge)."""
         return self._durable
+
+    @property
+    def segments(self) -> EphemeralSegments:
+        """The ephemeral segments this trail routes into, for the rest of the boundary's wiring."""
+        return self._segments
 
     async def record(self, event: PheromoneEvent) -> None:
         """Record `event`, veiled when it is about a Night Veil Cell or task; see the module doc."""
@@ -91,3 +102,16 @@ class VeiledTrail:
         `EphemeralSegments.merge` first, and only a segment no Night Veil Cell owns reaches this.
         """
         return await self._durable.merge_segment(segment)
+
+
+def segments_of(trail: PheromoneTrail) -> EphemeralSegments | None:
+    """Return the Night Veil segments behind `trail`, or None when it is not veiled.
+
+    Args:
+        trail: The trail a Queen-side writer was handed.
+
+    Returns:
+        The `EphemeralSegments` a `VeiledTrail` routes into; None for any other trail, which only
+        a Hive with no Virtual side (and so no Night Veil Cell) is ever handed.
+    """
+    return trail.segments if isinstance(trail, VeiledTrail) else None

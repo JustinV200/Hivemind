@@ -83,6 +83,7 @@ from hivemind.cli.compose.deps import (
 )
 from hivemind.cli.compose.guard import build_guard_deps
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
+from hivemind.cli.compose.night_veil import veil_trail
 from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
@@ -210,10 +211,9 @@ def build_hive(
     """Turn a loaded Hive Manifest into a running Hive's every collaborator, not yet started.
 
     The one place a HiveManifest is converted into deps (codingrules section 13): every subsystem
-    below `cli` takes only the slice `hivemind.cli.compose.deps`'s builders carve from `manifest`
-    here, never the manifest itself. Never awaits a model or opens a network connection: every
-    provider `registry` may later construct is lazy, and its `asyncio.run` calls (`_build_links`,
-    `_hive_signer`) only probe this host's capacity and read the local secret store.
+    below `cli` takes only the slice `hivemind.cli.compose.deps`'s builders carve from it. Never
+    awaits a model or opens a network connection: every provider is built lazily, and the
+    `asyncio.run` calls (`_build_links`, `_hive_signer`) only probe this host and read secrets.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
@@ -227,7 +227,8 @@ def build_hive(
     Returns:
         A Hive not yet started (no lease, no tick, no Warden attached); pass it to `run_hive`.
     """
-    hive_stores = stores if stores is not None else open_default_stores(manifest)
+    # Codingrules 12: every writer below records through the Night Veil boundary, one per Hive.
+    hive_stores = _veiled_stores(manifest, stores, clock)
     forage_map = build_forage_map(manifest, clock)
     # Roadmap step 4.8: built before build_fanner, whose LedgerRecorder books each llm.call live.
     ledger = build_ledger(manifest, manifest.forage.reserve)
@@ -249,6 +250,17 @@ def build_hive(
     )
     extras = _AssemblyExtras(forage_map=forage_map, ledger=ledger, virtual_cells=virtual_cells)
     return _assemble_hive(parts, source, links, extras)
+
+
+def _veiled_stores(manifest: HiveManifest, stores: HiveStores | None, clock: Clock) -> HiveStores:
+    """Open (or take a test's) stores, their trail wrapped in the Night Veil boundary.
+
+    `hivemind.cli.compose.night_veil.veil_trail` wraps it only when a Virtual side is configured,
+    since only a Virtual Cell can be Night Veil; `build_virtual_cells` then builds the rest of the
+    boundary around the same trail, so the Queen and the Virtual side share one set of segments.
+    """
+    opened = stores if stores is not None else open_default_stores(manifest)
+    return replace(opened, trail=veil_trail(manifest, opened.trail, clock))
 
 
 def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) -> HiveLinks:

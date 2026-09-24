@@ -14,7 +14,11 @@ a drafted graph to the Brood Chamber itself and never plans). Roadmap step 10.3d
 request named NIGHT_VEIL is refused before it is planned when its ceiling asks where its Cell is,
 and before its graph is persisted when a planned task's needs do
 (`hivemind.queen.planner.location`); each ask is refused through the Guard's Night Veil floor at
-the placement point, the Queen acting for the goal, so it is `guard.denied` on the trail.
+the placement point, the Queen acting for the goal, so it is `guard.denied` on the trail. A Night
+Veil goal that is planned has every task expected in the Night Veil boundary's segments (the
+ones behind her trail, `hivemind.pheromone.segments_of`) the moment it is persisted, so the
+Queen's own records about those tasks, its `queen.planned` among them, keep only their skeleton
+(codingrules section 12); the Brood Chamber cuts the tasks' own transitions itself.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -23,7 +27,7 @@ Fits into the Hive:
     `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (the location asks' refusals),
     `hivemind.queen.authority`, `hivemind.queen.deps`, `hivemind.queen.dispatcher`
     (dispatch_ready), `hivemind.queen.planner` (PlanBrief, plan_goal, location),
-    `hivemind.queen.trail` (record_event) and waggle only.
+    `hivemind.pheromone` (segments_of), `hivemind.queen.trail` (record_event) and waggle only.
 
 Key invariants:
     - Takes `deps` and `wardens` explicitly, never a `Queen` instance: the Queen delegates by
@@ -45,11 +49,13 @@ from dataclasses import dataclass
 
 from pydantic import JsonValue
 
+from hivemind.brood_chamber import Task
 from hivemind.brood_chamber.task import GoalRequestId
 from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin
 from hivemind.forage.slots import ModelSlot
 from hivemind.guard import Capability, CapabilitySet, EnforcementPoint, PolicyContext
 from hivemind.guard.policy import GoalRequestFacts
+from hivemind.pheromone import segments_of
 from hivemind.queen.authority import request_for
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
@@ -160,8 +166,23 @@ async def plan_goal_graph(
         needs = (task.needs for task in draft.tasks)
         await _refuse_location_asks(deps, terms, needs_location_asks(needs))
     minted = await deps.chamber.submit(draft)
+    _veil_night_veil_tasks(deps, terms, minted)
     await record_event(deps, "queen.planned", minted[0].id, **_planned_payload(len(minted), terms))
     return minted[0].id  # The goal's own id: the first task minted from the plan.
+
+
+def _veil_night_veil_tasks(deps: QueenDeps, terms: GoalTerms, minted: Sequence[Task]) -> None:
+    """Expect a Night Veil goal's tasks in the boundary's segments, before any Cell exists.
+
+    Codingrules 12: from here on the Queen's own records about these tasks (the plan's own
+    `queen.planned` first) reach the trail as the skeleton only; a Hive whose trail is not veiled
+    has no Virtual side, so no Night Veil Cell could ever take them.
+    """
+    night_veil = segments_of(deps.trail)
+    if night_veil is None or terms.comb_shield is not CombShieldLevel.NIGHT_VEIL:
+        return
+    for task in minted:
+        night_veil.expect(task.id)
 
 
 def _planned_payload(task_count: int, terms: GoalTerms) -> dict[str, JsonValue]:

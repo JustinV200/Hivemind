@@ -18,11 +18,18 @@ reason, these are one file further out for the same file-size reason. `CellListe
 test) calls `hivemind.queen.attach.detach_warden(queen, warden_id)` directly; `Queen.attach_warden`
 is a one-line delegator to `attach_warden`.
 
+Attaching is also the first moment the Queen hears a Night Veil Cell's own word about its tier
+(the `CellReady` it announced, carried on the link's Cell), often before the lifecycle has seen the
+Cell at all, so `attach_warden` opens the Cell's ephemeral segment and files the Warden under it
+first (codingrules section 12): every record naming either, `warden.spawned` among them, then
+reaches the trail as the skeleton only.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
     by `hivemind.queen.queen.Queen.attach_warden` (attach) and `hivemind.queen.cell_gate.
     CellListener` on every accepted connection's own close (detach). Calls into
-    `hivemind.guard` (EnforcementPoint), `hivemind.pheromone` (WardenEvent),
+    `hivemind.cell` (CombShieldLevel), `hivemind.guard` (EnforcementPoint), `hivemind.pheromone`
+    (WardenEvent, segments_of: the Night Veil segments behind her trail),
     `hivemind.queen.authority`, `.errors`, `.inbox.links` (through the Queen's own `_links`) and
     `.ticks.liveness` only; reaches into `Queen`'s own private attributes directly, the same
     cross-file access `hivemind.wardens.ticks.control` already takes on `Warden`'s private state
@@ -47,8 +54,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.cell import CombShieldLevel
 from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
-from hivemind.pheromone import WardenEvent
+from hivemind.pheromone import WardenEvent, segments_of
 from hivemind.queen.authority import queen_held, request_for
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.ticks.liveness import WardenLiveness
@@ -76,6 +84,12 @@ async def attach_warden(queen: Queen, link: WardenLink) -> None:
             covers it); `guard.denied` is already recorded and nothing was attached.
     """
     deps = queen._deps
+    # Codingrules 12: a Night Veil Cell's Warden is veiled before a single record names it (its
+    # `warden.spawned` included), even when it dials in before the lifecycle has seen its Cell.
+    night_veil = segments_of(deps.trail)
+    if night_veil is not None and link.cell.comb_shield is CombShieldLevel.NIGHT_VEIL:
+        night_veil.open(link.cell.id)
+        night_veil.file(link.warden_id, link.cell.id)
     request = request_for(deps, EnforcementPoint.WARDEN_SPAWN, _WARDEN_SPAWN, queen_held(deps))
     # The Cell the Warden supervises is where the action lands: its tier and access level are the
     # context a floor (roadmap step 10.3a) will read.

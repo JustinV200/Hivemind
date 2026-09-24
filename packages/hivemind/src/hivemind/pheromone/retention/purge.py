@@ -42,11 +42,12 @@ import asyncio
 import sqlite3
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from hivemind.common.sqlite import ConnectionThread, transaction
+from hivemind.common.sqlite import ConnectionThread, connect, transaction
 from hivemind.pheromone.events import CappingEvent, CellEvent, PheromoneEvent
 from hivemind.pheromone.retention.segments import EphemeralSegments, TakenSegment
 from hivemind.pheromone.retention.skeleton import SUMMARY_KIND, tier_counts
@@ -66,6 +67,7 @@ SIDE_CHANNEL_TIMEOUT_S = 30.0
 
 __all__ = [
     "SIDE_CHANNEL_TIMEOUT_S",
+    "LazySqliteSegmentPurge",
     "MemorySegmentPurge",
     "NightVeilTeardownPurge",
     "PurgeReport",
@@ -117,6 +119,35 @@ class SqliteSegmentPurge:
             # Blocking: one DELETE in one transaction, matched on the indexed node_id column, so
             # even a large Night Veil segment removes in one fast pass.
             return await self._thread.run(_purge_transaction, self._connection, node_id)
+
+
+class LazySqliteSegmentPurge:
+    """SqliteSegmentPurge over its own connection to the Hive's file, opened at the first purge.
+
+    Most processes that build the Night Veil boundary never purge (an offline `hive cells`
+    command, a Hive that runs no Night Veil work), so none of them opens a connection it never
+    uses; the first purge opens one, off the event loop, and every later purge reuses it.
+    """
+
+    def __init__(self, database: Path) -> None:
+        """Remember the Hive's SQLite file; nothing is opened yet.
+
+        Args:
+            database: The file whose `pheromone_events` table the purge deletes from.
+        """
+        self._database = database
+        self._purge: SqliteSegmentPurge | None = None
+        # Two first purges racing would each open a connection; one opens it, the other waits.
+        self._lock = asyncio.Lock()
+
+    async def purge_segment(self, node_id: NodeId) -> int:
+        """Remove `node_id`'s rows; see `SegmentPurge.purge_segment` for the full contract."""
+        async with self._lock:
+            if self._purge is None:
+                # Blocking: sqlite3.connect opens the file and applies the store's pragmas.
+                connection = await asyncio.to_thread(connect, self._database)
+                self._purge = SqliteSegmentPurge(connection)
+        return await self._purge.purge_segment(node_id)
 
 
 class MemorySegmentPurge:

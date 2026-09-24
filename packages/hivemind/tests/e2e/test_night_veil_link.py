@@ -15,6 +15,10 @@ Veil attestation probe is wired fail-closed in production until a Queen-side Cel
 (`hivemind.cli.compose.virtual_cells._fail_closed_night_veil_probe`, roadmap step 5.7b), so this
 Hive's probe is the all-green `FakeNightVeilProbe` `test_night_veil_floors` uses too.
 
+The binding is checked where it happens, on the Brood Chamber's own `assign`: the trail keeps
+only the skeleton of a Night Veil task (codingrules section 12), so its `task.assigned` names no
+Cell and no tier (`test_night_veil_boundary` covers the rest of that skeleton).
+
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
 
@@ -48,7 +52,7 @@ from e2e.kernel_helpers import (
     wait_until,
 )
 
-from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal
+from hivemind.brood_chamber import BroodChamber, Task, TaskFilter, TaskStatus, is_terminal
 from hivemind.cell import Cell, CombShieldLevel
 from hivemind.cli.compose import Hive, build_hive, run_hive
 from hivemind.forage import ModelSlot
@@ -58,6 +62,7 @@ from hivemind.llm import LLMRequest, LLMResponse, text_response
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import TrailQuery
 from waggle.clock import SystemClock
+from waggle.ids import CellId, TaskId, WardenId
 from waggle.transport.socks import FakeSocksProxy
 
 pytestmark = pytest.mark.e2e
@@ -127,6 +132,28 @@ async def _finished(hive: Hive) -> bool:
     return task is not None and is_terminal(task.status)
 
 
+def _record_bindings(
+    chamber: BroodChamber, monkeypatch: pytest.MonkeyPatch
+) -> list[tuple[CellId, CombShieldLevel]]:
+    """Record every `(cell_id, bound_tier)` the Queen's dispatcher assigns a task to."""
+    bindings: list[tuple[CellId, CombShieldLevel]] = []
+    real_assign = chamber.assign
+
+    async def assign(
+        task_id: TaskId,
+        warden_id: WardenId,
+        cell_id: CellId,
+        reason: str,
+        *,
+        bound_tier: CombShieldLevel,
+    ) -> Task:
+        bindings.append((cell_id, bound_tier))
+        return await real_assign(task_id, warden_id, cell_id, reason, bound_tier=bound_tier)
+
+    monkeypatch.setattr(chamber, "assign", assign)
+    return bindings
+
+
 def _virtual_cell(hive: Hive) -> Cell | None:
     """The Cell of the one Warden the Queen holds besides the Hive Stand's, once attached."""
     stand = hive.warden_link.cell.id
@@ -145,6 +172,7 @@ async def test_a_night_veil_cell_works_for_the_queen_over_tor_alone(
     )
     async with _fake_tor() as tor:
         hive = await _build(_night_veil_manifest(tmp_path, tor))
+        bindings = _record_bindings(hive.stores.chamber, monkeypatch)
         assert hive.virtual_cells is not None
         backend = hive.virtual_cells.registry.get("fake")
         assert isinstance(backend, ContainerSpawningFakeCellBackend)
@@ -177,6 +205,6 @@ async def test_a_night_veil_cell_works_for_the_queen_over_tor_alone(
     # NIGHT_VEIL: a Cell announcing MEADOW would have bound a Night Veil task to MEADOW.
     assert cell is not None
     assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
+    assert bindings == [(cell.id, CombShieldLevel.NIGHT_VEIL)]
     [assigned] = await hive.stores.trail.query(TrailQuery(kind="task.assigned", subject_id=task.id))
-    assert assigned.payload["cell_id"] == cell.id
-    assert assigned.payload["bound_tier"] == CombShieldLevel.NIGHT_VEIL.value
+    assert assigned.payload == {}

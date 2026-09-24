@@ -57,6 +57,12 @@ a clear error, because `WardenLink` (`hivemind.queen.deps`) carries a Waggle `Tr
 `hivemind.cell.CellSession` `SessionNightVeilProbe` needs -- no session-opening seam exists yet
 from the Queen to a Virtual Cell (this module's own report names the gap).
 
+**The Night Veil boundary (codingrules section 12):** once a NIGHT_VEIL Cell is acquired for a
+task, `acquire` binds the task to it in the boundary's ephemeral segments (`night_veil`), before
+the dispatcher records the placement: from then on every record the Queen makes about the task
+(`queen.placed`, `queen.assigned`, its grant) waits whole in the Cell's segment and reaches the
+trail as the skeleton only, and it is purged with the Cell.
+
 **The announced tier (roadmap step 10.3a):** the link `CellListener` attaches carries the Comb
 Shield tier the Cell announced in its own `CellReady`, and the dispatcher binds the task to that
 tier (`hivemind.queen.dispatcher.ready`). So before anything else is checked, a freshly provisioned
@@ -75,7 +81,8 @@ Fits into the Hive:
     `QueenDeps.virtual_provider` must exist before `Queen(deps)` can be constructed at all). Calls
     into `hivemind.brood_chamber` (Task), `hivemind.hive` (CellProvisionError, VirtualCellSpec),
     `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.night_veil` (NightVeilProbe,
-    attest_cell), `hivemind.pheromone` (TrailRecorder), `hivemind.queen.cell_gate.gate`
+    attest_cell), `hivemind.pheromone` (TrailRecorder, EphemeralSegments), `hivemind.queen.
+    cell_gate.gate`
     (QueenReadinessGate), `hivemind.queen.deps` (WardenLink), `hivemind.queen.placement`
     (Placement, ProvisionVirtual, ReuseDormant), `hivemind.queen.queen` (Queen) and waggle only.
 
@@ -90,6 +97,8 @@ Key invariants:
     - A NIGHT_VEIL Cell never reaches `mark_ready` without a passed `attest_cell` call first
       (ADR-0030): a red check, or the probe raising, tears the Cell down the same way any other
       post-provision failure does.
+    - A task handed a NIGHT_VEIL Cell's link is bound to that Cell's segment before `acquire`
+      returns it.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the acquire sequence this module implements.
@@ -117,7 +126,7 @@ from hivemind.hive import CellProvisionError
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.models import DEFAULT_READY_TIMEOUT_S
 from hivemind.hive.night_veil import NightVeilProbe, attest_cell
-from hivemind.pheromone import TrailRecorder
+from hivemind.pheromone import EphemeralSegments, TrailRecorder
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
@@ -145,6 +154,7 @@ class LifecycleVirtualCellProvider:
         gate: QueenReadinessGate,
         trail: TrailRecorder,
         probe_factory: NightVeilProbeFactory,
+        night_veil: EphemeralSegments | None = None,
     ) -> None:
         """Build a LifecycleVirtualCellProvider; call `bind_queen` before the first `acquire`.
 
@@ -157,11 +167,14 @@ class LifecycleVirtualCellProvider:
             probe_factory: Builds the `NightVeilProbe` a freshly provisioned NIGHT_VEIL Cell is
                 attested against (module docstring: never a bare fake, injected by the composition
                 root).
+            night_veil: The Night Veil boundary's ephemeral segments a task is bound into once it
+                is handed a NIGHT_VEIL Cell; None (a Hive with no Virtual side) binds nothing.
         """
         self._lifecycle = lifecycle
         self._gate = gate
         self._trail = trail
         self._probe_factory = probe_factory
+        self._night_veil = night_veil
         self._queen: _WardensView | None = None
 
     def bind_queen(self, queen: _WardensView) -> None:
@@ -197,8 +210,14 @@ class LifecycleVirtualCellProvider:
             # ReuseReal placement itself and never calls this provider for one.
             raise TypeError("LifecycleVirtualCellProvider.acquire got a ReuseReal placement.")
         if isinstance(placement, ProvisionVirtual):
-            return await self._acquire_provision(placement)
-        return await self._acquire_dormant(placement)
+            link = await self._acquire_provision(placement)
+        else:
+            link = await self._acquire_dormant(placement)
+        # Codingrules 12: bound before the dispatcher records this placement, so its records
+        # about the task wait in the Cell's segment and keep only their skeleton on the trail.
+        if self._night_veil is not None and link.cell.comb_shield is CombShieldLevel.NIGHT_VEIL:
+            self._night_veil.bind(task.id, link.cell.id)
+        return link
 
     async def _acquire_provision(self, placement: ProvisionVirtual) -> WardenLink:
         """Provision a fresh Cell from `placement.spec`, wait for it, and return its link."""
