@@ -17,9 +17,9 @@ See Also:
 
 from __future__ import annotations
 
-from builders.queen import make_queen_deps, plan_responder
+from builders.queen import WardenEnd, make_queen_deps, plan_responder
 
-from hivemind.brood_chamber import TaskStatus
+from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.queen.deps import QueenDeps, WardenLink
@@ -33,7 +33,7 @@ from hivemind.queen.ticks.results import (
 from waggle.clock import FakeClock
 from waggle.ids import TaskId, WardenId, new_task_id, new_warden_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
-from waggle.messages.task import ScoutReport, TaskOutcome, TaskResult
+from waggle.messages.task import ScoutReport, TaskOutcome, TaskResult, WorkerRole
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -57,6 +57,43 @@ def _single_task_plan(goal: str) -> dict[str, object]:
             }
         ]
     }
+
+
+def _scout_chain_plan(goal: str) -> dict[str, object]:
+    """A Scout, a task after it, one after that, and a sibling that waits on nothing."""
+
+    def planned(key: str, role: str, depends_on: list[str], subject: str) -> dict[str, object]:
+        check: dict[str, object] = {
+            "kind": "FILE_EXISTS",
+            "subject": subject,
+            "argv": [],
+            "expected": None,
+        }
+        return {
+            "key": key,
+            "title": f"The {key} task",
+            "objective": f"The {key} part of: {goal}",
+            "acceptance": [check],
+            "role": role,
+            "needs": {},
+            "clearance": "C1",
+            "depends_on": depends_on,
+        }
+
+    return {
+        "tasks": [
+            planned("scout", "SCOUT", [], "scout-report.json"),
+            planned("next", "DRONE", ["scout"], "scratch/next.txt"),
+            planned("after", "DRONE", ["next"], "scratch/after.txt"),
+            planned("aside", "DRONE", [], "scratch/aside.txt"),
+        ]
+    }
+
+
+async def _scout_assigned(warden_end: WardenEnd) -> TaskId:
+    """Wait for both ready tasks' assignments and return the Scout's; "aside" is ready too."""
+    await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
+    return next(a.task_id for a in warden_end.assignments if a.role is WorkerRole.SCOUT)
 
 
 async def _running_task() -> tuple[QueenDeps, WardenLink, TaskId]:
@@ -212,3 +249,42 @@ async def test_fail_task_from_result_builds_the_reason_and_carries_the_report() 
     assert task.outcome is not None
     assert task.outcome.scout_report == report
     assert "infeasible" in task.outcome.summary
+
+
+async def test_an_infeasible_scout_cancels_every_task_after_it_and_nothing_else() -> None:
+    # Arrange: the Scout is dispatched and running; "aside" never waited on it.
+    provider = FakeLLMProvider(responder=plan_responder(_scout_chain_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    await queen.submit_goal("Log in somewhere.", clearance=HoneyClearance.C1)
+    scout = await _scout_assigned(warden_end)
+    await warden_end.close()
+    report = ScoutReport(feasible=False, summary="The login needs a hardware key.")
+    payload = _result(scout, link.warden_id, TaskOutcome.SUCCEEDED, scout_report=report)
+
+    await fail_task_from_result(deps, payload)
+
+    statuses = {task.spec.title: task.status for task in await deps.chamber.list(TaskFilter())}
+    assert statuses["The scout task"] is TaskStatus.FAILED
+    assert statuses["The next task"] is TaskStatus.CANCELLED  # Direct dependent.
+    assert statuses["The after task"] is TaskStatus.CANCELLED  # Transitive dependent.
+    assert statuses["The aside task"] is not TaskStatus.CANCELLED  # Never waited on the Scout.
+
+
+async def test_a_task_failing_for_any_other_reason_cancels_nothing() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_scout_chain_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    await queen.submit_goal("Log in somewhere.", clearance=HoneyClearance.C1)
+    scout = await _scout_assigned(warden_end)
+    await warden_end.close()
+    payload = _result(scout, link.warden_id, TaskOutcome.FAILED, reason="Retries exhausted.")
+
+    await fail_task_from_result(deps, payload)
+
+    cancelled = [
+        t for t in await deps.chamber.list(TaskFilter()) if t.status is TaskStatus.CANCELLED
+    ]
+    assert cancelled == []

@@ -21,8 +21,9 @@ through `complete_task`: `hivemind.queen.autopilot.table._decide_task_result` ma
 combination to `FAIL_TASK` instead of `COMPLETE_TASK`, and `fail_task_from_result` is what a
 `TaskResult`-shaped `FAIL_TASK` (`hivemind.queen.queen._act_on_task_result`'s own branch) calls
 instead of `fail_task` directly, so the dependents `hivemind.brood_chamber.task.graph.
-ready_tasks` gates on it stay PENDING for good, never dispatched, without a second non-retryable
-state this module would have to add.
+ready_tasks` gates on it are never dispatched, without a second non-retryable state this module
+would have to add; it then cancels them, with the Scout's reason, so the goal ends rather than
+waiting on tasks that can never become ready.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -47,6 +48,8 @@ Key invariants:
     - `fail_task` never dispatches anything and never retries: it is the one caller of
       `chamber.fail`, whatever put it on the FAIL_TASK path (an exhausted retry, an escalated
       Alarm's own CANCEL, or an infeasible Scout).
+    - An infeasible Scout's transitive dependents are CANCELLED with its reason, so its goal ends;
+      any other failed task's dependents are left PENDING, as before.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the exact chamber calls this module
@@ -61,7 +64,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from hivemind.brood_chamber import TaskOutcome, TaskStatus
+from hivemind.brood_chamber import TaskFilter, TaskOutcome, TaskStatus, descendants, is_terminal
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, redispatch
 from waggle.ids import TaskId, WardenId
@@ -158,7 +161,7 @@ def fail_reason(payload: TaskResult) -> str:
         The reason to record on the failed task's own outcome.
     """
     report = payload.scout_report
-    if payload.outcome is WireTaskOutcome.SUCCEEDED and report is not None and not report.feasible:
+    if _is_infeasible_scout(payload) and report is not None:
         return f"Scout reported the work infeasible: {report.summary}"
     return payload.reason
 
@@ -190,15 +193,40 @@ async def fail_task_from_result(deps: QueenDeps, payload: TaskResult) -> None:
     """Fail `payload`'s own task, building its reason and carrying its report in one call.
 
     The one caller (`hivemind.queen.queen._act_on_task_result`, its own FAIL_TASK branch) never
-    has to know `fail_reason`'s own rule or that `fail_task` takes a `scout_report` at all -- this
-    is `fail_task(deps, payload.task_id, fail_reason(payload), scout_report=payload.scout_report)`
-    with a name that says what it does.
+    has to know `fail_reason`'s own rule or that `fail_task` takes a `scout_report` at all. An
+    infeasible Scout also cancels every task that depends on it, directly or not, with the Scout's
+    reason: the Scout said the work should not go ahead, so those tasks can never become ready,
+    and cancelling them lets the goal end now instead of sitting PENDING until a caller's timeout.
 
     Args:
         deps: The Queen's collaborators.
         payload: The TaskResult a FAIL_TASK decision was made for.
     """
-    await fail_task(deps, payload.task_id, fail_reason(payload), scout_report=payload.scout_report)
+    reason = fail_reason(payload)
+    await fail_task(deps, payload.task_id, reason, scout_report=payload.scout_report)
+    if _is_infeasible_scout(payload):
+        await _cancel_held_back(deps, payload.task_id, reason)
+
+
+def _is_infeasible_scout(payload: TaskResult) -> bool:
+    """Return whether `payload` is a Scout's verified result recommending against the work."""
+    report = payload.scout_report
+    return (
+        payload.outcome is WireTaskOutcome.SUCCEEDED and report is not None and not report.feasible
+    )
+
+
+async def _cancel_held_back(deps: QueenDeps, scout_id: TaskId, reason: str) -> None:
+    """Cancel every unfinished task that depends on the infeasible Scout `scout_id`."""
+    scout = await deps.chamber.get(scout_id)
+    goal_tasks = await deps.chamber.list(TaskFilter(goal_id=scout.goal_id))
+    by_id = {task.id: task for task in goal_tasks}
+    held = f"Held back by Scout {scout_id}. {reason}"[:MAX_FAIL_SUMMARY_CHARS]
+    # Every transitive dependent, never the Scout's siblings: only work that waited on its
+    # findings is held back. One already finished (or cancelled) is left as it ended.
+    for task_id in sorted(descendants(goal_tasks, scout_id)):
+        if not is_terminal(by_id[task_id].status):
+            await deps.chamber.cancel(task_id, held)
 
 
 def _artifact_paths(artifacts: tuple[ArtifactRef, ...]) -> tuple[str, ...]:

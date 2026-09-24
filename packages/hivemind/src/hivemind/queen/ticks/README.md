@@ -27,7 +27,10 @@ class stay within codingrules 5.1's size limits.
   optional `scout_report` for the FAILED outcome, `fail_reason` builds the infeasible-Scout
   wording (or echoes the result's own reason otherwise), and `fail_task_from_result` is the one
   call `hivemind.queen.queen._act_on_task_result` makes for a `TaskResult`-shaped `FAIL_TASK`,
-  wiring both together.
+  wiring both together. For an infeasible Scout it also cancels every task that depends on the
+  Scout, directly or not, with the Scout's reason ("Held back by Scout <id>. ..."), so the goal
+  ends instead of waiting on tasks that can never become ready (a `hive run` would otherwise sit
+  out its whole timeout). Any other failed task's dependents stay PENDING, as before.
 - `wax.handle_wax_item`, `.handle_wax_proposed` (roadmap step 4.2a): the other entry point
   `handle_infrastructure_item` reaches ahead of `decide`, for a `CellWaxProposed`. Records the
   proposal (`hivemind.memory.cell_wax.propose_wax`), judges it with

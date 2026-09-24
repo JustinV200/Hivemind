@@ -192,7 +192,7 @@ async def test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_
 
 
 async def test_an_infeasible_scout_fails_without_retry_and_holds_its_dependent_back() -> None:
-    """Roadmap step 6.10: SUCCEEDED but infeasible is FAIL_TASK, never RETRY_TASK, dependent held.
+    """Roadmap step 6.10: SUCCEEDED but infeasible is FAIL_TASK, never RETRY_TASK; dependent cut.
 
     Drives hivemind.queen.autopilot.table._decide_task_result, hivemind.queen.queen._act_on_task_
     result and hivemind.queen.ticks.results.fail_task_from_result through the real Queen tick,
@@ -232,12 +232,15 @@ async def test_an_infeasible_scout_fails_without_retry_and_holds_its_dependent_b
     scout_wire = [a for a in warden_end.assignments if a.task_id == scout_assignment.task_id]
     assert len(scout_wire) == 1
 
-    # The dependent is never dispatched: ready_tasks requires every dependency to SUCCEED, so a
-    # FAILED Scout holds it PENDING for good; no second assignment ever arrives for it either.
+    # The dependent is never dispatched, and it is cancelled with the Scout's reason, so the goal
+    # ends now rather than waiting on a task that could never become ready.
     child_task = next(
         t for t in await deps.chamber.list(TaskFilter()) if t.id != scout_assignment.task_id
     )
-    assert child_task.status is TaskStatus.PENDING
+    assert child_task.status is TaskStatus.CANCELLED
+    assert child_task.outcome is not None
+    assert f"Held back by Scout {scout_assignment.task_id}" in child_task.outcome.summary
+    assert "site requires a login" in child_task.outcome.summary
     assert len(warden_end.assignments) == 1
     await warden_end.close()
 
