@@ -54,7 +54,15 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
   a `HoneyReader`'s scope, clearance and budget), `HoneySearch`, `RetrieverDeps`, `SearchOutcome`.
   See its README.
 
-`browse.py` (the read-only folder tree, roadmap 7.10) is still to come.
+- **Browsing** (`browse/`, roadmap 7.10): `HoneyBrowser` (a read-only folder tree over the store:
+  `/hive`, `/cells/<id>` with the Cell's live wax under `wax/`, `/bees/<id>`, `/tasks/<id>`,
+  `/bee-bread`; listing, reading and search per folder, every entry filtered by the reader's
+  `honey:read` capabilities and clearance ceiling), `BrowserDeps`, the `LiveWaxSource` and
+  `BeeBreadSource` seams a caller implements over memory, and `HoneyRelabeller` (the operator's
+  own raise or lowering, approver HUMAN, recorded on the trail). Proposing a note from a folder queues it for the House
+  Bee (a Honey note) or files Cell Wax (from a Cell's folder). See its README.
+- **Access** (`access.py`): `HoneyAccess`, one Hive's store, intake, retriever and Ripener with
+  their policy, built only by `hivemind.cli.compose.honey.build_honey_access`.
 
 ## How to test this
 

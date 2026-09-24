@@ -46,6 +46,9 @@ Public API:
       implementation.
     - HoneyIdentity, honey_event (identity): the one place a HoneyEvent is minted.
     - HoneyAccess (access): one Hive's store, intake, retriever and Ripener, bundled.
+    - HoneyBrowser, BrowserDeps, LiveWaxSource, BeeBreadSource, HoneyRelabeller, BrowseError
+      (browse): the read-only folder tree over the store, and the operator's relabel; the
+      sub-package's own face exports the rest.
     - NectarIntake, NectarSubmission, DepositSource, IntakeResult, handoff_source_key (nectar):
       the one door every deposit comes in through.
     - Ripener, RipenerDeps, PassOutcome, RipenOutcome (ripening): Nectar into Honey.
@@ -54,6 +57,14 @@ Public API:
 """
 
 from hivemind.honey_store.access import HoneyAccess
+from hivemind.honey_store.browse import (
+    BeeBreadSource,
+    BrowseError,
+    BrowserDeps,
+    HoneyBrowser,
+    HoneyRelabeller,
+    LiveWaxSource,
+)
 from hivemind.honey_store.clearance import (
     LabelApprover,
     check_lowering,
@@ -143,6 +154,9 @@ __all__ = [
     "MAX_MATCH_TOKENS",
     "MIGRATIONS_PACKAGE",
     "SUBSYSTEM",
+    "BeeBreadSource",
+    "BrowseError",
+    "BrowserDeps",
     "CellMismatchError",
     "ChunkMismatchError",
     "DepositLengthMismatchError",
@@ -151,12 +165,14 @@ __all__ = [
     "FirstChunkNotAtZeroError",
     "Honey",
     "HoneyAccess",
+    "HoneyBrowser",
     "HoneyDraft",
     "HoneyIdentity",
     "HoneyNotFoundError",
     "HoneyPart",
     "HoneyProposal",
     "HoneyReader",
+    "HoneyRelabeller",
     "HoneyRetriever",
     "HoneySearch",
     "HoneyStats",
@@ -166,6 +182,7 @@ __all__ = [
     "InvalidScopeError",
     "LabelApprover",
     "LabelLoweringError",
+    "LiveWaxSource",
     "Nectar",
     "NectarAdded",
     "NectarDraft",

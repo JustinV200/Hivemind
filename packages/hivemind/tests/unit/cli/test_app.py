@@ -21,6 +21,7 @@ import pytest
 from typer.testing import CliRunner
 
 from hivemind.cli.app import app, main
+from hivemind.common.logging import get_logger
 
 # The full expected shape of a --version line, e.g. "hive 0.1.0.dev0 (Python 3.12.14 on
 # Windows-11-10.0.26100-SP0)". Anchored so a stray extra line would fail the match.
@@ -76,3 +77,21 @@ def test_main_makes_stdout_tolerate_unencodable_output(monkeypatch: pytest.Monke
     stream.write("done ✅\n")
     stream.flush()
     assert stream.buffer.getvalue() == b"done ?\n"
+
+
+def test_every_command_logs_warnings_to_stderr_and_nothing_below_them(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A command's stdout is its own output (`--json` included): a store's routine INFO line on it
+    # broke `hive run --json`, so the root callback configures logging before any subcommand.
+    runner.invoke(app, [])
+    capsys.readouterr()  # Drop whatever the invocation itself printed.
+
+    logger = get_logger("hivemind.test_cli_logging")
+    logger.info("hivemind.routine_detail")
+    logger.warning("hivemind.worth_seeing")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "hivemind.worth_seeing" in captured.err
+    assert "hivemind.routine_detail" not in captured.err

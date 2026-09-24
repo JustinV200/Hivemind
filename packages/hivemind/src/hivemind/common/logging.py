@@ -14,6 +14,9 @@ Fits into the Hive:
 Key invariants:
     - Importing this module has no side effect: structlog is only configured inside
       configure_logging, never at import time.
+    - With `to_stderr`, every line goes to whatever `sys.stderr` is at the moment it is written,
+      never a stream captured at configuration time: a command whose stdout is data (`--json`)
+      keeps it clean, and a stream a test runner has since closed is never written to.
     - Log event names passed to a bound logger are lowercase and dotted, e.g. "cell.ready"
       (codingrules section 12), not prose sentences.
 
@@ -24,14 +27,27 @@ See Also:
 from __future__ import annotations
 
 import logging
-from typing import cast
+import sys
+from typing import TextIO, cast
 
 import structlog
 
 __all__ = ["configure_logging", "get_logger"]
 
 
-def configure_logging(*, json_output: bool, level: str) -> None:
+class _CurrentStderr:
+    """A file-like stand-in that writes to whatever `sys.stderr` is when each line is written."""
+
+    def write(self, text: str) -> int:
+        """Write `text` to the current `sys.stderr`; see `io.TextIOBase.write`."""
+        return sys.stderr.write(text)
+
+    def flush(self) -> None:
+        """Flush the current `sys.stderr`."""
+        sys.stderr.flush()
+
+
+def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False) -> None:
     """Configure structlog's global processor chain for this process.
 
     Must be called exactly once, by a composition root, before any subsystem logs anything that
@@ -41,6 +57,8 @@ def configure_logging(*, json_output: bool, level: str) -> None:
         json_output: True for JSON lines (production, machine-parsed); False for a
             human-readable console renderer (local development).
         level: A standard-library logging level name, e.g. "DEBUG", "INFO", "WARNING".
+        to_stderr: Write to standard error instead of standard output: a CLI's stdout carries
+            its own output (a table, or `--json` for a script to parse), never log lines.
 
     Returns:
         None.
@@ -70,10 +88,13 @@ def configure_logging(*, json_output: bool, level: str) -> None:
         structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
     )
 
+    # stdout by default (a Cell's own process, whose stdout is its log); a CLI asks for stderr,
+    # resolved at each write (module docstring's Key invariants).
+    stream = cast(TextIO, _CurrentStderr()) if to_stderr else None
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(file=stream),
         cache_logger_on_first_use=True,
     )
 

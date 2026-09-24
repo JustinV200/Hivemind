@@ -11,8 +11,8 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
-    hivemind.cli.forage and hivemind.cli.readback (cells, inbox, wardens, cluster) now; later
-    phases add entrance and friends through their own public APIs.
+    hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
+    hivemind.cli.honey now; later phases add entrance and friends through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -43,12 +43,17 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli import capping, forage, llm, memory, tasks, trail
+from hivemind.cli import capping, forage, honey, llm, memory, tasks, trail
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import run_command
 from hivemind.cli.version import collect_version_info, format_version
+from hivemind.common.logging import configure_logging
 
-__all__ = ["app", "main"]
+__all__ = ["CLI_LOG_LEVEL", "app", "main"]
+
+# A command's own output is what an operator reads; a subsystem's routine INFO lines (a store's
+# vector backend, a pass's counts) are for a running Hive's logs, not for every `hive` command.
+CLI_LOG_LEVEL = "WARNING"
 
 # The one Typer application every command group below attaches to. Building it at module level
 # is the composition root itself doing its job (codingrules 5.5 bars *side effects* on import,
@@ -91,6 +96,9 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(forage.app, name="forage")
 app.add_typer(cluster_app, name="cluster")
 app.command("wake")(wake_command)
+
+# Roadmap steps 7.10 and 7.11: query, count, ripen, re-embed, browse and relabel the Honey Store.
+app.add_typer(honey.app, name="honey")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
@@ -139,6 +147,9 @@ def main_callback(
         ctx: The invocation context typer supplies; used to detect that no subcommand was given.
         version: Set by `--version`. Handled by `_print_version`, which exits before returning.
     """
+    # First, before any subcommand opens a store: logs go to stderr, so stdout stays the
+    # command's own output (`--json` included), and only warnings and worse are shown at all.
+    configure_logging(json_output=False, level=CLI_LOG_LEVEL, to_stderr=True)
     _print_version(version)
     # No subcommand exists yet (this step only adds --version), so a bare `hive` prints help
     # instead of typer's default "Missing command" error, and still exits 0.
