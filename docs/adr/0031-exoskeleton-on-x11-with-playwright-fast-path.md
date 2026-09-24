@@ -116,6 +116,16 @@ more methods. ImageMagick and Chromium make the desktop image several hundred me
 features (tracing, some download hooks) that phase 6 does not use. The Windows Real Cell gets the
 browser only; a native Windows desktop backend is post-1.0.
 
+Known limits, found while building the fast path (2026-09-24). The DevTools port listens on
+loopback only, but on a Real Cell shared by several local users any of them can reach it for the
+life of the lease; a pipe transport (`--remote-debugging-pipe`) would close that and is the next
+step if multi-user Real Cells matter. Chromium's crash handler runs in its own process group,
+outside the lease's recorded processes; it exits within about a second of the browser, so release
+leaves nothing behind in practice, but release does not kill it by name. The Windows and macOS
+locator paths (Edge first on Windows, the app bundles on macOS) are written and unit-tested but
+have not run on those systems. Even with every quieting switch, Chromium still contacts a few
+Google endpoints at start; a Cell whose egress policy forbids them simply sees those requests fail.
+
 ## Alternatives considered
 
 A display started at image boot: simpler attach, but it leaks GUI state across Overwintered reuse

@@ -37,7 +37,9 @@ Public API:
       QueenSection, HiveStandSection, HiveStandCapacityOverrides, BroodChamberSection,
       PheromoneSection, LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN, ForageSection, SupervisionSection, MemorySection, SecuritySection,
-      TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix.
+      TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix, PlacementSection,
+      PlacementRoleOverride, VirtualCellsSection, VirtualCellsOverwinterSection (phase 5),
+      ExoskeletonSection (phase 6).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -59,6 +61,7 @@ from hivemind.manifest.schema import (
     BroodChamberSection,
     CapabilityOverrides,
     ClearanceMatrix,
+    ExoskeletonSection,
     ForageSection,
     HiveManifest,
     HiveSection,
@@ -69,6 +72,8 @@ from hivemind.manifest.schema import (
     LlmSection,
     MemorySection,
     PheromoneSection,
+    PlacementRoleOverride,
+    PlacementSection,
     ProviderKind,
     ProviderSpec,
     QueenSection,
@@ -76,6 +81,8 @@ from hivemind.manifest.schema import (
     SlotBinding,
     SupervisionSection,
     TierProfile,
+    VirtualCellsOverwinterSection,
+    VirtualCellsSection,
 )
 
 __all__ = [
@@ -84,6 +91,7 @@ __all__ = [
     "CapabilityOverrides",
     "ClearanceMatrix",
     "EnvOverrides",
+    "ExoskeletonSection",
     "ForageSection",
     "HiveManifest",
     "HiveSection",
@@ -96,6 +104,8 @@ __all__ = [
     "ManifestError",
     "MemorySection",
     "PheromoneSection",
+    "PlacementRoleOverride",
+    "PlacementSection",
     "ProviderKind",
     "ProviderSpec",
     "QueenSection",
@@ -103,6 +113,8 @@ __all__ = [
     "SlotBinding",
     "SupervisionSection",
     "TierProfile",
+    "VirtualCellsOverwinterSection",
+    "VirtualCellsSection",
     "apply_env",
     "load_manifest",
     "provider_api_key",

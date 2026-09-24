@@ -15,9 +15,13 @@ that have no API; it is not a stealth layer (codingrules 15; the Pheromone Mask 
 | `compound_eye/` | `CompoundEye` protocol, the ImageMagick `import` backend (`x11`), an in-memory `FakeScreen` (`fake`). |
 | `antennae/` | `Antennae` protocol, the `xdotool` backend, an input-recording fake. |
 | `buzz/` | `Buzz` protocol and `Recording`, the shared clip check (`clips`), the PulseAudio backend, a scripted fake. |
-| `browser/` | `Browser` and `BrowserLauncher` protocols, the Playwright-over-CDP implementation, a fake site. |
+| `browser/` | `Browser` and `BrowserLauncher` protocols; `ChromiumLauncher` and its locator (`launch`, `locate`); the Playwright-over-CDP backend (`playwright/`, the only place Playwright is imported); `FakeBrowser` over a `FakeSite`, and the fixture login site (`fake/`). |
+| `surface/` | `ExoskeletonSurface`, the Capping gate's `GuiSurface`: runs typed steps (`steps`), observes URL_MATCHES / ELEMENT_TEXT / REGION_CHANGED until they settle (`verify`, also a task's structural acceptance), keeps the browser checkpoint for rollback, and renders a recorded action for a judge (`evidence`). |
+| `recorder/` | The flight recorder: `FlightRecorder` and what it keeps (`models`), redaction at the source (`redact`), the `RecordingStore` protocol and in-memory store (`store`), the SQLite store and its migrations (`sqlite`), and the self-contained HTML playback (`playback`). |
+| `rehearsal/` | `export_procedure` and `rebase` (a verified recording as a `BrowserProcedure`, secrets as named slots) and `rehearse` (a contained replay on a fixture site, returning a `RehearsalReport`). |
+| `tactics/` | The Pheromone Mask tactic (`mouse_like_human`), roadmap step 6.13; not built yet. |
 | `commands.py` | `run_peripheral`: one command on the Cell, every failure a `PeripheralError` quoting only a sanitised stderr tail. |
-| `errors.py` | `ExoskeletonError`, `AttachError`, `PeripheralError`, `ElementNotFoundError`. |
+| `errors.py` | `ExoskeletonError`, `AttachError`, `PeripheralError`, `ElementNotFoundError`, `RecordingNotFoundError`, `ProcedureError`. |
 | `frames.py` | `Frame` (PNG bytes that never reach a log), `png_size`, `solid_png`. |
 | `geometry.py` | `Point`, `Region` (and its REGION_CHANGED text form), `ScreenSize`. |
 | `scratch.py` | `ScratchLayout`: where every lease-started process keeps its files, all inside scratch. |
@@ -38,6 +42,17 @@ that have no API; it is not a stealth layer (codingrules 15; the Pheromone Mask 
   started before raising; `detach` stops exactly those processes and verifies they are gone.
 - **On the trail.** `cell.exoskeleton_attached` and `cell.exoskeleton_detached`, with peripheral
   names and counts, never a frame.
+
+## How GUI work is capped, recorded and judged
+
+Every GUI action a Worker takes is a typed `GUI` proposal the Warden's Capping gate applies
+through the surface (ADR-0032): before it, a browser checkpoint and the region digests its
+REGION_CHANGED postconditions need; after it, each declared postcondition observed until it holds
+or settles; on failure, rollback by snapshot, else by restoring the checkpoint, and an Alarm at
+once. The flight recorder keeps each proposal's steps (secrets as a length, typed steps with the
+secret masked), the before and after frames, URL and accessibility snapshot, every postcondition
+with what was observed, and how it ended. An irreversible GUI action is judged right after it is
+applied, with that evidence; a rejection ends the attempt through the Warden's escalation.
 
 ## Testing
 

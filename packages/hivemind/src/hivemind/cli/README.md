@@ -345,3 +345,17 @@ way to be reached back from outside the CLI process otherwise, and `HiveStandSou
 random Cell id on every construction. `queen/cluster/test_orders.py` and `test_tick.py` gained
 RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.py` gained
 `NullWaxRetirer` and `destroy_virtual`'s own returned event id.
+
+## Command groups (phase 6 step 6.6)
+
+- `recordings.py` -- `hive recordings`, the flight recorder's read side (ADR-0032), from the
+  Hive's own SQLite file with no Queen running (`--db` overrides the manifest's database):
+    - `hive recordings list [--cell CELL_ID] [--limit N] [--json] [--manifest]`: recording headers
+      newest first (id, Cell, task, clearance, start), optionally one Cell's.
+    - `hive recordings show RECORDING_ID [--json] [--manifest]`: every action's steps (secrets as a
+      length), URLs, postconditions, terminal state and rollback; each frame as its size and a
+      short digest, never its pixels.
+    - `hive recordings export RECORDING_ID --out DIR [--manifest]`: writes `<id>.html` (the
+      playback page, frames inline) and `<id>.json` (the same summary `show --json` prints) into
+      DIR. Every recorded string on the page is escaped and a Content Security Policy forbids
+      scripts and network requests, since pages recorded from the web are untrusted.
