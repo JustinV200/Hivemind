@@ -81,7 +81,8 @@ def test_warden_event_kinds_include_the_phase_3_19_additions() -> None:
 def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> None:
     # Roadmap step 10.2 records guard.denied; the rest are declared now so later phase 10 steps
     # never race on this file. The documents' guard.entrance.* is spelled guard.entrance_*
-    # because a kind has exactly one dot (KIND_PATTERN).
+    # because a kind has exactly one dot (KIND_PATTERN). Step 10.6 adds the Cell gate's two
+    # node-integrity refusals.
     edges = {
         "invited",
         "pending",
@@ -109,6 +110,8 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "guard.reduced",
         "guard.reopened",
         "guard.reduce_ordered",
+        "guard.envelope_refused",
+        "guard.segment_refused",
     } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
 
 
