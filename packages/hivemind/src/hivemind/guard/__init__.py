@@ -51,6 +51,11 @@ Public API:
       the point decides itself, `refuse` (enforcer).
     - WatchObservation, WATCH_OBSERVATIONS, watch_permits: what watch mode may observe on a Real
       Cell, bounded by READ_ONLY and never the screen or the input (watch, roadmap step 10.7).
+    - ContentScanner, ScanSite, ScanSource, ScanAction, ScanVerdict, ScanRecorder,
+      ContentHasher, default_content_scanner, load_scan_patterns, score_text, decide,
+      thresholds_for, INJECTION_SUSPECTED_KIND, SCANNER_KEY_NAME, HASH_PREFIX: the deterministic
+      untrusted-content scanner every outside text passes before a model reads it (scanner,
+      roadmap step 10.6b); its full API is on `hivemind.guard.scanner`.
     - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError: this
       package's error tree (errors).
 """
@@ -103,14 +108,34 @@ from hivemind.guard.policy import (
     worker_principal,
     worker_role_name,
 )
+from hivemind.guard.scanner import (
+    HASH_PREFIX,
+    INJECTION_SUSPECTED_KIND,
+    SCANNER_KEY_NAME,
+    ContentHasher,
+    ContentScanner,
+    ScanAction,
+    ScanRecorder,
+    ScanSite,
+    ScanSource,
+    ScanVerdict,
+    decide,
+    default_content_scanner,
+    load_scan_patterns,
+    score_text,
+    thresholds_for,
+)
 from hivemind.guard.watch import WATCH_OBSERVATIONS, WatchObservation, watch_permits
 
 __all__ = [
     "AUTHORISED_AT",
     "CELL_EFFECT_FAMILIES",
+    "HASH_PREFIX",
+    "INJECTION_SUSPECTED_KIND",
     "NOT_ACTIONS",
     "PENDING_POINTS",
     "QUEEN_ROLE",
+    "SCANNER_KEY_NAME",
     "SCRATCH_PLACEHOLDER",
     "WARDEN_ROLE",
     "WATCH_OBSERVATIONS",
@@ -118,6 +143,8 @@ __all__ = [
     "CapabilityFamily",
     "CapabilitySet",
     "CapabilityWideningError",
+    "ContentHasher",
+    "ContentScanner",
     "EnforcementPoint",
     "Enforcer",
     "EscalationAction",
@@ -130,20 +157,30 @@ __all__ = [
     "PolicyRequest",
     "PrincipalKind",
     "PrincipalRef",
+    "ScanAction",
+    "ScanRecorder",
+    "ScanSite",
+    "ScanSource",
+    "ScanVerdict",
     "ScopeKind",
     "WatchObservation",
     "admits",
     "cap_to_access",
     "ceiling_for",
     "classify",
+    "decide",
+    "default_content_scanner",
     "evaluate",
     "fill_scratch",
     "glob_literal",
     "governs",
     "load_guard_policy",
+    "load_scan_patterns",
     "proposed_set",
     "queen_principal",
     "role_set",
+    "score_text",
+    "thresholds_for",
     "warden_principal",
     "warden_set",
     "watch_permits",

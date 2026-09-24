@@ -56,6 +56,7 @@ _CALL_SITES: dict[EnforcementPoint, tuple[str, ...]] = {
         "hivemind.queen.questions:_may_reach_the_human",
     ),
     EnforcementPoint.COMB_SHIELD_EGRESS: ("hivemind.queen.dispatcher.acquire:_authorize_egress",),
+    EnforcementPoint.TAINT_CLEAR: ("hivemind.memory.taint.clear:_clear_request",),
 }
 
 

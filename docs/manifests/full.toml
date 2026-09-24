@@ -120,6 +120,17 @@ system_role = true
 parallel_tool_calls = false
 token_counting = false
 
+[llm.providers.speech]
+# A local Whisper server speaking POST /v1/audio/transcriptions (faster-whisper-server, LocalAI,
+# vLLM): the human's voice at the Hive Entrance is transcribed on the Hive Stand, never hosted.
+# Kept apart from "local" above because a chat server has no transcription route: binding the
+# transcriber to it would pass at start and fail on the first clip.
+kind = "openai_compat"
+base_url = "http://127.0.0.1:8000/v1"
+# Bounds one whole transcription, upload included.
+timeout_s = 120.0
+seats = 1
+
 # Every ModelSlot must resolve directly (LlmSection's own validator); "local_worker" below is an
 # extra named binding, used only as [llm.slots.worker]'s fallback target.
 [llm.slots.queen]
@@ -177,7 +188,7 @@ model = "nomic-embed-text"
 effort = "LOW"
 
 [llm.slots.transcriber]
-provider = "local"
+provider = "speech"
 model = "whisper-large-v3"
 effort = "LOW"
 
@@ -272,11 +283,16 @@ context_window = 8192
 seats = 2
 
 [forage.map.local_whisper]
-provider = "local"
+provider = "speech"
 model = "whisper-large-v3"
 grade = 2
-context_window = 8192
-seats = 2
+# Required of every source; a transcriber never reads it (audio is bounded in seconds instead).
+context_window = 448
+seats = 1
+
+[forage.map.local_whisper.cost]
+# Speech is billed by the minute of audio; a local server costs nothing per call.
+cost_per_audio_minute_usd = 0.0
 
 [forage.reserve]
 # Shared seats held back for the Queen, the Attendant and the House Bees.
