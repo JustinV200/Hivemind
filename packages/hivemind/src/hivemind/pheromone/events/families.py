@@ -1,4 +1,4 @@
-"""Define the eleven Pheromone event families and the JSON codec built on them.
+"""Define the thirteen Pheromone event families and the JSON codec built on them.
 
 Every state-changing action in the Hive writes a `PheromoneEvent` (`hivemind.pheromone.events.
 base`) whose `kind` is one of the strings documented below. This module is the normative
@@ -66,7 +66,9 @@ Vocabulary (family -> kind -> when it is recorded):
         from the existing `woke`, reserved for other Queen lifecycle wake-ups); leave_remembered
         (the Queen answered a leave Question herself from "keep for this whole goal" memory,
         roadmap step 5.0d; carries the goal id, Cell id and the original wire question id the
-        remembered answer derives from).
+        remembered answer derives from); honey_consulted (the Queen queried the Honey Store for a
+        goal's plan or a task's assignment and attached what survived filtering, roadmap step
+        7.9; counts only, never a hit's text).
     warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
         moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
@@ -97,6 +99,22 @@ Vocabulary (family -> kind -> when it is recorded):
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
         shared Forage, one of the three cases in codingrules 8.10); throttled (a hosted source
         was rate-limited and its headroom masked to zero on the Forage map, roadmap step 4.7a).
+    honey: nectar_received (intake stored a new Nectar deposit, roadmap step 7.4); nectar_
+        deduplicated (a deposit matched a stored one by content or source key; the stored label
+        was raised if the new one was higher, never lowered); nectar_rejected (intake refused a
+        deposit or one of its chunks: over the size cap, a bad offset, a digest mismatch, too many
+        open deposits, or a Night Veil deposit it may not accept); ripened (the House Bee turned one
+        Nectar into Honey rows, roadmap step 7.5); ripen_failed (one Nectar could not be ripened
+        this pass and stays pending); reembedded (one pass embedded pending Honey rows for the
+        current embedding model, ADR-0032); label_raised (intake, a dedupe merge or the ripener
+        raised a label); label_lowered (a judge verdict or the human lowered one, with the
+        approver); retired (a Honey row was superseded and no longer returned); queried (a Honey
+        query was answered, with hit, withheld and token counts, never the query or hit text);
+        note_proposed (the human proposed a note from a Honey folder, queued for the Queen,
+        roadmap step 7.10). Every honey.* kind is recorded on the Queen's own node and survives a
+        Night Veil teardown carrying ids and counts only, except those about a Night Veil Cell's
+        ephemeral Nectar or a Night Veil reader's query, which are written to that Cell's own
+        ephemeral segment and purged with it (ADR-0031).
     worker: spawned (a Warden started a sub-bee, roadmap step 3.19); started (SPAWNED -> RUNNING,
         its first TaskAssign arrived); handing_off (RUNNING/PAUSED -> HANDING_OFF, writing a
         Handoff before a reset, rebind, takeover or stop); paused (RUNNING -> PAUSED, TaskPause);
@@ -150,6 +168,7 @@ __all__ = [
     "CappingEvent",
     "CellEvent",
     "ForageEvent",
+    "HoneyEvent",
     "LlmEvent",
     "MemoryEvent",
     "QueenEvent",
@@ -299,6 +318,9 @@ class QueenEvent(PheromoneEvent):
             "queen.assigned",
             "queen.awake",
             "queen.leave_remembered",
+            # roadmap step 7.9 (the Queen's Honey pre-check): what she consulted the Honey Store
+            # for and how much of it she attached, never the text of any hit.
+            "queen.honey_consulted",
         }
     )
 
@@ -439,8 +461,34 @@ class WorkerEvent(PheromoneEvent):
     )
 
 
+class HoneyEvent(PheromoneEvent):
+    """A Honey Store intake, ripening, labelling or query event; see the module's `honey` entry.
+
+    Roadmap phase 7 (ADR-0031): recorded by `hivemind.honey_store` for every write it makes to
+    Nectar or Honey and for every query it answers, always with ids and counts in the payload and
+    never a deposit's content, a hit's text or a query's words (codingrules section 12).
+    """
+
+    FAMILY: ClassVar[str] = "honey"
+    KINDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "honey.nectar_received",
+            "honey.nectar_deduplicated",
+            "honey.nectar_rejected",
+            "honey.ripened",
+            "honey.ripen_failed",
+            "honey.reembedded",
+            "honey.label_raised",
+            "honey.label_lowered",
+            "honey.retired",
+            "honey.queried",
+            "honey.note_proposed",
+        }
+    )
+
+
 # Every family class, in the order the vocabulary is documented above; the tuple, not the mapping
-# built from it, is the single place a thirteenth family would be added.
+# built from it, is the single place a fourteenth family would be added.
 _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -454,6 +502,7 @@ _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     CappingEvent,
     LlmEvent,
     WorkerEvent,
+    HoneyEvent,
 )
 
 

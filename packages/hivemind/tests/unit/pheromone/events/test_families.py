@@ -1,4 +1,4 @@
-"""Tests for hivemind.pheromone.events.families: the twelve event families and the JSON codec.
+"""Tests for hivemind.pheromone.events.families: the thirteen event families and the JSON codec.
 
 Fits into the Hive:
     Mirrors src/hivemind/pheromone/events/families.py (codingrules section 3: tests/unit mirrors
@@ -26,6 +26,7 @@ from hivemind.pheromone.events.families import (
     CappingEvent,
     CellEvent,
     ForageEvent,
+    HoneyEvent,
     LlmEvent,
     MemoryEvent,
     QueenEvent,
@@ -43,7 +44,7 @@ from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 
 # Every family but LlmEvent: LlmEvent's extra required-together fields need their own kwargs
-# builder, so it is tested separately below rather than parametrised alongside these eleven.
+# builder, so it is tested separately below rather than parametrised alongside these twelve.
 _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -56,6 +57,7 @@ _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     SwarmEvent,
     CappingEvent,
     WorkerEvent,
+    HoneyEvent,
 )
 _ALL_FAMILIES: tuple[type[PheromoneEvent], ...] = (*_NON_LLM_FAMILIES, LlmEvent)
 
@@ -202,6 +204,8 @@ def test_queen_event_kinds_include_the_phase_3_20_additions() -> None:
         "queen.assigned",
         "queen.awake",
     } <= QueenEvent.KINDS
+    # roadmap step 7.9 (the Queen's Honey pre-check).
+    assert "queen.honey_consulted" in QueenEvent.KINDS
 
 
 def test_warden_event_kinds_include_the_phase_3_19_additions() -> None:
@@ -224,7 +228,25 @@ def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
     } == WorkerEvent.KINDS
 
 
-def test_event_families_covers_exactly_the_twelve_families() -> None:
+def test_honey_family_kinds_match_the_documented_vocabulary() -> None:
+    # roadmap phase 7 (ADR-0031): the Honey Store's own intake, ripening, labelling and query
+    # events; the module docstring's `honey` entry is the source of truth this pins.
+    assert {
+        "honey.nectar_received",
+        "honey.nectar_deduplicated",
+        "honey.nectar_rejected",
+        "honey.ripened",
+        "honey.ripen_failed",
+        "honey.reembedded",
+        "honey.label_raised",
+        "honey.label_lowered",
+        "honey.retired",
+        "honey.queried",
+        "honey.note_proposed",
+    } == HoneyEvent.KINDS
+
+
+def test_event_families_covers_exactly_the_thirteen_families() -> None:
     assert set(EVENT_FAMILIES) == {
         "cell",
         "task",
@@ -238,8 +260,9 @@ def test_event_families_covers_exactly_the_twelve_families() -> None:
         "capping",
         "llm",
         "worker",
+        "honey",
     }
-    assert len(EVENT_FAMILIES) == 12
+    assert len(EVENT_FAMILIES) == 13
 
 
 @pytest.mark.parametrize("event_cls", _ALL_FAMILIES)
