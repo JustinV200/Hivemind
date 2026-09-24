@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from hivemind.guard import CapabilitySet
 from hivemind.workers.runtime import WorkerRuntime
 from hivemind.workers.state import WorkerState
-from waggle.ids import TaskId, WorkerId
+from waggle.ids import EventId, TaskId, WorkerId
 from waggle.messages import HandoffRef
 from waggle.messages.supervision import ContextTelemetry
 from waggle.messages.task import TaskAssign
@@ -83,6 +83,10 @@ class SubBee:
         capabilities: The sub-bee's own set, as its spawn computed it (roadmap step 10.3); read
             when the Warden routes its question to the Queen or rebinds it. Defaults to empty,
             which allows nothing, for a row built outside `spawn_sub_bee`.
+        spawned_event_id: The `worker.spawned` trail event that started this attempt (roadmap
+            step 10.6c): where a quarantine by this Warden's own policy row takes the bee's
+            memory to be suspect from when the Alarm names no event of its own. None for a row
+            built outside `spawn_sub_bee`.
     """
 
     worker_id: WorkerId
@@ -98,3 +102,4 @@ class SubBee:
     last_telemetry: ContextTelemetry | None = field(default=None)
     missed_heartbeats: int = field(default=0)
     capabilities: CapabilitySet = field(default_factory=CapabilitySet.empty)
+    spawned_event_id: EventId | None = field(default=None)

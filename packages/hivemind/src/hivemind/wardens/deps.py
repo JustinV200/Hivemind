@@ -16,7 +16,8 @@ capability set and every sub-bee's role default are built from (`guard`), and (r
 ADR-0031) the Guard's `Enforcer` its enforcement points and its sub-bees' tools call
 (`enforcer`), the capability its own Cell's lease needs (`lease_capability`) and the `[llm.slots]`
 rows a rebind's target is resolved to a slot against (`bindings`), and (roadmap step 10.6b) the
-untrusted-content scanner its sub-bees' tool results pass through (`scanner`).
+untrusted-content scanner its sub-bees' tool results pass through (`scanner`), and (roadmap step
+10.6c) the stores beyond the memory tables a quarantine taints (`taint_ledgers`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built once per Warden by whichever
@@ -62,6 +63,7 @@ from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.memory import MemoryIdentity, MemoryStore
+from hivemind.memory.taint import TaintLedger
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision import EscalationPolicy
 from hivemind.supervision.capping import (
@@ -207,6 +209,8 @@ class WardenDeps:
             under Night Veil is local only when every provider its fallback chain can reach is
             one of these (roadmap step 10.3a). Defaults to none: nothing is shown local, so a
             Night Veil binding fails closed.
+        taint_ledgers: The stores a quarantine taints beyond the memory tables (roadmap step
+            10.6c): the Honey Store's Nectar ledger joins here in phase 7. Defaults to none.
     """
 
     source: RealCellSource
@@ -274,6 +278,8 @@ class WardenDeps:
     # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil binding fails closed
     # unless the composition root states which providers run on this machine.
     local_providers: frozenset[str] = frozenset()
+    # Roadmap step 10.6c: the phase 7 seam a quarantine's taint reaches Nectar through.
+    taint_ledgers: tuple[TaintLedger, ...] = ()
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

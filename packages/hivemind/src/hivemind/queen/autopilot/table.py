@@ -10,7 +10,9 @@ type: a `Heartbeat` is `RECORD`; a `TaskResult` resolves to `COMPLETE_TASK`, `RE
 `FAIL_TASK`; an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`, exactly the
 way `hivemind.wardens.autopilot.table._decide_alarm` does for a Warden, but capped by `limit`
 first, since the Queen is the last supervisor before the human and must never retry or rebind
-forever; a `Question` is `BLOCK_ON_QUESTION`; an `Answer` is `ROUTE_ANSWER`; a human's chat
+forever; a Warden's `TaskProgress` at stage `PAUSED` (its task held by a quarantine, roadmap step
+10.6c) is `PAUSE_TASK`, and any other stage `RECORD`; a `Question` is `BLOCK_ON_QUESTION`; an
+`Answer` is `ROUTE_ANSWER`; a human's chat
 message (`waggle.messages.control.HumanMessage`, roadmap step 10.5) is `NEEDS_JUDGEMENT` by an
 explicit rule, since free text has no deterministic answer (ADR-0032); anything this table has
 never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
@@ -55,7 +57,7 @@ from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from waggle.messages.control import HumanMessage
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
-from waggle.messages.task import TaskOutcome, TaskResult
+from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
 
 __all__ = ["decide"]
 
@@ -64,7 +66,8 @@ __all__ = ["decide"]
 # retry at the Queen's level is always a fresh dispatch, never an in-place resume. TAKEOVER has no
 # autopilot-level meaning here: the Queen's own takeover lever (Supervisor.intervene's Takeover) is
 # a considered decision, so a policy row that names it is treated as "this needs a human's
-# attention", the same conservative choice CANCEL's own ESCALATE fallback would make.
+# attention", the same conservative choice CANCEL's own ESCALATE fallback would make. QUARANTINE
+# is hers to order, never to carry out: the Warden of the Alarm's task does that (ADR-0035).
 _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
     PolicyAction.RETRY: QueenAction.RETRY_TASK,
     PolicyAction.RESPAWN: QueenAction.RETRY_TASK,
@@ -72,6 +75,7 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
     PolicyAction.TAKEOVER: QueenAction.ESCALATE_TO_HUMAN,
     PolicyAction.ESCALATE: QueenAction.ESCALATE_TO_HUMAN,
     PolicyAction.CANCEL: QueenAction.FAIL_TASK,
+    PolicyAction.QUARANTINE: QueenAction.QUARANTINE_BEE,
 }
 
 
@@ -107,6 +111,11 @@ def decide(
             # dispatched two attempts, two grants and two Drones for one failure.
             return QueenAction.RECORD
         return _decide_alarm(payload, attempts, policy, limit)
+    if isinstance(payload, TaskProgress):
+        # Roadmap step 10.6c: a Warden reports its task held (its bee quarantined), and the
+        # chamber follows; any other stage is its Warden's own business, noted and no more.
+        held = payload.stage is TaskStage.PAUSED and not stale
+        return QueenAction.PAUSE_TASK if held else QueenAction.RECORD
     if isinstance(payload, Question):
         return QueenAction.BLOCK_ON_QUESTION
     if isinstance(payload, Answer):

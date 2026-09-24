@@ -13,7 +13,10 @@ which reads only the Alarm's `kind` and `attempts`; a `Shutdown` or `CellTeardow
 Queen maps to `STOP` (ADR-0027: the one order that ends a Warden, never a judgement call); a
 Queen-sent `Intervene(RELEASE_LEASE)` maps to `RELEASE_LEASE` (roadmap step 5.13: the narrower
 order that releases the lease but leaves this Warden running, decided ahead of the generic
-`Intervene` -> `FORWARD_CONTROL` branch); a `CellSnapshotReply`/`CellRollbackReply` (roadmap step
+`Intervene` -> `FORWARD_CONTROL` branch) and a Queen-sent `Intervene(QUARANTINE)` to `QUARANTINE`
+(roadmap step 10.6c: carried out here, never relayed to the bee it names); a `PolicyAction.
+QUARANTINE` row maps to `QUARANTINE` too, and to `ESCALATE` when the Alarm names no sub-bee this
+Warden still supervises; a `CellSnapshotReply`/`CellRollbackReply` (roadmap step
 5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`;
 every other recognised kind maps to a fixed action; anything this table has never seen returns
 `NEEDS_JUDGEMENT`, the one signal that hands the item to `hivemind.wardens.awake` instead of
@@ -94,7 +97,8 @@ __all__ = ["SubBeeView", "decide"]
 # task is already gone by the time an Alarm or a FAILED TaskResult reaches here), so both collapse
 # onto WardenAction.RETRY; TAKEOVER has no Warden-level meaning (codingrules section 8.8: "Wardens
 # have the same levers minus takeover with the Queen's slot"), so it escalates to the level that
-# does hold that lever.
+# does hold that lever; QUARANTINE is the Warden's own lever over its own sub-bee (ADR-0035: "a
+# Warden may apply it to its own sub-bee by its own policy row").
 _POLICY_ACTION_MAP: Mapping[PolicyAction, WardenAction] = {
     PolicyAction.RETRY: WardenAction.RETRY,
     PolicyAction.RESPAWN: WardenAction.RETRY,
@@ -102,6 +106,7 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, WardenAction] = {
     PolicyAction.TAKEOVER: WardenAction.ESCALATE,
     PolicyAction.ESCALATE: WardenAction.ESCALATE,
     PolicyAction.CANCEL: WardenAction.CANCEL_TASK,
+    PolicyAction.QUARANTINE: WardenAction.QUARANTINE,
 }
 
 
@@ -175,6 +180,10 @@ def _decide_control_or_record(payload: object) -> WardenAction | None:
         # lease, keep running) -- always addressed to this Warden itself (subject is None), never
         # a lever to relay to a sub-bee, so it is decided before the generic FORWARD_CONTROL branch.
         return WardenAction.RELEASE_LEASE
+    if isinstance(payload, Intervene) and payload.action is InterventionAction.QUARANTINE:
+        # Roadmap step 10.6c: this Warden carries the quarantine out itself; relayed, the bee it
+        # names would only be asked to stop, with nothing checkpointed, killed or tainted.
+        return WardenAction.QUARANTINE
     if isinstance(payload, TaskCancel | TaskPause | TaskResume | Intervene):
         return WardenAction.FORWARD_CONTROL
     if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
@@ -204,7 +213,12 @@ def _decide_alarm(
     alarm = Alarm.from_wire(payload)
     attempts = sub_bee.attempt if sub_bee is not None else alarm.attempts
     keyed_alarm = alarm.model_copy(update={"attempts": attempts})
-    return _POLICY_ACTION_MAP[decide_policy(policy, keyed_alarm)]
+    action = _POLICY_ACTION_MAP[decide_policy(policy, keyed_alarm)]
+    # A quarantine acts on one sub-bee this Warden supervises; an Alarm about none (a Warden's own,
+    # or a bee already retired) has nobody to quarantine, so the next level up decides instead.
+    if action is WardenAction.QUARANTINE and sub_bee is None:
+        return WardenAction.ESCALATE
+    return action
 
 
 def _decide_task_result(payload: TaskResult) -> WardenAction:

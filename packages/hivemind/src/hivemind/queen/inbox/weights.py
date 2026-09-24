@@ -50,7 +50,7 @@ from waggle.messages.cell import CellWaxProposed
 from waggle.messages.control import HumanMessage
 from waggle.messages.registry import kind_for
 from waggle.messages.supervision import AlarmRaised, Answer, Question
-from waggle.messages.task import TaskResult
+from waggle.messages.task import TaskProgress, TaskResult
 
 HUMAN_PRINCIPAL = "human"  # The principal every human message is scored and addressed under.
 
@@ -136,10 +136,11 @@ def _classify(payload: object) -> tuple[InboxKind, AlarmSeverity | None, object 
     if isinstance(payload, HumanMessage):
         # Its own kind, never a routine Waggle message: the human is weighed heavily (8.8).
         return InboxKind.HUMAN_MESSAGE, None, payload.task_id
-    if isinstance(payload, Answer | TaskResult | CellWaxProposed):
+    if isinstance(payload, Answer | TaskResult | TaskProgress | CellWaxProposed):
         # CellWaxProposed (roadmap step 4.2a) is deliberately not its own InboxKind: it scores
         # like any other routine Waggle message (WAGGLE_MESSAGE's base weight sits well below
         # ALARM/HUMAN_MESSAGE/QUESTION in WeightTable.queen_default), matching "a proposal is an
-        # inbox item the Attendant scores low".
+        # inbox item the Attendant scores low". TaskProgress (roadmap step 10.6c) is a Warden's
+        # report that its task is held, linked to that task like a result.
         return InboxKind.WAGGLE_MESSAGE, None, payload.task_id
     return InboxKind.WAGGLE_MESSAGE, None, None

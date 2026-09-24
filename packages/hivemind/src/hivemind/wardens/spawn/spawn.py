@@ -104,7 +104,7 @@ from hivemind.workers import (
 from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
-from waggle.ids import WardenId, WorkerId, new_event_id, new_worker_id
+from waggle.ids import EventId, WardenId, WorkerId, new_event_id, new_worker_id
 from waggle.messages.forage import GrantIssued
 from waggle.messages.supervision import Answer, Question
 from waggle.messages.task import TaskAssign
@@ -269,7 +269,7 @@ async def _start_sub_bee(
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
 
-    await _record_spawned(deps, worker_id, assignment)
+    spawned_event_id = await _record_spawned(deps, worker_id, assignment)
     assign_hop = Hop(sender=ctx.warden_id, recipient=worker_id, node_id=deps.identity.node_id)
     await warden_link.send(wrap(assignment, assign_hop, clock=deps.clock))
 
@@ -285,6 +285,7 @@ async def _start_sub_bee(
         runtime=runtime,
         runtime_task=runtime_task,
         capabilities=plan.capabilities,
+        spawned_event_id=spawned_event_id,
     )
 
 
@@ -493,8 +494,8 @@ def _grant_slice(grant: GrantIssued) -> GrantSlice:
     )
 
 
-async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: TaskAssign) -> None:
-    """Write the one worker.* trail event a WorkerRuntime never writes for itself."""
+async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: TaskAssign) -> EventId:
+    """Write the one worker.* trail event a WorkerRuntime never writes for itself; return its id."""
     event = WorkerEvent(
         id=new_event_id(deps.clock),
         hive_id=deps.identity.hive_id,
@@ -506,3 +507,4 @@ async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: Tas
         payload={"task_id": assignment.task_id, "role": assignment.role.value},
     )
     await deps.trail.record(event)
+    return event.id

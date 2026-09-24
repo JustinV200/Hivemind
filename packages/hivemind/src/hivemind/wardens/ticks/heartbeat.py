@@ -7,8 +7,9 @@ update this Warden's mirrored view of it (codingrules section 8.8's "observe a s
 state from its Heartbeat.worker_state and TaskProgress stages, not from a TaskResult");
 `raise_stalled_alarms` is the Warden's own watchdog: a sub-bee whose heartbeat has not renewed
 within `missed_heartbeats_before_stalled` cycles of this Warden's own heartbeat cadence gets a
-synthesised `AlarmKind.WORKER_STALLED`, run through the exact same policy-mapped
-`hivemind.wardens.ticks.alarms.handle_alarm_action` path a wire `AlarmRaised` takes.
+synthesised `AlarmKind.WORKER_STALLED`, handed back as an `InboxItem` to the Warden's own tick
+dispatch, the exact policy-mapped path a wire `AlarmRaised` takes (every `WardenAction` a policy
+row can name, a quarantine included, roadmap step 10.6c).
 `hot_state_sources` builds the one `hivemind.memory.HotStateSources` view an awake episode packs
 its prompt from, over this Warden's own sub-bee table and memory store. `send_heartbeat` also
 tolerates the Queen link already being closed (this dispatch's own fix 4): a heartbeat send that
@@ -30,7 +31,7 @@ Fits into the Hive:
     CellIdentity), `hivemind.memory` (the flat hot-state summary models), `hivemind.pheromone`
     (WardenEvent, for `send_heartbeat`'s own `warden.offline` -- this dispatch's own fix 4),
     `hivemind.supervision` (Alarm, record_alarm_event -- a prior dispatch's own
-    alarm-reaches-the-trail fix), `hivemind.wardens.ticks.alarms` (handle_alarm_action) and
+    alarm-reaches-the-trail fix), `hivemind.supervision.attendant` (InboxItem) and
     `hivemind.workers.state` (WorkerState) and waggle only.
 
 Key invariants:
@@ -41,7 +42,7 @@ Key invariants:
       dispatch's report); every other category reads live from the sub-bee table or the memory
       store.
     - `raise_stalled_alarms` records `alarm.raised` for the WORKER_STALLED Alarm it synthesises,
-      before handing it to `handle_alarm_action` (a prior dispatch's own fix: a Warden-raised
+      before handing it back to the tick's dispatch (a prior dispatch's own fix: a Warden-raised
       Alarm is now visible on the trail from its very first hop).
     - `send_heartbeat` never raises `TransportClosedError`: the one wire send it makes is wrapped,
       so a heartbeat racing `Warden.stop()`'s own teardown can never crash this Warden's tick loop
@@ -51,7 +52,7 @@ See Also:
     - .claude/codingrules.md section 8.8 for "observe a sub-bee's terminal state from its
       Heartbeat... not from a TaskResult" and the WORKER_STALLED watchdog rule.
     - hivemind.memory.hot_state for HotStateSources and the flat summary models this builds.
-    - hivemind.wardens.ticks.alarms for handle_alarm_action, WORKER_STALLED's one handler.
+    - hivemind.wardens.warden for `_handle_item`, the dispatch WORKER_STALLED is handed back to.
 """
 
 from __future__ import annotations
@@ -80,8 +81,6 @@ from hivemind.memory.thresholds import (
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
-from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
-from hivemind.wardens.ticks.alarms import handle_alarm_action
 from hivemind.workers.state import WorkerState
 from waggle.envelope import Hop, wrap
 from waggle.errors import TransportClosedError
@@ -238,9 +237,18 @@ def record_progress(warden: Warden, worker_id: str, progress: TaskProgress) -> N
         sub_bee.last_handoff = progress.handoff
 
 
-async def raise_stalled_alarms(warden: Warden) -> None:
-    """Raise WORKER_STALLED for every sub-bee whose heartbeat has been missing too long."""
+async def raise_stalled_alarms(warden: Warden) -> tuple[InboxItem, ...]:
+    """Raise WORKER_STALLED for every sub-bee whose heartbeat has been missing too long.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+
+    Returns:
+        One InboxItem per Alarm raised, for the Warden's own tick to dispatch exactly as it
+        dispatches a wire AlarmRaised: through its policy, whatever action a row names.
+    """
     threshold = warden._deps.missed_heartbeats_before_stalled
+    raised: list[InboxItem] = []
     for sub_bee in tuple(warden._sub_bees.values()):
         sub_bee.missed_heartbeats += 1
         if sub_bee.missed_heartbeats < threshold:
@@ -272,20 +280,12 @@ async def raise_stalled_alarms(warden: Warden) -> None:
             Alarm.from_wire(alarm),
             "alarm.raised",
         )
-        # sub_bee.attempt (not missed_heartbeats) is the policy-facing attempt count, for the same
-        # reason table.py's own _decide_alarm docstring gives for a wire AlarmRaised: a respawn
-        # replaces this SubBee with a fresh one whose own missed_heartbeats restarts at 0, so
-        # keying off missed_heartbeats would read "attempt 1" forever and this sub-bee's own task
-        # could never reach WORKER_STALLED's ESCALATE row no matter how many times it respawned.
-        view = SubBeeView(state=sub_bee.state, attempt=sub_bee.attempt)
-        action = decide(_alarm_as_item(alarm), view, warden._deps.policy)
-        if action in (
-            WardenAction.RETRY,
-            WardenAction.REBIND,
-            WardenAction.ESCALATE,
-            WardenAction.CANCEL_TASK,
-        ):
-            await handle_alarm_action(warden, sub_bee, alarm, action, None)
+        # Dispatched by the tick exactly like a wire AlarmRaised from this sub-bee (principal =
+        # its own id), so the policy keys on sub_bee.attempt, not missed_heartbeats: a respawn's
+        # fresh SubBee restarts that count at 0, which would read "attempt 1" forever and never
+        # reach WORKER_STALLED's ESCALATE row however many times the task respawned.
+        raised.append(_alarm_as_item(alarm))
+    return tuple(raised)
 
 
 def hot_state_sources(warden: Warden) -> _WardenHotState:

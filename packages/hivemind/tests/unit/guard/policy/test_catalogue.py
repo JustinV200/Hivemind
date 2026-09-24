@@ -58,6 +58,7 @@ _CALL_SITES: dict[EnforcementPoint, tuple[str, ...]] = {
     EnforcementPoint.COMB_SHIELD_EGRESS: ("hivemind.queen.dispatcher.acquire:_authorize_egress",),
     EnforcementPoint.TAINT_CLEAR: ("hivemind.memory.taint.clear:_clear_request",),
     EnforcementPoint.ENTRANCE_ROUTE: ("hivemind.entrance.gate.admit:authorise",),
+    EnforcementPoint.QUARANTINE: ("hivemind.wardens.quarantine.authority:_request",),
 }
 
 

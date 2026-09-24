@@ -9,7 +9,10 @@
 # yet at this level) always falls through to `default` -- this file's tables below all start their
 # first real rule at 1, i.e. "once one attempt has already failed".
 #
-# A PolicyAction is one of: RETRY, RESPAWN, REBIND, TAKEOVER, ESCALATE, CANCEL.
+# A PolicyAction is one of: RETRY, RESPAWN, REBIND, TAKEOVER, ESCALATE, CANCEL, QUARANTINE. The
+# Queen and every Warden load this same file; ESCALATE at a Warden forwards the Alarm to the Queen,
+# and at the Queen it reaches the human. QUARANTINE (roadmap step 10.6c) quarantines the bee the
+# Alarm names; no shipped row uses it, so it is an operator's own choice.
 
 default = "ESCALATE"  # Conservative: an unnamed or unmatched case always reaches a human eventually.
 
@@ -117,6 +120,16 @@ action = "ESCALATE"
 kind = "QUOTA_EXCEEDED"
 min_attempts = 1
 action = "CANCEL"
+
+# SECURITY (roadmap steps 10.6 and 10.6c, ADR-0035): a security event, such as a bee its Warden
+# quarantined. Never retried, respawned or rebound at any level: a Warden sends it up to the Queen,
+# and the Queen sends it on to the human, who is told of every quarantine. One row covers every
+# attempt count, since a kind's own rows are always searched before any wildcard row; a fresh
+# Alarm (attempts 0) gets `default`, which is ESCALATE too.
+[[rules]]
+kind = "SECURITY"
+min_attempts = 1
+action = "ESCALATE"
 
 # AUDIT_FAILED, CELL_UNREACHABLE and OTHER have no row here on purpose: each is rare enough, or
 # unnamed enough (OTHER), that a fixed playbook would be guessing. `default` (ESCALATE) reaches a

@@ -1,4 +1,4 @@
-"""Define handle_alarm: what REBIND, ESCALATE_TO_HUMAN, RETRY_TASK and FAIL_TASK do for an Alarm.
+"""Define handle_alarm: what REBIND, QUARANTINE_BEE, ESCALATE_TO_HUMAN, RETRY_TASK and FAIL_TASK do.
 
 Roadmap step 3.20's own dispatch map: "escalated AlarmRaised -> policy + attempts: RETRY_TASK
 (re-dispatch, attempt+1), REBIND (Intervene(REBIND, task_id, slot=<the fallback binding key from
@@ -8,22 +8,27 @@ alarm.escalated is the supervision owner's event: record what you own only, i.e.
 `RETRY_TASK` and `FAIL_TASK` reuse `hivemind.queen.ticks.results.retry_task`/`.fail_task`, the same
 two functions a `TaskResult(FAILED)` drives, since "retry this task" means the same chamber calls
 regardless of which report triggered the decision. `REBIND`'s own wire message is built through
-`hivemind.supervision.intervention.Rebind`/`to_wire`, the same six-lever `Intervention` machinery
+`hivemind.supervision.intervention.Rebind`/`to_wire`, the same `Intervention` lever machinery
 `Queen.intervene` (the `Supervisor` protocol method) already uses -- not a hand-rolled `Intervene`
 -- because the wire `Intervene.slot` field only ever carries a `ModelSlot`'s own UPPER_SNAKE wire
 value (`waggle.messages.base.SLOT_PATTERN`), never a lowercase `[llm.slots]` named-binding key such
 as `"local_worker"`; the resolved fallback *key* is recorded on the trail instead (this dispatch's
 own report flags the gap this works around, since neither `wardens/**` nor `waggle/**` is this
-dispatch's to touch).
+dispatch's to touch). `QUARANTINE_BEE` (roadmap step 10.6c, a `PolicyAction.QUARANTINE` row) reads
+the lever off the Alarm (its task, its bee and its trail event) and sends the Warden that holds the
+task `Intervene(QUARANTINE)` through `hivemind.queen.quarantine`; an Alarm that cannot scope one
+reaches the human instead.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick dispatch, once per decided
-    `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an `AlarmRaised`. Calls into
+    `REBIND`/`QUARANTINE_BEE`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an `AlarmRaised`.
+    Calls into
     `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.queen.autopilot`
     (QueenAction), `hivemind.queen.chat` (post_alarm, roadmap step 10.5: an escalated Alarm is
     appended to the chat), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
-    human_inbox` (HumanInbox), `hivemind.queen.ticks.results` (fail_task, retry_task),
+    human_inbox` (HumanInbox), `hivemind.queen.quarantine` (lever_from_alarm, order_quarantine),
+    `hivemind.queen.ticks.results` (fail_task, retry_task),
     `hivemind.queen.trail` (record_event), `hivemind.supervision` (Alarm, record_alarm_event,
     intervention.Rebind, to_wire) and waggle only.
 
@@ -63,6 +68,7 @@ from hivemind.queen.chat import post_alarm
 from hivemind.queen.cluster.triggers import cluster_if_down
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.quarantine import lever_from_alarm, order_quarantine
 from hivemind.queen.ticks.results import fail_task, retry_task
 from hivemind.queen.trail import record_event
 from hivemind.supervision import Alarm, record_alarm_event
@@ -139,6 +145,8 @@ async def handle_alarm(
         await fail_task(deps, task_id, _reason(payload))
     elif action is QueenAction.REBIND:
         await _rebind(deps, wardens, handling)
+    elif action is QueenAction.QUARANTINE_BEE:
+        await _quarantine(deps, wardens, handling)
     else:
         # ESCALATE_TO_HUMAN, or RETRY_TASK/FAIL_TASK for an Alarm naming no task: escalate rather
         # than silently dropping an Alarm this table decided needs a human.
@@ -174,6 +182,27 @@ async def _rebind(deps: QueenDeps, wardens: Sequence[WardenLink], handling: Alar
     await link.transport.send(wrap(message, link.hop, clock=deps.clock))
     await record_event(deps, "queen.decided", task_id, action="REBIND", binding=fallback_key)
     await _record_handled(deps, handling, task_id, "REBIND")
+
+
+async def _quarantine(
+    deps: QueenDeps, wardens: Sequence[WardenLink], handling: AlarmHandling
+) -> None:
+    """Order the Warden of the Alarm's task to quarantine the bee it names, or escalate.
+
+    Roadmap step 10.6c: the order is the Queen's; the quarantine itself is the Warden's one code
+    path. An Alarm that names no task, no bee's event or no placed Warden cannot scope one, so it
+    reaches the human instead, exactly like any other decision this table cannot carry out.
+    """
+    payload = handling.payload
+    lever = lever_from_alarm(payload)
+    sent = lever is not None and await order_quarantine(deps, wardens, lever, payload.alarm_id)
+    if not sent:
+        await _escalate(deps, handling.human_inbox, payload)
+        return
+    alarm = Alarm.from_wire(payload)
+    await record_alarm_event(
+        deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="QUARANTINE_BEE"
+    )
 
 
 async def _cluster_or_retry(

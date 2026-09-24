@@ -21,8 +21,11 @@ by `QueenDecision.shrink_grant_id`/`.shrink_amount`) to free the headroom the re
 deny it with a reason; `hivemind.queen.ticks.forage` is the one place either is acted on.
 `REPLY` (roadmap step 10.5, ADR-0032) is the Queen answering the human in the chat, with the words
 in `QueenDecision.message`: only ever an awake decision (autopilot has no rule for free text), and
-`hivemind.queen.ticks.chat.reply` is the one place it is acted on. `NEEDS_JUDGEMENT` is the one
-signal that hands the item to `hivemind.queen.awake` instead.
+`hivemind.queen.ticks.chat.reply` is the one place it is acted on. `QUARANTINE_BEE` (roadmap
+step 10.6c, the row a `PolicyAction.QUARANTINE` maps to) orders the Warden of an Alarm's task to
+quarantine the bee it names (`hivemind.queen.quarantine.order`), and `PAUSE_TASK` holds a task
+PAUSED in the Brood Chamber once its Warden reports it held (`hivemind.queen.quarantine.hold`).
+`NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.queen.awake` instead.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -69,4 +72,6 @@ class QueenAction(Enum):
     GRANT_BY_SHRINKING = "GRANT_BY_SHRINKING"  # Shrink QueenDecision.shrink_grant_id, then grant.
     DENY_REQUEST = "DENY_REQUEST"  # A contested ForageRequest denied, with QueenDecision.reason.
     REPLY = "REPLY"  # Answer the human in the chat with QueenDecision.message; awake only.
+    QUARANTINE_BEE = "QUARANTINE_BEE"  # Intervene(QUARANTINE) to the Warden of the Alarm's task.
+    PAUSE_TASK = "PAUSE_TASK"  # chamber.pause: a Warden reported its task held (a quarantine).
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to queen.awake.

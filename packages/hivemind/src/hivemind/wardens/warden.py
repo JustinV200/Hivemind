@@ -72,7 +72,7 @@ from hivemind.forage import Ceilings, HostingPlan
 from hivemind.guard import CapabilitySet
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
-from hivemind.supervision import ChildKind, ChildRef, Intervention
+from hivemind.supervision import ChildKind, ChildRef, Intervention, Quarantine
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens import ticks
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
@@ -81,6 +81,12 @@ from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import SubBeeSlots
+from hivemind.wardens.quarantine import (
+    QuarantineRecord,
+    admit_respawn,
+    carry_out,
+    quarantine_child,
+)
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
 from hivemind.wardens.state import WardenState
 from waggle.envelope import Envelope
@@ -164,6 +170,9 @@ class Warden(TickLoop):
         # Roadmap 4.8: the Queen's own CeilingsSet/PlanWritten (ticks.control), None until sent.
         self._ceilings: Ceilings | None = None
         self._hosting_plan: HostingPlan | None = None
+        # Roadmap step 10.6c: every task a quarantine holds, until a judge-cleared respawn lifts it
+        # (hivemind.wardens.quarantine.gate); this Warden's half of the task's PAUSED state.
+        self._quarantined: dict[TaskId, QuarantineRecord] = {}
 
     @property
     def state(self) -> WardenState:
@@ -283,6 +292,10 @@ class Warden(TickLoop):
         Raises:
             UnknownSubBeeError: `child` names no current sub-bee.
         """
+        # A quarantine is this Warden's to carry out on its sub-bee, never a lever to relay to it.
+        if isinstance(intervention, Quarantine):
+            await quarantine_child(self, child, intervention)
+            return
         await ticks.control.send_intervention(self, child, intervention)
 
 
@@ -311,8 +324,9 @@ async def _run_tick(warden: Warden) -> None:
         await ticks.heartbeat.send_heartbeat(warden)
         # Sub-bee staleness is checked on this same cadence: simpler than a second per-sub-bee
         # timer, and generous enough that a sub-bee reporting on its own (shorter) interval never
-        # trips it early.
-        await ticks.heartbeat.raise_stalled_alarms(warden)
+        # trips it early. Each stalled Alarm takes the path a wire Alarm takes, policy and all.
+        for stalled in await ticks.heartbeat.raise_stalled_alarms(warden):
+            await _handle_item(warden, stalled)
         # On the same cadence, and for the same reason the staleness check shares it: one timer,
         # not two. A Warden with no `trail_sync` (the Hive Stand's own) does nothing here.
         await _sync_trail(warden)
@@ -418,7 +432,9 @@ async def _act(
     """Carry out one decided WardenAction."""
     payload = item.payload
     if action is WardenAction.SPAWN and isinstance(payload, TaskAssign):
-        await ticks.assign.handle_assign(warden, payload)
+        # Roadmap step 10.6c: a quarantined task spawns only by its one way out (the gate).
+        if await admit_respawn(warden, payload):
+            await ticks.assign.handle_assign(warden, payload)
     elif action is WardenAction.RECORD:
         await _record_routine(warden, item, payload)
     elif action is WardenAction.ACCEPT and isinstance(payload, TaskResult) and sub_bee is not None:
@@ -429,7 +445,19 @@ async def _act(
         await ticks.questions.forward_question(warden, MessageId(item.id), payload)
     elif action is WardenAction.FORWARD_ANSWER and isinstance(payload, Answer):
         await ticks.questions.forward_answer(warden, payload)
-    elif action is WardenAction.FORWARD_CONTROL and isinstance(
+    else:
+        await _act_on_order(warden, action, item, sub_bee)
+
+
+async def _act_on_order(
+    warden: Warden, action: WardenAction, item: InboxItem, sub_bee: SubBee | None
+) -> None:
+    """Carry out a control or supervisory order: relay, stop, release the lease or quarantine.
+
+    Split out of `_act` only to keep each within codingrules 5.1's complexity limit.
+    """
+    payload = item.payload
+    if action is WardenAction.FORWARD_CONTROL and isinstance(
         payload, TaskCancel | TaskPause | TaskResume | Intervene
     ):
         await ticks.control.forward_control(warden, item, sub_bee, payload)
@@ -443,6 +471,10 @@ async def _act(
         # running afterwards; `ticks.assign.settle_after_tick` (still called below) settles it
         # back to WATCH on its own once `_sub_bees` is empty.
         await ticks.control.handle_release_lease(warden, payload)
+    elif action is WardenAction.QUARANTINE:
+        # Roadmap step 10.6c: the Queen's Intervene(QUARANTINE), or this Warden's own policy row
+        # for a sub-bee's Alarm; either way the one code path in hivemind.wardens.quarantine.
+        await carry_out(warden, payload, sub_bee)
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:

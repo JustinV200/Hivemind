@@ -2,7 +2,7 @@
 
 The Queen is the Hive's single always-on orchestrator, built like an operating-system kernel
 (codingrules section 8.8, docs/adr/0019): a thin loop with a prioritised inbox. She holds no
-session and no Comb Registry -- her only levers are the six `hivemind.supervision.Intervention`
+session and no Comb Registry -- her only levers are the seven `hivemind.supervision.Intervention`
 values, sent to a Warden, never carried out herself. One tick (`_tick`, driven by `waggle.loop.
 TickLoop.run`) drains whatever is ready on every attached Warden's own link into `hivemind.
 supervision.attendant.InboxItem`s, orders them with her own Attendant (`hivemind.queen.inbox`,
@@ -75,7 +75,7 @@ from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, T
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.common.tasks import reap_all, reaping
 from hivemind.memory.thresholds import capped_compact_view
-from hivemind.queen import attach, goal_submission, leave_memory, questions, ticks
+from hivemind.queen import attach, goal_submission, leave_memory, quarantine, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
@@ -92,7 +92,7 @@ from hivemind.supervision import (
     ChildRef,
     Intervention,
     record_alarm_event,
-    to_wire,
+    to_intervene,
 )
 from hivemind.supervision.attendant import InboxItem, TieBreaker
 from waggle.envelope import Envelope, wrap
@@ -106,10 +106,9 @@ from waggle.messages.supervision import (
     CompactView,
     ContextTelemetry,
     Heartbeat,
-    Intervene,
     Question,
 )
-from waggle.messages.task import TaskResult
+from waggle.messages.task import TaskProgress, TaskResult
 
 __all__ = ["Queen"]
 
@@ -346,15 +345,8 @@ async def _send_intervene(queen: Queen, child: str, intervention: Intervention) 
     link = queen._wardens.get(WardenId(child))
     if link is None:
         raise UnknownWardenError(child)
-    action, slot = to_wire(intervention)
-    message = Intervene(
-        action=action,
-        subject=None,
-        task_id=None,
-        slot=slot,
-        alarm_id=None,
-        reason=intervention.reason,
-    )
+    # The whole message from the lever: a Quarantine's bee, task and suspect episode travel too.
+    message = to_intervene(intervention)
     await link.transport.send(wrap(message, link.hop, clock=queen._deps.clock))
 
 
@@ -520,6 +512,9 @@ async def _act(
     elif isinstance(payload, HumanMessage):
         # The episode already wrote its decision down: stamp the message so it is never re-read.
         await ticks.chat.mark_handled(queen._deps, item)
+    elif action is QueenAction.PAUSE_TASK and isinstance(payload, TaskProgress):
+        # Roadmap step 10.6c: a Warden reports its task held by a quarantine; the chamber follows.
+        await quarantine.hold_task(queen._deps, payload)
     elif isinstance(payload, Answer):
         pass  # ROUTE_ANSWER: no wire path produces this in v0 (see hivemind.queen.questions).
 

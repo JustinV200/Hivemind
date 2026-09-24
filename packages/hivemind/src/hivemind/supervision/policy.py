@@ -38,6 +38,8 @@ Key invariants:
       for the same two inputs.
     - load_policy raises PolicyError for a missing file, a TOML syntax error, or a document that
       fails EscalationPolicy's own validation; it never returns a partially-built policy.
+    - PolicyAction is the Hive's own vocabulary, mirrored by no wire enum; every dispatch table
+      that maps it (the Queen's and a Warden's autopilot) covers every member, which a test walks.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "each level's EscalationPolicy is data (TOML)".
@@ -85,6 +87,10 @@ class PolicyAction(Enum):
     )
     ESCALATE = "ESCALATE"  # Forward the same alarm id to the next supervisor up the chain.
     CANCEL = "CANCEL"  # Stop the task for good.
+    # Roadmap step 10.6c (ADR-0035): quarantine the bee the Alarm names -- checkpoint, stop and
+    # kill it, taint its memory from the suspect episode on, hold its task paused. No wire enum
+    # mirrors this one; every table that maps a PolicyAction gains its row in the same change.
+    QUARANTINE = "QUARANTINE"
 
 
 class PolicyRule(BaseModel):
