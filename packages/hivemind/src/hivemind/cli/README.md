@@ -105,7 +105,8 @@ typer layer that calls into a subsystem's public API and never contains logic of
   would probe; the Queen places it by the same figures (`compose/virtual_cells.py`).
   Every model call in a Virtual Cell passes through the Cell's own Fanner (`in_cell/fanner.py`):
   metered by the seats and rate limits the Queen shipped with each provider row, and recorded as
-  an `llm.call` on the Cell's own trail segment, which reaches the Queen's trail when it syncs.
+  an `llm.call` on the Cell's own trail segment, which reaches the Queen's trail when it syncs (a
+  Night Veil Cell's reaches only its ephemeral segment, purged at teardown: codingrules 12).
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
   [--json] [--comb-shield night_veil]`: the one command that calls `build_hive`/`run_hive`/
   `run_goal`. With `--comb-shield` (roadmap step 10.3c) the goal is asked for as a durable goal
@@ -114,10 +115,11 @@ typer layer that calls into a subsystem's public API and never contains logic of
   planned it; a request she refuses prints `hive run refused: <reason>` (exit 1), one still
   unplanned at the timeout exits 2. `RunCommand` carries `--json` and `--comb-shield` on the
   command itself, keeping `run_command` within five parameters. Streams trail events as
-  they arrive (unless `--json`), every `forage.denied` with its cause (`deferred: waiting for
-  free_cores (fails after 300s)` for a task left waiting for room, `denied: seats` for one
-  refused), then a one-line summary; exits 0 on success, 1 when the goal
-  failed, 2 on a timeout or a bad manifest. The streamed view begins at the goal's own
+  they arrive (unless `--json`; a Night Veil goal's are its skeleton alone), every
+  `forage.denied` with its cause (`deferred: waiting for free_cores (fails after 300s)` for a task
+  left waiting for room, `denied: seats` for one refused), then a one-line summary; exits 0 on
+  success, 1 when the goal failed, 2 on a timeout or a bad manifest. The streamed view begins at
+  the goal's own
   submission, never earlier (a store that already holds other runs does not replay them), and
   with `[hive_stand] keep_scratch = true` (development only) the last line names the lease
   directory the run's files were left in. Registered on the root app with
