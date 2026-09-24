@@ -29,7 +29,7 @@ console). DENIED, EXPIRED and REVOKED are terminal.
 |---|---|
 | `state.py` | `DeviceStatus`, the transition table, the entry kinds. |
 | `models.py` | `EnrolledDevice`, `DeviceDescription` (display text only), `DeviceInvite` (stored as its code's SHA-256), `OperatorCredential`. |
-| `console.py` | `bootstrap_operator`, `change_operator_password`, `unlock_console_key`: the loopback-bound console, its key wrapped under the password, its entry recorded as approved. |
+| `console.py` | `bootstrap_operator`, `change_operator_password`, `unlock_console_key`: the loopback-bound console, its key wrapped under the password, its entry recorded as approved. `console_record` finds the console for the key it opened. Offline only, while `hive serve` is stopped: `reset_operator` (`--reset`: every device denied or revoked, its sessions ended, a new console key minted under the new password, the hash written last) and `unlock_console` (`hive entrance unlock --console`, `LOCKED` to `APPROVED` once the password opens the key). |
 | `deps/` | `EnrolmentDeps` (four bundles: records, rules, ceremony, seams), `EntranceIdentity` (who events are recorded as, and the one place they are built), and the three seams with their no-ops and recording fakes. |
 | `record.py` | `apply_transition`: the edge with its event, then offboarding when the device left an approval, then the notice. Payload helpers keep events bounded. |
 | `invite.py` | `mint_invite` (128 random bits as grouped base32, the link `<base>/enrol#code=<code>`, a terminal and an SVG QR code), `cancel_invite`, and the code's canonical form and hash. |
@@ -62,7 +62,8 @@ loopback-only decisions: the routes that call these functions (later steps) enfo
 The state machine (`DeviceStatus`, `TRANSITIONS`, `TERMINAL_STATUSES`, `ENTRY_TRAIL_KINDS`,
 `INVITED_TRAIL_KIND`, `APPROVED_TRAIL_KIND`, `assert_transition`, `can_transition`, `trail_kind`,
 `is_terminal`); the records; the console (`ConsoleDeps`, `bootstrap_operator`,
-`change_operator_password`, `unlock_console_key` and its constants); the dependencies
+`change_operator_password`, `unlock_console_key`, `console_record`, `reset_operator`,
+`unlock_console` and its constants); the dependencies
 (`EnrolmentDeps`, `EnrolmentRecords`, `EnrolmentRules`, `EnrolmentCeremony`, `EnrolmentSeams`,
 `EntranceIdentity`) and seams (`SecurityNotice`, `SecurityNotifier`, `DeviceOffboarder`,
 `GoalLedger`, their `Null*` no-ops and recording fakes); invites (`MintedInvite`, `InviteQr`,

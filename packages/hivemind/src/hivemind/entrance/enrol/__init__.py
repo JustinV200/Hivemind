@@ -37,7 +37,8 @@ Public API:
       enrolled-device state machine.
     - EnrolledDevice, DeviceDescription, DeviceInvite, OperatorCredential: the Entrance's records.
     - ConsoleDeps, bootstrap_operator, change_operator_password, unlock_console_key,
-      CONSOLE_KEY_NAME, CONSOLE_CAPABILITIES, CONSOLE_DEVICE_NAME: the operator and the console.
+      console_record, reset_operator, unlock_console, CONSOLE_KEY_NAME, CONSOLE_CAPABILITIES,
+      CONSOLE_DEVICE_NAME, OPERATOR_RESET: the operator and the console.
     - EnrolmentDeps, EnrolmentRecords, EnrolmentRules, EnrolmentCeremony, EnrolmentSeams,
       EntranceIdentity: what every flow is built from.
     - SecurityNotice, SecurityNotifier, DeviceOffboarder, GoalLedger, their Null* no-ops and
@@ -58,9 +59,13 @@ from hivemind.entrance.enrol.console import (
     CONSOLE_CAPABILITIES,
     CONSOLE_DEVICE_NAME,
     CONSOLE_KEY_NAME,
+    OPERATOR_RESET,
     ConsoleDeps,
     bootstrap_operator,
     change_operator_password,
+    console_record,
+    reset_operator,
+    unlock_console,
     unlock_console_key,
 )
 from hivemind.entrance.enrol.decisions import ApprovalRequest, GrantChange, approve, deny, regrant
@@ -143,6 +148,7 @@ __all__ = [
     "INVITED_TRAIL_KIND",
     "INVITE_PATH",
     "OPERATOR_ACTOR",
+    "OPERATOR_RESET",
     "REDEEM_FAILED_KIND",
     "TERMINAL_STATUSES",
     "TRANSITIONS",
@@ -186,6 +192,7 @@ __all__ = [
     "cancel_invite",
     "canonical_invite_code",
     "change_operator_password",
+    "console_record",
     "deny",
     "device_ceiling",
     "expire_due",
@@ -199,9 +206,11 @@ __all__ = [
     "redeem_ed25519",
     "redeem_passkey",
     "regrant",
+    "reset_operator",
     "revoke",
     "steward_grant",
     "trail_kind",
     "unlock",
+    "unlock_console",
     "unlock_console_key",
 ]
