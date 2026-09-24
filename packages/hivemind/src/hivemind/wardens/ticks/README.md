@@ -1,11 +1,23 @@
 # hivemind.wardens.ticks
 
 The ticks package holds `Warden`'s own tick handlers: what each `WardenAction` actually does,
-split out of `warden.py` only to stay within codingrules 5.1's size limits (Warden's `_act`
-dispatch calls into these; none of them is a general-purpose module on its own).
+split out of `warden.py` only to stay within codingrules 5.1's size limits (`dispatch.act` hands
+every decided action to one of these; none of them is a general-purpose module on its own).
 
-## Public API (roadmap step 3.19)
+## Public API (roadmap steps 3.19, 7.8)
 
+- `dispatch`: `act(warden, action, item, sub_bee, binding)`, the one call the Warden's tick makes
+  once an item is decided; routes the action to the handler below that does it (the Warden's own
+  former `_act`, moved here for `warden.py`'s size limit).
+- `honey` (roadmap step 7.8): `handle_honey_item` relays the Honey Store's traffic. A sub-bee's
+  `HoneyQuery` or `NectarDeposit` goes up to the Queen in a fresh envelope, payload unchanged, only
+  when it names that sub-bee and its own task (the first-hop identity rule; a refused query is
+  answered at once with an empty `HoneyResponse`). `HoneyRelay` remembers each forwarded query's
+  asker and original envelope id (at most `MAX_PENDING_HONEY_QUERIES`, oldest dropped first) so
+  the Queen's `HoneyResponse` is relayed back correlated to the sub-bee's own envelope; an
+  unmatched response is logged, and a Queen `control.error` about a relayed deposit is logged at
+  warning. A closed link never ends the Warden's tick: with no Queen to forward to, a query is
+  answered at once (`QUEEN_UNREACHABLE_REASON`) and a chunk is logged and dropped.
 - `assign`: spawn a sub-bee once its `TaskAssign` and `GrantIssued` have both arrived; park
   otherwise; retry a refused lease once before escalating `CELL_UNREACHABLE`.
 - `results`: run acceptance on a sub-bee's claimed `TaskResult`, on the Warden's own session.

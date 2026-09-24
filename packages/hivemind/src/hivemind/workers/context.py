@@ -1,4 +1,4 @@
-"""Define GrantSlice, QuestionChannel and WorkerContext: everything one Worker's role may use.
+"""Define GrantSlice, QuestionChannel, HoneyChannel and WorkerContext: what a role may use.
 
 `WorkerContext` is the one bundle `hivemind.workers.base.Worker.run` receives: its Cell, an open
 session on it, the model it is bound to, its own slice of the Warden's `ForageGrant`
@@ -11,16 +11,20 @@ Cell's `kind` (codingrules section 8.7: "branch on capabilities, never on kind")
 no provider, no model id, because `ctx.bound` (a `hivemind.llm.BoundModel`) already names the model
 this Worker calls, and `GrantSlice` only ever answers "how much" (spend, tokens, which named
 bindings it may still fall back to), the one Worker's share of the `ForageGrant` `hivemind.wardens`
-(roadmap step 3.19) carves it from.
+(roadmap step 3.19) carves it from. `HoneyChannel` (roadmap step 7.8) is the Worker's own way to
+the Honey Store, the Hive's knowledge base, which the Queen owns: `query` asks it a `HoneyQuery`
+and waits for the `HoneyResponse`, `deposit` sends Nectar (raw findings) as `NectarDeposit`
+chunks; both travel over the Worker's one link to its Warden, which relays them to the Queen.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). `WorkerContext` is constructed by `hivemind.wardens.spawn`
     (roadmap step 3.19), which fills `asker` with its own transport-backed implementation before
     `hivemind.workers.runtime.WorkerRuntime` replaces it with the runtime's own mailbox
-    (`hivemind.workers.runtime.mailbox.Mailbox`, which satisfies `QuestionChannel` structurally),
-    and passes a `hivemind.llm.FannerLane` or a bare `hivemind.llm.DirectCallGate` as `call_gate`;
-    read by `hivemind.workers.base.Worker.run` implementations (the Drone, roadmap step 3.16) and
-    by every tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.guard`,
+    (`hivemind.workers.runtime.mailbox.Mailbox`, which satisfies `QuestionChannel` structurally)
+    and sets `honey` to its own `hivemind.workers.runtime.honey.MailboxHoneyChannel`, and passes a
+    `hivemind.llm.FannerLane` or a bare `hivemind.llm.DirectCallGate` as `call_gate`; read by
+    `hivemind.workers.base.Worker.run` implementations (the Drone, roadmap step 3.16) and by every
+    tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.guard`,
     `hivemind.llm`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.supervision.capping`,
     `hivemind.workers.telemetry` and waggle only.
 
@@ -34,6 +38,8 @@ Key invariants:
       (`hivemind.workers.tools.proposals.cap`); `lease` is the `LeaseView` that same gate checks
       path reachability against. Both are read-only from a role's own perspective: a role never
       mutates either directly, only through `capping.propose`/`capping.run`.
+    - `honey` is None unless a runtime wired a real channel: nothing a role or tool does may
+      assume the Honey Store is reachable, and a tool offered only with it checks it first.
 
 See Also:
     - .claude/codingrules.md section 8.7 for "branch on capabilities, never on kind".
@@ -44,10 +50,13 @@ See Also:
       names.
     - hivemind.workers.runtime for WorkerRuntime, which builds a WorkerContext's real `asker`.
     - hivemind.workers.tools for every tool that reads `capping`, `lease` and `call_gate`.
+    - docs/waggle/spec.md section 8.7 for HoneyQuery, HoneyResponse and NectarDeposit, what
+      `HoneyChannel` carries.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -62,9 +71,10 @@ from hivemind.supervision.capping import CappingGate, LeaseView
 from hivemind.workers.telemetry import TelemetryTracker
 from waggle.clock import Clock
 from waggle.ids import GrantId, WorkerId
+from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.supervision import Answer, Question
 
-__all__ = ["GrantSlice", "QuestionChannel", "WorkerContext"]
+__all__ = ["GrantSlice", "HoneyChannel", "QuestionChannel", "WorkerContext"]
 
 
 class GrantSlice(BaseModel):
@@ -112,6 +122,44 @@ class QuestionChannel(Protocol):
         ...
 
 
+class HoneyChannel(Protocol):
+    """Ask the Honey Store a question, or deposit Nectar into it, over this Worker's own link.
+
+    Satisfied by `hivemind.workers.runtime.honey.MailboxHoneyChannel`, which sends through the
+    Worker's mailbox to its Warden; the Warden relays each message to the Queen, who owns the
+    Honey Store (roadmap step 7.8). Nothing here ever reaches the store directly.
+    """
+
+    async def query(self, query: HoneyQuery) -> HoneyResponse:
+        """Send `query` and wait, bounded, for the Queen's matching HoneyResponse.
+
+        Args:
+            query: The question; `requester` must be this Worker and `task_id` its own task, or
+                the Warden refuses to relay it.
+
+        Returns:
+            The Queen's response; an empty one whose `reason` says why when she did not answer
+            in time, never an error for that case.
+
+        Raises:
+            waggle.errors.WaggleError: The link to the Warden is gone, so the query never left.
+        """
+        ...
+
+    async def deposit(self, chunks: Sequence[NectarDeposit]) -> None:
+        """Send every chunk of one deposit, in order; nothing comes back on success.
+
+        Args:
+            chunks: One deposit's chunks (`hivemind.workers.nectar.split_deposit`), in offset
+                order.
+
+        Raises:
+            waggle.errors.WaggleError: The link to the Warden is gone or refused a frame; the
+                deposit may have arrived in part, which intake discards once it goes idle.
+        """
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class WorkerContext:
     """Everything a Worker's role may use; never a provider, a subprocess handle or a Cell's kind.
@@ -149,6 +197,10 @@ class WorkerContext:
             (`hivemind.llm.ladders.run_tool_loop`'s own `gate` option); the Warden passes its own
             `hivemind.llm.FannerLane` (the seat meter, roadmap step 3.12a) or a bare
             `hivemind.llm.DirectCallGate` when no metering is wired up yet.
+        honey: This Worker's way to the Honey Store (roadmap step 7.8): `recall` and `remember`
+            are offered only when it is set, and a checkpoint's Handoff is deposited through it.
+            `hivemind.workers.runtime.WorkerRuntime` always sets its own; None (the default) is a
+            context no runtime has wired, such as one a test builds by hand.
     """
 
     worker_id: WorkerId
@@ -167,3 +219,5 @@ class WorkerContext:
     capping: CappingGate
     lease: LeaseView
     call_gate: CallGate
+    # Additive and defaulted (roadmap step 7.8): a WorkerContext built before it still builds.
+    honey: HoneyChannel | None = None

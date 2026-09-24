@@ -26,14 +26,17 @@ is recoverable (`_send_pending_alarms` logs it and keeps going), never an except
 loop. This class's own state and every outgoing message go through `hivemind.workers.
 runtime.reporter.Reporter`, and starting the role, scheduling its cancel and interpreting its
 finished task go through `hivemind.workers.runtime.attempt.AttemptManager`, both split out only to
-keep this class inside codingrules 5.1's size limits.
+keep this class inside codingrules 5.1's size limits. Roadmap step 7.8: the role's `ctx.honey` is
+this runtime's own `hivemind.workers.runtime.honey.MailboxHoneyChannel` over the same mailbox, and
+a received `HoneyResponse` is handed to the query waiting for it by the envelope's own
+`correlation_id` (`_dispatch`, module-level for the same size reason).
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Constructed by `hivemind.wardens.spawn` (roadmap step 3.19)
     once per sub-bee it starts, inside a `TaskGroup` it owns. Calls into `hivemind.memory`
     (`read_handoff`, `Handoff`), `hivemind.cell` (`HoneyClearance`), `hivemind.supervision` (the
     Intervention levers only, never `hivemind.supervision.capping`), `hivemind.workers.base`,
-    `.context`, `.errors`, `.state`, this package's own `attempt`, `deps`, `mailbox` and
+    `.context`, `.errors`, `.state`, this package's own `attempt`, `deps`, `honey`, `mailbox` and
     `reporter`, and waggle.
 
 Key invariants:
@@ -84,6 +87,7 @@ from hivemind.workers.context import WorkerContext
 from hivemind.workers.errors import InvalidWorkerTransitionError
 from hivemind.workers.runtime.attempt import AttemptManager
 from hivemind.workers.runtime.deps import RuntimeDeps
+from hivemind.workers.runtime.honey import MailboxHoneyChannel
 from hivemind.workers.runtime.mailbox import Mailbox
 from hivemind.workers.runtime.reporter import Reporter
 from hivemind.workers.runtime.reports import AlarmDetails
@@ -91,6 +95,7 @@ from hivemind.workers.state import WorkerState, can_transition, is_terminal
 from waggle.envelope import Envelope
 from waggle.errors import TransportClosedError
 from waggle.loop import TickLoop
+from waggle.messages.honey import HoneyResponse
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume, TaskStage
 
@@ -118,7 +123,8 @@ class WorkerRuntime(TickLoop):
         Args:
             ctx: Everything the role may use; this constructor replaces `ctx.asker` with this
                 runtime's own mailbox (`hivemind.workers.context`'s module docstring explains why
-                the caller cannot wire that in beforehand).
+                the caller cannot wire that in beforehand) and `ctx.honey` with this runtime's
+                own Honey channel over that same mailbox (roadmap step 7.8).
             worker: The role implementation to run once assigned.
             deps: The transport, addressing, heartbeat cadence and clock this runtime is built
                 with.
@@ -127,8 +133,10 @@ class WorkerRuntime(TickLoop):
         self._worker = worker
         self._deps = deps
         self._mailbox = Mailbox(deps.transport, deps.hop, deps.clock, deps.heartbeat_interval_s)
-        # WorkerContext is frozen (codingrules 8.5); a fresh copy carries the real QuestionChannel.
-        self._ctx = dataclasses.replace(ctx, asker=self._mailbox)
+        # Roadmap step 7.8: the Honey Store is reached over the same link as every other report.
+        self._honey = MailboxHoneyChannel(self._mailbox, deps.clock)
+        # WorkerContext is frozen (codingrules 8.5); a fresh copy carries both real channels.
+        self._ctx = dataclasses.replace(ctx, asker=self._mailbox, honey=self._honey)
         self._reporter = Reporter(self._ctx, deps, self._mailbox)
         self._attempt = AttemptManager(self)
 
@@ -184,7 +192,7 @@ class WorkerRuntime(TickLoop):
             if envelope is None:
                 await self._on_transport_closed()
             else:
-                await self._dispatch(envelope)
+                await _dispatch(self, envelope)
             return
         if heartbeat_task in done:
             self._mailbox.clear_heartbeat()
@@ -197,31 +205,6 @@ class WorkerRuntime(TickLoop):
         `_send_pending_alarms` below for what it actually does and why.
         """
         await _send_pending_alarms(self)
-
-    async def _dispatch(self, envelope: Envelope) -> None:
-        """Route one received envelope's payload to its handler, dropping an illegal transition."""
-        payload = envelope.payload
-        try:
-            if isinstance(payload, TaskAssign):
-                await self._handle_assign(payload)
-            elif isinstance(payload, TaskCancel):
-                self._attempt.request_cancel(payload.reason, payload.grace_s)
-            elif isinstance(payload, TaskPause):
-                await self._handle_pause(payload)
-            elif isinstance(payload, TaskResume):
-                await self._handle_resume(payload)
-            elif isinstance(payload, Intervene):
-                await self._handle_intervene(payload)
-            elif isinstance(payload, Answer):
-                self._mailbox.resolve_answer(payload)
-            # Anything else is not addressed to a Worker's mailbox; ignored so a peer's unrelated
-            # message can never take this runtime down.
-        except InvalidWorkerTransitionError as error:
-            log.warning(
-                "workers.runtime.invalid_transition",
-                worker_id=self._ctx.worker_id,
-                error=str(error),
-            )
 
     async def _on_transport_closed(self) -> None:
         """React to the link to this Worker's Warden ending, cleanly or otherwise.
@@ -303,6 +286,41 @@ class WorkerRuntime(TickLoop):
         # The only remaining variant is Cancel; every Intervention variant carries `reason`, so
         # no narrowing is needed to reach it here.
         self._attempt.request_cancel(lever.reason, DEFAULT_INTERVENE_CANCEL_GRACE_S)
+
+
+async def _dispatch(runtime: WorkerRuntime, envelope: Envelope) -> None:
+    """Route one received envelope's payload to its handler, dropping an illegal transition.
+
+    Module-level, reading `runtime`'s private state directly (the same shape as
+    `_send_pending_alarms` below), so `WorkerRuntime` itself stays within codingrules 5.1's class
+    size limit.
+    """
+    payload = envelope.payload
+    try:
+        if isinstance(payload, TaskAssign):
+            await runtime._handle_assign(payload)
+        elif isinstance(payload, TaskCancel):
+            runtime._attempt.request_cancel(payload.reason, payload.grace_s)
+        elif isinstance(payload, TaskPause):
+            await runtime._handle_pause(payload)
+        elif isinstance(payload, TaskResume):
+            await runtime._handle_resume(payload)
+        elif isinstance(payload, Intervene):
+            await runtime._handle_intervene(payload)
+        elif isinstance(payload, Answer):
+            runtime._mailbox.resolve_answer(payload)
+        elif isinstance(payload, HoneyResponse):
+            # Roadmap step 7.8: a response names its query only through the envelope's own
+            # correlation_id (the Warden set it to the query envelope this Worker sent).
+            runtime._honey.resolve(envelope.correlation_id, payload)
+        # Anything else is not addressed to a Worker's mailbox; ignored so a peer's unrelated
+        # message can never take this runtime down.
+    except InvalidWorkerTransitionError as error:
+        log.warning(
+            "workers.runtime.invalid_transition",
+            worker_id=runtime._ctx.worker_id,
+            error=str(error),
+        )
 
 
 async def _send_pending_alarms(runtime: WorkerRuntime) -> None:

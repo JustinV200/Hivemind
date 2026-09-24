@@ -22,16 +22,17 @@ Warden never provisions Cells itself.
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
   `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`; any one no
   longer in that set moves it back, recording `warden.clustered`/`warden.active`
-  (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's own wiring step: `_record_routine`
-  also handles a Queen-sent `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/
+  (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's own wiring step: the RECORD
+  handler (`wardens.ticks.dispatch`'s own `_record_routine`) also handles a Queen-sent
+  `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/
   `_hosting_plan` (`wardens.ticks.control.handle_ceilings_set`/`.handle_plan_written`) with no
   fresh trail event -- the Queen already recorded `forage.ceilings_set`/`forage.plan_written`
   before sending either.
 - `WardenState`, `TRANSITIONS`, `assert_transition`, `can_transition`, `is_terminal`
   (`state.py`): the one Warden state machine (Appendix C). `settled_state`, `clustering_update`
   (roadmap step 4.9): the pure ACTIVE/WATCH/CLUSTERED decision and clustered-task-set update
-  `warden.py`'s own `_settle_after_tick`/`_act` call, split out here to stay within codingrules
-  5.1's file-size limit.
+  `wardens.ticks.assign.settle_after_tick` and `wardens.ticks.control.forward_control` call,
+  split out here to stay within codingrules 5.1's file-size limit.
 - `WardenDeps` (`deps.py`): every collaborator one Warden is built with.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.
@@ -66,8 +67,14 @@ Warden never provisions Cells itself.
 - `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
   codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter
   against a grant.
-- `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat` -- one of
-  `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size limits.
+- `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat`, `honey` --
+  one of `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size
+  limits -- and `dispatch`, whose `act` hands each decided `WardenAction` to the one that does it
+  (the `_act` that used to live in `warden.py`). `honey` (roadmap step 7.8) relays a sub-bee's
+  `HoneyQuery`/`NectarDeposit` to the Queen once its payload names that sub-bee and its own task,
+  remembers each forwarded query's asker (`HoneyRelay`, bounded) and relays the Queen's
+  `HoneyResponse` back, correlated to the sub-bee's own envelope; a Queen `control.error` about a
+  relayed deposit is logged.
   `alarms.handle_alarm_action`/`rebind_sub_bee` also record `alarm.handled`/`alarm.escalated` on
   the Pheromone Trail (`hivemind.supervision.record_alarm_event`); `control.forward_control` turns
   a Queen-sent `Intervene(REBIND)` into a real respawn on the binding the Queen already resolved,

@@ -7,9 +7,11 @@ the one place they are offered and run (`ToolRegistry`, `build_registry`); `sess
 than touching a process or file directly; `http` is `http_request`, gated on a `net` capability and
 always refused by v0's Capping gate (`waggle.messages.capping.ActionKind` has no network shape
 yet); `ask` raises a blocking `Question` up the chain; `keep` (roadmap step 5.0e) moves a scratch
-file to a path outside it, via a `COPY` action; `proposals` is the one place a tool's side effect
-turns into a Capping `Proposal` and a `GateOutcome` turns back into tool-result text; and `errors`
-is this package's own error tree, rooted at `hivemind.workers.errors.WorkerError`.
+file to a path outside it, via a `COPY` action; `honey` (roadmap step 7.8) is `recall` and
+`remember`, a question to and a finding for the Honey Store (the Hive's knowledge base), both
+through `ctx.honey` and offered only when it is set; `proposals` is the one place a tool's side
+effect turns into a Capping `Proposal` and a `GateOutcome` turns back into tool-result text; and
+`errors` is this package's own error tree, rooted at `hivemind.workers.errors.WorkerError`.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside the workers package. Called by
@@ -24,8 +26,8 @@ Key invariants:
       state that would call it (`hivemind.supervision.capping.checks.deterministic.SchemaCheck`
       rejects every `ACTION_SEQUENCE` action).
     - Every tool with a side effect (`run_command`, `write_file`, `http_request`, `keep`) proposes
-      through `hivemind.workers.tools.proposals.cap` before anything runs or lands; `read_file` and
-      `ask` have none and go straight to their collaborator.
+      through `hivemind.workers.tools.proposals.cap` before anything runs or lands; `read_file`,
+      `ask`, `recall` and `remember` have none on the Cell and go straight to their collaborator.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under workers.
@@ -47,6 +49,9 @@ Public API (roadmap 3.16):
     - ask, ASK_DEFINITION, ASK_SPEC: the blocking-question tool (hivemind.workers.tools.ask).
     - keep, KEEP_DEFINITION, KEEP_SPEC: move a scratch file outside it, via a COPY action
       (hivemind.workers.tools.keep, roadmap step 5.0e).
+    - recall, remember, recall_budget, RECALL_DEFINITION, RECALL_SPEC, REMEMBER_DEFINITION,
+      REMEMBER_SPEC: ask the Honey Store, and deposit a finding into it
+      (hivemind.workers.tools.honey, roadmap step 7.8).
     - ProposalRequest, make_proposal, cap, describe: a Proposal in, a GateOutcome out
       (hivemind.workers.tools.proposals).
     - ToolError, UnreachablePathError: this package's own error tree
@@ -55,6 +60,15 @@ Public API (roadmap 3.16):
 
 from hivemind.workers.tools.ask import ASK_DEFINITION, ASK_SPEC, ask
 from hivemind.workers.tools.errors import ToolError, UnreachablePathError
+from hivemind.workers.tools.honey import (
+    RECALL_DEFINITION,
+    RECALL_SPEC,
+    REMEMBER_DEFINITION,
+    REMEMBER_SPEC,
+    recall,
+    recall_budget,
+    remember,
+)
 from hivemind.workers.tools.http import HTTP_DEFINITION, HTTP_METHODS, HTTP_SPEC, http_request
 from hivemind.workers.tools.keep import KEEP_DEFINITION, KEEP_SPEC, keep
 from hivemind.workers.tools.proposals import ProposalRequest, cap, describe, make_proposal
@@ -89,6 +103,10 @@ __all__ = [
     "MAX_TOOL_RESULT_CHARS",
     "READ_FILE_DEFINITION",
     "READ_FILE_SPEC",
+    "RECALL_DEFINITION",
+    "RECALL_SPEC",
+    "REMEMBER_DEFINITION",
+    "REMEMBER_SPEC",
     "RUN_COMMAND_DEFINITION",
     "RUN_COMMAND_SPEC",
     "WRITE_FILE_DEFINITION",
@@ -108,6 +126,9 @@ __all__ = [
     "keep",
     "make_proposal",
     "read_file",
+    "recall",
+    "recall_budget",
+    "remember",
     "run_command",
     "write_file",
 ]

@@ -7,7 +7,10 @@ closed set; `InboxItem` is the one shape every one of those is wrapped in before
 just enough about it (who it is from or about, how urgent, whether it names a task) for
 `hivemind.supervision.attendant.scoring.score_item` to work without knowing the underlying
 message's own type. `payload` is deliberately `object`: an InboxItem may wrap a waggle message, an
-Alarm, a Question, or a plain human string, and scoring never needs to open it.
+Alarm, a Question, or a plain human string, and scoring never needs to open it. `correlation_id`
+carries the wrapped envelope's own `correlation_id` (roadmap step 7.8): a relaying supervisor
+matches a reply whose payload names no request of its own (a `HoneyResponse`) back to the request
+it forwarded by that envelope field alone, which scoring never reads.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by whichever inbox module feeds a
@@ -92,3 +95,10 @@ class InboxItem(BaseModel):
         '"task.result", or a local label for a non-Waggle item.'
     )
     payload: object = Field(description="The underlying message, Alarm, Question or string.")
+    # Additive and defaulted (roadmap step 7.8), so every InboxItem built before it still builds.
+    correlation_id: str | None = Field(
+        default=None,
+        description="The wrapped envelope's own correlation_id, when it answers or follows a "
+        "request (a HoneyResponse's names the query envelope it answers); None for a request, an "
+        "uncorrelated event, or a non-Waggle item. Never read by scoring.",
+    )

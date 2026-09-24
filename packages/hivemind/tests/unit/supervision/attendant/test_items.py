@@ -64,3 +64,9 @@ def test_inbox_item_accepts_a_positive_latency_budget() -> None:
     item = make_inbox_item(latency_budget_s=5.0)
 
     assert item.latency_budget_s == 5.0
+
+
+def test_inbox_item_carries_no_correlation_id_unless_given_one() -> None:
+    """Roadmap step 7.8: additive and defaulted, so every earlier item still builds."""
+    assert make_inbox_item().correlation_id is None
+    assert make_inbox_item(correlation_id="msg_answered").correlation_id == "msg_answered"

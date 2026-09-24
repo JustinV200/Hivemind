@@ -225,11 +225,11 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
     Roadmap step 5.13's own missing lever (`hivemind.queen.cluster.tick.run_release_tick`):
     unlike `handle_stop` (ADR-0027's Shutdown/CellTeardownRequest, which ends this whole Warden),
     this Warden's own Cell is not being destroyed here -- only its lease. `settle_after_tick`
-    (called right after every `_act`, `hivemind.wardens.ticks.assign`'s own module docstring)
-    settles this Warden back to WATCH on its own once `_sub_bees` is empty, so this handler never
-    touches `warden._state` itself. Idempotent: `RealCellLease.release()` is idempotent, and a
-    Warden already lease-less (WATCH since `start()` was refused) simply has nothing to release
-    or report.
+    (called right after every `hivemind.wardens.ticks.dispatch.act`, `hivemind.wardens.ticks.
+    assign`'s own module docstring) settles this Warden back to WATCH on its own once
+    `_sub_bees` is empty, so this handler never touches `warden._state` itself. Idempotent:
+    `RealCellLease.release()` is idempotent, and a Warden already lease-less (WATCH since
+    `start()` was refused) simply has nothing to release or report.
 
     Args:
         warden: The owning Warden (read and written directly; see the module docstring).

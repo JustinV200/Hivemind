@@ -16,9 +16,11 @@ its own Warden went offline or simply stopped renewing it -- returns to the pool
 `handle_infrastructure_item` (this module's own dispatch point) also reaches `hivemind.queen.
 ticks.wax.handle_wax_item` for a `waggle.messages.cell.CellWaxProposed` (roadmap step 4.2a), the
 same "ahead of `decide`, so a within-cap case needs no awake episode" shape as its ForageRequest
-neighbour. Roadmap step 4.6 adds one more move to the same Heartbeat handling: `handle_heartbeat_
-item` now also checks the sending Warden's own reported `ContextTelemetry` against `hivemind.queen.
-ticks.context.intervention_for`, and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight
+neighbour, and, just before it, `hivemind.queen.ticks.honey.handle_honey_item` for a
+`NectarDeposit` or `HoneyQuery` (roadmap step 7.8: the Honey Store's routine traffic). Roadmap
+step 4.6 adds one more move to the same Heartbeat handling: `handle_heartbeat_item` now also
+checks the sending Warden's own reported `ContextTelemetry` against `hivemind.queen.ticks.context.
+intervention_for`, and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight
 over that Warden's own link when its context has crossed the threshold -- mirroring `hivemind.
 queen.queen.Queen._send_intervene`'s own wire-and-send shape rather than reaching back into
 `queen.py` for it (that module is at its own size cap), so the Queen orders context interventions
@@ -30,9 +32,9 @@ Fits into the Hive:
     (`record_heartbeat`, `renew_grants_on_heartbeat`) and unconditionally once per tick
     (`check_liveness`). Calls into `hivemind.cell` (HoneyClearance), `hivemind.queen.deps`
     (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (renew_grants_for_warden,
-    sweep_expired), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.queen.ticks.wax`
-    (handle_wax_item), `hivemind.supervision` (Alarm, AlarmKind, AlarmSeverity, AlarmState) and
-    waggle only.
+    sweep_expired), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.queen.ticks.honey`
+    (handle_honey_item), `hivemind.queen.ticks.wax` (handle_wax_item), `hivemind.supervision`
+    (Alarm, AlarmKind, AlarmSeverity, AlarmState) and waggle only.
 
 Key invariants:
     - `check_liveness` re-derives `missed_heartbeats` from elapsed wall-clock time on every call,
@@ -67,6 +69,7 @@ from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.ticks import context as context_tick
 from hivemind.queen.ticks import forage as forage_tick
+from hivemind.queen.ticks import honey as honey_tick
 from hivemind.queen.ticks import wax as wax_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
 from hivemind.supervision.attendant import InboxItem
@@ -130,14 +133,16 @@ async def handle_infrastructure_item(
     last_heartbeat: MutableMapping[WardenId, Heartbeat],
     liveness: MutableMapping[WardenId, WardenLiveness],
 ) -> bool:
-    """Handle a Heartbeat, ForageRequest or CellWaxProposed InboxItem; report whether it did any.
+    """Handle a Heartbeat, ForageRequest, Honey or CellWaxProposed item; report whether it did.
 
     The payload kinds `hivemind.queen.autopilot.table.decide` must never see fall to its own
     `NEEDS_JUDGEMENT` (an unrecognised payload) -- a routine Heartbeat is not a judgement call,
     roadmap step 4.7 requires a ForageRequest within headroom to be granted "with no awake
-    episode", and roadmap step 4.2a requires the same for a Warden's own NOTE/CAUTION within its
-    per-Cell cap -- so `hivemind.queen.queen.Queen`'s own tick reaches this ahead of `decide` for
-    all three, sharing the one dispatch rather than repeating the same `isinstance` checks there.
+    episode", roadmap step 4.2a requires the same for a Warden's own NOTE/CAUTION within its
+    per-Cell cap, and roadmap step 7.8's Nectar deposits and Honey queries are routine traffic
+    (`hivemind.queen.ticks.honey`) -- so `hivemind.queen.queen.Queen`'s own tick reaches this
+    ahead of `decide` for all of them, sharing the one dispatch rather than repeating the same
+    `isinstance` checks there.
 
     Args:
         deps: The Queen's collaborators.
@@ -147,8 +152,9 @@ async def handle_infrastructure_item(
         liveness: The Queen's own `warden_id -> WardenLiveness` table; mutated in place.
 
     Returns:
-        True if `item.payload` was a Heartbeat, a ForageRequest or a CellWaxProposed (either way,
-        fully handled); False otherwise, so the caller falls through to its own ordinary dispatch.
+        True if `item.payload` was a Heartbeat, a ForageRequest, a NectarDeposit, a HoneyQuery or
+        a CellWaxProposed (either way, fully handled); False otherwise, so the caller falls
+        through to its own ordinary dispatch.
     """
     if isinstance(item.payload, Heartbeat):
         await handle_heartbeat_item(deps, wardens, item, last_heartbeat, liveness)
@@ -156,6 +162,8 @@ async def handle_infrastructure_item(
     if isinstance(item.payload, WireForageRequest):
         await forage_tick.handle_forage_request_for_item(deps, wardens, item)
         return True
+    if await honey_tick.handle_honey_item(deps, wardens, item):
+        return True  # Roadmap step 7.8: a Nectar deposit chunk or a Honey query, answered here.
     return await wax_tick.handle_wax_item(deps, wardens, item)
 
 

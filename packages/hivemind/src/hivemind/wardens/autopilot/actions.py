@@ -7,13 +7,16 @@ about one inbox item, before -- and, for `NEEDS_JUDGEMENT`, instead of -- ever w
 `ACCEPT` runs a sub-bee's claimed `TaskResult` through acceptance; `RETRY`/`REBIND`/`ESCALATE`/
 `CANCEL_TASK` are the four ways an Alarm's `hivemind.supervision.policy.PolicyAction` maps onto
 something a Warden actually does; `FORWARD_QUESTION`/`FORWARD_ANSWER`/`FORWARD_CONTROL` relay a
-message between the Queen and a sub-bee unchanged; `RECORD` notes an item (a Heartbeat, a
-`GrantIssued`, a routine `TaskProgress`, or a `CellSnapshotReply`/`CellRollbackReply` the Warden's
-own `RelaySnapshotter` resolves) with no further action; `STOP` is the Queen's own order to
-end this Warden (a `Shutdown` or a `CellTeardownRequest`), which stops every sub-bee, releases the
-lease and ends the tick loop; `RELEASE_LEASE` (roadmap step 5.13) is the Queen's own narrower
-order that stops every sub-bee and releases the lease the same way but leaves this Warden running;
-`NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.wardens.awake` instead.
+message between the Queen and a sub-bee unchanged; `FORWARD_HONEY` (roadmap step 7.8) relays the
+Honey Store's traffic -- a sub-bee's `HoneyQuery` or `NectarDeposit` up, the Queen's
+`HoneyResponse` down, and logs her `control.error` about a relayed deposit; `RECORD` notes an item
+(a Heartbeat, a `GrantIssued`, a routine `TaskProgress`, or a `CellSnapshotReply`/
+`CellRollbackReply` the Warden's own `RelaySnapshotter` resolves) with no further action; `STOP` is
+the Queen's own order to end this Warden (a `Shutdown` or a `CellTeardownRequest`), which stops
+every sub-bee, releases the lease and ends the tick loop; `RELEASE_LEASE` (roadmap step 5.13) is
+the Queen's own narrower order that stops every sub-bee and releases the lease the same way but
+leaves this Warden running; `NEEDS_JUDGEMENT` is the one signal that hands the item to
+`hivemind.wardens.awake` instead.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -51,6 +54,7 @@ class WardenAction(Enum):
     FORWARD_QUESTION = "FORWARD_QUESTION"  # A sub-bee's Question, relayed to the Queen.
     FORWARD_ANSWER = "FORWARD_ANSWER"  # The Queen's Answer, relayed to the asking sub-bee.
     FORWARD_CONTROL = "FORWARD_CONTROL"  # TaskCancel/Pause/Resume/Intervene, relayed unchanged.
+    FORWARD_HONEY = "FORWARD_HONEY"  # HoneyQuery/NectarDeposit up, HoneyResponse down (7.8).
     RECORD = "RECORD"  # Note it (a heartbeat, a grant, routine progress); nothing more to do.
     STOP = "STOP"  # A Shutdown or CellTeardownRequest: stop every sub-bee and end this loop.
     RELEASE_LEASE = "RELEASE_LEASE"  # A Queen-sent Intervene(RELEASE_LEASE): stop every sub-bee,

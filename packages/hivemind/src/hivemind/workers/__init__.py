@@ -44,8 +44,11 @@ Public API (roadmap 3.15):
       (hivemind.workers.base).
     - WorkerState, TRANSITIONS, assert_transition, can_transition, is_terminal: the Worker state
       machine (hivemind.workers.state).
-    - GrantSlice, QuestionChannel, WorkerContext: everything a role may use
-      (hivemind.workers.context).
+    - GrantSlice, QuestionChannel, HoneyChannel, WorkerContext: everything a role may use
+      (hivemind.workers.context); `HoneyChannel` (roadmap 7.8) is how a Worker queries Honey and
+      deposits Nectar through its Warden.
+    - DepositMeta, split_deposit: cut one Nectar deposit into Waggle chunks
+      (hivemind.workers.nectar, roadmap 7.8).
     - TelemetryTracker: the mutable per-Worker telemetry a role writes (hivemind.workers.telemetry).
     - worker_capabilities: a Worker's strict CapabilitySet slice (hivemind.workers.capabilities).
     - WorkerError, InvalidWorkerTransitionError, WorkerCancelledError: this subsystem's error tree
@@ -55,12 +58,13 @@ Public API (roadmap 3.15):
 
 from hivemind.workers.base import Worker, WorkerOutcome
 from hivemind.workers.capabilities import worker_capabilities
-from hivemind.workers.context import GrantSlice, QuestionChannel, WorkerContext
+from hivemind.workers.context import GrantSlice, HoneyChannel, QuestionChannel, WorkerContext
 from hivemind.workers.errors import (
     InvalidWorkerTransitionError,
     WorkerCancelledError,
     WorkerError,
 )
+from hivemind.workers.nectar import DepositMeta, split_deposit
 from hivemind.workers.runtime import RuntimeDeps, WorkerRuntime
 from hivemind.workers.state import (
     TRANSITIONS,
@@ -73,7 +77,9 @@ from hivemind.workers.telemetry import TelemetryTracker
 
 __all__ = [
     "TRANSITIONS",
+    "DepositMeta",
     "GrantSlice",
+    "HoneyChannel",
     "InvalidWorkerTransitionError",
     "QuestionChannel",
     "RuntimeDeps",
@@ -88,5 +94,6 @@ __all__ = [
     "assert_transition",
     "can_transition",
     "is_terminal",
+    "split_deposit",
     "worker_capabilities",
 ]

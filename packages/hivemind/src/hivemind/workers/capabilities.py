@@ -16,7 +16,10 @@ field for "this task may write outside scratch." The final call is `CapabilitySe
 which either returns the computed slice unchanged or raises `CapabilityWideningError`; calling it
 here is deliberately defensive (the slice is already filtered down to what the Warden allows
 before that call), so a raise from it can only mean this function's own filtering has a bug,
-proving the invariant rather than relying on it.
+proving the invariant rather than relying on it. Roadmap step 7.8: the baseline names
+`tool:recall` and `tool:remember` explicitly, the two Honey Store tools every Drone is granted
+(`hivemind.workers.tools.registry.build_registry` offers each only when it is allowed), so they
+survive a Warden ceiling that one day lists tools by name instead of `tool:*`.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Called by `hivemind.wardens.spawn` (roadmap step 3.19) when
@@ -111,7 +114,8 @@ def _baseline_specs(scratch_root: Path) -> list[str]:
 
     Returns:
         `fs:write` confined to `scratch_root`, plus the read/exec/tool access a role's tools need
-        to work at all (still capped by the Warden's own ceiling in `worker_capabilities`).
+        to work at all, the two Honey Store tools by name among them (still capped by the
+        Warden's own ceiling in `worker_capabilities`).
     """
     # Mirrors the pattern hivemind.guard.access.ceiling_for uses for a lease's own fs:write scope:
     # a posix-style path with a trailing "/**", stripped of a doubled slash for a root ending
@@ -122,6 +126,8 @@ def _baseline_specs(scratch_root: Path) -> list[str]:
         "fs:read:**",  # Every Cell tier already permits reads anywhere (codingrules 8.7).
         "exec:*",  # To run commands through the Cell's session.
         "tool:*",  # To call whatever a role's own tool registry (roadmap 3.16) offers it.
+        "tool:recall",  # Roadmap 7.8: ask the Honey Store (the Warden's ceiling still decides).
+        "tool:remember",  # Roadmap 7.8: deposit a finding into it; no side effect on the Cell.
     ]
 
 

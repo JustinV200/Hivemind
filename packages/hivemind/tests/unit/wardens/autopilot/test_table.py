@@ -14,12 +14,14 @@ See Also:
 from __future__ import annotations
 
 import pytest
+from builders.honey_wire import make_deposit_meta, make_honey_query
 from builders.supervision import make_inbox_item, make_policy
 
 from hivemind.supervision import AlarmKind as PolicyAlarmKind
 from hivemind.supervision import PolicyAction, PolicyRule
 from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
+from hivemind.workers.nectar import split_deposit
 from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.ids import (
@@ -34,8 +36,9 @@ from waggle.ids import (
 from waggle.messages import AlarmSeverity
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.status import ReleaseCause
-from waggle.messages.control.protocol import Shutdown
+from waggle.messages.control.protocol import ErrorMessage, Shutdown
 from waggle.messages.forage import GrantIssued
+from waggle.messages.honey import HoneyResponse
 from waggle.messages.labels import AccuracyBar, Postcondition, PostconditionKind, Tempo, Urgency
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import (
@@ -291,3 +294,32 @@ def test_decide_falls_back_to_the_policys_default_for_a_fresh_alarm() -> None:
     alarm = _alarm(attempts=0)
 
     assert decide(_item(alarm), None, policy) is WardenAction.ESCALATE
+
+
+def _error(failed_kind: str | None) -> ErrorMessage:
+    return ErrorMessage(
+        code="hivemind.honey_store.cell_mismatch",
+        message="The deposit named another Cell.",
+        failed_kind=failed_kind,
+        is_retryable=False,
+    )
+
+
+def test_decide_maps_the_honey_stores_traffic_to_forward_honey() -> None:
+    """Roadmap step 7.8: queries and deposits up, responses down -- never a judgement call."""
+    (deposit,) = split_deposit(b"a finding", make_deposit_meta(_CLOCK))
+    response = HoneyResponse(
+        hits=(), token_count=0, is_truncated=False, filtered_count=0, reason="none"
+    )
+
+    for payload in (make_honey_query(_CLOCK), deposit, response):
+        assert decide(_item(payload), _SUB_BEE, make_policy()) is WardenAction.FORWARD_HONEY
+
+
+def test_decide_logs_a_refused_deposit_but_leaves_any_other_error_to_judgement() -> None:
+    refused = _error("honey.nectar_deposit")
+    other = _error("task.result")
+
+    assert decide(_item(refused), None, make_policy()) is WardenAction.FORWARD_HONEY
+    assert decide(_item(other), None, make_policy()) is WardenAction.NEEDS_JUDGEMENT
+    assert decide(_item(_error(None)), None, make_policy()) is WardenAction.NEEDS_JUDGEMENT

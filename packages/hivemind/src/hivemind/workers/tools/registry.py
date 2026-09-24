@@ -14,8 +14,9 @@ alongside instead.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Built and read by
-    `hivemind.workers.roles.drone.Drone`; the six `ToolSpec`s it registers live in
-    `hivemind.workers.tools.session`, `.http`, `.ask` and `.keep` (roadmap step 5.0e). Calls into
+    `hivemind.workers.roles.drone.Drone`; the eight `ToolSpec`s it registers live in
+    `hivemind.workers.tools.session`, `.http`, `.ask`, `.keep` (roadmap step 5.0e) and `.honey`
+    (roadmap step 7.8). Calls into
     `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.errors`
     and waggle only.
 
@@ -27,7 +28,9 @@ Key invariants:
       `hivemind.workers.errors.WorkerCancelledError` included -- propagates unchanged.
     - `build_registry` offers `http_request` only when `ctx.capabilities` holds at least one `net`
       capability; offering a tool with nothing it could ever be allowed to do would only invite a
-      model to try it and be refused every time.
+      model to try it and be refused every time. The same holds for `recall`/`remember` (roadmap
+      step 7.8): offered only when `ctx.honey` is set and `ctx.capabilities` allows
+      `tool:recall`/`tool:remember`.
 
 See Also:
     - .claude/codingrules.md section 15 for "LLM output is untrusted input" and least privilege.
@@ -43,7 +46,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from hivemind.guard import CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily
 from hivemind.llm import JsonObject, ToolCall, ToolDefinition, validate_arguments
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.tools.errors import ToolError
@@ -179,11 +182,15 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
     Returns:
         A ToolRegistry with `run_command`, `read_file`, `write_file`, `ask` and `keep` always,
         plus `http_request` only when `ctx.capabilities` holds at least one `net` capability --
-        there is nothing else a network tool could ever be allowed to do for this Worker.
+        there is nothing else a network tool could ever be allowed to do for this Worker -- and
+        `recall`/`remember` only when `ctx.honey` is set and `ctx.capabilities` allows each one
+        by name (`tool:recall`, `tool:remember`).
     """
-    # Imported here, not at module level: session/http/ask/keep each import ToolInvocation/
-    # ToolSpec from this module, so importing them back at module scope would cycle.
+    # Imported here, not at module level: session/http/ask/keep/honey each import
+    # ToolInvocation/ToolSpec from this module, so importing them back at module scope would
+    # cycle.
     from hivemind.workers.tools.ask import ASK_SPEC
+    from hivemind.workers.tools.honey import RECALL_SPEC, REMEMBER_SPEC
     from hivemind.workers.tools.http import HTTP_SPEC
     from hivemind.workers.tools.keep import KEEP_SPEC
     from hivemind.workers.tools.session import READ_FILE_SPEC, RUN_COMMAND_SPEC, WRITE_FILE_SPEC
@@ -197,4 +204,15 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
     ]
     if any(capability.family is CapabilityFamily.NET for capability in ctx.capabilities):
         specs.append(HTTP_SPEC)
+    # Roadmap step 7.8: the Honey tools need a channel to the Queen and a grant naming each one.
+    if ctx.honey is not None:
+        specs.extend(
+            spec for spec in (RECALL_SPEC, REMEMBER_SPEC) if _tool_allowed(ctx, spec.definition)
+        )
     return ToolRegistry(specs)
+
+
+def _tool_allowed(ctx: WorkerContext, definition: ToolDefinition) -> bool:
+    """Return whether `ctx.capabilities` allows the `tool:<name>` capability for `definition`."""
+    needed = Capability(family=CapabilityFamily.TOOL, scope=definition.name)
+    return ctx.capabilities.allows(needed)

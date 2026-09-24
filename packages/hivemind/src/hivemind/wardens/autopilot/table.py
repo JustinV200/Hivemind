@@ -14,10 +14,12 @@ Queen maps to `STOP` (ADR-0027: the one order that ends a Warden, never a judgem
 Queen-sent `Intervene(RELEASE_LEASE)` maps to `RELEASE_LEASE` (roadmap step 5.13: the narrower
 order that releases the lease but leaves this Warden running, decided ahead of the generic
 `Intervene` -> `FORWARD_CONTROL` branch); a `CellSnapshotReply`/`CellRollbackReply` (roadmap step
-5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`;
-every other recognised kind maps to a fixed action; anything this table has never seen returns
-`NEEDS_JUDGEMENT`, the one signal that hands the item to `hivemind.wardens.awake` instead of
-silently dropping it.
+5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`; the
+Honey Store's traffic (roadmap step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`,
+and a `control.error` whose `failed_kind` is `honey.nectar_deposit` -- maps to `FORWARD_HONEY`,
+which `hivemind.wardens.ticks.honey` relays or logs; every other recognised kind maps to a fixed
+action; anything this table has never seen returns `NEEDS_JUDGEMENT`, the one signal that hands
+the item to `hivemind.wardens.awake` instead of silently dropping it.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -56,8 +58,10 @@ from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
-from waggle.messages.control.protocol import Shutdown
+from waggle.messages.control.protocol import ErrorMessage, Shutdown
 from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
+from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
+from waggle.messages.registry import kind_for
 from waggle.messages.supervision import (
     AlarmRaised,
     Answer,
@@ -87,6 +91,10 @@ if TYPE_CHECKING:
     from hivemind.workers.state import WorkerState
 
 __all__ = ["SubBeeView", "decide"]
+
+# The kind a Queen's control.error names when it refuses a deposit this Warden relayed; read from
+# the registry, the one place kinds live, so it can never drift from the wire.
+_NECTAR_DEPOSIT_KIND = kind_for(NectarDeposit)
 
 # Every PolicyAction a Warden's own EscalationPolicy can name, mapped onto what a Warden actually
 # does about it (roadmap step 3.19's own dispatch map): RESPAWN and RETRY both mean "start this
@@ -149,9 +157,9 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
         return WardenAction.FORWARD_QUESTION
     if isinstance(payload, Answer):
         return WardenAction.FORWARD_ANSWER
-    control = _decide_control_or_record(payload)
-    if control is not None:
-        return control
+    relay_or_record = _decide_relay_or_record(payload)
+    if relay_or_record is not None:
+        return relay_or_record
     # ADR-0027 / roadmap step 5.3: the Queen's own two ways of ending a Warden. A `Shutdown` is the
     # ordinary "stop now" order; a `CellTeardownRequest` says this Warden's own Cell is about to be
     # destroyed, which for the Warden running *inside* that Cell means exactly the same thing --
@@ -163,8 +171,8 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
     return WardenAction.NEEDS_JUDGEMENT
 
 
-def _decide_control_or_record(payload: object) -> WardenAction | None:
-    """Return the WardenAction for a control-lever or RECORD-only payload; None for neither.
+def _decide_relay_or_record(payload: object) -> WardenAction | None:
+    """Return the WardenAction for a control-lever, RECORD-only or Honey payload; else None.
 
     Split out of `decide` itself purely to stay under codingrules 5.1's cyclomatic-complexity
     limit as this table has grown more recognised kinds; carries no behaviour of its own beyond
@@ -183,6 +191,18 @@ def _decide_control_or_record(payload: object) -> WardenAction | None:
         # Roadmap step 5.10's own follow-up gap (the snapshot relay): resolved by this Warden's
         # own RelaySnapshotter, never a judgement call.
         return WardenAction.RECORD
+    return _decide_honey(payload)
+
+
+def _decide_honey(payload: object) -> WardenAction | None:
+    """Return FORWARD_HONEY for the Honey Store's traffic (roadmap step 7.8); None otherwise."""
+    if isinstance(payload, HoneyQuery | NectarDeposit | HoneyResponse):
+        # Relayed unchanged between a sub-bee and the Queen; which way is the relay's to check.
+        return WardenAction.FORWARD_HONEY
+    if isinstance(payload, ErrorMessage) and payload.failed_kind == _NECTAR_DEPOSIT_KIND:
+        # The Queen refused a deposit this Warden relayed: logged, never a judgement call. Any
+        # other control.error still reaches awake, as before this row existed.
+        return WardenAction.FORWARD_HONEY
     return None
 
 

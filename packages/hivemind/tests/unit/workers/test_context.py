@@ -45,6 +45,13 @@ def test_make_context_wires_a_direct_call_gate_by_default() -> None:
     assert isinstance(ctx.call_gate, DirectCallGate)
 
 
+def test_a_worker_context_has_no_honey_channel_until_a_runtime_wires_one() -> None:
+    """Roadmap step 7.8: `honey` is additive and defaulted, so a hand-built context has none."""
+    ctx = make_context()
+
+    assert ctx.honey is None
+
+
 def test_worker_context_is_frozen() -> None:
     ctx = make_context()
 

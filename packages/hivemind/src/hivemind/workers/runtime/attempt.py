@@ -12,16 +12,19 @@ general-purpose class: it reads and writes `WorkerRuntime`'s private state direc
 and only one `WorkerRuntime` ever holds a reference to it. Every state change and outgoing message
 goes through `runtime._reporter` (`hivemind.workers.runtime.reporter.Reporter`), the same delegate
 `WorkerRuntime`'s own handlers report through, so both classes move one Worker's state and send
-its messages through one shared implementation.
+its messages through one shared implementation. Roadmap step 7.8: every checkpoint's Handoff, once
+durable, is also deposited into the Honey Store as HANDOFF Nectar
+(`hivemind.workers.runtime.honey.deposit_handoff`), best-effort and never raising.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Owned by exactly one `WorkerRuntime` instance (roadmap step
     3.15), constructed in its `__init__` and driven from its `_tick`. Calls into `hivemind.llm.
     errors` (ProviderUnavailableError, RateLimitedError -- `_alarm_kind_for_crash`'s own
     classification table, this dispatch's own fix 3a; workers may import hivemind.llm),
-    `hivemind.memory`, `hivemind.supervision.alarm` and waggle only; the `WorkerRuntime` type it
-    is built with is imported under `TYPE_CHECKING` only, so no runtime import cycle exists
-    between this module and `hivemind.workers.runtime.loop`.
+    `hivemind.memory`, `hivemind.supervision.alarm`, this package's own `honey` and `reports`,
+    and waggle only; the `WorkerRuntime` type it is built with is imported under `TYPE_CHECKING`
+    only, so no runtime import cycle exists between this module and
+    `hivemind.workers.runtime.loop`.
 
 Key invariants:
     - `on_finished` is only ever called once the owning `_tick` has confirmed `role_task` is done
@@ -66,6 +69,7 @@ from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.memory import Handoff, write_checkpoint
 from hivemind.memory.overflow import ContextOverflowError
 from hivemind.workers.base import WorkerOutcome
+from hivemind.workers.runtime.honey import deposit_handoff
 from hivemind.workers.runtime.reports import AlarmDetails, ResultDetails
 from hivemind.workers.state import WorkerState
 from waggle.messages.supervision import AlarmKind
@@ -226,7 +230,7 @@ class AttemptManager:
         if outcome.claimed:
             await self._finish_claimed(outcome)
         else:
-            await self._handle_handoff(outcome)
+            await _handle_handoff(self, outcome)
 
     async def _finish_claimed(self, outcome: WorkerOutcome) -> None:
         """Move RUNNING -> DONE and report TaskResult(CLAIMED)."""
@@ -243,26 +247,6 @@ class AttemptManager:
                 spend=outcome.spend_usd,
             )
         )
-
-    async def _handle_handoff(self, outcome: WorkerOutcome) -> None:
-        """Checkpoint the role's Handoff, then either restart it or close the attempt."""
-        runtime = self._runtime
-        handoff = outcome.handoff
-        if handoff is None:  # WorkerOutcome's own validator forbids this; defensive no-op.
-            return
-        runtime._reporter.transition(WorkerState.HANDING_OFF)
-        await runtime._reporter.record_event("worker.handing_off")
-        assignment = runtime._reporter.require_assignment()
-        ref = await write_checkpoint(
-            handoff, assignment.task_id, runtime._reporter.memory_context()
-        )
-        await runtime._reporter.send_progress(TaskStage.CHECKPOINTED, "Checkpointed.", handoff=ref)
-        if self._stop_after_handoff or runtime._ctx.telemetry.cancel_requested:
-            await self._finish_stopped()
-            return
-        runtime._reporter.transition(WorkerState.RUNNING)
-        await runtime._reporter.record_event("worker.resumed")
-        self.start(handoff)
 
     async def _finish_stopped(self) -> None:
         """Move HANDING_OFF -> DONE once an Intervene asked this attempt to stop.
@@ -291,6 +275,35 @@ class AttemptManager:
         await runtime._reporter.record_event(
             "worker.killed", cancel_reason=(self._cancel_reason or "Cancelled.")[:200]
         )
+
+
+async def _handle_handoff(attempt: AttemptManager, outcome: WorkerOutcome) -> None:
+    """Checkpoint the role's Handoff, deposit it as Nectar, then restart the role or close it.
+
+    Module-level, reading `attempt`'s private state directly (the same shape as
+    `_cancel_role_task` below), so `AttemptManager`'s own class body stays within codingrules
+    5.1's size limit. Roadmap step 7.8: once the checkpoint is durable, the same Handoff is
+    deposited into the Honey Store (`hivemind.workers.runtime.honey.deposit_handoff`), which never
+    raises, so a lost deposit can never change what this attempt does next.
+    """
+    runtime = attempt._runtime
+    handoff = outcome.handoff
+    if handoff is None:  # WorkerOutcome's own validator forbids this; defensive no-op.
+        return
+    runtime._reporter.transition(WorkerState.HANDING_OFF)
+    await runtime._reporter.record_event("worker.handing_off")
+    assignment = runtime._reporter.require_assignment()
+    ref = await write_checkpoint(handoff, assignment.task_id, runtime._reporter.memory_context())
+    await runtime._reporter.send_progress(TaskStage.CHECKPOINTED, "Checkpointed.", handoff=ref)
+    # After the progress report, so the Warden learns of the checkpoint first; best-effort, since
+    # the Handoff is already durable in Bee Bread whether or not this copy arrives.
+    await deposit_handoff(runtime._ctx, assignment.task_id, handoff, ref)
+    if attempt._stop_after_handoff or runtime._ctx.telemetry.cancel_requested:
+        await attempt._finish_stopped()
+        return
+    runtime._reporter.transition(WorkerState.RUNNING)
+    await runtime._reporter.record_event("worker.resumed")
+    attempt.start(handoff)
 
 
 async def _cancel_role_task(attempt: AttemptManager) -> None:

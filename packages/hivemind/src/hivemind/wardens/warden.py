@@ -12,8 +12,9 @@ through `hivemind.wardens.autopilot.decide` to one `hivemind.wardens.autopilot.W
 sending its own Heartbeat once the interval has elapsed. The actual work each action does lives in
 `hivemind.wardens.ticks`, this module's own delegates (not general-purpose classes: they read and
 write this class's private state directly, the same way `hivemind.workers.runtime.attempt.
-AttemptManager` and `.reporter.Reporter` do for `WorkerRuntime`), split out only so this file and
-its `Warden` class stay within codingrules 5.1's size limits.
+AttemptManager` and `.reporter.Reporter` do for `WorkerRuntime`), reached through
+`hivemind.wardens.ticks.dispatch.act` and split out only so this file and its `Warden` class stay
+within codingrules 5.1's size limits.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Constructed by whichever
@@ -93,30 +94,11 @@ from waggle.errors import (
 )
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
-from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
-from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
-from waggle.messages.supervision import (
-    AlarmRaised,
-    Answer,
-    CompactView,
-    ContextTelemetry,
-    Heartbeat,
-    Intervene,
-    Question,
-)
-from waggle.messages.task import (
-    TaskAssign,
-    TaskCancel,
-    TaskPause,
-    TaskProgress,
-    TaskResult,
-    TaskResume,
-)
+from waggle.messages.forage import GrantIssued
+from waggle.messages.supervision import CompactView, ContextTelemetry
+from waggle.messages.task import TaskAssign
 
 _QUEEN_LINK = "queen"  # The receive-task/InboxItem.principal key for the Warden's own Queen link.
-_ALARM_ACTIONS = frozenset(
-    {WardenAction.RETRY, WardenAction.REBIND, WardenAction.ESCALATE, WardenAction.CANCEL_TASK}
-)
 
 __all__ = ["Warden"]
 
@@ -151,6 +133,9 @@ class Warden(TickLoop):
         self._pending: dict[str, TaskAssign] = {}
         self._questions: dict[str, WorkerId] = {}
         self._question_envelope_ids: dict[str, MessageId] = {}
+        # Roadmap step 7.8: which sub-bee asked each Honey query this Warden forwarded, so the
+        # Queen's answer, which names only the forwarded envelope, reaches the right one.
+        self._honey_relay = ticks.honey.HoneyRelay()
         self._attendant = warden_attendant(deps.clock)
         self._queen_iter: AsyncIterator[Envelope] = deps.queen_link.receive()
         self._receive_tasks: dict[str, asyncio.Task[Envelope | None]] = {}
@@ -419,7 +404,7 @@ async def _handle_item(warden: Warden, item: InboxItem) -> None:
         sources = ticks.heartbeat.hot_state_sources(warden)
         decision = await decide_awake(warden._deps, _trigger_event(item), sources)
         action, binding = decision.action, decision.binding
-    await _act(warden, action, item, sub_bee, binding)
+    await ticks.dispatch.act(warden, action, item, sub_bee, binding)
 
 
 def _trigger_event(item: InboxItem) -> TriggerEvent:
@@ -430,66 +415,6 @@ def _trigger_event(item: InboxItem) -> TriggerEvent:
         payload_ref=item.id,
         clearance=_HoneyClearance.C1,
     )
-
-
-async def _act(
-    warden: Warden,
-    action: WardenAction,
-    item: InboxItem,
-    sub_bee: SubBee | None,
-    binding: str | None,
-) -> None:
-    """Carry out one decided WardenAction."""
-    payload = item.payload
-    if action is WardenAction.SPAWN and isinstance(payload, TaskAssign):
-        await ticks.assign.handle_assign(warden, payload)
-    elif action is WardenAction.RECORD:
-        await _record_routine(warden, item, payload)
-    elif action is WardenAction.ACCEPT and isinstance(payload, TaskResult) and sub_bee is not None:
-        await ticks.results.handle_accept(warden, sub_bee, payload)
-    elif action in _ALARM_ACTIONS and sub_bee is not None and isinstance(payload, AlarmRaised):
-        await ticks.alarms.handle_alarm_action(warden, sub_bee, payload, action, binding)
-    elif action is WardenAction.FORWARD_QUESTION and isinstance(payload, Question):
-        await ticks.questions.forward_question(warden, MessageId(item.id), payload)
-    elif action is WardenAction.FORWARD_ANSWER and isinstance(payload, Answer):
-        await ticks.questions.forward_answer(warden, payload)
-    elif action is WardenAction.FORWARD_CONTROL and isinstance(
-        payload, TaskCancel | TaskPause | TaskResume | Intervene
-    ):
-        await ticks.control.forward_control(warden, item, sub_bee, payload)
-    elif action is WardenAction.STOP:
-        # ADR-0027 / roadmap step 5.3: the Queen's own Shutdown or CellTeardownRequest. `stop()`
-        # already stops every sub-bee, releases the lease and sets the loop's own stop flag, so
-        # `_run_tick` returns straight after this and `run()` ends on its next check.
-        await ticks.control.handle_stop(warden, payload)
-    elif action is WardenAction.RELEASE_LEASE and isinstance(payload, Intervene):
-        # Roadmap step 5.13: the Queen's own narrower order. Unlike STOP, this Warden keeps
-        # running afterwards; `ticks.assign.settle_after_tick` (still called below) settles it
-        # back to WATCH on its own once `_sub_bees` is empty.
-        await ticks.control.handle_release_lease(warden, payload)
-
-
-async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
-    """Handle a RECORD-only item: a grant, a heartbeat, routine progress, ceilings or a plan."""
-    if isinstance(payload, GrantIssued):
-        await ticks.assign.handle_grant(warden, payload)
-    elif isinstance(payload, Heartbeat):
-        ticks.heartbeat.record_heartbeat(warden, item.principal, payload)
-    elif isinstance(payload, TaskProgress):
-        ticks.heartbeat.record_progress(warden, item.principal, payload)
-    elif isinstance(payload, CeilingsSet):
-        # Roadmap step 4.8's own wiring step: the Queen's own ceilings never record a fresh trail
-        # event here (module docstring of hivemind.queen.forage.ceilings: she already recorded
-        # forage.ceilings_set on her own side before sending it).
-        ticks.control.handle_ceilings_set(warden, payload)
-    elif isinstance(payload, PlanWritten):
-        # Same reasoning: hivemind.queen.forage.hosting already recorded forage.plan_written.
-        ticks.control.handle_plan_written(warden, payload)
-    elif isinstance(payload, CellSnapshotReply | CellRollbackReply):
-        # Roadmap step 5.10's own follow-up gap: resolve this Warden's own RelaySnapshotter,
-        # never a trail write of its own (the Capping gate's own proposal handling records
-        # whatever it does with the snapshot/rollback outcome).
-        ticks.control.handle_snapshot_reply(warden, payload)
 
 
 async def _sync_trail(warden: Warden) -> None:

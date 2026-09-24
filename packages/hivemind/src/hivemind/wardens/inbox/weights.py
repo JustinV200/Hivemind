@@ -25,6 +25,8 @@ Key invariants:
       not a crash here.
     - `warden_attendant` never passes a `TieBreaker`: a Warden's Attendant is autopilot-only by
       default (codingrules section 8.8); a later roadmap phase may enable one within a grant.
+    - Every InboxItem carries its envelope's own `correlation_id` unchanged (roadmap step 7.8),
+      the only link from a relayed reply back to the request this Warden forwarded.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the Attendant shape this module builds for a Warden.
@@ -81,6 +83,9 @@ def to_inbox_item(envelope: Envelope, principal: str) -> InboxItem:
         latency_budget_s=None,
         payload_kind=envelope.kind,
         payload=payload,
+        # Kept whole (roadmap step 7.8): the Queen's HoneyResponse names the query envelope this
+        # Warden forwarded only here, which is how `hivemind.wardens.ticks.honey` finds its asker.
+        correlation_id=envelope.correlation_id,
     )
 
 
