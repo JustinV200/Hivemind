@@ -16,7 +16,7 @@ depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate` (no
 is the Queen-side mirror of `builders.workers.WardenEnd`: it wraps the Queen's own end of the
 pair, `send`s an order (`TaskAssign`/`GrantIssued`/`TaskCancel`/`Intervene`) or an `answer` to a
 pending `Question`, and sorts every report the Warden sends back into `heartbeats`/`results`/
-`alarms`/`questions`/`forage_requests`.
+`alarms`/`questions`/`forage_requests`/`lease_released`/`progress`.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -74,7 +74,7 @@ from waggle.messages.cell.leases import LeaseReleased
 from waggle.messages.forage import ForageRequest
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmRaised, Answer, AnswerSource, Heartbeat, Question
-from waggle.messages.task import TaskResult, WorkerRole
+from waggle.messages.task import TaskProgress, TaskResult, WorkerRole
 from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging.
@@ -279,7 +279,8 @@ class QueenEnd:
     """Wrap the Queen side of a Warden's own MemoryTransport pair: send orders, collect reports.
 
     Owns its own mutable state in place (codingrules section 8.5): `heartbeats`, `results`,
-    `alarms`, `questions` and `forage_requests` grow as envelopes are pumped off the transport.
+    `alarms`, `questions`, `forage_requests`, `lease_released` and `progress` grow as envelopes
+    are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -300,6 +301,7 @@ class QueenEnd:
         self.questions: list[Question] = []
         self.forage_requests: list[ForageRequest] = []
         self.lease_released: list[LeaseReleased] = []  # Roadmap step 5.13: cell.lease_released.
+        self.progress: list[TaskProgress] = []  # Roadmap step 10.6c: a quarantined task held.
         # supervision.answer is a reply: its envelope must carry the correlation_id of the
         # Question envelope it answers, tracked here so `answer` can supply it.
         self._question_envelope_ids: dict[MessageId, MessageId] = {}
@@ -433,3 +435,5 @@ class QueenEnd:
             self.forage_requests.append(payload)
         elif isinstance(payload, LeaseReleased):
             self.lease_released.append(payload)
+        elif isinstance(payload, TaskProgress):
+            self.progress.append(payload)
