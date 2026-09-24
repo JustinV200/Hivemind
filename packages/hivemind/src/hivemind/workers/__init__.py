@@ -48,8 +48,8 @@ Public API (roadmap 3.15):
       (hivemind.workers.context).
     - TelemetryTracker: the mutable per-Worker telemetry a role writes (hivemind.workers.telemetry).
     - worker_capabilities: a Worker's strict CapabilitySet slice (hivemind.workers.capabilities).
-    - WorkerError, InvalidWorkerTransitionError, WorkerCancelledError: this subsystem's error tree
-      (hivemind.workers.errors).
+    - WorkerError, InvalidWorkerTransitionError, WorkerCancelledError, GuardBeeError,
+      GuardRulesError: this subsystem's error tree (hivemind.workers.errors).
     - RuntimeDeps, WorkerRuntime: the Worker runtime itself (hivemind.workers.runtime).
 """
 
@@ -57,6 +57,8 @@ from hivemind.workers.base import Worker, WorkerOutcome
 from hivemind.workers.capabilities import worker_capabilities
 from hivemind.workers.context import GrantSlice, QuestionChannel, WorkerContext
 from hivemind.workers.errors import (
+    GuardBeeError,
+    GuardRulesError,
     InvalidWorkerTransitionError,
     WorkerCancelledError,
     WorkerError,
@@ -74,6 +76,8 @@ from hivemind.workers.telemetry import TelemetryTracker
 __all__ = [
     "TRANSITIONS",
     "GrantSlice",
+    "GuardBeeError",
+    "GuardRulesError",
     "InvalidWorkerTransitionError",
     "QuestionChannel",
     "RuntimeDeps",
