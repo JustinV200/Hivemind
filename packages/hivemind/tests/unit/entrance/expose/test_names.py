@@ -21,6 +21,7 @@ from hivemind.entrance.expose.names import (
     certificate_covers,
     describe_public_host,
     is_dns_name,
+    is_public_suffix,
     is_same_or_parent_domain,
     public_host,
     public_origin,
@@ -136,3 +137,20 @@ def test_is_same_or_parent_domain_follows_whole_labels(
 @given(st.ip_addresses())
 def test_no_ip_address_is_ever_a_dns_name(address: object) -> None:
     assert not is_dns_name(str(address))
+
+
+@pytest.mark.parametrize(
+    ("domain", "public"),
+    [
+        ("ts.net", True),  # Tailscale's MagicDNS domain: every tailnet's hosts live under it.
+        ("ngrok-free.app", True),
+        ("net", True),  # One label is a top-level domain.
+        ("tail1234.ts.net", False),  # One operator's own tailnet.
+        ("hive.tail1234.ts.net", False),
+        ("example.test", False),
+    ],
+)
+def test_is_public_suffix_names_the_suffixes_no_relying_party_may_use(
+    domain: str, public: bool
+) -> None:
+    assert is_public_suffix(domain) is public

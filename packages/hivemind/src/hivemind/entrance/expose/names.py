@@ -37,6 +37,24 @@ _MAX_PORT = 65535  # The highest TCP port; httpx accepts larger numbers without 
 _LOCALHOST = "localhost"  # RFC 6761: this name and every name under it are always loopback.
 _WILDCARD_PREFIX = "*."  # A wildcard certificate name: "*." then the base it covers.
 _MIN_WILDCARD_BASE_DOTS = 1  # "*.example.com" at the least: never "*.com", a whole TLD.
+# Public suffixes a remote setup documented here plausibly meets (all on the Public Suffix List):
+# Tailscale's MagicDNS domain, the common tunnel services and a dynamic-DNS provider. Each names
+# many unrelated operators' hosts, so none can ever be a relying party (see is_public_suffix).
+_KNOWN_PUBLIC_SUFFIXES = frozenset(
+    {
+        "ts.net",
+        "beta.tailscale.net",
+        "trycloudflare.com",
+        "cfargotunnel.com",
+        "ngrok.io",
+        "ngrok.app",
+        "ngrok.dev",
+        "ngrok-free.app",
+        "ngrok-free.dev",
+        "loca.lt",
+        "duckdns.org",
+    }
+)
 # One DNS label (RFC 1123): letters, digits and hyphens, 1 to 63 of them, no hyphen at either end.
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _HAS_LETTER = re.compile(r"[a-z]")  # A top-level domain is never all digits (RFC 3696 2).
@@ -46,6 +64,7 @@ __all__ = [
     "certificate_covers",
     "describe_public_host",
     "is_dns_name",
+    "is_public_suffix",
     "is_same_or_parent_domain",
     "public_host",
     "public_origin",
@@ -109,6 +128,23 @@ def describe_public_host(url: str) -> str:
         return "public_url carries credentials before its host."
     host = parsed.raw_host.decode("ascii", errors="replace")
     return f"public_url's host is {host!r}." if host else "public_url names no host."
+
+
+def is_public_suffix(domain: str) -> bool:
+    """Return whether ``domain`` is a public suffix a browser refuses as a WebAuthn relying party.
+
+    Not the whole Public Suffix List: a single-label name (a top-level domain) plus the suffixes
+    this Hive's documented remote setups meet (Tailscale's MagicDNS, the common tunnel and dynamic
+    DNS providers), so the usual mistake is refused at start with a sentence rather than by the
+    browser at the first ceremony. A suffix outside this set still fails there, loudly.
+
+    Args:
+        domain: A lowercase name without a trailing dot, e.g. an ``rp_id``.
+
+    Returns:
+        True when ``domain`` is one label or one of the known suffixes; False otherwise.
+    """
+    return "." not in domain or domain in _KNOWN_PUBLIC_SUFFIXES
 
 
 def is_dns_name(host: str) -> bool:

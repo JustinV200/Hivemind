@@ -245,6 +245,18 @@ _REFUSALS = [
         id="child",
     ),
     pytest.param(
+        ExposureRule.RP_ID_PUBLIC_SUFFIX,
+        section(VPN, public_url="https://hive.tail1234.ts.net:8711", rp_id="ts.net"),
+        host_facts(),
+        id="tailscale-suffix",
+    ),
+    pytest.param(
+        ExposureRule.RP_ID_PUBLIC_SUFFIX,
+        section(VPN, rp_id="test"),
+        host_facts(),
+        id="top-level-domain",
+    ),
+    pytest.param(
         ExposureRule.TLS_NOT_CONFIGURED,
         section(VPN),
         host_facts(tls=TlsFacts.not_configured()),

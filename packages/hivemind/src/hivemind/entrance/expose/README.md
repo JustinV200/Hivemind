@@ -14,7 +14,10 @@ value, and every remote mode is TLS on a DNS name.
 
 "TLS" means `public_url` names a DNS host (never an IP, never `localhost`), the `[entrance.tls]`
 certificate and key are readable, unencrypted PEM, belong together, are valid now, and the
-certificate's names cover that host; `rp_id`, when set, is that host or a parent domain of it.
+certificate's names cover that host; `rp_id`, when set, is that host or a parent domain of it,
+and never a public suffix a browser refuses as a relying party (a single label, or a known
+suffix such as Tailscale's `ts.net`; the full Public Suffix List is still the browser's to
+enforce at the first ceremony).
 
 ```text
                       [entrance] section ──┐
