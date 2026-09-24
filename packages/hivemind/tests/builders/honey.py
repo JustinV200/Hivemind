@@ -8,7 +8,9 @@ shape; `open_test_honey_store_with_trail` is the same Hive plus the trail itself
 reads back the events a write recorded. The intake and ripening builders (`make_honey_identity`,
 `make_nectar`, `make_nectar_submission`, `make_nectar_deposit`, `make_deposit_chunks`,
 `make_ripener_deps`) build the inputs `hivemind.honey_store.nectar` and
-`hivemind.honey_store.ripening` take.
+`hivemind.honey_store.ripening` take. The label lowering builders (`make_stand_nectar_draft`,
+`store_ripened`, `make_lowering_deps`) build a Nectar only the Real Cell floor holds at C2, ripen
+it with a Ripener reading, and wire the lowering service (ADR-0034).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by
@@ -36,6 +38,7 @@ from pathlib import Path
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.common.sqlite import connect
 from hivemind.honey_store.identity import HoneyIdentity
+from hivemind.honey_store.lowering import LoweringDeps
 from hivemind.honey_store.models import (
     HoneyDraft,
     HoneyPart,
@@ -43,16 +46,18 @@ from hivemind.honey_store.models import (
     NectarDraft,
     NectarOrigin,
     NectarState,
+    RipenerReading,
 )
 from hivemind.honey_store.nectar.submission import NectarSubmission
 from hivemind.honey_store.ripening.deps import RipenerDeps
 from hivemind.honey_store.store import HoneyStore
 from hivemind.honey_store.store.sqlite import SqliteHoneyStore
-from hivemind.manifest import HoneyRipeningSection
-from hivemind.pheromone import SqlitePheromoneTrail
+from hivemind.manifest import HoneyLoweringSection, HoneyRipeningSection
+from hivemind.pheromone import HoneyEvent, SqlitePheromoneTrail
 from waggle.clock import Clock, FakeClock
 from waggle.ids import (
     new_cell_id,
+    new_event_id,
     new_hive_id,
     new_nectar_id,
     new_node_id,
@@ -67,13 +72,16 @@ __all__ = [
     "make_deposit_chunks",
     "make_honey_draft",
     "make_honey_identity",
+    "make_lowering_deps",
     "make_nectar",
     "make_nectar_deposit",
     "make_nectar_draft",
     "make_nectar_submission",
     "make_ripener_deps",
+    "make_stand_nectar_draft",
     "open_test_honey_store",
     "open_test_honey_store_with_trail",
+    "store_ripened",
 ]
 
 
@@ -336,3 +344,84 @@ def make_nectar(clock: Clock | None = None, **overrides: object) -> Nectar:
     }
     fields.update(overrides)
     return Nectar(**fields)
+
+
+def make_stand_nectar_draft(clock: Clock | None = None, **overrides: object) -> NectarDraft:
+    """Build a NectarDraft the way intake files a Hive Stand deposit declared C1 (ADR-0034).
+
+    Args:
+        clock: Source of the default ids and timestamp; a fresh FakeClock when omitted.
+        **overrides: Field values that replace the defaults below and `make_nectar_draft`'s.
+
+    Returns:
+        A C2 draft whose declared label is C1 and whose floor is C2: only the Real Cell floor holds
+        its label up, so once ripened with a reading below C2 it is eligible for lowering.
+    """
+    fields: dict[str, object] = {
+        "clearance": HoneyClearance.C2,
+        "declared_clearance": HoneyClearance.C1,
+        "floor_clearance": HoneyClearance.C2,
+    }
+    fields.update(overrides)
+    return make_nectar_draft(clock, **fields)
+
+
+async def store_ripened(
+    store: HoneyStore,
+    clock: Clock,
+    draft: NectarDraft,
+    reading: RipenerReading | None,
+) -> Nectar:
+    """Add `draft` and ripen it into one SUMMARY row with `reading`; return the RIPENED Nectar.
+
+    Args:
+        store: The store to write through.
+        clock: Mints the event ids and times.
+        draft: The deposit; its content must be distinct from every other the test stores.
+        reading: The Ripener's reading to store with it; None as for a heuristic summary.
+
+    Returns:
+        The stored Nectar as it now stands (RIPENED, its facts and reading set).
+    """
+    content_sha = hashlib.sha256(draft.content).hexdigest()
+    added = await store.add_nectar(draft, content_sha, lambda _added: ())
+    summary = make_honey_draft(clearance=draft.clearance)
+    await store.ripen(
+        added.nectar.id, (summary,), _ripened_event(clock, added.nectar.id), reading=reading
+    )
+    return await store.get_nectar(added.nectar.id)
+
+
+def make_lowering_deps(store: HoneyStore, clock: Clock, **overrides: object) -> LoweringDeps:
+    """Build LoweringDeps on `store` with default `[honey.lowering]` settings and no judge.
+
+    Args:
+        store: The Honey Store the lowering flow reads and writes.
+        clock: Injected clock for every event and decision.
+        **overrides: LoweringDeps fields that replace the defaults (`judge`, `settings`, ...).
+
+    Returns:
+        A LoweringDeps with a fresh "system" identity; every proposal waits for the human unless
+        `overrides` gives a judge.
+    """
+    base = LoweringDeps(
+        store=store,
+        identity=make_honey_identity(clock),
+        clock=clock,
+        settings=HoneyLoweringSection(),
+    )
+    return dataclasses.replace(base, **overrides)  # type: ignore[arg-type]
+
+
+def _ripened_event(clock: Clock, nectar_id: str) -> HoneyEvent:
+    """Build a well-formed `honey.ripened` event about `nectar_id`, for `store_ripened`."""
+    return HoneyEvent(
+        id=new_event_id(clock),
+        hive_id=new_hive_id(clock),
+        node_id=new_node_id(clock),
+        at=clock.now(),
+        actor="system",
+        kind="honey.ripened",
+        subject_id=nectar_id,
+        payload={},
+    )

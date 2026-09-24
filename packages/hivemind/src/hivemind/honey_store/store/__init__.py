@@ -9,9 +9,9 @@ than in the store package itself.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Read by
-    `hivemind.honey_store.nectar`, `.ripening`, `.honey` and `.browse` (later dispatches) and by
-    `hive honey`. Calls into `hivemind.honey_store.errors`, `.models`, `.schema` and
-    `hivemind.pheromone` only.
+    `hivemind.honey_store.nectar`, `.ripening`, `.honey`, `.browse` and `.lowering`, and by
+    `hive honey`. Calls into `hivemind.honey_store.errors`, `.models`, `.schema`, the pure rule and
+    state machine of `.lowering`, and `hivemind.pheromone` only.
 
 Key invariants:
     - Every mutation method on `HoneyStore` commits its row and its `HoneyEvent` in one
@@ -22,8 +22,8 @@ See Also:
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the decisions this package encodes.
 
 Public API:
-    - HoneyStore, NectarAdded, HoneyProposal, PruneResult, PruneEvents (protocol): the
-      persistence protocol and its own small return shapes.
+    - HoneyStore, NectarAdded, NectarEvents, HoneyProposal, PruneResult, PruneEvents,
+      LoweringEvents (protocol): the persistence protocol and its own small shapes.
     - build_match, MAX_MATCH_TOKENS (fts): a safe FTS5 MATCH string from arbitrary text.
     - SqliteHoneyStore (sqlite): the durable implementation.
 """
@@ -32,6 +32,7 @@ from hivemind.honey_store.store.fts import MAX_MATCH_TOKENS, build_match
 from hivemind.honey_store.store.protocol import (
     HoneyProposal,
     HoneyStore,
+    LoweringEvents,
     NectarAdded,
     NectarEvents,
     PruneEvents,
@@ -43,6 +44,7 @@ __all__ = [
     "MAX_MATCH_TOKENS",
     "HoneyProposal",
     "HoneyStore",
+    "LoweringEvents",
     "NectarAdded",
     "NectarEvents",
     "PruneEvents",

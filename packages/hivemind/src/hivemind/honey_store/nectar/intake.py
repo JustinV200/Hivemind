@@ -6,7 +6,9 @@ into searchable Honey. `NectarIntake` is the one door every deposit comes throug
 a whole deposit in-process, `receive_chunk` takes Waggle chunks and reassembles them through
 `ChunkGroups`. Either way intake refuses a deposit over `[honey.store] max_nectar_bytes`, labels
 it (`hivemind.honey_store.clearance.intake_label`: the declared label raised to the provenance
-floor), scopes it (`hivemind.honey_store.scope.scope_for_nectar`), applies the Night Veil rule
+floor) and keeps both halves of that label beside it (ADR-0034: the declared label, or the
+default when none was declared, and the floor, which decide whether a judge may later lower it),
+scopes it (`hivemind.honey_store.scope.scope_for_nectar`), applies the Night Veil rule
 (ADR-0031: a Night Veil Cell -- the tier whose execution records never outlive teardown -- may
 export only `RIPENED_HONEY` at C0/C1; everything else it deposits is kept as an ephemeral side
 channel purged at teardown), and hands the draft to `HoneyStore.add_nectar`, which dedupes and
@@ -27,6 +29,8 @@ Key invariants:
       recorded like any other deposit.
     - A stored label is never below `intake_label`'s result, and a stored tier is always the
       Queen's own record (`NectarSubmission.tier`), never what a sender claimed.
+    - Every draft carries its declared label and its floor, so the stored label is always exactly
+      the higher of the two (ADR-0034).
     - An ephemeral (Night Veil) draft never carries a `source_key`, so it can never be merged
       onto an ordinary row and raise that row's label from inside the boundary.
     - Every rejection is re-raised after it is recorded, so the Queen's tick can answer the
@@ -44,11 +48,12 @@ See Also:
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.common.logging import get_logger
-from hivemind.honey_store.clearance import intake_label
+from hivemind.honey_store.clearance import intake_floor, intake_label
 from hivemind.honey_store.errors import (
     CellMismatchError,
     NectarRejectedError,
@@ -76,6 +81,15 @@ SHA256_PREFIX_CHARS = 12  # Enough of a digest to tell deposits apart in an audi
 __all__ = ["SHA256_PREFIX_CHARS", "NectarIntake"]
 
 log = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _Labels:
+    """The label intake stores for one deposit, and the two facts it is made of (ADR-0034)."""
+
+    label: HoneyClearance  # `intake_label`: the declared label raised to the floor.
+    declared: HoneyClearance  # The depositor's own label, or `[honey.clearance] default_label`.
+    floor: HoneyClearance  # `intake_floor`: what the deposit's provenance never lets it go below.
 
 
 class NectarIntake:
@@ -207,14 +221,9 @@ class NectarIntake:
                 # Local SQLite, bounded by the connection's busy timeout.
                 await self._store.record(event)
             raise error
-        label = intake_label(
-            submission.declared,
-            submission.origin,
-            submission.from_borrowed_cell,
-            self._default_label,
-        )
-        ephemeral = _is_ephemeral(submission, label)
-        draft = _draft_for(submission, label, ephemeral)
+        labels = _labels_for(submission, self._default_label)
+        ephemeral = _is_ephemeral(submission, labels.label)
+        draft = _draft_for(submission, labels, ephemeral)
         # An ephemeral deposit leaves no trail (ADR-0031); the Night Veil export (RIPENED_HONEY at
         # C0/C1) is ordinary Nectar that outlives the Cell by design, so it is recorded like any.
         events = _no_events if ephemeral else _nectar_events(self._identity, self._clock)
@@ -238,6 +247,16 @@ class NectarIntake:
         )
 
 
+def _labels_for(submission: NectarSubmission, default_label: HoneyClearance) -> _Labels:
+    """Decide a deposit's stored label, keeping the declared label and the floor it came from."""
+    declared = submission.declared if submission.declared is not None else default_label
+    floor = intake_floor(submission.origin, submission.from_borrowed_cell)
+    label = intake_label(
+        submission.declared, submission.origin, submission.from_borrowed_cell, default_label
+    )
+    return _Labels(label=label, declared=declared, floor=floor)
+
+
 def _is_ephemeral(submission: NectarSubmission, label: HoneyClearance) -> bool:
     """Apply the Night Veil rule (ADR-0031): True when the deposit must stay an ephemeral row.
 
@@ -257,8 +276,8 @@ def _is_ephemeral(submission: NectarSubmission, label: HoneyClearance) -> bool:
     return False
 
 
-def _draft_for(submission: NectarSubmission, label: HoneyClearance, ephemeral: bool) -> NectarDraft:
-    """Build the store draft for an accepted submission: its label, scope and tier decided."""
+def _draft_for(submission: NectarSubmission, labels: _Labels, ephemeral: bool) -> NectarDraft:
+    """Build the store draft for an accepted submission: its labels, scope and tier decided."""
     provenance = NectarProvenance(
         kind=submission.kind,
         origin=submission.origin,
@@ -276,7 +295,9 @@ def _draft_for(submission: NectarSubmission, label: HoneyClearance, ephemeral: b
         cell_id=submission.cell_id,
         bee=submission.bee,
         observed_at=submission.observed_at,
-        clearance=label,
+        clearance=labels.label,
+        declared_clearance=labels.declared,
+        floor_clearance=labels.floor,
         origin_tier=submission.tier,
         scope=scope_for_nectar(provenance, submission.proposed_scope),
         # The store dedupes by source_key before it looks at which side of the Night Veil

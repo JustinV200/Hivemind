@@ -5,8 +5,9 @@ Kept separate from ripening and retrieval logic so the on-disk shape can be revi
 `honey`, `honey_vectors`, `honey_watermarks`, `honey_proposals`), the external-content FTS5 index
 over `honey(title, summary, body)` and its three sync triggers (ADR-0031);
 `migrations/0002_nectar_sources.sql` adds `honey_nectar_sources`, a content duplicate's extra
-provenance (ADR-0033). `migrate.py` applies that series the same way every other subsystem
-applies its own.
+provenance (ADR-0033); `migrations/0003_label_lowering.sql` adds a Nectar's three labelling facts
+and `honey_lowerings`, one judge-reviewed lowering proposal per Nectar (ADR-0034). `migrate.py`
+applies that series the same way every other subsystem applies its own.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package.

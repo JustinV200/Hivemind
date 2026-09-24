@@ -27,7 +27,8 @@ Key invariants:
       a `ValueError` (which covers a pydantic ValidationError) count as a Nectar's own failure --
       anything else is a fault of the pass itself and propagates.
     - Every row a pass writes is labelled at least as high as its Nectar was when it was written
-      (`hivemind.honey_store.ripening.index`).
+      (`hivemind.honey_store.ripening.index`); the Ripener's own reading of the text is stored in
+      the same transaction and never lowers anything (ADR-0034).
 
 See Also:
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the pipeline and who runs it.
@@ -44,7 +45,7 @@ from hivemind.common.errors import HiveMindError, NotFoundError
 from hivemind.common.logging import get_logger
 from hivemind.honey_store.errors import HoneyStoreError
 from hivemind.honey_store.identity import honey_event
-from hivemind.honey_store.models import HoneyDraft, Nectar
+from hivemind.honey_store.models import HoneyDraft, Nectar, RipenerReading
 from hivemind.honey_store.ripening.chunk import chunk_text, decode_text, normalise_text
 from hivemind.honey_store.ripening.dedupe import (
     NearDuplicateCheck,
@@ -101,6 +102,7 @@ class _Prepared:
     chunks: int  # How many chunks the text was cut into.
     deduped: int  # Exact duplicates already dropped.
     summarised: bool  # Whether a model wrote the summary.
+    reading: RipenerReading | None  # The model's own label for the text; None without one.
 
 
 class Ripener:
@@ -169,6 +171,7 @@ class Ripener:
             deduped=prepared.deduped + near_duplicates,
             summarised=prepared.summarised,
             embed_model=model,
+            reading=prepared.reading,
         )
         result = await index_ripened(deps, ripened)
         # Another runner finished this Nectar first: nothing was written, nothing to count.
@@ -189,6 +192,7 @@ class Ripener:
                 chunks=0,
                 deduped=0,
                 summarised=False,
+                reading=None,
             )
         settings = self._deps.ripening
         chunks = chunk_text(text, settings.chunk_chars, settings.chunk_overlap_chars)
@@ -199,6 +203,7 @@ class Ripener:
             chunks=len(chunks),
             deduped=exact_duplicates,
             summarised=summary.summarised,
+            reading=summary.reading,
         )
 
     async def _embed_and_filter(

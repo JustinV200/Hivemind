@@ -45,8 +45,9 @@ async def test_0002_applies_cleanly_onto_a_0001_only_store_with_rows_in_it() -> 
     apply_migrations(connection, SUBSYSTEM, only_0001, clock)
     # A row from before 0002 ever existed, in the shape 0001 alone created.
     connection.execute(_INSERT_0001_ROW_SQL)
+    up_to_0002 = [migration for migration in migrations if migration.version <= 2]
 
-    applied = apply_migrations(connection, SUBSYSTEM, migrations, clock)
+    applied = apply_migrations(connection, SUBSYSTEM, up_to_0002, clock)
 
     assert applied == (2,)  # Only the new version ran; 0001 was already recorded.
     row = connection.execute(
@@ -54,3 +55,25 @@ async def test_0002_applies_cleanly_onto_a_0001_only_store_with_rows_in_it() -> 
     ).fetchone()
     assert row["title"] == "pre-existing"  # The pre-existing row survived the upgrade untouched.
     assert connection.execute("SELECT * FROM honey_nectar_sources").fetchall() == []
+
+
+async def test_0003_applies_onto_a_0002_store_and_leaves_old_rows_without_any_lowering_fact() -> (
+    None
+):
+    clock = FakeClock()
+    connection = connect(":memory:")
+    await SqlitePheromoneTrail.create(connection, clock)
+    migrations = load_migrations(importlib.resources.files(MIGRATIONS_PACKAGE))
+    apply_migrations(connection, SUBSYSTEM, [m for m in migrations if m.version <= 2], clock)
+    # A row written before ADR-0034: none of its three labelling facts was ever recorded.
+    connection.execute(_INSERT_0001_ROW_SQL)
+
+    applied = apply_migrations(connection, SUBSYSTEM, migrations, clock)
+
+    assert applied == (3,)
+    row = connection.execute(
+        "SELECT declared_clearance, floor_clearance, ripener_clearance, ripener_reason, "
+        "declared_clearance_rank FROM honey_nectar WHERE id = 'nectar_pre0002'"
+    ).fetchone()
+    assert tuple(row) == (None, None, None, None, None)  # Unknown, never guessed.
+    assert connection.execute("SELECT * FROM honey_lowerings").fetchall() == []

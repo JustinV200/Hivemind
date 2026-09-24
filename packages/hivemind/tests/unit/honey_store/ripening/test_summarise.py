@@ -25,6 +25,7 @@ from pydantic import ValidationError
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
+from hivemind.honey_store.models import RipenerReading
 from hivemind.honey_store.models.honey import MAX_SUMMARY_CHARS
 from hivemind.honey_store.ripening.deps import RipenerDeps
 from hivemind.honey_store.ripening.summarise import (
@@ -235,6 +236,27 @@ async def test_summarise_ignores_a_model_label_below_the_nectars(deps: RipenerDe
     outcome = await summarise(nectar, _LONG_TEXT, _with(deps, ripener=_ripener(provider)))
 
     assert outcome.clearance is HoneyClearance.C2
+
+
+async def test_summarise_keeps_the_models_own_reading_whatever_the_label(
+    deps: RipenerDeps,
+) -> None:
+    # ADR-0034: the reading below the label is kept as said; it only ever starts a proposal.
+    provider = FakeLLMProvider()
+    provider.script(_reply(clearance="C0", clearance_reason="  Build output, nothing personal. "))
+    nectar = make_nectar(clearance=HoneyClearance.C2)
+
+    outcome = await summarise(nectar, _LONG_TEXT, _with(deps, ripener=_ripener(provider)))
+
+    assert outcome.reading == RipenerReading(
+        clearance=HoneyClearance.C0, reason="Build output, nothing personal."
+    )
+
+
+async def test_summarise_has_no_reading_when_no_model_wrote_it(deps: RipenerDeps) -> None:
+    outcome = await summarise(make_nectar(), _LONG_TEXT, deps)
+
+    assert outcome.reading is None
 
 
 async def test_summarise_falls_back_to_the_heuristic_on_a_malformed_reply(

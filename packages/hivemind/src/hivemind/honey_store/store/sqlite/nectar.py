@@ -9,13 +9,17 @@ label, never lowers it (`hivemind.honey_store.clearance.raise_label`'s own rule,
 directly since this module already holds both rows' clearances in hand). A duplicate found by
 content rather than by `source_key`, whose provenance differs from the stored row's own, also
 records an extra source (`hivemind.honey_store.store.sqlite.sources`, ADR-0033) in the same
-transaction, so the second sender's own provenance survives the merge.
+transaction, so the second sender's own provenance survives the merge. The same merge keeps the
+higher of each of the two labelling facts intake records (`declared_clearance`,
+`floor_clearance`, ADR-0034), so a later depositor who declared more can only make the Nectar less
+eligible for a judge-reviewed lowering, never more.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
     only by `hivemind.honey_store.store.sqlite.store.SqliteHoneyStore`, on its `ConnectionThread`.
     Calls into `hivemind.cell` (HoneyClearance, CombShieldLevel), `hivemind.common.sqlite`
-    (transaction), `hivemind.honey_store.errors` (NectarNotFoundError), `hivemind.honey_store.
+    (transaction), `hivemind.honey_store.clearance` (raise_label, for the merged labelling facts),
+    `hivemind.honey_store.errors` (NectarNotFoundError), `hivemind.honey_store.
     models` (Nectar, NectarDraft, NectarOrigin, NectarState), `hivemind.honey_store.store.protocol`
     (NectarAdded, NectarEvents), `.sources` (insert_source_if_new), `hivemind.pheromone`
     (insert_event) and `waggle` only.
@@ -33,6 +37,8 @@ Key invariants:
     - An extra source is recorded only for a duplicate matched by content, and only when its
       (source_key, task, Cell, bee) differs from the stored row's own; `sources.
       insert_source_if_new`'s own unique indexes make a retried or already-known one a no-op.
+    - A merged labelling fact is the higher of the two, and unknown (NULL) when either side's is
+      unknown: a row from before ADR-0034, or a draft built outside intake, never gains a fact.
 
 See Also:
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
@@ -51,6 +57,7 @@ from datetime import datetime
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.common.sqlite import transaction
+from hivemind.honey_store.clearance import raise_label
 from hivemind.honey_store.errors import NectarNotFoundError
 from hivemind.honey_store.models import Nectar, NectarDraft, NectarOrigin, NectarState
 from hivemind.honey_store.store.protocol import NectarAdded, NectarEvents
@@ -69,8 +76,9 @@ _INSERT_SQL = """
 INSERT INTO honey_nectar (
     id, sha256, kind, origin, media_type, title, content, size_bytes, task_id, cell_id, bee,
     observed_at, received_at, clearance, clearance_rank, origin_tier, scope, state,
-    ripen_attempts, tainted, source_key, event_id, ephemeral_cell_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ripen_attempts, tainted, source_key, event_id, ephemeral_cell_id, declared_clearance,
+    declared_clearance_rank, floor_clearance, floor_clearance_rank
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 _SELECT_BY_ID_SQL = "SELECT * FROM honey_nectar WHERE id = ?"
 _SELECT_CONTENT_SQL = "SELECT content FROM honey_nectar WHERE id = ?"
@@ -81,6 +89,10 @@ _SELECT_BY_SHA256_SQL = "SELECT * FROM honey_nectar WHERE sha256 = ? AND ephemer
 _SELECT_PENDING_SQL = "SELECT * FROM honey_nectar WHERE state = ? ORDER BY received_at, id LIMIT ?"
 _SELECT_HAS_SOURCE_SQL = "SELECT 1 FROM honey_nectar WHERE source_key = ?"
 _UPDATE_CLEARANCE_SQL = "UPDATE honey_nectar SET clearance = ?, clearance_rank = ? WHERE id = ?"
+_UPDATE_FACTS_SQL = (
+    "UPDATE honey_nectar SET declared_clearance = ?, declared_clearance_rank = ?, "
+    "floor_clearance = ?, floor_clearance_rank = ? WHERE id = ?"
+)
 _UPDATE_ATTEMPTS_SQL = "UPDATE honey_nectar SET ripen_attempts = ?, state = ? WHERE id = ?"
 _DELETE_EPHEMERAL_SQL = "DELETE FROM honey_nectar WHERE ephemeral_cell_id = ? AND state = ?"
 # Only rows still below the new rank are raised, so a Honey row a ripener already labelled higher
@@ -212,10 +224,11 @@ def _merge_duplicate(
     existing = _row_to_nectar(existing_row)
     if not matched_by_source_key and _provenance_differs(existing, draft):
         sources_sql.insert_source_if_new(connection, existing.id, draft, received_at)
+    merged = _merge_facts(connection, existing, draft)
     if draft.clearance.rank <= existing.clearance.rank:
         # Not a raise: the stored label already covers the new deposit's own.
-        return NectarAdded(nectar=existing, is_new=False, raised_from=None)
-    raised = existing.model_copy(update={"clearance": draft.clearance})
+        return NectarAdded(nectar=merged, is_new=False, raised_from=None)
+    raised = merged.model_copy(update={"clearance": draft.clearance})
     connection.execute(
         _UPDATE_CLEARANCE_SQL, (draft.clearance.value, draft.clearance.rank, existing.id)
     )
@@ -224,6 +237,40 @@ def _merge_duplicate(
         (draft.clearance.value, draft.clearance.rank, existing.id, draft.clearance.rank),
     )
     return NectarAdded(nectar=raised, is_new=False, raised_from=existing.clearance)
+
+
+def _merge_facts(connection: sqlite3.Connection, existing: Nectar, draft: NectarDraft) -> Nectar:
+    """Keep the higher of each labelling fact on the stored row (ADR-0034); return it as merged.
+
+    Written only when a fact actually changes, inside the caller's merge transaction.
+    """
+    declared = _higher_fact(existing.declared_clearance, draft.declared_clearance)
+    floor = _higher_fact(existing.floor_clearance, draft.floor_clearance)
+    # Nothing moved: the stored facts already cover the new deposit's own.
+    if (declared, floor) == (existing.declared_clearance, existing.floor_clearance):
+        return existing
+    connection.execute(
+        _UPDATE_FACTS_SQL, (*_label_pair(declared), *_label_pair(floor), existing.id)
+    )
+    return existing.model_copy(update={"declared_clearance": declared, "floor_clearance": floor})
+
+
+def _higher_fact(
+    stored: HoneyClearance | None, incoming: HoneyClearance | None
+) -> HoneyClearance | None:
+    """Return the higher of two labelling facts, or None when either is unknown.
+
+    An unknown fact on either side leaves the merged fact unknown: guessing it from the other side
+    alone could only ever make a Nectar look more lowerable than it is.
+    """
+    if stored is None or incoming is None:
+        return None
+    return raise_label(stored, incoming)
+
+
+def _label_pair(label: HoneyClearance | None) -> tuple[str | None, int | None]:
+    """Return a nullable label's (value, rank) column pair, both None when the label is."""
+    return (None, None) if label is None else (label.value, label.rank)
 
 
 def _provenance_differs(existing: Nectar, draft: NectarDraft) -> bool:
@@ -266,11 +313,13 @@ def _draft_to_nectar(
         state=NectarState.EPHEMERAL if is_ephemeral else NectarState.RECEIVED,
         ripen_attempts=0,
         tainted=False,
+        declared_clearance=draft.declared_clearance,
+        floor_clearance=draft.floor_clearance,
     )
 
 
 def _nectar_insert_params(nectar: Nectar, content: bytes) -> tuple[object, ...]:
-    """Build the 23-column parameter tuple `_INSERT_SQL` binds, in its declared column order."""
+    """Build the 27-column parameter tuple `_INSERT_SQL` binds, in its declared column order."""
     return (
         nectar.id,
         nectar.sha256,
@@ -295,6 +344,8 @@ def _nectar_insert_params(nectar: Nectar, content: bytes) -> tuple[object, ...]:
         nectar.source_key,
         nectar.event_id,
         nectar.ephemeral_cell_id,
+        *_label_pair(nectar.declared_clearance),
+        *_label_pair(nectar.floor_clearance),
     )
 
 
@@ -322,6 +373,9 @@ def _row_to_nectar(row: sqlite3.Row) -> Nectar:
         state=NectarState(row["state"]),
         ripen_attempts=row["ripen_attempts"],
         tainted=bool(row["tainted"]),
+        declared_clearance=_optional(HoneyClearance, row["declared_clearance"]),
+        floor_clearance=_optional(HoneyClearance, row["floor_clearance"]),
+        ripener_clearance=_optional(HoneyClearance, row["ripener_clearance"]),
     )
 
 

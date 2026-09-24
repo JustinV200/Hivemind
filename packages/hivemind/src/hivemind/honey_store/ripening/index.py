@@ -5,7 +5,8 @@ into Honey, searchable rows). `index_ripened` first re-reads the Nectar, because
 take tens of seconds and intake may have deduplicated a more sensitive copy onto it meanwhile:
 every part is raised to the Nectar's label as it stands now, and a Nectar another runner already
 ripened (`hive honey ripen --now` beside the House Bee) is left alone. Then `HoneyStore.ripen`
-writes every part and the `honey.ripened` event in one transaction; `set_vectors` stores each
+writes every part, the Ripener's own reading of the text (ADR-0034: kept as said, it lowers
+nothing) and the `honey.ripened` event in one transaction; `set_vectors` stores each
 part's non-zero vector tagged with the embedding model that made it; and when the summary raised
 the label above the Nectar's own, a `honey.label_raised` event records that. The rows already
 carry the raised label when that event is written, so a failure between the two can only lose
@@ -37,7 +38,7 @@ from dataclasses import dataclass
 from hivemind.cell import HoneyClearance
 from hivemind.honey_store.clearance import raise_label
 from hivemind.honey_store.identity import honey_event
-from hivemind.honey_store.models import Honey, Nectar, NectarState
+from hivemind.honey_store.models import Honey, Nectar, NectarState, RipenerReading
 from hivemind.honey_store.ripening.deps import RipenerDeps
 from hivemind.honey_store.ripening.drafts import PreparedPart
 from hivemind.honey_store.ripening.embed import is_zero_vector
@@ -56,6 +57,7 @@ class RipenedNectar:
     deduped: int  # How many parts were dropped as exact or near duplicates.
     summarised: bool  # Whether a model wrote the summary.
     embed_model: str | None  # The model the vectors came from; None when there are none.
+    reading: RipenerReading | None = None  # The model's own label for the text; None if heuristic.
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +103,8 @@ async def index_ripened(deps: RipenerDeps, ripened: RipenedNectar) -> IndexResul
         summarised=ripened.summarised,
         embedded=len(with_vectors) if ripened.embed_model is not None else 0,
     )
-    rows = await deps.store.ripen(current.id, tuple(part.draft for part in parts), event)
+    drafts = tuple(part.draft for part in parts)
+    rows = await deps.store.ripen(current.id, drafts, event, reading=ripened.reading)
     embedded = await _store_vectors(deps, rows, parts, ripened.embed_model)
     # The summary judged the deposit more sensitive than its label: the rows already carry the
     # raise, so this event only records it.

@@ -33,7 +33,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.common.sqlite import connect
 from hivemind.forage.slots import ModelSlot
 from hivemind.honey_store.errors import HoneyStoreError
-from hivemind.honey_store.models import Honey, HoneyDraft, NectarState, ReadFilter
+from hivemind.honey_store.models import Honey, HoneyDraft, NectarState, ReadFilter, RipenerReading
 from hivemind.honey_store.nectar.intake import NectarIntake
 from hivemind.honey_store.ripening.deps import RipenerDeps
 from hivemind.honey_store.ripening.pipeline import PassOutcome, Ripener, RipenOutcome
@@ -185,6 +185,32 @@ async def test_run_pass_builds_each_nectars_rows(
         assert (await harness.store.get_nectar(nectar_id)).state is NectarState.RIPENED
 
 
+async def test_run_pass_stores_a_reading_only_for_a_model_summary(
+    harness: _Harness, three_ripened: _ThreeRipened
+) -> None:
+    long_nectar = await harness.store.get_nectar(three_ripened.long_id)
+
+    assert long_nectar.ripener_clearance is HoneyClearance.C2
+    # The short text is its own summary and the blob has no text: no model read either one.
+    for nectar_id in (three_ripened.short_id, three_ripened.binary_id):
+        assert (await harness.store.get_nectar(nectar_id)).ripener_clearance is None
+
+
+async def test_run_pass_keeps_a_reading_below_the_label_and_lowers_nothing(
+    harness: _Harness,
+) -> None:
+    # A Hive Stand deposit: C2 by the Real Cell floor, read by the model as C0 (ADR-0034).
+    harness.ripener.script(text_response(_summary_reply("C0")))
+    nectar_id = await harness.deposit(_LONG_TEXT, from_borrowed_cell=True)
+
+    await Ripener(harness.deps()).run_pass()
+
+    nectar = await harness.store.get_nectar(nectar_id)
+    assert (nectar.clearance, nectar.ripener_clearance) == (HoneyClearance.C2, HoneyClearance.C0)
+    rows = await harness.store.honey_for_nectar(nectar_id)
+    assert {row.clearance for row in rows} == {HoneyClearance.C2}
+
+
 def _shape(rows: Sequence[Honey]) -> list[tuple[str, int]]:
     """Return each row's (part, chunk_index), in the given order."""
     return [(row.part.value, row.chunk_index) for row in rows]
@@ -284,12 +310,17 @@ class _FailingRipenStore(SqliteHoneyStore):
     failing: frozenset[str] = frozenset()
 
     async def ripen(
-        self, nectar_id: NectarId, drafts: Sequence[HoneyDraft], event: HoneyEvent
+        self,
+        nectar_id: NectarId,
+        drafts: Sequence[HoneyDraft],
+        event: HoneyEvent,
+        *,
+        reading: RipenerReading | None = None,
     ) -> tuple[Honey, ...]:
         """Refuse a Nectar in `failing`; ripen every other one for real."""
         if nectar_id in self.failing:
             raise HoneyStoreError(f"Nectar {nectar_id} cannot be ripened in this test.")
-        return await super().ripen(nectar_id, drafts, event)
+        return await super().ripen(nectar_id, drafts, event, reading=reading)
 
 
 async def test_ripen_pending_marks_a_failing_nectar_and_discards_it_at_the_cap(

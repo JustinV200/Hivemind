@@ -38,9 +38,16 @@ pending_nectar ─► nectar_content ─► decode_text ──(binary or blank)�
                                         ▼
                     embed_texts (EMBEDDER; None on any failure) ─► drop_near_duplicates
                                         ▼
-       index_ripened: re-read the Nectar, raise to its current label, ripen (+ honey.ripened),
-                      set_vectors, honey.label_raised when the summary raised the label
+       index_ripened: re-read the Nectar, raise to its current label, ripen (+ honey.ripened,
+                      + the Ripener's own reading of the text), set_vectors, honey.label_raised
+                      when the summary raised the label
 ```
+
+The RIPENER labels the text itself, whatever its current label (ADR-0034). A label above the
+current one raises it at once; a label below it is stored as the Nectar's `ripener_clearance`
+(with the model's reason) in the same `ripen` transaction and never lowers anything: it can only
+start a lowering proposal an independent judge or the human decides (`hivemind.honey_store.
+lowering`). A heuristic summary stores no reading, so such a Nectar is never proposed.
 
 A `HoneyStoreError`, a `NotFoundError` or a `ValueError` while ripening one Nectar marks it failed
 (`honey.ripen_failed`) and DISCARDED at `max_attempts`; the pass carries on with the next one. A

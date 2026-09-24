@@ -12,7 +12,12 @@ returns, carrying every draft field but the content bytes, which the store serve
 it does not need. `NectarSource` is one extra provenance record: when a later deposit deduplicates
 onto an existing `Nectar` row by content rather than by `source_key`, and its provenance differs
 from the stored row's own, the store keeps this record of who else sent it (ADR-0033), returned by
-`HoneyStore.nectar_sources`.
+`HoneyStore.nectar_sources`. ADR-0034 keeps three labelling facts beside a Nectar's label:
+`declared_clearance` (the highest label any depositor declared, or the default when none did) and
+`floor_clearance` (the provenance floor), both set at intake and kept across dedupe merges, and
+`ripener_clearance`, the Ripener's own reading of the text (`RipenerReading`), set only when the
+Nectar ripens. A row written before ADR-0034 carries none of the three; the label lowering rule
+(`hivemind.honey_store.lowering.rules`) never lowers such a row.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Built
@@ -28,12 +33,15 @@ Key invariants:
     - `bee` accepts a WorkerId or a WardenId (a Warden may deposit Patrol summaries and watch
       observations with no Worker involved), validated the same way
       `waggle.messages.honey.hit.HoneyProvenance.bee` is.
+    - A `NectarDraft` never carries a Ripener reading: only `HoneyStore.ripen` writes one, so no
+      caller can seed a Nectar's lowering eligibility at intake.
 
 See Also:
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the fields this module's shape backs.
     - hivemind.honey_store.scope for `scope_for_nectar`, which computes `NectarDraft.scope`.
     - hivemind.honey_store.clearance for `intake_label`, which computes `NectarDraft.clearance`.
     - waggle.messages.honey for NectarKind, the wire enum this module reuses unchanged.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for the three facts.
 """
 
 from __future__ import annotations
@@ -61,6 +69,7 @@ from waggle.messages.honey.hit import MAX_SCOPE_CHARS, SCOPE_PATTERN
 
 MAX_SOURCE_KEY_CHARS = 200  # "handoff:<event id>" and friends (ADR-0031); short, always fits.
 MIN_NECTAR_BYTES = 1  # An empty deposit carries nothing to ripen.
+MAX_RIPENER_REASON_CHARS = 300  # One sentence on why the Ripener read the text at its label.
 
 # codingrules 8.5: frozen, extra-forbidding config every model in this module shares.
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -75,6 +84,7 @@ _ScopeField = Annotated[str, Field(max_length=MAX_SCOPE_CHARS, pattern=SCOPE_PAT
 _BeeIdField = Annotated[WorkerId | WardenId, id_validator(IdKind.WORKER, IdKind.WARDEN)]
 
 __all__ = [
+    "MAX_RIPENER_REASON_CHARS",
     "MAX_SOURCE_KEY_CHARS",
     "MIN_NECTAR_BYTES",
     "Nectar",
@@ -82,6 +92,7 @@ __all__ = [
     "NectarOrigin",
     "NectarSource",
     "NectarState",
+    "RipenerReading",
 ]
 
 
@@ -164,6 +175,17 @@ class NectarDraft(BaseModel):
         description="Set to the Night Veil Cell's id when this row must land EPHEMERAL "
         "(ADR-0031); None for an ordinary deposit.",
     )
+    declared_clearance: HoneyClearance | None = Field(
+        default=None,
+        description="The label the depositor declared, or [honey.clearance] default_label when "
+        "it declared none (ADR-0034); None only when built outside intake, which leaves the "
+        "stored Nectar ineligible for a judge-reviewed lowering.",
+    )
+    floor_clearance: HoneyClearance | None = Field(
+        default=None,
+        description="The provenance floor intake raised the label to (intake_floor, ADR-0034); "
+        "None only when built outside intake.",
+    )
 
 
 class Nectar(BaseModel):
@@ -209,6 +231,40 @@ class Nectar(BaseModel):
     state: NectarState = Field(description="This row's place in the Nectar -> Honey pipeline.")
     ripen_attempts: int = Field(ge=0, description="How many ripening passes have tried and failed.")
     tainted: bool = Field(description="Reserved for phase 10's taint marker (codingrules 10.6d).")
+    declared_clearance: HoneyClearance | None = Field(
+        default=None,
+        description="The highest label any depositor declared, kept across dedupe merges "
+        "(ADR-0034); None for a row written before that decision.",
+    )
+    floor_clearance: HoneyClearance | None = Field(
+        default=None,
+        description="The highest provenance floor any deposit of it had, kept across dedupe "
+        "merges (ADR-0034); None for a row written before that decision.",
+    )
+    ripener_clearance: HoneyClearance | None = Field(
+        default=None,
+        description="The Ripener's own reading of the text, whatever the label (ADR-0034); None "
+        "until a model summarised it, and for a heuristic summary.",
+    )
+
+
+class RipenerReading(BaseModel):
+    """The Ripener's own label for one Nectar's text, independent of its current label.
+
+    ADR-0034: a reading above the current label raises it at once (ripening's raise-only rule); a
+    reading below it is stored as the Nectar's `ripener_clearance` and never lowers anything by
+    itself, it can only start a lowering proposal an independent judge or the human decides. The
+    reason is kept for the human's review and never shown to that judge.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    clearance: HoneyClearance = Field(description="The label the model read the text itself at.")
+    reason: str = Field(
+        default="",
+        max_length=MAX_RIPENER_REASON_CHARS,
+        description="The model's one-sentence reason for that label.",
+    )
 
 
 class NectarSource(BaseModel):

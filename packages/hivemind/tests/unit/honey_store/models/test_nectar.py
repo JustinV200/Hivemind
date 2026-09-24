@@ -17,7 +17,13 @@ from builders.honey import make_nectar_draft
 from pydantic import ValidationError
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
-from hivemind.honey_store.models.nectar import MAX_SOURCE_KEY_CHARS, Nectar, NectarState
+from hivemind.honey_store.models.nectar import (
+    MAX_RIPENER_REASON_CHARS,
+    MAX_SOURCE_KEY_CHARS,
+    Nectar,
+    NectarState,
+    RipenerReading,
+)
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_nectar_id
 from waggle.messages.honey import NectarKind
@@ -79,11 +85,33 @@ def test_nectar_round_trips_through_json() -> None:
         state=NectarState.RECEIVED,
         ripen_attempts=0,
         tainted=False,
+        declared_clearance=HoneyClearance.C1,
+        floor_clearance=HoneyClearance.C2,
+        ripener_clearance=HoneyClearance.C0,
     )
 
     restored = nectar.model_validate_json(nectar.model_dump_json())
 
     assert restored == nectar
+
+
+def test_nectar_draft_and_nectar_leave_the_labelling_facts_unknown_by_default() -> None:
+    # ADR-0034: a row nobody recorded the facts for is never lowered, so None is the default.
+    draft = make_nectar_draft()
+
+    assert (draft.declared_clearance, draft.floor_clearance) == (None, None)
+    assert "ripener_clearance" not in type(draft).model_fields  # Only ripening records one.
+
+
+def test_ripener_reading_round_trips_through_json() -> None:
+    reading = RipenerReading(clearance=HoneyClearance.C0, reason="Build output only.")
+
+    assert RipenerReading.model_validate_json(reading.model_dump_json()) == reading
+
+
+def test_ripener_reading_rejects_an_overlong_reason() -> None:
+    with pytest.raises(ValidationError):
+        RipenerReading(clearance=HoneyClearance.C0, reason="x" * (MAX_RIPENER_REASON_CHARS + 1))
 
 
 def test_nectar_rejects_a_bee_id_of_the_wrong_kind() -> None:

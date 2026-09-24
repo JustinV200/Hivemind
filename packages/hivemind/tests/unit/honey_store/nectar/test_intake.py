@@ -124,6 +124,50 @@ async def test_submit_uses_the_default_label_when_nothing_was_declared(harness: 
     assert result.nectar.clearance is HoneyClearance.C1
 
 
+async def test_submit_keeps_the_declared_label_and_the_floor_beside_the_label(
+    harness: _Harness,
+) -> None:
+    # ADR-0034: a Real Cell's C0 deposit is C2 by the floor alone, and intake says so.
+    submission = make_nectar_submission(
+        harness.clock, declared=HoneyClearance.C0, from_borrowed_cell=True
+    )
+
+    result = await harness.intake.submit(submission)
+
+    stored = await harness.store.get_nectar(result.nectar.id)
+    assert (stored.clearance, stored.declared_clearance, stored.floor_clearance) == (
+        HoneyClearance.C2,
+        HoneyClearance.C0,
+        HoneyClearance.C2,
+    )
+    assert stored.ripener_clearance is None  # Only ripening ever records a reading.
+
+
+async def test_submit_records_the_default_label_as_declared_when_nothing_was_declared(
+    harness: _Harness,
+) -> None:
+    result = await harness.intake.submit(make_nectar_submission(harness.clock, declared=None))
+
+    assert (result.nectar.declared_clearance, result.nectar.floor_clearance) == (
+        HoneyClearance.C1,
+        HoneyClearance.C0,
+    )
+
+
+async def test_submit_merge_keeps_the_higher_declared_label_of_two_depositors(
+    harness: _Harness,
+) -> None:
+    first = make_nectar_submission(
+        harness.clock, declared=HoneyClearance.C0, from_borrowed_cell=True
+    )
+    await harness.intake.submit(first)
+
+    again = await harness.intake.submit(first.model_copy(update={"declared": HoneyClearance.C2}))
+
+    assert not again.is_new
+    assert again.nectar.declared_clearance is HoneyClearance.C2
+
+
 async def test_submit_files_a_humans_note_in_its_proposed_folder_at_c2(harness: _Harness) -> None:
     submission = make_nectar_submission(
         harness.clock, origin=NectarOrigin.HUMAN, proposed_scope="task:task_notes", bee=None

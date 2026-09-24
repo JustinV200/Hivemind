@@ -13,8 +13,10 @@ still exactly the dotted string ADR-0031's intake rules name.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by `hivemind.honey_store.store`
-    (not-found and lowering/scope refusals) and by `hivemind.honey_store.nectar` (intake refusals,
-    a later dispatch). Calls into `hivemind.common.errors` and `waggle.ids` only.
+    (not-found and lowering/scope refusals), by `hivemind.honey_store.nectar` (intake refusals) and
+    by `hivemind.honey_store.lowering` (a lowering proposal's refused edges, a judge that cannot
+    answer, a human decision's bad reason, ADR-0034). Calls into `hivemind.common.errors` and
+    `waggle.ids` only.
 
 Key invariants:
     - Every HoneyStoreError subclass sets its own `code`; no two unrelated classes share one.
@@ -27,6 +29,7 @@ See Also:
       refusals these classes carry.
     - hivemind.honey_store.clearance for `check_lowering`, `LabelLoweringError`'s one raiser.
     - hivemind.honey_store.scope for `InvalidScopeError`'s raisers.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for the lowering errors.
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ from waggle.ids import HoneyId, NectarId
 __all__ = [
     "CellMismatchError",
     "ChunkMismatchError",
+    "ClearanceJudgeAnswerError",
     "DepositLengthMismatchError",
     "DepositTimedOutError",
     "FirstChunkNotAtZeroError",
@@ -46,6 +50,11 @@ __all__ = [
     "HoneyStoreError",
     "InvalidScopeError",
     "LabelLoweringError",
+    "LoweringIneligibleError",
+    "LoweringInputError",
+    "LoweringNotFoundError",
+    "LoweringPostconditionError",
+    "LoweringTransitionError",
     "NectarNotFoundError",
     "NectarNotRipenableError",
     "NectarRejectedError",
@@ -400,3 +409,131 @@ class InvalidScopeError(HoneyStoreError):
             "'bee:<id>' or 'task:<id>' (waggle.messages.honey.hit.SCOPE_PATTERN)."
         )
         self.scope = scope
+
+
+class LoweringNotFoundError(NotFoundError):
+    """Raise when a lookup by id finds no lowering proposal in the Honey Store (ADR-0034)."""
+
+    code: ClassVar[str] = "hivemind.honey_store.lowering_not_found"
+
+    def __init__(self, proposal_id: str) -> None:
+        """Build the error for a missing lowering proposal.
+
+        Args:
+            proposal_id: The proposal id that was looked up and not found.
+        """
+        super().__init__(f"No lowering proposal with id {proposal_id!r} exists in the Honey Store.")
+        self.proposal_id = proposal_id
+
+
+class LoweringTransitionError(HoneyStoreError):
+    """Raise when a lowering proposal is asked to take an edge its transition table forbids.
+
+    `hivemind.honey_store.lowering.state` holds the one table (codingrules section 9): a judge
+    never lowers a REJECTED proposal, a REJECTED one is never rejected again, and nothing leaves
+    LOWERED. The store checks it inside the transaction that would have written the edge, so a
+    refused edge writes nothing at all.
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.lowering_transition_refused"
+
+    def __init__(self, proposal_id: str | None, current: str, target: str, approver: str) -> None:
+        """Build the error for a refused edge.
+
+        Args:
+            proposal_id: The proposal asked to move, when the caller has it.
+            current: Its current state's name (`"REJECTED"`).
+            target: The state it was asked to move to.
+            approver: Who asked (`"JUDGE"`, `"HUMAN"`).
+        """
+        subject = f"Lowering proposal {proposal_id}" if proposal_id is not None else "A proposal"
+        super().__init__(
+            f"{subject} cannot move from {current} to {target} with approver {approver}: the "
+            "transition table (hivemind.honey_store.lowering.state) has no such edge."
+        )
+        self.proposal_id = proposal_id
+        self.current = current
+        self.target = target
+        self.approver = approver
+
+
+class LoweringIneligibleError(HoneyStoreError):
+    """Raise when the human approves a REJECTED proposal whose Nectar no longer allows it.
+
+    A PROPOSED proposal that lost its eligibility is rejected in the apply transaction itself;
+    a REJECTED one has no edge to record that on, so the approval is refused and nothing changes.
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.lowering_ineligible"
+
+    def __init__(self, proposal_id: str) -> None:
+        """Build the error for an approval that no longer stands.
+
+        Args:
+            proposal_id: The REJECTED proposal the human asked to lower.
+        """
+        super().__init__(
+            f"Lowering proposal {proposal_id} no longer stands: its Nectar's label or labelling "
+            "facts changed since it was filed, so there is nothing to lower; relabel single Honey "
+            "rows instead."
+        )
+        self.proposal_id = proposal_id
+
+
+class LoweringPostconditionError(HoneyStoreError):
+    """Raise when a lowering, read back inside its own transaction, did not land (ADR-0034).
+
+    The rows are read back before the transaction commits; this error rolls the whole lowering
+    back, so a label is never half lowered.
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.lowering_postcondition_failed"
+
+    def __init__(self, proposal_id: str) -> None:
+        """Build the error for a lowering whose read-back disagreed with it.
+
+        Args:
+            proposal_id: The proposal whose apply was rolled back.
+        """
+        super().__init__(
+            f"Lowering proposal {proposal_id} did not land: its Nectar or a Honey row still "
+            "carries the old label when read back, so the whole lowering was rolled back."
+        )
+        self.proposal_id = proposal_id
+
+
+class LoweringInputError(HoneyStoreError):
+    """Raise when the human's decision on a lowering proposal carries an unusable reason."""
+
+    code: ClassVar[str] = "hivemind.honey_store.lowering_input_invalid"
+
+    def __init__(self, why: str) -> None:
+        """Build the error for a refused reason.
+
+        Args:
+            why: One clause saying what is wrong with the reason.
+        """
+        super().__init__(f"The reason is not usable: {why}.")
+        self.why = why
+
+
+class ClearanceJudgeAnswerError(HoneyStoreError):
+    """Raise when the clearance judge could not answer at all: no verdict, not a rejection.
+
+    Translated from the structured-output ladder's exhaustion (and a refusal, an oversized prompt
+    or a timeout); an outage is never translated, because Clustering handles that. The proposal
+    stays PROPOSED and counts an attempt (ADR-0034).
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.clearance_judge_unanswered"
+
+    def __init__(self, cause: str, detail: str) -> None:
+        """Build the error for a judge that gave no usable answer.
+
+        Args:
+            cause: The underlying failure's class name (`"MalformedOutputError"`).
+            detail: A short, bounded description; never the judged text itself.
+        """
+        super().__init__(f"The clearance judge could not answer ({cause}): {detail}")
+        self.cause = cause
+        self.detail = detail

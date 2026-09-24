@@ -1,20 +1,22 @@
 """Provide the Harness shape and small builders `test_honey_store_contract` shares across clauses.
 
-`test_honey_store_contract.py` writes each contract clause once against `hivemind.honey_store.
-store.protocol.HoneyStore` and runs it over three harnesses of the one shipped implementation
-(`hivemind.honey_store.store.sqlite.SqliteHoneyStore`): a temp file with sqlite-vec, a temp file
-with the Python vector fallback forced on, and `:memory:` with sqlite-vec (ADR-0031); its own
-`@pytest.fixture` builds one, parametrised over those three, mirroring `test_llm_provider_contract.
-py`'s own local fixture over harnesses this module's sibling `llm_provider_harness.py` supplies.
-This module holds only what has no fixture machinery of its own: the `Harness` shape every clause
-takes, and the builders (`event`, `nectar_events`, `prune_events`, `sha`, `ripen`) that turn the
-store's own API into one-line steps -- kept here, mirroring `llm_provider_harness.py`/
-`embedding_provider_harness.py`, so the contract file itself stays under codingrules 5.1's
-400-line test-file limit as the suite grows (ADR-0033 added the sources, scope and prune clauses).
+`test_honey_store_contract.py` and `test_honey_store_lowering_contract.py` write each contract
+clause once against `hivemind.honey_store.store.protocol.HoneyStore` and run it over three
+harnesses of the one shipped implementation (`hivemind.honey_store.store.sqlite.
+SqliteHoneyStore`): a temp file with sqlite-vec, a temp file with the Python vector fallback forced
+on, and `:memory:` with sqlite-vec (ADR-0031); each module's own `@pytest.fixture` builds one
+(`open_harness`), parametrised over `HARNESS_KINDS`, mirroring `test_llm_provider_contract.py`'s
+own local fixture over harnesses this module's sibling `llm_provider_harness.py` supplies. This
+module holds only what has no fixture machinery of its own: the `Harness` shape every clause
+takes, the one way to open a harness of each kind, and the builders (`event`, `nectar_events`,
+`prune_events`, `sha`, `ripen`) that turn the store's own API into one-line steps -- kept here,
+mirroring `llm_provider_harness.py`/`embedding_provider_harness.py`, so each contract file stays
+under codingrules 5.1's 400-line test-file limit as the suite grows (ADR-0033 added the sources,
+scope and prune clauses; ADR-0034 the lowering clauses, in their own module).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.3), not shipped. Used only by
-    `contracts.test_honey_store_contract`.
+    `contracts.test_honey_store_contract` and `contracts.test_honey_store_lowering_contract`.
 
 Key invariants:
     - Every helper here builds well-formed values through the same public builders and store API
@@ -31,19 +33,33 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
 from builders.honey import make_honey_draft, make_nectar_draft
 
 from hivemind.cell import HoneyClearance
+from hivemind.common.sqlite import connect
 from hivemind.honey_store.models import Honey, NectarDraft
 from hivemind.honey_store.scope import HIVE_SCOPE
 from hivemind.honey_store.store import NectarAdded, NectarEvents, PruneEvents, PruneResult
 from hivemind.honey_store.store.sqlite import SqliteHoneyStore
-from hivemind.pheromone import HoneyEvent, PheromoneTrail
+from hivemind.pheromone import HoneyEvent, PheromoneTrail, SqlitePheromoneTrail
 from waggle.clock import FakeClock
 from waggle.ids import new_event_id, new_hive_id, new_nectar_id, new_node_id
 
-__all__ = ["Harness", "event", "nectar_events", "prune_events", "ripen", "sha"]
+# The three harnesses every clause runs over: both storage modes and both vector backends.
+HARNESS_KINDS = ("tempfile_sqlite_vec", "tempfile_python", "memory_sqlite_vec")
+
+__all__ = [
+    "HARNESS_KINDS",
+    "Harness",
+    "event",
+    "nectar_events",
+    "open_harness",
+    "prune_events",
+    "ripen",
+    "sha",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +70,17 @@ class Harness:
     trail: PheromoneTrail
     connection: sqlite3.Connection
     clock: FakeClock
+
+
+async def open_harness(kind: str, tmp_path: Path) -> Harness:
+    """Open one harness of `kind` (one of `HARNESS_KINDS`): a fresh store over a trailed file."""
+    clock = FakeClock()
+    is_memory = kind == "memory_sqlite_vec"
+    connection = connect(":memory:" if is_memory else tmp_path / "hive.sqlite3")
+    trail = await SqlitePheromoneTrail.create(connection, clock)
+    force_python = kind == "tempfile_python"
+    store = await SqliteHoneyStore.create(connection, clock, force_python_vectors=force_python)
+    return Harness(store=store, trail=trail, connection=connection, clock=clock)
 
 
 def event(clock: FakeClock, kind: str, subject_id: str) -> HoneyEvent:

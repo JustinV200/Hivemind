@@ -20,8 +20,9 @@ See Also:
     - hivemind.honey_store.models.nectar, .honey, .search for the definitions.
 
 Public API:
-    - Nectar, NectarDraft, NectarOrigin, NectarSource, NectarState (nectar): raw findings, before
-      ripening, and a content duplicate's extra provenance (ADR-0033).
+    - Nectar, NectarDraft, NectarOrigin, NectarSource, NectarState, RipenerReading (nectar): raw
+      findings, before ripening, a content duplicate's extra provenance (ADR-0033), and the
+      Ripener's own label for a deposit's text (ADR-0034).
     - Honey, HoneyDraft, HoneyPart (honey): ripened, retrievable knowledge.
     - ReadFilter, TextCandidate, VectorCandidate, HoneyStats (search): the shapes a search and
       `HoneyStore.stats` pass around.
@@ -34,6 +35,7 @@ from hivemind.honey_store.models.nectar import (
     NectarOrigin,
     NectarSource,
     NectarState,
+    RipenerReading,
 )
 from hivemind.honey_store.models.search import (
     HoneyStats,
@@ -53,6 +55,7 @@ __all__ = [
     "NectarSource",
     "NectarState",
     "ReadFilter",
+    "RipenerReading",
     "TextCandidate",
     "VectorCandidate",
 ]

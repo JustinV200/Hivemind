@@ -6,7 +6,9 @@ Every write here runs inside one `hivemind.common.sqlite.transaction` block alon
 constraint): a draft matching an already-stored row is returned unchanged rather than re-inserted,
 so calling `ripen` twice with the same drafts never duplicates a row. Provenance (`kind`, `origin`,
 `scope`, `origin_tier`, `task_id`, `cell_id`, `bee`, `observed_at`) is always copied from the
-Nectar row being ripened, never taken from a `HoneyDraft`.
+Nectar row being ripened, never taken from a `HoneyDraft`. The same transaction stores the
+Ripener's own reading of the text on the Nectar (`ripener_clearance` and its reason, ADR-0034),
+which changes no label: it can only start a judge-reviewed lowering proposal later.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
@@ -46,10 +48,17 @@ from hivemind.honey_store.errors import (
     NectarNotFoundError,
     NectarNotRipenableError,
 )
-from hivemind.honey_store.models import Honey, HoneyDraft, HoneyPart, NectarOrigin, ReadFilter
+from hivemind.honey_store.models import (
+    Honey,
+    HoneyDraft,
+    HoneyPart,
+    NectarOrigin,
+    ReadFilter,
+    RipenerReading,
+)
 from hivemind.honey_store.models.nectar import NectarState
 from hivemind.honey_store.store.sqlite.filters import read_filter_clauses
-from hivemind.honey_store.store.sqlite.nectar import _optional
+from hivemind.honey_store.store.sqlite.nectar import _label_pair, _optional
 from hivemind.pheromone import HoneyEvent, insert_event
 from waggle.clock import Clock
 from waggle.ids import HoneyId, NectarId, TaskId, new_honey_id
@@ -72,7 +81,11 @@ _SELECT_NECTAR_FOR_RIPEN_SQL = (
 _SELECT_EXISTING_PART_SQL = (
     "SELECT * FROM honey WHERE nectar_id = ? AND part = ? AND chunk_index = ?"
 )
-_MARK_RIPENED_SQL = "UPDATE honey_nectar SET state = ? WHERE id = ?"
+# RIPENED, with the Ripener's reading (all three NULL for a heuristic summary) in the same write.
+_MARK_RIPENED_SQL = (
+    "UPDATE honey_nectar SET state = ?, ripener_clearance = ?, ripener_clearance_rank = ?, "
+    "ripener_reason = ? WHERE id = ?"
+)
 _SELECT_BY_ID_SQL = "SELECT * FROM honey WHERE id = ?"
 _SELECT_FOR_NECTAR_SQL = "SELECT * FROM honey WHERE nectar_id = ?"
 _SELECT_LIST_SQL = "SELECT * FROM honey"
@@ -80,6 +93,16 @@ _ORDER_LIST_BY = " ORDER BY created_at DESC, honey_seq DESC LIMIT ? OFFSET ?"
 _UPDATE_CLEARANCE_SQL = "UPDATE honey SET clearance = ?, clearance_rank = ? WHERE id = ?"
 _UPDATE_RETIRE_SQL = "UPDATE honey SET retired_at = ? WHERE id = ?"
 _SELECT_SCOPE_COUNTS_SQL = "SELECT scope, COUNT(*) AS n FROM honey"
+
+
+@dataclass(frozen=True, slots=True)
+class RipenWrite:
+    """What one `ripen()` call writes, bundled per codingrules 5.1's parameter limit."""
+
+    nectar_id: NectarId  # The Nectar being ripened.
+    drafts: tuple[HoneyDraft, ...]  # Its parts, SUMMARY first.
+    event: HoneyEvent  # The accompanying `honey.ripened` event.
+    reading: RipenerReading | None  # The Ripener's own reading of the text; None if heuristic.
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,13 +116,10 @@ class _RipenContext:
 
 
 def ripen_transaction(
-    connection: sqlite3.Connection,
-    nectar_id: NectarId,
-    drafts: tuple[HoneyDraft, ...],
-    event: HoneyEvent,
-    clock: Clock,
+    connection: sqlite3.Connection, write: RipenWrite, clock: Clock
 ) -> tuple[Honey, ...]:
-    """Insert `drafts` as Honey rows (idempotent per part), mark the Nectar RIPENED; one txn."""
+    """Insert the drafts as Honey rows (idempotent per part), mark the Nectar RIPENED; one txn."""
+    nectar_id = write.nectar_id
     with transaction(connection):
         nectar_row = connection.execute(_SELECT_NECTAR_FOR_RIPEN_SQL, (nectar_id,)).fetchone()
         if nectar_row is None:
@@ -112,11 +132,19 @@ def ripen_transaction(
         # (a function argument group past four values becomes a dataclass) so the per-draft helper
         # below stays at three parameters instead of six.
         ctx = _RipenContext(
-            nectar_id=nectar_id, nectar_row=nectar_row, created_at=event.at, clock=clock
+            nectar_id=nectar_id, nectar_row=nectar_row, created_at=write.event.at, clock=clock
         )
-        results = tuple(_ripen_one_part(connection, draft, ctx) for draft in drafts)
-        connection.execute(_MARK_RIPENED_SQL, (NectarState.RIPENED.value, nectar_id))
-        insert_event(connection, event)
+        results = tuple(_ripen_one_part(connection, draft, ctx) for draft in write.drafts)
+        # The reading lowers nothing here: the rows above were already raised to the Nectar's own
+        # label, and a reading below it can only start a lowering proposal later (ADR-0034).
+        reading = write.reading
+        label = reading.clearance if reading is not None else None
+        reason = reading.reason if reading is not None else None
+        connection.execute(
+            _MARK_RIPENED_SQL,
+            (NectarState.RIPENED.value, *_label_pair(label), reason, nectar_id),
+        )
+        insert_event(connection, write.event)
         return results
 
 

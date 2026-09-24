@@ -5,8 +5,9 @@ this one holds the durable `HoneyStore` implementation, split into `store.py` (t
 `create`, thin delegating methods), `nectar.py`/`honey.py`/`vectors.py` (one table each),
 `sources.py` (`honey_nectar_sources`, a content duplicate's extra provenance, ADR-0033),
 `search.py` (ranked reads over both `honey_fts` and `honey_vectors`), `stats.py` (aggregate
-counts, watermarks, proposals) and `vec.py` (the sqlite-vec extension loader and codec), so each
-stays under the codingrules 5.1 size limit and one file's responsibility is reviewable on its own.
+counts, watermarks, proposals), `lowering.py` (`honey_lowerings`, judge-reviewed label lowering,
+ADR-0034) and `vec.py` (the sqlite-vec extension loader and codec), so each stays under the
+codingrules 5.1 size limit and one file's responsibility is reviewable on its own.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package.

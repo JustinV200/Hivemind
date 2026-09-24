@@ -6,9 +6,13 @@ and `hivemind.brood_chamber.store.protocol.TaskStore`: every write takes the `Ho
 (`hivemind.pheromone`) to record alongside it and commits both together, in the same transaction
 (codingrules section 12). `add_nectar` is the one write whose event depends on what the write
 found (a new row or a duplicate, a raised label, a Night Veil deposit that records nothing), so it
-takes `NectarEvents`, a function the store calls inside the transaction with the outcome. Split
-into five private Protocols purely for codingrules 5.1's class-size limit -- `HoneyStore` itself
-is the whole contract every caller and implementation actually names.
+takes `NectarEvents`, a function the store calls inside the transaction with the outcome; the
+three label-lowering writes (ADR-0034) take `LoweringEvents` for the same reason. Split into six
+private Protocols purely for codingrules 5.1's class-size limit -- `HoneyStore` itself is the whole
+contract every caller and implementation actually names. The lowering shapes it passes
+(`LoweringProposal`, `LoweringFiling`, `LoweringDecision`, `LoweringState`, `LoweringId`) live in
+`hivemind.honey_store.lowering` and are imported here for type checking only: that package's
+service imports this one, so a runtime import back would cycle.
 `NectarAdded`, `HoneyProposal` and `PruneResult` (ADR-0033's `prune_vectors`, the same
 outcome-depends-on-what-was-found shape as `add_nectar`, via its own `PruneEvents`) are this
 protocol's own small return shapes, kept here rather than in `hivemind.honey_store.models`
@@ -22,9 +26,9 @@ caller.**
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by
     `hivemind.honey_store.store.sqlite.SqliteHoneyStore`; used by `hivemind.honey_store.nectar`
-    (intake), `.ripening` (the Ripener) and `.honey` (retrieval) -- all later dispatches -- and by
-    `hive honey`. Calls into `hivemind.honey_store.models`, `hivemind.pheromone` (HoneyEvent) and
-    `waggle.ids` only.
+    (intake), `.ripening` (the Ripener), `.honey` (retrieval) and `.lowering` (label lowering), and
+    by `hive honey`. Calls into `hivemind.honey_store.models`, `hivemind.pheromone` (HoneyEvent) and
+    `waggle.ids` only (and `hivemind.honey_store.lowering` for type checking).
 
 Key invariants:
     - Every mutation method's event commits together with the row(s) it describes, or neither
@@ -33,7 +37,10 @@ Key invariants:
       (ADR-0031: "Filtering is policy, not ranking"), on every method that takes one.
     - `add_nectar` and `ripen` are idempotent by key (`sha256`/`source_key`, and
       `(nectar_id, part, chunk_index)`); calling either twice with the same key never duplicates a
-      row.
+      row. `add_lowering` is too: one proposal per Nectar, ever (ADR-0034).
+    - A lowering proposal's state changes only through `apply_lowering`/`reject_lowering`, each of
+      which checks `hivemind.honey_store.lowering.state.assert_transition` inside its own
+      transaction.
 
 See Also:
     - .claude/codingrules.md section 12 for the same-transaction rule every implementation follows.
@@ -43,12 +50,13 @@ See Also:
       ReadFilter, TextCandidate, VectorCandidate, HoneyStats, the shapes this protocol passes.
     - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for
       nectar_sources, scope_counts and prune_vectors.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for the lowering methods.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,6 +69,7 @@ from hivemind.honey_store.models import (
     NectarDraft,
     NectarSource,
     ReadFilter,
+    RipenerReading,
     TextCandidate,
     VectorCandidate,
 )
@@ -68,12 +77,25 @@ from hivemind.pheromone import HoneyEvent
 from waggle.ids import CellId, HoneyId, NectarId
 from waggle.messages.base import UtcDatetime
 
+if TYPE_CHECKING:
+    # Type checking only: hivemind.honey_store.lowering's service imports this module, so a runtime
+    # import back would cycle (module docstring). Every use below is an annotation or a lazily
+    # evaluated `type` alias, so nothing here needs these names at runtime.
+    from hivemind.honey_store.lowering.models import (
+        LoweringDecision,
+        LoweringFiling,
+        LoweringId,
+        LoweringProposal,
+    )
+    from hivemind.honey_store.lowering.state import LoweringState
+
 # codingrules 8.5: frozen, extra-forbidding config both value shapes in this module share.
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
 __all__ = [
     "HoneyProposal",
     "HoneyStore",
+    "LoweringEvents",
     "NectarAdded",
     "NectarEvents",
     "PruneEvents",
@@ -123,6 +145,13 @@ class PruneResult(BaseModel):
 type PruneEvents = Callable[[PruneResult], Sequence[HoneyEvent]]
 
 
+# Builds the events one lowering write records, from the proposal as that write left it: a new
+# proposal's id exists only once the store minted it, and whether an apply lowered the label or
+# found it no longer eligible is only known inside the transaction (ADR-0034). Must be pure and
+# fast: it runs on the store's own thread.
+type LoweringEvents = Callable[[LoweringProposal], Sequence[HoneyEvent]]
+
+
 class HoneyProposal(BaseModel):
     """One human-proposed note (roadmap 7.10), queued for the House Bee to drain into Nectar."""
 
@@ -142,7 +171,7 @@ class HoneyProposal(BaseModel):
 
 
 class _NectarRowsStore(Protocol):
-    """A fifth of HoneyStore (Nectar rows), split out for codingrules 5.1's class-size limit."""
+    """A sixth of HoneyStore (Nectar rows), split out for codingrules 5.1's class-size limit."""
 
     async def add_nectar(
         self, draft: NectarDraft, content_sha256: str, events: NectarEvents
@@ -269,21 +298,30 @@ class _NectarRowsStore(Protocol):
 
 
 class _HoneyRowsStore(Protocol):
-    """A fifth of HoneyStore (Honey rows), split out for codingrules 5.1's class-size limit."""
+    """A sixth of HoneyStore (Honey rows), split out for codingrules 5.1's class-size limit."""
 
     async def ripen(
-        self, nectar_id: NectarId, drafts: Sequence[HoneyDraft], event: HoneyEvent
+        self,
+        nectar_id: NectarId,
+        drafts: Sequence[HoneyDraft],
+        event: HoneyEvent,
+        *,
+        reading: RipenerReading | None = None,
     ) -> tuple[Honey, ...]:
         """Insert `drafts` as Honey rows ripened from `nectar_id`, and mark it RIPENED, atomically.
 
         Idempotent on `(nectar_id, part, chunk_index)`: a draft matching an already-stored row
         returns that row unchanged rather than inserting a duplicate. Provenance, scope, kind,
-        origin and origin tier are copied from the Nectar row, never taken from `drafts`.
+        origin and origin tier are copied from the Nectar row, never taken from `drafts`. The
+        Ripener's own reading of the text is stored on the Nectar in the same transaction
+        (`Nectar.ripener_clearance`, ADR-0034); it never changes any label.
 
         Args:
             nectar_id: The Nectar row being ripened.
             drafts: One or more parts (one SUMMARY, zero or more CHUNK) to store.
             event: The accompanying `honey.ripened` event.
+            reading: The model's own label and reason for the text; None (a heuristic summary)
+                stores no reading, clearing any earlier one.
 
         Returns:
             Every resulting Honey row, in `drafts`' order.
@@ -411,7 +449,7 @@ class _HoneyRowsStore(Protocol):
 
 
 class _VectorsStore(Protocol):
-    """A fifth of HoneyStore (vectors), split out for codingrules 5.1's class-size limit."""
+    """A sixth of HoneyStore (vectors), split out for codingrules 5.1's class-size limit."""
 
     async def set_vectors(
         self,
@@ -469,7 +507,7 @@ class _VectorsStore(Protocol):
 
 
 class _SearchStore(Protocol):
-    """A fifth of HoneyStore (search), split out for codingrules 5.1's class-size limit."""
+    """A sixth of HoneyStore (search), split out for codingrules 5.1's class-size limit."""
 
     async def search_text(
         self, match: str, filter: ReadFilter, limit: int
@@ -536,7 +574,7 @@ class _SearchStore(Protocol):
 
 
 class _MaintenanceStore(Protocol):
-    """A fifth of HoneyStore (stats, watermarks, proposals), split for codingrules 5.1's limit."""
+    """A sixth of HoneyStore (stats, watermarks, proposals), split for codingrules 5.1's limit."""
 
     async def stats(self) -> HoneyStats:
         """Return aggregate counts over the whole store.
@@ -612,12 +650,167 @@ class _MaintenanceStore(Protocol):
         ...
 
 
+class _LoweringStore(Protocol):
+    """A sixth of HoneyStore (label lowering proposals, ADR-0034), split for codingrules 5.1."""
+
+    async def lowering_candidates(self, limit: int) -> tuple[Nectar, ...]:
+        """Return Nectar a judge may be asked to lower that no proposal names yet, oldest first.
+
+        Selects exactly what `hivemind.honey_store.lowering.rules.lowering_target` accepts --
+        RIPENED, untainted, outside Night Veil, not HUMAN or WATCH origin, every labelling fact
+        known, the floor alone holding the label up and the Ripener's reading below it -- so no
+        ineligible row ever takes a place under `limit` from an eligible one.
+
+        Args:
+            limit: The most rows to return.
+
+        Returns:
+            At most `limit` rows, oldest received first.
+        """
+        ...
+
+    async def add_lowering(
+        self, filing: LoweringFiling, events: LoweringEvents
+    ) -> LoweringProposal | None:
+        """File one PROPOSED lowering proposal and its events, atomically.
+
+        The store trusts its caller ran `lowering_target` (the apply transaction runs it again).
+        The Ripener's reason is copied from the Nectar row onto the proposal, for the human.
+
+        Args:
+            filing: The Nectar, and the labels to lower it from and to.
+            events: Builds the events to record from the new proposal (`honey.lowering_proposed`).
+
+        Returns:
+            The new proposal; None, with nothing written, when the Nectar already has one (one
+            proposal per Nectar, ever).
+
+        Raises:
+            NectarNotFoundError: No Nectar row with `filing.nectar_id` exists.
+        """
+        ...
+
+    async def list_lowerings(
+        self, state: LoweringState, limit: int
+    ) -> tuple[LoweringProposal, ...]:
+        """Return proposals in `state`, oldest first.
+
+        Args:
+            state: The state to list.
+            limit: The most proposals to return.
+
+        Returns:
+            At most `limit` proposals, oldest proposed first.
+        """
+        ...
+
+    async def pending_lowerings(self, limit: int) -> tuple[LoweringProposal, ...]:
+        """Return the judge's queue: PROPOSED proposals with no note, oldest first.
+
+        A note on a PROPOSED proposal means it waits for the human (its text is over the judge's
+        bound, or the judge could not answer often enough), so the judge passes it over.
+
+        Args:
+            limit: The most proposals to return.
+
+        Returns:
+            At most `limit` proposals, oldest proposed first.
+        """
+        ...
+
+    async def get_lowering(self, proposal_id: LoweringId) -> LoweringProposal:
+        """Return one stored proposal.
+
+        Args:
+            proposal_id: The proposal to look up.
+
+        Returns:
+            The matching proposal.
+
+        Raises:
+            LoweringNotFoundError: No proposal with `proposal_id` exists.
+        """
+        ...
+
+    async def note_lowering(
+        self, proposal_id: LoweringId, note: str, *, attempted: bool
+    ) -> LoweringProposal:
+        """Set a PROPOSED proposal's note, counting a failed judge attempt when `attempted`.
+
+        Bookkeeping, not a transition, so no event; a proposal already decided is left as it is.
+
+        Args:
+            proposal_id: The proposal to note.
+            note: Why it waits for the human, or "" to leave it in the judge's queue.
+            attempted: Whether this records one more judge answer failure.
+
+        Returns:
+            The proposal as stored after the call.
+
+        Raises:
+            LoweringNotFoundError: No proposal with `proposal_id` exists.
+        """
+        ...
+
+    async def apply_lowering(
+        self, decision: LoweringDecision, events: LoweringEvents
+    ) -> LoweringProposal:
+        """Lower a proposal's Nectar if it still stands, or reject it if not; atomically.
+
+        Re-reads the Nectar and re-runs `lowering_target`. When the proposal's target still
+        stands, lowers the Nectar and every Honey row of it still at the old label, reads them
+        back (the postcondition), and moves the proposal to LOWERED; when it does not (a merge, a
+        raise or a taint since filing), a PROPOSED proposal is REJECTED with the note "no longer
+        eligible" instead. Either way `events` records the outcome in the same transaction.
+
+        Args:
+            decision: Who approved it, when, and the judge's verdict or the human's reason.
+            events: Builds the events to record from the decided proposal.
+
+        Returns:
+            The proposal as decided: LOWERED, or REJECTED when it no longer stood.
+
+        Raises:
+            LoweringNotFoundError: No proposal with `decision.proposal_id` exists.
+            LoweringTransitionError: The approver may not lower it from its state (a judge on a
+                REJECTED proposal, anyone on a LOWERED one).
+            LoweringIneligibleError: The human approved a REJECTED proposal that no longer stands.
+            LoweringPostconditionError: The rows read back still carry the old label; nothing
+                was written.
+        """
+        ...
+
+    async def reject_lowering(
+        self, decision: LoweringDecision, events: LoweringEvents
+    ) -> LoweringProposal:
+        """Reject a PROPOSED proposal (a judge's REJECT or the human's denial), atomically.
+
+        Args:
+            decision: Who rejected it, when, and the judge's verdict or the human's reason.
+            events: Builds the events to record from the rejected proposal.
+
+        Returns:
+            The proposal, now REJECTED.
+
+        Raises:
+            LoweringNotFoundError: No proposal with `decision.proposal_id` exists.
+            LoweringTransitionError: It is not PROPOSED.
+        """
+        ...
+
+
 class HoneyStore(
-    _NectarRowsStore, _HoneyRowsStore, _VectorsStore, _SearchStore, _MaintenanceStore, Protocol
+    _NectarRowsStore,
+    _HoneyRowsStore,
+    _VectorsStore,
+    _SearchStore,
+    _MaintenanceStore,
+    _LoweringStore,
+    Protocol,
 ):
     """Persist and query Nectar and Honey, atomic with their Pheromone Trail events.
 
-    Composed from the five private Protocols above, split only to keep each one under codingrules
+    Composed from the six private Protocols above, split only to keep each one under codingrules
     5.1's class-length limit; `HoneyStore` itself is the whole contract every caller and
     implementation (`SqliteHoneyStore`) actually names. Implementations must be safe to call
     concurrently.
