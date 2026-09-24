@@ -9,7 +9,8 @@ that works it, so what the Scout learned is in the Forager's brief rather than r
 report is deliberately small and structured: whether the Scout recommends going ahead, one
 paragraph of summary, and short lists of findings, suggested steps, risks and where the work
 happens. It is prose a model wrote, so every reader treats it as untrusted input. Every bound is a
-named constant here; the number, not the name, is normative.
+named constant here; the number, not the name, is normative. ``SCOUT_REPORT_FILE`` names the file
+a Scout writes its report to, which its task's acceptance checks.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -44,6 +45,10 @@ MAX_RECON_STEPS = 16  # A suggested plan longer than this is a plan, not a sugge
 MAX_RECON_RISKS = 8  # The risks worth a Forager's attention; the rest is noise.
 MAX_RECON_TARGETS = 8  # Where the work happens: URLs, window titles, application names.
 MAX_RECON_REPORTS = 4  # Scout reports one task.assign carries, one per Scout it depended on.
+# Where a Scout writes its report, relative to its lease's scratch: the planner makes FILE_EXISTS
+# on this path a Scout task's acceptance, so the Warden verifies a report exists before it
+# carries one up. One name shared by the planner and the Scout role, so they cannot drift.
+SCOUT_REPORT_FILE = "scout-report.json"
 
 __all__ = [
     "MAX_RECON_FINDINGS",
@@ -53,6 +58,7 @@ __all__ = [
     "MAX_RECON_STEPS",
     "MAX_RECON_SUMMARY_CHARS",
     "MAX_RECON_TARGETS",
+    "SCOUT_REPORT_FILE",
     "ScoutReport",
 ]
 

@@ -563,6 +563,8 @@ Family enums and value models:
   - `summary` (`str`): one paragraph. Min 1, max 1000.
   - `findings`, `suggested_steps` (`tuple[str, ...]`): max 16 items each; `risks`, `targets`
     (`tuple[str, ...]`): max 8 items each. Every item min 1, max 500 chars.
+  - A Scout writes its report as JSON to `scout-report.json` (`SCOUT_REPORT_FILE`) in its lease's
+    scratch; the planner makes `FILE_EXISTS` on that path a Scout task's acceptance.
 
 #### TaskAssign
 
