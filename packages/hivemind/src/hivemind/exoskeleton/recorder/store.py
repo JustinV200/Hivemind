@@ -17,6 +17,7 @@ Key invariants:
     - Actions come back in the order they were added.
     - `purge_cell` removes every recording of that Cell and everything under it (a Night Veil
       Cell's recordings go with the Cell, ADR-0032).
+    - `prune_before` never removes a recording with an action finished at or after the cutoff.
     - Owns mutable state (codingrules 8.5, InMemoryRecordingStore): the two dicts, changed only
       through the protocol methods.
 
@@ -26,6 +27,7 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from hivemind.exoskeleton.errors import RecordingNotFoundError
@@ -77,6 +79,14 @@ class RecordingStore(Protocol):
         """Delete every recording of `cell_id`, actions and frames included; return how many."""
         ...
 
+    async def prune_before(self, cutoff: datetime) -> int:
+        """Delete every recording with nothing in it at or after `cutoff`; return how many.
+
+        The retention sweep: a recording goes once it started before `cutoff` and none of its
+        actions finished at or after it, so one still being written is never removed.
+        """
+        ...
+
 
 class InMemoryRecordingStore:
     """A RecordingStore in two dicts: for tests, fakes and a Hive with no database."""
@@ -117,6 +127,22 @@ class InMemoryRecordingStore:
     async def purge_cell(self, cell_id: str) -> int:
         """Delete a Cell's recordings; see RecordingStore."""
         doomed = [rid for rid, info in self._infos.items() if info.cell_id == cell_id]
+        for recording_id in doomed:
+            del self._infos[recording_id]
+            del self._actions[recording_id]
+        return len(doomed)
+
+    async def prune_before(self, cutoff: datetime) -> int:
+        """Delete recordings with nothing at or after `cutoff`; see RecordingStore."""
+        if cutoff.tzinfo is None:
+            # The same refusal the SQLite store makes: a naive moment cannot be compared.
+            raise ValueError("prune_before needs a timezone-aware cutoff")
+        doomed = [
+            recording_id
+            for recording_id, info in self._infos.items()
+            if info.started_at < cutoff
+            and all(action.finished_at < cutoff for action in self._actions[recording_id])
+        ]
         for recording_id in doomed:
             del self._infos[recording_id]
             del self._actions[recording_id]

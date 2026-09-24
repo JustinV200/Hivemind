@@ -10,9 +10,7 @@ Fits into the Hive:
     else (codingrules 14.3).
 
 Key invariants:
-    - None: this module holds tests only. The retention clauses (`prune_before`) run on every
-      store that offers it; `InMemoryRecordingStore` does not yet (its module is outside this
-      step's files), so those clauses skip for it with that reason until it does.
+    - None: this module holds tests only.
 
 See Also:
     - hivemind.exoskeleton.recorder.store for the RecordingStore protocol under test.
@@ -21,9 +19,8 @@ See Also:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 import pytest
 from builders.recordings import (
@@ -49,31 +46,12 @@ _STORE_KINDS = ("memory", "sqlite")
 _HOUR = timedelta(hours=1)
 
 
-@runtime_checkable
-class _Prunable(Protocol):
-    """A store that also runs the retention sweep (SqliteRecordingStore.prune_before)."""
-
-    async def prune_before(self, cutoff: datetime) -> int:
-        """Delete every recording with nothing in it at or after `cutoff`; return how many."""
-        ...
-
-
 @pytest.fixture(params=_STORE_KINDS)
 async def store(request: pytest.FixtureRequest, tmp_path: Path) -> RecordingStore:
     """A RecordingStore of the parametrised kind; the SQLite one on a fresh file."""
     if request.param == "memory":
         return InMemoryRecordingStore()
     return await SqliteRecordingStore.create(connect(tmp_path / "hive.sqlite3"), FakeClock())
-
-
-def _prunable(store: RecordingStore) -> _Prunable:
-    """Return `store` as a store with a retention sweep, or skip the clause for one without."""
-    if not isinstance(store, _Prunable):
-        pytest.skip(
-            "InMemoryRecordingStore has no prune_before yet (hivemind.exoskeleton.recorder.store "
-            "is outside this step's files); the clause runs on every store that offers it"
-        )
-    return store
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -263,14 +241,13 @@ async def test_purge_cell_of_a_cell_with_no_recordings_returns_zero(store: Recor
 async def test_prune_before_removes_recordings_with_nothing_after_the_cutoff(
     store: RecordingStore,
 ) -> None:
-    prunable = _prunable(store)
     stale = make_recording_info("rec_old", started_at=RECORDING_START)
     fresh = make_recording_info("rec_new", started_at=RECORDING_START + 48 * _HOUR)
     for info in (stale, fresh):
         await store.open(info)
         await store.add(info.recording_id, make_recorded_action(at=info.started_at))
 
-    pruned = await prunable.prune_before(RECORDING_START + 24 * _HOUR)
+    pruned = await store.prune_before(RECORDING_START + 24 * _HOUR)
 
     assert pruned == 1
     assert await store.recordings() == (fresh,)
@@ -281,13 +258,12 @@ async def test_prune_before_removes_recordings_with_nothing_after_the_cutoff(
 async def test_prune_before_keeps_a_recording_whose_last_action_is_after_the_cutoff(
     store: RecordingStore,
 ) -> None:
-    prunable = _prunable(store)
     live = make_recording_info("rec_live", started_at=RECORDING_START)
     await store.open(live)
     await store.add(live.recording_id, make_recorded_action("p_1", at=RECORDING_START))
     await store.add(live.recording_id, make_recorded_action("p_2", at=RECORDING_START + 30 * _HOUR))
 
-    pruned = await prunable.prune_before(RECORDING_START + 24 * _HOUR)
+    pruned = await store.prune_before(RECORDING_START + 24 * _HOUR)
 
     assert pruned == 0
     assert len(await store.actions(live.recording_id)) == 2
