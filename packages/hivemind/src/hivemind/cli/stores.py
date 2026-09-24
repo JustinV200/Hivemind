@@ -27,9 +27,11 @@ Fits into the Hive:
     `hivemind.cli.trail` (the store functions) and by `hivemind.cli.llm` (the manifest-conversion
     functions), and by every later CLI step that needs a live `ProviderRegistry`;
     `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8); `build_
-    hive_stand_source` calls `open_leavings` (roadmap step 5.0a). Calls into `hivemind.brood_
-    chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`, `hivemind.pheromone`,
-    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
+    hive_stand_source` calls `open_leavings` (roadmap step 5.0a); `hive recordings` and
+    `hivemind.cli.compose.exoskeleton` call `open_recordings` (roadmap step 6.6). Calls into
+    `hivemind.brood_chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`,
+    `hivemind.exoskeleton.recorder`, `hivemind.pheromone`, `hivemind.forage`, `hivemind.llm`,
+    `hivemind.manifest` and `hivemind.queen.forage.ledger`.
 
 Key invariants:
     - `open_chamber` always applies the Pheromone Trail's migrations on its own connection before
@@ -72,8 +74,8 @@ Public API:
     - DEFAULT_MANIFEST, ManifestOption, JsonOption: the shared `--manifest`/`--json` typer option
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
-    - open_trail, open_chamber, open_memory, open_leavings, open_ledger: the store composition
-      functions.
+    - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings: the
+      store composition functions.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
       conversion functions.
 """
@@ -91,6 +93,7 @@ import typer
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStore
 from hivemind.cell.leavings import SqliteLeavingsStore
 from hivemind.common.sqlite import connect
+from hivemind.exoskeleton.recorder import SqliteRecordingStore
 from hivemind.forage import Abundance, ForageMap, ModelSource
 from hivemind.forage.map import SlotBinding
 from hivemind.hive.snapshot import SqliteSnapshotLedger
@@ -145,6 +148,7 @@ __all__ = [
     "open_leavings",
     "open_ledger",
     "open_memory",
+    "open_recordings",
     "open_snapshot_ledger",
     "open_trail",
     "provider_configs",
@@ -293,6 +297,28 @@ def open_cluster_orders(db: Path) -> SqliteOrderStore:
         connection = connect(db)
         return await SqliteOrderStore.create(connection, SystemClock())
 
+    return asyncio.run(_open())
+
+
+def open_recordings(db: Path) -> SqliteRecordingStore:
+    """Open `db` and return a ready SqliteRecordingStore, applying its migrations first.
+
+    Roadmap step 6.6: the flight recorder's two tables live in the Hive's own database file
+    (ADR-0032). `hive recordings` reads them through this; `hivemind.cli.compose.exoskeleton.
+    open_hive_recordings` opens the Hive Stand Warden's own store through it. The recorder writes
+    no trail event, so unlike `open_memory` no Pheromone Trail migration has to run first.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteRecordingStore whose tables exist and are current.
+    """
+
+    async def _open() -> SqliteRecordingStore:
+        return await SqliteRecordingStore.create(connect(db), SystemClock())
+
+    # asyncio.run: the same one-call seam into the async store layer every open_* here uses.
     return asyncio.run(_open())
 
 

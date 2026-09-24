@@ -3,8 +3,9 @@
 Codingrules section 13: the composition root is the only place a `HiveManifest` is turned into the
 deps every subsystem actually takes; this module is that conversion for roadmap step 3.21's second
 half, one function per collaborator so `hivemind.cli.compose.hive.build_hive` stays a short list of
-calls. `HiveStores` groups the three stores every Hive shares one SQLite file for (mirrors
-`hivemind.cli.stores`'s own `open_trail`/`open_chamber`/`open_memory`, now composed together);
+calls. `HiveStores` groups the stores every Hive shares one SQLite file for (mirrors
+`hivemind.cli.stores`'s own `open_trail`/`open_chamber`/`open_memory`, now composed together, plus
+the flight recorder's store, roadmap step 6.6, opened with its retention sweep applied);
 `HiveParts` groups what `build_warden_deps` and `build_queen_deps` both need (codingrules section
 5.1: "introduce a frozen dataclass for the argument group"), built by `build_hive` only once its
 own `Fanner` and `ProviderRegistry` already exist -- `build_hive_stand_source` and `build_fanner`
@@ -15,9 +16,10 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.brood_chamber`,
     `hivemind.cell.leavings` (roadmap step 5.0a), `hivemind.cell.local`, `hivemind.cli.stores`,
-    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`,
-    `hivemind.queen` (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`,
-    `hivemind.wardens`, `hivemind.workers` and waggle only.
+    `hivemind.cli.compose.exoskeleton` (roadmap steps 6.4-6.6: the Warden's Exoskeleton wiring),
+    `hivemind.exoskeleton.recorder`, `hivemind.forage`, `hivemind.llm`, `hivemind.manifest`,
+    `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen` (`ForageLedger`, roadmap step 4.7),
+    `hivemind.supervision`, `hivemind.wardens`, `hivemind.workers` and waggle only.
 
 Key invariants:
     - Every identity this module builds (`MemoryIdentity`, `ChamberIdentity`, `CellIdentity`)
@@ -44,7 +46,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pydantic import SecretStr
@@ -53,6 +55,7 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
 from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
+from hivemind.cli.compose.exoskeleton import hive_stand_exoskeleton, open_hive_recordings
 from hivemind.cli.compose.links import HiveLinks
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import (
@@ -65,6 +68,7 @@ from hivemind.cli.stores import (
     open_trail,
     slot_bindings,
 )
+from hivemind.exoskeleton.recorder import InMemoryRecordingStore, RecordingStore
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
 from hivemind.llm import (
     CallGate,
@@ -96,7 +100,7 @@ from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer, WardenDeps
 from hivemind.workers import Worker
 from hivemind.workers.roles import Drone
-from waggle.clock import Clock
+from waggle.clock import Clock, SystemClock
 from waggle.messages.task import WorkerRole
 
 __all__ = [
@@ -122,12 +126,16 @@ class HiveStores:
         memory: Where every Pin, Note, Handoff and episode this Hive writes lives.
         leavings: The Leavings ledger `build_hive_stand_source` hands to every
             `HiveStandLeaseReleaser` this Hive builds (roadmap step 5.0a).
+        recordings: The flight recorder's store (roadmap step 6.6), where the Hive Stand's
+            Warden records every GUI action. Defaulted to an in-memory store so a `HiveStores` a
+            test builds by hand keeps working; `open_default_stores` opens the durable one.
     """
 
     trail: PheromoneTrail
     chamber: BroodChamber
     memory: MemoryStore
     leavings: LeavingsStore
+    recordings: RecordingStore = field(default_factory=InMemoryRecordingStore)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,13 +163,17 @@ class HiveParts:
 
 
 def open_default_stores(manifest: HiveManifest) -> HiveStores:
-    """Open the Hive's own `[hive] db` file as its trail, chamber, memory and leavings store.
+    """Open the Hive's own `[hive] db` file as its trail, chamber, memory, leavings and recordings.
+
+    The recording store is opened with `[exoskeleton] recording_retention_days` applied
+    (`hivemind.cli.compose.exoskeleton.open_hive_recordings`): the Hive's one retention sweep for
+    recordings runs here, as the Hive starts, on the wall clock.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
 
     Returns:
-        A HiveStores over four separate `sqlite3.Connection`s to the same file (ADR-0006: "two
+        A HiveStores over five separate `sqlite3.Connection`s to the same file (ADR-0006: "two
         stores that write the same file use separate connections; WAL makes that fine").
     """
     db = manifest.resolve_path(manifest.hive.db)
@@ -173,6 +185,7 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         chamber=open_chamber(db, identity),
         memory=open_memory(db),
         leavings=open_leavings(db),
+        recordings=open_hive_recordings(db, manifest.exoskeleton, SystemClock()),
     )
 
 
@@ -297,14 +310,12 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     """
     manifest = parts.manifest
     supervision = manifest.supervision
-    identity = MemoryIdentity(
-        hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
-    )
+    identity = _system_identity(manifest)
     # Roadmap step 4.10: a model-backed JudgeReviewer, merged into the deterministic check
     # registry so CheckKind.JUDGE is available wherever a tier's own `judge` flag turns it on.
     judge_rubrics = load_judge_rubrics()
     judge_reviewer = _build_judge_reviewer(parts)
-    return WardenDeps(
+    deps = WardenDeps(
         source=source,
         queen_link=links.warden_transport,
         hop=links.warden_hop,
@@ -331,6 +342,8 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         keep_root=_keep_root(manifest),
         disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
     )
+    # Roadmap steps 6.4-6.6: screen, browser launcher, flight recorder and ears (.exoskeleton).
+    return hive_stand_exoskeleton(parts).apply(deps)
 
 
 def _keep_root(manifest: HiveManifest) -> Path | None:

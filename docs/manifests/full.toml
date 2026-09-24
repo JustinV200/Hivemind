@@ -472,3 +472,16 @@ max_per_image = 2
 max_dormant_s = 3600.0
 # Disk, in megabytes, the manifest allots to the whole pool (8 GiB here).
 disk_budget_mb = 8192
+
+[exoskeleton]
+# The optional peripherals a task may ask for on its Cell: a display, input, audio and a browser
+# (roadmap steps 6.4-6.6). Every field here has a default; the section may be omitted entirely.
+# Pixel width and height of a display attach starts, and of the browser window inside it.
+screen_width = 1280
+screen_height = 800
+# Seconds attach waits for the display, sound server and browser together to become usable before
+# it stops everything it started and refuses the task.
+ready_timeout_s = 30.0
+# Days a flight recording (the before and after frames and the evidence of every GUI action) is
+# kept after its last action; the sweep that deletes older ones runs as the Hive starts.
+recording_retention_days = 30

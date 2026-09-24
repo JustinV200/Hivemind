@@ -11,8 +11,9 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
-    hivemind.cli.forage and hivemind.cli.readback (cells, inbox, wardens, cluster) now; later
-    phases add entrance and friends through their own public APIs.
+    hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
+    hivemind.cli.recordings now; later phases add entrance and friends through their own public
+    APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -34,6 +35,7 @@ See Also:
       first half adds; hivemind.cli.stores for the manifest-aware composition helpers both use.
     - hivemind.cli.run and hivemind.cli.readback for the four commands roadmap step 3.21's second
       half adds, and hivemind.cli.compose for the composition root they are built on.
+    - hivemind.cli.recordings for `hive recordings`, the flight recorder's reader (step 6.6).
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli import capping, forage, llm, memory, tasks, trail
+from hivemind.cli import capping, forage, llm, memory, recordings, tasks, trail
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import run_command
 from hivemind.cli.version import collect_version_info, format_version
@@ -91,6 +93,11 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(forage.app, name="forage")
 app.add_typer(cluster_app, name="cluster")
 app.command("wake")(wake_command)
+
+# Roadmap step 6.6: read the flight recorder's recordings back out of the Hive's database (list,
+# show a pixel-free summary, export the self-contained playback page); like `llm`, it needs no
+# running Queen.
+app.add_typer(recordings.app, name="recordings")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,

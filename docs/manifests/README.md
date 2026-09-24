@@ -69,6 +69,22 @@ exoskeleton_real_display = true` lends the operator's own running display at `"F
 needs audio also needs the Cell's sound tools. Every Real Cell placement skips is named in the
 placement reason with what it lacks.
 
+## `[exoskeleton]` (roadmap steps 6.4-6.6)
+
+`[exoskeleton]` tunes the Exoskeleton (the optional display, input, audio and browser a task may
+ask for on its Cell, `docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md`) on the Hive
+Stand's own Warden: `screen_width` and `screen_height` (default 1280x800, each 320 to 8192) size a
+display attach starts and the browser window in it, and `ready_timeout_s` (default 30) bounds how
+long attach waits for everything it started. `recording_retention_days` (default 30) is how long
+the flight recorder keeps a recording after its last action
+(`docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md`): recordings live
+in two tables of the `[hive] db` file, and the sweep that deletes older ones runs as the Hive
+starts. `hive recordings list|show|export` reads them; `export` writes a self-contained HTML page
+(frames inline, no script) and its JSON summary. Whether Chromium keeps its own sandbox is not a
+setting: the Hive keeps it on, except inside a Virtual Cell (the Cell is the sandbox) and on a Hive
+Stand running as root, where Chromium cannot start with it. A Virtual Cell reads no manifest, so
+its in-Cell Warden uses these defaults and keeps its recordings in memory, with the Cell.
+
 ## `HIVEMIND_*` environment variables
 
 Codingrules section 13: environment variables are read in exactly one place

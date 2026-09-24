@@ -29,6 +29,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
 from hivemind.cli.in_cell.link import CellLinkDeps, announce
+from hivemind.exoskeleton.recorder import InMemoryRecordingStore
 from hivemind.llm import text_response
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.manifest.env import read_in_cell_env
@@ -55,6 +57,7 @@ from waggle.messages.labels import AccuracyBar, Postcondition, PostconditionKind
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.task import TaskAssign, TaskOutcome, TaskResult, WorkerRole
 from waggle.signing import Ed25519Signer
+from waggle.transport.memory import MemoryTransport
 from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_client import WebSocketClientTransport
 from waggle.transport.websocket_server import WebSocketServer
@@ -297,3 +300,32 @@ async def test_a_task_assign_completes_via_a_real_drone_and_a_scripted_fake_prov
         await scenario.transport.close()
     finally:
         await server.close()
+
+
+def test_the_in_cell_warden_is_equipped_with_the_exoskeleton_wiring(tmp_path: Path) -> None:
+    """Roadmap step 6.6: recordings stay with the Cell, in memory; Chromium keeps no sandbox."""
+    clock = FakeClock()
+    environ = _environ(
+        "ws://127.0.0.1:9",
+        new_node_id(clock),
+        new_hive_id(clock),
+        Ed25519Signer.generate(),
+        tmp_path,
+    )
+    config = build_runtime_config(read_in_cell_env(environ), clock)
+    trail = MemoryPheromoneTrail(clock)
+    identity = CellIdentity(
+        hive_id=config.hive_id, node_id=config.node_id, actor=str(config.warden_id)
+    )
+    source = InCellSpawnSource(config.spawn_config, identity, trail, clock)
+    queen_link, _queen_end = MemoryTransport.pair(Codec(), Codec())
+
+    deps = build_in_cell_warden_deps(config, source, queen_link, trail, clock)
+
+    # The Cell has no database file, so its recordings live in this process, with the Cell.
+    assert isinstance(deps.recording_store, InMemoryRecordingStore)
+    assert deps.exoskeleton_config.browser_sandbox is False
+    # No HIVEMIND_SLOTS table was sent: the fallback registry binds no transcriber to hear with.
+    assert deps.ears is None
+    has_extra = importlib.util.find_spec("playwright") is not None
+    assert (deps.browser_launcher is not None) is has_extra

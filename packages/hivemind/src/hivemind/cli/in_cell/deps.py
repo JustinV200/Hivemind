@@ -6,7 +6,13 @@ variables alone (`hivemind.manifest.env.InCellEnv`), so this module is the same 
 manifest to read from. It reaches for the same shipped defaults `build_warden_deps` falls back to
 when an operator has not overridden them (`hivemind.supervision.load_policy(None)`,
 `hivemind.supervision.capping.load_tiers(None)`), since a Virtual Cell image carries no
-`[supervision]` section to name an override file with in the first place.
+`[supervision]` section to name an override file with in the first place. The Exoskeleton wiring
+(roadmap steps 6.4-6.6) comes from `hivemind.cli.compose.exoskeleton.in_cell_exoskeleton`: the
+default screen, Chromium without its own sandbox (the Cell is the sandbox), a browser launcher only
+where the browser extra is installed, unmetered ears when the Cell's slot table binds a
+transcriber, and an in-memory recording store. A Virtual Cell has no database file of its own, so
+its flight recordings live with the Cell, in this process, and are gone when the Cell is torn
+down; shipping them to the Queen's store is a later step.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
@@ -16,7 +22,8 @@ Fits into the Hive:
     load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
     (RelaySnapshotter), `hivemind.wardens.spawn` (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
-    (Drone), `hivemind.cli.in_cell.providers` and waggle only.
+    (Drone), `hivemind.cli.in_cell.providers`, `hivemind.cli.compose.exoskeleton`
+    (in_cell_exoskeleton) and waggle only.
 
 Key invariants:
     - `worker_factory` always returns a fresh `Drone`, the same "v0's only Worker role" choice
@@ -36,6 +43,7 @@ See Also:
 
 from __future__ import annotations
 
+from hivemind.cli.compose.exoskeleton import in_cell_exoskeleton
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
 from hivemind.forage.slots import ModelSlot
@@ -103,7 +111,7 @@ def build_in_cell_warden_deps(
     )
     registry = build_in_cell_provider_registry(clock, config)
     hop = Hop(sender=config.warden_id, recipient=config.hive_id, node_id=config.node_id)
-    return WardenDeps(
+    deps = WardenDeps(
         source=source,
         queen_link=queen_link,
         hop=hop,
@@ -125,6 +133,8 @@ def build_in_cell_warden_deps(
         trail_sync=_build_trail_sync(config, queen_link, trail, clock),
         snapshotter=_build_snapshotter(config, queen_link, hop, clock),
     )
+    # Roadmap steps 6.4-6.6: the Exoskeleton's screen, launcher, recorder and ears (module docs).
+    return in_cell_exoskeleton(registry, clock).apply(deps)
 
 
 def _build_snapshotter(

@@ -1,12 +1,13 @@
 """Re-export the Hive Manifest schema: every TOML section, as one frozen pydantic model tree.
 
-Fourteen documented sections is more than one module can hold under codingrules section 5.1's
+Fifteen documented sections is more than one module can hold under codingrules section 5.1's
 300-line limit, so the schema is a package: ``core`` (identity and lifecycle: ``[hive]``,
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
 ``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (``[security]`` and
 ``[honey.clearance]``), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
-and ``manifest`` (``HiveManifest``, the root that gathers all of the above). This file is the
+``exoskeleton`` (``[exoskeleton]``, roadmap step 6.6), and ``manifest`` (``HiveManifest``, the root
+that gathers all of the above). This file is the
 schema's face: a caller imports any section model from here without knowing which module defines
 it.
 
@@ -35,6 +36,7 @@ Public API:
       HoneyClearanceSection, ClearanceMatrix.
     - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
       VirtualCellsSection, VirtualCellsOverwinterSection.
+    - Exoskeleton (exoskeleton): ExoskeletonSection.
     - Root (manifest): HiveManifest.
 """
 
@@ -46,6 +48,7 @@ from hivemind.manifest.schema.core import (
     PheromoneSection,
     QueenSection,
 )
+from hivemind.manifest.schema.exoskeleton import ExoskeletonSection
 from hivemind.manifest.schema.forage import ForageSection
 from hivemind.manifest.schema.llm import (
     MANIFEST_KEY_PATTERN,
@@ -76,6 +79,7 @@ __all__ = [
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "ExoskeletonSection",
     "ForageSection",
     "HiveManifest",
     "HiveSection",
