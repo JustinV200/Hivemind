@@ -117,7 +117,16 @@ every assignment goes to a Warden, over Waggle.
   other; a plan that lands after its request was refused is stopped at once.
 - `QueenDeps.on_heartbeat`: handed every Heartbeat once she has recorded it, its one way out (a
   Heartbeat never reaches the trail); the Hive Entrance's telemetry board in `hive serve`.
-- `record_event` (`trail.py`): the one place a `queen.*` trail event is built.
+- `record_event` (`trail/record.py`): the one place a `queen.*` trail event is built.
+- The Night Veil boundary (codingrules section 12, `hivemind.pheromone.retention`): whenever a
+  Virtual side exists, `QueenDeps.trail` is the `VeiledTrail` the composition root builds, so a
+  record about a Night Veil Cell or one of its tasks reaches the durable trail only as its
+  skeleton and whole only in the Cell's ephemeral segment. The Queen routes her own records to it
+  by id: `attach_warden` files a Night Veil Cell's Warden under the Cell (`segments_of`),
+  `submit_goal` expects every task of a Night Veil goal, and `LifecycleVirtualCellProvider.acquire`
+  binds a task to the Night Veil Cell it now runs on. `TrailSegmentReceiver` (`trail/sync.py`)
+  offers every shipped segment to the ephemeral segments first, so a Night Veil Cell's own trail
+  never merges into the durable one.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A
   `CellWaxProposed` classifies as a routine `WAGGLE_MESSAGE` (roadmap step 4.2a: "scores low"),

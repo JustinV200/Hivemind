@@ -23,3 +23,11 @@ fixture is committed and a test names the exact length it needs; `make_clip` pas
 `AudioClip.from_upload`, the same door a device's upload takes. `marked_wav` plants a distinctive
 byte run in a clip's samples, so a test can search every store, trail payload and log line for
 the audio itself (`tests/e2e/test_voice_on_hive_serve.py`).
+
+## `night_veil.py` (codingrules section 12, the Night Veil boundary)
+
+`make_night_veil(durable, clock, identity)`: build the Night Veil boundary over a
+`MemoryPheromoneTrail`, wired the way `hivemind.cli.compose.night_veil.build_night_veil` wires the
+real one over the Hive's SQLite trail: fresh `EphemeralSegments`, the `VeiledTrail` a lifecycle or
+Queen under test records through, and a `NightVeilTeardownPurge` whose recorder writes to the
+durable trail past the boundary, with no side channels (none is registered in production today).

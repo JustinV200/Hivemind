@@ -77,7 +77,11 @@ module in the package is private. Every mutating method loads the current `Task`
 asserts the move is legal against `task/state.py`'s `TRANSITIONS` or `questions.py`'s
 `QUESTION_TRANSITIONS`, builds the new value with `model_copy`, and writes it with its `TaskEvent`
 (payload: ids, reasons, statuses and counts only, never a task's objective or a question's text)
-through `TaskStore` in one call.
+through `TaskStore` in one call. A Night Veil task's event (the task asks for `NIGHT_VEIL`, or is
+bound to it before or by this move) is cut at the source to the transition and the task id alone
+(`_build_event`, `hivemind.pheromone.retention.skeleton_event`, codingrules section 12): the store
+commits it inside its own transaction, past the Queen's `VeiledTrail`, so nothing else would cut
+it.
 
 ## How to test this
 

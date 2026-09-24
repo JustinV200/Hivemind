@@ -1471,9 +1471,9 @@ sha256 of the whole content so intake can hash, dedupe and reassemble.
 - `origin_tier` (`CombShieldLevel`): the tier of the Cell it came from as the sender believes
   it; intake sets the stored tier from the Queen's record for `cell_id`, never from this field
   (receiver rule). From a `NIGHT_VEIL` Cell intake accepts only `RIPENED_HONEY` at `C0` or
-  `C1`, keys every other deposit to the Cell's ephemeral segment, and refuses
-  `swarm.trail_segment_sync` entirely (`hive.trail.night_veil_segment`), so the Night Veil
-  boundary of codingrules section 12 holds on the wire. `RIPENED_HONEY` with `origin_tier`
+  `C1` and keys every other deposit to the Cell's ephemeral segment, where the Queen also holds
+  every `swarm.trail_segment_sync` the Cell ships, never merging it into her trail, so the Night
+  Veil boundary of codingrules section 12 holds on the wire. `RIPENED_HONEY` with `origin_tier`
   `NIGHT_VEIL` requires `clearance` `C0` or `C1` (validator).
 - `event_id` (`EventId | None`): for `HANDOFF`, the `memory.checkpoint` trail event the
   Handoff was recorded under; None for every other kind (validator).

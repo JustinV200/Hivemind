@@ -92,7 +92,22 @@ Drone's grant without a free core.
   through a `FakeSocksProxy` playing Tor (asked for the onion name, never resolved locally). The
   Cell announces NIGHT_VEIL, the task is bound to NIGHT_VEIL (a Cell announcing MEADOW, as every
   one did before, fails it) and the Drone's work succeeds. The attestation probe is the all-green
-  fake: production's is fail-closed until a Queen-side CellSession exists.
+  fake: production's is fail-closed until a Queen-side CellSession exists. The task's
+  `task.assigned` on the trail is its skeleton (no Cell, no tier), so the binding is read off the
+  Brood Chamber's own `assign`.
+- `test_night_veil_boundary.py` (`@pytest.mark.e2e`) -- codingrules section 12's Night Veil
+  boundary through the same Hive, on every path a Night Veil Cell ends: a release after its task
+  succeeds, a provision whose attestation fails after the Cell existed (the retry's second Cell
+  then does the work), an Absconding that finds the Cell still working after its Queen stopped,
+  and a restarted Queen whose reconcile finds the Cell gone. While the Cell works, its whole record
+  (its Warden's shipped segments and the Queen's own detail about it) is in its ephemeral segment
+  and none of it on the durable trail; after each end, every durable event about the Cell, its
+  task, its grant or its Warden is a skeleton kind with its skeleton payload (or the purge's own
+  `cell.purged`), no task words appear anywhere, no row from the Cell's node exists, the
+  ephemeral store is empty, and the in-Cell trail was a `MemoryPheromoneTrail`. The Absconding
+  and restart scenarios hold the Worker's model call open (and ship the Cell's trail, as its next
+  heartbeat would) so the Cell is still working when its Queen stops. A MEADOW Cell's whole local
+  trail still merges into the durable trail exactly as recorded, title and all, with no purge.
 - `test_phase10_remote_laptop.py` (`@pytest.mark.e2e`) -- roadmap phase 10's second exit
   criterion over `hive serve`'s own composition (a real Queen, her Hive Stand Warden and a Drone
   over a scripted `FakeLLMProvider`, the Hive's SQLite file, the Entrance on a real loopback

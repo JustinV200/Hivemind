@@ -190,7 +190,8 @@ class SideChannels:
     A field left None is a registered seam: the store it names does not exist in this Hive yet,
     so nothing there holds a record of the Cell, and the purger that store ships with plugs in
     here by name. Every store a Night Veil Cell writes itself (its trail segment, memory, Tor and
-    OpenVPN logs, scratch) lives inside the Cell and dies with its backend resources.
+    OpenVPN logs, scratch) lives inside the Cell and dies with its backend resources, which the
+    backend's own destroy removes (the `hivemind.hive` README says what that must cover).
 
     Attributes:
         vpn_gateway: A VPN gateway outside the Cell, with its own per-Cell connection log. None

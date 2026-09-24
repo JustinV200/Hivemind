@@ -52,6 +52,49 @@ pool that keeps a dormant Cell around for fast reuse.
   hook to gate `CellReady` on this before `mark_ready` (and tear the Cell down on a red result) is
   a report item: it sits in `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider.
   acquire`, outside this dispatch's file list.
+- `NightVeilBoundary` / `TIER_LABEL` / `with_tier_label` / `tier_from_labels` /
+  `provisioned_facts` / `end_night_veil` / `adopt_night_veil` / `night_veil_cells` /
+  `sweep_night_veil` (`night_veil/boundary.py`, codingrules section 12): where the Virtual Cell
+  lifecycle meets the Night Veil retention boundary (`hivemind.pheromone.retention`).
+  `CellLifecycle.attach_night_veil` hands the lifecycle the boundary the composition root built;
+  from then on a Night Veil Cell's ephemeral segment opens as it is provisioned, before the
+  lifecycle records a word about it, and `NightVeilTeardownPurge` runs every time one ends: in
+  `teardown` (a finished task, a provision that failed after the Cell existed, a Hive shutdown),
+  in `hive cells abscond` (`adopt_night_veil` says which Cells), and in `reconcile`, whose
+  `sweep_night_veil` holds again the segment of a Night Veil Cell that outlived a Queen restart
+  and records `cell.destroyed` (when missing) and purges every one the skeleton names that is gone
+  unpurged. Every provisioned Cell carries its tier in its backend labels (`TIER_LABEL`), and
+  `cell.provisioned` names it, so a restarted Queen reads it back from either.
+
+## Night Veil: what a Cell itself keeps
+
+The boundary above covers the Queen's side. A Night Veil Cell must keep nothing either, so the
+backend's destroy has to take everything the Cell wrote with it:
+
+- The in-Cell Warden's trail is a `MemoryPheromoneTrail` (`hivemind.cli.in_cell.main`), never a
+  file: it dies with the Warden's process, whatever the backend.
+- Docker: `destroy` removes the container, its scratch volume and its network. The container's
+  own stdout and stderr (the in-Cell Warden's log lines: ids and kinds only) follow the daemon's
+  log driver, which the backend does not set: `json-file` and `local` delete them with the
+  container, but a daemon configured for `journald`, `syslog` or a remote driver keeps them on the
+  host. A Night Veil container should be created with the `none` log driver; not built yet.
+  A Capping snapshot (`hivemind.hive.snapshot.docker`, a `docker commit`) is an image outside the
+  container: `teardown` deletes the Cell's snapshot ledger rows but not the committed images
+  (labelled `hivemind.snapshot_of=<cell_id>`), so a Night Veil Cell that was snapshotted leaves
+  its root filesystem behind in the daemon. Removing them needs an image listing by label on
+  `DockerClientPort`; not built yet, and it is the same leak for every Docker Cell.
+- QEMU: everything a VM wrote lives under its `vm_dir`: `overlay.qcow2` (its whole disk, every
+  `savevm` snapshot included), `seed.iso` with `user-data` and `meta-data` (its bootstrap, the
+  hidden-service address and its private signing key among them), `serial.log` (its console),
+  `qmp.sock` and `cell.json`; `destroy` removes that directory. For Night Veil that is not yet
+  enough, and a QEMU Night Veil Cell needs four things not built yet: the removal is
+  `shutil.rmtree(..., ignore_errors=True)`, so a failed delete is silent, and it must be verified
+  and fail loudly instead; a deleted overlay's blocks stay on the host disk, so the Cell's
+  `vm_dir` belongs on a RAM-backed filesystem (or its overlay encrypted under a key held only in
+  the Queen's memory, so dropping the key destroys it); the guest's journald must run with
+  `Storage=volatile` in `images/night-veil-ubuntu`, so its logs never reach the overlay at all;
+  and the image must send none of its own logs to the serial console, since `serial.log` is a
+  host file.
 
 ## How to test this
 
