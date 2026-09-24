@@ -321,6 +321,7 @@ async def _check_and_cap(
         lease=lease,
         scratch_root=ops.deps.session.scratch_dir,
         tier=tier,
+        goal=ops.deps.goal,
     )
     results, failing_check, failure_reason = await _run_checks(ops.deps, context)
     if failure_reason is not None:

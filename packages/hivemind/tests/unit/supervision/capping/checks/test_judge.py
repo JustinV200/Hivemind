@@ -19,6 +19,7 @@ from hivemind.guard import CapabilitySet
 from hivemind.supervision.capping.checks.base import CheckContext
 from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
 from hivemind.supervision.capping.checks.judge import (
+    MAX_GOAL_CHARS,
     JudgeCheck,
     JudgeOutcome,
     JudgeRequest,
@@ -29,7 +30,7 @@ from hivemind.supervision.capping.tiers import RiskTier
 from waggle.messages.capping import CheckKind, CheckOutcome
 
 
-def _context(scratch_root: Path) -> CheckContext:
+def _context(scratch_root: Path, goal: str | None = None) -> CheckContext:
     """Build a CheckContext for a SCRATCH_WRITE proposal, the shape JudgeCheck.run expects."""
     tier = make_tier_table().tiers[RiskTier.SCRATCH_WRITE]
     proposal = make_proposal(risk_tier=RiskTier.SCRATCH_WRITE)
@@ -39,6 +40,7 @@ def _context(scratch_root: Path) -> CheckContext:
         lease=FakeLeaseView(scratch_root),
         scratch_root=scratch_root,
         tier=tier,
+        goal=goal,
     )
 
 
@@ -97,6 +99,22 @@ async def test_judge_check_run_passes_on_approve(tmp_path: Path) -> None:
 
     assert result.kind is CheckKind.JUDGE
     assert result.outcome is CheckOutcome.PASSED
+
+
+async def test_judge_check_run_judges_against_the_task_goal_cut_to_its_bound(
+    tmp_path: Path,
+) -> None:
+    approve = make_judge_verdict(JudgeOutcome.APPROVE)
+    reviewer = FakeJudgeReviewer(approve, approve)  # One verdict for each review below.
+    rubrics = {RiskTier.SCRATCH_WRITE: make_judge_rubric(RiskTier.SCRATCH_WRITE)}
+    long_goal = "Pay invoice 42 only. " * 400  # Far past the judge's bound.
+
+    await JudgeCheck(reviewer, rubrics).run(_context(tmp_path, goal=long_goal))
+    await JudgeCheck(reviewer, rubrics).run(_context(tmp_path))
+
+    judged, ungoaled = reviewer.calls
+    assert judged.goal == long_goal[:MAX_GOAL_CHARS]
+    assert ungoaled.goal is None
 
 
 async def test_judge_check_run_reports_changes_requested(tmp_path: Path) -> None:

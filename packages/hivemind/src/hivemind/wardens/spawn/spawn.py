@@ -344,6 +344,8 @@ def _build_capping_gate(
     `hivemind.wardens.snapshot_relay.RelaySnapshotter` for a Virtual Cell's own Warden. Roadmap
     step 5.0c: it also carries this Warden's own leave-policy fields, plus `assignment.leaves` --
     this one sub-bee's own declared Leavings, never widened beyond what its TaskAssign carries.
+    Both judges review against `assignment.objective`: the real-time JUDGE rung through
+    `GateDeps.goal`, and the after-the-fact audit through `AuditWiring.goal`.
     """
     deps = ctx.deps
     return AuditingCappingGate(
@@ -366,6 +368,7 @@ def _build_capping_gate(
             leave_home=deps.leave_home,
             disk_reserve_mb=deps.disk_reserve_mb,
             gui=gui,
+            goal=assignment.objective,
         ),
         AuditWiring(
             reviewer=deps.judge_reviewer,

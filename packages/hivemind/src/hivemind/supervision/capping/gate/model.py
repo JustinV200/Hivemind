@@ -89,6 +89,9 @@ class GateDeps:
     # proposal is applied, verified and rolled back; None (a Cell with no Exoskeleton, and every
     # GateDeps built before phase 6) rejects a GUI proposal before any check runs.
     gui: GuiSurface | None = None
+    # The objective of the task this gate's proposals serve (its TaskAssign.objective), handed to
+    # the real-time judge through CheckContext.goal; None where no task stands behind the gate.
+    goal: str | None = None
 
 
 class GateOutcome(BaseModel):

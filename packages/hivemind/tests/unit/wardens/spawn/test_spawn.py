@@ -160,6 +160,8 @@ async def test_spawn_sub_bee_threads_assignment_leaves_into_the_capping_gate() -
 
     gate = captured["capping"]
     assert gate._deps.declared_leaves == leaves  # type: ignore[attr-defined]
+    # The same gate hands the real-time judge this sub-bee's own objective to judge against.
+    assert gate._deps.goal == assignment.objective  # type: ignore[attr-defined]
 
     await stop_sub_bee(sub_bee, deps.clock)
     await sub_bee.link.close()

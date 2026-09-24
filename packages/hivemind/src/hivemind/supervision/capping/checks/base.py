@@ -60,6 +60,9 @@ class CheckContext:
     lease: LeaseView  # The lease's scratch root, allowed paths and touched-path bookkeeping.
     scratch_root: Path  # The session's scratch directory; every relative path resolves here.
     tier: TierSpec  # The proposal's risk tier's configured checks, floor, snapshot and diff cap.
+    # The objective of the task whose proposals this gate caps, so the real-time judge reviews an
+    # action against what the task asked for; None where no task stands behind the gate.
+    goal: str | None = None
 
 
 class CheckResultRecord(BaseModel):

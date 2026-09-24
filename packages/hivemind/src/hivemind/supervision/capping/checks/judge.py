@@ -234,7 +234,8 @@ class JudgeCheck:
 
         Args:
             context: The proposal plus everything needed to judge it; only `proposal.risk_tier`,
-                `proposal.action` and `proposal.postconditions` ever reach the reviewer.
+                `proposal.action`, `proposal.postconditions` and the task's `goal` ever reach the
+                reviewer.
 
         Returns:
             FAILED with reason "no rubric configured for tier" when this tier has no rubric;
@@ -257,6 +258,8 @@ class JudgeCheck:
             acceptance_criteria=context.proposal.postconditions,
             rubric=rubric,
             tempo=context.proposal.tempo,
+            # The task's objective, cut to the judge's bound; never the proposer's own reasoning.
+            goal=context.goal[:MAX_GOAL_CHARS] if context.goal is not None else None,
         )
         return await _review_safely(self._reviewer, request)
 
