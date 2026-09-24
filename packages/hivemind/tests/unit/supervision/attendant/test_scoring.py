@@ -15,12 +15,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from builders.supervision import make_inbox_item
 
 from hivemind.supervision.alarm import AlarmSeverity
 from hivemind.supervision.attendant.items import InboxItem, InboxKind
 from hivemind.supervision.attendant.scoring import Attendant, score_item
-from hivemind.supervision.attendant.weights import WeightTable
+from hivemind.supervision.attendant.weights import GUARD_PRINCIPAL, WeightTable
 from waggle.clock import FakeClock
 from waggle.ids import new_task_id
 
@@ -189,3 +190,60 @@ async def test_order_honours_the_tie_breakers_choice() -> None:
     ordered = await attendant.order((tied_a, tied_b))
 
     assert ordered[0] == tied_b
+
+
+def _guard_request(clock: FakeClock, item_id: str) -> InboxItem:
+    """A Guard request as the Queen's inbox holds it: the Guard principal, no task, no urgency."""
+    return make_inbox_item(
+        kind=InboxKind.GUARD_REQUEST, clock=clock, id=item_id, principal=GUARD_PRINCIPAL
+    )
+
+
+async def test_order_ranks_a_guard_request_above_a_critical_alarm_and_any_human_message() -> None:
+    clock = FakeClock()
+    # The Alarm and the message are the oldest items here, and both name a task: every term
+    # that could lift them is present, and the request still comes first (ADR-0035).
+    alarm = make_inbox_item(
+        kind=InboxKind.ALARM,
+        clock=clock,
+        id="alarm",
+        severity=AlarmSeverity.CRITICAL,
+        task_id=new_task_id(clock),
+    )
+    human = make_inbox_item(
+        kind=InboxKind.HUMAN_MESSAGE, clock=clock, id="human", task_id=new_task_id(clock)
+    )
+    clock.advance(3_600.0)
+    request = _guard_request(clock, "guard")
+
+    ordered = await Attendant(WeightTable.queen_default(), clock).order((alarm, human, request))
+
+    assert [item.id for item in ordered] == ["guard", "alarm", "human"]
+
+
+async def test_two_guard_requests_are_ordered_by_age_alone() -> None:
+    clock = FakeClock()
+    older = _guard_request(clock, "older")
+    clock.advance(30.0)
+    newer = _guard_request(clock, "newer")
+    weights = WeightTable.queen_default()
+
+    ordered = await Attendant(weights, clock).order((newer, older))
+
+    assert [item.id for item in ordered] == ["older", "newer"]
+    # The whole difference is the age term: kind and the Guard multiplier are shared by both.
+    now = clock.now()
+    gap = score_item(weights, older, now).score - score_item(weights, newer, now).score
+    assert gap == pytest.approx(30 * weights.age_weight_per_s)
+
+
+async def test_a_wardens_attendant_never_orders_a_guard_request() -> None:
+    clock = FakeClock()
+    heartbeat = make_inbox_item(clock=clock, id="heartbeat")
+    request = _guard_request(clock, "guard")
+
+    ordered = await Attendant(WeightTable.warden_default(), clock).order((request, heartbeat))
+
+    assert [item.id for item in ordered] == ["heartbeat"]
+    with pytest.raises(ValueError, match="refuses GUARD_REQUEST"):
+        score_item(WeightTable.warden_default(), request, clock.now())

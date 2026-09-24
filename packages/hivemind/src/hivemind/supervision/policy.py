@@ -17,6 +17,10 @@ TOML shape this module's `load_policy` validates (see `supervision/defaults/defa
     min_attempts = 1  # >= 1: decide() never matches a rule at attempts < 1.
     action = "RETRY"  # A PolicyAction member name.
 
+`load_warden_policy` is the same load for a Warden (a per-Cell supervisor): it refuses a document
+naming an action only the Queen may take (`WARDEN_REFUSED_ACTIONS`: `ISOLATE`, roadmap step 10.6a,
+ADR-0035 "a Warden's policy refuses to load an ISOLATE row"), so no Warden ever starts on one.
+
 `decide`'s matching rule (codingrules section 8.8): among the rules whose `kind` equals the
 Alarm's own kind and whose `min_attempts` is at most `alarm.attempts`, the one with the highest
 `min_attempts` wins; if none match, the same search runs again over the wildcard (`kind = None`)
@@ -40,6 +44,8 @@ Key invariants:
       fails EscalationPolicy's own validation; it never returns a partially-built policy.
     - PolicyAction is the Hive's own vocabulary, mirrored by no wire enum; every dispatch table
       that maps it (the Queen's and a Warden's autopilot) covers every member, which a test walks.
+    - load_warden_policy never returns a policy naming a WARDEN_REFUSED_ACTIONS member, in a row
+      or as its default.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "each level's EscalationPolicy is data (TOML)".
@@ -68,11 +74,13 @@ _DEFAULTS_PACKAGE = "hivemind.supervision.defaults"
 
 __all__ = [
     "DEFAULT_POLICY_FILENAME",
+    "WARDEN_REFUSED_ACTIONS",
     "EscalationPolicy",
     "PolicyAction",
     "PolicyRule",
     "decide",
     "load_policy",
+    "load_warden_policy",
 ]
 
 
@@ -91,6 +99,14 @@ class PolicyAction(Enum):
     # kill it, taint its memory from the suspect episode on, hold its task paused. No wire enum
     # mirrors this one; every table that maps a PolicyAction gains its row in the same change.
     QUARANTINE = "QUARANTINE"
+    # Roadmap step 10.6a (ADR-0035): isolate the Cell the Alarm names -- the Queen's lever alone,
+    # so a Warden's policy refuses to load a row naming it (`load_warden_policy`).
+    ISOLATE = "ISOLATE"
+
+
+# The actions only the Queen may take, which a Warden's policy may never name (ADR-0035: "Only the
+# Queen isolates a Cell"); defined beside the enum so a new Queen-only action is refused here too.
+WARDEN_REFUSED_ACTIONS = frozenset({PolicyAction.ISOLATE})
 
 
 class PolicyRule(BaseModel):
@@ -148,6 +164,31 @@ def load_policy(path: Path | None = None) -> EscalationPolicy:
         return EscalationPolicy.model_validate(raw)
     except ValidationError as exc:
         raise PolicyError(f"Escalation policy at {source} is invalid: {exc}") from exc
+
+
+def load_warden_policy(path: Path | None = None) -> EscalationPolicy:
+    """Load a Warden's EscalationPolicy, refusing one that names an action only the Queen takes.
+
+    Args:
+        path: The policy file, as for `load_policy`; None reads the shipped default.
+
+    Returns:
+        The validated EscalationPolicy, naming no `WARDEN_REFUSED_ACTIONS` member anywhere.
+
+    Raises:
+        PolicyError: Everything `load_policy` raises, and a row (or the default) naming a refused
+            action: a Warden that started on it would hold a lever ADR-0035 gives the Queen alone.
+    """
+    policy = load_policy(path)
+    named = {rule.action for rule in policy.rules} | {policy.default}
+    refused = sorted(action.value for action in named & WARDEN_REFUSED_ACTIONS)
+    if refused:
+        source = str(path) if path is not None else f"the shipped {DEFAULT_POLICY_FILENAME}"
+        raise PolicyError(
+            f"Escalation policy at {source} names {', '.join(refused)}, which only the Queen may "
+            "take; a Warden's policy never loads it (ADR-0035)."
+        )
+    return policy
 
 
 def _read_policy_text(path: Path | None) -> str:

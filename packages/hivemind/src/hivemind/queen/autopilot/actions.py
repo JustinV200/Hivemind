@@ -25,6 +25,10 @@ in `QueenDecision.message`: only ever an awake decision (autopilot has no rule f
 step 10.6c, the row a `PolicyAction.QUARANTINE` maps to) orders the Warden of an Alarm's task to
 quarantine the bee it names (`hivemind.queen.quarantine.order`), and `PAUSE_TASK` holds a task
 PAUSED in the Brood Chamber once its Warden reports it held (`hivemind.queen.quarantine.hold`).
+`ISOLATE_CELL` (roadmap step 10.6a, ADR-0035, the row a `PolicyAction.ISOLATE` maps to) isolates
+one Cell through the one isolation path (`hivemind.queen.isolation`), and `DISMISS` settles a Guard
+request that needs nothing done (the report stays on the trail); with `QUARANTINE_BEE` they are
+the three ways her decision on a Guard request resolves (`hivemind.queen.guard_requests`).
 `NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.queen.awake` instead.
 
 Fits into the Hive:
@@ -74,4 +78,6 @@ class QueenAction(Enum):
     REPLY = "REPLY"  # Answer the human in the chat with QueenDecision.message; awake only.
     QUARANTINE_BEE = "QUARANTINE_BEE"  # Intervene(QUARANTINE) to the Warden of the Alarm's task.
     PAUSE_TASK = "PAUSE_TASK"  # chamber.pause: a Warden reported its task held (a quarantine).
+    ISOLATE_CELL = "ISOLATE_CELL"  # The one isolation path: cut one Cell off, keep its evidence.
+    DISMISS = "DISMISS"  # A Guard request judged to need nothing: the report stays on the trail.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to queen.awake.

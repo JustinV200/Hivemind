@@ -55,7 +55,9 @@ Public API:
     - Compact, Checkpoint, Handoff, Rebind, Takeover, Cancel, Quarantine, Intervention, to_wire,
       to_intervene, from_wire: the seven intervention levers and their wire conversion
       (intervention).
-    - PolicyAction, PolicyRule, EscalationPolicy, load_policy, decide: policy as data (policy).
+    - PolicyAction, PolicyRule, EscalationPolicy, load_policy, decide: policy as data (policy);
+      load_warden_policy, WARDEN_REFUSED_ACTIONS: a Warden's load, refusing the Queen's own
+      ISOLATE (roadmap step 10.6a).
     - InboxKind, InboxItem, WeightTable, Priority, TieBreaker, Attendant, score_item: one
       supervisor's inbox triage (attendant).
     - FakeSupervisor: a scripted Supervisor for tests (fake).
@@ -107,11 +109,13 @@ from hivemind.supervision.intervention import (
     to_wire,
 )
 from hivemind.supervision.policy import (
+    WARDEN_REFUSED_ACTIONS,
     EscalationPolicy,
     PolicyAction,
     PolicyRule,
     decide,
     load_policy,
+    load_warden_policy,
 )
 from hivemind.supervision.supervisor import ChildKind, ChildRef, Supervisor
 from hivemind.supervision.telemetry import (
@@ -123,6 +127,7 @@ from hivemind.supervision.telemetry import (
 
 __all__ = [
     "TRANSITIONS",
+    "WARDEN_REFUSED_ACTIONS",
     "Alarm",
     "AlarmKind",
     "AlarmSeverity",
@@ -164,6 +169,7 @@ __all__ = [
     "from_wire",
     "is_past_threshold",
     "load_policy",
+    "load_warden_policy",
     "record_alarm_event",
     "score_item",
     "summarise",

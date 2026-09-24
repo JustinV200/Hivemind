@@ -4,7 +4,7 @@
 loaded Hive Manifest (codingrules section 13); a Virtual Cell boots from `HIVEMIND_*` environment
 variables alone (`hivemind.manifest.env.InCellEnv`), so this module is the same conversion with no
 manifest to read from. It reaches for the same shipped defaults `build_warden_deps` falls back to
-when an operator has not overridden them (`hivemind.supervision.load_policy(None)`,
+when an operator has not overridden them (`hivemind.supervision.load_warden_policy(None)`,
 `hivemind.supervision.capping.load_tiers(None)`, `hivemind.guard.load_guard_policy()`), since a
 Virtual Cell image carries no `[supervision]` or `[guard]` section to name an override with in the
 first place. Roadmap step 10.3: the Warden's Guard `Enforcer` is built over that same shipped policy
@@ -25,9 +25,10 @@ Fits into the Hive:
     `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.guard`
     (Capability, CapabilityFamily, Enforcer, load_guard_policy), `hivemind.forage` (Tempo),
     `hivemind.memory` (InMemoryMemoryStore, MemoryIdentity), `hivemind.pheromone` (PheromoneTrail),
-    `hivemind.supervision` (load_policy), `hivemind.supervision.capping` (deterministic_checks,
-    load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
-    (RelaySnapshotter), `hivemind.wardens.spawn` (InCellSpawnSource),
+    `hivemind.supervision` (load_warden_policy), `hivemind.supervision.capping`
+    (deterministic_checks, load_tiers), `hivemind.wardens` (WardenDeps),
+    `hivemind.wardens.snapshot_relay` (RelaySnapshotter), `hivemind.wardens.spawn`
+    (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
     (Drone), `hivemind.cli.in_cell.providers`, `hivemind.cli.in_cell.fanner`,
     `hivemind.cli.in_cell.hive_stand` and waggle only.
@@ -65,7 +66,7 @@ from hivemind.guard.net import ip_literal
 from hivemind.guard.policy import HiveState
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
-from hivemind.supervision import load_policy
+from hivemind.supervision import load_warden_policy
 from hivemind.supervision.capping import deterministic_checks, load_tiers
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
@@ -133,7 +134,7 @@ def build_in_cell_warden_deps(
         trail=trail,
         identity=_identity(config),
         clock=clock,
-        policy=load_policy(None),  # No [supervision] section inside a Cell: the shipped default.
+        policy=load_warden_policy(None),  # No [supervision] section inside a Cell: the shipped one.
         tiers=load_tiers(None),  # Same reasoning: the shipped capping-tiers.toml.
         guard=enforcer.policy,
         enforcer=enforcer,  # Roadmap step 10.3.

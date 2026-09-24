@@ -31,6 +31,11 @@ def test_a_humans_chat_message_gets_medium_effort() -> None:
     assert effort_for(InboxKind.HUMAN_MESSAGE) is Effort.MEDIUM
 
 
+def test_a_guard_request_gets_high_effort() -> None:
+    # Roadmap step 10.6a: isolating a Cell or quarantining a bee costs a task when wrong.
+    assert effort_for(InboxKind.GUARD_REQUEST) is Effort.HIGH
+
+
 @pytest.mark.parametrize(
     "kind",
     [

@@ -64,3 +64,27 @@ def test_inbox_item_accepts_a_positive_latency_budget() -> None:
     item = make_inbox_item(latency_budget_s=5.0)
 
     assert item.latency_budget_s == 5.0
+
+
+def test_a_guard_request_item_is_scored_by_its_kind_and_age_alone() -> None:
+    item = make_inbox_item(kind=InboxKind.GUARD_REQUEST, principal="guard")
+
+    assert (item.severity, item.task_id, item.latency_budget_s) == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"severity": AlarmSeverity.CRITICAL},
+        {"task_id": "task_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+        {"latency_budget_s": 1.0},
+    ],
+    ids=["severity", "task", "latency"],
+)
+def test_a_guard_request_item_refuses_anything_that_would_lift_its_score(
+    extra: dict[str, object],
+) -> None:
+    fields = {**make_inbox_item(kind=InboxKind.GUARD_REQUEST).model_dump(), **extra}
+
+    with pytest.raises(ValidationError, match="scored by its kind and its age alone"):
+        InboxItem.model_validate(fields)

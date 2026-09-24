@@ -98,7 +98,9 @@ __all__ = ["SubBeeView", "decide"]
 # onto WardenAction.RETRY; TAKEOVER has no Warden-level meaning (codingrules section 8.8: "Wardens
 # have the same levers minus takeover with the Queen's slot"), so it escalates to the level that
 # does hold that lever; QUARANTINE is the Warden's own lever over its own sub-bee (ADR-0035: "a
-# Warden may apply it to its own sub-bee by its own policy row").
+# Warden may apply it to its own sub-bee by its own policy row"). ISOLATE is the Queen's alone
+# (roadmap step 10.6a): a Warden's policy refuses to load such a row (`load_warden_policy`), and
+# were one to reach this table anyway it escalates to the level that holds the lever.
 _POLICY_ACTION_MAP: Mapping[PolicyAction, WardenAction] = {
     PolicyAction.RETRY: WardenAction.RETRY,
     PolicyAction.RESPAWN: WardenAction.RETRY,
@@ -107,6 +109,7 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, WardenAction] = {
     PolicyAction.ESCALATE: WardenAction.ESCALATE,
     PolicyAction.CANCEL: WardenAction.CANCEL_TASK,
     PolicyAction.QUARANTINE: WardenAction.QUARANTINE,
+    PolicyAction.ISOLATE: WardenAction.ESCALATE,
 }
 
 

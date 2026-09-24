@@ -116,6 +116,15 @@ def test_quarantine_maps_to_each_levels_own_lever() -> None:
     assert queen_decide(item, None, 1, policy, _LIMIT) is QueenAction.QUARANTINE_BEE
 
 
+def test_isolate_is_the_queens_lever_and_a_warden_sends_it_up() -> None:
+    policy = _one_row(PolicyAction.ISOLATE)
+    item = _item(_alarm(WireAlarmKind.OTHER))
+
+    # Roadmap step 10.6a: only the Queen isolates; a Warden that met the row escalates.
+    assert queen_decide(item, None, 1, policy, _LIMIT) is QueenAction.ISOLATE_CELL
+    assert warden_decide(item, _SUB_BEE, policy) is WardenAction.ESCALATE
+
+
 @pytest.mark.parametrize("kind", list(AlarmKind), ids=lambda kind: kind.value)
 def test_the_shipped_policy_decides_every_alarm_kind_at_every_attempt(kind: AlarmKind) -> None:
     shipped = load_policy()

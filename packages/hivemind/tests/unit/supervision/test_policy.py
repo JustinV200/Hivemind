@@ -28,6 +28,7 @@ from hivemind.supervision.policy import (
     PolicyRule,
     decide,
     load_policy,
+    load_warden_policy,
 )
 
 # The repository root, five parents up from this test file
@@ -151,3 +152,35 @@ def test_decide_matches_the_shipped_default_policy(
     alarm = make_alarm(kind=kind, attempts=attempts)
 
     assert decide(policy, alarm) is action
+
+
+def _write_policy(tmp_path: Path, body: str) -> Path:
+    """Write one policy document and return its path."""
+    path = tmp_path / "policy.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_a_wardens_policy_loads_the_shipped_default() -> None:
+    policy = load_warden_policy()
+
+    assert PolicyAction.ISOLATE not in {rule.action for rule in policy.rules}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'default = "ESCALATE"\n[[rules]]\nkind = "SECURITY"\nmin_attempts = 1\n'
+        'action = "ISOLATE"\n',
+        'default = "ISOLATE"\nrules = []\n',
+    ],
+    ids=["row", "default"],
+)
+def test_a_wardens_policy_refuses_to_load_an_isolate_row(tmp_path: Path, body: str) -> None:
+    path = _write_policy(tmp_path, body)
+
+    # The Queen's own load accepts it: ISOLATE is hers to take (roadmap step 10.6a).
+    queens = load_policy(path)
+    assert PolicyAction.ISOLATE in {queens.default, *(rule.action for rule in queens.rules)}
+    with pytest.raises(PolicyError, match="only the Queen may take"):
+        load_warden_policy(path)

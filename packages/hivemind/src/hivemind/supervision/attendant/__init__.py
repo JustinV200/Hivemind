@@ -20,15 +20,27 @@ See Also:
 Public API:
     - InboxKind, InboxItem: the one shape every supervisor's inbox holds (items).
     - WeightTable, Priority: the scoring configuration and one item's scored outcome (weights).
+    - GUARD_REQUEST_WEIGHT, GUARD_PRINCIPAL, GUARD_PRINCIPAL_WEIGHT: a Guard request's fixed
+      weight on the Queen's table and the principal it is scored under (weights, roadmap step
+      10.6a).
     - TieBreaker, Attendant, score_item: the tie-break seam, the scorer, and its pure core
       (scoring).
 """
 
 from hivemind.supervision.attendant.items import InboxItem, InboxKind
 from hivemind.supervision.attendant.scoring import Attendant, TieBreaker, score_item
-from hivemind.supervision.attendant.weights import Priority, WeightTable
+from hivemind.supervision.attendant.weights import (
+    GUARD_PRINCIPAL,
+    GUARD_PRINCIPAL_WEIGHT,
+    GUARD_REQUEST_WEIGHT,
+    Priority,
+    WeightTable,
+)
 
 __all__ = [
+    "GUARD_PRINCIPAL",
+    "GUARD_PRINCIPAL_WEIGHT",
+    "GUARD_REQUEST_WEIGHT",
     "Attendant",
     "InboxItem",
     "InboxKind",

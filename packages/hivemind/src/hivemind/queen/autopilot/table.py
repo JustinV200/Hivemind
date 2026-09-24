@@ -68,6 +68,7 @@ __all__ = ["decide"]
 # a considered decision, so a policy row that names it is treated as "this needs a human's
 # attention", the same conservative choice CANCEL's own ESCALATE fallback would make. QUARANTINE
 # is hers to order, never to carry out: the Warden of the Alarm's task does that (ADR-0035).
+# ISOLATE is hers alone to carry out, through the one isolation path (roadmap step 10.6a).
 _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
     PolicyAction.RETRY: QueenAction.RETRY_TASK,
     PolicyAction.RESPAWN: QueenAction.RETRY_TASK,
@@ -76,6 +77,7 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
     PolicyAction.ESCALATE: QueenAction.ESCALATE_TO_HUMAN,
     PolicyAction.CANCEL: QueenAction.FAIL_TASK,
     PolicyAction.QUARANTINE: QueenAction.QUARANTINE_BEE,
+    PolicyAction.ISOLATE: QueenAction.ISOLATE_CELL,
 }
 
 

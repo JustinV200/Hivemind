@@ -111,7 +111,7 @@ from hivemind.queen.chat import ChatLog
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
 from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import PlacementPolicy
-from hivemind.supervision import load_policy
+from hivemind.supervision import load_policy, load_warden_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer, WardenDeps
@@ -344,7 +344,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         trail=parts.stores.trail,
         identity=_system_identity(manifest),
         clock=parts.clock,
-        policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
+        policy=load_warden_policy(_supervision_file(manifest, supervision.policy_file)),
         tiers=load_tiers(_supervision_file(manifest, supervision.capping_tiers_file)),
         checks={**deterministic_checks(), **judge_checks(judge_reviewer, judge_rubrics)},
         bound=parts.registry.bound(ModelSlot.WARDEN),

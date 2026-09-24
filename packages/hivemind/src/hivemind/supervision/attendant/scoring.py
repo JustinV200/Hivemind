@@ -9,6 +9,10 @@ The scoring formula, computed once per item by `score_item` and reused by `Atten
           + latency_weight / item.latency_budget_s   (if item.latency_budget_s is set)
     score *= principal_weights.get(item.principal, 1.0)                # one multiplier, last
 
+A kind the table refuses (`WeightTable.refused_kinds`: a Warden refuses a Guard request, which
+is the Queen's alone to decide, ADR-0035) is never scored: `score_item` raises on one and
+`Attendant.order` drops it before ranking, so a refused item can never be acted on.
+
 Every additive term is optional and, when present, only ever adds (codingrules section 8.8:
 "kind weight, severity weight, age x age_weight_per_s, task linkage bonus, latency budget urgency
 [...], principal weight"); the principal weight is the one multiplicative step, applied once to
@@ -21,8 +25,9 @@ effectful edges).
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). `Attendant` is built once per
     supervisor (`queen/inbox/`, `wardens/inbox/`) with that supervisor's own WeightTable and
-    Clock. Calls into `hivemind.supervision.attendant.items`,
-    `hivemind.supervision.attendant.weights` and waggle only.
+    Clock. Calls into `hivemind.common.logging` (a refused item's log line),
+    `hivemind.supervision.attendant.items`, `hivemind.supervision.attendant.weights` and waggle
+    only.
 
 Key invariants:
     - score_item never calls a clock itself; `now` is always the caller's.
@@ -31,6 +36,7 @@ Key invariants:
       older wins, and id breaks a same-instant tie deterministically.
     - tie_breaker.break_tie is awaited only for a group of two or more items whose scores compare
       equal; a group of one item is never a tie and never invokes it.
+    - An item of a refused kind never appears in `Attendant.order`'s result.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "every supervisor has an Attendant... deterministic
@@ -45,9 +51,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
+from hivemind.common.logging import get_logger
 from hivemind.supervision.attendant.items import InboxItem
 from hivemind.supervision.attendant.weights import Priority, WeightTable
 from waggle.clock import Clock
+
+log = get_logger(__name__)
 
 __all__ = ["Attendant", "TieBreaker", "score_item"]
 
@@ -86,7 +95,13 @@ def score_item(weights: WeightTable, item: InboxItem, now: datetime) -> Priority
     Returns:
         The item's Priority: its total score, and one reason string per factor that contributed,
         in the order they were added.
+
+    Raises:
+        ValueError: `weights` refuses `item.kind` (a Warden's table and a Guard request): a
+            refused item has no score, rather than a zero one that could still be acted on.
     """
+    if weights.refuses(item.kind):
+        raise ValueError(f"This supervisor refuses {item.kind.value} items; it never scores one.")
     # Every additive term (kind, severity, age, task linkage, latency urgency) is computed by the
     # helper below; only the one multiplicative step (principal weight) happens here, so it is
     # visibly applied once, last, to the whole sum.
@@ -200,14 +215,24 @@ class Attendant:
             ascending (older wins) then id ascending.
         """
         now = self._clock.now()
+        # A refused kind is dropped before ranking (module docstring): it is never this
+        # supervisor's to act on, so it must not reach the loop that acts on the ordered items.
+        accepted = [item for item in items if not self._refused(item)]
         ranked = sorted(
-            ((item, self.score(item, now)) for item in items),
+            ((item, self.score(item, now)) for item in accepted),
             key=lambda pair: (-pair[1].score, pair[0].received_at, pair[0].id),
         )
         tie_breaker = self._tie_breaker
         if tie_breaker is None:
             return tuple(item for item, _ in ranked)
         return await self._settle_ties(ranked, tie_breaker)
+
+    def _refused(self, item: InboxItem) -> bool:
+        """Return whether this supervisor refuses `item`, logging the refusal (ids only)."""
+        if not self._weights.refuses(item.kind):
+            return False
+        log.warning("supervision.attendant.refused", kind=item.kind.value, item_id=item.id)
+        return True
 
     async def _settle_ties(
         self, ranked: list[tuple[InboxItem, Priority]], tie_breaker: TieBreaker
