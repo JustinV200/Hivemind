@@ -237,28 +237,15 @@ class EntranceListeners:
         if self._loopback_socket is not None:
             self._loopback_socket.close()
 
-    async def device_revoked(self, device_id: DeviceId) -> None:
-        """Rebuild the mutual-TLS revocation list after a revocation.
+    async def device_revoked(self, device_id: DeviceId | None = None) -> None:
+        """Rebuild the mutual-TLS revocation list after a revocation, or an expiry sweep's.
 
         Args:
-            device_id: The device just revoked.
+            device_id: The device just revoked; None when the expiry sweep withdrew certificates.
         """
-        if await self.certificates_changed():
+        if self._setup is not None and self._setup.tls is not None:
+            await self._setup.tls.rebuild()
             log.info("entrance.tls_rebuilt", device_id=device_id)
-
-    async def certificates_changed(self) -> bool:
-        """Rebuild the remote listener's context over the current revocation list.
-
-        Called after a revocation and after an expiry sweep moved any device; the next handshake
-        uses the rebuilt context.
-
-        Returns:
-            Whether there was a TLS context to rebuild (a remote listener with TLS was planned).
-        """
-        if self._setup is None or self._setup.tls is None:
-            return False
-        await self._setup.tls.rebuild()
-        return True
 
     def _app(self, listener: Listener) -> ASGIApp:
         """Return a listener's mounted application; serving one unmounted is a composition bug."""
