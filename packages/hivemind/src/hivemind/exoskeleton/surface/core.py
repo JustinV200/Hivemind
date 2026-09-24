@@ -7,7 +7,8 @@ between the gate's calls: `before` takes the browser's undo point (URL, cookies,
 the region digests the declared REGION_CHANGED postconditions need, and the before-evidence (a
 frame, the page URL and accessibility snapshot); `apply` runs the steps in order and stops at the
 first failure; `check` observes one GUI postcondition until it holds or its settle time passes;
-`restore` puts the undo point back; `finish` takes the after-evidence and records the action.
+`restore` puts the undo point back; `finish` takes the after-evidence and records the action; and
+`evidence` hands a judge what was recorded for an action it must review (`surface.evidence`).
 Evidence is best effort: a capture that fails is left out and logged, never fails the proposal.
 
 Fits into the Hive:
@@ -15,13 +16,14 @@ Fits into the Hive:
     `hivemind.exoskeleton.surface`. Built by the Warden's `equip` for a sub-bee whose task has an
     Exoskeleton, and injected into that sub-bee's `GateDeps.gui`. Calls into
     `hivemind.common.logging`, `hivemind.supervision.capping` (Proposal, PostconditionOutcome,
-    GuiApplyResult), the exoskeleton's `attach`, `browser`, `errors`, `recorder` and this
-    package's `steps` and `verify`.
+    GuiApplyResult, JudgeEvidence), the exoskeleton's `attach`, `browser`, `errors`, `recorder`
+    and this package's `steps`, `verify` and `evidence`.
 
 Key invariants:
     - Nothing here decides whether a step may run; the gate already checked it.
     - Owns mutable state (codingrules 8.5): the per-proposal `_Pending` records, created by
-      `before` (or by `finish` for a proposal rejected before it), dropped by `finish`.
+      `before` (or by `finish` for a proposal rejected before it), dropped by `finish`; and the
+      last KEPT_FOR_REVIEW recorded actions, oldest dropped first, for `evidence`.
 
 See Also:
     - hivemind.supervision.capping.gui for the protocol and when the gate calls each method.
@@ -43,19 +45,27 @@ from hivemind.exoskeleton.geometry import Region
 from hivemind.exoskeleton.recorder import (
     Evidence,
     FlightRecorder,
+    RecordedAction,
     RecordedPostcondition,
     scrub_text,
     scrubbed_evidence,
 )
+from hivemind.exoskeleton.surface.evidence import judge_evidence
 from hivemind.exoskeleton.surface.steps import run_step
 from hivemind.exoskeleton.surface.verify import observe_until
-from hivemind.supervision.capping import GuiApplyResult, PostconditionOutcome, Proposal
+from hivemind.supervision.capping import (
+    GuiApplyResult,
+    JudgeEvidence,
+    PostconditionOutcome,
+    Proposal,
+)
 from waggle.clock import Clock
 from waggle.messages.capping import RollbackMethod
 from waggle.messages.labels import Postcondition, PostconditionKind
 
 DEFAULT_SETTLE_S = 5.0  # How long a page may take to react before a postcondition counts as failed.
 SETTLE_POLL_S = 0.2  # A check may capture the screen, so it polls five times a second, not twenty.
+KEPT_FOR_REVIEW = 8  # Recorded actions kept in memory for a judge; the store keeps them all.
 _MAX_EXPECTED_CHARS = 500  # What the recorder keeps of an expected value.
 
 log = get_logger(__name__)
@@ -96,6 +106,7 @@ class ExoskeletonSurface:
         self._recorder = recorder
         self._settle_s = settle_s
         self._pending: dict[str, _Pending] = {}
+        self._recorded: dict[str, RecordedAction] = {}  # The last few, for a judge's review.
 
     async def before(self, proposal: Proposal) -> None:
         """Take the undo point, the region digests and the before-evidence; see GuiSurface."""
@@ -159,7 +170,16 @@ class ExoskeletonSurface:
             pending.observed.get(i, _recorded(pc, None, ""))
             for i, pc in enumerate(proposal.postconditions)
         )
-        await self._recorder.end(proposal, after, outcomes, rollback)
+        action = await self._recorder.end(proposal, after, outcomes, rollback)
+        self._recorded[str(proposal.id)] = action
+        # Only the latest few are ever judged (the one just applied); older ones live in the store.
+        while len(self._recorded) > KEPT_FOR_REVIEW:
+            del self._recorded[next(iter(self._recorded))]
+
+    async def evidence(self, proposal: Proposal) -> JudgeEvidence | None:
+        """Return what was recorded for `proposal`, rendered for a judge; see GuiSurface."""
+        action = self._recorded.get(str(proposal.id))
+        return judge_evidence(action) if action is not None else None
 
     async def _digest(self, subject: str) -> str | None:
         """Fingerprint one region before the action; None when it cannot be captured."""

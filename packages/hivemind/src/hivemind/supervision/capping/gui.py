@@ -9,7 +9,8 @@ before applying, the gate asks the surface for an undo point and the evidence th
 postconditions need (`before`); it applies the steps through it (`apply`); it checks the GUI
 postcondition kinds through it, each an eventual assertion polled for a bounded settle time
 (`check`); on failure it rolls back through it when no snapshot was taken (`restore`); and it
-tells it the terminal outcome so the flight recorder can close the action's entry (`finish`).
+tells it the terminal outcome so the flight recorder can close the action's entry (`finish`); and
+when an applied irreversible action is judged, it hands the judge what was recorded (`evidence`).
 This module also names what the allowlist rung requires of each step (`required_capabilities`).
 
 Fits into the Hive:
@@ -35,6 +36,7 @@ from typing import Protocol
 from urllib.parse import urlsplit
 
 from hivemind.guard import Capability
+from hivemind.supervision.capping.checks.judge import JudgeEvidence
 from hivemind.supervision.capping.postconditions import PostconditionOutcome
 from hivemind.supervision.capping.proposal import Proposal
 from waggle.messages.capping import GuiOp, GuiStep, RollbackMethod
@@ -123,6 +125,17 @@ class GuiSurface(Protocol):
         Returns:
             True when browser state was restored (GUI_STATE); False when there was nothing to
             restore (a desktop-only proposal, or no browser attached).
+        """
+        ...
+
+    async def evidence(self, proposal: Proposal) -> JudgeEvidence | None:
+        """Return what the recorder kept for `proposal`, for a judge to review.
+
+        Latency: immediate (what `finish` already recorded). Returns None when nothing was
+        recorded for it (no recorder, or an id this surface never finished).
+
+        Args:
+            proposal: A proposal this surface has already finished.
         """
         ...
 

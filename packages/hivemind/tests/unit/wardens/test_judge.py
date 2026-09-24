@@ -25,14 +25,16 @@ from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
     DirectCallGate,
     FakeLLMProvider,
+    ImagePart,
     LLMRequest,
+    ProviderCapabilities,
     ProviderUnavailableError,
     StopReason,
     TextPart,
     Usage,
 )
 from hivemind.llm.models import LLMResponse
-from hivemind.supervision.capping import JudgeAnswerError, JudgeOutcome
+from hivemind.supervision.capping import JudgeAnswerError, JudgeEvidence, JudgeOutcome
 from hivemind.wardens.judge import ModelJudgeReviewer
 
 _MODEL_ID = "test-model"
@@ -131,3 +133,52 @@ async def test_review_never_shares_the_proposers_transcript_or_hot_state() -> No
     # bee id; the rubric text and action summary are the only content carried.
     assert request.action.summary in (sent.system or "")
     assert request.rubric.text in (sent.system or "")
+
+
+# Everything a full provider can do except see: the NATIVE rung still parses `_verdict_response`.
+_BLIND = ProviderCapabilities.full().model_copy(update={"vision": False})
+_EVIDENCE = JudgeEvidence(
+    text="Screens: before, after\nAfter: url=file:///site/paid.html", frames=(b"\x89PNG1", b"PNG2")
+)
+
+
+async def _sent_for_evidence(
+    provider: FakeLLMProvider, *, fallback: FakeLLMProvider | None
+) -> LLMRequest:
+    """Review a request carrying `_EVIDENCE` on `provider` and return what it was sent."""
+    provider.script(_verdict_response("APPROVE"))
+    chain = make_bound(slot=ModelSlot.JUDGE, provider=fallback) if fallback else None
+    bound = make_bound(slot=ModelSlot.JUDGE, provider=provider, fallback=chain)
+    reviewer = ModelJudgeReviewer(bound=bound, lane_for=lambda _tempo: DirectCallGate())
+    await reviewer.review(make_judge_request(evidence=_EVIDENCE))
+    sent: LLMRequest = provider.calls[0]
+    return sent
+
+
+async def test_review_shows_the_evidence_text_and_the_screens_to_a_vision_judge() -> None:
+    sent = await _sent_for_evidence(FakeLLMProvider(name="judge"), fallback=None)
+
+    assert _EVIDENCE.text in (sent.system or "")
+    images = [part for part in sent.messages[0].parts if isinstance(part, ImagePart)]
+    assert [(image.media_type, image.data_base64) for image in images] == [
+        ("image/png", "iVBORzE="),
+        ("image/png", "UE5HMg=="),
+    ]
+
+
+async def test_review_shows_only_the_text_when_the_judge_cannot_see() -> None:
+    blind = FakeLLMProvider(name="judge", capabilities=_BLIND)
+
+    sent = await _sent_for_evidence(blind, fallback=None)
+
+    assert _EVIDENCE.text in (sent.system or "")
+    assert all(isinstance(part, TextPart) for part in sent.messages[0].parts)
+
+
+async def test_review_withholds_the_screens_when_a_fallback_cannot_see() -> None:
+    # A provider without vision refuses an ImagePart outright, so one blind fallback is enough.
+    blind = FakeLLMProvider(name="blind-fallback", capabilities=_BLIND)
+
+    sent = await _sent_for_evidence(FakeLLMProvider(name="judge"), fallback=blind)
+
+    assert all(isinstance(part, TextPart) for part in sent.messages[0].parts)

@@ -27,8 +27,9 @@ Fits into the Hive:
 
 Key invariants:
     - `review`'s prompt carries only `request`'s own fields (risk tier, action, acceptance criteria,
-      rubric text) and never the proposer's id, transcript or hot state -- the "no shared context"
-      rule (codingrules section 8.12).
+      rubric text, and the recorded evidence of an applied action) and never the proposer's id,
+      transcript or hot state -- the "no shared context" rule (codingrules section 8.12).
+    - Screens go to the model only when every binding in its fallback chain declares vision.
     - The returned `JudgeVerdict.rubric_id` is always `request.rubric.rubric_id`, never a value the
       model produced: a hallucinated or mistyped id would silently misattribute every later audit
       finding (`hivemind.supervision.capping.audit`) to the wrong rubric version.
@@ -55,6 +56,7 @@ See Also:
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -63,12 +65,15 @@ from hivemind.forage.tempo import Tempo
 from hivemind.llm import (
     BoundModel,
     CallGate,
+    ContentPart,
+    ImagePart,
     LLMRequest,
     MalformedOutputError,
     Message,
     PromptName,
     Role,
     SectionLabel,
+    TextPart,
     complete_structured,
     render,
 )
@@ -83,6 +88,8 @@ JUDGE_OUTPUT_TOKENS = 4_096
 _ONE_LINE_INSTRUCTION = (
     "Score the action shown above against the rubric and postconditions, and return your verdict."
 )
+# Said beside the screens when a vision judge is shown them; the evidence text names each one.
+_FRAMES_INSTRUCTION = "The images are the screens named under Screens in the evidence, in order."
 _MAX_REASON_CHARS = 500  # Mirrors JudgeVerdict's own per-reason bound.
 _MAX_REASONS = 8  # Mirrors JudgeVerdict's own reasons-list bound.
 _MAX_NOTES_CHARS = 2_000  # Mirrors JudgeVerdict's own notes bound.
@@ -175,9 +182,36 @@ def _build_request(bound: BoundModel, request: JudgeRequest) -> LLMRequest:
     return LLMRequest(
         slot=bound.slot,
         system=system,
-        messages=(Message.text(Role.USER, _ONE_LINE_INSTRUCTION),),
+        messages=(_user_message(bound, request),),
         max_output_tokens=JUDGE_OUTPUT_TOKENS,
     )
+
+
+def _user_message(bound: BoundModel, request: JudgeRequest) -> Message:
+    """The one user turn: the instruction, and the evidence's screens when the judge can see them.
+
+    ADR-0032: a vision-capable judge sees the before and after frames, any other judge the
+    structural evidence alone. Images go only when every binding in the fallback chain accepts
+    them, since a provider without vision refuses an ImagePart outright rather than dropping it.
+    """
+    frames = request.evidence.frames if request.evidence is not None else ()
+    if not frames or not _sees(bound):
+        return Message.text(Role.USER, _ONE_LINE_INSTRUCTION)
+    parts: list[ContentPart] = [TextPart(text=f"{_ONE_LINE_INSTRUCTION} {_FRAMES_INSTRUCTION}")]
+    parts += [
+        ImagePart(media_type="image/png", data_base64=base64.b64encode(png).decode("ascii"))
+        for png in frames
+    ]
+    return Message(role=Role.USER, parts=tuple(parts))
+
+
+def _sees(bound: BoundModel | None) -> bool:
+    """Whether every binding from `bound` down its fallback chain declares vision."""
+    while bound is not None:
+        if not bound.provider.capabilities.vision:
+            return False
+        bound = bound.fallback
+    return True
 
 
 def _render_request(request: JudgeRequest) -> str:
@@ -192,6 +226,9 @@ def _render_request(request: JudgeRequest) -> str:
             for pc in request.acceptance_criteria
         ),
     ]
+    if request.evidence is not None:
+        # Already applied: what the recorder kept, scrubbed at the source, is part of the data.
+        lines += ["Evidence (the action has been applied):", request.evidence.text]
     return "\n".join(lines)
 
 

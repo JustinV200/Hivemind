@@ -55,9 +55,9 @@ Public API:
     - LeaseView: the Protocol seam to a Real Cell's lease (lease_view).
     - Check, CheckContext, CheckResultRecord, SchemaCheck, PathAllowlistCheck,
       CommandAllowlistCheck, DiffSizeCapCheck, deterministic_checks: the check ladder (checks).
-    - JudgeCheck, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict, judge_checks,
-      JudgeRubric, load_judge_rubrics, FakeJudgeReviewer: the independent-review rung and
-      deterministic_checks()'s sibling registry (checks).
+    - JudgeCheck, JudgeEvidence, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict,
+      judge_checks, JudgeRubric, load_judge_rubrics, FakeJudgeReviewer: the independent-review
+      rung and deterministic_checks()'s sibling registry (checks).
     - ApplyResult, TouchedPath, apply_action: applying a CAPPED proposal (apply).
     - apply_unified_diff: the pure diff applier behind a DIFF action (diff).
     - PostconditionOutcome, check_postcondition: checking one assertion after applying
@@ -67,7 +67,8 @@ Public API:
       proposal is applied, verified and rolled back through (gui, roadmap step 6.5).
     - GuiAllowlistCheck: the allowlist rung for GUI steps (checks).
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
-      audit_completed: the after-the-fact sampled audit (audit).
+      audit_completed, review_applied: the after-the-fact sampled audit, and the unsampled
+      review of an applied irreversible GUI proposal (audit).
     - CappingError, UnknownProposalError, InvalidProposalTransitionError, DiffApplyError,
       JudgeUnavailableError, JudgeAnswerError: this package's error tree (errors).
 """
@@ -81,8 +82,11 @@ from hivemind.supervision.capping.audit import (
     FindingsSink,
     InMemoryFindingsSink,
     audit_completed,
+    review_applied,
 )
 from hivemind.supervision.capping.checks import (
+    MAX_EVIDENCE_CHARS,
+    MAX_EVIDENCE_FRAMES,
     Check,
     CheckContext,
     CheckResultRecord,
@@ -91,6 +95,7 @@ from hivemind.supervision.capping.checks import (
     FakeJudgeReviewer,
     GuiAllowlistCheck,
     JudgeCheck,
+    JudgeEvidence,
     JudgeOutcome,
     JudgeRequest,
     JudgeReviewer,
@@ -144,6 +149,8 @@ from hivemind.supervision.capping.tiers import (
 __all__ = [
     "CHECKABLE_KINDS",
     "GUI_POSTCONDITION_KINDS",
+    "MAX_EVIDENCE_CHARS",
+    "MAX_EVIDENCE_FRAMES",
     "MAX_POSTCONDITIONS",
     "SHORTEN_LATENCY_BUDGET_S",
     "TRANSITIONS",
@@ -171,6 +178,7 @@ __all__ = [
     "InvalidProposalTransitionError",
     "JudgeAnswerError",
     "JudgeCheck",
+    "JudgeEvidence",
     "JudgeOutcome",
     "JudgeRequest",
     "JudgeReviewer",
@@ -201,4 +209,5 @@ __all__ = [
     "load_judge_rubrics",
     "load_tiers",
     "required_capabilities",
+    "review_applied",
 ]

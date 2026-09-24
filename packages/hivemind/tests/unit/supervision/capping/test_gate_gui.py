@@ -9,7 +9,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.supervision.capping.gui for the GuiSurface protocol the scripted surface follows.
+    - hivemind.supervision.capping.gui for the GuiSurface protocol builders.gui's surface follows.
 """
 
 from __future__ import annotations
@@ -19,14 +19,13 @@ from pathlib import Path
 import pytest
 from builders.capping import FakeLeaseView, make_action, make_postcondition, make_proposal
 from builders.cells import make_cell, make_identity
+from builders.gui import ScriptedSurface
 
 from hivemind.cell import CellKind, FakeSession, NoopSnapshotter
 from hivemind.guard import CapabilitySet
 from hivemind.pheromone import MemoryPheromoneTrail, TrailQuery
 from hivemind.supervision.capping import (
     GateOutcome,
-    GuiApplyResult,
-    PostconditionOutcome,
     Proposal,
     ProposalState,
     RiskTier,
@@ -44,9 +43,8 @@ from waggle.messages.capping import (
     ElementTarget,
     GuiOp,
     GuiStep,
-    RollbackMethod,
 )
-from waggle.messages.labels import Postcondition, PostconditionKind
+from waggle.messages.labels import PostconditionKind
 
 _LOG_IN = GuiStep(op=GuiOp.BROWSER_CLICK, target=ElementTarget(role="button", name="Log in"))
 _ARRIVED = make_postcondition(
@@ -64,43 +62,6 @@ _TIERS = TierTable(
         ),
     }
 )
-
-
-class ScriptedSurface:
-    """A GuiSurface that records every call and answers as scripted."""
-
-    def __init__(self, *, applies: bool = True, holds: bool = True, restores: bool = True) -> None:
-        """Script whether steps apply, postconditions hold and a restore finds anything."""
-        self.applies, self.holds, self.restores = applies, holds, restores
-        self.calls: list[str] = []
-
-    async def before(self, proposal: Proposal) -> None:
-        """Record the call."""
-        self.calls.append("before")
-
-    async def apply(self, proposal: Proposal) -> GuiApplyResult:
-        """Record the call; succeed or fail the first step as scripted."""
-        self.calls.append("apply")
-        if self.applies:
-            return GuiApplyResult(succeeded=True, steps_applied=len(proposal.action.gui))
-        return GuiApplyResult(succeeded=False, steps_applied=0, failure_reason="step 1 failed")
-
-    async def check(
-        self, proposal: Proposal, index: int, pc: Postcondition
-    ) -> PostconditionOutcome:
-        """Record the call; hold or not as scripted."""
-        self.calls.append(f"check {pc.kind.value}")
-        return PostconditionOutcome(index=index, kind=pc.kind, has_held=self.holds, observed="seen")
-
-    async def restore(self, proposal: Proposal) -> bool:
-        """Record the call; find something to restore or not, as scripted."""
-        self.calls.append("restore")
-        return self.restores
-
-    async def finish(self, proposal: Proposal, rollback: RollbackMethod | None) -> None:
-        """Record the terminal state and rollback method."""
-        method = rollback.value if rollback is not None else None
-        self.calls.append(f"finish {proposal.state.value} {method}")
 
 
 def _gate(

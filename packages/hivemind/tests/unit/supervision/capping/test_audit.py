@@ -1,6 +1,11 @@
-"""Unit tests for hivemind.supervision.capping.audit: AuditSampler, audit_completed, AuditRates."""
+"""Unit tests for hivemind.supervision.capping.audit: AuditSampler, audit_completed, AuditRates.
+
+Also review_applied, the unsampled review of an applied irreversible GUI proposal (ADR-0032).
+"""
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import pytest
 from builders.capping import make_judge_rubric, make_judge_verdict, make_proposal
@@ -13,9 +18,10 @@ from hivemind.supervision.capping.audit import (
     AuditSampler,
     InMemoryFindingsSink,
     audit_completed,
+    review_applied,
 )
 from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
-from hivemind.supervision.capping.checks.judge import JudgeOutcome, JudgeVerdict
+from hivemind.supervision.capping.checks.judge import JudgeEvidence, JudgeOutcome, JudgeVerdict
 from hivemind.supervision.capping.errors import CappingError, JudgeAnswerError
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec
 from waggle.clock import FakeClock
@@ -250,3 +256,72 @@ async def test_audit_completed_records_an_inconclusive_sample_when_the_judge_can
     assert "unparseable" not in str(audited[0].payload)  # The error text stays off the trail.
     alarms = await trail.query(TrailQuery(family="alarm"))
     assert alarms == ()
+
+
+async def test_audit_completed_hands_recorded_evidence_to_the_judge() -> None:
+    reviewer = FakeJudgeReviewer(make_judge_verdict())
+    deps, _trail = _deps(reviewer)
+    evidence = JudgeEvidence(text="After: url=file:///site/welcome.html", frames=(b"png",))
+    tier = TierSpec(checks=(), floor=(), audit_rate=1.0)
+
+    await audit_completed(deps, make_proposal(), tier, AuditRates(), evidence)
+
+    assert reviewer.calls[0].evidence == evidence
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# review_applied
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _review_deps(reviewer: object) -> tuple[AuditDeps, MemoryPheromoneTrail]:
+    """AuditDeps that never sample, with an irreversible rubric: review_applied must not care."""
+    deps, trail = _deps(reviewer, sample_always=False)  # type: ignore[arg-type]
+    rubrics = {RiskTier.IRREVERSIBLE: make_judge_rubric(RiskTier.IRREVERSIBLE)}
+    return replace(deps, rubrics=rubrics), trail
+
+
+async def test_review_applied_judges_without_sampling_and_records_the_verdict() -> None:
+    reviewer = FakeJudgeReviewer(make_judge_verdict(JudgeOutcome.APPROVE))
+    deps, trail = _review_deps(reviewer)
+    proposal = make_proposal(risk_tier=RiskTier.IRREVERSIBLE)
+    evidence = JudgeEvidence(text="Steps:\n- click role=button name='Pay'")
+
+    verdict = await review_applied(deps, proposal, evidence)
+
+    assert verdict.outcome is JudgeOutcome.APPROVE
+    assert reviewer.calls[0].evidence == evidence
+    assert reviewer.calls[0].risk_tier is RiskTier.IRREVERSIBLE
+    sink = deps.sink
+    assert isinstance(sink, InMemoryFindingsSink)
+    assert [finding.proposal_id for finding in sink.findings] == [proposal.id]
+    kinds = [event.kind for event in await trail.query(TrailQuery())]
+    assert "capping.audited" in kinds
+    assert "alarm.raised" not in kinds
+
+
+async def test_review_applied_raises_a_critical_alarm_on_reject() -> None:
+    reviewer = FakeJudgeReviewer(
+        make_judge_verdict(JudgeOutcome.REJECT, reasons=("Paid the wrong invoice.",))
+    )
+    deps, trail = _review_deps(reviewer)
+
+    verdict = await review_applied(deps, make_proposal(risk_tier=RiskTier.IRREVERSIBLE), None)
+
+    assert verdict.outcome is JudgeOutcome.REJECT
+    (alarm,) = await trail.query(TrailQuery(family="alarm"))
+    assert alarm.payload["kind"] == "AUDIT_FAILED"
+    assert alarm.payload["severity"] == "CRITICAL"  # Nothing can undo it: a person must look.
+
+
+async def test_review_applied_fails_closed_when_the_judge_cannot_answer() -> None:
+    deps, trail = _review_deps(_SilentReviewer())
+
+    verdict = await review_applied(deps, make_proposal(risk_tier=RiskTier.IRREVERSIBLE), None)
+
+    # Unlike a sampled audit, nobody vouched for an action that cannot be undone: a REJECT.
+    assert verdict.outcome is JudgeOutcome.REJECT
+    assert verdict.reasons[0].startswith("the judge could not answer")
+    assert verdict.rubric_id == "irreversible-test"
+    (alarm,) = await trail.query(TrailQuery(family="alarm"))
+    assert alarm.payload["severity"] == "CRITICAL"

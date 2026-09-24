@@ -31,8 +31,9 @@ Public API:
     - Check, CheckContext, CheckResultRecord: the check-ladder seam (base).
     - SchemaCheck, PathAllowlistCheck, CommandAllowlistCheck, GuiAllowlistCheck, DiffSizeCapCheck,
       deterministic_checks: this phase's autopilot rungs (deterministic).
-    - JudgeCheck, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict, judge_checks: the
-      independent-review rung and deterministic_checks()'s sibling registry (judge).
+    - JudgeCheck, JudgeEvidence, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict,
+      judge_checks: the independent-review rung and deterministic_checks()'s sibling registry
+      (judge).
     - JudgeRubric, load_judge_rubrics: the per-tier rubric a judge reviews against (rubrics).
     - FakeJudgeReviewer: a scripted JudgeReviewer for tests and demo paths (fake).
     - HumanCheck, LEAVE_QUESTION_OPTIONS, KEEP_OPTION, KEEP_FOR_GOAL_OPTION, DISCARD_OPTION: the
@@ -57,7 +58,10 @@ from hivemind.supervision.capping.checks.human import (
     HumanCheck,
 )
 from hivemind.supervision.capping.checks.judge import (
+    MAX_EVIDENCE_CHARS,
+    MAX_EVIDENCE_FRAMES,
     JudgeCheck,
+    JudgeEvidence,
     JudgeOutcome,
     JudgeRequest,
     JudgeReviewer,
@@ -71,6 +75,8 @@ __all__ = [
     "KEEP_FOR_GOAL_OPTION",
     "KEEP_OPTION",
     "LEAVE_QUESTION_OPTIONS",
+    "MAX_EVIDENCE_CHARS",
+    "MAX_EVIDENCE_FRAMES",
     "Check",
     "CheckContext",
     "CheckResultRecord",
@@ -80,6 +86,7 @@ __all__ = [
     "GuiAllowlistCheck",
     "HumanCheck",
     "JudgeCheck",
+    "JudgeEvidence",
     "JudgeOutcome",
     "JudgeRequest",
     "JudgeReviewer",

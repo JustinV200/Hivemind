@@ -17,6 +17,7 @@ from hivemind.exoskeleton.frames import Frame, solid_png
 from hivemind.exoskeleton.geometry import Region, ScreenSize
 from hivemind.exoskeleton.recorder import FlightRecorder, InMemoryRecordingStore, RecordingInfo
 from hivemind.exoskeleton.surface import ExoskeletonSurface
+from hivemind.exoskeleton.surface.core import KEPT_FOR_REVIEW
 from hivemind.supervision.capping import Proposal, ProposalState
 from waggle.clock import FakeClock
 from waggle.messages.capping import ActionKind, ElementTarget, GuiOp, GuiStep, RollbackMethod
@@ -188,3 +189,26 @@ async def test_a_step_whose_peripheral_is_missing_fails_cleanly(tmp_path: Path) 
     assert not result.succeeded
     assert "no browser is attached" in (result.failure_reason or "")
     assert not await surface.restore(proposal)  # Nothing to put back without a browser.
+
+
+async def test_evidence_is_what_was_recorded_and_only_the_latest_are_kept(tmp_path: Path) -> None:
+    surface, screen, _ = await _surface(tmp_path)
+    proposals = [
+        _proposal(
+            GuiStep(op=GuiOp.CLICK, x=20, y=15),
+            pc_kind=PostconditionKind.REGION_CHANGED,
+            subject=_BUTTON.spec(),
+        )
+        for _ in range(KEPT_FOR_REVIEW + 1)
+    ]
+    assert await surface.evidence(proposals[0]) is None  # Nothing recorded yet.
+
+    for proposal in proposals:
+        screen.clear()  # So every click turns the button green again.
+        await _walk(surface, proposal)
+        await surface.finish(proposal.model_copy(update={"state": ProposalState.VERIFIED}), None)
+
+    latest = await surface.evidence(proposals[-1])
+    assert latest is not None and len(latest.frames) == 2  # The before and after screens.
+    assert "REGION_CHANGED" in latest.text and ": held" in latest.text
+    assert await surface.evidence(proposals[0]) is None  # Evicted: the store still has it.

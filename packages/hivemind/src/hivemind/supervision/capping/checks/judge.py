@@ -78,8 +78,14 @@ MAX_JUDGE_REASONS = 8  # A rubric names a handful of criteria; more than this is
 MAX_JUDGE_REASON_CHARS = 500  # One sentence or two per reason.
 MAX_JUDGE_NOTES_CHARS = 2_000  # Capped free text: a paragraph, never a transcript.
 
+MAX_EVIDENCE_CHARS = 30_000  # Steps, two URLs, two bounded snapshots and the postconditions.
+MAX_EVIDENCE_FRAMES = 2  # Before and after.
+
 __all__ = [
+    "MAX_EVIDENCE_CHARS",
+    "MAX_EVIDENCE_FRAMES",
     "JudgeCheck",
+    "JudgeEvidence",
     "JudgeOutcome",
     "JudgeRequest",
     "JudgeReviewer",
@@ -124,6 +130,26 @@ class JudgeVerdict(BaseModel):
     )
 
 
+class JudgeEvidence(BaseModel):
+    """What an applied action did, for a judge to review after the fact (ADR-0032).
+
+    For a GUI proposal this is the flight recorder's record of it: the steps (secrets as a
+    length), the page URL and accessibility snapshot before and after, each postcondition with
+    what was observed, rendered as `text`; and the before and after screens as PNG `frames`,
+    which only a judge whose model declares vision is shown.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str = Field(max_length=MAX_EVIDENCE_CHARS, description="The structural evidence.")
+    frames: tuple[bytes, ...] = Field(
+        default=(),
+        max_length=MAX_EVIDENCE_FRAMES,
+        repr=False,
+        description="PNG screens, before then after; never logged.",
+    )
+
+
 class JudgeRequest(BaseModel):
     """Everything an independent judge review needs about one proposal, and nothing else.
 
@@ -147,6 +173,12 @@ class JudgeRequest(BaseModel):
         default_factory=Tempo,
         description="The proposing task's speed-against-accuracy setting: orders the judge's own "
         "model call in the Fanner's queues; never changes what is reviewed.",
+    )
+    evidence: JudgeEvidence | None = Field(
+        default=None,
+        description="What the action did once applied (roadmap step 6.6): set when an applied "
+        "irreversible GUI action is judged before the bee's next step; None for a review that "
+        "happens before applying.",
     )
 
 

@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.cell import Cell, CellIdentity, CellSession, Snapshotter
 from hivemind.pheromone import PheromoneTrail
-from hivemind.supervision.capping.checks import Check, CheckResultRecord
+from hivemind.supervision.capping.checks import Check, CheckResultRecord, JudgeVerdict
 from hivemind.supervision.capping.gui import GuiSurface
 from hivemind.supervision.capping.leave import (
     DEFAULT_HUMAN_TIMEOUT_S,
@@ -114,6 +114,11 @@ class GateOutcome(BaseModel):
         default=(),
         description="One entry per outside-scratch path this apply decided a leave verdict for; "
         "empty for REJECTED and for any apply with nothing outside scratch.",
+    )
+    review: JudgeVerdict | None = Field(
+        default=None,
+        description="The judge's verdict on an applied irreversible GUI action, reviewed before "
+        "the bee's next step (roadmap step 6.6, ADR-0032); None when no such review ran.",
     )
 
     @model_validator(mode="after")

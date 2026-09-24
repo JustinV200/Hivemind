@@ -14,7 +14,9 @@ seam and ships an in-memory implementation), records a `capping.audited` trail e
 `Alarm` of kind `AUDIT_FAILED` on a `REJECT` verdict, through the same `record_alarm_event` path
 every other supervisor uses. `AuditRates` is the read model the Guard Bee (phase 10, part of
 `hivemind.guard`, the Hive's policy engine) will read to raise a tier's `audit_rate` when its
-failure rate climbs; this module only counts, it does not decide.
+failure rate climbs; this module only counts, it does not decide. `review_applied` is the one
+review that is not sampled: an irreversible GUI proposal is judged right after it is applied, with
+the flight recorder's evidence, and a judge that cannot answer counts as a rejection (ADR-0032).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Called
@@ -64,6 +66,8 @@ from hivemind.pheromone import CappingEvent, PheromoneTrail
 from hivemind.supervision.alarm import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from hivemind.supervision.alarm_trail import record_alarm_event
 from hivemind.supervision.capping.checks.judge import (
+    MAX_JUDGE_REASON_CHARS,
+    JudgeEvidence,
     JudgeOutcome,
     JudgeRequest,
     JudgeReviewer,
@@ -86,6 +90,7 @@ __all__ = [
     "FindingsSink",
     "InMemoryFindingsSink",
     "audit_completed",
+    "review_applied",
 ]
 
 
@@ -223,7 +228,11 @@ class AuditDeps:
 
 
 async def audit_completed(
-    deps: AuditDeps, proposal: Proposal, tier: TierSpec, rates: AuditRates
+    deps: AuditDeps,
+    proposal: Proposal,
+    tier: TierSpec,
+    rates: AuditRates,
+    evidence: JudgeEvidence | None = None,
 ) -> JudgeVerdict | None:
     """Sample `proposal` at its tier's rate, review it if sampled, and record the outcome.
 
@@ -232,6 +241,8 @@ async def audit_completed(
         proposal: An already-terminal (VERIFIED or ROLLED_BACK) proposal to consider for audit.
         tier: `proposal.risk_tier`'s TierSpec, read for `audit_rate`.
         rates: Updated with this proposal's sample, so the Guard Bee's read model stays current.
+        evidence: What the action did, when something recorded it (a GUI proposal's flight
+            recording, ADR-0032); the judge sees it beside the action.
 
     Returns:
         The judge's verdict if `proposal` was sampled and reviewed; None if it was not sampled,
@@ -243,7 +254,7 @@ async def audit_completed(
     if not deps.sampler.should_sample(proposal.id, proposal.risk_tier, tier.audit_rate):
         return None  # Not sampled: nothing to review, deposit or record for this proposal.
     try:
-        verdict = await _review(deps, proposal)
+        verdict = await _review(deps, proposal, evidence)
     except JudgeAnswerError as exc:
         # The judge could not produce a verdict (its structured-output ladder ran dry). An audit
         # is a sample taken after the proposal already landed, so a missed sample changes nothing
@@ -253,6 +264,47 @@ async def audit_completed(
         await _record_inconclusive_event(deps, proposal, exc)
         return None
     rates.record_sample(proposal.risk_tier, failed=verdict.outcome is JudgeOutcome.REJECT)
+    await _record_verdict(deps, proposal, verdict, AlarmSeverity.WARNING)
+    return verdict
+
+
+async def review_applied(
+    deps: AuditDeps, proposal: Proposal, evidence: JudgeEvidence | None
+) -> JudgeVerdict:
+    """Review an applied proposal now, every time; a judge that cannot answer counts as a REJECT.
+
+    ADR-0032, "Judges read recordings": an irreversible GUI proposal is judged after it is applied
+    and before the bee's next step, with what the flight recorder kept. It is not sampled, and it
+    fails closed: nothing can undo the action, so a verdict the judge could not give counts as a
+    REJECT and a person looks. A REJECT raises a CRITICAL AUDIT_FAILED Alarm; the caller hands
+    the verdict back so the bee's attempt ends there.
+
+    Args:
+        deps: This call's collaborators; the sampler is not consulted.
+        proposal: The applied, VERIFIED proposal.
+        evidence: What the action did, or None when nothing was recorded.
+
+    Returns:
+        The judge's verdict, or a REJECT that says the judge could not answer.
+
+    Raises:
+        CappingError: `proposal.risk_tier` has no configured JudgeRubric.
+    """
+    try:
+        verdict = await _review(deps, proposal, evidence)
+    except JudgeAnswerError as exc:
+        # _review found the rubric before the judge failed, so its id names what was attempted.
+        reason = f"the judge could not answer: {exc}"[:MAX_JUDGE_REASON_CHARS]
+        rubric_id = deps.rubrics[proposal.risk_tier].rubric_id
+        verdict = JudgeVerdict(outcome=JudgeOutcome.REJECT, reasons=(reason,), rubric_id=rubric_id)
+    await _record_verdict(deps, proposal, verdict, AlarmSeverity.CRITICAL)
+    return verdict
+
+
+async def _record_verdict(
+    deps: AuditDeps, proposal: Proposal, verdict: JudgeVerdict, severity: AlarmSeverity
+) -> None:
+    """Record the verdict on the trail, deposit it as a finding, and raise an Alarm on REJECT."""
     await _record_audited_event(deps, proposal, verdict)
     await deps.sink.deposit(
         AuditFinding(
@@ -263,11 +315,12 @@ async def audit_completed(
         )
     )
     if verdict.outcome is JudgeOutcome.REJECT:
-        await _raise_audit_failed(deps, proposal, verdict)
-    return verdict
+        await _raise_audit_failed(deps, proposal, verdict, severity)
 
 
-async def _review(deps: AuditDeps, proposal: Proposal) -> JudgeVerdict:
+async def _review(
+    deps: AuditDeps, proposal: Proposal, evidence: JudgeEvidence | None = None
+) -> JudgeVerdict:
     """Build a JudgeRequest from `proposal` and score it through `deps.reviewer`.
 
     Raises:
@@ -284,6 +337,7 @@ async def _review(deps: AuditDeps, proposal: Proposal) -> JudgeVerdict:
         acceptance_criteria=proposal.postconditions,
         rubric=rubric,
         tempo=proposal.tempo,
+        evidence=evidence,
     )
     # Latency class: one model call, typically seconds to tens of seconds; audit sampling runs
     # after a proposal's own terminal state, so this await never blocks the gate itself.
@@ -328,12 +382,14 @@ async def _record_inconclusive_event(
     await deps.trail.record(event)
 
 
-async def _raise_audit_failed(deps: AuditDeps, proposal: Proposal, verdict: JudgeVerdict) -> None:
+async def _raise_audit_failed(
+    deps: AuditDeps, proposal: Proposal, verdict: JudgeVerdict, severity: AlarmSeverity
+) -> None:
     """Raise an AUDIT_FAILED Alarm through the existing supervision alarm path (alarm_trail)."""
     alarm = Alarm(
         id=new_alarm_id(deps.clock),
         kind=AlarmKind.AUDIT_FAILED,
-        severity=AlarmSeverity.WARNING,
+        severity=severity,
         origin=proposal.proposer,
         attempts=0,
         context=AlarmContext(

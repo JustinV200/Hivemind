@@ -19,10 +19,13 @@ from pathlib import Path
 from builders.capping import (
     FakeLeaseView,
     RepeatingJudgeReviewer,
+    make_action,
     make_judge_verdict,
+    make_postcondition,
     make_proposal,
 )
 from builders.cells import make_cell, make_identity
+from builders.gui import ScriptedSurface
 
 from hivemind.cell import CellKind, FakeSession, NoopSnapshotter
 from hivemind.guard import CapabilitySet
@@ -30,8 +33,11 @@ from hivemind.pheromone import AlarmEvent, MemoryPheromoneTrail, TrailQuery
 from hivemind.supervision.capping import (
     AuditRates,
     AuditSampler,
+    GateOutcome,
     InMemoryFindingsSink,
+    JudgeEvidence,
     JudgeOutcome,
+    Proposal,
 )
 from hivemind.supervision.capping.checks.deterministic import deterministic_checks
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
@@ -40,7 +46,8 @@ from hivemind.supervision.capping.state import ProposalState
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec, TierTable
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from waggle.clock import FakeClock
-from waggle.messages.capping import CheckKind
+from waggle.messages.capping import ActionKind, CheckKind, ElementTarget, GuiOp, GuiStep
+from waggle.messages.labels import PostconditionKind
 from waggle.messages.supervision import AlarmKind
 
 # A generous rate: AuditSampler.should_sample's own deterministic hash always samples at 1.0
@@ -148,3 +155,126 @@ async def test_a_zero_rate_tier_never_samples_or_calls_the_judge(tmp_path: Path)
     assert rates.sampled(RiskTier.SCRATCH_WRITE) == 0
     events = await trail.query(TrailQuery(subject_id=proposal_id))
     assert "capping.audited" not in [event.kind for event in events]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GUI proposals: judged right after apply when irreversible, else sampled (ADR-0032)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_PAY = GuiStep(op=GuiOp.BROWSER_CLICK, target=ElementTarget(role="button", name="Pay"))
+_PAID = make_postcondition(PostconditionKind.URL_MATCHES, subject="page", expected="file:///paid*")
+_EVIDENCE = JudgeEvidence(text="Screens: before, after\nAfter: url=file:///paid", frames=(b"p",))
+_ONLY_SCHEMA = TierSpec(checks=(CheckKind.SCHEMA,), floor=(CheckKind.SCHEMA,), judge=False)
+
+
+def _gui_proposal(tier: RiskTier) -> Proposal:
+    action = make_action(ActionKind.GUI, gui=(_PAY,), steps=())
+    return make_proposal(risk_tier=tier, action=action, postconditions=(_PAID,))
+
+
+async def _run_gui(
+    tmp_path: Path,
+    proposal: Proposal,
+    surface: ScriptedSurface,
+    *,
+    reviewer: RepeatingJudgeReviewer | None = None,
+    audit_rate: float = 0.0,
+) -> tuple[GateOutcome, RepeatingJudgeReviewer, MemoryPheromoneTrail]:
+    """Run `proposal` through an AuditingCappingGate whose GateDeps carry `surface`."""
+    reviewer = reviewer if reviewer is not None else RepeatingJudgeReviewer()
+    rate = audit_rate
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    tiers = TierTable(
+        tiers={
+            RiskTier.SCRATCH_WRITE: _ONLY_SCHEMA.model_copy(update={"audit_rate": rate}),
+            RiskTier.IRREVERSIBLE: _ONLY_SCHEMA.model_copy(update={"audit_rate": rate}),
+        }
+    )
+    deps = GateDeps(
+        session=FakeSession(tmp_path, clock),
+        snapshotter=NoopSnapshotter(),
+        cell=make_cell(kind=CellKind.REAL, clock=clock),
+        tiers=tiers,
+        trail=trail,
+        identity=make_identity(clock),
+        clock=clock,
+        checks=deterministic_checks(),
+        gui=surface,
+    )
+    wires = AuditWiring(
+        reviewer=reviewer,
+        rubrics=load_judge_rubrics(),
+        sampler=AuditSampler(),
+        sink=InMemoryFindingsSink(),
+        rates=AuditRates(),
+    )
+    gate = AuditingCappingGate(deps, wires)
+    await gate.propose(proposal)
+    outcome = await gate.run(proposal.id, CapabilitySet.parse(), FakeLeaseView(tmp_path))
+    return outcome, reviewer, trail
+
+
+async def test_an_applied_irreversible_gui_action_is_judged_with_its_evidence(
+    tmp_path: Path,
+) -> None:
+    surface = ScriptedSurface(evidence=_EVIDENCE)
+
+    outcome, reviewer, _ = await _run_gui(tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), surface)
+
+    # Rate 0 samples nothing, yet the judge ran: irreversible GUI work is always judged.
+    assert outcome.state is ProposalState.VERIFIED
+    assert outcome.review is not None and outcome.review.outcome is JudgeOutcome.APPROVE
+    assert reviewer.calls[0].evidence == _EVIDENCE
+    assert reviewer.calls[0].rubric.rubric_id == "irreversible-v1"
+    assert surface.calls[-2:] == ["finish VERIFIED None", "evidence"]  # Recorded, then judged.
+
+
+async def test_a_rejected_irreversible_gui_action_raises_a_critical_alarm(tmp_path: Path) -> None:
+    verdict = make_judge_verdict(JudgeOutcome.REJECT, reasons=("Paid the wrong invoice.",))
+    reviewer = RepeatingJudgeReviewer(verdict)
+
+    outcome, _, trail = await _run_gui(
+        tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), ScriptedSurface(), reviewer=reviewer
+    )
+
+    # The state stays VERIFIED (nothing can undo it); the verdict tells the tool to stop.
+    assert outcome.state is ProposalState.VERIFIED
+    assert outcome.review == verdict
+    alarms = [event for event in await trail.query(TrailQuery()) if isinstance(event, AlarmEvent)]
+    assert [(a.payload["kind"], a.payload["severity"]) for a in alarms] == [
+        (AlarmKind.AUDIT_FAILED.value, "CRITICAL")
+    ]
+
+
+async def test_a_rolled_back_irreversible_gui_action_is_not_judged_after_apply(
+    tmp_path: Path,
+) -> None:
+    surface = ScriptedSurface(holds=False)
+
+    outcome, reviewer, _ = await _run_gui(tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), surface)
+
+    assert outcome.state is ProposalState.ROLLED_BACK
+    assert outcome.review is None
+    assert reviewer.calls == []  # Its failed postcondition already escalates it.
+
+
+async def test_a_sampled_gui_action_is_audited_with_the_same_evidence(tmp_path: Path) -> None:
+    surface = ScriptedSurface(evidence=_EVIDENCE)
+
+    outcome, reviewer, _ = await _run_gui(
+        tmp_path, _gui_proposal(RiskTier.SCRATCH_WRITE), surface, audit_rate=1.0
+    )
+
+    assert outcome.review is None  # Sampled audits never hold the tool up.
+    assert reviewer.calls[0].evidence == _EVIDENCE
+
+
+async def test_an_irreversible_proposal_that_is_not_gui_is_only_sampled(tmp_path: Path) -> None:
+    proposal = make_proposal(risk_tier=RiskTier.IRREVERSIBLE)  # A scratch diff.
+
+    outcome, reviewer, _ = await _run_gui(tmp_path, proposal, ScriptedSurface())
+
+    assert outcome.state is ProposalState.VERIFIED
+    assert outcome.review is None
+    assert reviewer.calls == []
