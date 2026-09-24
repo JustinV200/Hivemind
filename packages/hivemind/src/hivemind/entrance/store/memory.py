@@ -83,7 +83,7 @@ class MemoryEntranceStore:
         # The 10.5e tables refuse an unknown device, as the SQLite tables' foreign keys do.
         self._sessions = MemorySessionTable(self._devices.__contains__)
         self._logins = MemoryLoginTable(self._devices.__contains__)
-        self._pending = MemoryPendingTable(self._devices.__contains__)
+        self._pending = MemoryPendingTable(trail, self._devices.__contains__)
         self._mode = MemoryModeTable(trail)
 
     @property

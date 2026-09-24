@@ -151,7 +151,7 @@ async def _clear_network(auth: AuthRig, cast: _Cast) -> OpenedSession:
     """The program cannot step up: its network waits for the console, stepped up, to clear it."""
     network: dict[str, JsonValue] = {"network": cast.first.session.network}
     records = auth.deps.records
-    pending_id = await hold(records, cast.program, ActionKind.NEW_NETWORK, network)
+    pending_id = await hold(auth.deps.enrolment, cast.program, ActionKind.NEW_NETWORK, network)
     operator = await _stepped_up(auth, cast.console_login, cast.console_key)
     held = await confirm(records, pending_id, operator)
     assert auth.deps.guards.travel is not None

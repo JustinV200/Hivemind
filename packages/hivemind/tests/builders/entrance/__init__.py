@@ -75,6 +75,7 @@ from builders.entrance.records import (
     make_invite,
     make_pending,
     make_session,
+    pending_event,
     redeem_changes,
     walk_to,
 )
@@ -125,6 +126,7 @@ __all__ = [
     "make_session",
     "memory_enrolment",
     "mint",
+    "pending_event",
     "program_login",
     "redeem_browser",
     "redeem_changes",

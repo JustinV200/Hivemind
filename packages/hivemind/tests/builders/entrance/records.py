@@ -43,7 +43,7 @@ from hivemind.entrance.auth import (
     b64url_encode,
     sha256_hex,
 )
-from hivemind.entrance.auth.confirm import new_pending_id
+from hivemind.entrance.auth.confirm import HELD_KIND, new_pending_id, settled_trail_kind
 from hivemind.entrance.enrol import (
     ENTRY_TRAIL_KINDS,
     DeviceDescription,
@@ -239,6 +239,15 @@ def make_session(device_id: DeviceId, clock: Clock | None = None, **overrides: o
     }
     fields.update(overrides)
     return Session.model_validate(fields)
+
+
+def pending_event(
+    pending: PendingConfirmation, clock: Clock, settled_as: PendingStatus | None = None
+) -> GuardEvent:
+    """Build the event holding ``pending`` records, or settling it as ``settled_as``."""
+    kind = HELD_KIND if settled_as is None else settled_trail_kind(settled_as)
+    payload = {"pending_id": pending.id, "action": pending.action.value}
+    return STORE_IDENTITY.event(clock, kind, pending.device_id, payload)
 
 
 def make_pending(

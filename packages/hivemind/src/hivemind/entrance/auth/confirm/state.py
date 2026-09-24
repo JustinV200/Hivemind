@@ -15,9 +15,9 @@ Fits into the Hive:
 Key invariants:
     - ``TRANSITIONS`` has exactly one entry per ``PendingStatus``; CONFIRMED, EXPIRED and
       CANCELLED map to no edges.
-    - No ``guard.*`` trail kind is declared for these edges yet: the step-up that must precede a
-      confirmation is recorded (``guard.entrance_step_up``), and the held action records its own
-      event when the caller carries it out.
+    - Every edge names its trail kind (``SETTLED_KINDS``), and holding one is ``HELD_KIND``: the
+      pending table writes each with its change, in one step. The held action still records its
+      own event when the caller carries it out.
 
 See Also:
     - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
@@ -32,7 +32,21 @@ from enum import Enum
 
 from hivemind.entrance.errors import InvalidPendingTransitionError
 
-__all__ = ["TRANSITIONS", "PendingStatus", "assert_pending_transition", "can_settle"]
+HELD_KIND = "guard.entrance_held"  # A request was held (the entry into PENDING).
+CONFIRMED_KIND = "guard.entrance_confirmed"  # PENDING to CONFIRMED.
+HOLD_ENDED_KIND = "guard.entrance_hold_ended"  # PENDING to EXPIRED or CANCELLED (the payload says).
+
+__all__ = [
+    "CONFIRMED_KIND",
+    "HELD_KIND",
+    "HOLD_ENDED_KIND",
+    "SETTLED_KINDS",
+    "TRANSITIONS",
+    "PendingStatus",
+    "assert_pending_transition",
+    "can_settle",
+    "settled_trail_kind",
+]
 
 
 class PendingStatus(Enum):
@@ -60,6 +74,33 @@ TRANSITIONS: Mapping[PendingStatus, frozenset[PendingStatus]] = {
     PendingStatus.EXPIRED: frozenset(),  # Terminal: the device asks again if it still wants it.
     PendingStatus.CANCELLED: frozenset(),  # Terminal: likewise.
 }
+
+
+# The trail kind each settlement is recorded as; the two ways of ending unconfirmed share one kind,
+# and its payload names which (codingrules Appendix C: every edge is an event).
+SETTLED_KINDS: Mapping[PendingStatus, str] = {
+    PendingStatus.CONFIRMED: CONFIRMED_KIND,
+    PendingStatus.EXPIRED: HOLD_ENDED_KIND,
+    PendingStatus.CANCELLED: HOLD_ENDED_KIND,
+}
+
+
+def settled_trail_kind(status: PendingStatus) -> str:
+    """Return the trail kind a settlement into ``status`` is recorded as.
+
+    Args:
+        status: A terminal status: CONFIRMED, EXPIRED or CANCELLED.
+
+    Returns:
+        ``"guard.entrance_confirmed"`` or ``"guard.entrance_hold_ended"``.
+
+    Raises:
+        InvalidPendingTransitionError: ``status`` is PENDING, which no settlement moves into.
+    """
+    kind = SETTLED_KINDS.get(status)
+    if kind is None:
+        raise InvalidPendingTransitionError(PendingStatus.PENDING, status)
+    return kind
 
 
 def can_settle(from_status: PendingStatus, to_status: PendingStatus) -> bool:

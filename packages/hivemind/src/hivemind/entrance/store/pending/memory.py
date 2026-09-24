@@ -3,7 +3,8 @@
 Codingrules 14.4 keeps fakes beside their protocol, honest and production quality. This one keeps
 pending confirmations in memory under one lock and applies the same rules ``SqlitePendingTable``
 applies (``hivemind.entrance.store.pending.protocol``), so the contract suite runs unchanged over
-both.
+both. Each change's event is recorded on the trail it was given before the change is applied, so a
+failed record leaves the table as it was.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store.pending``. Held by
@@ -27,6 +28,7 @@ from hivemind.entrance.auth.confirm.models import PendingConfirmation, PendingId
 from hivemind.entrance.auth.confirm.state import PendingStatus
 from hivemind.entrance.errors import PendingNotFoundError
 from hivemind.entrance.store.pending.protocol import check_new_pending, settle_pending
+from hivemind.pheromone import GuardEvent, PheromoneTrail
 from waggle.ids import DeviceId
 
 __all__ = ["MemoryPendingTable"]
@@ -35,21 +37,25 @@ __all__ = ["MemoryPendingTable"]
 class MemoryPendingTable:
     """Held requests by id, gone when the process exits."""
 
-    def __init__(self, known_device: Callable[[DeviceId], bool] | None = None) -> None:
+    def __init__(
+        self, trail: PheromoneTrail, known_device: Callable[[DeviceId], bool] | None = None
+    ) -> None:
         """Start with nothing held.
 
         Args:
+            trail: Where every change's event is recorded, before the change is applied.
             known_device: Says whether a device is enrolled, so a request from an unknown one is
                 refused (the SQLite table's foreign key); None checks nothing.
         """
+        self._trail = trail
         self._known_device = known_device
         self._pending: dict[PendingId, PendingConfirmation] = {}
         # Serialises every method, so a settlement's read-decide-write is atomic.
         self._lock = asyncio.Lock()
 
-    async def put(self, pending: PendingConfirmation) -> None:
-        """Record a held request; see PendingTable.put."""
-        check_new_pending(pending)
+    async def put(self, pending: PendingConfirmation, event: GuardEvent) -> None:
+        """Record a held request with its event; see PendingTable.put."""
+        check_new_pending(pending, event)
         async with self._lock:
             known = self._known_device is None or self._known_device(pending.device_id)
             if pending.id in self._pending or not known:
@@ -57,6 +63,8 @@ class MemoryPendingTable:
                     f"Cannot hold {pending.id}: its id is taken or device {pending.device_id} is "
                     "unknown."
                 )
+            # Latency: an in-memory append (or a durable trail's local write), before the change.
+            await self._trail.record(event)
             self._pending[pending.id] = pending
 
     async def get(self, pending_id: PendingId) -> PendingConfirmation:
@@ -65,11 +73,17 @@ class MemoryPendingTable:
             return self._require(pending_id)
 
     async def settle(
-        self, pending_id: PendingId, expected: PendingStatus, settlement: Settlement
+        self,
+        pending_id: PendingId,
+        expected: PendingStatus,
+        settlement: Settlement,
+        event: GuardEvent,
     ) -> PendingConfirmation:
-        """Settle one confirmation; see PendingTable.settle."""
+        """Settle one confirmation with its event; see PendingTable.settle."""
         async with self._lock:
-            settled = settle_pending(self._require(pending_id), expected, settlement)
+            settled = settle_pending(self._require(pending_id), expected, settlement, event)
+            # Latency: an in-memory append (or a durable trail's local write), before the change.
+            await self._trail.record(event)
             self._pending[pending_id] = settled
             return settled
 

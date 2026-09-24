@@ -93,7 +93,7 @@ async def test_a_programs_goal_over_its_cap_waits_for_a_person_and_runs_once() -
         step_up_challenge(auth.deps, session)
     records = auth.deps.records
 
-    pending_id = await hold(records, session.device, ActionKind.GOAL, _GOAL)
+    pending_id = await hold(auth.deps.enrolment, session.device, ActionKind.GOAL, _GOAL)
     console = await _stepped_up_console(auth)
     held = await confirm(records, pending_id, console)
 
@@ -113,13 +113,12 @@ async def test_only_a_non_interactive_devices_ordinary_request_is_held() -> None
     auth = await auth_rig()
     program, _ = await admitted_program(auth.enrolment)
     console, _ = await admitted_console(auth)
-    records = auth.deps.records
 
     with pytest.raises(ConfirmationRefusedError, match="interactive"):
-        await hold(records, console, ActionKind.GOAL, _GOAL)
+        await hold(auth.deps.enrolment, console, ActionKind.GOAL, _GOAL)
     for action in (ActionKind.ABSCOND, ActionKind.STING_CUT, ActionKind.SUPERSEDURE):
         with pytest.raises(ConfirmationRefusedError):
-            await hold(records, program, action, {})
+            await hold(auth.deps.enrolment, program, action, {})
 
     assert await auth.store.pending.list_by_status() == ()
 
@@ -129,7 +128,7 @@ async def test_only_an_interactive_stepped_up_session_confirms() -> None:
     program, _ = await admitted_program(auth.enrolment)
     console, _ = await admitted_console(auth)
     records = auth.deps.records
-    pending_id = await hold(records, program, ActionKind.GOAL, _GOAL)
+    pending_id = await hold(auth.deps.enrolment, program, ActionKind.GOAL, _GOAL)
 
     for session in (_session(console, stepped_up=False), _session(program, stepped_up=True)):
         with pytest.raises(ConfirmationRefusedError):
@@ -144,8 +143,10 @@ async def test_an_expired_or_orphaned_request_is_settled_instead_of_confirmed() 
     revoked, _ = await admitted_program(auth.enrolment)
     console, _ = await admitted_console(auth)
     records = auth.deps.records
-    late = await hold(records, program, ActionKind.GOAL, _GOAL, ttl=timedelta(minutes=1))
-    orphan = await hold(records, revoked, ActionKind.GOAL, _GOAL)
+    late = await hold(
+        auth.deps.enrolment, program, ActionKind.GOAL, _GOAL, ttl=timedelta(minutes=1)
+    )
+    orphan = await hold(auth.deps.enrolment, revoked, ActionKind.GOAL, _GOAL)
     await revoke(auth.deps.enrolment, revoked.id, "human", cancel_goals=False)
     auth.clock.advance(61)
 
@@ -162,7 +163,7 @@ async def test_a_person_may_decline_a_held_request() -> None:
     program, _ = await admitted_program(auth.enrolment)
     console, _ = await admitted_console(auth)
     records = auth.deps.records
-    pending_id = await hold(records, program, ActionKind.GOAL, _GOAL)
+    pending_id = await hold(auth.deps.enrolment, program, ActionKind.GOAL, _GOAL)
 
     with pytest.raises(ConfirmationRefusedError):
         await cancel(records, pending_id, _session(program, stepped_up=False))
@@ -177,8 +178,12 @@ async def test_the_sweep_expires_only_what_is_past_its_expiry() -> None:
     auth = await auth_rig()
     program, _ = await admitted_program(auth.enrolment)
     records = auth.deps.records
-    short = await hold(records, program, ActionKind.GOAL, _GOAL, ttl=timedelta(minutes=1))
-    long = await hold(records, program, ActionKind.NEW_NETWORK, {"network": "203.0.113.0/24"})
+    short = await hold(
+        auth.deps.enrolment, program, ActionKind.GOAL, _GOAL, ttl=timedelta(minutes=1)
+    )
+    long = await hold(
+        auth.deps.enrolment, program, ActionKind.NEW_NETWORK, {"network": "203.0.113.0/24"}
+    )
     auth.clock.advance(60)
 
     expired = await expire_pending(records)

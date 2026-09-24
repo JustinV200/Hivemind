@@ -21,7 +21,9 @@ See Also:
       human".
 
 Public API:
-    - PendingStatus, TRANSITIONS, can_settle, assert_pending_transition: the machine (state).
+    - PendingStatus, TRANSITIONS, can_settle, assert_pending_transition, HELD_KIND,
+      CONFIRMED_KIND, HOLD_ENDED_KIND, SETTLED_KINDS, settled_trail_kind: the machine and the
+      trail kind of every edge (state).
     - PendingConfirmation, Settlement, HeldAction, PendingId, new_pending_id, PENDING_ID_PREFIX,
       MAX_HELD_PAYLOAD_BYTES: the records (models).
     - hold, confirm, cancel, expire_pending, DEFAULT_CONFIRMATION_TTL: the flow (flow).
@@ -44,16 +46,25 @@ from hivemind.entrance.auth.confirm.models import (
     new_pending_id,
 )
 from hivemind.entrance.auth.confirm.state import (
+    CONFIRMED_KIND,
+    HELD_KIND,
+    HOLD_ENDED_KIND,
+    SETTLED_KINDS,
     TRANSITIONS,
     PendingStatus,
     assert_pending_transition,
     can_settle,
+    settled_trail_kind,
 )
 
 __all__ = [
+    "CONFIRMED_KIND",
     "DEFAULT_CONFIRMATION_TTL",
+    "HELD_KIND",
+    "HOLD_ENDED_KIND",
     "MAX_HELD_PAYLOAD_BYTES",
     "PENDING_ID_PREFIX",
+    "SETTLED_KINDS",
     "TRANSITIONS",
     "HeldAction",
     "PendingConfirmation",
@@ -67,4 +78,5 @@ __all__ = [
     "expire_pending",
     "hold",
     "new_pending_id",
+    "settled_trail_kind",
 ]

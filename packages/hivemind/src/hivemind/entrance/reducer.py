@@ -12,7 +12,9 @@ the remote listener fails. Reducing a reduced Entrance records nothing and chang
 re-asserts the narrowing, since every step after the persist is idempotent: a reduction interrupted
 after it was persisted is finished by the next one (and by ``start_mode`` at a restart).
 ``reopen`` needs a stepped-up session on the loopback listener, persists OPEN and starts the remote
-listener again. The two seams are implemented by the Entrance app (a later step).
+listener again. The two seams are implemented by the Entrance app (``hivemind.entrance.runtime``);
+each change that happened is also broadcast to every approved device through the seams' security
+notifier (a reduction concerns the Hive, not one device).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Built by the
@@ -35,7 +37,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol
 
@@ -43,17 +45,24 @@ from pydantic import JsonValue
 
 from hivemind.common.logging import get_logger
 from hivemind.entrance.auth.session.models import Listener
+from hivemind.entrance.enrol.deps.notifier import (
+    NullSecurityNotifier,
+    SecurityNotice,
+    SecurityNotifier,
+)
 from hivemind.entrance.errors import (
     EntranceModeConflictError,
     InvalidModeTransitionError,
     ReopenRefusedError,
 )
+from waggle.ids import EventId
 
 if TYPE_CHECKING:
     # Type-only: the store imports EntranceMode from here, so a runtime import would be a cycle.
     from hivemind.entrance.auth.session.book import SessionBook
     from hivemind.entrance.auth.session.models import AuthenticatedSession
     from hivemind.entrance.enrol.deps import EnrolmentRecords
+    from hivemind.pheromone import GuardEvent
 
 REDUCED_KIND = "guard.reduced"  # OPEN to REDUCED.
 REOPENED_KIND = "guard.reopened"  # REDUCED to OPEN.
@@ -127,10 +136,13 @@ class ReducerSeams:
     Attributes:
         listener: Stops and starts the remote listener and the tunnel child.
         streams: Closes every remote socket.
+        notifier: Tells every approved device that the door narrowed or reopened; the no-op
+            until the push channels are wired.
     """
 
     listener: RemoteListenerControl
     streams: StreamCloser
+    notifier: SecurityNotifier = field(default_factory=NullSecurityNotifier)
 
 
 def mode_trail_kind(from_mode: EntranceMode, to_mode: EntranceMode) -> str:
@@ -197,7 +209,7 @@ class EntranceReducer:
             True when this call moved the Entrance from OPEN to REDUCED.
         """
         payload: dict[str, JsonValue] = {"reason": reason.value}
-        changed = await self._change(EntranceMode.OPEN, EntranceMode.REDUCED, actor, payload)
+        event = await self._change(EntranceMode.OPEN, EntranceMode.REDUCED, actor, payload)
         # Nothing remote authenticates from here on, even before the listener has stopped.
         ended = await self._sessions.end_remote()
         try:
@@ -208,6 +220,9 @@ class EntranceReducer:
             # remote socket is closed even if stopping the listener failed.
             ended += await self._sessions.end_remote()
             await self._seams.streams.close_remote()
+        changed = event is not None
+        if event is not None:
+            await self._broadcast(event)
         log.info("entrance.reduced", reason=reason.value, changed=changed, remote_sessions=ended)
         return changed
 
@@ -228,14 +243,22 @@ class EntranceReducer:
         if not session.stepped_up:
             raise ReopenRefusedError("Reopening a reduced Entrance needs a step-up first.")
         payload: dict[str, JsonValue] = {"listener": Listener.LOOPBACK.value}
-        changed = await self._change(
+        event = await self._change(
             EntranceMode.REDUCED, EntranceMode.OPEN, session.device.id, payload
         )
-        if changed:
-            # Latency: binding a socket and starting uvicorn on it, in this process.
-            await self._seams.listener.start()
-            log.info("entrance.reopened", device_id=session.device.id)
-        return changed
+        if event is None:
+            return False
+        # Latency: binding a socket and starting uvicorn on it, in this process.
+        await self._seams.listener.start()
+        await self._broadcast(event)
+        log.info("entrance.reopened", device_id=session.device.id)
+        return True
+
+    async def _broadcast(self, event: GuardEvent) -> None:
+        """Tell every approved device about a mode change: it concerns the Hive, not one device."""
+        notice = SecurityNotice.broadcast(EventId(event.id), event.kind, event.at)
+        # Latency: the notifier queues the notice and returns; delivery is never awaited here.
+        await self._seams.notifier.notify(notice)
 
     async def _change(
         self,
@@ -243,12 +266,12 @@ class EntranceReducer:
         new: EntranceMode,
         actor: str,
         payload: Mapping[str, JsonValue],
-    ) -> bool:
-        """Persist ``expected`` to ``new`` with its event; False when the mode was another."""
+    ) -> GuardEvent | None:
+        """Persist ``expected`` to ``new`` with its event; None when the mode was another."""
         records = self._records
         # Latency: one local read of a one-row table.
         if await records.store.entrance_mode.get() is not expected:
-            return False
+            return None
         kind = mode_trail_kind(expected, new)
         event = records.identity.event(
             records.clock, kind, records.identity.hive_id, payload, actor
@@ -258,5 +281,5 @@ class EntranceReducer:
             await records.store.entrance_mode.change(expected, new, event)
         except EntranceModeConflictError:
             # A concurrent change got there first; it already did what this one would have.
-            return False
-        return True
+            return None
+        return event

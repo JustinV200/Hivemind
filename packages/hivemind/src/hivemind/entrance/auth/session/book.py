@@ -9,7 +9,10 @@ still APPROVED; a session found dead is ended on the spot with the reason. The r
 bulk: ``end_sessions`` and ``offboard`` are the sessions half of the enrolment step's
 ``DeviceOffboarder`` (a device that leaves APPROVED loses every session in the same step),
 ``end_remote`` is what the Entrance Reducer calls, and ``revalidate`` is the start-time sweep
-(codingrules Appendix C: "sessions are re-validated against device state on start").
+(codingrules Appendix C: "sessions are re-validated against device state on start"). Opening a
+session records ``guard.entrance_login`` (the device, the listener, the address; never the token)
+and every end records ``guard.entrance_session_ended`` with its reason, right after the table
+changed and before the call returns (codingrules 12).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.auth.session``. Built by
@@ -22,7 +25,9 @@ Key invariants:
     - A token is returned once, by ``open``, and never stored, logged or raised.
     - ``live`` never returns a session that is ended, expired, idle, or whose device is not
       APPROVED or has lapsed; each of those it ends before answering.
-    - Ending is idempotent: ending an ended session, or a device with none, changes nothing.
+    - Ending is idempotent: ending an ended session, or a device with none, changes nothing
+      and records nothing.
+    - No event carries a token, its hash, a binding key or a signature.
 
 See Also:
     - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
@@ -36,6 +41,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+
+from pydantic import JsonValue
 
 from hivemind.common.logging import get_logger
 from hivemind.entrance.auth.session.models import (
@@ -64,10 +71,15 @@ DEVICE_END_REASONS: Mapping[DeviceStatus, EndReason] = {
     DeviceStatus.EXPIRED: EndReason.DEVICE_EXPIRED,
 }
 
+LOGIN_KIND = "guard.entrance_login"  # A login passed both factors and opened a session.
+SESSION_ENDED_KIND = "guard.entrance_session_ended"  # A session ended; its payload says why.
+
 log = get_logger(__name__)
 
 __all__ = [
     "DEVICE_END_REASONS",
+    "LOGIN_KIND",
+    "SESSION_ENDED_KIND",
     "LiveSession",
     "OpenedSession",
     "SessionBook",
@@ -239,6 +251,14 @@ class SessionBook:
         )
         # Latency: one local insert (or an in-memory one for the console).
         await self._tables.put(session)
+        payload: dict[str, JsonValue] = {
+            "listener": session.listener.value,
+            "address": session.address,
+            "network": session.network,
+            "binding": session.binding_kind.value,
+            "needs_step_up": session.needs_step_up,
+        }
+        await self._record(LOGIN_KIND, grant.device.id, payload, grant.device.id)
         log.info(
             "entrance.session_opened", device_id=grant.device.id, listener=session.listener.value
         )
@@ -264,8 +284,10 @@ class SessionBook:
         if dead is None:
             dead = EndReason.NOT_APPROVED if device is None else _standing(device, now)
         if dead is not None or device is None:
-            # Latency: one local session-table statement.
-            await self._tables.end(hashed, now, dead or EndReason.NOT_APPROVED)
+            reason = dead or EndReason.NOT_APPROVED
+            # Latency: one local session-table statement; only the call that ended it records it.
+            if await self._tables.end(hashed, now, reason):
+                await self._ended(session.device_id, reason, session.listener, 1)
             return None
         return LiveSession(session, device)
 
@@ -292,9 +314,12 @@ class SessionBook:
             True when it was open.
         """
         # Latency: one local session-table statement.
-        return await self._tables.end(
+        ended = await self._tables.end(
             session.token_hash, self._records.clock.now(), EndReason.LOGOUT
         )
+        if ended:
+            await self._ended(session.device_id, EndReason.LOGOUT, session.listener, 1)
+        return ended
 
     async def end_sessions(self, device_id: DeviceId, reason: DeviceStatus) -> int:
         """End every session of a device that left APPROVED: the offboarder's sessions half.
@@ -310,6 +335,8 @@ class SessionBook:
         now = self._records.clock.now()
         # Latency: one local session-table statement.
         ended = await self._tables.end_for_device(device_id, now, end_reason)
+        if ended:
+            await self._ended(device_id, end_reason, None, ended)
         log.info(
             "entrance.sessions_ended", device_id=device_id, reason=end_reason.value, ended=ended
         )
@@ -332,7 +359,12 @@ class SessionBook:
         """
         now = self._records.clock.now()
         # Latency: one local session-table statement.
-        return await self._tables.end_for_listener(Listener.REMOTE, now, EndReason.REDUCED)
+        ended = await self._tables.end_for_listener(Listener.REMOTE, now, EndReason.REDUCED)
+        # Many devices at once: the event is about the Hive whose door narrowed.
+        if ended:
+            hive_id = self._records.identity.hive_id
+            await self._ended(hive_id, EndReason.REDUCED, Listener.REMOTE, ended)
+        return ended
 
     async def revalidate(self) -> int:
         """End every open session that is expired, idle, or whose device is not APPROVED.
@@ -350,6 +382,26 @@ class SessionBook:
             if await self.live(session.token_hash, now) is None:
                 ended += 1
         return ended
+
+    async def _ended(
+        self, subject_id: str, reason: EndReason, listener: Listener | None, sessions: int
+    ) -> None:
+        """Record ``guard.entrance_session_ended``: whose sessions, why, where, how many."""
+        payload: dict[str, JsonValue] = {
+            "reason": reason.value,
+            "listener": listener.value if listener is not None else None,
+            "sessions": sessions,
+        }
+        await self._record(SESSION_ENDED_KIND, subject_id, payload, None)
+
+    async def _record(
+        self, kind: str, subject_id: str, payload: dict[str, JsonValue], actor: str | None
+    ) -> None:
+        """Build and record one ``guard`` event stamped now, from the Entrance's identity."""
+        records = self._records
+        event = records.identity.event(records.clock, kind, subject_id, payload, actor)
+        # Latency: one local trail write, awaited so the record exists before the call returns.
+        await records.trail.record(event)
 
     def _lapse(self, session: Session, now: datetime) -> EndReason | None:
         """Say whether ``session`` has run out: its absolute expiry, or its idle timeout."""

@@ -33,6 +33,7 @@ from builders.entrance import (
     make_description,
     make_device,
     make_pending,
+    pending_event,
     walk_to,
 )
 from pydantic import ValidationError
@@ -207,50 +208,79 @@ async def test_networks_are_remembered_once_each_in_canonical_form(rig: _Rig) ->
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-async def test_a_held_request_reads_back_equal(rig: _Rig) -> None:
+async def test_a_held_request_reads_back_equal_with_its_event(rig: _Rig) -> None:
     pending = make_pending(rig.device.id, rig.clock)
+    event = pending_event(pending, rig.clock)
 
-    await rig.store.pending.put(pending)
+    await rig.store.pending.put(pending, event)
 
     assert await rig.store.pending.get(pending.id) == pending
+    assert [found.id for found in await rig.trail.query(TrailQuery())][-1] == event.id
     with pytest.raises(PendingNotFoundError):
         await rig.store.pending.get(make_pending(rig.device.id, rig.clock).id)
 
 
+async def test_a_change_without_its_own_event_is_refused_and_writes_nothing(rig: _Rig) -> None:
+    pending = make_pending(rig.device.id, rig.clock)
+    other = make_pending(rig.device.id, rig.clock)
+
+    with pytest.raises(InvariantViolationError):
+        await rig.store.pending.put(pending, pending_event(other, rig.clock))
+    await rig.store.pending.put(pending, pending_event(pending, rig.clock))
+    wrong_kind = pending_event(pending, rig.clock, settled_as=_P.CANCELLED)
+    confirmed = Settlement(_P.CONFIRMED, rig.clock.now(), confirmed_by=rig.device.id)
+    with pytest.raises(InvariantViolationError):
+        await rig.store.pending.settle(pending.id, _P.PENDING, confirmed, wrong_kind)
+
+    assert (await rig.store.pending.get(pending.id)).status is _P.PENDING
+    with pytest.raises(PendingNotFoundError):
+        await rig.store.pending.get(other.id)
+
+
 async def test_put_refuses_a_settled_request_a_taken_id_and_an_unknown_device(rig: _Rig) -> None:
     pending = make_pending(rig.device.id, rig.clock)
-    await rig.store.pending.put(pending)
+    await rig.store.pending.put(pending, pending_event(pending, rig.clock))
     settled = make_pending(rig.device.id, rig.clock, status=_P.EXPIRED, settled_at=rig.clock.now())
 
     for refused in (settled, pending, make_pending(_MISSING, rig.clock)):
         with pytest.raises(InvariantViolationError):
-            await rig.store.pending.put(refused)
+            await rig.store.pending.put(refused, pending_event(refused, rig.clock))
 
 
 async def test_a_request_is_settled_once_from_the_expected_status(rig: _Rig) -> None:
     pending = make_pending(rig.device.id, rig.clock)
-    await rig.store.pending.put(pending)
+    await rig.store.pending.put(pending, pending_event(pending, rig.clock))
     confirmed = Settlement(_P.CONFIRMED, rig.clock.now(), confirmed_by=rig.device.id)
 
-    settled = await rig.store.pending.settle(pending.id, _P.PENDING, confirmed)
+    settled = await rig.store.pending.settle(
+        pending.id, _P.PENDING, confirmed, pending_event(pending, rig.clock, _P.CONFIRMED)
+    )
 
     assert (settled.status, settled.confirmed_by) == (_P.CONFIRMED, rig.device.id)
     with pytest.raises(PendingStatusConflictError):
-        await rig.store.pending.settle(pending.id, _P.PENDING, confirmed)
+        await rig.store.pending.settle(
+            pending.id, _P.PENDING, confirmed, pending_event(pending, rig.clock, _P.CONFIRMED)
+        )
     with pytest.raises(InvalidPendingTransitionError):
         await rig.store.pending.settle(
-            pending.id, _P.CONFIRMED, Settlement(_P.EXPIRED, rig.clock.now())
+            pending.id,
+            _P.CONFIRMED,
+            Settlement(_P.EXPIRED, rig.clock.now()),
+            pending_event(pending, rig.clock, _P.EXPIRED),
         )
     assert await rig.store.pending.get(pending.id) == settled
 
 
 async def test_a_confirmation_without_its_confirming_device_is_refused(rig: _Rig) -> None:
     pending = make_pending(rig.device.id, rig.clock)
-    await rig.store.pending.put(pending)
+    await rig.store.pending.put(pending, pending_event(pending, rig.clock))
 
     with pytest.raises(ValidationError):
         await rig.store.pending.settle(
-            pending.id, _P.PENDING, Settlement(_P.CONFIRMED, rig.clock.now())
+            pending.id,
+            _P.PENDING,
+            Settlement(_P.CONFIRMED, rig.clock.now()),
+            pending_event(pending, rig.clock, _P.CONFIRMED),
         )
 
     assert (await rig.store.pending.get(pending.id)).status is _P.PENDING
@@ -261,8 +291,11 @@ async def test_list_by_status_filters_and_orders_oldest_first(rig: _Rig) -> None
     rig.clock.advance(1)
     second = make_pending(rig.device.id, rig.clock)
     for pending in (second, first):
-        await rig.store.pending.put(pending)
-    await rig.store.pending.settle(first.id, _P.PENDING, Settlement(_P.CANCELLED, rig.clock.now()))
+        await rig.store.pending.put(pending, pending_event(pending, rig.clock))
+    cancelled = Settlement(_P.CANCELLED, rig.clock.now())
+    await rig.store.pending.settle(
+        first.id, _P.PENDING, cancelled, pending_event(first, rig.clock, _P.CANCELLED)
+    )
 
     held = await rig.store.pending.list_by_status(_P.PENDING)
     everything = await rig.store.pending.list_by_status()

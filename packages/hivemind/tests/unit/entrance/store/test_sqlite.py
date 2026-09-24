@@ -29,6 +29,7 @@ from builders.entrance import (
     make_invite,
     make_pending,
     make_session,
+    pending_event,
     walk_to,
 )
 
@@ -126,7 +127,7 @@ async def test_the_login_session_and_mode_tables_survive_a_new_connection(tmp_pa
     await store.sessions.claim_nonce(claim)
     await store.logins.count_failure(device.id, clock.now())
     await store.logins.remember_network(device.id, "derp:nyc", clock.now())
-    await store.pending.put(pending)
+    await store.pending.put(pending, pending_event(pending, clock))
     await store.entrance_mode.change(EntranceMode.OPEN, EntranceMode.REDUCED, reduced)
 
     reopened = await SqliteEntranceStore.create(connect(db), clock)

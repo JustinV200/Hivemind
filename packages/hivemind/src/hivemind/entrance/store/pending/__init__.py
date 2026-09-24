@@ -18,7 +18,8 @@ See Also:
     - hivemind.entrance.auth.confirm.state for the state machine.
 
 Public API:
-    - PendingTable, check_new_pending, settle_pending: the protocol and its rules (protocol).
+    - PendingTable, check_new_pending, check_pending_event, settle_pending: the protocol and its
+      rules, every change with its trail event (protocol).
     - SqlitePendingTable: the durable table (sqlite).
     - MemoryPendingTable: the in-memory table (memory).
 """
@@ -27,6 +28,7 @@ from hivemind.entrance.store.pending.memory import MemoryPendingTable
 from hivemind.entrance.store.pending.protocol import (
     PendingTable,
     check_new_pending,
+    check_pending_event,
     settle_pending,
 )
 from hivemind.entrance.store.pending.sqlite import SqlitePendingTable
@@ -36,5 +38,6 @@ __all__ = [
     "PendingTable",
     "SqlitePendingTable",
     "check_new_pending",
+    "check_pending_event",
     "settle_pending",
 ]

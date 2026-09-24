@@ -27,8 +27,8 @@ Public API:
     - Session, Arrival, AuthenticatedSession, NonceClaim, Listener, BindingKind, EndReason: the
       records (models).
     - mint_token, token_hash, bearer_credential, TOKEN_BYTES, TOKEN_CHARS: tokens (token).
-    - SessionBook, SessionRules, SessionGrant, OpenedSession, LiveSession, DEVICE_END_REASONS:
-      the book (book).
+    - SessionBook, SessionRules, SessionGrant, OpenedSession, LiveSession, DEVICE_END_REASONS,
+      LOGIN_KIND, SESSION_ENDED_KIND: the book and the events it records (book).
     - authenticate_request, authenticate_websocket, SignedRequest, SocketOpening, SocketHello,
       SOCKET_HELLO_DEADLINE_S, MAX_FIRST_FRAME_CHARS: request and socket checks (request).
     - record_failure, Failure, FailureReason, FailureStep, LOGIN_FAILED_KIND: the Guard signal
@@ -37,6 +37,8 @@ Public API:
 
 from hivemind.entrance.auth.session.book import (
     DEVICE_END_REASONS,
+    LOGIN_KIND,
+    SESSION_ENDED_KIND,
     LiveSession,
     OpenedSession,
     SessionBook,
@@ -79,7 +81,9 @@ from hivemind.entrance.auth.session.token import (
 __all__ = [
     "DEVICE_END_REASONS",
     "LOGIN_FAILED_KIND",
+    "LOGIN_KIND",
     "MAX_FIRST_FRAME_CHARS",
+    "SESSION_ENDED_KIND",
     "SOCKET_HELLO_DEADLINE_S",
     "TOKEN_BYTES",
     "TOKEN_CHARS",
