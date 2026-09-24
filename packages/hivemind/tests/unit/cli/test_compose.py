@@ -149,6 +149,25 @@ def _three_haiku_responder() -> Responder:
     return responder
 
 
+def _blocked_responder() -> Responder:
+    """Script a goal that can never finish: the plan, then a Drone that only ever asks the human.
+
+    Nobody answers, so the task stays BLOCKED and the goal is never terminal: the deterministic
+    ground `test_run_goal_times_out_cleanly` needs. A goal that could finish would race the poll
+    loop, whose terminal check rightly comes before its deadline check.
+    """
+    ask = (("ask_1", "ask", {"text": "Which season should the haiku be about?"}),)
+
+    def responder(request: LLMRequest) -> LLMResponse:
+        if request.slot is ModelSlot.QUEEN:
+            return _plan_response(request)
+        if request.slot is ModelSlot.WORKER:
+            return _write_files_response(request, ask)
+        return _text_response("{}")
+
+    return responder
+
+
 def _plan_response(request: LLMRequest) -> LLMResponse:
     """Answer the planner's own call, on whichever structured-output rung `request` is on."""
     plan_json = json.dumps(_THREE_HAIKU_PLAN)
@@ -312,6 +331,12 @@ def plain_hive(tmp_path: Path) -> tuple[Hive, FakeClock]:
 def three_haiku_hive(tmp_path: Path) -> tuple[Hive, FakeClock]:
     """A Hive scripted for the three-haiku goal, at full provider capabilities."""
     return _build_test_hive(tmp_path, responder=_three_haiku_responder())
+
+
+@pytest.fixture
+def blocked_hive(tmp_path: Path) -> tuple[Hive, FakeClock]:
+    """A Hive whose goal can never finish (`_blocked_responder`)."""
+    return _build_test_hive(tmp_path, responder=_blocked_responder())
 
 
 @pytest.fixture
@@ -506,13 +531,13 @@ async def test_a_sub_bees_llm_call_carries_its_grant_id_and_moves_the_ledgers_sp
     assert grant.spent > 0.0  # The ledger's own spend for that grant actually moved.
 
 
-async def test_run_goal_times_out_cleanly(three_haiku_hive: tuple[Hive, FakeClock]) -> None:
-    hive, clock = three_haiku_hive
+async def test_run_goal_times_out_cleanly(blocked_hive: tuple[Hive, FakeClock]) -> None:
+    hive, clock = blocked_hive
 
     async def _scenario() -> GoalReport:
         async with run_hive(hive):
-            # A timeout far shorter than a single poll interval: the very first re-check after
-            # one clock advance already exceeds it, regardless of how far the goal got.
+            # A timeout far shorter than a single poll interval, on a goal that can never finish
+            # (its Drone only asks, and nobody answers): the first re-check always times out.
             return await run_goal(
                 hive,
                 "write three haiku about bees to separate files",
