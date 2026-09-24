@@ -542,12 +542,20 @@ web_push = true
 webhook_allowlist = []
 
 [entrance.voice]
+# Audio in on POST /v1/chat/audio and push-to-talk on the chat socket, transcribed once on the
+# TRANSCRIBER slot; false leaves the route unmounted (a 404) and refuses every hold.
 enabled = true
 # Echo a spoken goal back for confirmation before it becomes a task.
 confirm_goals = true
 # Discard audio after transcription; true keeps it as C2 Nectar with a retention window.
 keep_audio = false
+# How long a kept clip lives before the retention sweep deletes it; read only with keep_audio.
+keep_audio_hours = 24.0
+# The longest clip accepted, read from a WAV header or the declared length, before any model runs.
 max_clip_seconds = 120.0
+# Each device's audio budget: this many seconds a minute (a bucket charged each clip's length
+# before it is heard); at least max_clip_seconds.
+audio_seconds_per_minute = 120.0
 
 [guard]
 # The Guard policy's overrides (roadmap step 10.2, ADR-0031). Every Hive starts from the policy

@@ -20,4 +20,6 @@ fields that status requires, so any `TaskStatus` is valid on its own with no fur
 `silent_wav`, `make_clip`, `make_transcript`: build transcription fixtures on the fly. A clip is a
 real 16-bit mono PCM WAV of silence written by the standard library's `wave` module, so no binary
 fixture is committed and a test names the exact length it needs; `make_clip` passes it through
-`AudioClip.from_upload`, the same door a device's upload takes.
+`AudioClip.from_upload`, the same door a device's upload takes. `marked_wav` plants a distinctive
+byte run in a clip's samples, so a test can search every store, trail payload and log line for
+the audio itself (`tests/e2e/test_voice_on_hive_serve.py`).

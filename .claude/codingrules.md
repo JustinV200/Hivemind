@@ -1147,13 +1147,14 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   `CapabilitySet` (usually `entrance:submit`, `entrance:answer`, `observe`) and a daily spend cap
   set at approval. It can never hold more than the operator granted on loopback.
 - **Voice is transcribed at the door.** An enrolled device may send audio instead of text: a
-  clip on `/v1/chat/audio`, or audio frames on the chat WebSocket for push-to-talk. `entrance/voice.py`
+  clip on `/v1/chat/audio`, or audio frames on the chat WebSocket for push-to-talk. `entrance/voice/`
   transcribes it on `ModelSlot.TRANSCRIBER` (8.6), Whisper by default and local first, and the
   transcript enters the Queen's inbox as a `HumanMessage`. A spoken goal is echoed back for
   confirmation before it is submitted (`[entrance.voice] confirm_goals`, on by default), so a
   misheard sentence never spends anything; answers and chat go straight through. Audio and
   transcript are `C2`; the audio is discarded after transcription unless `keep_audio` is set, in
-  which case it is Nectar with a retention window. Clips are capped by `max_clip_seconds`.
+  which case it is Nectar with a retention window. Clips are capped by `max_clip_seconds`, and the
+  rate limiter counts each device's audio seconds; both refuse a clip before any model runs.
   Replies are text; speech synthesis is post-1.0. Images a client sends are deposited as Nectar
   with clearance `C2`, since they come from the human. On a Night Veil Cell the same slot resolves
   to a local Whisper, because every slot there is local.
@@ -1376,7 +1377,9 @@ Rules:
   enabled = true                         # audio in on the chat route, transcribed on the transcriber slot
   confirm_goals = true                   # echo a spoken goal back before it becomes a task
   keep_audio = false                     # discard audio after transcription; true keeps it as C2 Nectar
+  keep_audio_hours = 24                  # a kept clip's retention window
   max_clip_seconds = 120
+  audio_seconds_per_minute = 120         # each device's audio budget; at least max_clip_seconds
   ```
 - **Secrets** (API keys, device enrolment tokens, cloud credentials) are never in the manifest
   file, never in code, never in logs, never in the Pheromone Trail. They come from environment

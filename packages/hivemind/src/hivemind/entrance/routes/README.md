@@ -9,7 +9,8 @@ authorise (the gate does it from the row), call a subsystem's public API, shape 
 write into the Hive goes through the Queen's door, and every read goes straight to the stores and
 the Queen's live tables (`gate.HiveReads`). `hive/` holds the Hive's read routes (tasks, Cells,
 Wardens, Forage, episodes, trail, LLM); `later/` holds the resources a later phase fills, each
-answering 501 with the phase that builds it.
+answering 501 with the phase that builds it. `POST /v1/chat/audio` is declared with the rest of
+voice, in `hivemind.entrance.voice`, and listed in the registry beside the chat.
 
 ## The route table
 
@@ -53,6 +54,7 @@ own session.
 | POST | /v1/goals/{request_id}/decline | L+R | entrance:submit | inbox |
 | GET | /v1/chat | L+R | entrance:submit +c2 | read |
 | POST | /v1/chat | L+R | entrance:submit | inbox |
+| POST | /v1/chat/audio | L+R, only with `[entrance.voice] enabled` | entrance:submit +c2 (an answer also entrance:answer; a goal steps up as `/v1/goals` does) | inbox |
 | GET | /v1/inbox | L+R | entrance:answer +c2 | read |
 | POST | /v1/inbox/questions/{question_id}/answer | L+R | entrance:answer | inbox |
 | POST | /v1/inbox/alarms/{alarm_id}/acknowledge | L+R | entrance:answer | inbox |
@@ -87,7 +89,7 @@ OpenAPI document lists them under `x-hive-streams`:
 
 | Path | Access | What each frame carries |
 |---|---|---|
-| /v1/chat/stream | entrance:submit +c2 | a chat line as it is written |
+| /v1/chat/stream | entrance:submit +c2 | a chat line as it is written; it also takes push-to-talk (`audio_chunk` frames, then `audio_end`) and answers the speaking socket alone (`voice` or `voice_refused`) |
 | /v1/push/stream | entrance:push | a content-free push notice |
 | /v1/entrance/stream | observe | an Entrance security event |
 | /v1/trail/stream | observe | a trail event (`family`, `kind` filters) |
@@ -106,5 +108,6 @@ when it has been built, the Observation Hive's front end.
 no loopback-only row is served remotely, the Observation Hive's credentials reach no mutating route
 beyond the Queen's inbox, their own session and push); `tests/unit/entrance/routes/` exercises the
 resources over a real listener (`hive/` and `later/` mirror the read routes);
-`tests/unit/entrance/streams/views/` opens every live view; `tests/unit/entrance/test_landing_board.py`
-fails when the committed document drifts from this table.
+`tests/unit/entrance/streams/views/` opens every live view; `tests/unit/entrance/voice/` speaks
+to the audio route and the chat socket; `tests/unit/entrance/test_landing_board.py` fails when the
+committed document drifts from this table.

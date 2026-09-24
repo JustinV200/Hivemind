@@ -10,8 +10,9 @@ It runs inside `hive serve`, in the Queen's own process and event loop (ADR-0032
 it makes into the Hive goes through the Queen's door.
 
 Roadmap steps 10.4, 10.5a (remote exposure), 10.5b (push), 10.5d (device enrolment), 10.5e
-(login, sessions, step-up and the Entrance Reducer) and 10.5 (the application, its routes, the
-Hive's read routes and live views, and the runtime, `hive serve`) landed what is below.
+(login, sessions, step-up and the Entrance Reducer), 10.5 (the application, its routes, the
+Hive's read routes and live views, and the runtime, `hive serve`) and 10.5f (voice in at the
+Landing Board) landed what is below.
 
 ## Layout
 
@@ -28,6 +29,8 @@ Hive's read routes and live views, and the runtime, `hive serve`) landed what is
 | `models/` | The Landing Board's request and response models, one module per resource; `views/` holds the Hive's read models (tasks, Cells, Wardens, Forage, episodes, trail, LLM, the not-built answer) and every live view's frame. |
 | `reads/` | The read side the routes and views share: `census` (every Cell and Warden, joined from the Warden links, the Virtual Cell lifecycle, the trail, the Brood Chamber, the Queen's pulse, the telemetry board and the ledger), `trail` (a filtered page from a cursor), `llm` (providers as the Queen judges them, and every binding). |
 | `routes/` | One module per resource, each declaring its rows; `hive/` holds the Hive's read routes, `later/` the resources a later phase fills (answering 501); `registry` lists them; its own README holds the route table. |
+| `intake.py` | How every goal comes in, typed, spoken, confirmed or recovered: its spend weighed against its device's day, and a held goal committed once under the id minted when it was held. |
+| `voice/` | Voice in: a clip on `POST /v1/chat/audio` or a push-to-talk hold on the chat socket, both heard at one door (every refusal before the model, one transcription on `TRANSCRIBER`, the scan, then where typed words go); the `AudioNectar` seam for `keep_audio`; its own README. |
 | `streams/` | The live views: `StreamHub` (one trail follower), `StreamSubscription` (a bounded queue, closed with FELL_BEHIND past its backlog), `TelemetryBoard` (every Heartbeat the Queen hands its `on_heartbeat` hook), the socket registry and lifecycle, `views/` (the Landing Board's chat, push and security views, and the Hive's trail, telemetry, Forage, task-graph, episode and Cell-status views), and the follower obeying a Guard Bee's `guard.reduce_ordered`. |
 | `notify/` | `PushOutbox` (notices off the caller's path, ordered per ref), `PushHumanChannel` (the Queen's `HumanChannel`), `PushSecurityNotifier`, `HumanChannelRelay`. |
 | `app.py` | Builds both FastAPI applications from one route table (the remote one mounts only `REMOTE` rows). |
@@ -119,10 +122,12 @@ runtime are reached through their own modules, so importing the face never loads
 - `hivemind.entrance.streams` (with `TelemetryBoard`), `hivemind.entrance.notify`,
   `hivemind.entrance.reads`: their faces list every name. The view models are
   `hivemind.observation`'s.
+- `hivemind.entrance.voice`: `VoiceServices` and `VoiceRules` (what `hive serve` builds when
+  `[entrance.voice]` is on), `InMemoryAudioNectar`, and the door, the route and the socket reader.
 
 Nothing in the Entrance stores a password, an invite code, a session token or a private key in
-the clear, and no log line or trail event carries a code, a key, a token, a signature, a password
-or a human's words.
+the clear, and no log line or trail event carries a code, a key, a token, a signature, a password,
+a human's words or a clip's audio.
 
 ## How to test this
 
@@ -134,7 +139,8 @@ uv run --frozen pytest packages/hivemind/tests/unit/entrance \
     packages/hivemind/tests/contracts/test_entrance_auth_tables_contract.py \
     packages/hivemind/tests/unit/cli/compose/test_entrance.py \
     packages/hivemind/tests/unit/cli/test_serve.py \
-    packages/hivemind/tests/e2e/test_hive_serve.py
+    packages/hivemind/tests/e2e/test_hive_serve.py \
+    packages/hivemind/tests/e2e/test_voice_on_hive_serve.py
 ```
 
 The route, gate, stream and runtime tests run a real Entrance (`builders.entrance.serving`): uvicorn
