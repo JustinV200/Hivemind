@@ -84,6 +84,7 @@ __all__ = [
     "PendingNotFoundError",
     "PendingStatusConflictError",
     "ReopenRefusedError",
+    "SingleOperatorError",
     "StepUpUnavailableError",
     "StewardGrantError",
     "TravelLockUnavailableError",
@@ -174,6 +175,12 @@ class OperatorPasswordMismatchError(EntranceError, PermissionDeniedError):
     """Raise when the current operator password presented to change it is not the right one."""
 
     code: ClassVar[str] = "hivemind.entrance.operator_password_mismatch"
+
+
+class SingleOperatorError(EntranceError, ConflictError):
+    """Raise when a second operator is asked for: this Brood keeps one operator credential."""
+
+    code: ClassVar[str] = "hivemind.entrance.single_operator"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

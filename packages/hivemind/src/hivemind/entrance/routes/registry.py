@@ -22,7 +22,12 @@ from __future__ import annotations
 
 from hivemind.entrance.gate.spec import RouteSpec
 from hivemind.entrance.routes import auth, chat, devices, enrol, goals, inbox, push
-from hivemind.entrance.routes.entrance import DOOR_ROUTES, ENROLMENT_ROUTES, HELD_ROUTES
+from hivemind.entrance.routes.entrance import (
+    DOOR_ROUTES,
+    ENROLMENT_ROUTES,
+    HELD_ROUTES,
+    OPERATOR_ROUTES,
+)
 from hivemind.entrance.routes.hive import (
     CELL_ROUTES,
     EPISODE_ROUTES,
@@ -45,6 +50,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     DOOR_ROUTES,
     ENROLMENT_ROUTES,
     HELD_ROUTES,
+    OPERATOR_ROUTES,
     devices.ROUTES,
     goals.ROUTES,
     chat.ROUTES,

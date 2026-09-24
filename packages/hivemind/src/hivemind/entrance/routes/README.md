@@ -39,6 +39,7 @@ own session.
 | POST | /v1/entrance/pending/{device_id}/approve | L | entrance:steward | door |
 | POST | /v1/entrance/pending/{device_id}/deny | L | entrance:steward | door |
 | POST | /v1/entrance/steward/{device_id}/approve | L+R, only with `steward_devices` | entrance:steward, step-up | door |
+| POST | /v1/entrance/operators | L | entrance:steward | door (refused: one operator) |
 | GET | /v1/entrance/confirmations | L+R | entrance:submit +c2 | read |
 | POST | /v1/entrance/confirmations/{pending_id}/confirm | L+R | entrance:submit, step-up | door |
 | POST | /v1/entrance/confirmations/{pending_id}/cancel | L+R | entrance:submit | door |

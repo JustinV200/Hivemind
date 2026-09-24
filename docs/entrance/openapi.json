@@ -7417,6 +7417,91 @@
         ]
       }
     },
+    "/v1/entrance/operators": {
+      "post": {
+        "operationId": "add_operator_v1_entrance_operators_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The Hive keeps a single operator credential."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Add a second operator (loopback only); refused while the Hive keeps one.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
     "/v1/entrance/pending": {
       "get": {
         "operationId": "list_pending_v1_entrance_pending_get",
