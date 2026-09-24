@@ -1197,38 +1197,38 @@ duty, `hive honey` CLI.
 
 ### Steps
 
-- [ ] **7.1 Embedding protocol and adapters.** `llm/embedding.py` (`EmbeddingProvider`),
+- [x] **7.1 Embedding protocol and adapters.** `llm/embedding.py` (`EmbeddingProvider`),
   `llm/providers/openai_compat/embedding.py`, `llm/providers/sentence_transformers/embedding.py`
   (in-process, optional extra), `FakeEmbedding`. Bound through `ModelSlot.EMBEDDER`. Contract
   suite over all three.
-- [ ] **7.2 Schema.** Migrations for `nectar`, `honey` (with embedding model id and provenance),
+- [x] **7.2 Schema.** Migrations for `nectar`, `honey` (with embedding model id and provenance),
   `clearance` column (`C0`, `C1`, `C2`) on both tables, FTS5 and `sqlite-vec` virtual tables.
   Changing the embedder slot triggers `hive honey reembed`.
-- [ ] **7.3 Models.** `Nectar`, `Honey`, `HoneyQuery`, `HoneyHit`; provenance mandatory (task,
+- [x] **7.3 Models.** `Nectar`, `Honey`, `HoneyQuery`, `HoneyHit`; provenance mandatory (task,
   Worker, Cell, time) and clearance mandatory. `honey_store/clearance.py` assigns the label
   deterministically from provenance at intake (anything from a Real Cell, a human message or watch
   mode is `C2`); a model may raise a label during ripening and never lower one; lowering is a
   Capping proposal reviewed by the judge or a human.
-- [ ] **7.4 Nectar intake.** `honey_store/nectar/intake.py` over Waggle; hash, dedupe, store,
+- [x] **7.4 Nectar intake.** `honey_store/nectar/intake.py` over Waggle; hash, dedupe, store,
   size cap. Deposited transcripts from checkpoints arrive here.
-- [ ] **7.5 Ripening pipeline.** `chunk.py`, `summarise.py` (via `llm/structured.py` on
+- [x] **7.5 Ripening pipeline.** `chunk.py`, `summarise.py` (via `llm/structured.py` on
   `ModelSlot.RIPENER`), `embed.py`, `dedupe.py`, `index.py`, composed by `pipeline.py`.
-- [ ] **7.6 House Bee, complete.** `workers/roles/house_bee.py` now has three duties: sweep hot
+- [x] **7.6 House Bee, complete.** `workers/roles/house_bee.py` now has three duties: sweep hot
   state (phase 4), ripen Nectar, and ripen aged Bee Bread into Honey. Runs in the Queen's process
   by default.
-- [ ] **7.7 Retrieval.** Hybrid FTS + vector search with manifest weights; result token budget
+- [x] **7.7 Retrieval.** Hybrid FTS + vector search with manifest weights; result token budget
   scaled by the bound model's window and folded into `memory.assemble` as the cold tier. A
   tainted item (10.6d) is never returned, whatever its score.
-- [ ] **7.8 Waggle integration.** `HoneyQuery` / `HoneyResponse`; results injected as delimited,
+- [x] **7.8 Waggle integration.** `HoneyQuery` / `HoneyResponse`; results injected as delimited,
   labelled untrusted content.
-- [ ] **7.9 Queen pre-check.** The planner queries Honey for the goal's targets and for the chosen
+- [x] **7.9 Queen pre-check.** The planner queries Honey for the goal's targets and for the chosen
   Cell's known quirks, attaching hits to `TaskAssign`; `queen.honey_consulted`.
-- [ ] **7.9a Cell Wax ripens and is consulted.** Cleared and expired Cell Wax (4.2a) is ripened
+- [x] **7.9a Cell Wax ripens and is consulted.** Cleared and expired Cell Wax (4.2a) is ripened
   into Honey at `cell:<id>` scope with the note's provenance and severity, so a Cell's history of
   cautions compounds without living in hot state. The pre-check in 7.9 attaches that history for
   the chosen Cell alongside its live wax, and the browser (7.10) lists a Cell's live wax under its
   folder. Live wax stays a memory-table item, never a Honey row.
-- [ ] **7.10 Honey scoping and browser.** `honey_store/scope.py`: every Honey row carries a
+- [x] **7.10 Honey scoping and browser.** `honey_store/scope.py`: every Honey row carries a
   scope derived from provenance (`hive`, `cell:<id>`, `bee:<id>`, `task:<id>`) and a visibility
   rule; a bee's `honey:read:<scope>` capabilities decide what its queries can return. Query
   filtering applies both scope and clearance, with Comb Shield policy denying Royal data on
@@ -1239,7 +1239,7 @@ duty, `hive honey` CLI.
   the way you walk a filesystem. Browsing never writes; every write to Honey goes through the
   Queen (intake, ripening, pins), and the browser exposes "propose a note" as a message into her
   inbox.
-- [ ] **7.11 CLI.** `hive honey query|stats|ripen --now|reembed|ls <path>|cat <path>`.
+- [x] **7.11 CLI.** `hive honey query|stats|ripen --now|reembed|ls <path>|cat <path>`.
 
 ### Exit criteria
 
@@ -1248,10 +1248,34 @@ duty, `hive honey` CLI.
 - A Handoff deposited in phase 4 is retrievable through Honey a day later with full provenance.
 - Ripening runs with `RIPENER` and `EMBEDDER` on local adapters in the `local_llm` job.
 
+**Met 2026-09-24, with two stand-ins** (branch `claude/vigilant-hawking-qf81zr`; the full record
+is `.claude/phase-7-handoff.md`). Phase 6 was not built first (the operator asked for phase 7), so
+a Drone stands in for the Forager: `tests/e2e/test_honey_compounds.py` runs one goal twice on the
+Hive Stand through `build_hive` (real lease, SQLite, Queen, Warden and Drones, scripted models) at
+C2. The second `TaskAssign` carries the first run's ripened outcome, `queen.honey_consulted` is on
+the trail, and the second Drone finishes in fewer model calls. At C1 nothing is attached, because
+everything gathered on the borrowed Hive Stand is C2. A real run (Hive Stand, a real subprocess,
+real WordLlama vectors over the OpenAI-compatible adapter, the House Bee ripening on its own
+interval) went from three Drone calls to two. Re-run this bullet with the Forager once phase 6
+lands. The Handoff bullet is
+`test_a_phase_four_handoff_is_retrievable_a_day_later_with_full_provenance`: a Handoff written by
+`memory.write_checkpoint` is deposited by the Queen's housekeeping sweep a day later, ripened, and
+returned with task, Worker, Cell and time. The `local_llm` bullet is
+`tests/evals/honey/test_ripening_local.py`, which builds the store from `docs/manifests/local.toml`
+through the production builder. It passed against a loopback OpenAI-compatible server with real
+WordLlama embeddings and a deterministic extractive chat stand-in (this sandbox reaches no model
+hub), so it has not yet run against a real local chat model. Where the steps above differ from
+what was built: there is no `vec0` table (ADR-0031 measured it no faster); re-embedding is
+progressive and automatic rather than triggered (ADR-0032), and `hive honey reembed` drains the
+backlog on demand; lowering a label is wired for the operator (`hive honey relabel`, a HUMAN
+approver) but not as a judge-reviewed Capping proposal; "propose a note" files a PROPOSED Cell Wax
+from a Cell's folder and otherwise queues a note that the House Bee drains into Nectar, never a
+message in the Queen's inbox; `browse` and `house_bee` are packages, not single modules.
+
 ### ADRs to write
 
-- `honey-store-sqlite-fts5-sqlite-vec.md`.
-- `embedding-provider-and-reembedding-policy.md`.
+- `honey-store-sqlite-fts5-sqlite-vec.md` (written: `docs/adr/0031-*`).
+- `embedding-provider-and-reembedding-policy.md` (written: `docs/adr/0032-*`).
 
 ---
 
