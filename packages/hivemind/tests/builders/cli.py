@@ -58,6 +58,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,7 +67,13 @@ from typing import Any
 from waggle.clock import Clock, FakeClock
 from waggle.ids import new_hive_id, new_node_id
 
-__all__ = ["HIVE_STAND_CORES", "ManifestTuning", "fake_manifest", "pump_until_done"]
+__all__ = [
+    "HIVE_STAND_CORES",
+    "ManifestTuning",
+    "fake_manifest",
+    "printed_object",
+    "pump_until_done",
+]
 
 # The Hive Stand's cores, pinned: Forage grants a Drone the free cores (cores less the one-minute
 # load average) over its 0.5-core footprint, and a host whose load nears its own core count (a
@@ -353,3 +360,27 @@ async def pump_until_done[ResultT](
         task.cancel()
         raise AssertionError(f"pump_until_done gave up after {limit} clock advances.")
     return await task
+
+
+def printed_object(output: str) -> dict[str, Any]:
+    """Parse the one JSON object a `--json` command printed, skipping log lines around it.
+
+    A test that runs a Hive in its own event loop and a command through `CliRunner` on a worker
+    thread shares one `sys.stdout` between them: the runner swaps it for the whole process, so a
+    line the Hive logs in that window lands in the command's output (structlog prints to stdout
+    unless configured, and the unbound human channel logs the moment a question is asked, which is
+    exactly when these tests read the inbox). A `--json` command prints its object whole with
+    `indent=2` in one write, so the object is the block from the first line that is exactly `{`
+    to the last line that is exactly `}`.
+
+    Args:
+        output: The command's captured output.
+
+    Returns:
+        The parsed object.
+    """
+    lines = output.splitlines()
+    start = lines.index("{")
+    end = len(lines) - lines[::-1].index("}")
+    parsed: dict[str, Any] = json.loads("\n".join(lines[start:end]))
+    return parsed

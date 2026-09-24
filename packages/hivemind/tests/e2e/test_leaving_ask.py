@@ -51,12 +51,11 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest
+from builders.cli import fake_manifest, printed_object
 from e2e.kernel_helpers import (
     HaikuScript,
     text_response,
@@ -201,7 +200,7 @@ async def _run_leaving_ask(hive: Hive, manifest_path: Path) -> None:
             runner.invoke, app, ["inbox", "--manifest", str(manifest_path), "--json"]
         )
         assert listed.exit_code == 0, listed.output
-        question = json.loads(listed.output)["questions"][0]
+        question = printed_object(listed.output)["questions"][0]
         assert question["options"] == ["keep", "keep for this whole goal", "discard"]
         answered = await asyncio.to_thread(
             runner.invoke,

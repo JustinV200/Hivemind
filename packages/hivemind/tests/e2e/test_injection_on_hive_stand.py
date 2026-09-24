@@ -31,11 +31,10 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest
+from builders.cli import fake_manifest, printed_object
 from e2e.kernel_helpers import (
     HaikuScript,
     single_task_plan,
@@ -140,7 +139,7 @@ async def _answer_and_finish(
         # The CLI runs its own asyncio.run, so it goes to a worker thread (scenario (d)'s rule).
         inbox = ["inbox", "--manifest", str(manifest_path), "--json"]
         listed = await asyncio.to_thread(runner.invoke, app, inbox)
-        question_id = json.loads(listed.output)["questions"][0]["id"]
+        question_id = printed_object(listed.output)["questions"][0]["id"]
         answer = ["inbox", "answer", question_id, _INJECTED, "--manifest", str(manifest_path)]
         answered = await asyncio.to_thread(runner.invoke, app, answer)
         assert answered.exit_code == 0, answered.output

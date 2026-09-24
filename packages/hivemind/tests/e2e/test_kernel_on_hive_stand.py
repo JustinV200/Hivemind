@@ -70,13 +70,12 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
-from builders.cli import ManifestTuning, fake_manifest
+from builders.cli import ManifestTuning, fake_manifest, printed_object
 from e2e.kernel_helpers import (
     HaikuScript,
     WorkerTurn,
@@ -523,7 +522,7 @@ async def _run_blocked_question(hive: Hive, manifest_path: Path) -> None:
             runner.invoke, app, ["inbox", "--manifest", str(manifest_path), "--json"]
         )
         assert listed.exit_code == 0, listed.output
-        question_id = json.loads(listed.output)["questions"][0]["id"]
+        question_id = printed_object(listed.output)["questions"][0]["id"]
         answered = await asyncio.to_thread(
             runner.invoke,
             app,
