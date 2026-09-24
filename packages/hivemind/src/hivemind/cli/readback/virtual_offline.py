@@ -6,7 +6,9 @@ Virtual Cell across every registered backend by id (`virtual_cell_lookup`, `list
 find every Real Cell lease the trail shows opened but never closed (`open_real_leases`), guess
 whether a Queen process might still be running from the trail alone (`queen_likely_running`, since
 v0 has no live link into one -- `hivemind.cli.readback.wardens`'s own module docstring), build an
-`Undertaker` over a ledger-backed `GrantRevoker` (`build_undertaker`, `LedgerGrantRevoker`),
+`Undertaker` over a ledger-backed `GrantRevoker` (`build_undertaker`, `LedgerGrantRevoker`) and
+destroy one Virtual Cell through it, behind the Night Veil boundary when the Cell is Night Veil
+(`destroy_virtual_cell`, shared by `destroy` and `abscond`: codingrules section 12),
 reconstruct an already-open `RealCellLease` from nothing but its own `cell.leased` trail event and
 a still-present scratch directory (`reconstruct_lease`), and stand in a minimal, schema-valid `Cell`
 for a Virtual Cell `list_cells` only reported as a `VirtualCellRecord` (`placeholder_cell`, the
@@ -21,7 +23,8 @@ Fits into the Hive:
     AccessLevel, CombShieldLevel, Cell, CellCapabilities, Snapshotter), `hivemind.cell.local`
     (HiveStandLeaseReleaser), `hivemind.cli.stores` (open_snapshot_ledger, a lazy in-function
     import alongside `hivemind.hive.snapshot`, same reason), `hivemind.forage` (ForageCapacity,
-    HostCapacity), `hivemind.hive` (BackendRegistry, VirtualCellRecord), `hivemind.hive.snapshot`
+    HostCapacity), `hivemind.hive` (BackendRegistry, VirtualCellRecord), `hivemind.hive.
+    night_veil` (NightVeilBoundary, adopt_night_veil, end_night_veil), `hivemind.hive.snapshot`
     (snapshotter_for, a lazy in-function import -- see `build_snapshotter`'s own docstring),
     `hivemind.pheromone` (PheromoneTrail, TrailQuery, MAX_QUERY_LIMIT, ForageEvent),
     `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.workers.roles.undertaker` and waggle
@@ -50,13 +53,15 @@ See Also:
 Public API:
     - LedgerGrantRevoker: a `GrantRevoker` backed by an offline-restored `ForageLedger`.
     - LeaseOrphan: one still-open Real Cell lease, as reconstructed from the trail alone.
-    - build_undertaker, list_all_virtual, virtual_cell_lookup, open_real_leases,
-      queen_likely_running, reconstruct_lease, placeholder_cell, build_snapshotter.
+    - build_undertaker, destroy_virtual_cell, list_all_virtual, virtual_cell_lookup,
+      open_real_leases, queen_likely_running, reconstruct_lease, placeholder_cell,
+      build_snapshotter.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from hivemind.cell import (
@@ -76,6 +81,7 @@ from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandLeaseReleaser
 from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive import BackendRegistry, CellBackend, VirtualCellRecord
+from hivemind.hive.night_veil import NightVeilBoundary, adopt_night_veil, end_night_veil
 from hivemind.pheromone import MAX_QUERY_LIMIT, ForageEvent, PheromoneTrail, TrailQuery
 from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.workers.roles.undertaker import (
@@ -85,7 +91,7 @@ from hivemind.workers.roles.undertaker import (
     UndertakerDeps,
 )
 from waggle.clock import Clock
-from waggle.ids import CellId, HiveId, LeaseId, TaskId, WardenId, new_event_id
+from waggle.ids import CellId, EventId, HiveId, LeaseId, TaskId, WardenId, new_event_id
 from waggle.messages import OsFamily as WireOsFamily
 
 # A placeholder_cell's own stand-in facts (module docstring's "Key invariants"): a terminal-only
@@ -107,6 +113,7 @@ __all__ = [
     "OfflineCellDeps",
     "build_snapshotter",
     "build_undertaker",
+    "destroy_virtual_cell",
     "list_all_virtual",
     "open_real_leases",
     "placeholder_cell",
@@ -183,12 +190,16 @@ class OfflineCellDeps:
         leavings: The live Leavings ledger (roadmap step 5.0a): where a released lease's
             `persist=True` restore records land, and whose rows a destroyed Virtual Cell's own
             `LeavingsStoreRemover` marks removed.
+        night_veil: The Night Veil boundary `destroy_virtual_cell` veils and purges a Night
+            Veil Cell through (`VirtualCellsParts.night_veil`); None where no Virtual side is
+            configured, so no Cell destroyed here can be Night Veil.
     """
 
     trail: PheromoneTrail
     clock: Clock
     identity: CellIdentity
     leavings: LeavingsStore
+    night_veil: NightVeilBoundary | None = None
 
 
 def build_undertaker(
@@ -211,6 +222,59 @@ def build_undertaker(
         identity=offline.identity,
     )
     return Undertaker(deps)
+
+
+async def destroy_virtual_cell(
+    backend: CellBackend,
+    offline: OfflineCellDeps,
+    ledger: ForageLedger,
+    cell_id: CellId,
+    labels: Mapping[str, str],
+) -> EventId:
+    """Destroy one Virtual Cell through the Undertaker; behind the Night Veil boundary if it is one.
+
+    Codingrules section 12: a Night Veil Cell destroyed from outside a Queen (`hive cells destroy`,
+    an Absconding) is recorded through the boundary's own trail, so only the skeleton of its end
+    survives, and purged once it is gone. This process never saw the Cell's grants issued, so each
+    grant the ledger holds on it is filed under it first: the Undertaker's `forage.revoked` rows
+    then reach only the Cell's segment, never the durable trail.
+
+    Args:
+        backend: The backend that holds (or last held) the Cell.
+        offline: The trail, clock, identity, Leavings ledger and boundary of this process.
+        ledger: The restored Forage ledger every revocation writes through.
+        cell_id: The Cell to destroy; an unknown id is a clean no-op (`destroy_virtual`).
+        labels: The backend labels the Cell carried, or none when no backend lists it: its tier
+            is then read from the trail's skeleton alone (`adopt_night_veil`).
+
+    Returns:
+        The id of the `cell.destroyed` event the Undertaker recorded.
+    """
+    night_veil = offline.night_veil
+    if night_veil is None or not await _veil(night_veil, ledger, cell_id, labels):
+        # Any other tier, or a Hive with no Virtual side: recorded on the trail as it always was.
+        return await build_undertaker(backend, offline, ledger).destroy_virtual(cell_id)
+    veiled = replace(offline, trail=night_veil.veiled)
+    event_id = await build_undertaker(backend, veiled, ledger).destroy_virtual(cell_id)
+    # Gone now, so its records go too: its segment, its trail rows and every side channel.
+    await end_night_veil(night_veil, cell_id, CombShieldLevel.NIGHT_VEIL)
+    return event_id
+
+
+async def _veil(
+    night_veil: NightVeilBoundary, ledger: ForageLedger, cell_id: CellId, labels: Mapping[str, str]
+) -> bool:
+    """Hold `cell_id` behind the Night Veil boundary when it is one; return whether it is.
+
+    Every grant the ledger holds on a Night Veil Cell is filed under it too, so each revocation
+    the Undertaker records is routed to the Cell's segment by its grant id.
+    """
+    if not await adopt_night_veil(night_veil, cell_id, labels):
+        return False
+    for grant in ledger.live_grants():
+        if grant.cell_id == cell_id:
+            night_veil.segments.file(grant.id, cell_id)
+    return True
 
 
 async def virtual_cell_lookup(

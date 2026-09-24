@@ -10,7 +10,10 @@ undertaker` and this package's own `hivemind.cli.readback.virtual_offline` helpe
   Queen running, since a backend's `list_cells` reads the infrastructure itself.
 - `destroy <cell-id>`: Virtual only; refuses a Real id with a clear message; an unknown id is a
   clean no-op (`hivemind.hive.backends.base.CellBackend.destroy`'s own idempotent contract, run
-  through `Undertaker.destroy_virtual`), printing the `cell.destroyed` trail event id.
+  through `Undertaker.destroy_virtual`), printing the `cell.destroyed` trail event id. A Night Veil
+  Cell is destroyed behind its boundary and purged once gone (codingrules 12,
+  `virtual_offline.destroy_virtual_cell`, shared with `abscond`), so its grants' revocations never
+  reach the durable trail.
 - `release <lease-id>`: writes a durable `hivemind.queen.cluster.ClusterOrder(kind=RELEASE)` row,
   exactly like `hive cluster`/`hive wake` (docs/adr/0024), for a running Queen's own tick
   (`hivemind.queen.cluster.tick.run_release_tick`) to drain; reports the lease orphaned and points
@@ -61,6 +64,7 @@ Public API:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import Annotated
 
 import typer
@@ -74,7 +78,7 @@ from hivemind.cli.readback.virtual_offline import (
     LeaseOrphan,
     OfflineCellDeps,
     build_snapshotter,
-    build_undertaker,
+    destroy_virtual_cell,
     open_real_leases,
     placeholder_cell,
     queen_likely_running,
@@ -199,34 +203,41 @@ async def _destroy(
         )
         return  # A clean no-op: there is no backend this id could ever be found on.
     identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
-    _backend_name, backend = await _resolve_backend(virtual_cells.registry, manifest, cell_id)
+    backend, labels = await _resolve_backend(virtual_cells.registry, manifest, cell_id)
     # The real Leavings ledger (roadmap step 5.0a): a destroyed Virtual Cell's own ledgered paths
-    # died with it, so the Undertaker marks every active row removed as part of the destroy.
-    offline = OfflineCellDeps(trail=trail, clock=clock, identity=identity, leavings=leavings)
-    undertaker = build_undertaker(backend, offline, ledger)
-    event_id = await undertaker.destroy_virtual(CellId(cell_id))
+    # died with it, so the Undertaker marks every active row removed as part of the destroy. The
+    # boundary veils and purges a Night Veil Cell (codingrules 12), exactly as an Absconding does.
+    offline = OfflineCellDeps(
+        trail=trail,
+        clock=clock,
+        identity=identity,
+        leavings=leavings,
+        night_veil=virtual_cells.night_veil,
+    )
+    event_id = await destroy_virtual_cell(backend, offline, ledger, CellId(cell_id), labels)
     typer.echo(event_id)
 
 
 async def _resolve_backend(
     registry: BackendRegistry, manifest: HiveManifest, cell_id: str
-) -> tuple[str, CellBackend]:
-    """Return the backend that actually lists `cell_id`, or the manifest's own selected default.
+) -> tuple[CellBackend, Mapping[str, str]]:
+    """Return the backend that lists `cell_id` and the Cell's labels, or the default and none.
 
     An unknown id still needs *some* backend to call idempotent `destroy` through (module
     docstring): the manifest's own `[virtual_cells] backend`, when registered, or else whichever
     name `BackendRegistry.register` saw first (always includes "fake" -- `build_virtual_cells`'s
-    own module docstring).
+    own module docstring). Its labels are then empty: a Night Veil Cell no backend lists any more
+    is still known by the trail's skeleton (`destroy_virtual_cell`).
     """
     found = await virtual_cell_lookup(registry, manifest.hive.id, cell_id)
     if found is not None:
-        name, _record = found
-        return name, registry.get(name)
+        name, record = found
+        return registry.get(name), record.labels
     selected = manifest.virtual_cells.backend
     name = (
         selected if selected is not None and selected in registry.names() else registry.names()[0]
     )
-    return name, registry.get(name)
+    return registry.get(name), {}
 
 
 @app.command("release")
