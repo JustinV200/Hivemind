@@ -145,3 +145,12 @@ ADRs that exist today, in numeric order:
 - `0030-night-veil-retention-and-clearance-boundary.md`: readiness is attestation of an image,
   placement is Virtual-only, human-originated and local-model-only, only the lifecycle skeleton
   survives teardown, and C0/C1 Honey labelled with its origin tier is the one export.
+- `0031-honey-store-sqlite-fts5-sqlite-vec.md`: the Honey Store is a migration series in the
+  Hive's one SQLite file, Nectar and Honey tables with FTS5 and exact vector search through
+  sqlite-vec's distance function under the same filters as policy, labels floored from provenance
+  and raised only, scopes derived from provenance and read through `honey:read:<scope>`, Night Veil
+  deposits ephemeral, and ripening in the House Bee's own loop beside the Queen.
+- `0032-embedding-provider-and-reembedding-policy.md`: one `EmbeddingProvider` door on the
+  `EMBEDDER` slot with an OpenAI-compatible, an in-process `sentence-transformers` and a fake
+  adapter, metered by the Fanner; every vector names its model, and changing the embedder
+  re-embeds progressively while retrieval degrades to full text.
