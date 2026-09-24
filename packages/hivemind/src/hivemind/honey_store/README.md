@@ -4,13 +4,14 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
 (unprocessed captured information) is taken in, ripened through a pipeline into Honey
 (retrievable, labelled knowledge), and retrieved by Workers before they act.
 
-## Public API (roadmap 7.2/7.3)
+## Public API
 
 - **Errors** (`errors.py`): `HoneyStoreError` (root), `NectarNotFoundError`/`HoneyNotFoundError`
-  (a lookup by id found nothing), `NectarRejectedError` and its seven concrete reasons
+  (a lookup by id found nothing), `NectarRejectedError` and its ten concrete reasons
   (`NectarTooLargeError`, `OffsetMismatchError`, `TooManyOpenDepositsError`,
   `Sha256MismatchError`, `FirstChunkNotAtZeroError`, `NightVeilRefusedError`,
-  `DepositTimedOutError` -- each fixes `code` to one stable dotted string; `except
+  `DepositTimedOutError`, `ChunkMismatchError`, `CellMismatchError`,
+  `DepositLengthMismatchError` -- each fixes `code` to one stable dotted string; `except
   NectarRejectedError:` catches any of them), `NectarNotRipenableError` (a Night Veil Cell's
   ephemeral side channel asked to ripen), `LabelLoweringError` (a lowering that is not lower, or
   has no approver), `InvalidScopeError` (a scope does not match
@@ -41,8 +42,19 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
   `honey.py`, `vectors.py`, `search.py`, `stats.py`, `vec.py` for the sqlite-vec extension load
   and float32 codec, `filters.py` for `ReadFilter`'s shared SQL).
 
-`nectar/` (intake), `ripening/` (the Ripener), `honey/` (retrieval) and `browse.py` (the read-only
-folder tree) are later dispatches' work and still carry no public names.
+- **Identity** (`identity.py`): `HoneyIdentity` and `honey_event`, the one place a `HoneyEvent` is
+  minted (ids, counts, enum values and booleans only in a payload, never content or query text).
+- **Intake** (`nectar/`, roadmap 7.4): `NectarIntake` (the one door: size cap, label, scope, the
+  Night Veil rule, dedupe, events) over `ChunkGroups` (Waggle chunk reassembly, spec section 5);
+  `NectarSubmission`, `DepositSource`, `IntakeResult`, `handoff_source_key`. See its README.
+- **Ripening** (`ripening/`, roadmap 7.5): `Ripener.run_pass` (decode, chunk, summarise on
+  `RIPENER`, embed on `EMBEDDER`, dedupe, index; then `embed_pending` for rows still lacking a
+  vector for the current model), `RipenerDeps`, `PassOutcome`, `RipenOutcome`. See its README.
+- **Retrieval** (`honey/`, roadmap 7.7): `HoneyRetriever` (hybrid full-text and vector search under
+  a `HoneyReader`'s scope, clearance and budget), `HoneySearch`, `RetrieverDeps`, `SearchOutcome`.
+  See its README.
+
+`browse.py` (the read-only folder tree, roadmap 7.10) is still to come.
 
 ## How to test this
 

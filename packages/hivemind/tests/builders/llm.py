@@ -64,6 +64,8 @@ from hivemind.llm.slots import BoundModel
 from hivemind.manifest import HiveManifest
 from waggle.clock import Clock, FakeClock
 
+_EMBED_MODEL_ID = "test-embed-model"  # A neutral embedding model id (codingrules 8.6).
+
 __all__ = [
     "bindings_from_manifest",
     "make_binding",
@@ -199,11 +201,14 @@ def make_bound_embedder(**overrides: object) -> BoundEmbedder:
     Returns:
         A validated BoundEmbedder bound to `ModelSlot.EMBEDDER` on a fresh FakeEmbedding.
     """
+    # The default provider reports the binding's own model id, as every registry-built adapter
+    # does (ADR-0032); a caller overriding `model` alone gets a matching fake the same way.
+    model = str(overrides.get("model", _EMBED_MODEL_ID))
     base = BoundEmbedder(
         slot=ModelSlot.EMBEDDER,
         binding="embedder",
-        provider=FakeEmbedding(clock=FakeClock()),
-        model="test-embed-model",
+        provider=FakeEmbedding(clock=FakeClock(), model=model),
+        model=model,
         cost_per_million_input_usd=0.5,
     )
     return dataclasses.replace(base, **overrides)  # type: ignore[arg-type]

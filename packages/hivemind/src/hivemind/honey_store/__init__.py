@@ -2,14 +2,15 @@
 
 Raw Nectar (unprocessed captured information) is taken in, ripened through a pipeline into Honey
 (retrievable, labelled knowledge), and retrieved by Workers before they act. This face re-exports
-roadmap 7.2/7.3's models, clearance and scope rules, schema and SQLite store (everything but
-intake, ripening, retrieval and the browser, which land in later dispatches' `nectar/`,
-`ripening/`, `honey/` and `browse.py`) so a caller writes `from hivemind.honey_store import
-SqliteHoneyStore` without knowing the split (codingrules 5.2).
+the models, clearance and scope rules, schema and SQLite store (roadmap 7.2/7.3), Nectar intake
+(`nectar/`, 7.4), the ripening pipeline (`ripening/`, 7.5) and retrieval (`honey/`, 7.7), so a
+caller writes `from hivemind.honey_store import NectarIntake` without knowing the split
+(codingrules 5.2). Each sub-package's own face also exports its finer-grained names.
 
 Fits into the Hive:
-    Layer 2 (the Cell abstraction, state, memory, policy). Called by workers before they act
-    (retrieval, a later dispatch) and as they capture Nectar (intake, a later dispatch). May
+    Layer 2 (the Cell abstraction, state, memory, policy). Called by the Queen (intake of Waggle
+    deposits, the pre-check, answering queries), the House Bee (ripening, Bee Bread and Cell Wax
+    deposits) and `hive honey` (browsing and maintenance). May
     import `hivemind.cell`, `hivemind.guard`, `hivemind.llm`, `hivemind.manifest`,
     `hivemind.pheromone`, `hivemind.forage` and `hivemind.common`; never `hivemind.memory`,
     `hivemind.supervision` or `hivemind.brood_chamber` (independent Layer-2 siblings,
@@ -17,8 +18,8 @@ Fits into the Hive:
 
 Key invariants:
     - Whatever is not re-exported here is private to this package (codingrules 5.4).
-    - `nectar/`, `ripening/`, `honey/` (sub-packages) and `browse.py` still carry no public names;
-      later dispatches populate them.
+    - Every write reaches the store through intake, the Ripener or an explicit relabel, and every
+      one of them records its `honey.*` event in the same transaction (ADR-0031).
 
 See Also:
     - .claude/codingrules.md section 4 for the layer 2 row this package occupies.
@@ -27,8 +28,9 @@ See Also:
     - .claude/roadmap.md phase 7 for the work that populates this package end to end.
 
 Public API:
-    - HoneyStoreError, NectarNotFoundError, HoneyNotFoundError, NectarRejectedError and its seven
-      concrete reasons, LabelLoweringError, InvalidScopeError (errors): this package's error tree.
+    - HoneyStoreError, NectarNotFoundError, HoneyNotFoundError, NectarNotRipenableError,
+      NectarRejectedError and its ten concrete reasons, LabelLoweringError, InvalidScopeError
+      (errors): this package's error tree.
     - HIVE_SCOPE, NectarProvenance, cell_scope, task_scope, bee_scope, folder_for_scope,
       scope_for_folder, honey_ref, parse_honey_ref, scope_for_nectar, queen_read_capabilities,
       warden_read_capabilities, worker_read_capabilities, readable_globs, is_readable (scope):
@@ -39,8 +41,15 @@ Public API:
       TextCandidate, VectorCandidate, HoneyStats (models): the value models the store persists.
     - apply_honey_store_migrations, MIGRATIONS_PACKAGE, SUBSYSTEM (schema): this subsystem's
       numbered migration series.
-    - HoneyStore, NectarAdded, HoneyProposal, build_match, MAX_MATCH_TOKENS, SqliteHoneyStore
-      (store): the persistence protocol, its SQL builder and its durable implementation.
+    - HoneyStore, NectarAdded, NectarEvents, HoneyProposal, build_match, MAX_MATCH_TOKENS,
+      SqliteHoneyStore (store): the persistence protocol, its SQL builder and its durable
+      implementation.
+    - HoneyIdentity, honey_event (identity): the one place a HoneyEvent is minted.
+    - NectarIntake, NectarSubmission, DepositSource, IntakeResult, handoff_source_key (nectar):
+      the one door every deposit comes in through.
+    - Ripener, RipenerDeps, PassOutcome, RipenOutcome (ripening): Nectar into Honey.
+    - HoneyRetriever, RetrieverDeps, HoneyReader, HoneySearch, SearchOutcome (honey): hybrid
+      retrieval under a reader's scope, clearance and budget.
 """
 
 from hivemind.honey_store.clearance import (
@@ -52,6 +61,9 @@ from hivemind.honey_store.clearance import (
     reader_ceiling,
 )
 from hivemind.honey_store.errors import (
+    CellMismatchError,
+    ChunkMismatchError,
+    DepositLengthMismatchError,
     DepositTimedOutError,
     FirstChunkNotAtZeroError,
     HoneyNotFoundError,
@@ -67,6 +79,14 @@ from hivemind.honey_store.errors import (
     Sha256MismatchError,
     TooManyOpenDepositsError,
 )
+from hivemind.honey_store.honey import (
+    HoneyReader,
+    HoneyRetriever,
+    HoneySearch,
+    RetrieverDeps,
+    SearchOutcome,
+)
+from hivemind.honey_store.identity import HoneyIdentity, honey_event
 from hivemind.honey_store.models import (
     Honey,
     HoneyDraft,
@@ -80,6 +100,14 @@ from hivemind.honey_store.models import (
     TextCandidate,
     VectorCandidate,
 )
+from hivemind.honey_store.nectar import (
+    DepositSource,
+    IntakeResult,
+    NectarIntake,
+    NectarSubmission,
+    handoff_source_key,
+)
+from hivemind.honey_store.ripening import PassOutcome, Ripener, RipenerDeps, RipenOutcome
 from hivemind.honey_store.schema import MIGRATIONS_PACKAGE, SUBSYSTEM, apply_honey_store_migrations
 from hivemind.honey_store.scope import (
     HIVE_SCOPE,
@@ -113,16 +141,25 @@ __all__ = [
     "MAX_MATCH_TOKENS",
     "MIGRATIONS_PACKAGE",
     "SUBSYSTEM",
+    "CellMismatchError",
+    "ChunkMismatchError",
+    "DepositLengthMismatchError",
+    "DepositSource",
     "DepositTimedOutError",
     "FirstChunkNotAtZeroError",
     "Honey",
     "HoneyDraft",
+    "HoneyIdentity",
     "HoneyNotFoundError",
     "HoneyPart",
     "HoneyProposal",
+    "HoneyReader",
+    "HoneyRetriever",
+    "HoneySearch",
     "HoneyStats",
     "HoneyStore",
     "HoneyStoreError",
+    "IntakeResult",
     "InvalidScopeError",
     "LabelApprover",
     "LabelLoweringError",
@@ -130,16 +167,24 @@ __all__ = [
     "NectarAdded",
     "NectarDraft",
     "NectarEvents",
+    "NectarIntake",
     "NectarNotFoundError",
     "NectarNotRipenableError",
     "NectarOrigin",
     "NectarProvenance",
     "NectarRejectedError",
     "NectarState",
+    "NectarSubmission",
     "NectarTooLargeError",
     "NightVeilRefusedError",
     "OffsetMismatchError",
+    "PassOutcome",
     "ReadFilter",
+    "RetrieverDeps",
+    "RipenOutcome",
+    "Ripener",
+    "RipenerDeps",
+    "SearchOutcome",
     "Sha256MismatchError",
     "SqliteHoneyStore",
     "TextCandidate",
@@ -151,6 +196,8 @@ __all__ = [
     "cell_scope",
     "check_lowering",
     "folder_for_scope",
+    "handoff_source_key",
+    "honey_event",
     "honey_ref",
     "intake_floor",
     "intake_label",

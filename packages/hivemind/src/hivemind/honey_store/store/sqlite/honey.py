@@ -40,6 +40,7 @@ from datetime import datetime
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.common.sqlite import transaction
+from hivemind.honey_store.clearance import raise_label
 from hivemind.honey_store.errors import (
     HoneyNotFoundError,
     NectarNotFoundError,
@@ -65,8 +66,8 @@ INSERT INTO honey (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 _SELECT_NECTAR_FOR_RIPEN_SQL = (
-    "SELECT kind, origin, scope, origin_tier, task_id, cell_id, bee, observed_at, state "
-    "FROM honey_nectar WHERE id = ?"
+    "SELECT kind, origin, scope, origin_tier, task_id, cell_id, bee, observed_at, state, "
+    "clearance FROM honey_nectar WHERE id = ?"
 )
 _SELECT_EXISTING_PART_SQL = (
     "SELECT * FROM honey WHERE nectar_id = ? AND part = ? AND chunk_index = ?"
@@ -223,7 +224,9 @@ def _draft_to_honey(
         summary=draft.summary,
         body=draft.body,
         body_sha256=hashlib.sha256(draft.body.encode("utf-8")).hexdigest(),
-        clearance=draft.clearance,
+        # Never below the Nectar's label as it stands in this transaction: a more sensitive
+        # duplicate may have raised it while the Ripener was still summarising (raise-only).
+        clearance=raise_label(draft.clearance, HoneyClearance(nectar_row["clearance"])),
         ripener_model=draft.ripener_model,
         kind=NectarKind(nectar_row["kind"]),
         origin=NectarOrigin(nectar_row["origin"]),

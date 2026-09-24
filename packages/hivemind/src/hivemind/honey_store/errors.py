@@ -4,7 +4,7 @@ The Honey Store is the Hive's cold tier: raw Nectar (unprocessed findings a bee 
 taken in, ripened into Honey (distilled, indexed knowledge), and retrieved by Workers before they
 act (README "Core concept 6"). Every subsystem roots its errors in
 `hivemind.common.errors.HiveMindError` (codingrules section 10); this module is that root for
-`hivemind.honey_store`. `NectarRejectedError` is a family of seven concrete subclasses rather than
+`hivemind.honey_store`. `NectarRejectedError` is a family of ten concrete subclasses rather than
 one class with a per-instance code, because `HiveMindError.code` is a `ClassVar[str]` and mypy
 --strict refuses to narrow a `ClassVar` into an instance attribute in a subclass (every other
 `errors.py` in the repository fixes `code` per class for the same reason) -- `except
@@ -18,7 +18,7 @@ Fits into the Hive:
 
 Key invariants:
     - Every HoneyStoreError subclass sets its own `code`; no two unrelated classes share one.
-    - Every `NectarRejectedError` subclass's `code` is one of the seven stable dotted strings named
+    - Every `NectarRejectedError` subclass's `code` is one of the ten stable dotted strings named
       on the classes below, so a caller matches on `code`, never on the message text.
 
 See Also:
@@ -37,6 +37,9 @@ from hivemind.common.errors import HiveMindError, NotFoundError
 from waggle.ids import HoneyId, NectarId
 
 __all__ = [
+    "CellMismatchError",
+    "ChunkMismatchError",
+    "DepositLengthMismatchError",
     "DepositTimedOutError",
     "FirstChunkNotAtZeroError",
     "HoneyNotFoundError",
@@ -116,7 +119,7 @@ class NectarNotRipenableError(HoneyStoreError):
 
 
 class NectarRejectedError(HoneyStoreError):
-    """Root of intake's seven refusal reasons; catch this to handle any of them alike.
+    """Root of intake's ten refusal reasons; catch this to handle any of them alike.
 
     Every concrete subclass below fixes `code` to one stable, dotted reason string
     (docs/waggle/spec.md section 5's chunking rules and ADR-0031's Night Veil boundary); a caller
@@ -263,6 +266,88 @@ class DepositTimedOutError(NectarRejectedError):
         self.sender = sender
         self.sha256 = sha256
         self.idle_s = idle_s
+
+
+class ChunkMismatchError(NectarRejectedError):
+    """Raise when a later chunk of a deposit disagrees with its group's first on a declared field.
+
+    Every chunk of one deposit repeats the whole deposit's metadata (docs/waggle/spec.md section
+    8.7); a chunk that changes it mid-stream (a different total, kind, media type, title, label or
+    provenance) would leave intake unable to say which version the reassembled content is, so the
+    whole group is dropped instead of silently picking one.
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.chunk_mismatch"
+
+    def __init__(self, sender: str, sha256: str, field: str) -> None:
+        """Build the error for a chunk whose metadata contradicts its group's first chunk.
+
+        Args:
+            sender: The envelope sender id the group belongs to.
+            sha256: The deposit's declared digest (the group key's content half).
+            field: The name of the first `NectarDeposit` field found to differ.
+        """
+        super().__init__(
+            f"A chunk of Nectar deposit {sha256} from {sender} disagrees with the group's first "
+            f"chunk on {field}; the whole deposit was discarded."
+        )
+        self.sender = sender
+        self.sha256 = sha256
+        self.field = field
+
+
+class CellMismatchError(NectarRejectedError):
+    """Raise when a deposit names a Cell other than the one its relaying Warden supervises.
+
+    A Warden relays only its own Cell's deposits; a chunk claiming another Cell would let one
+    Cell's material be filed under another's provenance, clearance floor and tier, so intake
+    trusts the Queen's own record of the sending Warden's Cell, never the chunk's claim.
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.cell_mismatch"
+
+    def __init__(self, deposit_cell_id: str, source_cell_id: str) -> None:
+        """Build the error for a deposit relayed from the wrong Cell.
+
+        Args:
+            deposit_cell_id: The Cell the deposit claims it was gathered on.
+            source_cell_id: The Cell the Queen's record says the sending Warden supervises.
+        """
+        super().__init__(
+            f"Nectar deposit claims Cell {deposit_cell_id} but arrived from the Warden of Cell "
+            f"{source_cell_id}; a Warden relays only its own Cell's deposits."
+        )
+        self.deposit_cell_id = deposit_cell_id
+        self.source_cell_id = source_cell_id
+
+
+class DepositLengthMismatchError(NectarRejectedError):
+    """Raise when a deposit's received bytes overrun, or on `final` fall short of, `total_bytes`.
+
+    docs/waggle/spec.md section 5: the total a first chunk declares is checked against the cap
+    before any byte is buffered, so a group may never grow past it (that is what keeps one open
+    deposit's memory bounded), and the final chunk must bring the length to exactly that total.
+    """
+
+    code: ClassVar[str] = "hivemind.honey_store.deposit_length_mismatch"
+
+    def __init__(self, sender: str, sha256: str, total_bytes: int, received_bytes: int) -> None:
+        """Build the error for a deposit whose length disagrees with its declared total.
+
+        Args:
+            sender: The envelope sender id the group belongs to.
+            sha256: The deposit's declared digest.
+            total_bytes: The total its chunks declared.
+            received_bytes: How many bytes the group held once this chunk was counted.
+        """
+        super().__init__(
+            f"Nectar deposit {sha256} from {sender} declared {total_bytes} bytes but its chunks "
+            f"came to {received_bytes}; the whole deposit was discarded."
+        )
+        self.sender = sender
+        self.sha256 = sha256
+        self.total_bytes = total_bytes
+        self.received_bytes = received_bytes
 
 
 class LabelLoweringError(HoneyStoreError):

@@ -36,7 +36,8 @@ text can always tell durable state and retrieved content apart from an instructi
   `COMPACT_RECORDS` -- roadmap step 4.3, `hivemind.memory.compact`'s one structured call;
   `JUDGE_REVIEW` -- roadmap step 4.10, `hivemind.wardens.judge.ModelJudgeReviewer`'s one
   structured call, built from a tier's rubric and the `JudgeRequest` alone, no proposer transcript
-  or hot state).
+  or hot state; `RIPEN_NECTAR` -- roadmap step 7.5, `hivemind.honey_store.ripening.summarise`'s one
+  structured call on the `RIPENER` slot, the deposit shown only as untrusted EVENT data).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works

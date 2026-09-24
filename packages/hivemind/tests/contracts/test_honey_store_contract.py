@@ -296,6 +296,27 @@ async def test_ripen_is_idempotent_and_never_duplicates_a_part(harness: _Harness
     assert again[0].body == "the original body"  # Never overwritten by the second call.
 
 
+async def test_ripen_never_stores_a_part_below_its_nectars_current_label(
+    harness: _Harness,
+) -> None:
+    # A more sensitive duplicate raised the Nectar while its summary was being written: the
+    # drafts still carry the old label, and the store raises them in the same transaction.
+    draft = make_nectar_draft(clock=harness.clock, clearance=HoneyClearance.C0, task_id=None)
+    added = await harness.store.add_nectar(draft, _sha(draft), _nectar_events(harness.clock))
+    higher = draft.model_copy(update={"clearance": HoneyClearance.C2})
+    await harness.store.add_nectar(higher, _sha(draft), _nectar_events(harness.clock))
+
+    rows = await harness.store.ripen(
+        added.nectar.id,
+        (make_honey_draft(clearance=HoneyClearance.C0),),
+        _event(harness.clock, "honey.ripened", added.nectar.id),
+    )
+
+    assert [row.clearance for row in rows] == [HoneyClearance.C2]
+    stored = await harness.store.get_honey(rows[0].id)
+    assert stored.clearance == HoneyClearance.C2
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Search: FTS finds a word, vector search orders and isolates by model
 # ──────────────────────────────────────────────────────────────────────────────
