@@ -60,6 +60,8 @@ KEYS_PATTERN = r"^[A-Za-z0-9_]+(\+[A-Za-z0-9_]+)*$"
 # The URL schemes a GUI step may navigate to: the web, a local file (a fixture site in scratch)
 # and the blank page. javascript:, data: and every other scheme are refused outright.
 _URL_SCHEMES = re.compile(r"^(https?://|file://|about:blank$)", re.IGNORECASE)
+# The prefixes an ELEMENT_TEXT subject may name its element by; anything else is a CSS selector.
+_SUBJECT_KEYS = frozenset({"role", "label", "text", "selector"})
 
 __all__ = [
     "KEYS_PATTERN",
@@ -165,6 +167,43 @@ class ElementTarget(BaseModel):
         if self.name is not None and self.role is None:
             raise ValueError("ElementTarget.name is the accessible name of `role`; set role too.")
         return self
+
+    @classmethod
+    def from_subject(cls, subject: str) -> ElementTarget:
+        """Parse the element an ELEMENT_TEXT postcondition's `subject` names (spec section 8.3).
+
+        Args:
+            subject: ``role=<role>`` optionally followed by ``;name=<accessible name>``,
+                ``label=<label>``, ``text=<visible text>``, ``selector=<css>``, or a bare CSS
+                selector (the 1.0 reading, still accepted).
+
+        Returns:
+            The target; anything without a known ``key=`` prefix is a CSS selector.
+
+        Raises:
+            ValueError: A known form with nothing after the ``=``.
+        """
+        key, separator, rest = subject.partition("=")
+        if not separator or key not in _SUBJECT_KEYS:
+            return cls(selector=subject)  # "input[name=q]" has an "=" but no known key.
+        if key == "role":
+            role, _, name = rest.partition(";name=")
+            return cls(role=role, name=name or None)
+        return cls.model_validate({key: rest})
+
+    def subject(self) -> str:
+        """Render this target as an ELEMENT_TEXT subject, the form `from_subject` reads back.
+
+        Returns:
+            For example ``role=button;name=Log in`` or ``selector=#submit``.
+        """
+        if self.role is not None:
+            return f"role={self.role}" + (f";name={self.name}" if self.name else "")
+        if self.label is not None:
+            return f"label={self.label}"
+        if self.text is not None:
+            return f"text={self.text}"
+        return f"selector={self.selector}"
 
     def describe(self) -> str:
         """Render this target as one short line, for a recording or a judge's prompt.

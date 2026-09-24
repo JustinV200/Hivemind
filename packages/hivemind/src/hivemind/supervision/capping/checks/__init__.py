@@ -29,7 +29,7 @@ See Also:
 
 Public API:
     - Check, CheckContext, CheckResultRecord: the check-ladder seam (base).
-    - SchemaCheck, PathAllowlistCheck, CommandAllowlistCheck, DiffSizeCapCheck,
+    - SchemaCheck, PathAllowlistCheck, CommandAllowlistCheck, GuiAllowlistCheck, DiffSizeCapCheck,
       deterministic_checks: this phase's autopilot rungs (deterministic).
     - JudgeCheck, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict, judge_checks: the
       independent-review rung and deterministic_checks()'s sibling registry (judge).
@@ -43,6 +43,7 @@ from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckR
 from hivemind.supervision.capping.checks.deterministic import (
     CommandAllowlistCheck,
     DiffSizeCapCheck,
+    GuiAllowlistCheck,
     PathAllowlistCheck,
     SchemaCheck,
     deterministic_checks,
@@ -76,6 +77,7 @@ __all__ = [
     "CommandAllowlistCheck",
     "DiffSizeCapCheck",
     "FakeJudgeReviewer",
+    "GuiAllowlistCheck",
     "HumanCheck",
     "JudgeCheck",
     "JudgeOutcome",

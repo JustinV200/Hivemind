@@ -24,11 +24,13 @@ from builders.exoskeleton import desktop_session
 from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_outcome
 
-from hivemind.cell import CellKind
+from hivemind.cell import CellKind, HoneyClearance
 from hivemind.cell.lease import LeaseRequest
 from hivemind.cell.tiers import AccessLevel
 from hivemind.exoskeleton import AttachError, ExoskeletonHandle
+from hivemind.exoskeleton.recorder import InMemoryRecordingStore
 from hivemind.guard.access import ceiling_for
+from hivemind.memory import BeeBread, BeeBreadEntryKind
 from hivemind.pheromone.trail.protocol import TrailQuery
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
 from hivemind.workers.base import WorkerOutcome
@@ -74,10 +76,14 @@ def _recording(seen: dict[str, ExoskeletonHandle | None]) -> Callable[[WorkerRol
 
 
 async def _context(
-    seen: dict[str, ExoskeletonHandle | None], capabilities: object = _DESKTOP
+    seen: dict[str, ExoskeletonHandle | None],
+    capabilities: object = _DESKTOP,
+    recording_store: InMemoryRecordingStore | None = None,
 ) -> tuple[WardenCellContext, Clock]:
     cell = make_cell(kind=CellKind.REAL, access_level=AccessLevel.FULL, capabilities=capabilities)
-    deps, _queen_end, warden_id = make_warden_deps(cells=(cell,), worker_factory=_recording(seen))
+    deps, _queen_end, warden_id = make_warden_deps(
+        cells=(cell,), worker_factory=_recording(seen), recording_store=recording_store
+    )
     request = LeaseRequest(
         cell_id=cell.id, holder=warden_id, task_id=None, access_level=cell.access_level
     )
@@ -145,3 +151,22 @@ async def test_a_cell_that_cannot_equip_the_task_refuses_before_any_runtime_star
 
     assert seen == {}  # The role never ran.
     assert ctx.session.started == ()  # type: ignore[attr-defined]
+
+
+async def test_the_sub_bees_gate_applies_gui_through_a_recorded_surface() -> None:
+    seen: dict[str, ExoskeletonHandle | None] = {}
+    store = InMemoryRecordingStore()
+    ctx, clock = await _context(seen, recording_store=store)
+    assignment = make_assignment(clock=clock, exoskeleton=ExoskeletonNeed())
+
+    sub_bee = await spawn_sub_bee(ctx, assignment, _grant(clock, assignment.grant_id))
+    await _settle(seen)
+    await stop_sub_bee(sub_bee, clock)
+    await sub_bee.link.close()
+
+    (recording,) = await store.recordings()
+    assert recording.task_id == str(assignment.task_id)
+    entries = await BeeBread(ctx.deps.memory).by_task(assignment.task_id, HoneyClearance.C2)
+    assert [entry.ref_ids for entry in entries if entry.kind is BeeBreadEntryKind.RECORDING] == [
+        (recording.recording_id,)
+    ]

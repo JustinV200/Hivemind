@@ -30,14 +30,15 @@ Public API:
     - BeeBreadEntry, BeeBreadEntryKind, MAX_ENTRY_TEXT_CHARS, MAX_ENTRY_PAYLOAD_CHARS,
       MAX_REF_IDS: the one row shape this tier stores (entry).
     - BeeBread: the lookup-only reader, by id, by task, between two times (index).
-    - deposit_transcript, deposit_tool_result, deposit_handoff_ref, deposit_hot_state_item,
-      deposit_dropped_items: every write path into this tier (deposit).
+    - deposit_transcript, deposit_tool_result, deposit_handoff_ref, deposit_recording_ref,
+      deposit_hot_state_item, deposit_dropped_items: every write path into this tier (deposit).
 """
 
 from hivemind.memory.bee_bread.deposit import (
     deposit_dropped_items,
     deposit_handoff_ref,
     deposit_hot_state_item,
+    deposit_recording_ref,
     deposit_tool_result,
     deposit_transcript,
 )
@@ -60,6 +61,7 @@ __all__ = [
     "deposit_dropped_items",
     "deposit_handoff_ref",
     "deposit_hot_state_item",
+    "deposit_recording_ref",
     "deposit_tool_result",
     "deposit_transcript",
 ]

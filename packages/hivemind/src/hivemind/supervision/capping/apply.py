@@ -97,6 +97,7 @@ from hivemind.cell import CellSession, ExecSpec, run
 from hivemind.supervision.capping.checks.human import HumanCheck
 from hivemind.supervision.capping.diff import apply_unified_diff
 from hivemind.supervision.capping.errors import CappingError
+from hivemind.supervision.capping.gui import GuiSurface
 from hivemind.supervision.capping.lease_view import LeaseView
 from hivemind.supervision.capping.leave import (
     LeaveApplyContext,
@@ -156,6 +157,7 @@ class ApplyExtras:
 
     leave: LeaveApplyContext | None = None
     disk_reserve_mb: int | None = None
+    gui: GuiSurface | None = None  # Roadmap step 6.5: applies an ActionKind.GUI proposal.
 
 
 async def apply_action(
@@ -182,8 +184,9 @@ async def apply_action(
 
     Raises:
         CappingError: `proposal.action.kind` is ACTION_SEQUENCE, which SchemaCheck should already
-            have rejected before the gate ever calls this function -- reaching here means that
-            check was bypassed, a bug in the caller, not a normal apply failure.
+            have rejected, or GUI with no `extras.gui`, which the gate refuses before any check --
+            reaching here means one of those was bypassed, a bug in the caller, not a normal
+            apply failure.
     """
     extras = extras if extras is not None else ApplyExtras()
     if proposal.action.kind is ActionKind.DIFF:
@@ -192,6 +195,12 @@ async def apply_action(
         return await _apply_command(session, lease, proposal, extras)
     if proposal.action.kind is ActionKind.COPY:
         return await _apply_copy(session, lease, proposal, scratch_root, extras)
+    if proposal.action.kind is ActionKind.GUI and extras.gui is not None:
+        # Typed steps through the attached Exoskeleton (ADR-0032); nothing on disk to reverse.
+        applied = await extras.gui.apply(proposal)
+        return ApplyResult(
+            succeeded=applied.succeeded, touched=(), failure_reason=applied.failure_reason
+        )
     raise CappingError(
         f"apply_action cannot apply an {proposal.action.kind.value} action (unsupported in v0); "
         "SchemaCheck should have rejected this proposal before it reached CAPPED."

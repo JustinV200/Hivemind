@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from hivemind.cell import Cell, CellIdentity, CellSession, Snapshotter
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision.capping.checks import Check, CheckResultRecord
+from hivemind.supervision.capping.gui import GuiSurface
 from hivemind.supervision.capping.leave import (
     DEFAULT_HUMAN_TIMEOUT_S,
     LeaveDecisionRecord,
@@ -84,6 +85,10 @@ class GateDeps:
     # destination is refused against (apply._check_disk_reserve); None (every GateDeps built
     # before this dispatch) skips the check entirely.
     disk_reserve_mb: int | None = None
+    # Roadmap step 6.5 (ADR-0032): the attached Exoskeleton's surface, through which a GUI
+    # proposal is applied, verified and rolled back; None (a Cell with no Exoskeleton, and every
+    # GateDeps built before phase 6) rejects a GUI proposal before any check runs.
+    gui: GuiSurface | None = None
 
 
 class GateOutcome(BaseModel):

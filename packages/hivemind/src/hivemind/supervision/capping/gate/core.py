@@ -25,7 +25,8 @@ Fits into the Hive:
     `run` once it holds the proposing bee's `CapabilitySet` and its own lease. Calls into
     `hivemind.cell` (SnapshotId, SnapshotUnsupportedError), `hivemind.pheromone` (CappingEvent),
     `hivemind.supervision.capping.apply`, `.checks`, `.errors`, `.lease_view`, `.leave`,
-    `.postconditions`, `.proposal`, `.state`, `.tiers`, this package's own `.model` and waggle only.
+    `.postconditions`, `.proposal`, `.state`, `.tiers`, this package's own `.model` and `.gui`
+    (the GUI surface's five moves, roadmap step 6.5) and waggle only.
 
 Key invariants:
     - Every proposal state change goes through `hivemind.supervision.capping.state.
@@ -64,6 +65,13 @@ from hivemind.pheromone import CappingEvent
 from hivemind.supervision.capping.apply import ApplyExtras, ApplyResult, apply_action
 from hivemind.supervision.capping.checks import CheckContext, CheckResultRecord
 from hivemind.supervision.capping.errors import UnknownProposalError
+from hivemind.supervision.capping.gate.gui import (
+    check_one,
+    gui_before,
+    gui_finish,
+    gui_refusal,
+    gui_restore,
+)
 from hivemind.supervision.capping.gate.model import GateDeps, GateOutcome
 from hivemind.supervision.capping.lease_view import LeaseView
 from hivemind.supervision.capping.leave import (
@@ -73,7 +81,7 @@ from hivemind.supervision.capping.leave import (
     leave_decided_payload,
     with_asker,
 )
-from hivemind.supervision.capping.postconditions import PostconditionOutcome, check_postcondition
+from hivemind.supervision.capping.postconditions import PostconditionOutcome
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.state import ProposalState, assert_transition, is_terminal
 from hivemind.supervision.capping.tiers import checks_for
@@ -304,10 +312,9 @@ async def _check_and_cap(
         tier's `snapshot_before` is set).
     """
     tier = ops.deps.tiers.tiers.get(proposal.risk_tier)
-    if tier is None:
-        return await _reject(
-            ops, proposal, failing_check=None, reason="tier not configured", checks=()
-        )
+    refusal = "tier not configured" if tier is None else gui_refusal(ops.deps, proposal)
+    if tier is None or refusal is not None:
+        return await _reject(ops, proposal, failing_check=None, reason=refusal or "", checks=())
     context = CheckContext(
         proposal=proposal,
         capabilities=capabilities,
@@ -330,6 +337,8 @@ async def _check_and_cap(
     snapshot_id = (
         await ops.deps.snapshotter.snapshot(ops.deps.cell) if tier.snapshot_before else None
     )
+    # After any snapshot, before applying: the GUI undo point and the before-evidence (ADR-0032).
+    await gui_before(ops.deps, proposal)
     return proposal, results, snapshot_id
 
 
@@ -347,7 +356,7 @@ async def _apply_and_verify(
         lease,
         proposal,
         deps.session.scratch_dir,
-        ApplyExtras(leave=_leave_context(ops), disk_reserve_mb=deps.disk_reserve_mb),
+        ApplyExtras(leave=_leave_context(ops), disk_reserve_mb=deps.disk_reserve_mb, gui=deps.gui),
     )
     proposal = ops.transition(proposal, ProposalState.APPLIED)
     await _record_event(
@@ -379,11 +388,9 @@ async def _verify_postconditions(
 ) -> GateOutcome:
     """Check every postcondition, transition to VERIFIED, or roll back if any failed."""
     deps = ops.deps
+    # GUI kinds go to the attached surface, every other kind to the session (gate.gui.check_one).
     outcomes = tuple(
-        [
-            await check_postcondition(deps.session, i, pc)
-            for i, pc in enumerate(proposal.postconditions)
-        ]
+        [await check_one(deps, proposal, i, pc) for i, pc in enumerate(proposal.postconditions)]
     )
     if not all(pc.has_held for pc in outcomes):
         return await _roll_back(ops, proposal, outcome, outcomes, reason="a postcondition failed")
@@ -391,6 +398,7 @@ async def _verify_postconditions(
     await _record_event(
         deps, proposal.id, "capping.verified", {"postconditions_held": len(outcomes)}
     )
+    await gui_finish(deps, proposal)
     return GateOutcome(
         proposal_id=proposal.id,
         state=ProposalState.VERIFIED,
@@ -410,12 +418,13 @@ async def _roll_back(
     reason: str,
 ) -> GateOutcome:
     """Restore what apply changed, transition to ROLLED_BACK, and record the outcome."""
-    method = await _restore(ops.deps, outcome.apply_result, outcome.snapshot_id)
+    method = await _restore(ops.deps, proposal, outcome.apply_result, outcome.snapshot_id)
     proposal = ops.transition(proposal, ProposalState.ROLLED_BACK)
     payload: dict[str, JsonValue] = {"method": method.value}
     if outcome.apply_result.exit_code is not None:
         payload["exit_code"] = outcome.apply_result.exit_code
     await _record_event(ops.deps, proposal.id, "capping.rolled_back", payload)
+    await gui_finish(ops.deps, proposal, method)
     return GateOutcome(
         proposal_id=proposal.id,
         leave_decisions=outcome.apply_result.leave_decisions,
@@ -427,15 +436,19 @@ async def _roll_back(
 
 
 async def _restore(
-    deps: GateDeps, apply_result: ApplyResult, snapshot_id: SnapshotId | None
+    deps: GateDeps, proposal: Proposal, apply_result: ApplyResult, snapshot_id: SnapshotId | None
 ) -> RollbackMethod:
-    """Roll the Cell back by snapshot when one was taken, else REVERSE_DIFF, else NONE."""
+    """Roll back by snapshot when one was taken, else GUI_STATE, else REVERSE_DIFF, else NONE."""
     if snapshot_id is not None:
         try:
             await deps.snapshotter.rollback(deps.cell, snapshot_id)
             return RollbackMethod.SNAPSHOT
         except SnapshotUnsupportedError:
-            pass  # NoopSnapshotter (Real Cells): fall through to REVERSE_DIFF below.
+            pass  # NoopSnapshotter (Real Cells): fall through to the cheaper methods below.
+    # A GUI proposal's browser state comes back from the surface's own checkpoint (ADR-0032).
+    restored = await gui_restore(deps, proposal)
+    if restored is not None:
+        return restored
     if not apply_result.touched:
         return RollbackMethod.NONE  # A COMMAND action touches no files; nothing to reverse.
     for touched in apply_result.touched:
@@ -460,6 +473,7 @@ async def _reject(
     if failing_check is not None:
         payload["failing_check"] = failing_check.value
     await _record_event(ops.deps, proposal.id, "capping.rejected", payload)
+    await gui_finish(ops.deps, proposal)
     return GateOutcome(
         proposal_id=proposal.id,
         state=ProposalState.REJECTED,

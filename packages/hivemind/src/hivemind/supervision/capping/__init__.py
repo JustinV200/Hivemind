@@ -63,6 +63,9 @@ Public API:
     - PostconditionOutcome, check_postcondition: checking one assertion after applying
       (postconditions).
     - CappingGate, GateDeps, GateOutcome: the gate itself (gate).
+    - GuiSurface, GuiApplyResult, GUI_POSTCONDITION_KINDS, required_capabilities: the seam a GUI
+      proposal is applied, verified and rolled back through (gui, roadmap step 6.5).
+    - GuiAllowlistCheck: the allowlist rung for GUI steps (checks).
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
       audit_completed: the after-the-fact sampled audit (audit).
     - CappingError, UnknownProposalError, InvalidProposalTransitionError, DiffApplyError,
@@ -86,6 +89,7 @@ from hivemind.supervision.capping.checks import (
     CommandAllowlistCheck,
     DiffSizeCapCheck,
     FakeJudgeReviewer,
+    GuiAllowlistCheck,
     JudgeCheck,
     JudgeOutcome,
     JudgeRequest,
@@ -108,6 +112,12 @@ from hivemind.supervision.capping.errors import (
     UnknownProposalError,
 )
 from hivemind.supervision.capping.gate import CappingGate, GateDeps, GateOutcome
+from hivemind.supervision.capping.gui import (
+    GUI_POSTCONDITION_KINDS,
+    GuiApplyResult,
+    GuiSurface,
+    required_capabilities,
+)
 from hivemind.supervision.capping.lease_view import LeaseView
 from hivemind.supervision.capping.postconditions import (
     CHECKABLE_KINDS,
@@ -133,6 +143,7 @@ from hivemind.supervision.capping.tiers import (
 
 __all__ = [
     "CHECKABLE_KINDS",
+    "GUI_POSTCONDITION_KINDS",
     "MAX_POSTCONDITIONS",
     "SHORTEN_LATENCY_BUDGET_S",
     "TRANSITIONS",
@@ -153,6 +164,9 @@ __all__ = [
     "FindingsSink",
     "GateDeps",
     "GateOutcome",
+    "GuiAllowlistCheck",
+    "GuiApplyResult",
+    "GuiSurface",
     "InMemoryFindingsSink",
     "InvalidProposalTransitionError",
     "JudgeAnswerError",
@@ -186,4 +200,5 @@ __all__ = [
     "judge_checks",
     "load_judge_rubrics",
     "load_tiers",
+    "required_capabilities",
 ]

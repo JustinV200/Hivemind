@@ -77,11 +77,11 @@ from hivemind.guard import CapabilitySet
 from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
-from hivemind.supervision.capping import GateDeps
+from hivemind.supervision.capping import GateDeps, GuiSurface
 from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
-from hivemind.wardens.spawn.equip import equip, unequip
+from hivemind.wardens.spawn.equip import equip, gui_surface, unequip
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
     GrantSlice,
@@ -205,8 +205,10 @@ async def spawn_sub_bee(
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
     facts = _SpawnedBeeFacts(worker_id=worker_id, bound=bound, capabilities=capabilities)
     _widen_lease_reachability(ctx, write_roots)
-    capping_gate = _build_capping_gate(ctx, assignment)
     exoskeleton = await equip(ctx, assignment, capabilities)  # Before the role's first tool call.
+    capping_gate = _build_capping_gate(
+        ctx, assignment, await gui_surface(ctx, assignment, exoskeleton)
+    )
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
     await _record_spawned(deps, worker_id, assignment)
@@ -328,7 +330,9 @@ def _widen_lease_reachability(ctx: WardenCellContext, write_roots: tuple[Path, .
         ctx.lease.note_allowed_path(root)
 
 
-def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> AuditingCappingGate:
+def _build_capping_gate(
+    ctx: WardenCellContext, assignment: TaskAssign, gui: GuiSurface | None
+) -> AuditingCappingGate:
     """Build this sub-bee's own CappingGate (codingrules section 8.12: nothing lands uncapped).
 
     Roadmap step 4.10: an `AuditingCappingGate`, not a plain `CappingGate`, so a terminal proposal
@@ -360,6 +364,7 @@ def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> Audit
             keep_root=deps.keep_root,
             leave_home=deps.leave_home,
             disk_reserve_mb=deps.disk_reserve_mb,
+            gui=gui,
         ),
         AuditWiring(
             reviewer=deps.judge_reviewer,

@@ -38,24 +38,29 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
+from hivemind.supervision.capping.gui import required_capabilities
 from hivemind.supervision.capping.tiers import RiskTier
 from waggle.messages.capping import ActionKind, CheckKind, CheckOutcome, ProposedAction
 
 # ActionKind.ACTION_SEQUENCE has no applier yet (roadmap 3.17: "ACTION_SEQUENCE -> REJECTED with
 # reason 'unsupported in v0'"); SchemaCheck is where that rejection actually happens, before the
 # gate ever reaches apply.py. COPY (roadmap step 5.0e, the `keep` tool) does have an applier
-# (hivemind.supervision.capping.apply._apply_copy).
-_SUPPORTED_ACTION_KINDS = frozenset({ActionKind.DIFF, ActionKind.COMMAND, ActionKind.COPY})
+# (hivemind.supervision.capping.apply._apply_copy), and so does GUI (roadmap step 6.5), through the
+# gate's injected GuiSurface; the gate itself refuses a GUI proposal when no surface is attached.
+_SUPPORTED_ACTION_KINDS = frozenset(
+    {ActionKind.DIFF, ActionKind.COMMAND, ActionKind.COPY, ActionKind.GUI}
+)
 
 __all__ = [
     "CommandAllowlistCheck",
     "DiffSizeCapCheck",
+    "GuiAllowlistCheck",
     "PathAllowlistCheck",
     "SchemaCheck",
     "deterministic_checks",
@@ -150,6 +155,31 @@ class CommandAllowlistCheck:
         )
 
 
+class GuiAllowlistCheck:
+    """Require every step of a GUI action to be granted: its exoskeleton scope, and net for egress.
+
+    `required_capabilities` names what each step needs (roadmap step 6.5, ADR-0032): the display
+    for desktop input, the browser for a page action (plus `net:<host>` for a navigation that
+    leaves the Cell), audio for speech.
+    """
+
+    kind: ClassVar[CheckKind] = CheckKind.ALLOWLIST
+
+    async def run(self, context: CheckContext) -> CheckResultRecord:
+        """Pass trivially for a non-GUI action; else check every step's capabilities."""
+        for step in context.proposal.action.gui:
+            for needed in required_capabilities(step):
+                if not context.capabilities.allows(needed):
+                    return CheckResultRecord(
+                        kind=CheckKind.ALLOWLIST,
+                        outcome=CheckOutcome.FAILED,
+                        reason=f"no capability allows {step.op.value} (needs {needed})",
+                    )
+        return CheckResultRecord(
+            kind=CheckKind.ALLOWLIST, outcome=CheckOutcome.PASSED, reason="every step is allowed"
+        )
+
+
 class DiffSizeCapCheck:
     """Require a DIFF's inline diff, or a COPY's source size, to fit the tier's own byte cap.
 
@@ -180,7 +210,9 @@ def deterministic_checks() -> Mapping[CheckKind, Check]:
     """
     return {
         CheckKind.SCHEMA: SchemaCheck(),
-        CheckKind.ALLOWLIST: _AllowlistCheck(PathAllowlistCheck(), CommandAllowlistCheck()),
+        CheckKind.ALLOWLIST: _AllowlistCheck(
+            PathAllowlistCheck(), CommandAllowlistCheck(), GuiAllowlistCheck()
+        ),
         CheckKind.SIZE_CAP: DiffSizeCapCheck(),
     }
 
@@ -197,14 +229,16 @@ class _AllowlistCheck:
 
     path_check: PathAllowlistCheck
     command_check: CommandAllowlistCheck
+    gui_check: GuiAllowlistCheck = field(default_factory=GuiAllowlistCheck)
     kind: ClassVar[CheckKind] = CheckKind.ALLOWLIST
 
     async def run(self, context: CheckContext) -> CheckResultRecord:
         """Run the path check first (cheaper, no capability construction if it fails first)."""
-        path_result = await self.path_check.run(context)
-        if path_result.outcome is not CheckOutcome.PASSED:
-            return path_result
-        return await self.command_check.run(context)
+        for check in (self.path_check, self.command_check):
+            result = await check.run(context)
+            if result.outcome is not CheckOutcome.PASSED:
+                return result
+        return await self.gui_check.run(context)
 
 
 def _check_diff_size(action: ProposedAction, cap: int | None) -> CheckResultRecord:

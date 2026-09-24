@@ -44,19 +44,22 @@ class Deadline:
     clock: Clock
     seconds: float  # The whole budget, for the error message when it runs out.
     expires_at: float  # `clock.monotonic()` value the wait ends at.
+    interval: float = POLL_INTERVAL_S  # The pause between two checks.
 
     @classmethod
-    def after(cls, clock: Clock, seconds: float) -> Deadline:
+    def after(cls, clock: Clock, seconds: float, interval: float = POLL_INTERVAL_S) -> Deadline:
         """Start a deadline `seconds` from now.
 
         Args:
             clock: The injected clock; a FakeClock makes waits instant in tests.
             seconds: The budget.
+            interval: The pause between two checks; a costly check (a screen capture) polls less.
 
         Returns:
             The Deadline.
         """
-        return cls(clock=clock, seconds=seconds, expires_at=clock.monotonic() + seconds)
+        expires_at = clock.monotonic() + seconds
+        return cls(clock=clock, seconds=seconds, expires_at=expires_at, interval=interval)
 
     def expired(self) -> bool:
         """Return whether the budget is spent."""
@@ -64,7 +67,7 @@ class Deadline:
 
     async def pause(self) -> None:
         """Wait one poll interval before the next readiness check."""
-        await self.clock.sleep(POLL_INTERVAL_S)
+        await self.clock.sleep(self.interval)
 
 
 async def stop_all(session: CellSession, processes: Sequence[BackgroundProcess]) -> int:

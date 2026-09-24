@@ -1100,13 +1100,13 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 - [ ] **6.1 Desktop image.** `images/desktop-ubuntu/Dockerfile` on `base-ubuntu`: Xvfb, a light
   window manager, `xdotool`, PulseAudio null sink and virtual source, a browser, fonts. Reports
   `has_display`, `has_audio`, `has_browser`. README documents each package.
-- [ ] **6.2 Protocols.** `CompoundEye`, `Antennae`, `Buzz` under `exoskeleton/*/base.py`, each
+- [x] **6.2 Protocols.** `CompoundEye`, `Antennae`, `Buzz` under `exoskeleton/*/base.py`, each
   operating through a `CellSession` so the same backend works inside a Virtual Cell and on a Linux
   Real Cell. Every method documents latency class and failure mode.
-- [ ] **6.3 X11 backends.** `compound_eye/x11.py`, `antennae/xdotool.py`, `buzz/pulseaudio.py`.
+- [x] **6.3 X11 backends.** `compound_eye/x11.py`, `antennae/xdotool.py`, `buzz/pulseaudio.py`.
   On a Real Cell with a display and the `exoskeleton:real_display` capability they use it;
   otherwise, if `can_start_display`, attach starts an Xvfb and null sink owned by the lease.
-- [ ] **6.4 Attach on demand.** `exoskeleton/attach.py`: `attach(cell, session, needs) ->
+- [x] **6.4 Attach on demand.** `exoskeleton/attach.py`: `attach(cell, session, needs) ->
   ExoskeletonHandle` picks backends from capabilities, starts what is missing through the session,
   registers every process with the lease, and `detach()` stops exactly those. A test asserts no
   display process exists after a terminal-only task.

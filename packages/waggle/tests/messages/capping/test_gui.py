@@ -253,3 +253,32 @@ def test_steps_on_another_action_kind_are_refused() -> None:
 def test_a_gui_action_is_bounded_in_steps() -> None:
     with pytest.raises(ValidationError):
         _gui_action(*[_step(GuiOp.CLICK)] * (MAX_GUI_STEPS + 1))
+
+
+# ── ElementTarget's ELEMENT_TEXT subject grammar (spec section 8.3) ─────────────
+
+
+@pytest.mark.parametrize(
+    ("subject", "target"),
+    [
+        ("role=button;name=Log in", ElementTarget(role="button", name="Log in")),
+        ("role=heading", ElementTarget(role="heading")),
+        ("label=Password", ElementTarget(label="Password")),
+        ("text=Welcome, alice", ElementTarget(text="Welcome, alice")),
+        ("selector=#go", ElementTarget(selector="#go")),
+        ("#submit", ElementTarget(selector="#submit")),
+        ("input[name=q]", ElementTarget(selector="input[name=q]")),  # An "=" but no known key.
+    ],
+)
+def test_an_element_text_subject_parses_to_its_target_and_back(
+    subject: str, target: ElementTarget
+) -> None:
+    parsed = ElementTarget.from_subject(subject)
+
+    assert parsed == target
+    assert ElementTarget.from_subject(parsed.subject()) == parsed
+
+
+def test_a_known_subject_form_with_nothing_after_the_equals_is_refused() -> None:
+    with pytest.raises(ValueError):
+        ElementTarget.from_subject("label=")

@@ -80,6 +80,8 @@ class BeeBreadEntryKind(Enum):
     TOOL_RESULT = "TOOL_RESULT"  # Holds an oversized tool result's own text, in full, as `payload`.
     SUMMARY = "SUMMARY"  # Holds a compacted summary of other entries, in full, as `payload`; never
     # itself a source for a further compaction (hivemind.memory.compact: one level only).
+    RECORDING = "RECORDING"  # References an Exoskeleton flight recording by id (roadmap 6.6); its
+    # frames stay in the RecordingStore, the recording's Nectar body until phase 7 (ADR-0032).
 
 
 class BeeBreadEntry(BaseModel):

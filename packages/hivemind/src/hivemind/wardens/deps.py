@@ -48,6 +48,7 @@ from pathlib import Path
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
 from hivemind.exoskeleton import ExoskeletonConfig
 from hivemind.exoskeleton.browser import BrowserLauncher
+from hivemind.exoskeleton.recorder import RecordingStore
 from hivemind.forage.tempo import Tempo
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
@@ -173,6 +174,8 @@ class WardenDeps:
             an Exoskeleton: screen size, readiness budget, whether the browser keeps its sandbox.
         browser_launcher: Starts a lease's browser (the Playwright launcher in production), or
             None where this Hive has no browser extra installed.
+        recording_store: Where every sub-bee's GUI proposals are recorded (the flight recorder,
+            roadmap step 6.6); None keeps no recordings.
     """
 
     source: RealCellSource
@@ -230,6 +233,7 @@ class WardenDeps:
     # without the browser fast path, and a browser-only task is refused with EXOSKELETON_FAILED.
     exoskeleton_config: ExoskeletonConfig = field(default_factory=ExoskeletonConfig)
     browser_launcher: BrowserLauncher | None = None
+    recording_store: RecordingStore | None = None  # Roadmap step 6.6; None records nothing.
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

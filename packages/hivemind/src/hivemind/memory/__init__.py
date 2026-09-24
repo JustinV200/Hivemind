@@ -85,7 +85,8 @@ Public API:
       MAX_OPEN_THREAD_CHARS, RIPENER_OUTPUT_TOKENS: summarise Bee Bread entries into one summary
       (compact).
     - BeeBreadEntry, BeeBreadEntryKind, BeeBread, deposit_transcript, deposit_tool_result,
-      deposit_handoff_ref, deposit_hot_state_item, deposit_dropped_items: the warm tier
+      deposit_handoff_ref, deposit_recording_ref, deposit_hot_state_item, deposit_dropped_items:
+      the warm tier
       (bee_bread).
     - MemoryStore, InMemoryMemoryStore, SqliteMemoryStore, apply_memory_migrations, SUBSYSTEM,
       MIGRATIONS_PACKAGE: the durable half (store).
@@ -103,6 +104,7 @@ from hivemind.memory.bee_bread import (
     deposit_dropped_items,
     deposit_handoff_ref,
     deposit_hot_state_item,
+    deposit_recording_ref,
     deposit_tool_result,
     deposit_transcript,
 )
@@ -297,6 +299,7 @@ __all__ = [
     "deposit_dropped_items",
     "deposit_handoff_ref",
     "deposit_hot_state_item",
+    "deposit_recording_ref",
     "deposit_tool_result",
     "deposit_transcript",
     "expire_wax",

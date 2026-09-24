@@ -33,7 +33,13 @@ from typing import ClassVar
 
 from hivemind.common.errors import HiveMindError
 
-__all__ = ["AttachError", "ElementNotFoundError", "ExoskeletonError", "PeripheralError"]
+__all__ = [
+    "AttachError",
+    "ElementNotFoundError",
+    "ExoskeletonError",
+    "PeripheralError",
+    "RecordingNotFoundError",
+]
 
 
 class ExoskeletonError(HiveMindError):
@@ -95,3 +101,18 @@ class ElementNotFoundError(PeripheralError):
         """
         super().__init__("browser", operation, f"no element matches {target}")
         self.target = target
+
+
+class RecordingNotFoundError(ExoskeletonError):
+    """Raise when a flight recording is looked up by an id no store holds."""
+
+    code: ClassVar[str] = "hivemind.exoskeleton.recording_not_found"
+
+    def __init__(self, recording_id: str) -> None:
+        """Build the error for one missing recording.
+
+        Args:
+            recording_id: The id that was looked up.
+        """
+        super().__init__(f"No flight recording with id {recording_id!r} exists.")
+        self.recording_id = recording_id

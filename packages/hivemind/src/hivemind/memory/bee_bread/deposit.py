@@ -157,6 +157,32 @@ async def deposit_handoff_ref(
     return entry
 
 
+async def deposit_recording_ref(
+    recording_id: str, task_id: TaskId | None, clearance: HoneyClearance, ctx: MemoryContext
+) -> BeeBreadEntry:
+    """Index an Exoskeleton flight recording so an episode record can reach it (roadmap 6.6).
+
+    Args:
+        recording_id: The recording's id in the RecordingStore that holds its frames.
+        task_id: The task it was recorded for, if any.
+        clearance: What the recorded screens may show: the task's own clearance.
+        ctx: The store, identity and clock to write with.
+
+    Returns:
+        The stored BeeBreadEntry, referencing the recording rather than holding any frame.
+    """
+    entry = BeeBreadEntry(
+        id=new_event_id(ctx.clock),
+        kind=BeeBreadEntryKind.RECORDING,
+        ref_ids=(recording_id,),
+        task_id=task_id,
+        clearance=clearance,
+        created_at=ctx.clock.now(),
+    )
+    await _deposit(entry, ctx)
+    return entry
+
+
 async def deposit_hot_state_item(item: Scorable, ctx: MemoryContext) -> BeeBreadEntry:
     """Archive a hot-state candidate that `hivemind.memory.demote` is moving out of hot state.
 
