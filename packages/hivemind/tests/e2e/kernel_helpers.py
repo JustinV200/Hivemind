@@ -54,6 +54,7 @@ from pathlib import Path
 import pytest
 from builders.cells import make_cell
 from builders.forage import make_source
+from builders.llm import judge_approve_response
 from builders.queen import make_queen_deps, plan_responder
 from builders.wardens import make_warden_deps
 
@@ -286,23 +287,6 @@ def plan_response(request: LLMRequest, plan: Mapping[str, object]) -> LLMRespons
     if request.response_schema is not None:
         return text_response(plan_json)  # NATIVE or JSON_MODE: the schema travelled with it.
     return text_response(f"```json\n{plan_json}\n```")  # PROMPTED: one fenced block expected.
-
-
-def judge_approve_response(request: LLMRequest) -> LLMResponse:
-    """Answer a JUDGE-slot review call with an unconditional APPROVE, on whichever rung.
-
-    Roadmap step 4.10's own wiring step: every Warden this suite builds now carries a real
-    `hivemind.wardens.judge.ModelJudgeReviewer`, so the one `FakeLLMProvider` this suite scripts
-    (`HaikuScript.responder`) must answer `ModelSlot.JUDGE` requests too, in the shape
-    `hivemind.wardens.judge._JudgeModelOutput` expects, or the CappingGate's own JUDGE check would
-    exhaust its ladder and fail closed the moment a scenario's own tier turns `judge = true` on
-    (`hivemind.supervision.defaults.capping-tiers.toml`: outside_scratch_write, spend,
-    device_command, irreversible). Mirrors `plan_response`'s own rung-detection shape.
-    """
-    verdict = {"outcome": "APPROVE", "reasons": [], "notes": ""}
-    if request.response_schema is not None:
-        return text_response(json.dumps(verdict))  # NATIVE or JSON_MODE: schema travelled with it.
-    return text_response(f"```json\n{json.dumps(verdict)}\n```")  # PROMPTED: one fenced block.
 
 
 def single_task_plan(

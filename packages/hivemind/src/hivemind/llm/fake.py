@@ -14,8 +14,8 @@ Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Used by every test that needs an
     `LLMProvider` without a real one, by `hivemind.llm.slots` demos, and by the phase 3 e2e
     responder (roadmap step 3.22), which scripts plan and tool-call JSON. Calls into
-    `hivemind.llm.capabilities`, `hivemind.llm.errors`, `hivemind.llm.models` and `waggle.clock`
-    only.
+    `hivemind.forage.slots` (ModelSlot), `hivemind.llm.capabilities`, `hivemind.llm.errors`,
+    `hivemind.llm.models` and `waggle.clock` only.
 
 Key invariants:
     - `calls` records every `LLMRequest` this provider actually saw, in call order; never named
@@ -28,6 +28,8 @@ Key invariants:
       produce.
     - `set_outage(True)` makes every `complete`/`stream` call raise `ProviderUnavailableError`
       before touching the scripted queue or `calls`, and makes `health()` report `HealthState.DOWN`.
+    - `answer_slot` reroutes only its own slot's calls: every other call still reaches whichever
+      responder answered it before, the scripted queue included.
 
 See Also:
     - .claude/codingrules.md section 14.4 for the fakes-over-mocks rule this module follows.
@@ -43,6 +45,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 
+from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities, ProviderHealth
 from hivemind.llm.errors import LLMError, ProviderUnavailableError
 from hivemind.llm.models import (
@@ -144,6 +147,24 @@ class FakeLLMProvider:
                 reports `HealthState.DOWN`.
         """
         self._is_down = is_down
+
+    def answer_slot(self, slot: ModelSlot, responder: Responder) -> None:
+        """Answer every later call for `slot` with `responder`; every other call is unchanged.
+
+        For one fake that several slots share, as a Virtual Cell's is: a call for a slot the
+        script never planned for (a judge's review, say) is routed away from the queue the rest of
+        the script relies on, so it can never eat a response meant for another slot.
+
+        Args:
+            slot: The slot whose calls `responder` answers from now on.
+            responder: How to answer them.
+        """
+        others = self._responder
+
+        def routed(request: LLMRequest) -> LLMResponse:
+            return responder(request) if request.slot is slot else others(request)
+
+        self._responder = routed
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         """Return the next scripted response for `request`; see `LLMProvider.complete`."""

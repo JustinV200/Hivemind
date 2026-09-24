@@ -18,6 +18,8 @@ loaded `HiveManifest` into those same inputs, for the tests that resolve against
 `hivemind.cli.stores.slot_bindings`/`provider_configs`; both functions here are now thin
 dict-shaped wrappers around those, kept so existing call sites do not all need to switch from a
 dict lookup to a tuple.
+`judge_approve_response` answers a JUDGE-slot review with APPROVE, for a fake that a Warden's
+model-backed judge shares with the rest of a script.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -42,6 +44,7 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
+import json
 
 from hivemind.cli.stores import provider_configs, slot_bindings
 from hivemind.forage.map import ForageMap, SlotBinding
@@ -65,6 +68,7 @@ from waggle.clock import Clock, FakeClock
 
 __all__ = [
     "bindings_from_manifest",
+    "judge_approve_response",
     "make_binding",
     "make_bound",
     "make_fanner_deps",
@@ -133,6 +137,22 @@ def make_response(**overrides: object) -> LLMResponse:
     }
     fields.update(overrides)
     return LLMResponse(**fields)
+
+
+def judge_approve_response(request: LLMRequest) -> LLMResponse:
+    """Answer a JUDGE-slot review call with an unconditional APPROVE, on whichever rung.
+
+    A Warden built with a real `hivemind.wardens.judge.ModelJudgeReviewer` over a scripted
+    `FakeLLMProvider` sends its reviews to that same fake, so a test's fake must answer
+    `ModelSlot.JUDGE` requests too, in the shape `hivemind.wardens.judge._JudgeModelOutput`
+    expects, or the gate's JUDGE check would exhaust its ladder and fail closed at every
+    `judge = true` tier. The schema travels with a NATIVE or JSON_MODE request; a PROMPTED one
+    expects one fenced block.
+    """
+    verdict = json.dumps({"outcome": "APPROVE", "reasons": [], "notes": ""})
+    if request.response_schema is not None:
+        return text_response(verdict)
+    return text_response(f"```json\n{verdict}\n```")
 
 
 def make_tool_call(**overrides: object) -> ToolCall:

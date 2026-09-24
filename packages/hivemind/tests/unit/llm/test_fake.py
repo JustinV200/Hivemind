@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 from builders.llm import make_request, text_response, tool_call_response
 
+from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities
 from hivemind.llm.errors import ProviderUnavailableError
 from hivemind.llm.fake import CHARS_PER_TOKEN_ESTIMATE, FAKE_MODEL_ID, FakeLLMProvider
@@ -105,6 +106,28 @@ async def test_a_custom_responder_bypasses_the_scripted_queue() -> None:
 
     assert response.text == "WORKER"
     assert provider.calls  # still recorded, even though script() was never called.
+
+
+async def test_answer_slot_routes_only_that_slot_and_leaves_the_queue_to_the_rest() -> None:
+    provider = FakeLLMProvider()
+    provider.script(text_response("for the worker"))
+    provider.answer_slot(ModelSlot.JUDGE, lambda _request: text_response("verdict"))
+
+    judged = await provider.complete(make_request(slot=ModelSlot.JUDGE))
+    worked = await provider.complete(make_request(slot=ModelSlot.WORKER))
+
+    assert judged.text == "verdict"
+    assert worked.text == "for the worker"  # The judge's call never took the scripted reply.
+    assert len(provider.calls) == 2
+
+
+async def test_answer_slot_wraps_a_custom_responder_rather_than_replacing_it() -> None:
+    provider = FakeLLMProvider(responder=lambda request: text_response(request.slot.value))
+    provider.answer_slot(ModelSlot.JUDGE, lambda _request: text_response("verdict"))
+
+    other = await provider.complete(make_request(slot=ModelSlot.WARDEN))
+
+    assert other.text == "WARDEN"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

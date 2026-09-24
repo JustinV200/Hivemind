@@ -83,6 +83,7 @@ from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest
+from builders.llm import judge_approve_response
 
 import hivemind.cli.compose.hive as _hive_compose
 from hivemind.brood_chamber import Task
@@ -90,6 +91,7 @@ from hivemind.cell import Cell, HoneyClearance
 from hivemind.cli.compose import Hive
 from hivemind.cli.in_cell.main import run_in_cell_warden
 from hivemind.cli.readback.virtual_abscond import AbscondDeps, AbscondSummary, run_abscond
+from hivemind.forage.slots import ModelSlot
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellBootstrap, QueenEndpoint
 from hivemind.hive.backends.fake import FakeCellBackend, ReadinessGateExpect
@@ -522,12 +524,15 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         """
 
         def _on_deps_built(deps: WardenDeps) -> None:
-            # build_in_cell_provider_registry's own contract: both WARDEN and WORKER resolve to
-            # one shared FakeLLMProvider instance, so scripting it here covers every sub-bee
+            # build_in_cell_provider_registry's own contract: every slot the Cell binds resolves
+            # to one shared FakeLLMProvider instance, so scripting it here covers every sub-bee
             # call.
             provider = deps.bound.provider
             assert isinstance(provider, FakeLLMProvider)
             provider.script(*self._script())
+            # The Cell's Warden judges through that same fake (hivemind.cli.in_cell.deps): a
+            # sampled audit must get a verdict, never a reply scripted for the Worker.
+            provider.answer_slot(ModelSlot.JUDGE, judge_approve_response)
             self.providers[cell_id] = provider
 
         # SystemClock, not the FakeClock a unit test might inject as `self._clock`: this container
