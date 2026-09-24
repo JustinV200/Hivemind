@@ -31,6 +31,8 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from hivemind.cell import HoneyClearance
 from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
@@ -40,9 +42,9 @@ from hivemind.honey_store import (
     HoneyRetriever,
     HoneyStore,
     NectarIntake,
+    RetrieverDeps,
     Ripener,
     RipenerDeps,
-    RetrieverDeps,
 )
 from hivemind.honey_store.access import HoneyAccess
 from hivemind.llm import BoundEmbedder, BoundModel, Fanner, ProviderRegistry
@@ -80,40 +82,32 @@ def build_honey_access(
         hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor=HONEY_ACTOR
     )
     embedder = resolve_embedder(registry)
-    # A query's own embedding is on the asker's critical path; a summary is background work.
+    default_label = HoneyClearance.from_wire(honey.clearance.default_label)
+    # A query's own embedding is on the asker's critical path: an ordinary lane.
     query_lane = fanner.lane(Tempo())
-    ripening_lane = fanner.lane(Tempo(accuracy=AccuracyBar.LOW))
-    intake = NectarIntake(
-        store,
-        identity,
-        clock,
-        honey.store,
-        HoneyClearance.from_wire(honey.clearance.default_label),
-    )
-    retriever = HoneyRetriever(
-        RetrieverDeps(store, identity, clock, honey.retrieval, embedder, query_lane)
-    )
-    ripener = Ripener(
-        RipenerDeps(
-            store=store,
-            identity=identity,
-            clock=clock,
-            ripening=honey.ripening,
-            ripener=resolve_ripener(registry),
-            call_gate=ripening_lane,
-            embedder=embedder,
-            embed_gate=ripening_lane,
-        )
-    )
+    retriever_deps = RetrieverDeps(store, identity, clock, honey.retrieval, embedder, query_lane)
     return HoneyAccess(
         store=store,
-        intake=intake,
-        retriever=retriever,
-        ripener=ripener,
+        intake=NectarIntake(store, identity, clock, honey.store, default_label),
+        retriever=HoneyRetriever(retriever_deps),
+        ripener=_build_ripener(
+            RipenerDeps(store, identity, clock, honey.ripening, embedder=embedder),
+            registry,
+            fanner,
+        ),
         identity=identity,
         retrieval=honey.retrieval,
         ripening=honey.ripening,
         clearance=honey.clearance,
+    )
+
+
+def _build_ripener(base: RipenerDeps, registry: ProviderRegistry, fanner: Fanner) -> Ripener:
+    """Give `base` its RIPENER binding and a background lane for every summary and embed call."""
+    # Background work: a LOW-accuracy lane never queues ahead of a bee's own call for a seat.
+    lane = fanner.lane(Tempo(accuracy=AccuracyBar.LOW))
+    return Ripener(
+        replace(base, ripener=resolve_ripener(registry), call_gate=lane, embed_gate=lane)
     )
 
 
