@@ -37,7 +37,9 @@ Key invariants:
     - Every subprocess this session spawns is POSIX-only (`start_new_session`, `RLIMIT_FSIZE`
       skipped since no quota is configured): every Virtual Cell image is Ubuntu (codingrules
       section 2), so `InCellSession` carries none of `LocalProcessSession`'s Windows shim.
-    - `close()` is idempotent and kills every pid this session's lease recorded as started.
+    - `close()` is idempotent and kills every pid this session's lease recorded as started,
+      after stopping and reaping every background process `start` launched (roadmap step 6.4,
+      shared with `LocalProcessSession` through `hivemind.cell.local.background`).
 
 See Also:
     - .claude/roadmap.md step 5.5 for "cell/in_cell.py: InCellSession... no borrowed-host
@@ -59,9 +61,16 @@ from pathlib import Path
 
 from hivemind.cell.errors import SessionClosedError
 from hivemind.cell.lease import LeaseReleaseReport, RealCellLease
+from hivemind.cell.local.background import BackgroundContext, BackgroundTable
 from hivemind.cell.local.process import ProcessContext, run_child_process
 from hivemind.cell.local.releaser import kill_process_tree
-from hivemind.cell.session import ExecEvent, ExecSpec, resolve_scratch_path
+from hivemind.cell.session import (
+    BackgroundProcess,
+    BackgroundSpec,
+    ExecEvent,
+    ExecSpec,
+    resolve_scratch_path,
+)
 from waggle.clock import Clock
 
 __all__ = ["InCellLeaseReleaser", "InCellSession"]
@@ -82,6 +91,8 @@ class InCellSession:
         self._scratch_dir = lease.scratch_root
         self._clock = clock
         self._open = True
+        # Every background process start() launched, so stop()/close() can kill and reap it.
+        self._background = BackgroundTable(clock)
 
     @property
     def scratch_dir(self) -> Path:
@@ -181,11 +192,43 @@ class InCellSession:
             raise FileNotFoundError(f"No file at {resolved}.")
         await asyncio.to_thread(resolved.unlink)
 
+    async def start(self, spec: BackgroundSpec) -> BackgroundProcess:
+        """Start `spec` in the background, recording its pid on this session's lease.
+
+        Args:
+            spec: The command to start.
+
+        Returns:
+            The started process.
+
+        Raises:
+            SessionClosedError: This session is closed.
+            PathNotAllowedError: `spec.log_path` resolves outside scratch.
+            BackgroundStartError: The command could not be started at all.
+        """
+        if not self._open:
+            raise SessionClosedError(self._scratch_dir)
+        ctx = BackgroundContext(
+            scratch_dir=self._scratch_dir, on_started=self._lease.note_started_process
+        )
+        return await self._background.start(spec, ctx)
+
+    async def stop(self, process: BackgroundProcess) -> bool:
+        """Kill `process`'s whole tree and reap it; see `CellSession.stop`. Idempotent."""
+        return await self._background.stop(process)
+
+    async def is_running(self, process: BackgroundProcess) -> bool:
+        """Return whether `process`, started by this session, still runs."""
+        return self._background.is_running(process)
+
     async def close(self) -> None:
         """Close this session, killing every pid its lease recorded as started. Idempotent."""
         if not self._open:
             return
         self._open = False
+        # Background processes first, through their own handles, so each is also reaped; the
+        # lease's pid list below then catches whatever exec started and anything left over.
+        await self._background.stop_all()
         for pid in self._lease.started_pids:
             await kill_process_tree(pid, self._clock)
 

@@ -699,8 +699,11 @@ this distinction central; the code makes it invisible to Workers.
   protocol. `hive/` is the only producer of Virtual Cells; `cell/local/` and `swarm/` are the
   producers of Real Cells, both behind `RealCellSource`.
 - **A session is a terminal.** `CellSession` offers `exec` with streaming output, `put_file`,
-  `get_file`, a `scratch_dir`, and `close`. Every Cell has one. It is the only way a Worker or a
-  tool runs a command or touches a file on its Cell (section 4).
+  `get_file`, `delete_file`, a `scratch_dir`, and `close`, plus `start`, `stop` and `is_running`
+  for long-running background processes (a display, a browser, a model server; ADR-0031), each in
+  its own process group, recorded with the lease before `start` returns and killed by `close` and
+  the lease's release as the backstop. Every Cell has one. It is the only way a Worker or a tool
+  runs a command or touches a file on its Cell (section 4).
 - **The Exoskeleton is an attachment.** `exoskeleton/attach.py` equips a Cell with display,
   input and audio on request, starting what is missing through the session and stopping exactly
   what it started on detach. A Cell is terminal-only unless the task's `TaskNeeds` asks for more.

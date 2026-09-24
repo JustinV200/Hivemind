@@ -30,6 +30,9 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import os
+import signal
 import sys
 from pathlib import Path
 from typing import Protocol
@@ -38,13 +41,26 @@ import pytest
 from builders.cells import make_hive_stand_releaser, make_real_cell_lease
 
 from hivemind.cell import RealCellLease
-from hivemind.cell.errors import CommandTimeoutError, PathNotAllowedError, SessionClosedError
-from hivemind.cell.fake import FakeSession
+from hivemind.cell.errors import (
+    BackgroundStartError,
+    CommandTimeoutError,
+    PathNotAllowedError,
+    SessionClosedError,
+)
+from hivemind.cell.fake import FakeSession, FakeStart
 from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
 from hivemind.cell.local.process import EXIT_COMMAND_NOT_STARTED
 from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.session import LocalProcessSession
-from hivemind.cell.session import CellSession, CompletedCommand, ExecSpec, ExitStatus, run
+from hivemind.cell.session import (
+    BackgroundProcess,
+    BackgroundSpec,
+    CellSession,
+    CompletedCommand,
+    ExecSpec,
+    ExitStatus,
+    run,
+)
 from waggle.clock import FakeClock, SystemClock
 
 _STDOUT_TEXT = b"hello"
@@ -69,6 +85,14 @@ class SessionHarness(Protocol):
 
     def widen(self, session: CellSession, path: Path) -> None:
         """Make `path` reachable for an already-built `session`, the way a lease is widened."""
+        ...
+
+    def background_for(self, session: CellSession, case: str) -> tuple[str, ...]:
+        """Return the BackgroundSpec argv for one of `_BACKGROUND_CASES` (scripting the fake)."""
+        ...
+
+    def crash(self, session: CellSession, process: BackgroundProcess) -> None:
+        """Make a started process exit on its own, the way a crash would."""
         ...
 
 
@@ -106,6 +130,17 @@ class _FakeHarness:
         assert isinstance(session, FakeSession)
         session.allow_path(path)
 
+    def background_for(self, session: CellSession, case: str) -> tuple[str, ...]:
+        assert isinstance(session, FakeSession)
+        # "logs" writes _BACKGROUND_LOG to its log and keeps running; "missing" cannot start.
+        session.script_start("logs", FakeStart(log=_BACKGROUND_LOG))
+        session.script_start("missing", FakeStart(fails="No such file or directory"))
+        return (case,)
+
+    def crash(self, session: CellSession, process: BackgroundProcess) -> None:
+        assert isinstance(session, FakeSession)
+        session.exit_process(process)
+
 
 # One small `python -c` script per case, producing the exact same fixed outcome _FakeHarness's
 # responder maps a case to -- so a test body cannot tell which harness ran it. `sys.stdout.buffer`/
@@ -119,6 +154,22 @@ _LOCAL_SCRIPTS = {
     ),
     "nonzero": f"import sys; sys.exit({_NONZERO_EXIT})",
     "sleep": f"import time; time.sleep({_SHORT_TIMEOUT_S * 100})",  # Outlives the short timeout.
+}
+
+# Background cases (roadmap step 6.4): "runs" stays up until stopped; "logs" writes
+# _BACKGROUND_LOG to stdout, then stays up; "forks" starts a grandchild in the same process group
+# and exits, the daemon shape a display server's launcher has; "missing" cannot start at all.
+_BACKGROUND_LOG = b"ready 99\n"
+_BACKGROUND_SCRIPTS = {
+    "runs": "import time; time.sleep(600)",
+    "logs": (
+        f"import sys, time; sys.stdout.buffer.write({_BACKGROUND_LOG!r}); sys.stdout.flush(); "
+        "time.sleep(600)"
+    ),
+    "forks": (
+        "import subprocess, sys; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])"
+    ),
 }
 
 
@@ -150,6 +201,12 @@ class _LocalHarness:
         if case == "missing":
             return (_MISSING_EXECUTABLE,)  # Not a script: the point is that nothing can run it.
         return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
+
+    def background_for(self, session: CellSession, case: str) -> tuple[str, ...]:
+        return _real_background_argv(case)
+
+    def crash(self, session: CellSession, process: BackgroundProcess) -> None:
+        _kill_leader(process)
 
 
 class _InCellHarness:
@@ -184,6 +241,25 @@ class _InCellHarness:
         if case == "missing":
             return (_MISSING_EXECUTABLE,)
         return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
+
+    def background_for(self, session: CellSession, case: str) -> tuple[str, ...]:
+        return _real_background_argv(case)
+
+    def crash(self, session: CellSession, process: BackgroundProcess) -> None:
+        _kill_leader(process)
+
+
+def _real_background_argv(case: str) -> tuple[str, ...]:
+    """The argv a real session starts for a background case."""
+    if case == "missing":
+        return (_MISSING_EXECUTABLE,)
+    return (sys.executable, "-c", _BACKGROUND_SCRIPTS[case])
+
+
+def _kill_leader(process: BackgroundProcess) -> None:
+    """Kill only a background process's leader, the way a crash ends it (not its group)."""
+    # SIGKILL on POSIX; os.kill with SIGTERM terminates the process on Windows.
+    os.kill(process.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
 
 
 _HARNESSES: dict[str, SessionHarness] = {
@@ -336,3 +412,114 @@ async def test_close_is_idempotent(harness: SessionHarness, tmp_path: Path) -> N
     await session.close()
 
     assert not session.is_open
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Background processes (roadmap step 6.4, ADR-0031)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_LOG_WAIT_S = 10.0  # Generous: a real child must start Python and flush one line.
+_LOG_POLL_S = 0.05  # How often the log is re-read while waiting for it.
+
+
+async def _read_log_when_written(session: CellSession, path: Path) -> bytes:
+    """Poll `path` through the session until it holds something, bounded by _LOG_WAIT_S."""
+    async with asyncio.timeout(_LOG_WAIT_S):
+        while True:
+            data = await session.get_file(path)
+            if data:
+                return data
+            await asyncio.sleep(_LOG_POLL_S)
+
+
+async def test_start_returns_a_running_process_and_stop_ends_it(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+
+    process = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
+
+    assert process.pid > 0
+    assert await session.is_running(process)
+    assert await session.stop(process) is True
+    assert not await session.is_running(process)
+    # Idempotent: stopping twice is a quiet False, never an error.
+    assert await session.stop(process) is False
+    await session.close()
+
+
+async def test_a_background_process_writes_its_output_to_its_log_in_scratch(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+    spec = BackgroundSpec(argv=harness.background_for(session, "logs"), log_path=Path("x/out.log"))
+
+    process = await session.start(spec)
+
+    assert process.log_path == (session.scratch_dir / "x" / "out.log").resolve(strict=False)
+    assert await _read_log_when_written(session, Path("x/out.log")) == _BACKGROUND_LOG
+    await session.close()
+
+
+async def test_a_log_path_outside_scratch_is_refused(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+    spec = BackgroundSpec(
+        argv=harness.background_for(session, "runs"), log_path=tmp_path.parent / "elsewhere.log"
+    )
+
+    with pytest.raises(PathNotAllowedError):
+        await session.start(spec)
+    await session.close()
+
+
+async def test_a_command_that_cannot_start_raises_background_start_error(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+
+    # Unlike exec's exit 127, a start is infrastructure asking for something it needs running.
+    with pytest.raises(BackgroundStartError):
+        await session.start(BackgroundSpec(argv=harness.background_for(session, "missing")))
+    await session.close()
+
+
+async def test_is_running_turns_false_when_the_process_dies_on_its_own(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+    process = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
+
+    harness.crash(session, process)
+
+    async with asyncio.timeout(_LOG_WAIT_S):
+        while True:
+            if not await session.is_running(process):
+                break
+            await asyncio.sleep(_LOG_POLL_S)
+    assert await session.stop(process) is False  # It had already exited; still reaped quietly.
+    await session.close()
+
+
+async def test_close_stops_every_background_process(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+    first = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
+    second = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
+
+    await session.close()
+
+    assert not await session.is_running(first)
+    assert not await session.is_running(second)
+
+
+async def test_start_after_close_raises_session_closed(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    session = harness.make_session(tmp_path)
+    await session.close()
+
+    with pytest.raises(SessionClosedError):
+        await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))

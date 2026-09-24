@@ -22,11 +22,19 @@ See Also:
     - hivemind.cell.session for CellSession, the Protocol FakeSession implements.
 
 Public API:
-    - FakeSession, Responder: an in-memory CellSession (hivemind.cell.fake.session).
+    - FakeSession, FakeStart, FAKE_PID_BASE, Responder: an in-memory CellSession, with
+      simulated background processes (hivemind.cell.fake.session).
     - FakeCellSource, FakeLeaseReleaser: an in-memory RealCellSource (hivemind.cell.fake.source).
 """
 
-from hivemind.cell.fake.session import FakeSession, Responder
+from hivemind.cell.fake.session import FAKE_PID_BASE, FakeSession, FakeStart, Responder
 from hivemind.cell.fake.source import FakeCellSource, FakeLeaseReleaser
 
-__all__ = ["FakeCellSource", "FakeLeaseReleaser", "FakeSession", "Responder"]
+__all__ = [
+    "FAKE_PID_BASE",
+    "FakeCellSource",
+    "FakeLeaseReleaser",
+    "FakeSession",
+    "FakeStart",
+    "Responder",
+]

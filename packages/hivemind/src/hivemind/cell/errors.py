@@ -54,6 +54,7 @@ from hivemind.common.errors import (
 )
 
 __all__ = [
+    "BackgroundStartError",
     "CellError",
     "CommandTimeoutError",
     "InvalidLeaseTransitionError",
@@ -203,6 +204,28 @@ class InvalidLeaseTransitionError(ConflictError):
         self.from_state = from_state
         self.to_state = to_state
         self.lease_id = lease_id
+
+
+class BackgroundStartError(CellError):
+    """Raise when `CellSession.start` cannot start a background command at all.
+
+    Unlike `exec`, which reports an unstartable command as an ordinary failed command (exit 127)
+    for the bee that proposed it to read, `start` is called by infrastructure (the Exoskeleton's
+    attach, a model server's host) that must know the thing it needed is not running.
+    """
+
+    code: ClassVar[str] = "hivemind.cell.background_start_failed"
+
+    def __init__(self, argv: tuple[str, ...], reason: str) -> None:
+        """Build the error for one command that could not be started.
+
+        Args:
+            argv: The command that was asked for; only its program name is quoted.
+            reason: Why the OS refused to start it (no such file, permission denied, ...).
+        """
+        super().__init__(f"Could not start {argv[0]!r} in the background: {reason}.")
+        self.argv = argv
+        self.reason = reason
 
 
 class ProbeError(CellError):

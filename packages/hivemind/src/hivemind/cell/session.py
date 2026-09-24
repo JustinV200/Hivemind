@@ -3,10 +3,15 @@
 codingrules section 8.7: "A session is a terminal." Whatever kind a Cell is (Real or Virtual) and
 wherever it runs, the one way a Worker or a tool runs a command or touches a file on it is a
 `CellSession`: `exec` (streaming output), `put_file`, `get_file`, a `scratch_dir` every relative
-path resolves against, and `close`. This module also defines the small value types an `exec` call
-streams (`OutputChunk`, `ExitStatus`, `ExecEvent`), the request it takes (`ExecSpec`), and `run`, a
-convenience that drives a session's `exec` to completion and collects it into one `CompletedCommand`
-for a caller that does not need to react to output as it arrives.
+path resolves against, and `close`. Since roadmap step 6.4 (ADR-0031) a session also starts and
+stops long-running background processes (`start`, `stop`, `is_running`): a display, a sound
+server, a browser, later a model server on a Nuc (a device that hosts its own model), each started
+in its own process group, reported to the lease before `start` returns and killed by `close` as
+the backstop. This module also defines the small value types an `exec` call streams
+(`OutputChunk`, `ExitStatus`, `ExecEvent`), the requests the two kinds of command take (`ExecSpec`,
+`BackgroundSpec`) and what `start` hands back (`BackgroundProcess`), and `run`, a convenience that
+drives a session's `exec` to completion and collects it into one `CompletedCommand` for a caller
+that does not need to react to output as it arrives.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by `hivemind.cell.fake.
@@ -22,7 +27,11 @@ Key invariants:
       `scratch_dir` when given as a relative path; an implementation resolves `..` and symlinks
       with `Path.resolve(strict=False)` before checking a path is in reach (`resolve_scratch_path`
       below is the one place that check lives, shared by every concrete session).
-    - `close` is idempotent and kills whatever `exec` started on this session.
+    - `close` is idempotent and kills whatever `exec` or `start` started on this session.
+    - `start` returns only after the process's pid is recorded where `close` (and the lease's own
+      release) will find it, so a crash right after `start` never leaks a background process.
+    - `stop` and `is_running` answer only for processes this session itself started; both keep
+      working after `close` (everything is already stopped by then, so `stop` returns False).
 
 See Also:
     - .claude/codingrules.md section 8.7 for "A session is a terminal."
@@ -48,6 +57,8 @@ DEFAULT_EXEC_TIMEOUT_S = 60.0  # Generous for a one-off shell command; long tool
 
 __all__ = [
     "DEFAULT_EXEC_TIMEOUT_S",
+    "BackgroundProcess",
+    "BackgroundSpec",
     "CellSession",
     "CompletedCommand",
     "ExecEvent",
@@ -110,8 +121,47 @@ class ExecSpec(BaseModel):
     stdin: bytes | None = Field(default=None, description="Bytes to write to stdin, if any.")
 
 
+class BackgroundSpec(BaseModel):
+    """One long-running command to start on a CellSession and leave running: a display, a server.
+
+    Unlike `ExecSpec` there is no timeout and no stdin: the process runs until `stop` or `close`
+    ends it, and its output goes to a log file in scratch or nowhere at all.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    argv: tuple[str, ...] = Field(
+        min_length=1, description="The command and its arguments; never run through a shell."
+    )
+    cwd: Path | None = Field(
+        default=None,
+        description="Working directory; relative to scratch_dir when relative, None for scratch "
+        "itself.",
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Extra environment variables, added to the session's."
+    )
+    log_path: Path | None = Field(
+        default=None,
+        description="Where stdout and stderr both go, relative to scratch_dir when relative and "
+        "always inside it; None discards both.",
+    )
+
+
+class BackgroundProcess(BaseModel):
+    """A process a CellSession started in the background: its pid, command and log file."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    pid: int = Field(gt=0, description="The process id; on POSIX also its process group id.")
+    argv: tuple[str, ...] = Field(min_length=1, description="The command that was started.")
+    log_path: Path | None = Field(
+        description="The resolved log file stdout and stderr go to, or None when discarded."
+    )
+
+
 class CellSession(Protocol):
-    """A terminal session on one Cell: exec, put a file, get a file, delete a file, close.
+    """A terminal session on one Cell: exec, start, stop, put, get and delete a file, close.
 
     The only way a Worker or a tool runs a command or touches a file on its Cell (codingrules
     section 4). Implementations must be safe to call `exec` on more than once concurrently.
@@ -194,8 +244,53 @@ class CellSession(Protocol):
         """
         ...
 
+    async def start(self, spec: BackgroundSpec) -> BackgroundProcess:
+        """Start `spec` in the background and return at once, leaving it running.
+
+        The process gets its own process group (a new session on POSIX), so `stop` and `close`
+        can kill it and everything it forks; its pid is recorded with this session's lease before
+        this returns, so the lease's release is a second backstop.
+
+        Args:
+            spec: The command to start.
+
+        Returns:
+            The started process: its pid, command and resolved log path.
+
+        Raises:
+            SessionClosedError: This session is closed.
+            PathNotAllowedError: `spec.log_path` resolves outside scratch.
+            BackgroundStartError: The command could not be started at all (no such executable,
+                not executable, a missing working directory).
+        """
+        ...
+
+    async def stop(self, process: BackgroundProcess) -> bool:
+        """Kill `process` and its whole process tree, and reap it. Idempotent.
+
+        Args:
+            process: A process this session's own `start` returned.
+
+        Returns:
+            True when it was still running and was stopped; False when it had already exited,
+            was already stopped, or was never started by this session.
+        """
+        ...
+
+    async def is_running(self, process: BackgroundProcess) -> bool:
+        """Return whether `process`, started by this session, is still running.
+
+        Args:
+            process: A process this session's own `start` returned.
+
+        Returns:
+            True while it runs; False once it has exited, been stopped, or was never started by
+            this session.
+        """
+        ...
+
     async def close(self) -> None:
-        """Close this session, killing whatever `exec` started on it. Idempotent."""
+        """Close this session, killing whatever `exec` or `start` started on it. Idempotent."""
         ...
 
 

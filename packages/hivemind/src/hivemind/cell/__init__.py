@@ -51,7 +51,8 @@ Public API:
     - CellKind, CellCapabilities, Cell: what a Cell is and can do (hivemind.cell.models).
     - OutputStream, OutputChunk, ExitStatus, ExecEvent, ExecSpec, CellSession, CompletedCommand,
       run, DEFAULT_EXEC_TIMEOUT_S, resolve_scratch_path: a terminal session on a Cell
-      (hivemind.cell.session).
+      (hivemind.cell.session); BackgroundSpec, BackgroundProcess: what its `start` takes and
+      returns for a long-running process (roadmap step 6.4).
     - LeaseState, TRANSITIONS, can_transition, assert_transition: a lease's state machine
       (hivemind.cell.lease_state).
     - LeaseRequest, LeaseFacts, LeaseReleaseReport, LeaseReleaser, RealCellLease, RestoreRecord:
@@ -60,13 +61,14 @@ Public API:
       (hivemind.cell.source).
     - SnapshotId, Snapshotter, NoopSnapshotter, NOOP_SNAPSHOT_ID: the (usually absent) ability to
       roll a Cell back (hivemind.cell.snapshot).
-    - FakeSession, FakeCellSource, FakeLeaseReleaser, Responder: an in-memory implementation of
-      both Protocols (hivemind.cell.fake).
+    - FakeSession, FakeStart, FakeCellSource, FakeLeaseReleaser, Responder: an in-memory
+      implementation of both Protocols, background processes simulated (hivemind.cell.fake).
     - InCellSession, InCellLeaseReleaser: a CellSession for code already running inside its own
       Virtual Cell (roadmap step 5.5; hivemind.cell.in_cell).
     - CellError, LeaseRefusedError, SessionClosedError, CommandTimeoutError, PathNotAllowedError,
       SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError,
-      ScratchQuotaExceededError: this package's error tree (hivemind.cell.errors).
+      ScratchQuotaExceededError, BackgroundStartError: this package's error tree
+      (hivemind.cell.errors).
     - hivemind.cell.local: the Hive Stand, the first Real Cell source (roadmap step 3.11): see
       its own README for HiveStandConfig, HiveStandSource, LocalProcessSession and
       HiveStandLeaseReleaser, not re-exported here (codingrules section 4: `hivemind.cell.local`
@@ -75,6 +77,7 @@ Public API:
 """
 
 from hivemind.cell.errors import (
+    BackgroundStartError,
     CellError,
     CommandTimeoutError,
     InvalidLeaseTransitionError,
@@ -85,7 +88,7 @@ from hivemind.cell.errors import (
     SessionClosedError,
     SnapshotUnsupportedError,
 )
-from hivemind.cell.fake import FakeCellSource, FakeLeaseReleaser, FakeSession, Responder
+from hivemind.cell.fake import FakeCellSource, FakeLeaseReleaser, FakeSession, FakeStart, Responder
 from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
 from hivemind.cell.lease import (
     LeaseFacts,
@@ -100,6 +103,8 @@ from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.needs import Isolation, OsFamily, RequestOrigin, TaskNeeds
 from hivemind.cell.session import (
     DEFAULT_EXEC_TIMEOUT_S,
+    BackgroundProcess,
+    BackgroundSpec,
     CellSession,
     CompletedCommand,
     ExecEvent,
@@ -119,6 +124,9 @@ __all__ = [
     "NOOP_SNAPSHOT_ID",
     "TRANSITIONS",
     "AccessLevel",
+    "BackgroundProcess",
+    "BackgroundSpec",
+    "BackgroundStartError",
     "Cell",
     "CellCapabilities",
     "CellError",
@@ -134,6 +142,7 @@ __all__ = [
     "FakeCellSource",
     "FakeLeaseReleaser",
     "FakeSession",
+    "FakeStart",
     "HoneyClearance",
     "InCellLeaseReleaser",
     "InCellSession",

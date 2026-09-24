@@ -8,7 +8,8 @@ class itself stays a thin adapter (codingrules section 8.3): the concurrent spaw
 machinery `exec` drives lives in `hivemind.cell.local.process` (roadmap step 5.5's own refactor),
 shared with `hivemind.cell.in_cell.InCellSession` rather than duplicated, so this class's own job
 is narrowed to resolving paths, wiring this session's `RealCellLease` into that shared machinery's
-`on_started`/`note_touched_path` callbacks, and closing.
+`on_started`/`note_touched_path` callbacks, and closing. Long-running background processes (a
+display, a browser; roadmap step 6.4) go through `hivemind.cell.local.background` the same way.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction), inside `hivemind.cell.local` (the Hive Stand). Implements
@@ -26,7 +27,9 @@ Key invariants:
       does anything else with the child, so a crash between spawn and the first yield still leaves
       the pid recorded for `close()` or a later `release()` to find and kill.
     - `close()` is idempotent and kills every pid this session's lease recorded as started,
-      whether or not this particular session instance is the one that started it.
+      whether or not this particular session instance is the one that started it; background
+      processes `start` launched (roadmap step 6.4) are stopped and reaped first, through the
+      shared `hivemind.cell.local.background.BackgroundTable`.
     - `put_file`/`get_file`/`delete_file` read `self._lease.allowed_paths` live, every call,
       rather than snapshotting it in `__init__`: `RealCellLease.note_allowed_path` (roadmap step
       5.0e) widens a lease already in use, once a `TaskAssign`'s own declared `leaves` or the
@@ -53,10 +56,17 @@ from pathlib import Path
 
 from hivemind.cell.errors import SessionClosedError
 from hivemind.cell.lease import RealCellLease
+from hivemind.cell.local.background import BackgroundContext, BackgroundTable
 from hivemind.cell.local.process import ProcessContext, run_child_process
 from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.releaser import kill_process_tree
-from hivemind.cell.session import ExecEvent, ExecSpec, resolve_scratch_path
+from hivemind.cell.session import (
+    BackgroundProcess,
+    BackgroundSpec,
+    ExecEvent,
+    ExecSpec,
+    resolve_scratch_path,
+)
 from waggle.clock import Clock
 
 __all__ = ["LocalProcessSession"]
@@ -79,6 +89,8 @@ class LocalProcessSession:
         self._quota = quota
         self._clock = clock
         self._open = True
+        # Every background process start() launched, so stop()/close() can kill and reap it.
+        self._background = BackgroundTable(clock)
 
     @property
     def scratch_dir(self) -> Path:
@@ -177,11 +189,43 @@ class LocalProcessSession:
             raise FileNotFoundError(f"No file at {resolved}.")
         await asyncio.to_thread(resolved.unlink)
 
+    async def start(self, spec: BackgroundSpec) -> BackgroundProcess:
+        """Start `spec` in the background, recording its pid on this session's lease.
+
+        Args:
+            spec: The command to start.
+
+        Returns:
+            The started process.
+
+        Raises:
+            SessionClosedError: This session is closed.
+            PathNotAllowedError: `spec.log_path` resolves outside scratch.
+            BackgroundStartError: The command could not be started at all.
+        """
+        if not self._open:
+            raise SessionClosedError(self._scratch_dir)
+        ctx = BackgroundContext(
+            scratch_dir=self._scratch_dir, on_started=self._lease.note_started_process
+        )
+        return await self._background.start(spec, ctx)
+
+    async def stop(self, process: BackgroundProcess) -> bool:
+        """Kill `process`'s whole tree and reap it; see `CellSession.stop`. Idempotent."""
+        return await self._background.stop(process)
+
+    async def is_running(self, process: BackgroundProcess) -> bool:
+        """Return whether `process`, started by this session, still runs."""
+        return self._background.is_running(process)
+
     async def close(self) -> None:
         """Close this session, killing every pid its lease recorded as started. Idempotent."""
         if not self._open:
             return
         self._open = False
+        # Background processes first, through their own handles, so each is also reaped; the
+        # lease's pid list below then catches whatever exec started and anything left over.
+        await self._background.stop_all()
         for pid in self._lease.started_pids:
             await kill_process_tree(pid, self._clock)
 
