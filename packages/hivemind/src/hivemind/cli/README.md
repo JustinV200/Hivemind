@@ -94,12 +94,19 @@ typer layer that calls into a subsystem's public API and never contains logic of
   attached yet. `in_cell/deps.py` does the same for a Virtual Cell's Warden: the shipped policy,
   recording to the Cell's own trail, with `VIRTUAL_CELL_LEASE` (`cell:virtual`).
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
-  [--json]`: the one command that calls `build_hive`/`run_hive`/`run_goal`. Streams trail events as
+  [--json] [--comb-shield night_veil]`: the one command that calls `build_hive`/`run_hive`/
+  `run_goal`. With `--comb-shield` (roadmap step 10.3c) the goal is asked for as a durable goal
+  request instead (origin HUMAN, the tier named, no device: `compose/request.py`,
+  `run_requested_goal`), the one way Night Veil work is initiated, and followed once the Queen has
+  planned it; a request she refuses prints `hive run refused: <reason>` (exit 1), one still
+  unplanned at the timeout exits 2. `RunCommand` carries `--json` and `--comb-shield` on the
+  command itself, keeping `run_command` within five parameters. Streams trail events as
   they arrive (unless `--json`), then a one-line summary; exits 0 on success, 1 when the goal
   failed, 2 on a timeout or a bad manifest. The streamed view begins at the goal's own
   submission, never earlier (a store that already holds other runs does not replay them), and
   with `[hive_stand] keep_scratch = true` (development only) the last line names the lease
-  directory the run's files were left in. Registered on the root app with `app.command("run")`,
+  directory the run's files were left in. Registered on the root app with
+  `app.command("run", cls=RunCommand)`,
   not `app.add_typer` -- unlike every other group in this package, it has no subcommand of its own
   (`hive run "goal"`, not `hive run run "goal"`), and the pinned typer version does not collapse a
   single-command `add_typer` sub-app onto its parent's own name (verified empirically; see this

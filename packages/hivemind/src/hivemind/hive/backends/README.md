@@ -18,7 +18,12 @@ providers under `backends/cloud/`.
   (`bootstrap.py`): the backend-independent seam every backend provisions through -- a fresh
   per-Cell identity and keypair, where the Queen is as reachable from inside a Cell, and how a
   backend learns a Cell has become reachable. `FakeReadinessGate` (`fake.py`, beside
-  `FakeCellBackend`) is its in-memory implementation, with a `set_never_ready` switch.
+  `FakeCellBackend`) is its in-memory implementation, with a `set_never_ready` switch. Roadmap
+  step 10.3a: a `QueenEndpoint` may carry a `NightVeilLink` (the Hive Stand's hidden-service
+  Waggle URL and the Tor SOCKS proxy, built from `[security.tiers.NIGHT_VEIL]`), and
+  `cell_endpoint` is the one per-Cell choice every backend makes before minting: the ordinary
+  endpoint for MEADOW and PROPOLIS, the link for NIGHT_VEIL, and a `CellProvisionError` (nothing
+  created) for a Night Veil Cell on a Hive with no link, so it is never handed a clearnet address.
 - `DockerCellBackend` / `build_docker_backend` (`docker/`): the first working `CellBackend`, over
   a Docker daemon. See `docker/`'s own module docstrings for `DockerClientPort`, `SdkDockerClient`
   (the only module that may import the `docker` SDK), `FakeDockerClient` and what each

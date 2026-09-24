@@ -86,7 +86,9 @@ Cell's kind) and the `[llm.slots]` rows (`bindings`) a binding key resolves agai
   Warden's own REBIND, and a Queen-sent `Intervene(REBIND)` (never checked before) -- must name a
   slot the grant allows and the sub-bee's set holds as `llm:<slot>`; a named binding resolves to
   the slot whose fallback chain names it. A refused spawn reports the task FAILED; a landed
-  rebind records `llm.rebound`.
+  rebind records `llm.rebound`. Roadmap step 10.3a/b: the check is bound to the Cell's tier and
+  states whether every provider the key's fallback chain reaches serves locally
+  (`WardenDeps.local_providers`), so a Night Veil task can never be rebound to a hosted slot.
 - `question_routing` (`ticks.questions`): a sub-bee's Question goes up only when its set holds
   `question:human`; otherwise the Warden answers it back down with the Guard's reason.
 - A sub-bee's slice (`spawn.attenuate`) now reads the task's `network_scopes` (so a Worker can hold

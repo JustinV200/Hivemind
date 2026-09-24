@@ -28,12 +28,20 @@ roadmap step 5.0e adds a sixth, `keep`.
   Every side-effecting call goes through `hivemind.workers.tools.proposals.cap` first, inside
   scratch included: nothing lands uncapped, and the scratch-tier check ladder is cheap.
 - `http.py` -- `http_request`: checks `net:<host>` for the URL's host through the Guard
-  (`tool_invocation`; a refusal is on the trail), then proposes a one-step `ACTION_SEQUENCE`
-  (`"<METHOD> <url>"`) at `RiskTier.NETWORK_EGRESS`. Since roadmap step 10.3 the Capping gate
-  passes a well-formed network step on that tier (its ALLOWLIST rung checks `net:<host>` again;
-  its apply is the authorisation itself), and once the outcome is `VERIFIED` `_send` makes the one
-  request; a connection failure is a readable result, never an exception. `httpx` is imported
-  only inside `_send`, and nowhere else under `workers/`.
+  (`tool_invocation`; a refusal is on the trail), then (roadmap step 10.3a) resolves the host
+  through `WorkerContext.resolver` and has the Guard's floors judge every address it got back, so
+  a loopback, link-local or Hive Stand address is refused as `guard.state_floor.loopback` however
+  the name spelled it; a host the Worker does not hold is never looked up. It then proposes a
+  one-step `ACTION_SEQUENCE` (`"<METHOD> <url>"`) at `RiskTier.NETWORK_EGRESS`. Since roadmap step
+  10.3 the Capping gate passes a well-formed network step on that tier (its ALLOWLIST rung checks
+  `net:<host>` again; its apply is the authorisation itself), and once the outcome is `VERIFIED`
+  `_send` makes the one request to the checked address (a `PinnedRequest`), the name kept in
+  `Host` and in TLS's SNI; a connection failure is a readable result, never an exception. `httpx`
+  is imported here (its URL parser is the one the request is sent with), and nowhere else under
+  `workers/`.
+- The Hive-state floor also stands in front of `run_command` (`exec:<argv[0]>`: never `hive` or
+  `hivemind-*`), `write_file` and `keep` (`fs:write:<path>`: never the Hive's database, secrets or
+  manifest), through `authorize.floor_refusal_text`, before anything is proposed.
 - `ask.py` -- `ask`: raises a blocking `waggle.messages.supervision.Question` through
   `ctx.asker.ask` and returns its `Answer`'s text (plus the chosen option's own wording, when one
   was offered) as the tool result. No proposal: asking has no side effect to check; since roadmap
