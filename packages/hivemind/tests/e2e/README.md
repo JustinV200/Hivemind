@@ -51,7 +51,14 @@ exist to catch problems that only show up when every layer runs at once.
   set_forage_reserve_seats`, since that builder exposes no reserve knob of its own) makes the
   Queen's first grant compute to `max_sub_bees = 0`; asserts `run_goal` returns FAILED with a
   readable reason well inside its own timeout, never a timeout itself, and that `forage.denied`
-  and `task.failed` both land on the trail.
+  and `task.failed` both land on the trail. Then the zero-grant fix, on a FakeClock pump: with the
+  host's load faked (`os.getloadavg`) at nearly all of the Hive Stand's pinned cores, a goal waits
+  PENDING behind one `forage.denied` with `deferred = true` and finishes once the load drops; one
+  whose load never drops fails with the figures once `[forage] zero_grant_patience_s` passes.
+
+Every manifest this suite writes pins `[hive_stand.capacity] cores` (`builders.cli.fake_manifest`,
+`tests.e2e.scripted_openai.write_manifest`), so the test host's own load average can never leave a
+Drone's grant without a free core.
 - `test_injection_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 10.6b's invariant on a
   real run: a Drone's question is answered through `hive inbox answer` with seed payloads from the
   shipped pattern file, as a compromised device would answer it. The Worker's registry withholds
