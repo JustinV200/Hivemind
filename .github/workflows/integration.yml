@@ -36,7 +36,7 @@ jobs:
         with:
           enable-cache: true
           python-version-file: ".python-version"
-      - run: uv sync --frozen --all-groups --all-extras  # the docker extra: the SDK the Docker backend and its integration test import
+      - run: uv sync --frozen --all-groups --extra docker  # the docker extra: the SDK the Docker backend and its integration test import; never --all-extras, which would also pull the embeddings extra (roadmap 7.1) and a deep learning framework with it
       # Docker Cell backends (codingrules section 4: hive/backends/) need a live daemon; fail
       # fast with a clear message instead of letting the first integration test's own error stand
       # in for "the runner had no Docker".
