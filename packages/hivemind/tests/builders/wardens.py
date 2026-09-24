@@ -163,6 +163,19 @@ def _build_source(
     return FakeCellSource(source_cells, cell_identity, trail, active_clock)
 
 
+def _rebound(bound: BoundModel, key: str) -> BoundModel:
+    """Rebind `bound` to `key` as production does: on the slot the key names, when it names one.
+
+    A sub-bee bound to "worker" calls on ModelSlot.WORKER, so a responder routing by slot (the
+    e2e suite's HaikuScript) answers it as a Worker; a named binding keeps `bound`'s own slot.
+    """
+    try:
+        slot = ModelSlot.from_manifest_key(key)
+    except KeyError:
+        slot = bound.slot  # A named binding ("local_worker") rather than a slot.
+    return dataclasses.replace(bound, slot=slot, binding=key)
+
+
 def _build_bound(fake_provider: FakeLLMProvider | None) -> BoundModel:
     """Build the BoundModel on ModelSlot.WARDEN that `make_warden_deps` hands to `deps.bound`."""
     provider = fake_provider if fake_provider is not None else FakeLLMProvider(name="fake-warden")
@@ -218,7 +231,7 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "bound": bound,
         "call_gate": DirectCallGate(),
         "worker_factory": inputs.worker_factory,
-        "rebind": lambda key: dataclasses.replace(bound, binding=key),
+        "rebind": lambda key: _rebound(bound, key),
         "handoff_threshold": 0.66,
         "heartbeat_interval_s": 5.0,
         "worker_heartbeat_interval_s": 5.0,

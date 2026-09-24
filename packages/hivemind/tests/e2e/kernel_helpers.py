@@ -65,6 +65,7 @@ from hivemind.llm import (
     FakeLLMProvider,
     LLMRequest,
     LLMResponse,
+    Responder,
     StopReason,
     TextPart,
     ToolCall,
@@ -471,6 +472,15 @@ def pid_alive(pid: int) -> bool:
         return True
 
 
+@dataclasses.dataclass(frozen=True)
+class PairOptions:
+    """What `build_cluster_pair` may vary beyond its plan: the responder, the Cell, the Warden."""
+
+    responder: Responder | None = None  # Answers every slot; a planner-only one when None.
+    cell: Cell | None = None  # The Hive Stand Cell; a plain REAL one when None.
+    warden_overrides: Mapping[str, object] = dataclasses.field(default_factory=dict)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class ClusterPair:
     """One real Queen wired to one real Warden over one real (in-process) Waggle link.
@@ -492,19 +502,21 @@ def build_cluster_pair(
     worker_factory: Callable[[WorkerRole], Worker],
     *,
     seats: int = 8,
+    pair_options: PairOptions | None = None,
 ) -> ClusterPair:
     """Wire one real Queen to one real Warden, sharing identity/memory, scripted with `plan`.
 
-    Mirrors `test_clustering.py`'s own private `_build_scenario`: a real Cell, leased for real at
-    `Warden.start()`, and a Queen attached over one real `MemoryTransport` pair -- never the
-    wire-capturing `WardenEnd`/`QueenEnd` stubs -- so a checkpoint the Warden writes sorts before
-    its own PAUSED and a later WAKE can resume it for real. `clock` should be a real `SystemClock`
-    (module docstring): a FakeClock that never advances ties every event's `at`, which a
-    "checkpoint before PAUSED" trail-order assertion cannot tolerate. `seats` defaults to 8 so
-    roadmap-4.7's own headroom math never floors a REAL Cell's `max_sub_bees` to 0.
+    Mirrors `test_clustering.py`'s own `_build_scenario`: a real Cell leased at `Warden.start()`,
+    and a Queen attached over one real `MemoryTransport` pair, never the `WardenEnd`/`QueenEnd`
+    stubs. `clock` should be a real `SystemClock`: a FakeClock ties every event's `at`, which a
+    "checkpoint before PAUSED" assertion cannot tolerate. `seats` defaults to 8 so roadmap 4.7's
+    headroom math never floors a REAL Cell's `max_sub_bees` to 0. `pair_options` replaces the
+    planner-only responder, the Cell, or Warden fields, for a scenario scripting a Worker too.
     """
-    provider = FakeLLMProvider(responder=plan_responder(lambda _goal: plan))
-    cell = make_cell(kind=CellKind.REAL, clock=clock)
+    options = pair_options if pair_options is not None else PairOptions()
+    responder = options.responder or plan_responder(lambda _goal: plan)
+    provider = FakeLLMProvider(responder=responder)
+    cell = options.cell or make_cell(kind=CellKind.REAL, clock=clock)
     hive_id, node_id, warden_id = new_hive_id(clock), new_node_id(clock), new_warden_id(clock)
     queen_transport, warden_transport = MemoryTransport.pair(Codec(), Codec())
     queen_hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
@@ -527,6 +539,7 @@ def build_cluster_pair(
         hop=warden_hop,
         identity=deps.identity,
         memory=deps.memory,
+        **options.warden_overrides,
     )
     link = WardenLink(warden_id=warden_id, cell=cell, transport=queen_transport, hop=queen_hop)
     queen = Queen(deps)

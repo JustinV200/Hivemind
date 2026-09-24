@@ -1156,10 +1156,24 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   including the recorder. Landed as three suites: `test_exoskeleton_contract.py` (display, input,
   audio over the fakes and real X11/PulseAudio), `test_browser_contract.py` (the fake browser and
   real Chromium) and `test_recording_store_contract.py` (in-memory and SQLite).
-- [ ] **6.9 Forager role.** `workers/roles/forager.py`: bounded see/act loop; page content to
-  `Nectar`.
-- [ ] **6.10 Scout role.** `workers/roles/scout.py`: recon with a strict budget returning a
-  `ScoutReport` the Queen uses before committing Foragers.
+- [x] **6.9 Forager role.** `workers/roles/forager.py`: bounded see/act loop; page content to
+  `Nectar`. Landed as the `workers/roles/forager/` package over `workers/roles/bounded_loop/`
+  (the Drone's tool loop, factored out: role, prompt, round cap, tools and a per-result hook):
+  at most 16 rounds, refused without an attached Exoskeleton, its brief showing its Scout
+  dependencies' reports; every `browser_read` and `browser_snapshot` is deposited as Nectar (a
+  Bee Bread `TOOL_RESULT` entry until phase 7: scrubbed, capped, at the task's clearance, never a
+  frame). The planner allows a Forager only with `needs.exoskeleton`; its grant uses its own
+  `[forage.roles]` footprint when the manifest has one, else the Drone's.
+- [x] **6.10 Scout role.** `workers/roles/scout.py`: recon with a strict budget returning a
+  `ScoutReport` the Queen uses before committing Foragers. Landed as the `workers/roles/scout/`
+  package: 6 rounds of read-only tools (page reads, `browser_navigate`, a GET-only
+  `http_request`, `read_file`) and `report_findings`, which writes `scout-report.json` through
+  the capped write path and ends the loop; running out of rounds files a `feasible=False` report.
+  A Scout's acceptance is exactly FILE_EXISTS on that file. The report rides up on
+  `TaskResult.scout_report` onto the chamber outcome, and the dispatcher hands the reports of a
+  task's SUCCEEDED Scout dependencies (at most 4, newest first) down as `TaskAssign.recon`. An
+  infeasible report fails the Scout without retry and cancels every task that waited on it, with
+  its reason. `tests/e2e/test_scout_then_forager.py` runs both through a real Queen and Warden.
 - [x] **6.11 Playwright fast path.** `exoskeleton/browser/playwright.py`: headed in the Cell's
   display when one exists, headless otherwise; `browser_*` tools that also work without vision
   through the accessibility tree. The only Exoskeleton on Windows and macOS Real Cells for 1.0.
