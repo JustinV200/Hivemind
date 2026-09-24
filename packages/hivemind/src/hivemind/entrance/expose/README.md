@@ -63,9 +63,9 @@ enforce at the first ceremony).
   (in the secret store, readable by the Hive's own OS user) could then impersonate any site to it.
   The server holds the authority; a device never needs it.
 - **The revocation list never leaves the Hive Stand**, so its `nextUpdate` is the authority's own
-  end: freshness comes from rebuilding it on every revocation and start. Python can load a list
-  only from a file, so `server_context` writes the (public) authority certificate and list to a
-  private temporary directory for the load and deletes it at once.
+  end: freshness comes from rebuilding it on every start, revocation and expiry. Python can load a
+  list only from a file, so `server_context` writes the (public) authority certificate and list to
+  a private temporary directory for the load and deletes it at once.
 - **The tunnel child gets the Hive's environment minus every `HIVEMIND_*` variable, plus each
   `HIVEMIND_ENTRANCE_TUNNEL_<NAME>` as `<NAME>`.** No shell expands variables in an argv, so a
   client (cloudflared's `TUNNEL_TOKEN`, say) can only find its token under its own name; and a

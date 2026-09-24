@@ -393,10 +393,12 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
   Hive's one `enforcer` and the Queen's `human_channel` relay, both additive.
 
 How to test it: `tests/unit/cli/test_serve.py` (the exit codes through `CliRunner`),
-`tests/unit/cli/compose/test_entrance.py` (loopback serves; lan without mutual TLS, vpn without TLS
-and tunnel without a command refuse; an unbindable loopback port refuses) and
-`tests/e2e/test_hive_serve.py` (a program enrolled, approved, running a goal and reading the
-Queen's reply over real sockets and the Hive's SQLite file).
+`tests/unit/cli/compose/test_entrance.py` (loopback serves; `vpn`, `lan` and `tunnel` start behind
+a self-signed certificate on a DNS name and serve TLS, admitting a client certificate the Hive's
+authority issued and refusing a client without one where mutual TLS is on; an unbindable loopback
+port refuses), `tests/unit/cli/compose/test_entrance_refusals.py` (`serve_hive` itself refuses each
+exposure rule, one case per rule) and `tests/e2e/test_hive_serve.py` (a program enrolled, approved,
+running a goal and reading the Queen's reply over real sockets and the Hive's SQLite file).
 
 ## Command groups (phase 10 step 10.8)
 
@@ -423,37 +425,43 @@ prints the public half in hex, the form a peer pins).
   before it reaches the terminal.
 - `entrance/` -- `hive entrance ...` on the Hive Stand. `operator password` sets the password the
   first time (minting the console device) and changes it with the current one; `--reset` (a lost
-  password: every device and session revoked, a new console minted) and `unlock --console` run
-  only while `hive serve` is stopped. `operator add` refuses (Brood 1.0 keeps one operator
-  credential). `invite --device NAME [--json]` prints the grouped code, the enrolment link with the
-  code in its fragment, a terminal QR code of it (segno), the Hive id and the `hive remote enrol`
-  line; `pending`, `approve ID [--capabilities ...] [--spend-cap] [--expires] [--interactive]
-  [--yes]` (the key fingerprint, the passkey backup flags and every device-supplied string escaped,
-  then a yes), `deny`, `devices [--status]`, `revoke ID [--cancel-goals]`, `steward ID --on/--off`,
-  `unlock ID`, `reduce`, `open` (the console steps up), `status` (mode, listeners, exposure plan,
-  devices by status, held confirmations) and `expose` (the plan or the refusal, dry, no password).
-  Every command that decides something unwraps the console key with the password and logs in over
-  the running serve's loopback listener, so it leaves the same trail as any device (`console`).
+  password: every device and session revoked, a new console minted) and `unlock --console` run only
+  while `hive serve` is stopped. `operator add` refuses (Brood 1.0 keeps one operator credential).
+  `invite --device NAME [--json]` prints the grouped code, the enrolment link with the code in its
+  fragment, a terminal QR code of it (segno), the Hive id and the `hive remote enrol` line;
+  `register --name N --public-key HEX --csr FILE` (a device registered offline, below); `pending`,
+  `approve ID [--capabilities ...] [--spend-cap] [--expires] [--interactive] [--yes]
+  [--certificate-out FILE] [--bundle-out FILE]` (the key fingerprint, the passkey backup flags and
+  every device-supplied string escaped, then a yes; then the certificate it issued, below), `deny`,
+  `devices [--status]`, `revoke ID [--cancel-goals]`, `steward ID --on/--off`, `unlock ID`,
+  `reduce`, `open` (the console steps up), `status` (mode, listeners, exposure plan, devices by
+  status, held confirmations) and `expose` (the plan or the refusal, dry, no password). Every
+  command that decides something unwraps the console key with the password and logs in over the
+  running serve's loopback listener, so it leaves the same trail as any device (`console`).
   `serving` keeps one `hive serve` per Hive: the **serve lock**, an OS lock on `<db>.serve.lock`
   that `hive serve` holds for its life and an offline operation for its duration (released by the
   kernel even when the holder is killed), and the **serve record** (`<db>.serve.json`: pid, host,
-  port) that tells the console where the loopback listener answers, `bind = "127.0.0.1:0"`
-  included. `compose/entrance.py`'s `serve_hive` holds the lock and publishes the record.
+  port) that tells the console where the loopback listener answers, `bind = "127.0.0.1:0"` included.
+  `compose/entrance.py`'s `serve_hive` holds the lock and publishes the record.
 - `remote/` -- the laptop's side. `hive remote enrol URL --name NAME [--code CODE] [--hive HIVE]
-  [--profile P] [--ca-file PEM]` mints the laptop's Ed25519 key, redeems the invite (the URL may be
-  the whole invite link, which carries the code and the Hive id), keeps the profile as plain JSON
-  and the key in a `hivemind.common.secrets` file store beside it (both owner-only, under the
-  user's config directory: `<config>/hivemind/remote/`), and prints the key fingerprint and the
-  approval the operator owes. `hive remote profiles` lists them; `hive remote forget NAME` drops
-  one and its key. `hive run --remote "goal" [--profile P] [--timeout S] [--json]` submits the goal
+  [--profile P] [--ca-file PEM] [--offline] [--csr-out FILE]` mints the laptop's Ed25519 key,
+  redeems the invite with a certificate request for that key (the URL may be the whole invite link,
+  which carries the code; the Hive's id is then asked of the Entrance, `GET /v1/enrol/hive`, over
+  the same verified connection, and a `--hive` it contradicts is refused), keeps the profile as
+  plain JSON and the key in a `hivemind.common.secrets` file store beside it (both owner-only, under
+  the user's config directory: `<config>/hivemind/remote/`), and prints the key fingerprint and the
+  approval the operator owes. `hive remote profiles` lists them (with whether each holds a client
+  certificate); `hive remote forget NAME` drops one, its key and its certificate; `hive remote
+  set-url URL [--ca-file PEM]` moves a profile to another address of the same Hive (the mutual-TLS
+  listener, say). `hive run --remote "goal" [--profile P] [--timeout S] [--json]` submits the goal
   through `POST /v1/goals` and follows it to its end through the chat and push views and its own
   re-reads (a device without those views follows by re-reading alone), printing the Queen's lines
-  with the command that answers a question, each once, and at the end reading the chat for any
-  line the view had not delivered yet; exit 0 finished, 1 refused, 2 the timeout ended the follow
-  first (the goal goes on). `hive inbox --remote [--json]`, `hive inbox --remote answer ID
-  TEXT [--option N]` and `hive inbox --remote acknowledge ALARM_ID` act on the remote inbox.
-  Every refusal (no profile, pending, locked, revoked, a wrong password, a held request with its
-  pending id, an Entrance that does not answer) is one stderr line and exit 1.
+  with the command that answers a question, each once, and at the end reading the chat for any line
+  the view had not delivered yet; exit 0 finished, 1 refused, 2 the timeout ended the follow first
+  (the goal goes on). `hive inbox --remote [--json]`, `hive inbox --remote answer ID TEXT [--option
+  N]` and `hive inbox --remote acknowledge ALARM_ID` act on the remote inbox. Every refusal (no
+  profile, pending, locked, revoked, a wrong password, a held request with its pending id, an
+  Entrance that does not answer) is one stderr line and exit 1.
 - `keys/` -- `hive keys list [--json]`, `create NAME`, `revoke NAME [--yes]`: the Waggle-side
   Ed25519 keys in the Hive's secret store, each shown by name, role, public key and fingerprint.
   The Hive's identity key (`hive.ed25519`, moved only by Supersedure) and the console's wrapped
@@ -462,11 +470,40 @@ prints the public half in hex, the form a peer pins).
   trail's vocabulary has no key-lifecycle kind yet, so creation and revocation are logged (name
   and fingerprint), not recorded on the trail.
 
+Mutual-TLS device certificates (roadmap 10.5a/10.5d, ADR-0033). In `lan` and `tunnel` (and `vpn`
+with `mutual_tls = true`) the remote listener completes a handshake only with a client certificate
+from the Hive's own authority, issued at approval:
+
+- A laptop's certificate certifies its own device key, so there is one key, in the secret store.
+  `landing/certificate` builds the request (`certificate_request`), checks a certificate it is
+  given (`certificate_facts`: this device's key, current, naming a device), and presents it
+  (`present`) on every HTTPS request and WebSocket of a profile that holds one: the standard
+  library loads a key only from a file, so the key goes to a private temporary directory sealed
+  under a one-time password that lives only in memory, gone before the call returns.
+- `hive remote certificate fetch` reads it after approval (`GET /v1/devices/me/certificate`, over
+  the listener the laptop enrolled on) and keeps it beside the profile (`<profile>.crt`,
+  owner-only). The certificate is checked against the laptop's key before it is kept.
+- A laptop that can reach no enrolment listener enrols `--offline`: it makes its key and a
+  request (`--csr-out`, default `./<profile>.csr`), sends nothing, and prints what the operator
+  runs. The operator runs `hive entrance register --name N --public-key HEX --csr FILE` (the
+  loopback-only `POST /v1/entrance/register`), then `hive entrance approve ID --certificate-out
+  FILE`. On the laptop, `hive remote certificate import FILE` keeps the certificate, completing
+  the profile with the device id it names. Until then the profile refuses every remote command.
+- `hive entrance approve` prints the certificate it issued by serial and fingerprint. For a
+  browser under mutual TLS it writes the PKCS#12 bundle owner-only to `--bundle-out` (default
+  `./<device id>.p12`, checked writable before anything is issued) and prints the passphrase once.
+- `--ca-file` stays the laptop's trust for the Hive's own name: the listener's server certificate,
+  pinned. A refused handshake reads as a Hive that did not answer, with a hint: fetch or import a
+  certificate, or the certificate may have been refused (revoked, expired, from another Hive).
+
 How to test it: `tests/unit/cli/landing/` (the signatures checked by the Entrance's own verifier,
 the client against a real Entrance app), `tests/unit/cli/entrance/`, `tests/unit/cli/remote/` and
 `tests/unit/cli/keys/` (each command group through `CliRunner` over `hive serve`'s own composition
 on real loopback sockets, `builders/entrance/stand.py`; a laptop is a second config directory,
-`laptop_terminal`) and `tests/e2e/test_phase10_remote_laptop.py`, phase 10's second exit
+`laptop_terminal`; `builders/entrance/mtls.py`'s tunnel-mode stand serves TLS and mutual TLS on
+loopback, so the certificate tests run anywhere), `tests/e2e/test_mutual_tls.py` (the same on this
+machine's private address in `lan`, with a goal run over mutual TLS) and
+`tests/e2e/test_phase10_remote_laptop.py`, phase 10's second exit
 criterion: a laptop enrols, is approved, runs a goal a real Queen plans and a Drone finishes while
 `hive inbox --remote` answers its question, and requests without credentials, with a stolen token,
 replayed, and from the laptop pending, locked and revoked are refused.

@@ -8,9 +8,14 @@ in the order a client would, against ``hive serve``'s own composition over real 
 (``e2e.entrance_stand``), the operator approving at the Hive Stand between phases. The spoken goal
 is a second of silence the Hive Stand's scripted transcriber hears as ``SPOKEN``; it is echoed back
 held, and the operator declines it, since a program cannot confirm its own. The first frame the
-helper prints opens the live push stream, which receives the Queen's question. Two static
-checks keep the guide honest: every ``curl`` example in it is one of the phases run here, and
-every path and ``X-Hive-*`` header it names is in the committed OpenAPI document.
+helper prints opens the live push stream, which receives the Queen's question. The mutual-TLS
+phases run against a Hive Stand whose remote listener demands client certificates (tunnel mode:
+TLS on loopback, a throwaway authority's server certificate the client pins, a stand-in tunnel
+client): the client makes its request, the operator registers and approves it with ``hive
+entrance`` and writes its certificate, and the client is refused at the handshake without it and
+logs in with it. Two static checks keep the guide honest: every ``curl`` example in it is one of
+the phases run here, and every path and ``X-Hive-*`` header it names is in the committed OpenAPI
+document.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -33,6 +38,9 @@ from pathlib import Path
 
 import pytest
 from builders.audio import silent_wav
+from builders.entrance.auth import PASSWORD
+from builders.entrance.mtls import ServerTls, tunnel_manifest
+from builders.entrance.stand import serving_stand, set_password
 from e2e.entrance_stand import CHAT, QUESTION, REPLY, Stand, build_served, standing
 from e2e.landing_client import LandingBoard, as_object
 from websockets.asyncio.client import ClientConnection, connect
@@ -61,6 +69,8 @@ PHASES = (
     "logout",
 )
 SPOKEN = "write a limerick about wasps"  # What the transcriber hears in the guide's clip.wav.
+# The mutual-TLS phases, run against a listener that demands client certificates.
+MTLS_PHASES = ("mtls-request", "mtls-login")
 TOOLS = ("sh", "curl", "openssl", "jq")  # What the guide's examples need on the PATH.
 PHASE_TIMEOUT_S = 60.0  # One phase's shell: a handful of local processes and loopback calls.
 FRAME_TIMEOUT_S = 20.0  # The question notice arrives once the Drone asks: seconds, locally.
@@ -118,6 +128,64 @@ def test_the_guides_curl_examples_run_against_a_live_entrance(tmp_path: Path) ->
     assert lines[-2:] == [f"human message: {CHAT}", f"queen reply: {REPLY}"]
     assert outputs["logout"] == "204\n"
     assert outputs["notice"] == "question_waiting"
+
+
+def test_the_guides_mutual_tls_examples_run_against_a_listener_demanding_certificates(
+    tmp_path: Path,
+) -> None:
+    missing = _missing_tools()
+    if missing:
+        pytest.skip(f"the guide's examples need {', '.join(missing)}, absent on this host")
+    workdir = tmp_path / "client"
+    workdir.mkdir()
+
+    outputs = asyncio.run(_mutual_tls(tmp_path / "stand", workdir))
+
+    refused, logged_in = outputs["mtls-login"].split("\n", 1)
+    assert refused.startswith("refused at the handshake (curl exit ")
+    session = json.loads(logged_in)
+    assert session["listener"] == "remote"
+    assert session["device_id"] == outputs["registered"]
+
+
+async def _mutual_tls(root: Path, workdir: Path) -> dict[str, str]:
+    """Run the mutual-TLS phases, the operator registering and approving at the Hive Stand."""
+    path, tls = tunnel_manifest(root)
+    await set_password(path)
+    outputs: dict[str, str] = {}
+    async with serving_stand(path) as (stand, entrance):
+        env = _remote_environment(tls, entrance.listeners.remote_port)
+        outputs["mtls-request"] = await _run("mtls-request", env, workdir)
+        # The operator's side, as the guide shows it: register, then approve and write it out.
+        public_key = (workdir / "public_key_hex").read_text(encoding="utf-8").strip()
+        registered = await stand.entrance(
+            *("register", "--name", "garden-bot", "--public-key", public_key),
+            *("--csr", str(workdir / "device.csr")),
+        )
+        assert registered.exit_code == 0, registered.output
+        device_id = registered.output.split("Registered ")[1].split()[0]
+        approved = await stand.entrance(
+            *("approve", device_id, "--spend-cap", "5", "--yes"),
+            *("--certificate-out", str(workdir / "device.crt")),
+        )
+        assert approved.exit_code == 0, approved.output
+        outputs["registered"] = device_id
+        outputs["mtls-login"] = await _run("mtls-login", env, workdir)
+    return outputs
+
+
+def _remote_environment(tls: ServerTls, port: int | None) -> dict[str, str]:
+    """The guide's variables for the remote listener: its URL, the authority to pin, the rest."""
+    assert port is not None, "the tunnel stand serves its remote listener"
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "LC_ALL": "C",
+        # By address: the listener's certificate also names 127.0.0.1, so no hosts file is touched.
+        "HIVE_URL": f"https://127.0.0.1:{port}",
+        "HIVE_CA": str(tls.ca_path),
+        "HIVE_SIGN": str(HELPER),
+        "HIVE_PASSWORD": PASSWORD,
+    }
 
 
 async def _walkthrough(manifest: HiveManifest, served: ServedHive, workdir: Path) -> dict[str, str]:
@@ -234,7 +302,7 @@ def test_every_curl_example_in_the_guide_is_a_phase_this_test_runs() -> None:
     unrun = [block for block in _FENCED.findall(text) if "curl " in block and block not in marked]
 
     assert unrun == [], "every curl example must be marked <!-- run: NAME --> and run here"
-    assert set(_phases()) == set(PHASES)
+    assert set(_phases()) == set(PHASES) | set(MTLS_PHASES)
 
 
 def test_every_path_and_header_the_guide_names_is_in_the_document() -> None:

@@ -20,7 +20,7 @@ Landing Board) landed what is below.
 |---|---|
 | `errors.py` | `EntranceError` and every refusal, each also in its `hivemind.common.errors` category. |
 | `auth/` | Credential primitives (the signed strings, device keys, networks, Argon2id passwords, the wrapped console key, WebAuthn, the `ChallengeBook`, `SoftPasskey`) and the flows built on them: `session/` (sessions bound to a key, every request signed, a socket's first frame, `guard.entrance_login` and `guard.entrance_session_ended`), `login/`, `step_up/`, `confirm/` (pending confirmations and their `guard.entrance_held` / `_confirmed` / `_hold_ended` events), `limits/` (rate limits, the denial-burst lock), `travel/` (the travel lock over tailscaled). |
-| `enrol/` | Device enrolment: the enrolled-device model and its state machine, the operator/console bootstrap, invites, redemption by Ed25519 key or passkey, approval, denial and re-granting, revocation, lock, unlock and the expiry sweep, and the seams the runtime implements (`SecurityNotifier`, `DeviceOffboarder`, `GoalLedger`). |
+| `enrol/` | Device enrolment: the enrolled-device model and its state machine, the operator/console bootstrap, invites, redemption by Ed25519 key or passkey, offline registration by the operator, approval (with the device's mutual-TLS certificate, `certificates`), denial and re-granting, revocation, lock, unlock and the expiry sweep, and the seams the runtime implements (`SecurityNotifier`, `DeviceOffboarder`, `GoalLedger`, and the `DeviceCertifier` the composition root builds). |
 | `reducer.py` | The Entrance Reducer: `EntranceMode` (`OPEN`, `REDUCED`, persisted), `reduce` (ends every remote session, tells every remote socket why, stops the remote listener), `reopen` (loopback only, after step-up), `start_mode`. |
 | `store/` | The Entrance tables; every change is written with its `guard.*` trail event in one transaction. |
 | `push/` | The push channels (webhooks, Web Push, the live socket hub, the dispatcher); its own README. |
@@ -105,6 +105,36 @@ the tunnel as a whole, not each client behind it. The per-device limit still hol
 device, since it is charged once a request is authenticated to its device, whatever address it
 arrived from.
 
+## Device certificates (mutual TLS)
+
+`[entrance] mutual_tls` follows the exposure mode when the manifest leaves it out. It is on in
+`lan` and `tunnel`, which refuse to start with it off, and off in `vpn` unless the operator turns
+it on. Loopback has no remote listener, so there it changes nothing. In every remote mode the Hive
+runs its own certificate authority (in the secret store), and approval issues each device its
+client certificate from it:
+
+- **A program** sends a PKCS#10 request for a key it holds: `certificate_request` in its Ed25519
+  redemption, or in the operator's offline registration (`POST /v1/entrance/register`,
+  loopback-only, `hive entrance register`), for a device that can reach no enrolment listener.
+  The request is checked when it arrives: a damaged one is refused and writes nothing. Approval
+  signs it, whether or not the listener demands certificates, so a device approved under `vpn`
+  keeps working if mutual TLS is turned on later. The device reads its certificate with
+  `GET /v1/devices/me/certificate`, or the operator writes it out (`approve --certificate-out`)
+  for an offline device.
+- **A browser** cannot make a request. Under mutual TLS, the loopback approval route alone seals a
+  fresh key and its certificate into a PKCS#12 bundle, answered once to the operator with its
+  passphrase. `hive entrance approve` writes it owner-only and prints the passphrase once. The
+  bundle is never stored.
+
+The device's record keeps the certificate itself, which is public, together with its serial,
+fingerprint and expiry. The approval's trail event names only the serial and fingerprint.
+Revocation, expiry and a console reset stamp the certificate withdrawn in the same step that moves
+the device. The revocation list is built from the Entrance tables whenever the remote listener's
+TLS context is built: at start, after every revocation, and after an expiry sweep that expired
+anything. It names every certificate of a device that is no longer APPROVED or LOCKED. It fails
+closed, so a certificate that was never stamped is still listed, dated at its approval. The rebuilt
+context reaches the next handshake through the listener's SNI callback, without a restart.
+
 ## Public API
 
 The face (`hivemind.entrance`) re-exports the credential primitives, the enrolled-device model,
@@ -138,10 +168,18 @@ uv run --frozen pytest packages/hivemind/tests/unit/entrance \
     packages/hivemind/tests/contracts/test_entrance_session_table_contract.py \
     packages/hivemind/tests/contracts/test_entrance_auth_tables_contract.py \
     packages/hivemind/tests/unit/cli/compose/test_entrance.py \
+    packages/hivemind/tests/unit/cli/compose/test_entrance_refusals.py \
     packages/hivemind/tests/unit/cli/test_serve.py \
     packages/hivemind/tests/e2e/test_hive_serve.py \
     packages/hivemind/tests/e2e/test_voice_on_hive_serve.py
+    packages/hivemind/tests/e2e/test_mutual_tls.py
 ```
+
+`test_entrance.py` starts `serve_hive` in every mode: loopback, and `vpn`, `lan` and `tunnel`
+behind a self-signed certificate on a DNS name. Where mutual TLS is on, a client certificate the
+Hive's authority issued is served and a client without one is refused at the handshake.
+`test_entrance_refusals.py` makes `serve_hive` itself refuse each exposure rule. The mutual-TLS
+end-to-end test binds this machine's own private address.
 
 The route, gate, stream and runtime tests run a real Entrance (`builders.entrance.serving`): uvicorn
 on loopback ports over a real Queen whose Warden runs on the Hive Stand's Cell, push deliveries to a

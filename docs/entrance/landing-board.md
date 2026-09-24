@@ -34,6 +34,7 @@ drives a real Entrance through a client that reads only the document. Another te
 9. [The push contract](#9-the-push-contract)
 10. [Errors and refusals](#10-errors-and-refusals)
 11. [Versioning](#11-versioning)
+12. [Mutual TLS in lan and tunnel](#12-mutual-tls-in-lan-and-tunnel)
 
 ## 1. What the Landing Board is
 
@@ -613,3 +614,99 @@ header. A failure inside the Hive is `500` with a code and a fixed sentence.
   acceptance check and goal source. Treat a value you do not know as "something else" rather than
   an error. Every other enum (a state machine, a security tier) is closed until `/v2/`.
 - **Send only what the document declares.** Request schemas refuse unknown members with `422`.
+
+## 12. Mutual TLS in lan and tunnel
+
+In `lan` and `tunnel` modes the remote listener completes a TLS handshake only when the client
+presents a certificate from the Hive's own certificate authority. In `vpn` mode it does so when
+the operator turns `[entrance] mutual_tls` on. Login is still the gate behind the handshake: the
+certificate only shows that the operator approved this device.
+
+**Where the certificate comes from.** It is issued when the device is approved.
+
+- **A program** sends a certificate signing request (CSR) for a key it holds. Its device key does:
+  the same Ed25519 key signs requests and TLS handshakes, and the two formats cannot be confused.
+  The Hive uses only the request's key and signature. The certificate it issues names the device,
+  with the device id as its common name.
+- **A browser** cannot make a request. The operator's approval seals a fresh key and its
+  certificate into a PKCS#12 bundle, written to a file at the Hive Stand. Its passphrase is shown
+  once, for importing the bundle on the device.
+
+How a program gets its certificate depends on what it can reach:
+
+- **A program that can reach an enrolment listener** (loopback on the Hive Stand, or `vpn`) adds
+  the request to `Ed25519Redemption` as `certificate_request`. After approval it reads the
+  certificate from `GET /v1/devices/me/certificate`, a signed call like any other that answers
+  `CertificateView`. A device holding no certificate is answered `404` with
+  `hivemind.entrance.certificate_not_issued`.
+- **A program that can reach neither** is registered offline. This is the usual case in `lan` and
+  `tunnel`: the remote listener admits nobody without a certificate, and section 2 rules out
+  forwarding into loopback. The program makes its key and its request, then gives the operator the
+  request and its public key:
+
+<!-- run: mtls-request -->
+```sh
+umask 077
+test -f device.pem || openssl genpkey -algorithm ed25519 -out device.pem
+openssl req -new -key device.pem -subj '/CN=garden-bot' -out device.csr
+"$HIVE_SIGN" public-key device.pem > public_key_hex
+cat public_key_hex                          # give this and device.csr to the operator
+```
+
+At the Hive Stand the operator registers the device, which calls the loopback-only
+`POST /v1/entrance/register`. The operator then approves it and hands back the certificate, which
+is a public file:
+
+```sh
+hive entrance register --name garden-bot --public-key "$(cat public_key_hex)" --csr device.csr
+hive entrance approve DEVICE_ID --spend-cap 5 --certificate-out device.crt
+```
+
+**Every call presents the certificate.** Add `--cert device.crt --key device.pem` to each `curl`
+call. Add `--cacert` too when the listener's own TLS certificate comes from an authority your
+system does not trust. Two more variables:
+
+- `HIVE_URL` is the remote listener, for example `https://hive.example.net:8711`.
+- `HIVE_CA` is the file holding that authority's certificate.
+
+Without a client certificate the handshake itself fails, before any HTTP is exchanged:
+
+<!-- run: mtls-login -->
+```sh
+curl -sS --noproxy '*' --cacert "$HIVE_CA" -o /dev/null "$HIVE_URL/v1/enrol/hive" 2>/dev/null ||
+  echo "refused at the handshake (curl exit $?)"
+```
+
+With it, the device logs in as in section 5. A device registered offline reads its id from its
+certificate, which names it:
+
+<!-- run: mtls-login -->
+```sh
+openssl x509 -in device.crt -noout -subject -nameopt multiline |
+  sed -n 's/^ *commonName *= *//p' > device_id
+curl -sS --fail-with-body --noproxy '*' --cacert "$HIVE_CA" --cert device.crt --key device.pem \
+     "$HIVE_URL/v1/enrol/hive" | jq -r .hive_id > hive_id
+curl -sS --fail-with-body --noproxy '*' --cacert "$HIVE_CA" --cert device.crt --key device.pem \
+     -X POST "$HIVE_URL/v1/auth/challenge" \
+     -H 'Content-Type: application/json' -d "{\"device_id\":\"$(cat device_id)\"}" > challenge.json
+nonce=$(jq -r .nonce challenge.json)
+signature=$("$HIVE_SIGN" login device.pem "$(cat hive_id)" "$(cat device_id)" "$nonce")
+jq -n --arg device_id "$(cat device_id)" --arg nonce "$nonce" --arg signature "$signature" \
+      '{device_id: $device_id, nonce: $nonce, signature: $signature, password: env.HIVE_PASSWORD}' |
+  curl -sS --fail-with-body --noproxy '*' --cacert "$HIVE_CA" --cert device.crt --key device.pem \
+       -X POST "$HIVE_URL/v1/auth/login" -H 'Content-Type: application/json' --data-binary @- \
+       > session.json
+jq -r .token session.json > token
+printf 'Authorization: Bearer %s\n' "$(cat token)" > auth.header
+jq '{device_id, listener}' session.json
+rm session.json
+```
+
+**Revocation.** When the operator revokes the device, or its approval expires, the certificate's
+serial goes on the Hive's revocation list. The listener's TLS context is rebuilt at once, so the
+device's next handshake fails whatever sessions it held. A new certificate comes only with a new
+enrolment.
+
+**Not in the document.** The handshake refusal belongs to TLS, not HTTP, so the document does not
+describe it. Neither does it describe where the certificate comes from beyond
+`certificate_request`, `GET /v1/devices/me/certificate` and `POST /v1/entrance/register`.

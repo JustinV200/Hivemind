@@ -118,6 +118,17 @@ Drone's grant without a free core.
   credentials, with a stolen token signed by another key and replayed are refused, as is the laptop
   while pending, locked by five wrong passwords (unlocked on loopback) and revoked. The follower is
   a child process because `CliRunner` swaps the process's standard streams while a command runs.
+- `test_mutual_tls.py` (`@pytest.mark.e2e`; skipped on a machine with no private IPv4 address) --
+  mutual-TLS device certificates on real sockets (roadmap 10.5a/10.5d, ADR-0033): `hive serve`'s
+  own composition in `lan` mode, its remote listener bound to this machine's own private address
+  behind a throwaway authority's server certificate the laptop pins with `--ca-file` (no trust
+  store or hosts file is touched). A laptop enrolled on loopback gets its certificate at
+  approval, fetches it, moves to the remote listener and runs a goal with `hive run --remote` (the
+  task SUCCEEDED); a device without a certificate is refused at the handshake; after `hive entrance
+  revoke` the laptop's next handshake is refused while another device's still succeeds; a laptop
+  enrolled `--offline` is registered with `hive entrance register`, imports the certificate
+  `approve --certificate-out` wrote, and reads its inbox; and `vpn` with `mutual_tls = true`
+  admits a device with its certificate the same way.
 - `test_slow_provision.py` (`@pytest.mark.e2e`) -- a Virtual Cell provision slowed far past the
   manifest's liveness window (the container-spawning fake backend's `set_provision_delay`): the
   Hive Stand's Warden, heartbeating the whole time the Queen's tick is stalled, is never reported
