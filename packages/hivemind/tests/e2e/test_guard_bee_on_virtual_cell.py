@@ -133,6 +133,9 @@ async def _assert_isolated_on_request(hive: Hive, backend: _LuredCells, task_id:
     [flag] = await _events(hive, "guard.injection_suspected")
     [denied] = [e for e in await _events(hive, "guard.denied") if e.subject_id == flag.subject_id]
     assert flag.node_id == denied.node_id != stand  # Both recorded inside the Cell, shipped.
+    # Its link proved every frame and segment it shipped: the Cell gate refused nothing.
+    assert await _events(hive, "guard.envelope_refused") == []
+    assert await _events(hive, "guard.segment_refused") == []
     [alert] = [a for a in await _events(hive, "guard.alert") if a.payload["disposition"] == "filed"]
     report_id = alert.payload["report_id"]
     [decided] = [

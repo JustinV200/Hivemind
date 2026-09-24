@@ -48,6 +48,7 @@ from waggle.ids import (
 __all__ = ["Episode", "TrailSeeder", "seed_episode"]
 
 _LEASE = "lease_01HZZZZZZZZZZZZZZZZZZZZZZZ"  # The lease every outside-scratch touch names.
+_CELL_NODE = "node_01HZZZZZZZZZZZZZZZZZZZZZZZ"  # The node every Cell gate refusal's link proved.
 
 
 class TrailSeeder:
@@ -128,6 +129,11 @@ class TrailSeeder:
         )
         await self.trail.record(event)
         return event
+
+    async def refused(self, kind: str, cell: str, reason: str) -> PheromoneEvent:
+        """The Cell gate's refusal of a frame or segment on `cell`'s own link (roadmap 10.6)."""
+        payload = {"cell_id": cell, "node_id": _CELL_NODE, "reason": reason}
+        return await self.record(GuardEvent, kind, cell, payload)
 
     async def entrance(self, kind: str, subject: str | None = None, **payload: object) -> str:
         """One guard.entrance_* event about `subject` (a fresh device by default); its subject."""

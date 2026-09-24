@@ -75,7 +75,12 @@ Vocabulary (family -> kind -> when it is recorded):
         reason); entrance_held (a non-interactive device's request that needs step-up was held as
         a pending confirmation: its id, the device and the action, never the request's content);
         entrance_confirmed (an interactive device confirmed a held request after step-up);
-        entrance_hold_ended (a held request expired or was cancelled, with which). The design
+        entrance_hold_ended (a held request expired or was cancelled, with which). Roadmap step
+        10.6 adds two node-integrity refusals at the Cell gate, each about the Cell whose own
+        authenticated link carried it and naming a reason, never the frame: envelope_refused (a
+        frame on an attached Virtual Cell's link failed its signature, and the link was closed);
+        segment_refused (a trail segment it shipped was not merged: another node's or Warden's,
+        an unknown format, or bytes that do not match what it declared). The design
         documents'
         `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
         (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
@@ -210,5 +215,7 @@ class GuardEvent(PheromoneEvent):
             "guard.entrance_held",  # A pending confirmation waiting on a human's step-up.
             "guard.entrance_confirmed",
             "guard.entrance_hold_ended",
+            "guard.envelope_refused",  # Roadmap step 10.6: a node-integrity refusal at the gate.
+            "guard.segment_refused",
         }
     )

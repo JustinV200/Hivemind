@@ -7,10 +7,12 @@ records into a store that dies with the container, so it ships its segment over 
 as `waggle.messages.swarm.TrailSegmentSync` chunks; `TrailSegmentReceiver` is what turns those back
 into a `hivemind.pheromone.TrailSegment` and merges it, keyed by the sending node id.
 
-`hivemind.queen.cell_gate.listener.CellListener` hands this every `swarm.trail_segment_sync` its
-connections carry (bound by the composition root, `hivemind.cli.compose.virtual_cells`). The
-contract this module offers is one call: hand it every `TrailSegmentSync` that arrives, in any
-order of interleaving between senders, and it merges each complete export exactly once.
+The Cell listener (`hivemind.queen.cell_gate`) drains each Virtual Cell's link and hands this
+module every chunk that names the node and Warden its link proved (the spec's receiver rule, which
+only the holder of the envelope can check); what either refuses, the listener records as
+`guard.segment_refused` (roadmap step 10.6). The contract this module offers is one call: hand it
+every `TrailSegmentSync` that arrives, in any order of interleaving between senders, and it merges
+each complete export exactly once.
 
 A Night Veil Cell's segment is never merged into the trail (codingrules section 12: its
 execution records live in an ephemeral segment keyed to the Cell). Given the Night Veil boundary's
@@ -32,7 +34,9 @@ Key invariants:
       (`waggle.messages.swarm.colonized.TrailSegmentSync.segment_format_version`).
     - A reassembled export whose SHA-256 does not match the `final` chunk's own `sha256`, or whose
       length does not match `total_bytes`, is refused (`CorruptSegmentError`): a partial merge of a
-      truncated segment would put un-auditable gaps into the Hive's audit record.
+      truncated segment would put un-auditable gaps into the Hive's audit record. So is a segment
+      of any node but the chunk's own (`ForeignSegmentError`): only the chunk's node is proved by
+      its link.
     - Merging is idempotent by event id (`PheromoneTrail.merge_segment`), so a sender that
       re-ships an export after a dropped connection inserts nothing the second time.
     - A Night Veil Cell's segment never reaches the trail: it goes to the ephemeral segments, or
@@ -61,6 +65,7 @@ from waggle.messages.swarm import TrailSegmentSync
 
 __all__ = [
     "CorruptSegmentError",
+    "ForeignSegmentError",
     "SegmentSyncError",
     "TrailSegmentReceiver",
     "UnknownSegmentFormatError",
@@ -90,6 +95,10 @@ class CorruptSegmentError(SegmentSyncError):
         """Name the node whose export was refused and why."""
         super().__init__(f"TrailSegmentSync from node {node_id} is not mergeable: {detail}")
         self.node_id = node_id
+
+
+class ForeignSegmentError(CorruptSegmentError):
+    """A reassembled export is another node's segment than the node its chunk was shipped as."""
 
 
 @dataclass(slots=True)
@@ -159,8 +168,9 @@ class TrailSegmentReceiver:
         Raises:
             UnknownSegmentFormatError: `message.segment_format_version` is not one this Hive reads.
             CorruptSegmentError: The reassembled export's size or SHA-256 digest does not match
-                what the final chunk declared, it is not a readable `TrailSegment`, or it does not
-                hold the `event_count` events the chunk promised.
+                what the final chunk declared, it is not a readable `TrailSegment`, it does not
+                hold the `event_count` events the chunk promised; `ForeignSegmentError`, the
+                subclass, when it is another node's segment.
         """
         if message.segment_format_version != SEGMENT_FORMAT_VERSION:
             raise UnknownSegmentFormatError(message.segment_format_version)
@@ -192,6 +202,10 @@ class TrailSegmentReceiver:
                 node_id,
                 f"it holds {len(segment.events)} events, not the {message.event_count} promised",
             )
+        # The chunk's node is the one its link proved (the caller's receiver rule); a segment of
+        # another node inside it would merge events that node never shipped (roadmap step 10.6).
+        if segment.node_id != node_id:
+            raise ForeignSegmentError(node_id, f"it is node {segment.node_id}'s segment")
         # A Night Veil Cell's segment waits in its ephemeral segment instead (module docstring);
         # None means the boundary owns no such Cell, so the segment merges as it always has.
         if self._night_veil is not None:
@@ -199,7 +213,7 @@ class TrailSegmentReceiver:
             if veiled is not None:
                 return veiled
         # TrailSegment's own validator already refused a segment carrying another node's events,
-        # so merging is keyed by node id by construction: nothing here re-checks it.
+        # so every event merged is the chunk's own node's.
         return await self._trail.merge_segment(segment)
 
 

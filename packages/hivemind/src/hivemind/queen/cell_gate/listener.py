@@ -40,7 +40,8 @@ Fits into the Hive:
     (WardenLink), `hivemind.queen.errors` (WardenSpawnRefusedError), `hivemind.queen.queen`
     (Queen), `hivemind.queen.cell_gate.gate`
     (QueenReadinessGate), `hivemind.queen.cell_gate.snapshot` (CellSnapshotHandler),
-    `hivemind.queen.trail.sync` (TrailSegmentReceiver), waggle (codec, envelope, errors, ids,
+    `hivemind.queen.trail.sync` (TrailSegmentReceiver), `hivemind.pheromone` (TrailRecorder),
+    `hivemind.queen.cell_gate.refusals` (LinkRefusals), waggle (codec, envelope, errors, ids,
     signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
 
 Key invariants:
@@ -60,6 +61,11 @@ Key invariants:
       on, correlated to its own envelope id; a `TrailSegmentSync` is handed to `trail_receiver`
       and never answered (the wire kind is an event, not a request). Both are no-ops when
       `CellListenerDeps` names no handler/receiver (roadmap step 5.10/ADR-0027's own follow-up).
+    - Node integrity (roadmap step 10.6, `.refusals`): a segment chunk reaches `trail_receiver`
+      only when it names its link's own node and Warden, and a refused one is
+      `guard.segment_refused` while the link stays up; an attached link that ends on a frame
+      whose signature failed is `guard.envelope_refused`. Both about the link's Cell, and only
+      with `CellListenerDeps.recorder` set.
     - At most `FANOUT_QUEUE_SIZE` envelopes wait in one connection's fan-out for the Queen's
       reader: past that its pump stops reading the socket, so a Queen that is not reading backs
       the Cell's own sends up (backpressure), rather than the Queen's memory growing with them.
@@ -83,8 +89,10 @@ from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.forage.models.capacity import ForageCapacity, HostCapacity
 from hivemind.hive.backends.bootstrap import CellReadyInfo
+from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
+from hivemind.queen.cell_gate.refusals import LinkRefusals
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.queen import Queen
@@ -170,6 +178,8 @@ class CellListenerDeps:
         hive_id: The Queen's own bee address; the `sender` of every envelope this listener sends.
         host: The interface to bind (`[virtual_cells] listen_host`).
         port: The port to bind, 0 for OS-assigned (`[virtual_cells] listen_port`).
+        recorder: The Queen's trail and identity, where what a link refused is recorded (roadmap
+            step 10.6); None records nothing, for a test that never reads the trail.
     """
 
     gate: QueenReadinessGate
@@ -178,6 +188,7 @@ class CellListenerDeps:
     hive_id: HiveId
     host: str = DEFAULT_HOST
     port: int = OS_ASSIGNED_PORT
+    recorder: TrailRecorder | None = None
 
 
 class CellListener:
@@ -188,9 +199,7 @@ class CellListener:
 
         Args:
             deps: Every collaborator this listener needs.
-            clock: Stamps every `CellSnapshotReply`/`CellRollbackReply` this listener sends back;
-                held for a future step that also needs to timestamp a rejected connection on the
-                trail.
+            clock: Stamps every `CellSnapshotReply`/`CellRollbackReply` this listener sends back.
         """
         self._clock = clock
         self._deps = deps
@@ -295,8 +304,9 @@ class CellListener:
             await transport.close()
             return  # Never became ready; nothing was attached, so nothing to detach either.
         assert self._queen is not None  # noqa: S101 - start() always runs before a connection.
+        refusals = LinkRefusals(self._deps.recorder, binding.cell_id, binding.node_id)
         try:
-            fanout = await self._attach(transport, binding)
+            fanout = await self._attach(transport, binding, refusals)
         except WardenSpawnRefusedError:
             # The Queen's set refused this Warden (the refusal is already on the trail): it is
             # never attached, so there is nothing to detach, only the connection to close.
@@ -307,6 +317,9 @@ class CellListener:
             # failure); never raises on that path (_FanoutTransport.pump's own docstring), so the
             # only exception that can reach here is a genuine external cancel (stop(), below).
             await fanout.pump_task
+            if isinstance(fanout.closed_by, SignatureError):
+                # A forged frame on a proved link (roadmap step 10.6): the Guard Bee hears of it.
+                await refusals.envelope(fanout.closed_by)
         finally:
             if not fanout.pump_task.done():
                 fanout.pump_task.cancel()
@@ -314,7 +327,7 @@ class CellListener:
             await detach_warden(self._queen, binding.warden_id)
 
     async def _attach(
-        self, transport: WebSocketTransport, binding: _ReadyBinding
+        self, transport: WebSocketTransport, binding: _ReadyBinding, refusals: LinkRefusals
     ) -> _FanoutTransport:
         """Build the fan-out link for a ready Cell, attach it to the Queen, then resolve the gate.
 
@@ -331,7 +344,7 @@ class CellListener:
             sender=self._deps.hive_id, recipient=binding.warden_id, node_id=self._deps.queen_node_id
         )
         fanout = _FanoutTransport(
-            transport, lambda envelope: self._dispatch(transport, hop, envelope)
+            transport, lambda envelope: self._dispatch(transport, hop, refusals, envelope)
         )
         link = WardenLink(
             warden_id=binding.warden_id, cell=_cell_from_binding(binding), transport=fanout, hop=hop
@@ -346,11 +359,14 @@ class CellListener:
         self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
         return fanout
 
-    async def _dispatch(self, transport: WebSocketTransport, hop: Hop, envelope: Envelope) -> None:
+    async def _dispatch(
+        self, transport: WebSocketTransport, hop: Hop, refusals: LinkRefusals, envelope: Envelope
+    ) -> None:
         """Answer a snapshot relay request, or merge a trail segment chunk; else do nothing.
 
         Called only from `_FanoutTransport.pump` now (this class's own module docstring): never
-        directly on `_handle`'s own former read loop, which no longer exists.
+        directly on `_handle`'s own former read loop, which no longer exists. A segment chunk is
+        merged through the link's `refusals`, which hold the receiver rule and record a refusal.
         """
         payload = envelope.payload
         if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
@@ -364,7 +380,7 @@ class CellListener:
                 wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
             )
         elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
-            await self._trail_receiver.receive(payload)
+            await refusals.merge(self._trail_receiver, envelope, payload)
 
 
 # Marks "the pump will never put another envelope" on _FanoutTransport's own internal queue; a
@@ -416,6 +432,11 @@ class _FanoutTransport:
     def is_connected(self) -> bool:
         """See `waggle.transport.base.Transport.is_connected`; forwarded to the real transport."""
         return self._real.is_connected
+
+    @property
+    def closed_by(self) -> Exception | None:
+        """What ended the pump's read: a lost link, an undecodable frame or a failed signature."""
+        return self._closed_exc
 
     async def connect(self) -> None:
         """See `waggle.transport.base.Transport.connect`; forwarded (already connected, a no-op)."""

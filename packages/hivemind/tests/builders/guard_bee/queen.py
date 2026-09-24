@@ -1,10 +1,10 @@
 """Build the Guard Bee a composition root would build for a running Queen, from her own parts.
 
-`guard_bee_for_queen` is what the composition root does once another roadmap step wires the Guard
-Bee in (`hivemind.hive` does not yet, by design of step 10.6): the Queen's trail, clock and node,
-her Guard policy (the enforcer's), her slot resolver and her call gate (the Royal Reserve's
-seats), the shipped tier table, a `[guard]` section, and a door for her Guard requests, which a
-test passes as a `RecordingDoor` until her own door exists.
+`guard_bee_for_queen` builds what the composition root builds (`hivemind.cli.compose.guard.
+with_guard`, for `hive run` and `hive serve`) from a test's Queen: her trail, clock and node, her
+Guard policy (the enforcer's), her slot resolver and her call gate (the Royal Reserve's seats), the
+shipped tier table, a `[guard]` section, and a door for her Guard requests: a `RecordingDoor`, or
+the running Queen herself, whose door files durably and decides on her next tick.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used through `builders.guard_bee`

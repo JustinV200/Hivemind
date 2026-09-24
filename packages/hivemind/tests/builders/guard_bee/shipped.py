@@ -20,10 +20,13 @@ from collections.abc import Awaitable, Callable
 from builders.guard_bee.rig import GuardBeeRig
 from builders.guard_bee.seeds import seed_episode
 
+from waggle.ids import new_cell_id
+
 __all__ = ["SHIPPED_RULE_SEEDERS", "Seeder"]
 
 Seeder = Callable[[GuardBeeRig, bool], Awaitable[None]]
 _TIER = "SCRATCH_WRITE"  # The tier every Capping seed here proposes at.
+_HOUR_AND_A_SECOND = 3_601.0  # Past every one-hour window: a lone refusal has aged out of it.
 
 
 async def _repeat(times: int, act: Callable[[], Awaitable[object]]) -> None:
@@ -106,6 +109,25 @@ async def _audit_failure_rate(rig: GuardBeeRig, fire: bool) -> None:
         await rig.seed.capping(proposal, "capping.audited", tier=_TIER, outcome=outcome)
 
 
+async def _refused_once(rig: GuardBeeRig, fire: bool, kind: str, reason: str) -> None:
+    """One Cell gate refusal of `kind` for a fresh Cell; just under, it has left its window."""
+    await rig.seed.refused(kind, new_cell_id(rig.clock), reason)
+    if not fire:
+        rig.clock.advance(_HOUR_AND_A_SECOND)
+
+
+async def _envelope_forgery(rig: GuardBeeRig, fire: bool) -> None:
+    await _refused_once(rig, fire, "guard.envelope_refused", "invalid")
+
+
+async def _segment_forgery(rig: GuardBeeRig, fire: bool) -> None:
+    await _refused_once(rig, fire, "guard.segment_refused", "another_node")
+
+
+async def _segment_unmergeable(rig: GuardBeeRig, fire: bool) -> None:
+    await _refused_once(rig, fire, "guard.segment_refused", "corrupt")
+
+
 async def _request_forgery(rig: GuardBeeRig, fire: bool) -> None:
     for reason in ["request_replay", "request_signature"][: 2 if fire else 1]:
         await rig.seed.entrance("guard.entrance_login_failed", reason=reason, listener="remote")
@@ -154,6 +176,9 @@ SHIPPED_RULE_SEEDERS: dict[str, Seeder] = {
     "capping_rejection_rate": _capping_rejection_rate,
     "capping_rollback_rate": _capping_rollback_rate,
     "audit_failure_rate": _audit_failure_rate,
+    "envelope_forgery": _envelope_forgery,
+    "segment_forgery": _segment_forgery,
+    "segment_unmergeable": _segment_unmergeable,
     "request_forgery": _request_forgery,
     "login_failure_burst": _login_failure_burst,
     "lockouts_across_devices": _lockouts_across_devices,

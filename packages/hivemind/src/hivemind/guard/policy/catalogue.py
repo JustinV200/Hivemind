@@ -210,6 +210,8 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("guard.entrance_session_ended", _NARROWING),
     ("guard.entrance_held", _PROPOSAL),  # Nothing happens until an interactive device confirms.
     ("guard.entrance_hold_ended", _LIFECYCLE),
+    ("guard.envelope_refused", _REFUSAL),  # A forged frame is never handled; its link is closed.
+    ("guard.segment_refused", _REFUSAL),  # A segment that is not merged changes nothing.
     ("memory.tainted", _NARROWING),  # A tainted item only ever leaves prompts.
 )
 

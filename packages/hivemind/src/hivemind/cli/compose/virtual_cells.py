@@ -302,7 +302,7 @@ def _build_lifecycle(
     # Only the offline commands pass None; they never provision, so no Cell sees this key.
     queen_signer = hive_signer if hive_signer is not None else Ed25519Signer.generate()
     gate = QueenReadinessGate()
-    listener = _build_listener(manifest, section, gate, queen_signer, clock)
+    listener = _build_listener(manifest, gate, queen_signer, trail, clock)
     ctx = _RegistryContext(
         manifest, section, gate, listener, queen_signer, manifest.hive.node_id, environ
     )
@@ -378,12 +378,17 @@ def _attach_snapshot(
 
 def _build_listener(
     manifest: HiveManifest,
-    section: VirtualCellsSection,
     gate: QueenReadinessGate,
     queen_signer: Ed25519Signer,
+    trail: PheromoneTrail,
     clock: Clock,
 ) -> CellListener:
     """Build the (not yet started) CellListener on `[virtual_cells] listen_host`/`listen_port`."""
+    section = manifest.virtual_cells
+    # The Queen's own identity records what a Cell's link refused (roadmap step 10.6).
+    recorder = TrailRecorder(
+        trail=trail, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
+    )
     return CellListener(
         CellListenerDeps(
             gate=gate,
@@ -392,6 +397,7 @@ def _build_listener(
             hive_id=manifest.hive.id,
             host=section.listen_host,
             port=section.listen_port,
+            recorder=recorder,
         ),
         clock,
     )

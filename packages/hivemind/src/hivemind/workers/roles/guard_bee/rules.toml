@@ -30,11 +30,11 @@
 # guard.alert and nothing more. `judgement = true` hands a finding to one awake episode on the
 # judge slot first, which may change the confidence and the action (to observe or a request).
 #
-# Node integrity seams (phase 11, no rule yet because nothing records them on the trail today): a
-# Waggle envelope whose signature fails at the Cell gate (hivemind.queen.cell_gate.listener drops
-# the link), a trail segment merge refused as corrupt or of an unknown format
-# (hivemind.queen.trail.sync raises), Waggle replay rejection (11.3) and a capability report that
-# changed without re-enrolment (13.4a). Each becomes one table here once its trail kind exists.
+# Node integrity seams (no rule yet, because no step has built what records them): Waggle replay
+# refusal (11.3b, guard.replay_refused), repeated frame-ceiling closes (11.3a,
+# guard.frame_ceiling), a merged segment whose events fail the node's key (11.9) and a capability
+# report that changed without re-enrolment (13.4a). Each becomes one table here with its kind. A
+# frame that fails its signature before its link is attached proves no Cell and is not recorded.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # A bee's own behaviour
@@ -202,6 +202,41 @@ action = "raise_audit_rate"
 # ──────────────────────────────────────────────────────────────────────────────
 # Node integrity (what the trail records today)
 # ──────────────────────────────────────────────────────────────────────────────
+
+# A frame that failed its signature on a Virtual Cell's own proved link (guard.envelope_refused,
+# recorded by the Cell gate, which closes the link): a tampered link, or a Cell signing as a node
+# it cannot prove. A shipped dire pattern: the Queen isolates the Cell by rule.
+[rules.envelope_forgery]
+title = "a frame that failed its signature on a Cell's own link"
+counts = [{ kind = "guard.envelope_refused" }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
+
+# A trail segment shipped under a node or Warden its Cell's link never proved
+# (guard.segment_refused, reason another_node): a Cell writing the Hive's audit record in another
+# node's name. Nothing of it was merged. A shipped dire pattern.
+[rules.segment_forgery]
+title = "a trail segment shipped under another node's identity"
+counts = [{ kind = "guard.segment_refused", where = { reason = ["another_node"] } }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
+
+# A trail segment the Queen could not merge (guard.segment_refused, reason format or corrupt): a
+# gap in the Cell's audit record, from a fault or a tampered export; the Queen judges which.
+[rules.segment_unmergeable]
+title = "a trail segment the Queen could not merge"
+counts = [{ kind = "guard.segment_refused", where = { reason = ["format", "corrupt"] } }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "high"
+action = "isolate_cell"
 
 # A signature or replay failure: a live session token presented with a request signature that
 # does not verify, or with a nonce already spent (guard.entrance_login_failed, reason

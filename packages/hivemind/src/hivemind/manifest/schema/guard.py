@@ -83,8 +83,11 @@ MAX_GUARD_WINDOW_S = 604_800.0  # A week: the longest window any Guard Bee setti
 
 # The rule keys the Queen acts on by rule (roadmap step 10.6a). Shipped: the correlation roadmap
 # step 10.6 singles out, a scanner flag then a denial in the same episode (a bee that read an
-# injection and then tried to act on it); every other rule's request is judged awake.
-DEFAULT_DIRE_PATTERNS = ("injection_then_denial",)
+# injection and then tried to act on it), and the two node-integrity forgeries at the Cell gate, a
+# frame that failed its signature on a Cell's own link and a trail segment shipped under another
+# node's identity (13.4a lists a signature failure among the dire patterns); every other rule's
+# request is judged awake.
+DEFAULT_DIRE_PATTERNS = ("injection_then_denial", "envelope_forgery", "segment_forgery")
 MAX_DIRE_PATTERNS = 64  # Far more rules than the Guard Bee ships; a list is data, never unbounded.
 
 __all__ = [

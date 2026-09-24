@@ -42,6 +42,8 @@ _FAMILIES = {
     "failed sampled audits": "capping.audited",
     "injection flags": "guard.injection_suspected",
     "signature or replay failures": "guard.entrance_login_failed",
+    "a Cell's forged frames": "guard.envelope_refused",
+    "refused segment merges": "guard.segment_refused",
     "lockouts": "guard.entrance_locked",
     "invite-route abuse": "guard.entrance_redeem_failed",
     "travel-lock triggers": "guard.entrance_travel_lock",
@@ -64,7 +66,7 @@ def test_the_shipped_rules_load_and_count_every_family_the_roadmap_names() -> No
 
     counted = {matcher.kind for rule in rules.enabled for matcher in rule.matchers}
 
-    assert len(rules.rules) == 16
+    assert len(rules.rules) == 19
     assert {family: kind in counted for family, kind in _FAMILIES.items()} == dict.fromkeys(
         _FAMILIES, True
     )

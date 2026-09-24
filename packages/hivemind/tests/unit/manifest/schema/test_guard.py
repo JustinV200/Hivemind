@@ -66,9 +66,10 @@ def test_an_unknown_field_is_refused() -> None:
         GuardSection.model_validate({"allow": ["observe"]})
 
 
-def test_dire_patterns_default_to_the_shipped_correlation_rule() -> None:
-    # Roadmap step 10.6a: the Queen acts by rule only on the keys listed here.
-    assert GuardSection().dire_patterns == DEFAULT_DIRE_PATTERNS == ("injection_then_denial",)
+def test_dire_patterns_default_to_the_shipped_correlation_and_forgery_rules() -> None:
+    # Roadmap steps 10.6 and 10.6a: the Queen acts by rule only on the keys listed here.
+    shipped = ("injection_then_denial", "envelope_forgery", "segment_forgery")
+    assert GuardSection().dire_patterns == DEFAULT_DIRE_PATTERNS == shipped
     assert GuardSection(dire_patterns=()).dire_patterns == ()
 
 

@@ -68,6 +68,22 @@ async def test_build_virtual_cells_registers_only_fake_when_selected(tmp_path: P
     assert set(parts.registry.names()) == {"fake"}
 
 
+async def test_the_composed_cell_gate_records_what_it_refuses_on_the_hives_trail(
+    tmp_path: Path,
+) -> None:
+    manifest = _load_with_virtual_cells(tmp_path)
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+
+    parts = build_virtual_cells(manifest, trail, clock)
+
+    # Roadmap step 10.6: a forged frame or segment is the Queen's own record, for the Guard Bee.
+    assert parts is not None
+    recorder = parts.listener._deps.recorder
+    assert recorder is not None and recorder.trail is trail
+    assert (recorder.hive_id, recorder.node_id) == (manifest.hive.id, manifest.hive.node_id)
+
+
 async def test_build_virtual_cells_registers_only_the_selected_backend(tmp_path: Path) -> None:
     manifest = _load_with_virtual_cells(tmp_path, backend="qemu")
     clock = FakeClock()

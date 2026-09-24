@@ -5,7 +5,10 @@ WebSocket technique `tests/unit/cli/in_cell/test_link.py` uses for `CellLink` (i
 docstring names it as the reusable pattern): a real "Cell" client dials the listener, sends a
 signed `CellReady` then `CellHeartbeat`, and this module checks the listener attaches a
 `WardenLink` to the given `Queen` only once both have verified, and detaches it when the
-connection ends.
+connection ends. Roadmap step 10.6: a frame that fails its signature on an attached link closes it
+and is `guard.envelope_refused` on the Queen's trail, and a segment chunk shipped as another node
+is refused (`guard.segment_refused`) while the link stays up; the Guard Bee reads that refusal and
+files a request through the running Queen's own door, and she isolates the Cell by rule.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/listener.py
@@ -25,9 +28,10 @@ import asyncio
 from dataclasses import dataclass
 
 from builders.cells import make_capabilities
+from builders.guard_bee import guard_bee_for_queen
 from builders.queen import make_queen_deps
 
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import TrailQuery, TrailRecorder
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
@@ -36,8 +40,9 @@ from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from hivemind.queen.trail import TrailSegmentReceiver
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
+from hivemind.workers.roles.guard_bee import Disposition
 from waggle.clock import FakeClock
-from waggle.codec import Codec
+from waggle.codec import Codec, Signer
 from waggle.envelope import Hop, wrap
 from waggle.ids import (
     CellId,
@@ -92,11 +97,11 @@ class _FakeQueenCell:
         self._listener = listener
 
     async def dial(
-        self, queen_node_id: NodeId, queen_signer: Ed25519Signer
+        self, queen_node_id: NodeId, queen_signer: Ed25519Signer, signer: Signer | None = None
     ) -> WebSocketClientTransport:
         """Connect to the listener with a codec that only trusts the Queen's own key."""
         codec = Codec(
-            signer=self.signer,
+            signer=signer if signer is not None else self.signer,
             verifier=Ed25519Verifier({queen_node_id: queen_signer.public_key_bytes}),
         )
         transport = WebSocketClientTransport(self._listener.uri, codec, FakeClock())
@@ -133,6 +138,7 @@ class _Scenario:
     queen_node_id: NodeId
     hive_id: HiveId
     trail: MemoryPheromoneTrail
+    deps: QueenDeps
 
 
 async def _build_scenario() -> _Scenario:
@@ -142,20 +148,26 @@ async def _build_scenario() -> _Scenario:
     gate = QueenReadinessGate()
     queen_signer = Ed25519Signer.generate()
     queen_node_id = new_node_id(FakeClock())
+    assert isinstance(deps.trail, MemoryPheromoneTrail)
+    # The Queen's own identity records what a link refused, on her own trail (roadmap step 10.6).
+    identity = deps.identity
+    recorder = TrailRecorder(
+        trail=deps.trail, clock=deps.clock, hive_id=identity.hive_id, node_id=identity.node_id
+    )
     listener = CellListener(
         CellListenerDeps(
             gate=gate,
             queen_signer=queen_signer,
             queen_node_id=queen_node_id,
             hive_id=deps.identity.hive_id,
+            recorder=recorder,
         ),
         FakeClock(),
     )
     queen = Queen(deps)
     await listener.start(queen)
-    assert isinstance(deps.trail, MemoryPheromoneTrail)
     return _Scenario(
-        listener, queen, gate, queen_signer, queen_node_id, deps.identity.hive_id, deps.trail
+        listener, queen, gate, queen_signer, queen_node_id, identity.hive_id, deps.trail, deps
     )
 
 
@@ -245,17 +257,7 @@ async def test_listener_merges_a_trail_segment_sync_into_the_queens_trail() -> N
 
     clock = FakeClock()
     source_trail = MemoryPheromoneTrail(clock)
-    event = CellEvent(
-        id=new_event_id(clock),
-        hive_id=scenario.hive_id,
-        node_id=cell.node_id,
-        at=clock.now(),
-        actor="system",
-        kind="cell.provisioned",
-        subject_id=cell.cell_id,
-        payload={},
-    )
-    await source_trail.record(event)
+    await source_trail.record(_provisioned(clock, cell, scenario.hive_id))
     chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
     await transport.send(wrap(chunk, cell._hop(scenario.hive_id), clock=clock))
 
@@ -293,6 +295,118 @@ async def _one_trail_segment_sync_chunk(
     ]
     assert len(chunks) == 1  # One small event fits in one chunk (MAX_CHUNK_BYTES).
     return chunks[0]
+
+
+class _Forger:
+    """A Cell's signer whose key a test swaps mid-link, as a tampered link or impostor would."""
+
+    def __init__(self, key: Ed25519Signer) -> None:
+        self.key = key
+
+    def sign(self, canonical: bytes) -> str:
+        return self.key.sign(canonical)
+
+
+async def test_a_forged_frame_on_an_attached_link_closes_it_and_is_recorded() -> None:
+    scenario = await _build_scenario()
+    cell = _FakeQueenCell(scenario.listener)
+    await scenario.gate.expect(cell.cell_id, public_key_hex(cell.signer.public_key_bytes))
+    forger = _Forger(cell.signer)
+    transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer, forger)
+    await cell.send_ready(transport, scenario.hive_id)
+    await cell.send_heartbeat(transport, scenario.hive_id)
+    await asyncio.wait_for(_until(lambda: cell.warden_id in _attached_ids(scenario.queen)), WAIT_S)
+
+    forger.key = Ed25519Signer.generate()  # Signed as the Cell's node, with another key.
+    await cell.send_heartbeat(transport, scenario.hive_id)
+    await asyncio.wait_for(
+        _until(lambda: cell.warden_id not in _attached_ids(scenario.queen)), WAIT_S
+    )
+
+    [refused] = await scenario.trail.query(TrailQuery(kind="guard.envelope_refused"))
+    assert (refused.subject_id, refused.payload["reason"]) == (cell.cell_id, "invalid")
+    assert refused.payload["node_id"] == cell.node_id
+    await transport.close()
+    await scenario.listener.stop()
+
+
+async def test_a_segment_shipped_as_another_node_is_refused_and_the_link_stays_up() -> None:
+    scenario = await _build_scenario()
+    scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
+    cell, transport = await _attach(scenario)
+    clock = FakeClock()
+    source_trail = MemoryPheromoneTrail(clock)
+    await source_trail.record(_provisioned(clock, cell, scenario.hive_id))
+    chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
+    forged = chunk.model_copy(update={"node_id": new_node_id(clock)})
+
+    await transport.send(wrap(forged, cell._hop(scenario.hive_id), clock=clock))
+    await transport.send(wrap(chunk, cell._hop(scenario.hive_id), clock=clock))  # Then its own.
+
+    async def _merged() -> bool:
+        return bool(await scenario.trail.query(TrailQuery(kind="cell.provisioned")))
+
+    await asyncio.wait_for(_until_async(_merged), WAIT_S)
+    [refused] = await scenario.trail.query(TrailQuery(kind="guard.segment_refused"))
+    assert (refused.subject_id, refused.payload["reason"]) == (cell.cell_id, "another_node")
+    assert cell.warden_id in _attached_ids(scenario.queen)  # A refused segment cuts no link.
+    await transport.close()
+    await scenario.listener.stop()
+
+
+async def test_a_forged_segment_gets_its_cell_isolated_by_rule_through_the_queens_door() -> None:
+    scenario = await _build_scenario()
+    scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
+    cell, transport = await _attach(scenario)
+    run = asyncio.ensure_future(scenario.queen.run())
+    guard_bee = guard_bee_for_queen(scenario.deps, scenario.queen)  # Her own door, not a stub.
+    clock = FakeClock()
+    source_trail = MemoryPheromoneTrail(clock)
+    await source_trail.record(_provisioned(clock, cell, scenario.hive_id))
+    chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
+    forged = chunk.model_copy(update={"node_id": new_node_id(clock)})
+
+    await transport.send(wrap(forged, cell._hop(scenario.hive_id), clock=clock))
+    await asyncio.wait_for(
+        _until_async(lambda: _recorded(scenario, "guard.segment_refused")), WAIT_S
+    )
+    [response] = await guard_bee.tick()
+    await asyncio.wait_for(_until_async(lambda: _recorded(scenario, "cell.isolated")), WAIT_S)
+
+    report = response.report
+    assert (report.rule, report.cell_id, response.disposition) == (
+        "segment_forgery",
+        cell.cell_id,
+        Disposition.FILED,
+    )
+    [decided] = await scenario.trail.query(TrailQuery(kind="queen.decided"))
+    assert (decided.payload["basis"], decided.payload["report_id"]) == ("rule", report.id)
+    [isolated] = await scenario.trail.query(TrailQuery(kind="cell.isolated"))
+    assert (isolated.subject_id, isolated.payload["report_id"]) == (cell.cell_id, report.id)
+    await guard_bee.aclose()
+    await scenario.queen.stop()
+    await asyncio.wait_for(run, WAIT_S)
+    await transport.close()
+    await scenario.listener.stop()
+
+
+async def _recorded(scenario: _Scenario, kind: str) -> bool:
+    """Whether the Queen's trail holds a `kind` event yet."""
+    return bool(await scenario.trail.query(TrailQuery(kind=kind)))
+
+
+def _provisioned(clock: FakeClock, cell: _FakeQueenCell, hive_id: HiveId) -> CellEvent:
+    """One `cell.provisioned` recorded on `cell`'s own node, for its segment to carry."""
+    return CellEvent(
+        id=new_event_id(clock),
+        hive_id=hive_id,
+        node_id=cell.node_id,
+        at=clock.now(),
+        actor="system",
+        kind="cell.provisioned",
+        subject_id=cell.cell_id,
+        payload={},
+    )
 
 
 def _attached_ids(queen: Queen) -> set[WardenId]:
