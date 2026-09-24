@@ -42,7 +42,11 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   grants it touches, the recommended `GuardAction` and a `GuardConfidence`), ids and counts only.
   Only `REQUEST_ACTIONS` (isolate a Cell, quarantine a bee, Sting Cut) ask the Queen for anything,
   and they reach her through `GuardRequestDoor.file_guard_request`, the one seam between the
-  Guard Bee and the Queen's inbox; the Guard Bee narrows the whole Hive alone.
+  Guard Bee and the Queen's inbox; the Guard Bee narrows the whole Hive alone. A report at
+  CRITICAL confidence reaches the human whatever it recommends: `GuardRequestDoor.report_to_human`
+  shows it as a SECURITY Alarm naming the report id, pushed to every device, durable before it
+  returns and shown at most once per report id (a CRITICAL request is shown once, by the Queen's
+  decision on it, which says what she did).
 - **Scanner** (`hivemind.guard.scanner`, roadmap 10.6b, ADR-0035, `docs/guard/untrusted-content.md`):
   the deterministic, model-free untrusted-content scanner. `load_scan_patterns` reads
   `defaults/untrusted-content.toml` (six weighted families; every repetition bounded; each

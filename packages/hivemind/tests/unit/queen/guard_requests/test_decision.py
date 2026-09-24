@@ -59,7 +59,7 @@ def _judging(action: str) -> FakeLLMProvider:
 
 async def _decide(site: IsolationSite, report: GuardReport) -> None:
     """File `report` through the Queen's door, then decide the one item her tick would drain."""
-    await guard_door(site.deps).file_guard_request(report)
+    await guard_door(site.deps, site.human_inbox).file_guard_request(report)
     [item] = await guard_items(site.deps)
     await decide_guard_item(site, item)
 
@@ -223,7 +223,7 @@ async def test_a_request_is_decided_once() -> None:
     deps, link, warden_end = make_queen_deps(clock, guard=_NO_WAIT)
     report = make_guard_report(clock, cell_id=link.cell.id)
     site = isolation_site(deps, link)
-    await guard_door(deps).file_guard_request(report)
+    await guard_door(deps, site.human_inbox).file_guard_request(report)
     [item] = await guard_items(deps)
 
     await decide_guard_item(site, item)

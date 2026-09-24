@@ -32,6 +32,7 @@ from hivemind.queen.guard_requests.decision.outcome import ActOutcome
 from hivemind.queen.guard_requests.decision.quarantine import quarantine_tasks
 from hivemind.queen.guard_requests.decision.target import implicated_tasks
 from hivemind.queen.guard_requests.model import MAX_HELD_GOALS, PlacementHold
+from hivemind.queen.guard_requests.show import SecurityAlert
 from hivemind.queen.isolation import IsolationSite, alert_human
 from hivemind.supervision import AlarmSeverity
 from waggle.ids import CellId, EventId
@@ -70,5 +71,12 @@ async def hive_stand_fallback(
         f"only you can isolate. The Queen quarantined {len(quarantined)} task(s) and holds "
         f"{len(goals)} goal(s) off the Hive Stand until you isolate it or lift the hold."
     )
-    await alert_human(site, AlarmSeverity.CRITICAL, detail, cell_id, decided_event_id)
+    alert = SecurityAlert(
+        severity=AlarmSeverity.CRITICAL,
+        detail=detail,
+        cell_id=cell_id,
+        event_id=decided_event_id,
+        report_id=report.id,
+    )
+    await alert_human(site, alert)
     return ActOutcome(outcome=FALLBACK_OUTCOME, acted=True, alarmed=True, hold=hold)

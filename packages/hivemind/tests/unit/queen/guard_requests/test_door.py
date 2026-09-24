@@ -29,6 +29,7 @@ from hivemind.queen.guard_requests import (
     guard_door,
     guard_items,
 )
+from hivemind.queen.human_inbox import HumanInbox
 from hivemind.supervision.attendant import GUARD_PRINCIPAL, InboxKind
 from waggle.clock import FakeClock
 
@@ -39,7 +40,7 @@ async def test_the_door_files_the_request_and_wakes_the_queen() -> None:
     deps.wake.clear()
     report = make_guard_report(clock)
 
-    await QueenGuardDoor(deps).file_guard_request(report)
+    await QueenGuardDoor(deps, HumanInbox()).file_guard_request(report)
 
     [request] = await deps.guard.requests.pending()
     assert request.report == report and request.filed_at == clock.now()
@@ -53,7 +54,7 @@ async def test_the_door_refuses_a_report_that_asks_for_nothing() -> None:
     report = make_guard_report(recommended=GuardAction.OBSERVE, cell_id=None)
 
     with pytest.raises(ValueError, match="asks the Queen for nothing"):
-        await guard_door(deps).file_guard_request(report)
+        await guard_door(deps, HumanInbox()).file_guard_request(report)
     assert await deps.guard.requests.pending() == ()
     await warden_end.close()
 
@@ -75,10 +76,10 @@ async def test_every_pending_request_is_one_guard_item_aged_from_its_filing() ->
     clock = FakeClock()
     deps, _link, warden_end = make_queen_deps(clock)
     first = make_guard_report(clock)
-    await guard_door(deps).file_guard_request(first)
+    await guard_door(deps, HumanInbox()).file_guard_request(first)
     filed_at = clock.now()
     clock.advance(30.0)
-    await guard_door(deps).file_guard_request(make_guard_report(clock))
+    await guard_door(deps, HumanInbox()).file_guard_request(make_guard_report(clock))
 
     items = await guard_items(deps)
 

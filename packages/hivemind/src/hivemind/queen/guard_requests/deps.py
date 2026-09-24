@@ -8,7 +8,9 @@ four (codingrules 5.1: a frozen dataclass for an argument group): a Queen built 
 takes requests into an in-memory table, applies the shipped dire patterns, records that a Cell's
 egress stayed as it was, and waits `DEFAULT_PAUSE_TIMEOUT_S` for acknowledgements. The composition
 root replaces it with the SQLite table on the Hive's own file, the manifest's patterns and the
-`hivemind.hive.LifecycleEgress` over the Hive's `CellLifecycle`.
+`hivemind.hive.LifecycleEgress` over the Hive's `CellLifecycle`. `show_lock` serialises showing
+the human a report (`hivemind.queen.guard_requests.show`), so the Guard Bee's `report_to_human`
+and her own tick never both show the same report.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -27,6 +29,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from hivemind.hive import CellEgress
@@ -54,12 +57,14 @@ class GuardDeps:
             no Virtual side) records every isolation's egress as untouched.
         pause_timeout_s: How long isolation waits for the Cell's bees to acknowledge their pause
             before it pauses their tasks anyway.
+        show_lock: Held while a report's SECURITY Alarm is checked and raised, one at a time.
     """
 
     requests: GuardRequestStore = field(default_factory=InMemoryGuardRequestStore)
     dire_patterns: frozenset[str] = frozenset(DEFAULT_DIRE_PATTERNS)
     egress: CellEgress | None = None
     pause_timeout_s: float = DEFAULT_PAUSE_TIMEOUT_S
+    show_lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False)
 
     def __post_init__(self) -> None:
         """Refuse a negative pause bound, which would read as "already timed out" forever."""

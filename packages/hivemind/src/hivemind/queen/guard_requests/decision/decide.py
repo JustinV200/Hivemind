@@ -44,6 +44,7 @@ from hivemind.queen.guard_requests.decision.judge import judge_guard_request
 from hivemind.queen.guard_requests.decision.outcome import ActOutcome
 from hivemind.queen.guard_requests.decision.target import target_cell
 from hivemind.queen.guard_requests.model import GuardBasis, GuardDecision, GuardRequest
+from hivemind.queen.guard_requests.show import SecurityAlert
 from hivemind.queen.isolation import IsolationSite, alert_human
 from hivemind.queen.trail import queen_event
 from hivemind.supervision import AlarmSeverity
@@ -124,4 +125,11 @@ async def _tell_human(
         f"Guard report {report.id} ({report.rule}, {report.confidence.value} confidence): the "
         f"Queen decided {decision.action.value} by {decision.basis.value}; {acted.outcome}."
     )
-    await alert_human(site, severity, detail, target, EventId(decision.event_id))
+    alert = SecurityAlert(
+        severity=severity,
+        detail=detail,
+        cell_id=target,
+        event_id=EventId(decision.event_id),
+        report_id=report.id,  # Shown once: a report already shown is not shown again.
+    )
+    await alert_human(site, alert)

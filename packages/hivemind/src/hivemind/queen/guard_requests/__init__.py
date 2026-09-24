@@ -37,6 +37,8 @@ Public API (roadmap step 10.6a):
       apply_guard_request_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE (sqlite): its two stores.
     - guard_items, guard_inbox_item, GUARD_REQUEST_PAYLOAD_KIND: the Queen's inbox items (inbox).
     - GuardDeps, DEFAULT_PAUSE_TIMEOUT_S: the one QueenDeps field (deps).
+    - SecurityAlert, show_alert, was_shown, report_alarm_id: the one way a report's SECURITY
+      Alarm reaches the human, once per report (show).
 """
 
 from hivemind.queen.guard_requests.deps import DEFAULT_PAUSE_TIMEOUT_S, GuardDeps
@@ -56,6 +58,12 @@ from hivemind.queen.guard_requests.model import (
     PlacementHold,
 )
 from hivemind.queen.guard_requests.protocol import DEFAULT_PENDING_PAGE, GuardRequestStore
+from hivemind.queen.guard_requests.show import (
+    SecurityAlert,
+    report_alarm_id,
+    show_alert,
+    was_shown,
+)
 from hivemind.queen.guard_requests.sqlite import (
     MIGRATIONS_PACKAGE,
     SUBSYSTEM,
@@ -80,9 +88,13 @@ __all__ = [
     "InMemoryGuardRequestStore",
     "PlacementHold",
     "QueenGuardDoor",
+    "SecurityAlert",
     "SqliteGuardRequestStore",
     "apply_guard_request_migrations",
     "guard_door",
     "guard_inbox_item",
     "guard_items",
+    "report_alarm_id",
+    "show_alert",
+    "was_shown",
 ]

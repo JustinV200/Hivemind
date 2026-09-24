@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING
 from hivemind.common.logging import get_logger
 from hivemind.hive import EgressOutcome
 from hivemind.queen.errors import UnknownCellError
+from hivemind.queen.guard_requests import SecurityAlert
 from hivemind.queen.isolation.access import block_cell, revoke_cell_grants
 from hivemind.queen.isolation.authority import authorize_isolation
 from hivemind.queen.isolation.order import IsolationOrder, IsolationOutcome
@@ -92,7 +93,14 @@ async def isolate_cell(site: IsolationSite, order: IsolationOrder) -> IsolationO
     # The state change is the event (Appendix C); the taint names it as its cause, so it is first.
     event_id = await record_isolated(deps, order, outcome)
     tainted = await taint_cell(deps, link, order, event_id, began_at)
-    await alert_human(site, AlarmSeverity.CRITICAL, _detail(order), order.cell_id, event_id)
+    alert = SecurityAlert(
+        severity=AlarmSeverity.CRITICAL,
+        detail=_detail(order),
+        cell_id=order.cell_id,
+        event_id=event_id,
+        report_id=order.report_id,  # One Alarm per report: its first showing is this one.
+    )
+    await alert_human(site, alert)
     log.info(
         "queen.cell_isolated",
         cell_id=order.cell_id,

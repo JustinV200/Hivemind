@@ -163,12 +163,16 @@ class GuardReport(BaseModel):
 
 
 class GuardRequestDoor(Protocol):
-    """The Queen's door for a Guard request: the one way a report reaches her inbox.
+    """The Queen's door for a Guard report: a request to decide, or a CRITICAL report to show.
 
-    The Queen implements it in her own process; the Guard Bee calls it. Filing is durable before
-    it returns, so a request filed just before a restart is still decided after it, and it never
-    decides anything itself: the Queen decides on her own tick, where a request outranks every
-    Alarm and every human message (ADR-0035).
+    The Queen implements it in her own process; the Guard Bee calls it. `file_guard_request` is
+    the one way a request reaches her inbox: durable before it returns, so a request filed just
+    before a restart is still decided after it, and it decides nothing itself (she decides on her
+    own tick, where a request outranks every Alarm and every human message). `report_to_human`
+    is how a CRITICAL report reaches the human (ADR-0035: a report at CRITICAL confidence is shown
+    to the human whatever it recommends): a SECURITY Alarm naming the report id, pushed to every
+    enrolled device, shown at most once per report id, by whichever path shows it first (a
+    CRITICAL request is shown once, by the Queen's decision on it, never also when filed).
     """
 
     async def file_guard_request(self, report: GuardReport) -> None:
@@ -180,6 +184,23 @@ class GuardRequestDoor(Protocol):
         Raises:
             ValueError: `report` is not a request; a finding that asks for nothing is recorded
                 as `guard.alert` by the Guard Bee alone and never enters the Queen's inbox.
+        """
+        ...
+
+    async def report_to_human(self, report: GuardReport) -> None:
+        """Show a CRITICAL report to the human as a SECURITY Alarm naming its id, once.
+
+        Durable before it returns (the Alarm's `alarm.escalated` row and its chat line are
+        committed), and idempotent by report id: a report already shown, by this call or by the
+        Queen's decision on it, is not shown again. A CRITICAL request is filed instead of shown
+        here, so the one Alarm the human gets for it also says what the Queen did about it.
+
+        Args:
+            report: Any report whose confidence is CRITICAL, a request or not.
+
+        Raises:
+            ValueError: `report` is below CRITICAL confidence; the Guard Bee records such a
+                finding as `guard.alert` alone, and a request goes through `file_guard_request`.
         """
         ...
 
