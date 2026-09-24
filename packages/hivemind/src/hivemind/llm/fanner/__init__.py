@@ -48,6 +48,11 @@ Public API:
     - Trail recording (`hivemind.llm.fanner.recorder`): `LlmEventRecorder`, `NullLlmEventRecorder`,
       `TrailLlmEventRecorder`, `CompositeLlmEventRecorder` (roadmap step 4.8's own wiring step:
       fans one occurrence out to several recorders, e.g. a ledger recorder alongside the trail).
+    - Metered transcription (`hivemind.llm.fanner.transcription`, roadmap step 6.5a's subset for
+      10.5f): `MeteredTranscriber`, a `TranscriptionProvider` whose every call takes a seat,
+      spills and records one `llm.call` on TRANSCRIBER; `bind_transcriber(registry, fanner,
+      tempo)`, the composition root's one call; `AUDIO_SECONDS_KEY`, the payload key carrying
+      the seconds of audio.
 """
 
 from hivemind.llm.fanner.lane import (
@@ -68,8 +73,14 @@ from hivemind.llm.fanner.recorder import (
     TrailLlmEventRecorder,
 )
 from hivemind.llm.fanner.spill import SPILL_WAIT_FRACTION, SpillReason
+from hivemind.llm.fanner.transcription import (
+    AUDIO_SECONDS_KEY,
+    MeteredTranscriber,
+    bind_transcriber,
+)
 
 __all__ = [
+    "AUDIO_SECONDS_KEY",
     "DEFAULT_SEATS",
     "DEFAULT_THROTTLE_S",
     "LLM_CALL_KIND",
@@ -81,8 +92,10 @@ __all__ = [
     "FannerDeps",
     "FannerLane",
     "LlmEventRecorder",
+    "MeteredTranscriber",
     "NullLlmEventRecorder",
     "RateLimit",
     "SpillReason",
     "TrailLlmEventRecorder",
+    "bind_transcriber",
 ]

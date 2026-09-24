@@ -4,7 +4,9 @@ The llm package defines the provider-agnostic boundary every model call in the H
 own request/response/message shapes, the declared capability and health shapes, the one
 `LLMProvider` protocol every adapter implements, its typed error tree, a scriptable fake for
 tests and demos, and `BoundModel`, the resolved slot-plus-provider value later roadmap steps
-build. No vendor SDK is imported here or anywhere else outside `llm/providers/<name>/`.
+build. Its `transcription` sub-package is the same boundary for audio (`TranscriptionProvider`,
+on the `TRANSCRIBER` slot). No vendor SDK is imported here or anywhere else outside
+`llm/providers/<name>/`.
 
 ## Public API (roadmap steps 3.2, 3.3)
 
@@ -162,10 +164,83 @@ fan their wings to regulate the hive's airflow.
   4.7a's own **`DEFAULT_THROTTLE_S`** (`60.0`): how long `FannerLane` throttles a source for when
   a `RateLimitedError` carries no `retry_after_s` hint.
 
+## Closing providers at shutdown
+
+Every `LLMProvider` and `TranscriptionProvider` has `aclose()`: idempotent, and the provider's last
+call. The openai_compat adapters close their `httpx.AsyncClient`, the anthropic adapter closes its
+SDK client (`AsyncAnthropic.close()`), the fakes only record it (`is_closed`).
+`ProviderRegistry.aclose(timeout_s=PROVIDER_CLOSE_TIMEOUT_S)` closes everything the registry
+constructed (chat providers and transcribers alike), each under its own timeout; a failed close is
+logged at warning (`llm.provider_close_failed`, with the provider name) and never stops the next
+one; what was closed is forgotten, so a second call is a no-op. The composition root calls it once
+when the Hive stops, so no pooled connection outlives it.
+
+## Transcription (roadmap step 6.5a, the subset step 10.5f needs)
+
+Audio in, text out, on the `TRANSCRIBER` slot. The pieces, and the one call a composition root
+makes:
+
+```python
+transcriber = bind_transcriber(registry, fanner, Tempo(latency_budget_s=10.0))  # at startup
+clip = AudioClip.from_upload(data, "audio/webm;codecs=opus", duration_s=4.2)    # per clip
+transcript = await transcriber.transcribe(clip, language="en-US")
+```
+
+- **Models** (`hivemind.llm.transcription.models`): `AudioClip` (bytes, an `AudioMediaType`, a
+  duration), built from a device's upload by `AudioClip.from_upload`, which names the format,
+  checks `MAX_CLIP_BYTES` (25 MB) and `MAX_CLIP_SECONDS` (600 s) and fills the duration in: read
+  from the header for WAV (`wav_duration_s`, so a WAV's length is measured, never claimed), taken
+  from the sender for a compressed format. Every refusal is an `InvalidAudioClipError` with a
+  `ClipProblem` (`TOO_LARGE`, `TOO_LONG`, `UNSUPPORTED_FORMAT`, `MISSING_DURATION`, `MALFORMED`)
+  for the caller to map to its own response. `Transcript` (text, language, duration, timestamped
+  `TranscriptSegment`s) comes back. `AudioChunk` and `clip_from_chunks` gather a push-to-talk
+  stream into one clip. Audio bytes and transcript text never appear in a `repr`.
+- **Formats** (`AudioMediaType`): WAV, Ogg/Opus, WebM/Opus, MP3 and M4A; `parse` folds every known
+  spelling (`audio/x-wav`, `audio/webm;codecs=opus`, ...) onto one and refuses the rest.
+- **The door** (`TranscriptionProvider`): `name`, `capabilities` (`TranscriptionCapabilities`:
+  segments, language detection, accepted formats; `full()`/`none()`), `transcribe(clip, language)`,
+  `stream(chunks, language)` (gathers the chunks into one clip for now: no provider recognises
+  incrementally yet), `health()`, `aclose()`. A language hint is reduced to its primary subtag
+  (`normalise_language`); an implausible one is dropped and the provider detects instead.
+- **Implementations**: `FakeTranscription` (scripted transcripts, a plain string expanded against
+  the clip it answers; `set_outage`; scripted `LLMError`s; honest about its capabilities) and
+  `hivemind.llm.providers.openai_compat.OpenAICompatTranscription` (hosted speech-to-text APIs and
+  local Whisper servers alike, over `POST {base_url}/audio/transcriptions`).
+- **Binding** (`ProviderRegistry.transcriber()`): walks `[llm.slots.transcriber]` and its fallback
+  chain (`hivemind.llm.slots.walk_chain`) to a `BoundTranscriber`, building each link through
+  `default_transcriber_factories()` (`fake`, `openai_compat`), cached per `(provider, model)`. A
+  kind with no transcription adapter (`anthropic`) is refused there, with
+  `TranscriptionUnsupportedError`, never at the first call. A link is priced from the Forage map's
+  `ModelCost.cost_per_audio_minute_usd`.
+- **Metering** (`hivemind.llm.fanner.MeteredTranscriber`, built by `bind_transcriber`): itself a
+  `TranscriptionProvider`, so the Entrance's voice route depends only on the protocol (and its
+  tests pass a `FakeTranscription`). Every call takes a seat on its provider (shared with that
+  provider's chat calls), waits under its rate limit, spills and throttles exactly like a chat
+  call, and records one `llm.call` on `TRANSCRIBER`: slot, provider, `latency_s`, the audio's
+  seconds as `audio_s`, and `usage` with zero tokens and the cost (0 when unpriced). The trail's
+  `LlmUsage` has no audio field, which is why the seconds ride beside it. Never the audio, never
+  the transcript.
+
+What remains for roadmap step 6.5a proper:
+
+- **`llm/providers/whisper/`**, the in-process faster-whisper adapter (an optional extra, GPU when
+  present, one seat per loaded model instance). Not built in this subset: it needs the model
+  weights, which cannot be fetched in this environment. It joins `default_transcriber_factories()`
+  under a new provider kind (a manifest `ProviderKind` change), and the contract suite then runs
+  over three implementations instead of two.
+- Listing transcription sources on the Forage map with their own grade, and a distance measure
+  that fits audio (a real-time factor rather than `Distance.tokens_per_s`, which this subset
+  leaves untouched for a transcriber source).
+- Per-provider transcription capability overrides in the manifest, and a `stream` that recognises
+  speech incrementally where a provider can.
+- Buzz's `listen` (roadmap step 6.5), the second caller, with grant and goal attribution on its
+  `llm.call` events.
+
 ## How to test this
 
 ```bash
 uv run --frozen pytest packages/hivemind/tests/unit/llm
+uv run --frozen pytest packages/hivemind/tests/contracts/test_transcription_provider_contract.py
 ```
 
 Coverage floor is 95% (codingrules section 14.1, "pure cores"):
