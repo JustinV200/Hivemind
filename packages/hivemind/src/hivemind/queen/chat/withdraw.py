@@ -139,6 +139,7 @@ async def stop_goal(
             await _stop_task(deps, wardens, task, reason)
     # Wake her tick: a stranded dependant is closed and nothing cancelled is dispatched again.
     deps.wake.set()
+    # Latency: one more local chamber read, of what the cancels left.
     remaining = await deps.chamber.list(TaskFilter(goal_id=goal_id))
     return all(is_terminal(task.status) for task in remaining)
 
@@ -202,6 +203,7 @@ async def _tell_warden(
         async with asyncio.timeout(CANCEL_SEND_TIMEOUT_S):
             await link.transport.send(wrap(order, link.hop, clock=deps.clock))
     except (TimeoutError, TransportError) as error:
+        # A link that cannot take the frame cannot stop the work either: it is left running.
         log.warning("queen.cancel_undelivered", task_id=task.id, error=type(error).__name__)
         return False
     return True

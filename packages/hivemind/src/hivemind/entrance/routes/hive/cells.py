@@ -63,6 +63,7 @@ async def read_cell(cell_id: CellIdPath, services: Services) -> CellView:
     Raises:
         CellNotFoundError: No attached Warden supervises it and no lifecycle tracks it (404).
     """
+    # Latency: the census's local reads; a Hive has few Cells, so it is built whole.
     return await cell_view(services.hive, cell_id)
 
 
