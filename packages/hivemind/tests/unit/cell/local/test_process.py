@@ -18,9 +18,16 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import os
+import subprocess
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+import pytest
 
 from hivemind.cell.local.process import EXIT_COMMAND_NOT_STARTED, ProcessContext, run_child_process
 from hivemind.cell.local.quota import ScratchQuota
@@ -31,6 +38,8 @@ from waggle.clock import SystemClock
 # real ScratchQuota this would trip the watchdog; the point of test_no_quota_* is that it never
 # does when ctx.quota is None.
 _TINY_QUOTA_BYTES = 8
+_LONG_SLEEP_S = 60.0  # Far longer than the test: the child is still running when it is cancelled.
+_WAIT_TIMEOUT_S = 5.0  # How long the test waits for a real child to start, and to be gone.
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,3 +132,53 @@ async def test_events_stream_output_before_the_final_exit_status(tmp_path: Path)
         and event.data == b"hello"
         for event in events[:-1]
     )
+
+
+async def test_a_cancelled_run_kills_its_child_before_the_cancel_completes(tmp_path: Path) -> None:
+    # Roadmap 10.6c: a bee cancelled mid-command (stopped, respawned, quarantined) must not leave
+    # the command running until lease release; the lease is never released in this test.
+    started: list[int] = []
+    ctx = _context(tmp_path, quota=None, started=started)
+    spec = ExecSpec(
+        argv=(sys.executable, "-c", f"import time; time.sleep({_LONG_SLEEP_S})"),
+        timeout_s=_LONG_SLEEP_S,
+    )
+    running = asyncio.ensure_future(_run(spec, ctx))
+    await _wait_until(lambda: bool(started), _WAIT_TIMEOUT_S)
+    assert _is_process_alive(started[0])
+
+    running.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+
+    # Killed by the cancel itself; the poll only waits for the event loop to reap the dead child.
+    await _wait_until(lambda: not _is_process_alive(started[0]), _WAIT_TIMEOUT_S)
+
+
+async def _wait_until(predicate: Callable[[], bool], timeout_s: float) -> None:
+    """Poll `predicate` on real time: a real child's start and exit cannot run on a FakeClock."""
+    deadline = time.monotonic() + timeout_s
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"condition not met within {timeout_s}s")
+        await asyncio.sleep(0.01)
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Return whether `pid` is still a live process, POSIX and Windows shims side by side."""
+    if sys.platform == "win32":
+        # SAFETY: an argument list, never shell=True; tasklist is a read-only query.
+        result = subprocess.run(  # noqa: S603 -- fixed argv, a well-known system command.
+            ["tasklist", "/FI", f"PID eq {pid}"],  # noqa: S607 -- well-known system command.
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return str(pid) in result.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

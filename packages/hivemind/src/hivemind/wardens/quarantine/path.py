@@ -8,16 +8,18 @@ memory.tainted." `quarantine_bee` is that path, in exactly that order, once the 
 checkpoint exists (`checkpoint`), and nothing is tainted before the bee is gone, so nothing it
 writes can land after the labels. Cancel and kill are one call in this Warden (the supervisor of
 one Cell): a sub-bee runs as a runtime this Warden tracks, and `retire_sub_bee` sets its stop flag
-(its role is cancelled at its next tick), then reaps its task (cancelled outright if it overruns
-the bounded grace), closes its link and frees its seat in the local pool. Revoking its slice also
-withdraws the task's own grant from what this Warden will spawn under, so nothing can restart the
-task until the Queen sends a fresh grant with a respawn the gate admits. The taint goes through
-`hivemind.memory.taint.taint_memory` with `TaintSource.QUARANTINE`, the bee's scope from its
-suspect episode on, the memory tables plus `WardenDeps.taint_ledgers` (the Honey Store's Nectar
-ledger joins there in phase 7). Then the task is held (`_quarantined`, the Warden's half of
-PAUSED; `report_paused` moves the Brood Chamber's half) and the Queen is told (`SECURITY`).
-`carry_out` (the autopilot's `WardenAction.QUARANTINE`: a Queen-sent `Intervene(QUARANTINE)` or
-this Warden's own policy row) and `quarantine_child` (`Warden.intervene`) are the only callers.
+(its role is cancelled at its next tick, and a command it has in flight dies with it: a Cell
+session's exec kills its child's process tree when cancelled), then reaps its task (cancelled
+outright if it overruns the bounded grace), closes its link and frees its seat in the local pool.
+Revoking its slice also withdraws the task's own grant from what this Warden will spawn under, so
+nothing can restart the task until the Queen sends a fresh grant with a respawn the gate admits.
+The taint goes through `hivemind.memory.taint.taint_memory` with `TaintSource.QUARANTINE`, the
+bee's scope from its suspect episode on, the memory tables plus `WardenDeps.taint_ledgers` (the
+Honey Store's Nectar ledger joins there in phase 7). Then the task is held (`_quarantined`, the
+Warden's half of PAUSED; `report_paused` moves the Brood Chamber's half) and the Queen is told
+(`SECURITY`). `carry_out` (the autopilot's `WardenAction.QUARANTINE`: a Queen-sent
+`Intervene(QUARANTINE)` or this Warden's own policy row) and `quarantine_child`
+(`Warden.intervene`) are the only callers.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
