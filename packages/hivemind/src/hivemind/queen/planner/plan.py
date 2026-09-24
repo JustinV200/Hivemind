@@ -30,7 +30,10 @@ Key invariants:
       `PlannerError`.
     - Every `PlannedTask.key` becomes its `TaskDraft.key` unchanged, so `depends_on` references
       the model wrote resolve without this module renaming anything; every `PlannedTask.leaves`
-      entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason.
+      entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason. `PlannedTask.
+      role` (roadmap steps 6.9/6.10) becomes its `TaskDraft.role` unchanged too: `PlannedTask`'s
+      own validators already confirmed it is plannable, so this module only carries it, never
+      re-checks it.
 
 See Also:
     - .claude/roadmap.md step 3.18 for "the planner emits acceptance for every subtask".
@@ -237,6 +240,7 @@ def _to_task_draft(
         title=task.title,
         objective=task.objective,
         acceptance=tuple(_to_postcondition(item) for item in task.acceptance),
+        role=task.role,
         needs=task.needs,
         clearance=min(task.clearance, clearance, key=lambda label: label.rank),
         origin=origin,

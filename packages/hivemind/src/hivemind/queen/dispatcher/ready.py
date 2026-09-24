@@ -41,6 +41,16 @@ respectively) hit this same choke point and fail the same way, since both funnel
 left here is the narrower case of a Cell that fits on paper but has no headroom left by the time
 the grant is sized.
 
+`_task_assign` (roadmap steps 6.9/6.10) reads `task.spec.role` for the wire `TaskAssign.role`
+directly, rather than the DRONE every task used to get regardless of what it was planned as, and
+carries `recon`: the `waggle.messages.task.ScoutReport`s of the task's SUCCEEDED Scout
+dependencies (`_recon_for`), so a Forager's brief is built from what a Scout it depended on
+already found. `_grant_inputs` sizes the fresh grant against the role's own `[forage.roles]`
+footprint when the manifest set one, else the Drone's -- `forager`/`scout` are never required
+manifest keys. Both `_task_assign` and `_grant_inputs` are the one choke point every dispatch path
+(`dispatch_ready`, `redispatch`, `resume_paused`) funnels through, so a role and its recon are
+carried the same way regardless of which one sent the assign.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and
@@ -52,7 +62,8 @@ Fits into the Hive:
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
     roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
     ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.snapshot`,
-    `hivemind.queen.trail` (record_event, record_forage_event) and waggle only.
+    `hivemind.queen.trail` (record_event, record_forage_event) and waggle (including
+    `waggle.messages.task.recon.MAX_RECON_REPORTS`) only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task,
@@ -67,20 +78,26 @@ Key invariants:
     - A fresh grant with `max_sub_bees < 1` is never sent to a Warden: `_send_grant_and_assign`
       records `forage.denied` and fails the task (RUNNING -> FAILED) instead, whether the grant
       came from a fresh dispatch, a retry or a resume.
+    - `_recon_for` never returns more than `MAX_RECON_REPORTS` reports, and only from the task's
+      own direct dependencies (never the transitive graph), ordered newest completion first.
 
 See Also:
     - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
       on it included".
+    - .claude/roadmap.md steps 6.9 and 6.10 for the Forager and Scout roles this module dispatches.
     - .claude/codingrules.md section 8.8 for "never assigns to a Worker directly".
     - hivemind.queen.placement for decide, this module's one placement call.
     - hivemind.queen.dispatcher.acquire for resolve_link, this module's Placement-to-Warden call.
     - hivemind.forage.allocate for grant, this module's one allocation call.
+    - waggle.messages.task.recon for ScoutReport and MAX_RECON_REPORTS, and hivemind.brood_chamber.
+      task.model.TaskOutcome.scout_report, the field `_recon_for` reads.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 
 from pydantic import JsonValue
 
@@ -100,7 +117,8 @@ from hivemind.queen.trail import record_event, record_forage_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
 from waggle.messages import HandoffRef
-from waggle.messages.task import TaskAssign, WorkerRole
+from waggle.messages.task import ScoutReport, TaskAssign, WorkerRole
+from waggle.messages.task.recon import MAX_RECON_REPORTS
 
 __all__ = ["dispatch_ready", "redispatch", "resume_paused"]
 
@@ -224,7 +242,7 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     must never find the chamber still reading ASSIGNED while it tries to move a RUNNING task to
     BLOCKED.
     """
-    inventory = await build_inventory(deps, wardens)
+    inventory = await build_inventory(deps, wardens, role=task.spec.role)
     placement = decide(
         task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
     )
@@ -268,16 +286,21 @@ async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> N
 
 @dataclass(frozen=True, slots=True)
 class _AssignmentTerms:
-    """Bundles `attempt`/`resume_from` so `_send_grant_and_assign` stays within codingrules 5.1.
+    """Bundles what one `TaskAssign` needs beyond `task` itself, within codingrules 5.1's limit.
 
     Attributes:
         attempt: The attempt number to stamp on the fresh TaskAssign.
         resume_from: The Handoff to resume from (roadmap step 4.9's own `resume_paused`); None
             for a fresh dispatch or an ordinary retry (`dispatch_ready`/`redispatch`'s own calls).
+        recon: The Scout reports to carry (roadmap step 6.10, `_recon_for`); empty here, since
+            none of this dataclass's three callers has the async chamber access `_recon_for`
+            needs -- `_send_grant_and_assign` fills it in with `dataclasses.replace` right before
+            building the `TaskAssign`, the one place in this module that awaits it.
     """
 
     attempt: int
     resume_from: HandoffRef | None = None
+    recon: tuple[ScoutReport, ...] = ()
 
 
 async def _send_grant_and_assign(
@@ -316,9 +339,12 @@ async def _send_grant_and_assign(
     sources: dict[str, ModelSource] = {
         binding.source_id: deps.map.get(binding.source_id) for binding in fresh_grant.allowed
     }
-    assign = _task_assign(
-        task, cell_id, fresh_grant.id, terms.attempt, resume_from=terms.resume_from
-    )
+    # Roadmap step 6.10: every SUCCEEDED Scout this task directly depends on, newest first, so a
+    # Forager's brief carries what recon already found. Recomputed on every send (fresh dispatch,
+    # redispatch or resume) since a dependency the task was placed against never changes once
+    # terminal, so recomputing costs a few cheap chamber reads and never disagrees with itself.
+    recon = await _recon_for(deps, task)
+    assign = _task_assign(task, cell_id, fresh_grant.id, replace(terms, recon=recon))
     await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
     await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
     return fresh_grant
@@ -360,10 +386,14 @@ def _grant_inputs(
     deps: QueenDeps, link: WardenLink, holder: WardenId, cell_id: CellId, task: Task
 ) -> GrantInputs:
     """Build one ready task's GrantInputs from its Cell, its Tempo and the Queen's own budgets."""
+    role = task.spec.role
     return GrantInputs(
         cell_capacity=link.cell.capacity,
-        role=WorkerRole.DRONE,
-        footprint=deps.footprints[WorkerRole.DRONE],
+        role=role,
+        # roadmap steps 6.9/6.10: the role's own [forage.roles] footprint when the manifest set
+        # one, else the Drone's -- forager/scout are never required manifest keys
+        # (hivemind.manifest.schema.forage.REQUIRED_ROLE stays "drone").
+        footprint=deps.footprints.get(role, deps.footprints[WorkerRole.DRONE]),
         tempo=task.spec.needs.tempo,
         map=deps.map,
         reserve=deps.reserve,
@@ -375,6 +405,41 @@ def _grant_inputs(
         now=deps.clock.now(),
         ttl_s=deps.grant_ttl_s,
     )
+
+
+async def _recon_for(deps: QueenDeps, task: Task) -> tuple[ScoutReport, ...]:
+    """Return the ScoutReports of `task`'s SUCCEEDED Scout dependencies, newest completion first.
+
+    Roadmap step 6.10: a Forager's brief carries what a Scout it depended on already found, so it
+    never rediscovers the same ground. Bounded to MAX_RECON_REPORTS; a dependency that is not a
+    SUCCEEDED Scout, or whose outcome carries no report, contributes nothing -- a task with no
+    Scout dependency (every Drone today) gets an empty tuple back.
+
+    Args:
+        deps: The Queen's collaborators; `deps.chamber.get` is the one call this makes, once per
+            direct dependency.
+        task: The task about to be assigned; only its direct `spec.depends_on` are read, never
+            the transitive graph.
+
+    Returns:
+        At most MAX_RECON_REPORTS ScoutReports, ordered by the reporting task's own `updated_at`
+        descending (the most recently completed Scout first).
+    """
+    dated: list[tuple[datetime, ScoutReport]] = []
+    for dep_id in task.spec.depends_on:
+        # Every dependency here is a chamber lookup, not a graph re-walk: ready_tasks (hivemind.
+        # brood_chamber.task.graph) already required every one of them to be SUCCEEDED before this
+        # task could ever be dispatched, so the status/outcome checks below are defensive, not
+        # load-bearing, for a fresh dispatch -- they still matter for a retry or a resume, where a
+        # dependency reported here is exactly the one this send re-confirms rather than re-decides.
+        dep = await deps.chamber.get(dep_id)
+        if dep.spec.role is not WorkerRole.SCOUT or dep.status is not TaskStatus.SUCCEEDED:
+            continue  # Not a Scout, or not (yet) the outcome recon may carry.
+        if dep.outcome is None or dep.outcome.scout_report is None:
+            continue  # SUCCEEDED but no report: nothing to carry (should not happen for a Scout).
+        dated.append((dep.updated_at, dep.outcome.scout_report))
+    dated.sort(key=lambda pair: pair[0], reverse=True)  # Newest completion first.
+    return tuple(report for _, report in dated[:MAX_RECON_REPORTS])
 
 
 async def _record_forage_granted(
@@ -401,24 +466,19 @@ async def _record_forage_granted(
 
 
 def _task_assign(
-    task: Task,
-    cell_id: CellId,
-    grant_id: GrantId,
-    attempt: int,
-    *,
-    resume_from: HandoffRef | None = None,
+    task: Task, cell_id: CellId, grant_id: GrantId, terms: _AssignmentTerms
 ) -> TaskAssign:
-    """Build the TaskAssign a task's Warden receives, at `attempt`."""
+    """Build the TaskAssign a task's Warden receives, at `terms.attempt`."""
     reason = (
         "Resumed by the Queen's dispatcher (Clustering)."
-        if resume_from is not None
+        if terms.resume_from is not None
         else "Placed by the Queen's dispatcher."
     )
     return TaskAssign(
         task_id=task.id,
         goal_id=task.goal_id,
         cell_id=cell_id,
-        role=WorkerRole.DRONE,
+        role=task.spec.role,
         slot=ModelSlot.WORKER.to_wire(),
         objective=task.spec.objective,
         acceptance=task.spec.acceptance,
@@ -428,10 +488,13 @@ def _task_assign(
         # scopes; before it, both stopped at placement and never reached the Cell (ADR-0031).
         exoskeleton=task.spec.needs.exoskeleton_need(),
         network_scopes=task.spec.needs.network_scopes,
+        # Roadmap step 6.10: the task's SUCCEEDED Scout dependencies, so a Forager's brief carries
+        # what recon already found (_recon_for, filled in by _send_grant_and_assign).
+        recon=terms.recon,
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,
-        attempt=attempt,
-        resume_from=resume_from,
+        attempt=terms.attempt,
+        resume_from=terms.resume_from,
         reason=reason,
     )
 

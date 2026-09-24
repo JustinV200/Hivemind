@@ -14,7 +14,12 @@ forever; a `Question` is `BLOCK_ON_QUESTION`; an `Answer` is `ROUTE_ANSWER`; any
 has never seen returns `NEEDS_JUDGEMENT`. A task already in a terminal `TaskStatus`
 (`hivemind.brood_chamber.TERMINAL_STATUSES`) makes a `TaskResult`/`AlarmRaised` about it a no-op
 `RECORD`: a stale or duplicate report about work the Queen already closed out is not a fresh
-decision to make.
+decision to make. `_decide_task_result` (roadmap step 6.10) has one exception to "SUCCEEDED means
+COMPLETE_TASK": a Scout's own acceptance only ever checks that it wrote `SCOUT_REPORT_FILE`, so a
+report that recommends against the work is still, mechanically, a SUCCEEDED result -- reading its
+`scout_report.feasible` here, a plain field on the wire `TaskResult` no `hivemind.llm` import is
+needed to read, is what turns that one case into `FAIL_TASK` instead, so the dependents `hivemind.
+brood_chamber.task.graph.ready_tasks` gates on the Scout's own success are never dispatched.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -30,11 +35,15 @@ Key invariants:
       the same `QueenAction`; it reads nothing beyond its own arguments.
     - `attempts >= limit` always forces `ESCALATE_TO_HUMAN` for an Alarm, regardless of what
       `policy` alone would decide: the Queen's own ceiling is a hard backstop, not a suggestion.
+    - A SUCCEEDED `TaskResult` whose `scout_report.feasible` is False always resolves to
+      `FAIL_TASK`, never `RETRY_TASK`: an infeasible Scout is not a transient failure worth
+      retrying, and `attempts`/`limit` play no part in that one decision.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the autopilot-first-awake-second shape this table
       implements, and for "an issue a bee cannot resolve becomes an Alarm... Each level's
       EscalationPolicy is data".
+    - .claude/roadmap.md step 6.10 for the Scout role and its `ScoutReport.feasible` flag.
     - hivemind.queen.autopilot.actions for QueenAction, this function's return type.
     - hivemind.supervision.policy for PolicyAction and decide, the Alarm-specific half this table
       delegates to.
@@ -117,6 +126,11 @@ def decide(
 def _decide_task_result(payload: TaskResult, attempts: int, limit: int) -> QueenAction:
     """Map a TaskResult's own outcome to COMPLETE_TASK, RETRY_TASK or FAIL_TASK."""
     if payload.outcome is TaskOutcome.SUCCEEDED:
+        if payload.scout_report is not None and not payload.scout_report.feasible:
+            # Roadmap step 6.10: acceptance passed (the report file exists) but the Scout itself
+            # recommends against the work, so this is FAIL_TASK, not COMPLETE_TASK -- and never
+            # RETRY_TASK, since attempts/limit have no bearing on what the Scout already found.
+            return QueenAction.FAIL_TASK
         return QueenAction.COMPLETE_TASK
     if payload.outcome is TaskOutcome.FAILED:
         if payload.attempt < attempts:

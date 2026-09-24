@@ -15,7 +15,14 @@ acceptance, needs, clearance, depends_on, leaves), reusing `hivemind.cell.TaskNe
 model can fill in without a second, parallel definition; `leaves` (roadmap step 5.0b) reuses
 `waggle.messages.PlannedLeaving` the same way, unlike `acceptance`, because `PlannedLeaving`
 already is the model-facing shape -- there is no separate wire type to convert into. `PlanSchema`
-is the whole reply: one or more `PlannedTask`s, the first of which becomes the goal.
+is the whole reply: one or more `PlannedTask`s, the first of which becomes the goal. `PlannedTask.
+role` (roadmap steps 6.9/6.10) mirrors `TaskDraft.role` the same way: which Worker role the
+Warden spawns for the subtask, one of `hivemind.brood_chamber.task.model.PLANNABLE_ROLES` (DRONE,
+FORAGER, SCOUT), with two planning-only rules of its own: a FORAGER needs an Exoskeleton (it would
+have no page or screen to act on otherwise), and a SCOUT's whole acceptance is exactly one
+`FILE_EXISTS` criterion on `SCOUT_REPORT_FILE` (its own report, relative to its lease's scratch --
+`waggle.messages.task.recon`'s own module docstring: "the file a Scout writes its report to,
+which its task's acceptance checks").
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's planner
@@ -23,9 +30,10 @@ Fits into the Hive:
     complete_structured` (as the schema a model's reply is validated against, given
     `hivemind.queen.planner.plan.plan_goal`'s own `context={"scratch_root": ...}` when the caller
     supplied one) and by `hivemind.queen.planner.plan._to_graph_draft` (as the value it converts).
-    Calls into `hivemind.brood_chamber.task.model` (KEY_PATTERN), `hivemind.cell` (HoneyClearance,
-    TaskNeeds), `hivemind.supervision.capping` (the checkable kinds) and `waggle.messages`
-    (PlannedLeaving, Postcondition, PostconditionKind, ElementTarget) only.
+    Calls into `hivemind.brood_chamber.task.model` (KEY_PATTERN, PLANNABLE_ROLES), `hivemind.cell`
+    (HoneyClearance, TaskNeeds), `hivemind.supervision.capping` (the checkable kinds) and
+    `waggle.messages` (PlannedLeaving, Postcondition, PostconditionKind, ElementTarget) and
+    `waggle.messages.task` (SCOUT_REPORT_FILE, WorkerRole) only.
 
 Key invariants:
     - `PlannedPostcondition` and `PlannedTask` are frozen and forbid extras, like every boundary
@@ -40,6 +48,11 @@ Key invariants:
       through an attached Exoskeleton, so `PlannedTask` allows them only when its needs set one.
     - `PlannedTask.key` carries `TaskDraft.KEY_PATTERN` for the same reason: a key the model gets
       wrong is retried inside the ladder, not rejected by `plan.py` afterwards.
+    - `PlannedTask.role` defaults to DRONE and must be one of `PLANNABLE_ROLES`, checked against
+      the same constant `TaskSpec`/`TaskDraft` check their own `role` field against, so the two
+      layers can never disagree on which roles are legal. A FORAGER with no `needs.exoskeleton`,
+      or a SCOUT whose acceptance is not exactly one `FILE_EXISTS` on `SCOUT_REPORT_FILE`, is a
+      ladder retry carrying the broken rule, exactly like every other rule in this class.
     - `PlannedTask.acceptance` never accepts an empty tuple (`min_length=1`): roadmap step 3.18's
       own rule, "every subtask carries at least one acceptance postcondition", is enforced at the
       schema the model fills in, not only after the fact.
@@ -57,9 +70,12 @@ See Also:
     - .claude/roadmap.md step 3.18 for "the planner emits acceptance for every subtask".
     - .claude/roadmap.md step 3.20 for this module's own roadmap bullet.
     - .claude/roadmap.md step 5.0b for "the plan declares what stays".
+    - .claude/roadmap.md steps 6.9 and 6.10 for the Forager and Scout roles this schema plans.
     - waggle.messages.labels for Postcondition, PostconditionKind and PlannedLeaving.
+    - waggle.messages.task.recon for ScoutReport, MAX_RECON_REPORTS and SCOUT_REPORT_FILE, the
+      file this schema's SCOUT rule names.
     - hivemind.brood_chamber.task.model for TaskDraft and TaskGraphDraft, what `plan.py` converts
-      this schema's values into.
+      this schema's values into, and PLANNABLE_ROLES, the set this schema's own role rule mirrors.
     - hivemind.queen.planner.plan for plan_goal, the one caller of PlanSchema.
 """
 
@@ -70,13 +86,14 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from hivemind.brood_chamber.task.model import KEY_PATTERN
+from hivemind.brood_chamber.task.model import KEY_PATTERN, PLANNABLE_ROLES
 from hivemind.cell import HoneyClearance, TaskNeeds
 from hivemind.supervision.capping import ACCEPTANCE_GUI_KINDS, CHECKABLE_KINDS
 from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind
 from waggle.messages.base import MAX_PATH_CHARS
 from waggle.messages.capping import ElementTarget
 from waggle.messages.labels import MAX_ARGV_ITEM_CHARS, MAX_ARGV_ITEMS, MAX_EXPECTED_CHARS
+from waggle.messages.task import SCOUT_REPORT_FILE, WorkerRole
 
 MAX_KEY_CHARS = 64  # A short, url-safe draft key; matches TaskDraft.key's own scale.
 MIN_ACCEPTANCE_ITEMS = 1  # roadmap 3.18: every subtask carries at least one acceptance criterion.
@@ -192,6 +209,13 @@ class PlannedTask(BaseModel):
     )
     title: str = Field(max_length=MAX_TITLE_CHARS, description="A one-line summary.")
     objective: str = Field(max_length=MAX_OBJECTIVE_CHARS, description="The full brief.")
+    role: WorkerRole = Field(
+        default=WorkerRole.DRONE,
+        description="Which Worker role the Warden spawns for this subtask (roadmap steps "
+        "6.9/6.10): DRONE for anything that is not web or GUI work, FORAGER for a bounded "
+        "see/act loop that needs an Exoskeleton, or SCOUT for cheap, strictly budgeted recon "
+        "whose only acceptance is its own report file.",
+    )
     acceptance: tuple[PlannedPostcondition, ...] = Field(
         min_length=MIN_ACCEPTANCE_ITEMS,
         max_length=MAX_ACCEPTANCE_ITEMS,
@@ -216,6 +240,65 @@ class PlannedTask(BaseModel):
         "lease is released ('install X', 'set up a project in Y') -- never working files, logs "
         "or anything scratch could hold instead. Empty unless the goal truly asks for it.",
     )
+
+    @model_validator(mode="after")
+    def _role_is_plannable(self) -> PlannedTask:
+        """Reject a role the Queen's planner may never assign; only PLANNABLE_ROLES are.
+
+        GuardBee, Undertaker and House Bee are spawned by a Warden's own autopilot for its own
+        duties, never through a task graph, so a plan naming one could never actually be run
+        (hivemind.brood_chamber.task.model.PLANNABLE_ROLES, the same constant that module's own
+        TaskSpec/TaskDraft check their own `role` field against).
+        """
+        if self.role in PLANNABLE_ROLES:
+            return self
+        allowed = ", ".join(sorted(member.value for member in PLANNABLE_ROLES))
+        raise ValueError(
+            f"PlannedTask.role must be one of {allowed}; {self.role.value} is spawned outside "
+            "the task graph and can never be planned."
+        )
+
+    @model_validator(mode="after")
+    def _forager_needs_the_exoskeleton(self) -> PlannedTask:
+        """Reject a FORAGER subtask with no Exoskeleton: it has no page or screen to act on.
+
+        Roadmap step 6.9: a Forager is a bounded see/act loop over a browser or a desktop, so a
+        subtask that never attaches either gives it nothing to work from.
+        """
+        if self.role is WorkerRole.FORAGER and not self.needs.exoskeleton:
+            raise ValueError(
+                "PlannedTask.role=FORAGER requires needs.exoskeleton=True: a Forager drives a "
+                "browser or a desktop, so a subtask with none gives it nothing to act on. Set "
+                "needs.exoskeleton (and browser_only when it needs no desktop), or plan a Drone "
+                "instead."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _scout_acceptance_is_its_own_report(self) -> PlannedTask:
+        """Reject a SCOUT subtask whose acceptance is not exactly FILE_EXISTS on its report.
+
+        Roadmap step 6.10: a Scout's only deliverable is `SCOUT_REPORT_FILE`, relative to its own
+        lease's scratch (FILE_EXISTS resolves a relative subject against it); anything else on a
+        SCOUT subtask's acceptance is either uncheckable or checks the wrong thing.
+        """
+        if self.role is not WorkerRole.SCOUT:
+            return self
+        if len(self.acceptance) != 1:
+            raise ValueError(
+                "PlannedTask.role=SCOUT requires exactly one acceptance criterion (its own "
+                f"report), got {len(self.acceptance)}."
+            )
+        criterion = self.acceptance[0]
+        if criterion.kind is not PostconditionKind.FILE_EXISTS or (
+            criterion.subject != SCOUT_REPORT_FILE
+        ):
+            raise ValueError(
+                "PlannedTask.role=SCOUT requires its one acceptance criterion to be FILE_EXISTS "
+                f"on {SCOUT_REPORT_FILE!r} (relative to its own lease's scratch), got "
+                f"{criterion.kind.value} on {criterion.subject!r}."
+            )
+        return self
 
     @model_validator(mode="after")
     def _structural_acceptance_needs_the_exoskeleton(self) -> PlannedTask:

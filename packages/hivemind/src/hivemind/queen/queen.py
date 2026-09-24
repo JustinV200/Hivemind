@@ -550,7 +550,7 @@ async def _act_on_task_result(
         attempt = _next_attempt(queen, payload.task_id)
         await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, attempt)
     elif action is QueenAction.FAIL_TASK:
-        await ticks.results.fail_task(queen._deps, payload.task_id, payload.reason)
+        await ticks.results.fail_task_from_result(queen._deps, payload)
 
 
 def _next_attempt(queen: Queen, task_id: TaskId) -> int:

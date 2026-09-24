@@ -1,15 +1,17 @@
 """Define Task, TaskSpec, TaskOutcome and the JSON graph file a human submits.
 
 A Task is one unit of work the Queen decomposes a goal into. This module holds its whole shape:
-`TaskSpec` is what a task is asked to do (title, objective, acceptance criteria, the `TaskNeeds`
-its Cell must meet, and the ids of tasks it depends on); `TaskOutcome` is how it ended, recorded
-once it reaches a terminal `TaskStatus` (`hivemind.brood_chamber.task.state`); `Task` is the whole
-record the Brood Chamber stores, spec plus current status plus placement plus outcome, immutable
-like every boundary value in the Hive (state changes produce a new `Task` via `model_copy`,
-codingrules section 8.5) rather than being mutated in place. `TaskDraft` and `TaskGraphDraft` are a
-second, smaller model family: the JSON file a human hands to `hive tasks submit` (roadmap step
-2.9), naming its tasks by short string keys instead of `TaskId`s that do not exist yet, because no
-`Task` can be minted until the whole graph has been checked for cycles and unknown keys.
+`TaskSpec` is what a task is asked to do (title, objective, acceptance criteria, which
+`WorkerRole` (roadmap steps 6.9/6.10; a Warden spawns a Drone, a Forager or a Scout for it) runs
+it, the `TaskNeeds` its Cell must meet, and the ids of tasks it depends on); `TaskOutcome` is how
+it ended, recorded once it reaches a terminal `TaskStatus` (`hivemind.brood_chamber.task.state`);
+`Task` is the whole record the Brood Chamber stores, spec plus current status plus placement plus
+outcome, immutable like every boundary value in the Hive (state changes produce a new `Task` via
+`model_copy`, codingrules section 8.5) rather than being mutated in place. `TaskDraft` and
+`TaskGraphDraft` are a second, smaller model family: the JSON file a human hands to
+`hive tasks submit` (roadmap step 2.9), naming its tasks by short string keys instead of `TaskId`s
+that do not exist yet, because no `Task` can be minted until the whole graph has been checked for
+cycles and unknown keys.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read and written by
@@ -17,8 +19,9 @@ Fits into the Hive:
     (roadmap step 2.6), which is where a `Task`'s immutability is exercised through `model_copy`.
     `TaskGraphDraft` is read by `hivemind.cli.tasks` (`hive tasks submit FILE`) and turned into
     `Task`s by `BroodChamber.submit`. Calls into `hivemind.brood_chamber.task.state`,
-    `hivemind.brood_chamber.task.graph` (for `TaskGraphDraft`'s cycle check) and `hivemind.cell`
-    (for `TaskNeeds`, `HoneyClearance`) only.
+    `hivemind.brood_chamber.task.graph` (for `TaskGraphDraft`'s cycle check), `hivemind.cell`
+    (for `TaskNeeds`, `HoneyClearance`) and `waggle.messages.task` (for `WorkerRole` and
+    `ScoutReport`) only.
 
 Key invariants:
     - Task.outcome is set if and only if Task.status is terminal (TaskStatus.is_terminal), and
@@ -28,8 +31,16 @@ Key invariants:
       is one of ASSIGNED, RUNNING, BLOCKED, PAUSED (the "placed" statuses).
     - A Task never appears in its own spec.depends_on, and Task.updated_at is never earlier than
       Task.created_at.
+    - TaskSpec.role and TaskDraft.role default to WorkerRole.DRONE and are one of PLANNABLE_ROLES
+      (DRONE, FORAGER, SCOUT); every other WorkerRole is spawned outside the task graph (a Warden's
+      own GuardBee, Undertaker or House Bee) and can never be assigned to a Task. The field is
+      additive with a default, so a stored body written before it existed loads as DRONE with no
+      migration.
     - TaskOutcome.status is always terminal, and TaskOutcome.verified_by (a WardenId) is set if
       and only if status is SUCCEEDED: a Warden, never the Worker that did the work, verifies it.
+      TaskOutcome.scout_report (roadmap step 6.10) is copied from the Warden-verified TaskResult
+      that closed the task; set only for a task whose role is SCOUT, on either SUCCEEDED (the
+      Scout's own recommendation) or FAILED (an infeasible Scout, capping.autopilot.table).
     - TaskGraphDraft.tasks has unique keys, every depends_on names a key that exists and is not
       its own, and the whole graph is acyclic (checked with hivemind.brood_chamber.task.graph.
       is_acyclic_edges); the first draft in the tuple is the goal, and every Task
@@ -38,12 +49,15 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.5 for the immutable-value rule Task follows.
-    - .claude/roadmap.md phase 2 step 2.4 for the task model and step 2.9 for `hive tasks submit`.
+    - .claude/roadmap.md phase 2 step 2.4 for the task model, step 2.9 for `hive tasks submit`,
+      and steps 6.9/6.10 for the Forager and Scout roles.
     - hivemind.brood_chamber.task.state for TaskStatus and the transition table Task's status
       moves through.
     - hivemind.brood_chamber.task.graph for is_acyclic_edges, ready_tasks and descendants, the
       pure functions this module's TaskGraphDraft and its callers build on.
     - hivemind.cell for TaskNeeds and HoneyClearance.
+    - hivemind.queen.planner.schema for PlannedTask, which carries the same role rules a model
+      must obey before hivemind.queen.planner.plan converts it into a TaskDraft.
 """
 
 from __future__ import annotations
@@ -63,6 +77,7 @@ from waggle.messages.base import (
     UtcDatetime,
     WardenIdField,
 )
+from waggle.messages.task import ScoutReport, WorkerRole
 
 MAX_TITLE_CHARS = 200  # A one-line summary; the objective carries the detail.
 MAX_OBJECTIVE_CHARS = 8_000  # A few pages: enough to brief a Worker fully, never a whole document.
@@ -83,6 +98,16 @@ _PLACED_STATUSES = frozenset(
     {TaskStatus.ASSIGNED, TaskStatus.RUNNING, TaskStatus.BLOCKED, TaskStatus.PAUSED}
 )
 
+# roadmap steps 6.9/6.10: the only WorkerRole members a Task's own spec may carry. GuardBee,
+# Undertaker and House Bee are spawned by a Warden's own autopilot for its own duties, never
+# assigned through the task graph (hivemind.queen.dispatcher builds every TaskAssign from a
+# TaskSpec.role), so a Task naming one of them could never actually be run. Exported so
+# hivemind.queen.planner.schema.PlannedTask (the model-facing shape one layer up) checks the exact
+# same set, rather than a second, hand-copied one that could drift.
+PLANNABLE_ROLES: frozenset[WorkerRole] = frozenset(
+    {WorkerRole.DRONE, WorkerRole.FORAGER, WorkerRole.SCOUT}
+)
+
 __all__ = [
     "KEY_PATTERN",
     "MAX_ACCEPTANCE_ITEMS",
@@ -96,6 +121,7 @@ __all__ = [
     "MAX_TITLE_CHARS",
     "MIN_ACCEPTANCE_ITEMS",
     "MIN_ATTEMPT",
+    "PLANNABLE_ROLES",
     "Task",
     "TaskDraft",
     "TaskGraphDraft",
@@ -121,6 +147,10 @@ class TaskSpec(BaseModel):
         min_length=MIN_ACCEPTANCE_ITEMS,
         max_length=MAX_ACCEPTANCE_ITEMS,
         description="The criteria Capping checks before the task can be marked SUCCEEDED.",
+    )
+    role: WorkerRole = Field(
+        default=WorkerRole.DRONE,
+        description="Which Worker role the Warden spawns for this task; one of PLANNABLE_ROLES.",
     )
     needs: TaskNeeds = Field(
         default_factory=TaskNeeds, description="What the task requires from its Cell."
@@ -155,6 +185,13 @@ class TaskSpec(BaseModel):
             raise ValueError(f"TaskSpec.depends_on contains a duplicate id: {value!r}.")
         return value
 
+    @field_validator("role")
+    @classmethod
+    def _role_is_plannable(cls, value: WorkerRole) -> WorkerRole:
+        """Reject a WorkerRole outside PLANNABLE_ROLES; see that constant's own comment."""
+        _check_role_is_plannable(value, owner="TaskSpec")
+        return value
+
 
 class TaskOutcome(BaseModel):
     """How a task ended; recorded once its status is terminal (TaskStatus.is_terminal)."""
@@ -175,6 +212,11 @@ class TaskOutcome(BaseModel):
     )
     spend_usd: float = Field(
         default=0.0, ge=0, description="What this attempt cost, in US dollars."
+    )
+    scout_report: ScoutReport | None = Field(
+        default=None,
+        description="What a Scout found (roadmap 6.10); set only when role is SCOUT, copied "
+        "unchanged from the Warden-verified TaskResult that closed the task.",
     )
 
     @field_validator("status")
@@ -270,6 +312,10 @@ class TaskDraft(BaseModel):
         max_length=MAX_ACCEPTANCE_ITEMS,
         description="The criteria Capping checks before the task can be marked SUCCEEDED.",
     )
+    role: WorkerRole = Field(
+        default=WorkerRole.DRONE,
+        description="Which Worker role the Warden spawns; carried unchanged onto TaskSpec.role.",
+    )
     needs: TaskNeeds = Field(
         default_factory=TaskNeeds, description="What the task requires from its Cell."
     )
@@ -295,6 +341,13 @@ class TaskDraft(BaseModel):
         "remain.",
     )
 
+    @field_validator("role")
+    @classmethod
+    def _role_is_plannable(cls, value: WorkerRole) -> WorkerRole:
+        """Reject a WorkerRole outside PLANNABLE_ROLES; see that constant's own comment."""
+        _check_role_is_plannable(value, owner="TaskDraft")
+        return value
+
 
 class TaskGraphDraft(BaseModel):
     """The JSON graph file a human hands to `hive tasks submit`: one or more TaskDrafts.
@@ -316,6 +369,26 @@ class TaskGraphDraft(BaseModel):
         _check_depends_on_keys_exist(self)
         _check_acyclic(self)
         return self
+
+
+def _check_role_is_plannable(role: WorkerRole, *, owner: str) -> None:
+    """Reject a WorkerRole outside PLANNABLE_ROLES; shared by TaskSpec and TaskDraft.
+
+    One helper, not two copies of the same message, so the two field_validators that call it (on
+    TaskSpec.role and TaskDraft.role) can never drift on which roles they allow or how they say so.
+
+    Args:
+        role: The role a caller is about to accept.
+        owner: The class name to name in the error ("TaskSpec" or "TaskDraft"), so the ladder-
+            retryable ValueError points a caller at the field that actually rejected it.
+
+    Raises:
+        ValueError: `role` is not one of PLANNABLE_ROLES.
+    """
+    if role in PLANNABLE_ROLES:
+        return
+    allowed = ", ".join(sorted(member.value for member in PLANNABLE_ROLES))
+    raise ValueError(f"{owner}.role must be one of {allowed}; got {role.value}.")
 
 
 def _check_outcome_matches_status(task: Task) -> None:

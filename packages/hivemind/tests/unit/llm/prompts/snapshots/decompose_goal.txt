@@ -26,6 +26,16 @@ exactly and do not reason about the shape. Here is what each subtask needs conce
 
 - **A description** of what the subtask does, specific enough that whoever executes it does not
   have to guess at scope.
+- **Role**: which bee runs the subtask. **Drone** is the default and the right choice for
+  anything that is not web or GUI work. **Forager** is a bounded look-and-act loop for a subtask
+  that reads or acts on a web page or a desktop; give it an Exoskeleton need too, since a Forager
+  with none has no page or screen to work from. **Scout** is cheap, strictly budgeted recon on a
+  site or a GUI you have not already seen described in the fleet or hot state: plan it before the
+  Foragers that need its findings, make each of them depend on it, and keep its own objective to
+  a handful of look-around steps, never the work itself. A Scout's acceptance is always exactly
+  one criterion: a file exists at `scout-report.json` (its own report, relative to its scratch) —
+  never anything else, and never a different file. Skip the Scout when the fleet or hot state
+  already describes the site or GUI well enough to go straight to a Forager.
 - **Acceptance**: how anyone will know the subtask actually succeeded, to be checked by that
   subtask's Warden, never by the bee that did the work. On any subtask the Warden can check four
   things: a file exists, a file is absent, a command exits zero, a named test passes. On a subtask

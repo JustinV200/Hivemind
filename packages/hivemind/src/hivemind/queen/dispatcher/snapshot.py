@@ -9,14 +9,18 @@ populate them with anything beyond the empty defaults). `build_inventory`'s own 
 `exclude_dormant` keyword arguments are the retry-once-with-zeroed-headroom path ADR-0028's own
 Consequences names: `hivemind.queen.dispatcher.acquire` passes a narrowed copy rather than mutating
 `deps` itself, so a failed provision never leaks into the next placement decision for a different
-task.
+task. Both `build_inventory`'s `role` keyword (DRONE by default) and `build_forage_view`'s own
+`task.spec.role` read (roadmap steps 6.9/6.10) look the role's footprint up in `deps.footprints`,
+falling back to the DRONE entry every manifest carries when the role has none of its own, so a
+FORAGER or SCOUT task is measured and granted against its own cost rather than always the Drone's.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
     acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory` (WaxSeverity,
     WaxState), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.placement`
-    (Inventory, ForageView, RealCandidate, VirtualBackendCandidate, WaxMention) and waggle only.
+    (Inventory, ForageView, RealCandidate, VirtualBackendCandidate, WaxMention) and waggle
+    (including `waggle.messages.task.WorkerRole`) only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
@@ -25,11 +29,16 @@ Key invariants:
       memory for the placed bee's own footprint), not a re-run of `hivemind.forage.allocate.grant`;
       the real grant computation still happens once placement has already chosen a Cell
       (`hivemind.queen.dispatcher.ready._send_grant_and_assign`).
+    - `build_inventory`'s `role` and `build_forage_view`'s `task.spec.role` never require a
+      `[forage.roles]` entry to exist for that role: `deps.footprints.get(role, ...)` always falls
+      back to DRONE, which every manifest binds (`hivemind.manifest.schema.forage.REQUIRED_ROLE`).
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for "the caller precomputes... before
       each decision" and the retry-with-zeroed-headroom Consequence this module's own keyword
       arguments implement.
+    - .claude/roadmap.md steps 6.9 and 6.10 for the Forager and Scout roles this module's own
+      role-aware footprint lookup serves.
     - hivemind.queen.placement.inventory for Inventory/ForageView, the shapes this module builds.
     - hivemind.queen.dispatcher.acquire for the one caller of `virtual_backends`/`exclude_dormant`.
 """
@@ -71,6 +80,7 @@ async def build_inventory(
     deps: QueenDeps,
     wardens: Sequence[WardenLink],
     *,
+    role: WorkerRole = WorkerRole.DRONE,
     virtual_backends: tuple[VirtualBackendCandidate, ...] | None = None,
     exclude_dormant: frozenset[CellId] = frozenset(),
 ) -> Inventory:
@@ -82,6 +92,10 @@ async def build_inventory(
             `deps.dormant_cells` for the Virtual side (empty until roadmap steps 5.6/5.9 wire
             them).
         wardens: Every attached Warden; one `RealCandidate` per Cell it owns.
+        role: The role of the task this placement decision is for; DRONE by default, matching
+            every caller before roadmap steps 6.9/6.10. Looked up in `deps.footprints` with a
+            DRONE fallback (`forager`/`scout` are never required manifest keys), so headroom is
+            measured against the role that will actually run, not always the Drone's.
         virtual_backends: Overrides `deps.virtual_backends`, for the retry-once-with-zeroed-
             headroom path (ADR-0028 Consequences) -- `hivemind.queen.dispatcher.acquire` passes a
             copy with one backend's headroom zeroed rather than mutating `deps` itself.
@@ -92,7 +106,7 @@ async def build_inventory(
     Returns:
         The `Inventory` `decide()` reads for this one placement decision.
     """
-    footprint = deps.footprints[WorkerRole.DRONE]
+    footprint = deps.footprints.get(role, deps.footprints[WorkerRole.DRONE])
     blocked, cautioned = await _wax_maps(deps)
     real = tuple(_real_candidate(link, footprint) for link in wardens)
     if virtual_backends is not None:
@@ -123,16 +137,17 @@ def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
     never on a fresh NIGHT_VEIL provision's first decide() call, which has no Cell yet to check.
 
     Args:
-        deps: The Queen's collaborators; `deps.footprints[WorkerRole.DRONE]` is the only Worker
-            role phase 3 implements, matching every other footprint lookup in this dispatch.
-            `deps.ledger`/`deps.map` are read only when `task.cell_id` is already set.
+        deps: The Queen's collaborators; `deps.footprints` is looked up by `task.spec.role`
+            (roadmap steps 6.9/6.10), falling back to the DRONE entry every manifest carries
+            when the role has none of its own. `deps.ledger`/`deps.map` are read only when
+            `task.cell_id` is already set.
         task: The task this placement decision is for.
 
     Returns:
         The `ForageView` `decide()` reads for this one placement decision.
     """
     return ForageView(
-        footprint=deps.footprints[WorkerRole.DRONE],
+        footprint=deps.footprints.get(task.spec.role, deps.footprints[WorkerRole.DRONE]),
         request_origin=task.spec.origin,
         night_veil_hosting=_night_veil_hosting(deps, task),
     )

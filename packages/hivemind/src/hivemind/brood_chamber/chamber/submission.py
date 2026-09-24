@@ -88,7 +88,8 @@ def _mint_task(
 
     A module-level function rather than a method: it touches no chamber state at all, and pulling
     it out of `submit` is what keeps that method inside the codingrules 5.1 fifty-line budget once
-    `TaskSpec` carries both `origin` (roadmap step 5.7a) and `leaves` (roadmap step 5.0b).
+    `TaskSpec` carries `origin` (roadmap step 5.7a), `leaves` (roadmap step 5.0b) and `role`
+    (roadmap steps 6.9/6.10).
 
     Args:
         draft: The already-validated draft to mint.
@@ -106,6 +107,7 @@ def _mint_task(
             title=draft.title,
             objective=draft.objective,
             acceptance=draft.acceptance,
+            role=draft.role,
             needs=draft.needs,
             clearance=draft.clearance,
             origin=draft.origin,

@@ -15,16 +15,28 @@ attempt+1" is a wire-level re-send to the same placement, not a fresh placement 
 caller (`hivemind.queen.queen`) is what tracks the next attempt number, since the chamber's own
 `Task.attempt` field only ever advances through `unassign`.
 
+`fail_task`'s own `scout_report` keyword (roadmap step 6.10) is how an infeasible Scout's own
+report survives onto the `TaskOutcome` its Warden-verified `TaskResult(SUCCEEDED)` never carried
+through `complete_task`: `hivemind.queen.autopilot.table._decide_task_result` maps that exact
+combination to `FAIL_TASK` instead of `COMPLETE_TASK`, and `fail_task_from_result` is what a
+`TaskResult`-shaped `FAIL_TASK` (`hivemind.queen.queen._act_on_task_result`'s own branch) calls
+instead of `fail_task` directly, so the dependents `hivemind.brood_chamber.task.graph.
+ready_tasks` gates on it stay PENDING for good, never dispatched, without a second non-retryable
+state this module would have to add.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick dispatch, once per decided
     `COMPLETE_TASK`/`RETRY_TASK`/`FAIL_TASK`. Calls into `hivemind.brood_chamber` (TaskOutcome,
     TaskStatus), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.dispatcher`
-    (dispatch_ready, redispatch) and waggle only.
+    (dispatch_ready, redispatch) and waggle (including `waggle.messages.task.ScoutReport`) only.
 
 Key invariants:
     - `complete_task` calls `dispatch_ready` immediately afterward, so a dependant task is placed
       without waiting for the next tick.
+    - `complete_task` carries `payload.scout_report` onto the SUCCEEDED `TaskOutcome` unchanged
+      (roadmap step 6.10); an infeasible one never reaches it, since `hivemind.queen.autopilot.
+      table` routes that case to FAIL_TASK before `complete_task` is ever called.
     - `complete_task` tells `deps.on_task_finished` (roadmap step 5.6/5.9's own release seam, this
       dispatch's own minimal edit) about the reporting Warden's own Cell before `dispatch_ready`
       runs, so a Virtual Cell it releases is never still GRANTED when the next placement decision
@@ -32,12 +44,17 @@ Key invariants:
     - `retry_task` never inspects an attempt ceiling itself, and never changes the task's own
       chamber status: the ceiling decision already happened in
       `hivemind.queen.autopilot.table.decide`; this function only carries out the resend.
+    - `fail_task` never dispatches anything and never retries: it is the one caller of
+      `chamber.fail`, whatever put it on the FAIL_TASK path (an exhausted retry, an escalated
+      Alarm's own CANCEL, or an infeasible Scout).
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the exact chamber calls this module
       makes.
+    - .claude/roadmap.md step 6.10 for the Scout role and its infeasible-report path.
     - hivemind.queen.autopilot.table for decide, which chooses among these three.
     - hivemind.queen.dispatcher for dispatch_ready and redispatch, the two calls this module makes.
+    - hivemind.queen.queen for _act_on_task_result, the one caller of fail_task_from_result.
 """
 
 from __future__ import annotations
@@ -48,11 +65,19 @@ from hivemind.brood_chamber import TaskOutcome, TaskStatus
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, redispatch
 from waggle.ids import TaskId, WardenId
-from waggle.messages.task import ArtifactRef, TaskResult
+from waggle.messages.task import ArtifactRef, ScoutReport, TaskResult
+from waggle.messages.task import TaskOutcome as WireTaskOutcome
 
 MAX_FAIL_SUMMARY_CHARS = 2_000  # Matches brood_chamber.task.model.MAX_SUMMARY_CHARS's own bound.
 
-__all__ = ["MAX_FAIL_SUMMARY_CHARS", "complete_task", "fail_task", "retry_task"]
+__all__ = [
+    "MAX_FAIL_SUMMARY_CHARS",
+    "complete_task",
+    "fail_reason",
+    "fail_task",
+    "fail_task_from_result",
+    "retry_task",
+]
 
 
 async def complete_task(
@@ -67,7 +92,8 @@ async def complete_task(
         deps: The Queen's collaborators.
         wardens: Every Warden currently attached; dispatch_ready places among these.
         payload: The Warden's own verified TaskResult(SUCCEEDED); `checked_by` becomes
-            `TaskOutcome.verified_by`.
+            `TaskOutcome.verified_by` and `scout_report` (roadmap step 6.10) carries straight
+            onto `TaskOutcome.scout_report` unchanged.
         warden_id: The Warden that reported this result, when the caller has it (`hivemind.queen.
             queen`'s own inbox item already names one). Roadmap step 5.6/5.9's own release seam:
             when given and `deps.on_task_finished` is set, that Warden's own Cell is told the task
@@ -80,6 +106,10 @@ async def complete_task(
         artifacts=_artifact_paths(payload.artifacts),
         verified_by=payload.checked_by,
         spend_usd=payload.spend,
+        # Roadmap step 6.10: a feasible Scout's own report, carried unchanged; None for every
+        # other role. An infeasible one never reaches here (hivemind.queen.autopilot.table
+        # routes it to FAIL_TASK/fail_task_from_result instead, before complete_task is called).
+        scout_report=payload.scout_report,
     )
     await deps.chamber.complete(payload.task_id, outcome)
     await _notify_cell_finished(deps, wardens, warden_id, outcome)
@@ -111,13 +141,39 @@ async def retry_task(
     await redispatch(deps, wardens, task_id, attempt)
 
 
-async def fail_task(deps: QueenDeps, task_id: TaskId, reason: str) -> None:
+def fail_reason(payload: TaskResult) -> str:
+    """Build FAIL_TASK's own reason: an infeasible Scout's summary, or the result's own reason.
+
+    Roadmap step 6.10: `hivemind.queen.autopilot.table._decide_task_result` is the only path
+    that reaches FAIL_TASK from a SUCCEEDED result, and it does so exactly when
+    `payload.scout_report` is present and infeasible -- every other FAIL_TASK (attempts
+    exhausted, or an escalated Alarm's own CANCEL, `hivemind.queen.ticks.alarms`) already carries
+    its own failure cause on `payload.reason`. `fail_task` caps whichever string this returns, so
+    no cap is needed here.
+
+    Args:
+        payload: The TaskResult a FAIL_TASK decision was made for.
+
+    Returns:
+        The reason to record on the failed task's own outcome.
+    """
+    report = payload.scout_report
+    if payload.outcome is WireTaskOutcome.SUCCEEDED and report is not None and not report.feasible:
+        return f"Scout reported the work infeasible: {report.summary}"
+    return payload.reason
+
+
+async def fail_task(
+    deps: QueenDeps, task_id: TaskId, reason: str, *, scout_report: ScoutReport | None = None
+) -> None:
     """Close a task out as FAILED, for good.
 
     Args:
         deps: The Queen's collaborators.
         task_id: The task to fail.
         reason: Why it failed, for the outcome's own summary.
+        scout_report: The Scout's own report, when this FAILED outcome is an infeasible Scout
+            (roadmap step 6.10; module docstring); None for every other reason this is called.
     """
     outcome = TaskOutcome(
         status=TaskStatus.FAILED,
@@ -125,8 +181,24 @@ async def fail_task(deps: QueenDeps, task_id: TaskId, reason: str) -> None:
         artifacts=(),
         verified_by=None,
         spend_usd=0.0,
+        scout_report=scout_report,
     )
     await deps.chamber.fail(task_id, outcome)
+
+
+async def fail_task_from_result(deps: QueenDeps, payload: TaskResult) -> None:
+    """Fail `payload`'s own task, building its reason and carrying its report in one call.
+
+    The one caller (`hivemind.queen.queen._act_on_task_result`, its own FAIL_TASK branch) never
+    has to know `fail_reason`'s own rule or that `fail_task` takes a `scout_report` at all -- this
+    is `fail_task(deps, payload.task_id, fail_reason(payload), scout_report=payload.scout_report)`
+    with a name that says what it does.
+
+    Args:
+        deps: The Queen's collaborators.
+        payload: The TaskResult a FAIL_TASK decision was made for.
+    """
+    await fail_task(deps, payload.task_id, fail_reason(payload), scout_report=payload.scout_report)
 
 
 def _artifact_paths(artifacts: tuple[ArtifactRef, ...]) -> tuple[str, ...]:

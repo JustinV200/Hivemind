@@ -122,10 +122,12 @@ async def _retry_once(
     if isinstance(placement, ProvisionVirtual):
         current = await current_virtual_backends(deps)
         zeroed = tuple(_zero(b) if b.name == placement.backend else b for b in current)
-        inventory = await build_inventory(deps, wardens, virtual_backends=zeroed)
+        inventory = await build_inventory(
+            deps, wardens, role=task.spec.role, virtual_backends=zeroed
+        )
     else:
         inventory = await build_inventory(
-            deps, wardens, exclude_dormant=frozenset({placement.cell_id})
+            deps, wardens, role=task.spec.role, exclude_dormant=frozenset({placement.cell_id})
         )
     decided = decide(
         task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
