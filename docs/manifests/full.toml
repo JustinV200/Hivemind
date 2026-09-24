@@ -551,6 +551,14 @@ max_clip_seconds = 120.0
 # and removed from every Warden's set. Here: no Exoskeleton on a Real Cell's own display, and no
 # host under one internal domain.
 deny = ["exoskeleton:real_display", "net:*.internal.example"]
+# The Guard Bee (roadmap step 10.6, ADR-0035; docs/guard/guard-bee.md) acts alone only to narrow
+# the whole Hive; anything aimed at one Cell or one bee it files as a request the Queen decides
+# on. `request_confidence` is the floor such a report must reach to be filed ("low", "medium",
+# "high" or "critical"); a weaker one is a guard.alert and nothing more. `requests_per_hour` caps
+# the requests it files in any hour; one over the cap is still a guard.alert, recorded as capped.
+# These are the defaults, written out.
+request_confidence = "high"
+requests_per_hour = 6
 
 [guard.roles.drone]
 # Replaces the Drone role's whole default set (a Worker still keeps only what its Warden holds).
@@ -573,6 +581,26 @@ allow = [
 # everywhere), "alarm" (also raise an Alarm to the principal's supervisor) or "ask_human".
 tool_invocation = "alarm"
 question_routing = "ask_human"
+
+[guard.bee]
+# The Guard Bee's own settings; every value here is the default, written out. It reads the trail
+# every `interval_s` seconds on the Queen's tick. Repeats of one rule against one Cell inside
+# `coalesce_window_s` are coalesced into the first request (0 files every one). An awake episode
+# on the judge slot, for a rule that asks for judgement, may take `judge_timeout_s` before the
+# rule's own verdict stands. One raise lifts a Capping tier's sampled-audit rate by
+# `audit_raise_step` (capped at 1.0) for `audit_raise_hold_s` seconds.
+interval_s = 5.0
+coalesce_window_s = 900.0
+judge_timeout_s = 60.0
+audit_raise_step = 0.25
+audit_raise_hold_s = 86400.0
+
+[guard.bee.rules.denial_burst]
+# Overrides one shipped rule (the rules ship as data in hivemind.workers.roles.guard_bee's
+# rules.toml; every key is listed in docs/guard/guard-bee.md). Any of enabled, window_s, threshold,
+# ratio, confidence, action and judgement; a field left out keeps the shipped value. Here: a
+# steadier Hive tolerates a few more refusals from one bee before the rule fires.
+threshold = 8
 
 [guard.untrusted_content]
 # The untrusted-content scanner (roadmap step 10.6b, ADR-0035): every tool result, Cell session
