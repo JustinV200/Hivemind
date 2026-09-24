@@ -27,7 +27,7 @@ from builders.llm import make_bound
 
 from hivemind.cell import CellIdentity
 from hivemind.forage import ModelSlot
-from hivemind.guard import GuardPolicy, GuardReport, load_guard_policy
+from hivemind.guard import GuardConfidence, GuardPolicy, GuardReport, load_guard_policy
 from hivemind.llm import (
     BoundModel,
     DirectCallGate,
@@ -67,12 +67,19 @@ class RecordingDoor:
     def __init__(self) -> None:
         """Build a door nothing has been filed through yet."""
         self.filed: list[GuardReport] = []
+        self.shown: list[GuardReport] = []
 
     async def file_guard_request(self, report: GuardReport) -> None:
         """Keep `report`; refuse one that asks the Queen for nothing, as her door does."""
         if not report.is_request:
             raise ValueError(f"{report.id} is not a request; it is a guard.alert alone.")
         self.filed.append(report)
+
+    async def report_to_human(self, report: GuardReport) -> None:
+        """Keep `report`; refuse one below CRITICAL, as her door does (roadmap step 10.6a)."""
+        if report.confidence is not GuardConfidence.CRITICAL:
+            raise ValueError(f"{report.id} is not CRITICAL; only a CRITICAL report is shown.")
+        self.shown.append(report)
 
 
 def judge_reply(confidence: str, action: str) -> LLMResponse:
