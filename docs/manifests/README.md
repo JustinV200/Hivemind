@@ -11,10 +11,10 @@ capacity, its escalation policy and memory budgets, and its security posture. It
 Every file here is loaded in a test (`packages/hivemind/tests/unit/manifest/test_loader.py`), so
 none of them can silently drift from the schema. That test also resolves each one's `[supervision]`
 `policy_file` and `capping_tiers_file` and asserts the files are really there: those two are the
-only manifest paths that must exist before a Hive starts (`db` and `scratch_root` are both created
-on demand), and every manifest path resolves against the manifest's own directory, so an example
-living in `docs/manifests/` has to name `../supervision/...` rather than take the schema's
-repo-root-relative default.
+only manifest paths that must exist before a Hive starts (`db`, `secrets_dir` and `scratch_root`
+are all created on demand), and every manifest path resolves against the manifest's own
+directory, so an example living in `docs/manifests/` has to name `../supervision/...` rather than
+take the schema's repo-root-relative default.
 
 - **`minimal.toml`** -- the smallest manifest that validates: one hosted provider (Anthropic) and
   every model slot bound to it. Two things have no safe default and must always be supplied even
@@ -29,8 +29,8 @@ repo-root-relative default.
   `waggle.is_loopback_host`, or the manifest fails to load. Its capability overrides show a weak
   local model's honest shape: no native tool calls, no schema-enforced output, JSON mode only.
 - **`full.toml`** -- every section and every field the schema supports, one comment per field.
-  Kept honest by a test that round-trips it through `model_dump`/`model_validate`. `[entrance]` is
-  not shown: it is added in phase 10.
+  Kept honest by a test that round-trips it through `model_dump`/`model_validate`, `[entrance]`
+  (roadmap phase 10, ADR-0033) and `[guard]` (ADR-0031) included.
 
 ## `[placement]` and `[virtual_cells]` (roadmap step 5.7)
 
@@ -65,6 +65,24 @@ defaults to `HIVEMIND_<NAME>_API_KEY` when omitted (the provider's own manifest 
 `hivemind.manifest.provider_api_key(name, spec, environ)` is the one function that reads a
 provider's key, and it returns a `pydantic.SecretStr`, whose `repr` never shows the value, so a key
 never lands in a log line or a Pheromone Trail event by accident (codingrules section 13).
+
+**Key material the Hive mints itself lives in the secret store at `[hive] secrets_dir`**
+(`hivemind.common.secrets.FileSecretStore`), never in the manifest and never in a `HIVEMIND_*`
+variable. The manifest names only the directory (default `secrets`, beside the manifest, resolved
+like `db`); the store keeps one file per secret, named after it, written atomically (a temporary
+file, flushed, then renamed over the old one):
+
+- `hive.ed25519`: the Hive's own Ed25519 identity key, minted on the first `hive run` with a
+  Virtual side configured. The Queen signs every Virtual Cell frame with it, so a Cell that
+  outlives a Queen restart still verifies the next Queen.
+- `console.ed25519`: the Hive Stand console's device key, never stored in the clear: it is sealed
+  with AES-256-GCM under a key derived from the operator password (Argon2id, its own salt), so a
+  bee that reads the directory holds nothing usable (ADR-0033).
+
+On Linux and macOS the directory is `0700` and every file `0600` from the moment it is created;
+on Windows those modes cannot be expressed, and the user profile's ACL is what protects it. Back
+the directory up like a private key and keep it out of version control. The operator password is
+not stored anywhere: the Entrance tables in `[hive] db` hold only its Argon2id hash.
 
 ## Model ids and provider URLs
 

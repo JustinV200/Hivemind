@@ -4,7 +4,8 @@ A Hive Manifest is the TOML file that describes one running Hive: a Queen (the c
 orchestrator), its Wardens (per-Cell supervisors) and the Cells (units of compute a Worker runs
 on) they supervise. This module holds the sections every Hive needs regardless of which model
 providers or security posture it runs with: ``HiveSection`` (the Hive's own identity: its id, its
-node id, and where its SQLite file lives), ``QueenSection`` (how often the Queen ticks and checks
+node id, where its SQLite file lives, and where its secret store keeps the key material it mints),
+``QueenSection`` (how often the Queen ticks and checks
 in), ``HiveStandSection`` (the Hive Stand, the machine the Queen runs on and the first Real Cell:
 its own capacity-probe overrides in ``HiveStandCapacityOverrides``, its per-lease scratch quota
 and disk reserve, the wire ``AccessLevel`` any lease on it may hold at most, and (roadmap step
@@ -53,6 +54,9 @@ MAX_HIVE_NAME_CHARS = 128  # A human-facing label, not an id; a page title's wor
 DEFAULT_HIVE_DB = (
     "hive.sqlite3"  # ADR-0006: one SQLite file per Hive, beside the manifest by default.
 )
+# hivemind.common.secrets.FileSecretStore's directory: one owner-only file per secret, beside the
+# manifest by default, like the database, so moving a Hive's directory moves its identity with it.
+DEFAULT_SECRETS_DIR = "secrets"
 DEFAULT_TICK_INTERVAL_S = 0.25  # Fast enough that the Queen's inbox never visibly lags a human.
 DEFAULT_HEARTBEAT_INTERVAL_S = (
     5.0  # Frequent enough that a stalled Warden is caught within seconds.
@@ -85,6 +89,7 @@ __all__ = [
     "DEFAULT_RETENTION_DAYS",
     "DEFAULT_SCRATCH_QUOTA_MB",
     "DEFAULT_SCRATCH_ROOT",
+    "DEFAULT_SECRETS_DIR",
     "DEFAULT_TICK_INTERVAL_S",
     "MAX_HIVE_NAME_CHARS",
     "BroodChamberSection",
@@ -125,6 +130,14 @@ class HiveSection(BaseModel):
         default=Path(DEFAULT_HIVE_DB),
         description="Where this Hive's single SQLite file lives, resolved relative to the "
         "manifest's own directory (HiveManifest.resolve_path).",
+    )
+    secrets_dir: Path = Field(
+        default=Path(DEFAULT_SECRETS_DIR),
+        description="Where this Hive's secret store keeps one owner-only file per secret (the "
+        "Hive's own Ed25519 signing key, the Hive Stand console's device key), resolved relative "
+        "to the manifest's own directory (HiveManifest.resolve_path) and created on first use. "
+        "It names a directory, never a secret: back it up like a private key and keep it out of "
+        "version control.",
     )
 
 

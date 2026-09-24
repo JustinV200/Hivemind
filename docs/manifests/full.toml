@@ -14,6 +14,11 @@ name = "Full Example Hive"
 env = "prod"
 # Where this Hive's one SQLite file lives, resolved relative to this file's own directory.
 db = "data/hive.sqlite3"
+# Where the secret store keeps one owner-only file per secret (the Hive's own Ed25519 signing
+# key; the Hive Stand console's device key, wrapped under the operator password), resolved
+# relative to this file's own directory and created on first use. A directory, never a secret:
+# back it up like a private key and keep it out of version control.
+secrets_dir = "data/secrets"
 
 [queen]
 # Seconds between Queen tick loop passes: order inbox, run autopilot, wake for judgement.

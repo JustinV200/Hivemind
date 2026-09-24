@@ -53,6 +53,14 @@ resolving each provider's own API key from this composition root's own environme
 QueenEndpoint.providers`/`.slots`/
 `.provider_api_keys`/`.llm_offline` is where all four ride to the Cell.
 
+The Queen signs every frame she sends a Virtual Cell, and every Cell is told her verify key when it
+is provisioned, so the key must outlive the process: minted per process (phase 5 open item 5), a
+Cell that outlived a Queen restart could never verify the next Queen. `build_virtual_cells` now
+takes `hive_signer`, the Hive's own persisted Ed25519 key (`hivemind.common.secrets.
+load_or_mint_hive_signer`, kept at `[hive] secrets_dir`), threaded in by `hivemind.cli.compose.hive.
+build_hive` exactly as `environ` is. Only the offline `hive cells` commands, which never start the
+listener nor provision a Cell, leave it `None` and get a throwaway key no Cell ever sees.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cell` (Cell, CellIdentity),
@@ -216,6 +224,8 @@ def build_virtual_cells(
     trail: PheromoneTrail,
     clock: Clock,
     environ: Mapping[str, str] | None = None,
+    *,
+    hive_signer: Ed25519Signer | None = None,
 ) -> VirtualCellsParts | None:
     """Build every Virtual Cell collaborator, or None when `[virtual_cells] backend` is unset.
 
@@ -225,6 +235,10 @@ def build_virtual_cells(
         clock: Injected time source shared by every collaborator this builds.
         environ: For resolving each provider's own API key (`provider_api_keys`); `None` (every
             pre-8.x caller) resolves none -- module docstring's own "Fits into the Hive" note.
+        hive_signer: The Hive's persisted key (`load_or_mint_hive_signer`), which the Queen
+            signs every Virtual Cell frame with; `build_hive` always passes it, so a Cell that
+            outlives a Queen restart still verifies the next Queen. `None` (offline `hive cells`
+            commands, which never provision) mints a throwaway key for this process only.
 
     Returns:
         A VirtualCellsParts ready for `hivemind.cli.compose.hive.build_hive` to fold into
@@ -234,7 +248,7 @@ def build_virtual_cells(
     if section.backend is None:
         return None
     gate, listener, registry, lifecycle = _build_lifecycle(
-        manifest, section, trail, clock, environ or {}
+        manifest, trail, clock, environ or {}, hive_signer
     )
     provider = _build_provider(manifest, lifecycle, gate, trail, clock)
     # Reuses provider's own late-bound Queen reference (`bind_queen`, called once by
@@ -258,16 +272,19 @@ def build_virtual_cells(
 
 def _build_lifecycle(
     manifest: HiveManifest,
-    section: VirtualCellsSection,
     trail: PheromoneTrail,
     clock: Clock,
     environ: Mapping[str, str],
+    hive_signer: Ed25519Signer | None,
 ) -> tuple[QueenReadinessGate, CellListener, BackendRegistry, CellLifecycle]:
     """Build the gate, listener, registry and lifecycle `build_virtual_cells` folds together.
 
-    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1).
+    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1). The listener
+    signs with `hive_signer`, and every backend's QueenEndpoint publishes its public half.
     """
-    queen_signer = Ed25519Signer.generate()
+    section = manifest.virtual_cells
+    # Only the offline commands pass None; they never provision, so no Cell sees this key.
+    queen_signer = hive_signer if hive_signer is not None else Ed25519Signer.generate()
     gate = QueenReadinessGate()
     listener = _build_listener(manifest, section, gate, queen_signer, clock)
     ctx = _RegistryContext(

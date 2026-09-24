@@ -15,14 +15,16 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.run` (roadmap step 3.21) and by every test that drives the kernel end to end
     against a `hivemind.llm.FakeLLMProvider`. Calls into `hivemind.brood_chamber`, `hivemind.cell`,
-    `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.pheromone`,
-    `hivemind.queen`, `hivemind.wardens` and waggle only.
+    `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.common.secrets` (the
+    Hive's persisted signing key, for the Virtual side), `hivemind.pheromone`, `hivemind.queen`,
+    `hivemind.wardens` and waggle only.
 
 Key invariants:
     - `build_hive` never touches the network: every provider it constructs is lazy
-      (`hivemind.llm.registry.ProviderRegistry.provider`'s own rule), and its own one `asyncio.run`
-      call (`hivemind.cell.local.HiveStandSource.cells`, to seed the Queen<->Warden link's Cell)
-      only probes this host's own capacity.
+      (`hivemind.llm.registry.ProviderRegistry.provider`'s own rule), and its own `asyncio.run`
+      calls only probe this host's own capacity (`hivemind.cell.local.HiveStandSource.cells`, to
+      seed the Queen<->Warden link's Cell) and, with a Virtual side, read or mint the Hive's
+      signing key in the local secret store (`_hive_signer`).
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
       their `run()` tasks, and closes the Queen<->Warden link, in that order, whether its
       `async with` block exits cleanly or raises. Awaiting both tasks before its own
@@ -72,6 +74,7 @@ from hivemind.cli.compose.deps import (
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
+from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.forage import ForageMap
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
@@ -80,6 +83,7 @@ from hivemind.queen import ForageLedger, Queen, WardenLink, sync_answers_from_ch
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
+from waggle.signing import Ed25519Signer
 
 __all__ = ["GoalReport", "Hive", "build_hive", "run_goal", "run_hive"]
 
@@ -159,8 +163,8 @@ def build_hive(
     The one place a HiveManifest is converted into deps (codingrules section 13): every subsystem
     below `cli` takes only the slice `hivemind.cli.compose.deps`'s builders carve from `manifest`
     here, never the manifest itself. Never awaits a model or opens a network connection: every
-    provider `registry` may later construct is lazy, and the one `asyncio.run` call this makes
-    (`_build_links`, below) only probes this host's own already-known capacity.
+    provider `registry` may later construct is lazy, and its `asyncio.run` calls (`_build_links`,
+    `_hive_signer`) only probe this host's capacity and read the local secret store.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
@@ -187,9 +191,10 @@ def build_hive(
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
     source = build_hive_stand_source(manifest, hive_stores.trail, clock, hive_stores.leavings)
     links = _build_links(manifest, source, clock)
-    # Roadmap step 5.6: None when `[virtual_cells] backend` is unset, touching nothing else below
-    # (hivemind.cli.compose.virtual_cells's own module docstring).
-    virtual_cells = build_virtual_cells(manifest, hive_stores.trail, clock, environ)
+    # Roadmap step 5.6: None when `[virtual_cells] backend` is unset (virtual_cells' docstring).
+    virtual_cells = build_virtual_cells(
+        manifest, hive_stores.trail, clock, environ, hive_signer=_hive_signer(manifest)
+    )
     parts = HiveParts(
         manifest=manifest, registry=registry, fanner=fanner, stores=hive_stores, clock=clock
     )
@@ -207,6 +212,25 @@ def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) 
     """
     cell = asyncio.run(source.cells())[0]
     return build_hive_links(manifest.hive.id, manifest.hive.node_id, cell, clock)
+
+
+def _hive_signer(manifest: HiveManifest) -> Ed25519Signer | None:
+    """Load (or, on the Hive's first run, mint) its signing key when a Virtual side is set.
+
+    Phase 5 open item 5: the Queen signs every Virtual Cell frame with this key, so it must be the
+    same key after a restart; it lives in the secret store at the manifest's resolved `[hive]
+    secrets_dir` (a test's manifest lives under its own `tmp_path`, so its key does too). `None`
+    when `[virtual_cells] backend` is unset: `build_virtual_cells` then builds nothing, and a Hive
+    with no Virtual side never writes a key it does not use.
+
+    SAFETY: a fresh event loop for this one setup call, the same seam `_build_links` uses: the
+    secret store is async, `build_hive` is a sync composition root, and the call is one small
+    file read (or one write, the first time), never a network request.
+    """
+    if manifest.virtual_cells.backend is None:
+        return None
+    store = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
+    return asyncio.run(load_or_mint_hive_signer(store))
 
 
 @dataclass(frozen=True, slots=True)

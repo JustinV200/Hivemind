@@ -45,6 +45,17 @@ grows domain logic of its own.
   already pending the instant it is called), `apply_migrations` gets one-transaction-per-migration
   atomicity by making each migration's own script text open its transaction as its first
   statement instead; see `_apply_one`'s docstring for the full explanation.
+- **Secrets** (`hivemind.common.secrets`, a sub-package): `SecretStore`, the protocol for key
+  material the Hive mints itself (get, put, delete, names; names are 1 to 64 characters of
+  `[a-z0-9_.-]` starting with a letter or digit, values at most 64 KiB). `FileSecretStore(root)`
+  keeps one file per secret under the manifest's resolved `[hive] secrets_dir`: `0700` directory
+  and `0600` files on POSIX from the moment they exist (on Windows the user profile's ACL protects
+  it), atomic writes (temporary file, fsync, `os.replace`), blocking I/O under
+  `asyncio.to_thread`, a `repr` that shows only the root. `MemorySecretStore` is the fake.
+  `load_or_mint_hive_signer(store)` reads the Hive's Ed25519 identity key (`hive.ed25519`) or
+  mints and persists it, so the Queen signs Virtual Cell frames with the same key across
+  restarts. `SecretStoreError` (in `hivemind.common.errors`) names a secret and its store, never
+  a value.
 - **Tasks** (`hivemind.common.tasks`): `reap(task)` cancels `task` if still pending and awaits it,
   so a tick's own throwaway waiter is never destroyed pending once the event loop closes;
   `reap_all(tasks)` does the same over a whole collection, for a `stop()`/`aclose()` that owns
@@ -55,7 +66,8 @@ grows domain logic of its own.
 ## How to test this
 
 ```bash
-uv run --frozen pytest packages/hivemind/tests/unit/common
+uv run --frozen pytest packages/hivemind/tests/unit/common \
+    packages/hivemind/tests/contracts/test_secret_store_contract.py
 ```
 
 Coverage floor is 95% (codingrules section 14.1):
