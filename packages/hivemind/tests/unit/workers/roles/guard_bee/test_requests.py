@@ -3,8 +3,9 @@
 A report below `[guard] request_confidence` is never filed; a repeat of one rule against one
 target inside the coalescing window folds into the request already filed; no more than
 `[guard] requests_per_hour` are filed in any hour; only a filed request counts toward either; and
-a ledger restored from the Guard Bee's own alerts after a restart applies the same limits. Over a
-whole Guard Bee, each limit is still a `guard.alert`, recorded with what became of it.
+a ledger restored from the Guard Bee's own alerts after a restart applies the same limits. A
+CRITICAL request is filed past coalescing and the cap. Over a whole Guard Bee, each limit is
+still a `guard.alert`, recorded with what became of it.
 
 Fits into the Hive:
     Mirrors src/hivemind/workers/roles/guard_bee/requests.py (codingrules section 3).
@@ -84,6 +85,18 @@ def test_the_hourly_cap_counts_only_the_last_hour_of_filed_requests() -> None:
 
     assert capped is Disposition.CAPPED
     assert freed is Disposition.FILED
+
+
+def test_a_critical_request_is_filed_past_coalescing_and_the_cap() -> None:
+    ledger = _ledger(per_hour=1)
+    first = _report()
+    ledger.record(first, _T0)
+    critical = _report(GuardConfidence.CRITICAL, cell_id=first.cell_id)
+
+    admitted = ledger.admit(critical, _T0 + timedelta(minutes=1))
+
+    # The same target inside the window, and the hour's one request already filed: still filed.
+    assert admitted is Disposition.FILED
 
 
 def test_a_restored_ledger_applies_the_same_limits_after_a_restart() -> None:

@@ -10,9 +10,12 @@ Capping gates read back from this same trail; `reduce_entrance` records `guard.r
 which the Hive Entrance follows. A report aimed at one Cell or one bee is a request filed through
 the Queen's `GuardRequestDoor` when `RequestLedger` admits it, and only a `guard.alert` otherwise.
 A recommendation whose target the finding does not name falls back to `observe`, never to a guess.
-The order is fixed: act (file, raise or order), deposit, then record the alert that marks the
-finding reported, so a crash in between repeats an action (a narrowing is safe to repeat, a
-duplicate request is still only a request) rather than losing one. `FindingResponder` also keeps
+A report at CRITICAL confidence that asks for nothing (a raise, a reduce order, an observation) is
+also shown to the human through the door's `report_to_human` (ADR-0035); a CRITICAL request is
+not, because the Queen shows it herself, once, with her decision. The order is fixed: act (file,
+raise or order), show, deposit, then record the alert that marks the finding reported, so a crash
+in between repeats an action (a narrowing is safe to repeat, a duplicate request is still only a
+request) rather than losing one. `FindingResponder` also keeps
 what it reported (per rule and key, the moment each finding counted up to), and rebuilds that and
 its ledger from the Guard Bee's own alerts after a restart.
 
@@ -28,7 +31,8 @@ Key invariants:
       `guard.reduce_ordered`, and a raise only ever raises: nothing here can widen anything.
     - Every payload holds ids, enum values, numbers and one timestamp; the summary is built from
       the rule's title, ids and counts only.
-    - Only a request goes through the Queen's door; nothing here holds a Cell or a Waggle link.
+    - Only a request, or a CRITICAL report that asks for nothing, goes through the Queen's door;
+      nothing here holds a Cell or a Waggle link.
 
 See Also:
     - hivemind.guard.report for GuardReport and GuardRequestDoor, the contract.
@@ -177,11 +181,11 @@ class FindingResponder:
         """
         report = build_report(finding, verdict, self._deps.clock)
         disposition = await self._carry_out(report, finding.key)
+        shown = await self._show(report)
         await self._deps.sink.deposit(GuardDeposit(report=report))
+        payload = _alert(report, finding, verdict, disposition)
         await self._record(
-            ALERT_KIND,
-            _subject(report, finding, self._deps.identity),
-            _alert(report, finding, verdict, disposition),
+            ALERT_KIND, _subject(report, finding, self._deps.identity), payload | {"shown": shown}
         )
         self._mark(finding.rule.key, finding.key, finding.mark)
         return Response(report=report, disposition=disposition)
@@ -215,6 +219,16 @@ class FindingResponder:
             await self._record(REDUCE_ORDERED_KIND, self._deps.identity.hive_id, order)
             return Disposition.REDUCE_ORDERED
         return Disposition.OBSERVED
+
+    async def _show(self, report: GuardReport) -> bool:
+        """Show a CRITICAL report that asks for nothing to the human; True when it was shown."""
+        if report.confidence is not GuardConfidence.CRITICAL or report.is_request:
+            # Below CRITICAL the alert is the record; a CRITICAL request is shown by the Queen's
+            # own decision on it, so showing it here too would tell the human twice.
+            return False
+        # Latency: one durable write into the Queen's own tables (the Alarm and its chat line).
+        await self._deps.door.report_to_human(report)
+        return True
 
     async def _file(self, report: GuardReport) -> Disposition:
         """File a request through the Queen's door when the ledger admits it."""

@@ -6,9 +6,12 @@ rule could crowd her attention; three limits, all data, keep it from doing so. A
 against one target (its Cell, else its first bee or task) inside `[guard.bee] coalesce_window_s`
 of the last request filed for them is coalesced into that one. And no more than `[guard]
 requests_per_hour` are filed in any hour; one over the cap is still a `guard.alert`, recorded as
-capped. `RequestLedger` holds what it takes to apply those limits: when each rule and target last
-filed, and the moments of the last hour's requests; after a restart it is rebuilt from the Guard
-Bee's own `guard.alert` events, which record every request filed with its rule and target.
+capped. A request at CRITICAL confidence is exempt from the last two: a CRITICAL report always
+reaches the human (ADR-0035), and a request reaches the human only through the Queen's decision on
+it, so it is always filed (and still counts toward the cap for the others). `RequestLedger` holds
+what it takes to apply those limits: when each rule and target last filed, and the moments of the
+last hour's requests; after a restart it is rebuilt from the Guard Bee's own `guard.alert` events,
+which record every request filed with its rule and target.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.guard_bee`. Owned by
@@ -19,6 +22,7 @@ Key invariants:
     - Only a filed request counts toward coalescing and the cap; a coalesced, capped or
       below-floor report never does, so a burst of weak reports cannot starve a strong one.
     - The floor is checked first: a report below it is BELOW_FLOOR whatever the other two say.
+    - A CRITICAL request above the floor is always FILED.
 
 See Also:
     - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
@@ -99,6 +103,9 @@ class RequestLedger:
         """
         if not report.confidence.at_least(self._floor):
             return Disposition.BELOW_FLOOR
+        if report.confidence is GuardConfidence.CRITICAL:
+            # Never coalesced or capped: only her decision on it shows it to the human (ADR-0035).
+            return Disposition.FILED
         last = self._last_filed.get((report.rule, request_target(report)))
         if last is not None and now - last < self._coalesce:
             return Disposition.COALESCED

@@ -33,7 +33,7 @@ from hivemind.pheromone import (
     QueenEvent,
     WorkerEvent,
 )
-from waggle.clock import FakeClock
+from waggle.clock import Clock
 from waggle.ids import (
     new_alarm_id,
     new_cell_id,
@@ -53,7 +53,7 @@ _LEASE = "lease_01HZZZZZZZZZZZZZZZZZZZZZZZ"  # The lease every outside-scratch t
 class TrailSeeder:
     """Record the events the Guard Bee's rules count, stamped as one node by one clock."""
 
-    def __init__(self, trail: PheromoneTrail, clock: FakeClock, identity: CellIdentity) -> None:
+    def __init__(self, trail: PheromoneTrail, clock: Clock, identity: CellIdentity) -> None:
         """Seed `trail` as `identity`'s node, stamped by `clock`."""
         self.trail, self.clock, self.identity = trail, clock, identity
 

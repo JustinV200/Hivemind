@@ -21,6 +21,7 @@ from builders.guard_bee import TrailSeeder, make_guard_bee, seed_episode
 
 from hivemind.pheromone import TrailQuery
 from hivemind.workers.roles.guard_bee import EpisodeIndex, TrailFact, fact_from_event
+from waggle.clock import FakeClock
 from waggle.ids import new_task_id
 
 _EVERYTHING = TrailQuery(limit=1_000)  # Every event a test here seeds, oldest first.
@@ -30,6 +31,12 @@ _WATCHED = frozenset({"principal_kind", "capability_family", "failing_check", "t
 
 def _seeder() -> TrailSeeder:
     return make_guard_bee().seed
+
+
+def _advance(seed: TrailSeeder, seconds: float) -> None:
+    """Move the seeder's own clock on: a rig's seeder always runs on a FakeClock."""
+    assert isinstance(seed.clock, FakeClock)
+    seed.clock.advance(seconds)
 
 
 async def test_a_denial_keeps_the_bee_and_the_capability_family_and_nothing_else() -> None:
@@ -97,7 +104,7 @@ async def test_a_rejection_joins_through_its_proposal_to_the_bee_of_that_moment(
     first = await seed_episode(seed)
     proposal = await seed.proposed(first.task, first.cell, "OUTSIDE_SCRATCH_WRITE")
     rejected = await seed.capping(proposal, "capping.rejected", failing_check="ALLOWLIST")
-    seed.clock.advance(60.0)
+    _advance(seed, 60.0)
     retry = await seed_episode(seed, task=first.task)  # A second attempt: a new bee, same task.
     for event in await seed.trail.query(_EVERYTHING):
         index.learn(fact_from_event(event, _WATCHED))
@@ -146,7 +153,7 @@ async def test_pruning_forgets_joins_learnt_before_the_horizon() -> None:
     episode = await seed_episode(seed)
     for event in await seed.trail.query(_EVERYTHING):
         index.learn(fact_from_event(event, _WATCHED))
-    seed.clock.advance(10.0)
+    _advance(seed, 10.0)
 
     index.prune(seed.clock.now())
     fact = TrailFact(

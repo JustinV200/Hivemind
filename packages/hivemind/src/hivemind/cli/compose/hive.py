@@ -81,7 +81,7 @@ from hivemind.cli.compose.deps import (
     build_warden_deps,
     open_default_stores,
 )
-from hivemind.cli.compose.guard import build_guard_deps
+from hivemind.cli.compose.guard import close_guard_bee, with_guard
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.night_veil import veil_trail
 from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
@@ -363,18 +363,18 @@ def _assemble_hive(
     telemetry = TelemetryBoard()
     # The zero-grant fix: how long a fresh task may wait for its Cell's live figures to make room.
     waits = GrantWaits(patience_s=parts.manifest.forage.zero_grant_patience_s)
-    # Roadmap step 10.6a: her Guard request table, dire patterns and the egress seam isolation uses.
-    lifecycle = extras.virtual_cells.lifecycle if extras.virtual_cells is not None else None
-    guard = build_guard_deps(parts.manifest, lifecycle)
     queen_deps = replace(
         queen_deps,
         scanner=scanner,
         human_channel=relay,
         on_heartbeat=telemetry.record,
         grant_waits=waits,
-        guard=guard,
     )
+    # Roadmap steps 10.6a and 10.6: her Guard request side, and the Guard Bee filing through her.
+    lifecycle = extras.virtual_cells.lifecycle if extras.virtual_cells is not None else None
+    queen_deps, door = with_guard(parts.manifest, queen_deps, lifecycle, warden_deps.tiers)
     queen = Queen(queen_deps)
+    door.bind(queen)  # Before anything ticks: she is the Guard Bee's door (Hive.guard_door).
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
@@ -431,6 +431,7 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             await hive.queen.stop()
             await hive.warden.stop()
             await asyncio.gather(queen_task, warden_task)
+            await close_guard_bee(hive.queen_deps)  # Roadmap step 10.6: no episode left behind.
             if hive.virtual_cells is not None:
                 # Every Virtual Cell, dormant ones included: hivemind.queen.cell_gate.shutdown.
                 await hive.virtual_cells.retire_all()
