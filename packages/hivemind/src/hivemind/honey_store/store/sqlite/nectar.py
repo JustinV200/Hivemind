@@ -12,17 +12,20 @@ records an extra source (`hivemind.honey_store.store.sqlite.sources`, ADR-0033) 
 transaction, so the second sender's own provenance survives the merge. The same merge keeps the
 higher of each of the two labelling facts intake records (`declared_clearance`,
 `floor_clearance`, ADR-0034), so a later depositor who declared more can only make the Nectar less
-eligible for a judge-reviewed lowering, never more.
+eligible for a judge-reviewed lowering, never more. A Nectar whose label was lowered below its
+floor keeps that lowering when the same text arrives again from a Real Cell: the judge or the human
+already cleared that floor for the stored text, which a merge never changes, so the duplicate
+brings only its declared label.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
     only by `hivemind.honey_store.store.sqlite.store.SqliteHoneyStore`, on its `ConnectionThread`.
     Calls into `hivemind.cell` (HoneyClearance, CombShieldLevel), `hivemind.common.sqlite`
-    (transaction), `hivemind.honey_store.clearance` (raise_label, for the merged labelling facts),
-    `hivemind.honey_store.errors` (NectarNotFoundError), `hivemind.honey_store.
-    models` (Nectar, NectarDraft, NectarOrigin, NectarState), `hivemind.honey_store.store.protocol`
-    (NectarAdded, NectarEvents), `.sources` (insert_source_if_new), `hivemind.pheromone`
-    (insert_event) and `waggle` only.
+    (transaction), `hivemind.honey_store.clearance` (raise_label, for the merged labelling facts,
+    and HUMAN_ONLY_ORIGINS), `hivemind.honey_store.errors` (NectarNotFoundError),
+    `hivemind.honey_store.models` (Nectar, NectarDraft, NectarOrigin, NectarState),
+    `hivemind.honey_store.store.protocol` (NectarAdded, NectarEvents), `.sources`
+    (insert_source_if_new), `hivemind.pheromone` (insert_event) and `waggle` only.
 
 Key invariants:
     - `add_nectar_transaction` writes its row (or its merge, and any extra source) and its events
@@ -32,6 +35,8 @@ Key invariants:
     - A duplicate deposit's label is only ever raised, never lowered, and only the Honey rows
       already below the new rank are touched (`_raise_honey_for_nectar`'s own `WHERE
       clearance_rank < ?`).
+    - A floor already cleared for the stored text (its label below its floor) is never re-applied
+      by a Real Cell duplicate; a higher declared label, or a HUMAN or WATCH origin, still raises.
     - A fresh row's `state` is `EPHEMERAL` when `draft.ephemeral_cell_id` is set, `RECEIVED`
       otherwise (ADR-0031: a Night Veil Cell's own side channel is never ripened).
     - An extra source is recorded only for a duplicate matched by content, and only when its
@@ -57,7 +62,7 @@ from datetime import datetime
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.common.sqlite import transaction
-from hivemind.honey_store.clearance import raise_label
+from hivemind.honey_store.clearance import HUMAN_ONLY_ORIGINS, raise_label
 from hivemind.honey_store.errors import NectarNotFoundError
 from hivemind.honey_store.models import Nectar, NectarDraft, NectarOrigin, NectarState
 from hivemind.honey_store.store.protocol import NectarAdded, NectarEvents
@@ -219,24 +224,43 @@ def _merge_duplicate(
     """Raise the stored row's (and its Honey rows') label when `draft` outranks it; else no-op.
 
     A content match (not the same `source_key`) whose provenance differs from the stored row's
-    own also records an extra source (ADR-0033), whichever way the label moves.
+    own also records an extra source (ADR-0033), whichever way the label moves. `draft` brings
+    the label `_incoming_label` gives it, which leaves out a floor already cleared (ADR-0034).
     """
     existing = _row_to_nectar(existing_row)
     if not matched_by_source_key and _provenance_differs(existing, draft):
         sources_sql.insert_source_if_new(connection, existing.id, draft, received_at)
+    incoming = _incoming_label(existing, draft)
     merged = _merge_facts(connection, existing, draft)
-    if draft.clearance.rank <= existing.clearance.rank:
+    if incoming.rank <= existing.clearance.rank:
         # Not a raise: the stored label already covers the new deposit's own.
         return NectarAdded(nectar=merged, is_new=False, raised_from=None)
-    raised = merged.model_copy(update={"clearance": draft.clearance})
+    raised = merged.model_copy(update={"clearance": incoming})
+    connection.execute(_UPDATE_CLEARANCE_SQL, (incoming.value, incoming.rank, existing.id))
     connection.execute(
-        _UPDATE_CLEARANCE_SQL, (draft.clearance.value, draft.clearance.rank, existing.id)
-    )
-    connection.execute(
-        _RAISE_HONEY_FOR_NECTAR_SQL,
-        (draft.clearance.value, draft.clearance.rank, existing.id, draft.clearance.rank),
+        _RAISE_HONEY_FOR_NECTAR_SQL, (incoming.value, incoming.rank, existing.id, incoming.rank)
     )
     return NectarAdded(nectar=raised, is_new=False, raised_from=existing.clearance)
+
+
+def _incoming_label(existing: Nectar, draft: NectarDraft) -> HoneyClearance:
+    """Return the label `draft` brings to a merge: its own, less a floor already cleared.
+
+    ADR-0034: only a judge's or the human's lowering ever leaves a stored label below the stored
+    floor (intake never does, and merges only raise), and a merge never changes the stored text.
+    So a Real Cell floor no higher than that one was cleared for this very text, and a repeat of
+    it brings only its declared label: one approval holds for every repeat of the same outcome.
+    A HUMAN or WATCH origin's C2 is the content's own nature, never the floor's, so it still counts.
+    """
+    stored_floor = existing.floor_clearance
+    declared, floor = draft.declared_clearance, draft.floor_clearance
+    # A fact nobody recorded (a row or draft from before ADR-0034) clears nothing.
+    if stored_floor is None or declared is None or floor is None:
+        return draft.clearance
+    cleared = existing.clearance.rank < stored_floor.rank and floor.rank <= stored_floor.rank
+    if not cleared or draft.origin in HUMAN_ONLY_ORIGINS:
+        return draft.clearance
+    return declared
 
 
 def _merge_facts(connection: sqlite3.Connection, existing: Nectar, draft: NectarDraft) -> Nectar:

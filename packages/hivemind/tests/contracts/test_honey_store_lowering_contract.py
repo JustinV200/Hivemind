@@ -451,3 +451,56 @@ async def test_reject_lowering_rejects_only_a_proposed_proposal(harness: Harness
     missing = proposal.model_copy(update={"id": LoweringId("lowering_missing")})
     with pytest.raises(LoweringNotFoundError):
         await _reject(harness, missing, LabelApprover.HUMAN)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# A lowering holds for every repeat of the same text
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _lowered(harness_: Harness) -> tuple[NectarDraft, Nectar]:
+    """A Hive Stand Nectar the judge lowered to C1, and the draft that deposited it."""
+    draft = _draft(harness_)
+    nectar = await _ripened(harness_, draft, parts=2)
+    await _apply(harness_, await _filed(harness_, nectar), LabelApprover.JUDGE)
+    return draft, await harness_.store.get_nectar(nectar.id)
+
+
+def _repeat(draft: NectarDraft, **overrides: object) -> NectarDraft:
+    """The same text again from a later task on the Hive Stand, as a second run deposits it."""
+    return draft.model_copy(update={"source_key": "task_outcome:repeat", "bee": None, **overrides})
+
+
+async def test_a_lowering_holds_when_a_real_cell_repeats_the_same_text(harness: Harness) -> None:
+    # ADR-0034: the repeat's floor is the very one the judge already cleared for this text.
+    draft, nectar = await _lowered(harness)
+    repeat = _repeat(draft)
+
+    added = await harness.store.add_nectar(repeat, sha(repeat), lambda _: ())
+
+    assert (added.nectar.id, added.is_new, added.raised_from) == (nectar.id, False, None)
+    assert (await harness.store.get_nectar(nectar.id)).clearance is HoneyClearance.C1
+    assert {row.clearance for row in await harness.store.honey_for_nectar(nectar.id)} == {
+        HoneyClearance.C1
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"declared_clearance": HoneyClearance.C2}, {"origin": NectarOrigin.HUMAN}],
+    ids=["declared-higher", "human-origin"],
+)
+async def test_a_repeat_still_raises_a_lowered_label_for_what_the_review_did_not_cover(
+    harness: Harness, overrides: dict[str, object]
+) -> None:
+    # A depositor declaring more, or a person's own words, is not the floor the judge cleared.
+    draft, nectar = await _lowered(harness)
+    repeat = _repeat(draft, **overrides)
+
+    added = await harness.store.add_nectar(repeat, sha(repeat), lambda _: ())
+
+    assert added.raised_from is HoneyClearance.C1
+    assert (await harness.store.get_nectar(nectar.id)).clearance is HoneyClearance.C2
+    assert {row.clearance for row in await harness.store.honey_for_nectar(nectar.id)} == {
+        HoneyClearance.C2
+    }

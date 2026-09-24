@@ -47,7 +47,10 @@ The RIPENER labels the text itself, whatever its current label (ADR-0034). A lab
 current one raises it at once; a label below it is stored as the Nectar's `ripener_clearance`
 (with the model's reason) in the same `ripen` transaction and never lowers anything: it can only
 start a lowering proposal an independent judge or the human decides (`hivemind.honey_store.
-lowering`). A heuristic summary stores no reading, so such a Nectar is never proposed.
+lowering`). A heuristic summary stores no reading, so such a Nectar is never proposed. That is why
+a deposit shorter than `summarise_min_chars` is still read by the model when only the Real Cell
+floor holds its label up (`clearance.held_by_floor_alone`): a verified outcome on the Hive Stand is
+usually that short.
 
 A `HoneyStoreError`, a `NotFoundError` or a `ValueError` while ripening one Nectar marks it failed
 (`honey.ripen_failed`) and DISCARDED at `max_attempts`; the pass carries on with the next one. A

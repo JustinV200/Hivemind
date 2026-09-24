@@ -203,6 +203,11 @@ def test_d_at_c1_a_judge_approved_lowering_lets_the_second_run_read_the_first(
     assert lowered.payload["approver"] == "JUDGE"
     assert (lowered.payload["from"], lowered.payload["to"]) == ("C2", "C1")
     assert lowered.subject_id == proposed.subject_id  # The same Nectar, proposed then lowered.
+    # The second run's outcome is the same text: it merges onto the lowered Nectar and leaves it
+    # at C1, since the floor it brings is the one the judge cleared (a third run reads it too).
+    (repeated,) = asyncio.run(_events(hive, "honey.nectar_deduplicated"))
+    assert repeated.subject_id == lowered.subject_id
+    assert asyncio.run(_events(hive, "honey.label_raised")) == []
 
 
 def test_e_at_c1_a_judge_rejection_keeps_the_first_outcome_from_the_second_run(

@@ -10,7 +10,8 @@ Honey it was handed does not already say the port, the Capping judge's approval 
 scenario asks, the Ripener's structured summary with its own reading of the outcome's label
 (RIPENER) and the clearance judge's verdict on lowering it (JUDGE). The two judges share
 `ModelSlot.JUDGE`, so they are told apart by the prompt each request carries. `run_twice` runs the
-goal, drives one House Bee pass (drain, ripen, file and review lowerings) and runs it again.
+goal, drives one House Bee pass (drain, ripen, file and review lowerings), runs it again and waits
+for the second outcome's deposit.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by
@@ -202,6 +203,9 @@ async def run_twice(hive: Hive, script: CompoundScript, clearance: HoneyClearanc
         # driven here instead of waiting out its thirty-second pause.
         await house_bee.run_pass()
         second = await run_goal(hive, GOAL, clearance=clearance, timeout_s=_TIMEOUT_S)
+        # The second outcome lands a beat later too; waiting for it keeps what a scenario reads
+        # afterwards (a merge onto the first run's Nectar included) settled, never racing.
+        await wait_until(lambda: access.store.has_source(f"task_outcome:{second.tasks[0].id}"))
     return TwoRuns(first, second, first_calls, script.worker_calls - first_calls)
 
 

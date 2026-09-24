@@ -40,11 +40,16 @@ hive honey review:  decide(id, approve, reason) as HUMAN: approve from PROPOSED 
 
 A proposal's machine (`state.py`): `PROPOSED -> LOWERED` (judge or human), `PROPOSED -> REJECTED`
 (judge, human, or eligibility lost at apply time), `REJECTED -> LOWERED` (the human only);
-`LOWERED` is terminal. One proposal per Nectar, ever.
+`LOWERED` is terminal. One proposal per Nectar, ever. A lowering holds for every repeat of the same
+text: a Real Cell deposit that dedupes onto a lowered Nectar never brings back the floor the judge
+cleared, while a higher declared label, or a HUMAN or WATCH origin, still raises it
+(`store/sqlite/nectar.py`, ADR-0034).
 
 ## Public API
 
-- **Rule** (`rules.py`): `lowering_target`, `HUMAN_ONLY_ORIGINS`.
+- **Rule** (`rules.py`): `lowering_target`, built on `held_by_floor_alone`, which lives in
+  `hivemind.honey_store.clearance` beside `HUMAN_ONLY_ORIGINS`. Ripening asks that predicate too,
+  so a deposit the floor alone holds up is read by the Ripener however short it is.
 - **State machine** (`state.py`): `LoweringState`, `TRANSITIONS`, `TERMINAL_STATES`,
   `can_transition`, `assert_transition` (raises `LoweringTransitionError`).
 - **Models** (`models.py`): `LoweringProposal` (the stored proposal), `LoweringId`,
@@ -75,7 +80,11 @@ edge and asserts every forbidden one raises; `test_judge.py` snapshot-tests the 
 and scripts a `FakeLLMProvider` (approve, reject, a malformed reply, a refusal, a timeout, an
 outage); `test_review.py` runs the whole flow on a real SQLite store with `FakeClearanceJudge`. The
 contract suite runs every store method over all three store harnesses, including the apply
-transaction's eligibility re-check and its read-back postcondition. Coverage:
+transaction's eligibility re-check and its read-back postcondition. On real models,
+`tests/evals/honey/test_clearance_judge_local.py` (`local_llm`) asks the judge about a Hive Stand
+outcome and a build log it must approve and four texts it must reject; run it for any model meant
+for the JUDGE slot and around any rubric change (a 3B judge rejected everything; bind a different,
+stronger model than the Ripener's). Coverage:
 
 ```bash
 COVERAGE_FILE=.coverage.lowering uv run --frozen pytest -p no:cacheprovider \
