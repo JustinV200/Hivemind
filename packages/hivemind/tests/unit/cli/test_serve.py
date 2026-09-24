@@ -12,11 +12,15 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
+from typing import cast
 
+import pytest
 from builders.cli import fake_manifest
 from typer.testing import CliRunner
 
 from hivemind.cli.app import app
+from hivemind.cli.serve import _announce
+from hivemind.entrance.runtime import HiveEntrance
 
 runner = CliRunner()
 
@@ -61,3 +65,37 @@ def test_hive_serve_is_a_registered_command() -> None:
 
     assert result.exit_code == 0
     assert "--manifest" in result.output
+
+
+class _Listeners:
+    """The listener facts `_announce` reads, as a test states them."""
+
+    def __init__(self, *, remote_port: int | None, exposed: bool) -> None:
+        self.loopback_port = 8710
+        self.remote_port = remote_port
+        self.exposed = exposed
+        self.remote_listening = False  # uvicorn still starting: what a real run met.
+
+
+class _Entrance:
+    def __init__(self, listeners: _Listeners) -> None:
+        self.listeners = listeners
+
+
+def test_a_remote_listener_still_starting_is_announced_by_its_bound_port(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A real `hive serve` announced "reduced to loopback" while uvicorn was only starting.
+    _announce(cast(HiveEntrance, _Entrance(_Listeners(remote_port=8711, exposed=True))))
+
+    printed = capsys.readouterr().out
+    assert "Remote listener on port 8711" in printed
+    assert "reduced" not in printed
+
+
+def test_an_exposed_entrance_with_no_remote_socket_is_announced_as_reduced(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _announce(cast(HiveEntrance, _Entrance(_Listeners(remote_port=None, exposed=True))))
+
+    assert "reduced to loopback" in capsys.readouterr().out

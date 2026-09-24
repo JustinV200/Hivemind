@@ -81,7 +81,10 @@ def _announce(entrance: HiveEntrance) -> None:
     """Print where the Entrance answers."""
     listeners = entrance.listeners
     typer.echo(f"Hive Entrance on http://localhost:{listeners.loopback_port} (loopback)")
-    if listeners.remote_listening:
+    # The remote socket is bound before start returns, while uvicorn may still be finishing its
+    # own startup: a bound port is the listener, whereas `remote_listening` read here once told an
+    # operator an Entrance that was only starting had been reduced (a real `hive serve` run).
+    if listeners.remote_port is not None:
         typer.echo(f"Remote listener on port {listeners.remote_port}")
     elif listeners.exposed:
         typer.echo("Remote listener not started: the Entrance is reduced to loopback.")
