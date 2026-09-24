@@ -6,20 +6,18 @@ from builders.wardens import make_warden_deps
 
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from hivemind.wardens.warden import Warden
-from waggle.errors import ConnectionLostError, TransportClosedError
 
 
 class _RecordingTrailSync:
-    """A `TrailSync` that counts its own syncs and can fail like a closed link."""
+    """A `TrailSync` that counts its own syncs and can report a link already gone."""
 
-    def __init__(self, failure: Exception | None = None) -> None:
+    def __init__(self, *, ok: bool = True) -> None:
         self.syncs = 0
-        self._failure = failure
+        self._ok = ok
 
-    async def sync(self) -> None:
+    async def sync(self) -> bool:
         self.syncs += 1
-        if self._failure is not None:
-            raise self._failure
+        return self._ok
 
 
 async def test_ships_once_through_the_wardens_own_trail_sync() -> None:
@@ -40,12 +38,12 @@ async def test_a_warden_without_a_trail_sync_is_a_no_op() -> None:
     await ship_trail_before_result(warden)  # Must not raise.
 
 
-async def test_a_closed_link_is_swallowed_so_the_result_send_reports_it() -> None:
-    for failure in (TransportClosedError("closed"), ConnectionLostError("lost")):
-        sync = _RecordingTrailSync(failure=failure)
-        deps, _queen_end, warden_id = make_warden_deps(trail_sync=sync)
-        warden = Warden(warden_id, deps)
+async def test_a_closed_link_is_reported_as_false_not_raised() -> None:
+    """`TrailSync.sync` reports a closed or dropped link as False; this function must not raise."""
+    sync = _RecordingTrailSync(ok=False)
+    deps, _queen_end, warden_id = make_warden_deps(trail_sync=sync)
+    warden = Warden(warden_id, deps)
 
-        await ship_trail_before_result(warden)  # Must not raise.
+    await ship_trail_before_result(warden)  # Must not raise.
 
-        assert sync.syncs == 1
+    assert sync.syncs == 1

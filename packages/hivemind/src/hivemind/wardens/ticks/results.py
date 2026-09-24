@@ -41,6 +41,7 @@ from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.supervision import Alarm as MirroredAlarm
 from hivemind.supervision import record_alarm_event
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
+from hivemind.wardens.links import send_guarded
 from hivemind.wardens.ticks.alarms import retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
@@ -93,7 +94,15 @@ async def _send_succeeded(warden: Warden, sub_bee: SubBee, claim: TaskResult) ->
     # The Queen may pause or destroy this Cell the moment the result lands: ship the task's own
     # trail rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
     await ship_trail_before_result(warden)
-    await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))
+    # Codingrules 8.8 says results queue while disconnected; no outbox is wired yet (this
+    # dispatch's own report) -- this sub-bee is already retired either way.
+    await _send_to_queen(warden, result)
+
+
+async def _send_to_queen(warden: Warden, payload: AlarmRaised | TaskResult) -> bool:
+    """Wrap `payload` and send it over this Warden's own queen link; see `send_guarded`."""
+    envelope = wrap(payload, warden._deps.hop, clock=warden._deps.clock)
+    return await send_guarded(warden._deps.queen_link, envelope)
 
 
 async def _send_acceptance_failed(
@@ -129,7 +138,8 @@ async def _send_acceptance_failed(
         MirroredAlarm.from_wire(alarm),
         "alarm.raised",
     )
-    await warden._deps.queen_link.send(wrap(alarm, warden._deps.hop, clock=warden._deps.clock))
+    # Same gap as _send_succeeded's own send: no outbox is wired yet, logged and dropped.
+    await _send_to_queen(warden, alarm)
     result = TaskResult(
         task_id=claim.task_id,
         attempt=claim.attempt,
@@ -143,7 +153,7 @@ async def _send_acceptance_failed(
         reason="acceptance",
     )
     await ship_trail_before_result(warden)  # Same reason as _send_succeeded: teardown follows.
-    await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))
+    await _send_to_queen(warden, result)
 
 
 def _cell_identity(warden: Warden) -> CellIdentity:

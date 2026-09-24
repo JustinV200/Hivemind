@@ -87,6 +87,17 @@ async def test_snapshot_raises_unsupported_when_the_reply_carries_an_error() -> 
         await asyncio.wait_for(task, timeout=5.0)
 
 
+async def test_snapshot_raises_unsupported_when_the_link_is_already_closed() -> None:
+    """Phase-7 handoff open item 8: a closed queen link takes the same fallback as a timeout."""
+    clock = FakeClock()
+    relay, queen_end = _build_relay(clock)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    await queen_end.close()  # The peer's own clean close is final for the relay's own send.
+
+    with pytest.raises(SnapshotUnsupportedError):
+        await relay.snapshot(cell)
+
+
 async def test_snapshot_raises_unsupported_on_timeout() -> None:
     clock = FakeClock()
     relay, _queen_end = _build_relay(clock, timeout_s=0.01)

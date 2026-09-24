@@ -10,8 +10,10 @@ Shipping right before the `TaskResult`, over the same ordered link, means the Qu
 task's own events before it can pause or destroy the Cell that recorded them.
 
 Best-effort, like every other sync (codingrules section 12: the merge is idempotent by event id).
-A closed link fails the `TaskResult` send that follows the same way, and the heartbeat sync is
-the one that records `warden.offline` for it; nothing here adds a second record.
+`TrailSync.sync` never raises (phase-7 handoff open item 8: it reports a closed or dropped link
+through its own return value); a closed link fails the `TaskResult` send that follows the same
+way, and the heartbeat sync is the one that records `warden.offline` for it, so this ignores the
+return value on purpose rather than adding a second record.
 
 Fits into the Hive:
     Layer 5 (Wardens). Called by `hivemind.wardens.ticks.results` and `hivemind.wardens.ticks.
@@ -20,7 +22,8 @@ Fits into the Hive:
     no-op.
 
 Key invariants:
-    - Never raises for a closed or lost link: the send that follows reports that itself.
+    - Never raises for a closed or lost link: `TrailSync.sync` reports that through its own
+      return value, which this ignores on purpose (module docstring).
     - Never records an event of its own.
 
 See Also:
@@ -31,8 +34,6 @@ See Also:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-from waggle.errors import ConnectionLostError, TransportClosedError
 
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
@@ -48,7 +49,7 @@ async def ship_trail_before_result(warden: Warden) -> None:
     """
     if warden._deps.trail_sync is None:
         return  # The Hive Stand's own Warden: its trail is already the Queen's own store.
-    try:
-        await warden._deps.trail_sync.sync()
-    except (TransportClosedError, ConnectionLostError):
-        return  # The result send that follows fails the same way and is the one that reports it.
+    # A closed or dropped link fails the TaskResult send that follows the same way, and that is
+    # the one that records warden.offline for it (module docstring); the bool is not this
+    # function's to react to.
+    await warden._deps.trail_sync.sync()

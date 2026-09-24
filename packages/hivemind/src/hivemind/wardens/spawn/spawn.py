@@ -79,6 +79,7 @@ from hivemind.pheromone import WorkerEvent
 from hivemind.supervision.capping import GateDeps
 from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.links import send_guarded
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
@@ -205,10 +206,10 @@ async def spawn_sub_bee(
     capping_gate = _build_capping_gate(ctx, assignment)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
-
     await _record_spawned(deps, worker_id, assignment)
     assign_hop = Hop(sender=ctx.warden_id, recipient=worker_id, node_id=deps.identity.node_id)
-    await warden_link.send(wrap(assignment, assign_hop, clock=deps.clock))
+    # A fresh pair from _start_runtime just above; guarded rather than assumed infallible.
+    await send_guarded(warden_link, wrap(assignment, assign_hop, clock=deps.clock))
 
     return SubBee(
         worker_id=worker_id,

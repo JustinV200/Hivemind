@@ -85,13 +85,7 @@ from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
 from hivemind.wardens.state import WardenState, assert_transition
 from waggle.envelope import Envelope
-from waggle.errors import (
-    CodecError,
-    ConnectionLostError,
-    InvalidPayloadError,
-    SignatureError,
-    TransportClosedError,
-)
+from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
 from waggle.messages.forage import GrantIssued
@@ -426,9 +420,7 @@ async def _sync_trail(warden: Warden) -> None:
     """
     if warden._deps.trail_sync is None:
         return
-    try:
-        await warden._deps.trail_sync.sync()
-    except (TransportClosedError, ConnectionLostError):
+    if not await warden._deps.trail_sync.sync():
         # The Queen link is gone; the segment stays local and the next successful sync (or the
         # next Cell's own) re-sends it. Never a reason to end this Warden's tick loop or its stop.
         await _record_event(warden, "warden.offline")

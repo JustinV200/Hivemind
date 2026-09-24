@@ -15,8 +15,10 @@ Warden never provisions Cells itself.
   and every sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
   through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the
-  Queen link already closed is recoverable (`wardens.ticks.heartbeat.send_heartbeat` records
-  `warden.offline` and moves on), never an exception out of this Warden's own loop or `stop()`.
+  Queen link already closed or dropped is recoverable (`wardens.ticks.heartbeat.send_heartbeat`
+  records `warden.offline` and moves on), never an exception out of this Warden's own loop or
+  `stop()`: every Warden -> Queen and Warden -> sub-bee send in this package goes through
+  `wardens.links.send_guarded` (phase-7 handoff open item 8), not `Warden.stop()` alone.
   Also implements `hivemind.supervision.Supervisor` over its sub-bees. Roadmap step 4.9
   (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
@@ -34,6 +36,11 @@ Warden never provisions Cells itself.
   `wardens.ticks.assign.settle_after_tick` and `wardens.ticks.control.forward_control` call,
   split out here to stay within codingrules 5.1's file-size limit.
 - `WardenDeps` (`deps.py`): every collaborator one Warden is built with.
+- `send_guarded` (`links.py`): the one guarded send every Warden -> Queen and Warden -> sub-bee
+  call goes through. It never lets `TransportClosedError`/`ConnectionLostError` escape (a link
+  closing under a send used to crash this Warden's whole tick loop, since `Warden` overrides no
+  `_recoverable_errors`), and reports instead whether the frame actually went out. Its own module
+  sits below `deps.py` and `trail_sync.py`, so both import it at module level.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.
 - `cell_request`, `forage_request`, `tool_request`, `propose_wax` (`requests.py`): the requests a

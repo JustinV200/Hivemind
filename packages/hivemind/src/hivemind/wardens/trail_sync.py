@@ -13,13 +13,15 @@ the Swarm family already defines for a colonized device's own offline segment, r
 because a Virtual Cell's Warden is in precisely the same position. `TrailSync` is the Protocol
 `hivemind.wardens.deps.WardenDeps.trail_sync` is typed against, so the Hive Stand's own composition
 root leaves it `None` (its Warden and its Queen already share one trail store, and syncing would
-merge a store into itself) and `hivemind.cli.in_cell.deps` wires a real one in.
+merge a store into itself) and `hivemind.cli.in_cell.deps` wires a real one in. `_send` guards each
+wire send with `hivemind.wardens.links.send_guarded` (phase 7 handoff, open item 8), so a Queen
+link that closed or dropped mid-export ends the export, never the Warden's tick loop.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Called
     by `hivemind.wardens.warden.Warden` on its own heartbeat cadence and once more from `stop()`.
-    Calls into `hivemind.pheromone` (PheromoneTrail, TrailSegment) and waggle (clock, envelope, ids,
-    messages, transport) only.
+    Calls into `hivemind.pheromone` (PheromoneTrail, TrailSegment), `hivemind.wardens.links`
+    (send_guarded) and waggle (clock, envelope, ids, messages, transport) only.
 
 Key invariants:
     - Nothing is sent for an empty segment: `TrailSegmentSync.event_count` is bounded `>= 1`
@@ -33,10 +35,14 @@ Key invariants:
       `first_event_id`/`last_event_id`/`total_bytes`, which is the group key the receiver
       (`hivemind.queen.trail.sync`) reassembles on.
     - A re-sent export is harmless: `PheromoneTrail.merge_segment` is idempotent by event id, so a
-      retry after a half-delivered export inserts each event at most once.
+      retry after a half-delivered export inserts each event at most once; `sync()`/`_send()` never
+      let `TransportClosedError`/`ConnectionLostError` escape (phase-7 handoff open item 8) and
+      never advance `_last_event_id`/`_since` on a send that did not fully land, so a link that
+      closed partway resends the whole export next time rather than leaving a gap in it.
 
 See Also:
     - .claude/codingrules.md section 12 for the per-node-segments rule this module implements.
+    - .claude/phase-7-handoff.md section 8 open item 8 for the guarded-send fix `_send` implements.
     - docs/waggle/spec.md section 8.10 for TrailSegmentSync's normative fields and bounds.
     - hivemind.queen.trail.sync for the Queen-side receiver that reassembles and merges these.
     - hivemind.pheromone.trail.protocol for TrailSegment, the unit this module serialises.
@@ -50,6 +56,7 @@ from datetime import datetime
 from typing import Protocol
 
 from hivemind.pheromone import PheromoneTrail, TrailSegment
+from hivemind.wardens.links import send_guarded
 from waggle.clock import Clock
 from waggle.envelope import Hop, wrap
 from waggle.ids import CellId, EventId, HiveId, NodeId, WardenId
@@ -92,12 +99,18 @@ class TrailSyncDeps:
 class TrailSync(Protocol):
     """Ship whatever this node's trail segment has gained since the last successful sync."""
 
-    async def sync(self) -> None:
+    async def sync(self) -> bool:
         """Export this node's segment and send it, or do nothing when it has not grown.
 
+        Never raises `TransportClosedError`/`ConnectionLostError` (phase-7 handoff open item 8):
+        a closed or dropped Queen link is reported through the return value, not an exception,
+        so this can never be what ends a Warden's tick loop.
+
         Returns:
-            None. Never raises for "nothing to send": an empty or unchanged segment is the normal
-            case on most ticks, not an error.
+            True once fully shipped, or when there was nothing new to ship (an empty or
+            unchanged segment is the normal case on most ticks, not an error). False when the
+            Queen link had already closed or dropped and shipping was interrupted; the segment
+            is resent whole on the next call that succeeds.
         """
         ...
 
@@ -139,23 +152,32 @@ class WaggleTrailSync:
         self._last_event_id: EventId | None = None
         self._since: datetime | None = None
 
-    async def sync(self) -> None:
+    async def sync(self) -> bool:
         """Export this node's segment and send it, unless it is empty or has not grown."""
         segment = await self._deps.trail.export_segment(self._deps.node_id, since=self._since)
         if not segment.events:
-            return  # Nothing recorded yet (or nothing since the last send): no valid frame exists.
+            return True  # Nothing recorded yet (or nothing since the last send): nothing to ship.
         last_event_id = EventId(segment.events[-1].id)
         if last_event_id == self._last_event_id:
             # `export_segment`'s `since` is inclusive and a FakeClock (or a busy millisecond) can
             # give several events the same timestamp, so the boundary event comes back every time;
             # this is what keeps the heartbeat cadence from re-shipping an unchanged segment.
-            return
-        await self._send(segment)
+            return True
+        if not await self._send(segment):
+            # Interrupted partway (or before the first chunk): _last_event_id/_since stay put,
+            # so the next successful sync() resends this whole export rather than a gap in it.
+            return False
         self._last_event_id = last_event_id
         self._since = segment.events[-1].at
+        return True
 
-    async def _send(self, segment: TrailSegment) -> None:
-        """Serialise `segment` once and send every chunk of it, `final` on the last."""
+    async def _send(self, segment: TrailSegment) -> bool:
+        """Serialise `segment` once and send every chunk of it, `final` on the last.
+
+        Returns:
+            True once every chunk was handed to the link; False the moment one is not, logged by
+            `send_guarded` and left there -- the caller never advances past a partial export.
+        """
         body = segment.model_dump_json().encode("utf-8")
         meta = _ExportMeta(
             node_id=segment.node_id,
@@ -177,7 +199,10 @@ class WaggleTrailSync:
             message = self._chunk(
                 meta, chunk=chunk, offset=offset, final=offset + len(chunk) >= len(body)
             )
-            await self._deps.transport.send(wrap(message, hop, clock=self._deps.clock))
+            envelope = wrap(message, hop, clock=self._deps.clock)
+            if not await send_guarded(self._deps.transport, envelope):
+                return False
+        return True
 
     def _chunk(
         self, meta: _ExportMeta, *, chunk: bytes, offset: int, final: bool

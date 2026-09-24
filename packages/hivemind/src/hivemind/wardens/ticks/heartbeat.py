@@ -11,11 +11,13 @@ synthesised `AlarmKind.WORKER_STALLED`, run through the exact same policy-mapped
 `hivemind.wardens.ticks.alarms.handle_alarm_action` path a wire `AlarmRaised` takes.
 `hot_state_sources` builds the one `hivemind.memory.HotStateSources` view an awake episode packs
 its prompt from, over this Warden's own sub-bee table and memory store. `send_heartbeat` also
-tolerates the Queen link already being closed (this dispatch's own fix 4): a heartbeat send that
-races `hivemind.wardens.warden.Warden.stop()`'s own teardown finds a `waggle.errors.
-TransportClosedError` recoverable, recording `warden.offline` instead of letting it end this
-Warden's own tick loop or escape `stop()` itself. Roadmap step 4.6 adds `check_sub_bee_context`,
-run on this same heartbeat cadence: it compares every sub-bee's own last reported
+tolerates the Queen link already being closed or dropped (this dispatch's own fix 4, widened by
+phase-7 handoff open item 8 to cover a dropped link too, through `hivemind.wardens.deps.
+send_guarded`): a heartbeat send that races `hivemind.wardens.warden.Warden.stop()`'s own
+teardown finds the link already gone, and records `warden.offline` instead of letting it end
+this Warden's own tick loop or escape `stop()` itself. Roadmap step 4.6 adds
+`check_sub_bee_context`, run on this same heartbeat cadence: it compares every sub-bee's own last
+reported
 `ContextTelemetry` (mirrored here by `record_heartbeat`) against `hivemind.memory.thresholds.
 intervention_kind_for` -- the pure rule shared with `hivemind.queen.ticks.context.intervention_for`
 -- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any sub-bee past its own
@@ -43,9 +45,9 @@ Key invariants:
     - `raise_stalled_alarms` records `alarm.raised` for the WORKER_STALLED Alarm it synthesises,
       before handing it to `handle_alarm_action` (a prior dispatch's own fix: a Warden-raised
       Alarm is now visible on the trail from its very first hop).
-    - `send_heartbeat` never raises `TransportClosedError`: the one wire send it makes is wrapped,
-      so a heartbeat racing `Warden.stop()`'s own teardown can never crash this Warden's tick loop
-      (this dispatch's own fix 4).
+    - `send_heartbeat` never lets `TransportClosedError`/`ConnectionLostError` escape: the one
+      wire send it makes is guarded, so a heartbeat racing `Warden.stop()`'s own teardown can
+      never crash this Warden's tick loop (this dispatch's own fix 4; phase-7 handoff item 8).
 
 See Also:
     - .claude/codingrules.md section 8.8 for "observe a sub-bee's terminal state from its
@@ -81,10 +83,10 @@ from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
+from hivemind.wardens.links import send_guarded
 from hivemind.wardens.ticks.alarms import handle_alarm_action
 from hivemind.workers.state import WorkerState
 from waggle.envelope import Hop, wrap
-from waggle.errors import TransportClosedError
 from waggle.ids import CellId, WorkerId, new_alarm_id, new_event_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import (
@@ -165,13 +167,13 @@ async def send_heartbeat(warden: Warden) -> None:
         grant_spend=None,
         interval_s=warden._deps.heartbeat_interval_s,
     )
-    try:
-        envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock)
-        await warden._deps.queen_link.send(envelope)
-    except TransportClosedError:
-        # Recoverable (this dispatch's own fix 4): logged as this Warden's own connection to the
-        # Queen being gone, not raised, so a heartbeat racing Warden.stop()'s own teardown can
-        # never crash this Warden's tick loop or propagate out of stop() itself.
+    envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock)
+    if not await send_guarded(warden._deps.queen_link, envelope):
+        # Recoverable (this dispatch's own fix 4; phase-7 handoff item 8 widens the guard from
+        # TransportClosedError alone to a dropped link too): recorded as this Warden's own
+        # connection to the Queen being gone, never raised, so a heartbeat racing
+        # Warden.stop()'s own teardown can never crash this Warden's tick loop or propagate out
+        # of stop() itself.
         await _record_link_lost(warden)
     # Roadmap step 4.6: "Wardens do the same to sub-bees" -- on this same cadence, since a
     # sub-bee's own last_telemetry is only ever fresh right after send_heartbeat's own aggregation
@@ -216,7 +218,9 @@ async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: Interve
     hop = Hop(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
     )
-    await sub_bee.link.send(wrap(message, hop, clock=warden._deps.clock))
+    # A sub-bee whose own link is already gone has nothing left to receive this order, the same
+    # "gone, nothing to relay to" rule hivemind.wardens.ticks.control.forward_control follows.
+    await send_guarded(sub_bee.link, wrap(message, hop, clock=warden._deps.clock))
 
 
 def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat) -> None:
