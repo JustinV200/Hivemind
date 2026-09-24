@@ -40,6 +40,7 @@ from hivemind.cli.compose.honey import build_honey_access, resolve_embedder, res
 from hivemind.cli.stores import build_forage_map, build_registry
 from hivemind.common.sqlite import connect
 from hivemind.honey_store import (
+    HoneyAccess,
     HoneyPart,
     HoneyReader,
     HoneySearch,
@@ -92,15 +93,9 @@ def _local_manifest(environ: Mapping[str, str]) -> HiveManifest:
     return manifest.model_copy(update={"llm": llm.model_copy(update=update)})
 
 
-@pytest.mark.local_llm
-async def test_ripening_summarises_and_embeds_on_local_models(tmp_path: Path) -> None:
-    """Skips cleanly unless HIVEMIND_LIVE_LLM=1 and a local server base URL are set."""
-    if os.environ.get("HIVEMIND_LIVE_LLM") != "1":
-        pytest.skip("HIVEMIND_LIVE_LLM is not set to '1'.")
-    if not os.environ.get("HIVEMIND_LOCAL_LLM_BASE_URL"):
-        pytest.skip("HIVEMIND_LOCAL_LLM_BASE_URL must be set.")
+async def _local_access(tmp_path: Path, manifest: HiveManifest) -> HoneyAccess:
+    """Build the Hive's own Honey Store handles on a fresh file, both local bindings live."""
     clock = SystemClock()  # Real models have real latency; nothing here fakes time.
-    manifest = _local_manifest(os.environ)
     connection = connect(tmp_path / "hive.sqlite3")
     trail = await SqlitePheromoneTrail.create(connection, clock)
     store = await SqliteHoneyStore.create(connection, clock)
@@ -109,49 +104,62 @@ async def test_ripening_summarises_and_embeds_on_local_models(tmp_path: Path) ->
     # Both bindings must be live: a degraded one would pass the pass below for the wrong reason.
     assert resolve_ripener(registry) is not None
     assert resolve_embedder(registry) is not None
-    access = build_honey_access(
-        manifest, store, registry, build_fanner(manifest, forage_map, trail, clock), clock
+    fanner = build_fanner(manifest, forage_map, trail, clock)
+    return build_honey_access(manifest, store, registry, fanner, clock)
+
+
+def _finding(clock: SystemClock) -> NectarSubmission:
+    """The one verified finding the test ripens: long enough for the RIPENER to summarise."""
+    return NectarSubmission(
+        kind=NectarKind.FINDING,
+        origin=NectarOrigin.TASK_OUTCOME,
+        media_type="text/markdown",
+        title="Widget staging service",
+        content=_FINDING.encode(),
+        task_id=None,
+        cell_id=new_cell_id(clock),
+        observed_at=clock.now(),
+        declared=HoneyClearance.C1,
+        from_borrowed_cell=False,
+        tier=CombShieldLevel.MEADOW,
     )
 
-    await access.intake.submit(
-        NectarSubmission(
-            kind=NectarKind.FINDING,
-            origin=NectarOrigin.TASK_OUTCOME,
-            media_type="text/markdown",
-            title="Widget staging service",
-            content=_FINDING.encode(),
-            task_id=None,
-            cell_id=new_cell_id(clock),
-            observed_at=clock.now(),
-            declared=HoneyClearance.C1,
-            from_borrowed_cell=False,
-            tier=CombShieldLevel.MEADOW,
-        )
+
+def _operator_search(manifest: HiveManifest) -> HoneySearch:
+    """A paraphrased question, asked with the operator's own read-everything capabilities."""
+    reader = HoneyReader(
+        requester=manifest.hive.id,
+        capabilities=queen_read_capabilities(),
+        ceiling=HoneyClearance.C2,
+        is_night_veil=False,
     )
+    return HoneySearch(
+        text=_PARAPHRASE, reader=reader, requested_scopes=(), max_hits=5, max_tokens=2_000
+    )
+
+
+@pytest.mark.local_llm
+async def test_ripening_summarises_and_embeds_on_local_models(tmp_path: Path) -> None:
+    """Skips cleanly unless HIVEMIND_LIVE_LLM=1 and a local server base URL are set."""
+    if os.environ.get("HIVEMIND_LIVE_LLM") != "1":
+        pytest.skip("HIVEMIND_LIVE_LLM is not set to '1'.")
+    if not os.environ.get("HIVEMIND_LOCAL_LLM_BASE_URL"):
+        pytest.skip("HIVEMIND_LOCAL_LLM_BASE_URL must be set.")
+    manifest = _local_manifest(os.environ)
+    access = await _local_access(tmp_path, manifest)
+
+    await access.intake.submit(_finding(SystemClock()))
     outcome = await access.ripener.run_pass()
 
     assert outcome.ripen.ripened == 1, outcome
     assert outcome.ripen.failed == 0, outcome
-    rows = await store.list_honey(_EVERYTHING, scope_prefix=None, limit=10, offset=0)
+    rows = await access.store.list_honey(_EVERYTHING, scope_prefix=None, limit=10, offset=0)
     summary = next(row for row in rows if row.part is HoneyPart.SUMMARY)
     # The RIPENER wrote it: a heuristic summary never records a ripener model.
     assert summary.ripener_model is not None
-    stats = await store.stats()
+    stats = await access.store.stats()
     assert sum(stats.vectors_by_model.values()) == len(rows)  # Every row embedded while ripening.
-    found = await access.retriever.search_outcome(
-        HoneySearch(
-            text=_PARAPHRASE,
-            reader=HoneyReader(
-                requester=manifest.hive.id,
-                capabilities=queen_read_capabilities(),
-                ceiling=HoneyClearance.C2,
-                is_night_veil=False,
-            ),
-            requested_scopes=(),
-            max_hits=5,
-            max_tokens=2_000,
-        )
-    )
+    found = await access.retriever.search_outcome(_operator_search(manifest))
     assert found.vector_used, found.response.reason
     assert found.response.hits, found.response.reason
     assert found.response.hits[0].honey_ref.startswith("/hive/")
