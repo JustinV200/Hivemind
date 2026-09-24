@@ -57,8 +57,10 @@ class _Hive:
 
     def __init__(self, earlier: _Hive | None = None) -> None:
         self.clock = FakeClock()
-        self.backend = earlier.backend if earlier else FakeCellBackend(self.clock)
-        self.durable = earlier.durable if earlier else MemoryPheromoneTrail(self.clock)
+        self.backend: FakeCellBackend = earlier.backend if earlier else FakeCellBackend(self.clock)
+        self.durable: MemoryPheromoneTrail = (
+            earlier.durable if earlier else MemoryPheromoneTrail(self.clock)
+        )
         self.identity: CellIdentity = earlier.identity if earlier else make_identity(self.clock)
         self.night_veil: NightVeilBoundary = make_night_veil(
             self.durable, self.clock, self.identity
