@@ -116,6 +116,25 @@ async def test_embed_falls_back_to_the_first_vectors_length_when_the_model_repor
     assert response.dimensions == 4
 
 
+class _CurrentLibraryEncoder(_FakeEncoder):
+    """A fake shaped like sentence-transformers 5.x: the renamed method, and a warning old one."""
+
+    def get_embedding_dimension(self) -> int | None:
+        return self.dimension
+
+    def get_sentence_embedding_dimension(self) -> int | None:
+        raise AssertionError("the deprecated name was asked while the current one exists")
+
+
+async def test_embed_asks_a_current_library_for_its_dimension_by_the_new_name() -> None:
+    """sentence-transformers 5.x warns on the old name, so the adapter must not call it."""
+    provider, _ = _make_provider(encoder=_CurrentLibraryEncoder(dimension=4))
+
+    response = await provider.embed(make_embed_request(texts=("a",)))
+
+    assert response.dimensions == 4
+
+
 async def test_embed_passes_normalize_from_config_to_encode() -> None:
     encoder = _FakeEncoder()
     config = SentenceTransformersConfig(model="test-model", normalize=False)

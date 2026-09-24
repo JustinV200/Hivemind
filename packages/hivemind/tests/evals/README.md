@@ -59,3 +59,19 @@ HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 `HIVEMIND_LOCAL_RIPENER_MODEL` and `HIVEMIND_LOCAL_EMBED_MODEL` replace the two slots' model ids
 for a server that hosts different ones than the manifest names. Like the handoff eval it skips
 cleanly when unset, and nothing about it runs in CI.
+
+A second case, `test_ripening_embeds_in_process_with_sentence_transformers`, runs the same pass
+with `EMBEDDER` on the in-process `sentence_transformers` adapter instead of the server (`RIPENER`
+stays on the server). It runs when `HIVEMIND_LOCAL_ST_EMBED_MODEL` names a model, as a
+sentence-transformers name or a local directory, and the `embeddings` extra is installed
+(`uv sync --extra embeddings`). The manifest is offline, so the model loads with
+`local_files_only` and never reaches a model hub: download it first.
+
+Both cases passed on 2026-09-24 against llama.cpp's OpenAI-compatible server
+(`llama-cpp-python[server]`) serving qwen2.5-3B-Instruct (Q4_K_M) for `RIPENER` and
+nomic-embed-text v1.5 for `EMBEDDER`, with Qwen3-Embedding 0.6B in process for the second case.
+Those runs found and fixed three adapter problems no fake could show:
+
+- A text-only message sent as a part array made llama.cpp return a 500.
+- HTTP clients that were never closed failed the session under warnings-as-errors.
+- sentence-transformers 5.x warns on `get_sentence_embedding_dimension`.
