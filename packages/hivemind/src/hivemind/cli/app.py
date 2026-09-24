@@ -45,6 +45,7 @@ from typing import Annotated
 import typer
 
 from hivemind.cli import capping, forage, llm, memory, tasks, trail
+from hivemind.cli.entrance import app as entrance_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
@@ -98,11 +99,14 @@ app.command("wake")(wake_command)
 # interrupted. A bare command like `run` (`hive serve`, not `hive serve serve`).
 app.command("serve")(serve_command)
 
+# Roadmap step 10.8: keep the Hive Entrance from the Hive Stand (the operator password, devices,
+# the door), each decision made as the console device over a running serve's loopback listener.
+app.add_typer(entrance_app, name="entrance")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
 #   doctor     - environment and manifest diagnostics
-#   entrance   - manage the Hive Entrance's listeners and enrolled devices
 #   supersede  - move the Hive Stand to a new machine
 #   backup     - snapshot the Brood Chamber, Honey Store and Pheromone Trail
 #   restore    - restore a Hive from a backup

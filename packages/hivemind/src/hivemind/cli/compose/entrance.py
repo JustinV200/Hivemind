@@ -3,23 +3,27 @@
 `hive serve` runs the Queen (the central orchestrator), her Warden and the Hive Entrance (the Hive's
 one HTTP door) in one event loop (ADR-0032). `build_served_hive` builds the Hive exactly as
 `build_hive` does (its Queen's `HumanChannel` is a relay, bound to the Entrance's push channel once
-that exists); `serve_hive` then, in the running loop, checks `[entrance]` against this host
+that exists); `serve_hive` then, holding the Hive's serve lock for its whole life (one serve per
+Hive, never beside an offline `hive entrance` step: `hivemind.cli.entrance.serving`), in the
+running loop, checks `[entrance]` against this host
 (`gather_facts`, then `plan_exposure`, which refuses a mode whose prerequisites do not hold), binds
 the loopback listener's socket (a loopback listener that cannot bind refuses to start), opens the
 Entrance's tables on the Hive's own `[hive] db` file, loads the keys from the secret store (the
 Hive's Ed25519 key, the Web Push keys, and in a remote mode the Hive's certificate authority),
-builds the Entrance, and runs it inside `run_hive` until the caller leaves the block. The Web Push
+builds the Entrance, and runs it inside `run_hive` until the caller leaves the block, publishing
+the serve record (the loopback listener's port) the console commands find it by. The Web Push
 contact defaults to `[entrance] public_url` when `HIVEMIND_ENTRANCE_VAPID_SUBJECT` is unset; with
 neither, Web Push is not offered. The tunnel child's environment is the Hive's without its own
 variables and without any provider's API key, plus `HIVEMIND_ENTRANCE_TUNNEL_*`.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.serve` and by the
-    end-to-end tests. Calls into `hivemind.cli.compose.hive`, `hivemind.entrance`, the secret
-    store and the manifest.
+    end-to-end tests. Calls into `hivemind.cli.compose.hive`, `hivemind.cli.entrance.serving`,
+    `hivemind.entrance`, the secret store and the manifest.
 
 Key invariants:
-    - Nothing listens before the exposure plan holds and the loopback socket is bound.
+    - Nothing listens before the serve lock is held, the exposure plan holds and the loopback
+      socket is bound.
     - The Entrance stops (every socket closed, both listeners down) before the Queen does.
 
 See Also:
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
@@ -39,6 +44,12 @@ from pathlib import Path
 import httpx
 
 from hivemind.cli.compose.hive import Hive, build_hive, run_hive
+from hivemind.cli.entrance.serving import (
+    SERVE_HOLDER,
+    ServeRecord,
+    hold_serve_lock,
+    publish_serve_record,
+)
 from hivemind.common.logging import get_logger
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.common.sqlite import connect
@@ -75,6 +86,7 @@ from hivemind.entrance.runtime import (
 from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.llm import Responder
 from hivemind.manifest import EnvOverrides, HiveManifest, read_env
+from hivemind.manifest.schema.entrance import split_host_port
 from waggle.clock import Clock
 
 OBSERVATION_BUILD = Path(
@@ -134,6 +146,9 @@ def build_served_hive(
 async def serve_hive(served: ServedHive) -> AsyncIterator[HiveEntrance]:
     """Plan, bind, build and run the Entrance beside the Queen until the block exits.
 
+    Holds the Hive's serve lock throughout and, once the loopback listener serves, publishes the
+    serve record the Hive Stand's console commands find it by (`hivemind.cli.entrance.serving`).
+
     Args:
         served: The Hive `build_served_hive` built.
 
@@ -141,9 +156,28 @@ async def serve_hive(served: ServedHive) -> AsyncIterator[HiveEntrance]:
         The running Entrance, its listeners serving.
 
     Raises:
+        HiveBusyError: Another `hive serve`, or an offline `hive entrance` step, holds the Hive.
         ExposureRefusedError: `[entrance]` asks for a mode this host cannot honour.
         OSError: The loopback listener could not bind.
     """
+    manifest = served.hive.manifest
+    db = manifest.resolve_path(manifest.hive.db)
+    # One serve per Hive, and never beside an offline step that rewrites what a serve holds.
+    with hold_serve_lock(db, SERVE_HOLDER):
+        async with _serve_held(served) as entrance:
+            record = ServeRecord(
+                pid=os.getpid(),
+                host=split_host_port(manifest.entrance.bind)[0],
+                port=entrance.listeners.loopback_port,
+                started_at=served.hive.clock.now(),
+            )
+            with publish_serve_record(db, record):
+                yield entrance
+
+
+@asynccontextmanager
+async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
+    """Plan, bind, build and run the Entrance beside the Queen, the serve lock already held."""
     hive = served.hive
     manifest, clock = hive.manifest, hive.clock
     plan = await _plan(served)
