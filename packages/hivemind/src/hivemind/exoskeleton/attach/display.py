@@ -105,7 +105,7 @@ async def start_lease_display(
         log = layout.x11_dir / "openbox.log"
         # WHY: the lease's own configuration, never the system one, whose menus launch programs.
         rc = await write_openbox_config(session, layout)
-        argv = (WINDOW_MANAGER, "--sm-disable", "--config-file", str(rc))
+        argv = (WINDOW_MANAGER, "--sm-disable", "--config-file", rc.as_posix())
         wm = await start_process(session, BackgroundSpec(argv=argv, env=env, log_path=log))
         started.append(wm)
         await _await_pointer(session, display, deadline)
@@ -155,7 +155,7 @@ def _xvfb_spec(layout: ScratchLayout, screen: ScreenSize) -> BackgroundSpec:
     geometry = f"{screen.width}x{screen.height}x{XVFB_DEPTH}"
     argv: tuple[str, ...] = ("Xvfb", "-displayfd", "1", "-screen", "0", geometry)
     # -noreset keeps the server (and its cookie) up between the last client leaving and the next.
-    argv += ("-nolisten", "tcp", "-auth", str(layout.authority), "-noreset")
+    argv += ("-nolisten", "tcp", "-auth", layout.authority.as_posix(), "-noreset")
     log = layout.x11_dir / "xvfb.log"
     return BackgroundSpec(argv=argv, env=layout.home_environment(), log_path=log)
 

@@ -81,7 +81,8 @@ def server_script(layout: ScratchLayout) -> str:
         AttachError: The socket path is too long for a Unix socket, or holds a character a
             module argument cannot quote.
     """
-    socket = str(layout.pulse_socket)
+    # Rendered POSIX whatever this process runs on: PulseAudio only ever runs on a Linux Cell.
+    socket = layout.pulse_socket.as_posix()
     if not layout.socket_fits():
         raise AttachError(
             f"the sound server's socket path is {len(socket.encode())} bytes, over the "
@@ -137,7 +138,7 @@ async def start_sound_server(
 
 def _server_spec(layout: ScratchLayout, script: Path, server: PulseServer) -> BackgroundSpec:
     """Build the server's command: no default config, this script, locked down, state in scratch."""
-    argv: tuple[str, ...] = ("pulseaudio", "-n", "-F", str(script), "--daemonize=no")
+    argv: tuple[str, ...] = ("pulseaudio", "-n", "-F", script.as_posix(), "--daemonize=no")
     argv += ("--use-pid-file=no",)
     # Never idle out, never exit or load a module on a client's say-so, no shared memory in
     # /dev/shm (outside scratch), and diagnostics to the log attach reads on failure.
@@ -146,8 +147,8 @@ def _server_spec(layout: ScratchLayout, script: Path, server: PulseServer) -> Ba
     env = {
         **layout.home_environment(),
         **server.environment(),
-        "PULSE_RUNTIME_PATH": str(layout.pulse_dir),
-        "PULSE_STATE_PATH": str(layout.pulse_dir),
+        "PULSE_RUNTIME_PATH": layout.pulse_dir.as_posix(),
+        "PULSE_STATE_PATH": layout.pulse_dir.as_posix(),
     }
     return BackgroundSpec(argv=argv, env=env, log_path=layout.pulse_dir / "pulseaudio.log")
 

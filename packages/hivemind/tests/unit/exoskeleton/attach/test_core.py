@@ -20,6 +20,11 @@ from hivemind.pheromone.trail.protocol import TrailQuery
 from waggle.clock import FakeClock
 from waggle.messages.task import ExoskeletonNeed
 
+# A Cell scratch root short enough for the sound server's Unix socket under it on any host;
+# pytest's own tmp_path is not (a Windows runner's is well over the 107 bytes a socket allows).
+# FakeSession keeps its files in memory, so the directory never has to exist.
+_SCRATCH = Path("/lease/scratch")
+
 _GRANTED = CapabilitySet.parse("exoskeleton:display", "exoskeleton:audio", "exoskeleton:browser")
 _DESKTOP_CELL = make_capabilities(can_start_display=True, has_audio=True, has_browser=True)
 
@@ -35,11 +40,9 @@ async def _kinds(deps: AttachDeps) -> list[tuple[str, dict[str, object]]]:
     return [(event.kind, dict(event.payload)) for event in await deps.trail.query(TrailQuery())]
 
 
-async def test_a_desktop_with_audio_and_a_browser_attaches_and_detaches_cleanly(
-    tmp_path: Path,
-) -> None:
+async def test_a_desktop_with_audio_and_a_browser_attaches_and_detaches_cleanly() -> None:
     clock = FakeClock()
-    session = desktop_session(tmp_path, clock)
+    session = desktop_session(_SCRATCH, clock)
     launcher = StubLauncher()
     cell = make_cell(capabilities=_DESKTOP_CELL)
 
@@ -63,14 +66,14 @@ async def test_a_desktop_with_audio_and_a_browser_attaches_and_detaches_cleanly(
     assert launcher.browser.closed
 
 
-async def test_attach_and_detach_are_on_the_trail_as_names_and_counts(tmp_path: Path) -> None:
+async def test_attach_and_detach_are_on_the_trail_as_names_and_counts() -> None:
     clock = FakeClock()
     deps = _deps(clock, StubLauncher())
     cell = make_cell(capabilities=_DESKTOP_CELL)
     need = ExoskeletonNeed(audio=True)
 
     handle = await drive(
-        clock, attach(cell, desktop_session(tmp_path, clock), need, _GRANTED, deps)
+        clock, attach(cell, desktop_session(_SCRATCH, clock), need, _GRANTED, deps)
     )
     await handle.detach()
 
@@ -108,9 +111,9 @@ async def test_detach_is_idempotent_and_records_once(tmp_path: Path) -> None:
     assert [kind for kind, _ in await _kinds(deps)].count("cell.exoskeleton_detached") == 1
 
 
-async def test_a_failure_part_way_stops_everything_already_started(tmp_path: Path) -> None:
+async def test_a_failure_part_way_stops_everything_already_started() -> None:
     clock = FakeClock()
-    session = desktop_session(tmp_path, clock)
+    session = desktop_session(_SCRATCH, clock)
     session.script_start("pulseaudio", FakeStart(fails="No such file or directory"))
     deps = _deps(clock)
 

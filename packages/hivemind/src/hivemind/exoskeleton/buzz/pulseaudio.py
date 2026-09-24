@@ -61,7 +61,9 @@ class PulseServer:
             `PULSE_SERVER` naming the socket, so no client ever finds another server, and
             `PULSE_COOKIE`, because a client with no cookie creates one under its HOME.
         """
-        return {"PULSE_SERVER": f"unix:{self.socket}", "PULSE_COOKIE": str(self.cookie)}
+        # POSIX paths whatever this process runs on: the sound server lives on a Linux Cell.
+        socket, cookie = self.socket.as_posix(), self.cookie.as_posix()
+        return {"PULSE_SERVER": f"unix:{socket}", "PULSE_COOKIE": cookie}
 
 
 class PulseAudioBuzz:
@@ -98,7 +100,7 @@ class PulseAudioBuzz:
         """Play the WAV at `clip` into the microphone sink; see Buzz."""
         loaded = await load_clip(self._session, clip)
         command = PeripheralCommand(
-            argv=("paplay", f"--device={self._server.microphone}", str(loaded.path)),
+            argv=("paplay", f"--device={self._server.microphone}", loaded.path.as_posix()),
             timeout_s=loaded.duration_s + AUDIO_MARGIN_S,
             env=self._server.environment(),
         )

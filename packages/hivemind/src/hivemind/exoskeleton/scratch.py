@@ -19,6 +19,10 @@ Key invariants:
     - Every path is inside `root`, which is inside the lease's scratch directory.
     - `pulse_socket` is short enough for a Unix socket address (`socket_fits`); attach refuses a
       scratch directory too deep for one rather than failing inside the sound server.
+    - A path handed to the display or sound server (an argument, an environment variable, a
+      script line) is rendered with `as_posix()`: those programs only run on a Linux Cell, and the
+      process building the command need not (a Windows host running the unit tests, or one day a
+      Hive Stand driving a Linux device), where `str()` would write backslashes.
 
 See Also:
     - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for per-lease processes.
@@ -125,4 +129,4 @@ class ScratchLayout:
         Returns:
             True when its encoded path is at most MAX_SOCKET_PATH_BYTES long.
         """
-        return len(str(self.pulse_socket).encode()) <= MAX_SOCKET_PATH_BYTES
+        return len(self.pulse_socket.as_posix().encode()) <= MAX_SOCKET_PATH_BYTES

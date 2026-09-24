@@ -64,7 +64,8 @@ class X11Display:
         """
         env = {"DISPLAY": self.name}
         if self.authority is not None:
-            env["XAUTHORITY"] = str(self.authority)
+            # POSIX whatever this process runs on: the X clients reading it run on a Linux Cell.
+            env["XAUTHORITY"] = self.authority.as_posix()
         return env
 
 

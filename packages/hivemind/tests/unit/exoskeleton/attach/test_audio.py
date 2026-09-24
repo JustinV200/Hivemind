@@ -21,6 +21,11 @@ from hivemind.exoskeleton.errors import AttachError
 from hivemind.exoskeleton.scratch import MAX_SOCKET_PATH_BYTES, ScratchLayout
 from waggle.clock import FakeClock
 
+# A Cell scratch root short enough for the sound server's Unix socket under it on any host;
+# pytest's own tmp_path is not (a Windows runner's is well over the 107 bytes a socket allows).
+# FakeSession keeps its files in memory, so the directory never has to exist.
+_SCRATCH = Path("/lease/scratch")
+
 
 def test_attach_runs_exactly_the_audio_programs_the_probe_requires() -> None:
     assert set(AUDIO_PROGRAMS) == set(PROBED)
@@ -49,11 +54,11 @@ def test_a_scratch_path_the_script_cannot_quote_is_refused() -> None:
         server_script(ScratchLayout.under(Path('/s/"q')))
 
 
-async def test_the_server_is_ready_once_it_answers_on_its_own_socket(tmp_path: Path) -> None:
+async def test_the_server_is_ready_once_it_answers_on_its_own_socket() -> None:
     clock = FakeClock()
     desktop = ScriptedDesktop(sound_ready_after=3)
-    session = desktop_session(tmp_path, clock, desktop)
-    layout = ScratchLayout.under(tmp_path)
+    session = desktop_session(_SCRATCH, clock, desktop)
+    layout = ScratchLayout.under(_SCRATCH)
 
     started = await drive(clock, start_sound_server(session, layout, Deadline.after(clock, 5)))
 
@@ -61,20 +66,20 @@ async def test_the_server_is_ready_once_it_answers_on_its_own_socket(tmp_path: P
     (spec,) = session.started
     assert spec.argv[:3] == ("pulseaudio", "-n", "-F")
     assert "--disallow-module-loading" in spec.argv
-    assert spec.env["PULSE_SERVER"] == f"unix:{layout.pulse_socket}"
+    assert spec.env["PULSE_SERVER"] == f"unix:{layout.pulse_socket.as_posix()}"
     assert spec.env["HOME"] == str(layout.home)
     assert started.server.speaker == SPEAKER_SINK
 
 
-async def test_a_server_that_exits_is_reported_and_stopped(tmp_path: Path) -> None:
+async def test_a_server_that_exits_is_reported_and_stopped() -> None:
     clock = FakeClock()
-    session = desktop_session(tmp_path, clock, ScriptedDesktop(sound_ready_after=99))
+    session = desktop_session(_SCRATCH, clock, ScriptedDesktop(sound_ready_after=99))
     session.script_start("pulseaudio", FakeStart(log=b"E: Failed to load module", running=False))
 
     with pytest.raises(AttachError, match="exited before it was ready: E: Failed to load module"):
         await drive(
             clock,
-            start_sound_server(session, ScratchLayout.under(tmp_path), Deadline.after(clock, 5)),
+            start_sound_server(session, ScratchLayout.under(_SCRATCH), Deadline.after(clock, 5)),
         )
 
     assert session.running_pids == ()

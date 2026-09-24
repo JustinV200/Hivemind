@@ -17,7 +17,7 @@ See Also:
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from builders.workers import make_gui_context, proposals_of, run_tool
 
@@ -102,7 +102,8 @@ async def test_navigate_to_a_file_outside_scratch_is_refused_before_any_proposal
 async def test_navigate_to_a_page_in_scratch_is_a_scratch_write_navigate_step() -> None:
     # Arrange: the fixture site written into an absolute scratch, and the browser rooted there.
     clock, scratch = FakeClock(), Path("/srv/lease/scratch")
-    origin = scratch.as_uri()
+    # The Linux Cell's URL for its scratch, spelled the same on any host this test runs on.
+    origin = PurePosixPath(scratch.as_posix()).as_uri()
     browser = FakeBrowser(login_site(origin), clock, file_roots=(scratch,))
     fake_session = FakeSession(scratch_dir=scratch, clock=clock)
     ctx = make_gui_context(Peripherals(browser=browser), clock, session=fake_session)

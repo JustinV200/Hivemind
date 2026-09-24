@@ -63,4 +63,4 @@ async def test_write_puts_both_files_in_the_lease_scratch(tmp_path: Path) -> Non
     assert rc == layout.x11_dir / RC_FILE
     menu = await session.get_file(layout.x11_dir / MENU_FILE)
     assert b"<item" not in menu  # The root menu has no entries to run.
-    assert str(layout.x11_dir / MENU_FILE).encode() in await session.get_file(rc)
+    assert (layout.x11_dir / MENU_FILE).as_posix().encode() in await session.get_file(rc)

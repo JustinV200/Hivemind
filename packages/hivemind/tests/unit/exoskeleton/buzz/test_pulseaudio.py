@@ -74,5 +74,5 @@ async def test_say_plays_the_checked_clip_into_the_microphone_sink(tmp_path: Pat
 
     await buzz.say(Path("hi.wav"))
 
-    assert seen[0].argv == ("paplay", "--device=mic", str((tmp_path / "hi.wav").resolve()))
+    assert seen[0].argv == ("paplay", "--device=mic", (tmp_path / "hi.wav").resolve().as_posix())
     assert seen[0].env["PULSE_SERVER"] == "unix:/s/pulse/native"
