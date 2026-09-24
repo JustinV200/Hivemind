@@ -34,10 +34,12 @@ the same way it builds `hivemind.forage.map.SlotBinding` rows for `resolve`/`res
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Constructed once by the composition root
     (`cli/stores.py`, roadmap step 3.21) and read by every Worker, Warden and the Queen for a
-    `BoundModel`, and by `hive llm providers` for `health()`. Calls into `hivemind.forage.map`,
-    `hivemind.forage.slots`, `hivemind.llm.provider`, `hivemind.llm.capabilities`,
-    `hivemind.llm.errors`, `hivemind.llm.fake`, `hivemind.llm.providers.openai_compat`,
-    `hivemind.llm.slots` and `waggle` only -- never `hivemind.manifest` (see above).
+    `BoundModel`, by `hive llm providers` for `health()`, and by a voice-serving composition root
+    for `transcriber()` (through `hivemind.llm.fanner.bind_transcriber`). Calls into
+    `hivemind.forage.map`, `hivemind.forage.slots`, `hivemind.llm.provider`,
+    `hivemind.llm.capabilities`, `hivemind.llm.errors`, `hivemind.llm.fake`,
+    `hivemind.llm.providers`, `hivemind.llm.slots`, `hivemind.llm.transcription`,
+    `hivemind.common.logging` and `waggle` only -- never `hivemind.manifest` (see above).
 
 Key invariants:
     - `provider(name)` constructs at most once per name: a second call for the same name returns
