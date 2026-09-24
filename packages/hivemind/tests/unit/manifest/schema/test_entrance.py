@@ -26,6 +26,7 @@ from hivemind.manifest.schema.entrance import (
     DEFAULT_VPN_CIDRS,
     EntranceExposure,
     EntranceSection,
+    EntranceVoiceSection,
     split_host_port,
 )
 
@@ -61,6 +62,8 @@ def test_entrance_section_defaults_match_codingrules_section_13() -> None:
     assert section.voice.confirm_goals is True
     assert section.voice.keep_audio is False
     assert section.voice.max_clip_seconds == 120.0
+    assert section.voice.audio_seconds_per_minute == 120.0
+    assert section.voice.keep_audio_hours == 24.0
 
 
 def test_hive_manifest_defaults_the_entrance_section_when_omitted() -> None:
@@ -163,3 +166,18 @@ def test_split_host_port_parses_ipv4_ipv6_and_names(value: str, expected: tuple[
 def test_split_host_port_rejects_missing_or_bad_ports(value: str) -> None:
     with pytest.raises(ValueError):
         split_host_port(value)
+
+
+def test_the_audio_budget_must_fit_the_longest_clip() -> None:
+    with pytest.raises(ValidationError, match="audio_seconds_per_minute"):
+        EntranceVoiceSection(max_clip_seconds=300.0)
+
+    raised = EntranceVoiceSection(max_clip_seconds=300.0, audio_seconds_per_minute=300.0)
+
+    assert raised.audio_seconds_per_minute == raised.max_clip_seconds
+
+
+@pytest.mark.parametrize("field", ["audio_seconds_per_minute", "keep_audio_hours"])
+def test_the_voice_budget_and_retention_are_positive(field: str) -> None:
+    with pytest.raises(ValidationError, match=field):
+        EntranceVoiceSection.model_validate({field: 0})
