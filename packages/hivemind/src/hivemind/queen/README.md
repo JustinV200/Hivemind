@@ -25,6 +25,11 @@ every assignment goes to a Warden, over Waggle.
   `last_sweep_at` bookkeeping for `queen.ticks.housekeeping.run_housekeeping`, defined here (not
   in that ticks module) so a real import of it never has to run that whole sub-package's own
   `__init__` first -- every `queen.ticks` module already imports `QueenDeps` from here at runtime.
+  `WardenLink.send`/`send_guarded` (phase-7 handoff open item 8) are the only way any Queen-side
+  code sends on a Warden's own link: they never let `TransportClosedError`/`ConnectionLostError`
+  escape (a Warden's link closing under a send used to crash the whole tick loop), and report
+  whether the frame actually went out so a caller with durable state at stake -- the dispatcher's
+  own grant-then-assign chief among them -- can react.
   `scratch_root` (roadmap step 5.0b) is the Hive Stand's own `[hive_stand] scratch_root`, resolved;
   `goal_submission.submit_goal` is its one reader.
 - `queen.autopilot`: `QueenAction` (now including `WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX`, roadmap

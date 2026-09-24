@@ -40,13 +40,21 @@ Key invariants:
     - `bound_for` is scoped to whichever `ModelSlot` a caller asks for (`QUEEN`, `ATTENDANT`, or a
       task's own slot for a fresh binding); `rebind` walks the same `bindings` chain from a named
       key instead of a slot's own manifest key, for a REBIND within the fallback chain.
+    - `WardenLink.send` is the only way Queen-side code sends on a Warden's own link (phase-7
+      handoff open item 8): it never lets `TransportClosedError`/`ConnectionLostError` escape, so
+      a Warden whose link has already gone can never crash the Queen's tick loop
+      (`waggle.loop.TickLoop._recoverable_errors` names neither); it reports whether the frame
+      actually went out, so a caller with durable state at stake can react.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit this bundle exists to keep.
     - .claude/codingrules.md section 13 for "the Queen takes manifest slices, never a HiveManifest".
+    - .claude/phase-7-handoff.md section 8 open item 8 for the guarded-send fix `WardenLink.send`
+      implements.
     - docs/adr/0019-queen-kernel-autopilot-first-with-stateless-awake-episodes.md for why the Queen
       holds no session and no registry.
-    - hivemind.wardens.deps for WardenDeps, the bundle this one is modelled on.
+    - hivemind.wardens.deps for WardenDeps, the bundle this one is modelled on, and its own
+      `send_guarded`, the identically-shaped guard for a Warden's own links.
     - hivemind.queen.queen for Queen, this bundle's one consumer.
 """
 
@@ -61,6 +69,7 @@ from typing import Protocol
 
 from hivemind.brood_chamber import BroodChamber, Task, TaskOutcome
 from hivemind.cell import Cell
+from hivemind.common.logging import get_logger
 from hivemind.forage import (
     ForageMap,
     GoalBudgets,
@@ -85,7 +94,8 @@ from hivemind.queen.placement import (
 from hivemind.queen.state import ClusterState
 from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
-from waggle.envelope import Hop
+from waggle.envelope import Envelope, Hop
+from waggle.errors import ConnectionLostError, TransportClosedError
 from waggle.ids import CellId, GrantId, WardenId
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
@@ -115,6 +125,13 @@ _DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT
 # (every pre-housekeeping test) still runs a House Bee sweep on a sensible cadence.
 _DEFAULT_SWEEP_INTERVAL_S = 3_600.0  # One hour.
 _DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
+# Phase-7 handoff open item 8: a transport this final (send after close) or this dead (a dropped
+# link) is never this Queen's own bug to crash a tick over -- the caller reconnects or gives up,
+# never this send. Exactly these two, nothing broader (codingrules section 10's "never `except
+# Exception`" applies here too: a send helper that swallowed everything would hide a real bug).
+_LINK_GONE = (TransportClosedError, ConnectionLostError)
+
+log = get_logger(__name__)
 
 __all__ = [
     "DormantCellSource",
@@ -126,6 +143,7 @@ __all__ = [
     "VirtualBackendSource",
     "VirtualCellProvider",
     "WardenLink",
+    "send_guarded",
 ]
 
 # roadmap step 5.6/5.9's own live-feed seam (this dispatch's own reconciliation): QueenDeps.
@@ -148,6 +166,44 @@ OnTaskFinished = Callable[[CellId, TaskOutcome], Awaitable[None]]
 OnCellGranted = Callable[[CellId, GrantId], Awaitable[None]]
 
 
+async def send_guarded(transport: Transport, envelope: Envelope) -> bool:
+    """Send `envelope` on `transport`; False, logged, when the link has already gone.
+
+    Phase-7 handoff open item 8: every Queen -> Warden send used to call `transport.send`
+    directly, so a Warden whose link had already closed or dropped raised
+    `TransportClosedError`/`ConnectionLostError` straight out of the Queen's tick
+    (`hivemind.queen.queen.Queen._recoverable_errors` names neither), ending `run()` for the
+    whole Hive. `WardenLink.send` is the one method that calls this for a `WardenLink`; a caller
+    that only holds a bare `Transport` (`hivemind.queen.cell_gate.listener`'s own reply sends,
+    before any `WardenLink` exists) calls this directly instead.
+
+    Args:
+        transport: The link to send on; any `Transport`, including a `WardenLink.transport`.
+        envelope: The already-wrapped frame to send.
+
+    Returns:
+        True once the frame was handed to the link; False when `transport.send` raised
+        `TransportClosedError` or `ConnectionLostError`, logged as a warning naming the
+        envelope's own ids and kind, never its payload.
+    """
+    try:
+        # Queued at once on an in-process pair, or handed to the WebSocket's own send buffer;
+        # never awaited on the far side, so this is never the slow half of a round trip.
+        await transport.send(envelope)
+    except _LINK_GONE:
+        # The Warden's link is gone: logged so the gap is visible, never raised, so this can
+        # never be the exception that ends the Queen's tick loop.
+        log.warning(
+            "queen.warden_link.send_failed",
+            recipient=envelope.recipient,
+            sender=envelope.sender,
+            message_id=envelope.id,
+            kind=envelope.kind,
+        )
+        return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class WardenLink:
     """One attached Warden's own address, Cell and Waggle link, as the Queen sees it.
@@ -168,6 +224,21 @@ class WardenLink:
     cell: Cell
     transport: Transport
     hop: Hop
+
+    async def send(self, envelope: Envelope) -> bool:
+        """Send `envelope` on this Warden's own link; see `send_guarded`.
+
+        The one way any Queen-side code sends to this Warden (phase-7 handoff open item 8):
+        every call site used to reach for `self.transport.send` directly, which could crash the
+        Queen's tick loop the moment this link closed under it.
+
+        Args:
+            envelope: The already-wrapped frame to send.
+
+        Returns:
+            True once handed to the link; False, logged, when it had already closed or dropped.
+        """
+        return await send_guarded(self.transport, envelope)
 
 
 class VirtualCellProvider(Protocol):

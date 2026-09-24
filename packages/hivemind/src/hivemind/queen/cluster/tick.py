@@ -295,7 +295,9 @@ async def _send_release_lease(
         alarm_id=None,
         reason=f"hive cells release: the operator asked for lease {lease_id} to be released.",
     )
-    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
+    # Mirrors this function's own docstring for the "not currently attached" case just above:
+    # grants are already revoked, and this tick can do no more for a Warden it cannot reach.
+    await link.send(wrap(message, link.hop, clock=deps.clock))
 
 
 async def _cell_id_for_lease(deps: QueenDeps, lease_id: str) -> CellId | None:

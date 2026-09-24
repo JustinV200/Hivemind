@@ -160,7 +160,9 @@ async def _send_plan(
         default=plan.default.to_wire(by_id),
         reason=plan.reason,
     )
-    await warden.transport.send(wrap(message, warden.hop, clock=deps.clock))
+    # Same residual gap as hivemind.queen.forage.ceilings.set_ceilings: the plan is already
+    # recorded, and an unreachable Warden is not re-sent it until it is dispatched to again.
+    await warden.send(wrap(message, warden.hop, clock=deps.clock))
 
 
 @dataclass(frozen=True, slots=True)

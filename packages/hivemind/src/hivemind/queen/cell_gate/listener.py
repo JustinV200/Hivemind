@@ -78,7 +78,7 @@ from hivemind.forage.models.capacity import ForageCapacity, HostCapacity
 from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.deps import WardenLink
+from hivemind.queen.deps import WardenLink, send_guarded
 from hivemind.queen.queen import Queen
 from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
@@ -320,13 +320,16 @@ class CellListener:
         payload = envelope.payload
         if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
             snapshot_reply = await self._snapshot_handler.snapshot(payload)
-            await transport.send(
-                wrap(snapshot_reply, hop, clock=self._clock, correlation_id=envelope.id)
+            # A reply the Cell never receives is the same as one it never asked for: the asking
+            # Warden's own RelaySnapshotter (hivemind.wardens.snapshot_relay) times out and falls
+            # back to REVERSE_DIFF (ADR-0018) either way, so nothing here needs to react further.
+            await send_guarded(
+                transport, wrap(snapshot_reply, hop, clock=self._clock, correlation_id=envelope.id)
             )
         elif isinstance(payload, CellRollbackRequest) and self._snapshot_handler is not None:
             rollback_reply = await self._snapshot_handler.rollback(payload)
-            await transport.send(
-                wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
+            await send_guarded(
+                transport, wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
             )
         elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
             await self._trail_receiver.receive(payload)
@@ -384,7 +387,14 @@ class _FanoutTransport:
         await self._real.connect()
 
     async def send(self, envelope: Envelope) -> None:
-        """See `waggle.transport.base.Transport.send`; forwarded to the real transport directly."""
+        """See `waggle.transport.base.Transport.send`; forwarded to the real transport directly.
+
+        Deliberately not guarded here: this method IS the `Transport.send` this class implements
+        (class docstring), and `hivemind.queen.deps.send_guarded` -- every caller that reaches
+        this through a `WardenLink` -- depends on it raising exactly what the Transport contract
+        promises to catch and convert. Swallowing the exception here instead would make that
+        catch dead code and leave every one of those callers believing the send succeeded.
+        """
         await self._real.send(envelope)
 
     async def receive(self) -> AsyncIterator[Envelope]:

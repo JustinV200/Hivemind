@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 from builders.forage import make_grant
 from builders.queen import make_queen_deps, plan_responder
@@ -124,6 +125,50 @@ async def test_a_heartbeat_past_the_handoff_threshold_orders_an_intervene() -> N
 
     assert intervene.action.value == "HANDOFF"
     await warden_end.close()
+
+
+async def test_a_closed_link_during_the_handoff_intervene_never_stops_liveness() -> None:
+    """Phase-7 handoff open item 8: a closed link must not stop liveness from running after it.
+
+    Mirrors test_a_heartbeat_past_the_handoff_threshold_orders_an_intervene's own setup, but the
+    Warden's own end closes right after sending: `_watch_context`'s guarded send
+    (hivemind.queen.ticks.liveness) must swallow the failure rather than crash the tick, so
+    `check_liveness` -- sequenced right after item-handling in that very same `_run_tick` -- keeps
+    running every tick afterwards and eventually marks this Warden offline.
+    """
+    deps, link, warden_end = make_queen_deps()
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    run_task = asyncio.ensure_future(queen.run())
+    full_telemetry = make_telemetry(tokens_used=7_500, context_window=8_192)  # ~92% full.
+    heartbeat = Heartbeat(
+        telemetry=full_telemetry,
+        task_id=None,
+        worker_state=None,
+        warden_state=WardenState.ACTIVE,
+        children=(),
+        grant_id=None,
+        grant_spend=None,
+        interval_s=5.0,
+    )
+
+    # Queued before the close, so the Queen still drains this heartbeat; its own reply-send
+    # (the HANDOFF Intervene) then finds the link already gone.
+    await warden_end.send(heartbeat)
+    await warden_end.close()
+    # heartbeat_miss_limit=3, heartbeat_interval_s=5.0 (builders.queen's own defaults): past 15s
+    # with no further heartbeat (none can ever arrive now) crosses the offline limit.
+    cast(FakeClock, deps.clock).advance(deps.heartbeat_interval_s * deps.heartbeat_miss_limit + 1.0)
+
+    async def _offline() -> bool:
+        current = queen.liveness.get(link.warden_id)
+        return current is not None and current.is_offline
+
+    await _wait_until(_offline)  # Only reachable if check_liveness kept running every tick.
+
+    assert not run_task.done()  # The guarded send never ended the loop.
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
 
 
 def test_check_liveness_never_flags_a_warden_before_its_first_heartbeat() -> None:

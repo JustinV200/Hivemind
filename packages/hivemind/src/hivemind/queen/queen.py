@@ -345,7 +345,9 @@ async def _send_intervene(queen: Queen, child: str, intervention: Intervention) 
         alarm_id=None,
         reason=intervention.reason,
     )
-    await link.transport.send(wrap(message, link.hop, clock=queen._deps.clock))
+    # Supervisor.intervene returns None on every path today; a Warden this cannot reach never
+    # learns of the order, but nothing here is durable state this method could repair itself.
+    await link.send(wrap(message, link.hop, clock=queen._deps.clock))
 
 
 async def _run_tick(queen: Queen) -> None:

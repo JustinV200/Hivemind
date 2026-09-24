@@ -229,7 +229,10 @@ async def _watch_context(
         alarm_id=None,
         reason=intervention.reason,
     )
-    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
+    # An order this Warden never receives is moot the same way a missing link is just above:
+    # nothing here depends on delivery, and a Warden gone for good surfaces through the offline
+    # check below regardless.
+    await link.send(wrap(message, link.hop, clock=deps.clock))
 
 
 async def check_liveness(

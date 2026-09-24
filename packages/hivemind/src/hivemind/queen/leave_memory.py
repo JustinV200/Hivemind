@@ -140,7 +140,10 @@ async def answer_from_memory(
         clearance=WireHoneyClearance.C2,
     )
     envelope = wrap(answer, link.hop, clock=queen._deps.clock, correlation_id=envelope_id)
-    await link.transport.send(envelope)
+    # This path never calls chamber.ask (module docstring: "never appears in hive inbox at
+    # all"), so there is no chamber state to reconcile; an unreachable Warden only misses the
+    # wire push, the same as every other reply this Queen sends.
+    await link.send(envelope)
     await record_event(
         queen._deps,
         "queen.leave_remembered",

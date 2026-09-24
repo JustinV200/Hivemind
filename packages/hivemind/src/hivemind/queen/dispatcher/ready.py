@@ -111,6 +111,7 @@ from hivemind.queen.trail import record_event, record_forage_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
 from waggle.messages import HandoffRef
+from waggle.messages.forage.values import RevocationCause
 from waggle.messages.honey import HoneyHit
 from waggle.messages.task import TaskAssign, WorkerRole
 
@@ -298,8 +299,8 @@ async def _send_grant_and_assign(
     """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign.
 
     Returns None instead, having denied the grant and failed `task`, when the fresh grant computes
-    to `max_sub_bees < 1` (module docstring's own zero-grant fix): a grant that empty can run no
-    Drone at all, so it is never sent.
+    to `max_sub_bees < 1` (module docstring's own zero-grant fix), or when neither wire message
+    ever reached this Warden's own link (`_send_or_fail`'s own docstring).
     """
     cell_id, warden_id = link.cell.id, link.warden_id
     # Roadmap step 4.8's own wiring step: the first dispatch ever sent to a Warden sets its
@@ -332,9 +333,64 @@ async def _send_grant_and_assign(
     # bounded by its own timeout, so the assignment always goes out.
     honey = await consult_for_assignment(deps, task, link)
     assign = _task_assign(task, cell_id, fresh_grant.id, terms, honey=honey)
-    await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
-    await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
+    pending = _PendingSend(fresh_grant=fresh_grant, sources=sources, assign=assign)
+    if not await _send_or_fail(deps, link, task, pending):
+        return None
     return fresh_grant
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingSend:
+    """What `_send_or_fail` sends: the fresh grant, its sources and the built assignment."""
+
+    fresh_grant: ForageGrant
+    sources: dict[str, ModelSource]
+    assign: TaskAssign
+
+
+async def _send_or_fail(
+    deps: QueenDeps, link: WardenLink, task: Task, pending: _PendingSend
+) -> bool:
+    """Send the grant then the assignment; fail `task` and report False if either never arrives.
+
+    By this point the task is already RUNNING in the chamber (module docstring: "assign/start
+    land before either wire message is sent"), so a send that never reaches this Warden would
+    otherwise leave it RUNNING with no Worker and nothing but liveness's own much slower,
+    task-blind CELL_UNREACHABLE Alarm to ever notice it (no code path returns a RUNNING task to
+    PENDING today: only the narrower ASSIGNED -> PENDING edge exists, and this task has already
+    left ASSIGNED). Fail it now instead, the same way `_deny_zero_grant` already fails an
+    unsendable assignment.
+    """
+    grant_wire = wrap(pending.fresh_grant.to_wire(pending.sources), link.hop, clock=deps.clock)
+    if not await link.send(grant_wire):
+        await _deny_unreachable_link(deps, link, task, pending.fresh_grant)
+        return False
+    if not await link.send(wrap(pending.assign, link.hop, clock=deps.clock)):
+        await _deny_unreachable_link(deps, link, task, pending.fresh_grant)
+        return False
+    return True
+
+
+async def _deny_unreachable_link(
+    deps: QueenDeps, link: WardenLink, task: Task, fresh_grant: ForageGrant
+) -> None:
+    """Revoke the grant and fail `task` when either wire message could not reach this Warden.
+
+    The grant is already ACTIVE in the ledger (`_send_grant_and_assign` recorded it before
+    sending), so it is revoked here as HOLDER_OFFLINE rather than left to the expiry sweep: the
+    ledger's headroom and the trail then agree at once that nobody holds it. `activate` is pure,
+    so re-deriving the ACTIVE copy of `fresh_grant` gives exactly the row the ledger holds.
+    """
+    await forage_grants.revoke(
+        deps.ledger,
+        deps,
+        forage_grants.activate(fresh_grant),
+        RevocationCause.HOLDER_OFFLINE,
+        "warden_link_closed",
+    )
+    summary = "The Warden's link closed before its grant or assignment could be delivered."
+    outcome = TaskOutcome(status=TaskStatus.FAILED, summary=summary)
+    await deps.chamber.fail(task.id, outcome)
 
 
 async def _deny_zero_grant(
