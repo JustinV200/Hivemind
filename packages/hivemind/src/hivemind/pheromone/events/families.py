@@ -117,7 +117,11 @@ Vocabulary (family -> kind -> when it is recorded):
         denied, expired unredeemed or unapproved, locked out, unlocked on loopback, revoked);
         entrance_login_failed (a login failed its device proof or password, 10.5e);
         entrance_step_up (a step-up re-ran both factors, 10.5e); entrance_travel_lock (a known
-        device appeared from a new network with travel_lock on, 10.5e). The design documents'
+        device appeared from a new network with travel_lock on, 10.5e); entrance_redeem_failed (an
+        invite redemption was refused: an unknown, expired or used code, or a bad key proof; the
+        address and the reason, never the code, 10.5d; the Guard Bee's invite-abuse signal);
+        reduce_ordered (a Guard Bee rule ordered the Entrance Reducer, which the Entrance carries
+        out by following the trail, ADR-0035). The design documents'
         `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
         (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
 
@@ -479,6 +483,8 @@ class GuardEvent(PheromoneEvent):
             "guard.entrance_login_failed",
             "guard.entrance_step_up",
             "guard.entrance_travel_lock",
+            "guard.entrance_redeem_failed",
+            "guard.reduce_ordered",
         }
     )
 

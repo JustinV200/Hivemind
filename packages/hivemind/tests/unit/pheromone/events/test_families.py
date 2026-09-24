@@ -242,6 +242,7 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "login_failed",
         "step_up",
         "travel_lock",
+        "redeem_failed",
     }
     assert {
         "guard.denied",
@@ -250,6 +251,7 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "guard.audit_rate_raised",
         "guard.reduced",
         "guard.reopened",
+        "guard.reduce_ordered",
     } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
 
 
