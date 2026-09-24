@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from hivemind.cli.entrance.console import Stand, run_console
 from hivemind.cli.entrance.serving import read_serve_record
-from hivemind.cli.landing import SignedIn
+from hivemind.cli.landing import CAPABILITY_CODE, LandingRefusedError, SignedIn
 from hivemind.cli.stores import DEFAULT_MANIFEST, JsonOption, ManifestOption, load_manifest_or_exit
 from hivemind.entrance.expose import (
     ExposurePlan,
@@ -70,7 +70,9 @@ class EntranceStatus(BaseModel):
     loopback: str | None = Field(description="Where the loopback listener answers.")
     serve_pid: int | None = Field(description="The hive serve process.")
     devices: dict[str, int] = Field(description="How many devices are in each status.")
-    held_confirmations: int = Field(description="Requests waiting for a person's confirmation.")
+    held_confirmations: int | None = Field(
+        description="Requests waiting for a person's confirmation; null when not readable."
+    )
     plan: dict[str, JsonValue] | None = Field(description="The exposure plan on this host.")
     plan_refused: str | None = Field(description="Why this host refuses the manifest's mode.")
 
@@ -110,8 +112,7 @@ def status_command(ctx: typer.Context, as_json: JsonOption = False) -> None:
         """Read the running door and plan the manifest's exposure on this host."""
         mode = await board.call("GET", "/v1/entrance/mode", None, ModeView)
         devices = await board.call("GET", "/v1/devices", None, DeviceList)
-        held = await board.call("GET", "/v1/entrance/confirmations", None, ConfirmationList)
-        return await _status(stand, mode, devices, held)
+        return await _status(stand, mode, devices, await _held(board))
 
     status = run_console(ctx, "status", read)
     if as_json:
@@ -186,8 +187,20 @@ def plan_lines(plan: ExposurePlan) -> list[str]:
     return lines
 
 
+async def _held(board: SignedIn) -> int | None:
+    """How many requests wait for a person; None when this console may not read them."""
+    try:
+        held = await board.call("GET", "/v1/entrance/confirmations", None, ConfirmationList)
+    except LandingRefusedError as refusal:
+        # A console recorded before it was granted C2 content cannot list them; say so, not fail.
+        if refusal.body.error != CAPABILITY_CODE:
+            raise
+        return None
+    return len(held.confirmations)
+
+
 async def _status(
-    stand: Stand, mode: ModeView, devices: DeviceList, held: ConfirmationList
+    stand: Stand, mode: ModeView, devices: DeviceList, held: int | None
 ) -> EntranceStatus:
     """Assemble the status from what the Entrance answered and this host's exposure plan."""
     record = read_serve_record(stand.db)
@@ -205,7 +218,7 @@ async def _status(
         loopback=record.origin if record is not None else None,
         serve_pid=record.pid if record is not None else None,
         devices=dict(Counter(device.status.value for device in devices.devices)),
-        held_confirmations=len(held.confirmations),
+        held_confirmations=held,
         plan=plan,
         plan_refused=refused,
     )
@@ -220,7 +233,8 @@ def _status_lines(status: EntranceStatus) -> list[str]:
     ]
     counts = ", ".join(f"{count} {name}" for name, count in sorted(status.devices.items()))
     lines.append(f"  devices: {counts or 'none'}")
-    lines.append(f"  requests held for a person: {status.held_confirmations}")
+    held = status.held_confirmations
+    lines.append(f"  requests held for a person: {'unknown' if held is None else held}")
     if status.plan_refused is not None:
         lines.append(f"  exposure plan now refused: {status.plan_refused}")
     return lines

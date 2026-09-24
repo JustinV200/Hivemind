@@ -74,6 +74,7 @@ from hivemind.entrance.enrol import (
 )
 from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.manifest import HiveManifest
+from hivemind.pheromone import apply_pheromone_migrations
 from waggle.clock import Clock, SystemClock
 from waggle.signing import Ed25519Signer
 
@@ -261,7 +262,10 @@ async def entrance_tables(manifest: HiveManifest, clock: Clock) -> AsyncIterator
     """
     connection = connect(manifest.resolve_path(manifest.hive.db))
     try:
-        # Latency: the Entrance's migrations (already applied: a no-op) on a local file.
+        # The Entrance tables record on the trail, so its tables come first on a fresh Hive (the
+        # operator may set the password before the Hive ever ran). Latency: local migrations,
+        # a no-op once applied.
+        await asyncio.to_thread(apply_pheromone_migrations, connection, clock)
         store = await SqliteEntranceStore.create(connection, clock)
         identity = EntranceIdentity(
             hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor=OPERATOR_ACTOR

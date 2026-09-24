@@ -34,7 +34,8 @@ Public API:
       (transport).
     - read_password, read_new_password, PROMPT, NEW_PROMPT, CURRENT_PROMPT: the password
       (password).
-    - LandingError, LandingRefusedError, EntranceUnreachableError, LandingProtocolError: failures
+    - LandingError, LandingRefusedError, EntranceUnreachableError, LandingProtocolError, and the
+      refusal codes AUTHENTICATION_CODE, CAPABILITY_CODE, RATE_CODE, STEP_UP_CODE: failures
       (errors).
     - CarriedOption, carried_command, carried_group, carried_flag, carried_text, carried_path,
       PASSWORD_STDIN: options carried on the context (options).
@@ -42,6 +43,10 @@ Public API:
 
 from hivemind.cli.landing.client import LandingClient, LandingSession, SignedIn, signed_in
 from hivemind.cli.landing.errors import (
+    AUTHENTICATION_CODE,
+    CAPABILITY_CODE,
+    RATE_CODE,
+    STEP_UP_CODE,
     EntranceUnreachableError,
     LandingError,
     LandingProtocolError,
@@ -85,13 +90,17 @@ from hivemind.cli.landing.stream import (
 from hivemind.cli.landing.transport import EntranceAddress, entrance_address, open_http
 
 __all__ = [
+    "AUTHENTICATION_CODE",
+    "CAPABILITY_CODE",
     "CURRENT_PROMPT",
     "FELL_BEHIND",
     "FORBIDDEN",
     "NEW_PROMPT",
     "PASSWORD_STDIN",
     "PROMPT",
+    "RATE_CODE",
     "SESSION_ENDED",
+    "STEP_UP_CODE",
     "CarriedOption",
     "Credential",
     "DeviceKey",

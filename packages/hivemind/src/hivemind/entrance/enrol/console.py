@@ -108,7 +108,8 @@ _RESET_EDGES: Mapping[DeviceStatus, DeviceStatus] = MappingProxyType(
 _LIVE_CONSOLE = frozenset({DeviceStatus.APPROVED, DeviceStatus.LOCKED})
 # Everything the operator does at the Hive Stand, as capability strings (hivemind.guard's grammar,
 # not imported here): submit and answer, push, steward, every observation, both Cell kinds, every
-# Comb Shield tier and any spend.
+# Comb Shield tier and any spend, and the operator's own C2 content (the chat, the inbox, a held
+# request's payload), without which the console could not see what it answers or confirms.
 CONSOLE_CAPABILITIES = (
     "cell:comb_shield:*",
     "cell:hive_stand",
@@ -117,6 +118,7 @@ CONSOLE_CAPABILITIES = (
     "entrance:push",
     "entrance:steward",
     "entrance:submit",
+    "honey:clearance:c2",
     "observe",
     "observe:honey:*",
     "observe:thoughts",

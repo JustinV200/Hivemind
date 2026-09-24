@@ -46,7 +46,7 @@ from hivemind.cli.entrance.enrolments import (
     invite_command,
     pending_command,
 )
-from hivemind.cli.entrance.operator import app as operator_app
+from hivemind.cli.entrance.operators import app as operator_app
 
 __all__ = ["app"]
 
