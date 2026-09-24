@@ -20,6 +20,7 @@ import sys
 import pytest
 from typer.testing import CliRunner
 
+from hivemind.cli import app as app_module
 from hivemind.cli.app import app, main
 
 # The full expected shape of a --version line, e.g. "hive 0.1.0.dev0 (Python 3.12.14 on
@@ -76,3 +77,22 @@ def test_main_makes_stdout_tolerate_unencodable_output(monkeypatch: pytest.Monke
     stream.write("done ✅\n")
     stream.flush()
     assert stream.buffer.getvalue() == b"done ?\n"
+
+
+def test_every_command_logs_to_stderr_at_the_operators_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A command's stdout is its report (`hive run --json` is JSON only), so logs go to stderr,
+    # at WARNING unless HIVEMIND_LOG_LEVEL asks for more.
+    configured: list[dict[str, object]] = []
+    monkeypatch.setattr(app_module, "configure_logging", lambda **kw: configured.append(kw))
+    monkeypatch.setenv("HIVEMIND_LOG_LEVEL", "INFO")
+
+    runner.invoke(app, ["run", "--help"])
+    monkeypatch.delenv("HIVEMIND_LOG_LEVEL")
+    runner.invoke(app, ["run", "--help"])
+
+    assert configured == [
+        {"json_output": False, "level": "INFO", "to_stderr": True},
+        {"json_output": False, "level": "WARNING", "to_stderr": True},
+    ]

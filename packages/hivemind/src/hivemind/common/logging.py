@@ -24,14 +24,15 @@ See Also:
 from __future__ import annotations
 
 import logging
-from typing import cast
+import sys
+from typing import TextIO, cast
 
 import structlog
 
 __all__ = ["configure_logging", "get_logger"]
 
 
-def configure_logging(*, json_output: bool, level: str) -> None:
+def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False) -> None:
     """Configure structlog's global processor chain for this process.
 
     Must be called exactly once, by a composition root, before any subsystem logs anything that
@@ -41,6 +42,9 @@ def configure_logging(*, json_output: bool, level: str) -> None:
         json_output: True for JSON lines (production, machine-parsed); False for a
             human-readable console renderer (local development).
         level: A standard-library logging level name, e.g. "DEBUG", "INFO", "WARNING".
+        to_stderr: Write to standard error instead of standard output: the operator's CLI, whose
+            standard output is its own report (`hive run --json` must print JSON and nothing
+            else).
 
     Returns:
         None.
@@ -73,9 +77,29 @@ def configure_logging(*, json_output: bool, level: str) -> None:
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        logger_factory=structlog.PrintLoggerFactory(),
+        # print() only ever calls write and flush, which is all _Stderr provides.
+        logger_factory=structlog.PrintLoggerFactory(
+            file=cast(TextIO, _Stderr()) if to_stderr else None
+        ),
         cache_logger_on_first_use=True,
     )
+
+
+class _Stderr:
+    """Standard error as it is at each write, not as it was when logging was configured.
+
+    Whoever captures output (a test runner, a CLI harness) swaps `sys.stderr` per invocation and
+    closes the old one; a logger holding the stream it was configured with would then write to a
+    closed file.
+    """
+
+    def write(self, text: str) -> int:
+        """Write to the current standard error."""
+        return sys.stderr.write(text)
+
+    def flush(self) -> None:
+        """Flush the current standard error."""
+        sys.stderr.flush()
 
 
 def get_logger(name: str) -> structlog.typing.FilteringBoundLogger:

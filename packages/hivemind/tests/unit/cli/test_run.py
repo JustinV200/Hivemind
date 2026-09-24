@@ -172,14 +172,17 @@ def test_run_command_prints_json_summary_only_with_the_json_flag(
 ) -> None:
     manifest_path = fake_manifest(tmp_path)
     _patch_build_hive(monkeypatch, _PLAN)
+    # Every log line the run makes, down to DEBUG, must stay off stdout: it is the JSON report
+    # (a debug line printed before it once made the output unparseable).
+    monkeypatch.setenv("HIVEMIND_LOG_LEVEL", "DEBUG")
 
     result = runner.invoke(
         app, ["run", _GOAL, "--manifest", str(manifest_path), "--timeout", "30", "--json"]
     )
 
     assert result.exit_code == 0, result.output
-    assert "queen.planned" not in result.output  # No streamed lines with --json.
-    payload = json.loads(result.output)
+    assert "queen.planned" not in result.stdout  # No streamed lines with --json.
+    payload = json.loads(result.stdout)
     assert payload["succeeded"] is True
 
 

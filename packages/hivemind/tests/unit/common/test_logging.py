@@ -53,3 +53,17 @@ def test_get_logger_respects_the_configured_minimum_level() -> None:
         logger.info("hivemind.should_be_filtered")
 
     assert captured == []
+
+
+def test_configure_logging_can_keep_standard_output_for_the_report(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The operator's CLI: `hive run --json` prints JSON on stdout, so every log line goes to
+    # whatever stderr is at the time of the write (a harness swaps it per invocation).
+    configure_logging(json_output=True, level="INFO", to_stderr=True)
+
+    get_logger(__name__).warning("hivemind.test_to_stderr")
+
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert '"event": "hivemind.test_to_stderr"' in err

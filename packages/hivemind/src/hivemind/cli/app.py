@@ -40,6 +40,7 @@ See Also:
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Annotated
 
@@ -49,12 +50,16 @@ from hivemind.cli import capping, forage, llm, memory, recordings, tasks, trail
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import run_command
 from hivemind.cli.version import collect_version_info, format_version
+from hivemind.common.logging import configure_logging
 
 __all__ = ["app", "main"]
 
 # The one Typer application every command group below attaches to. Building it at module level
 # is the composition root itself doing its job (codingrules 5.5 bars *side effects* on import,
 # not the object construction a composition root exists to perform).
+LOG_LEVEL_ENV = "HIVEMIND_LOG_LEVEL"  # The same variable the in-Cell Warden reads.
+DEFAULT_CLI_LOG_LEVEL = "WARNING"  # An operator's terminal shows trouble, not every heartbeat.
+
 app = typer.Typer(
     name="hive",
     help="Command the Hive: the Queen (the central orchestrator) and everything it runs.",
@@ -147,6 +152,11 @@ def main_callback(
         version: Set by `--version`. Handled by `_print_version`, which exits before returning.
     """
     _print_version(version)
+    # Once, before any subcommand builds a Hive: a command's standard output is its own report
+    # (`hive run --json` is JSON and nothing else), so logs go to standard error, and at WARNING
+    # unless the operator asks for more, the way the in-Cell Warden reads HIVEMIND_LOG_LEVEL.
+    level = os.environ.get(LOG_LEVEL_ENV) or DEFAULT_CLI_LOG_LEVEL
+    configure_logging(json_output=False, level=level, to_stderr=True)
     # No subcommand exists yet (this step only adds --version), so a bare `hive` prints help
     # instead of typer's default "Missing command" error, and still exits 0.
     if ctx.invoked_subcommand is None:
