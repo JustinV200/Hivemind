@@ -16,8 +16,9 @@ Fits into the Hive:
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.brood_chamber`,
     `hivemind.cell.leavings` (roadmap step 5.0a), `hivemind.cell.local`, `hivemind.cli.stores`,
     `hivemind.forage`, `hivemind.llm`, `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`,
-    `hivemind.queen` (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`,
-    `hivemind.wardens`, `hivemind.workers` and waggle only.
+    `hivemind.queen` (`ForageLedger`, roadmap step 4.7), `hivemind.honey_store` (the store type
+    and `HoneyAccess`, roadmap phase 7), `hivemind.supervision`, `hivemind.wardens`,
+    `hivemind.workers` and waggle only.
 
 Key invariants:
     - Every identity this module builds (`MemoryIdentity`, `ChamberIdentity`, `CellIdentity`)
@@ -59,6 +60,7 @@ from hivemind.cli.stores import (
     build_registry,
     open_chamber,
     open_cluster_orders,
+    open_honey_store,
     open_leavings,
     open_ledger,
     open_memory,
@@ -66,6 +68,7 @@ from hivemind.cli.stores import (
     slot_bindings,
 )
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
+from hivemind.honey_store import HoneyAccess, SqliteHoneyStore
 from hivemind.llm import (
     CallGate,
     CompositeLlmEventRecorder,
@@ -122,12 +125,16 @@ class HiveStores:
         memory: Where every Pin, Note, Handoff and episode this Hive writes lives.
         leavings: The Leavings ledger `build_hive_stand_source` hands to every
             `HiveStandLeaseReleaser` this Hive builds (roadmap step 5.0a).
+        honey: The Honey Store (roadmap phase 7), opened on the same file by
+            `open_default_stores`; None for a hand-built HiveStores (a test's in-memory stores),
+            which then builds and runs a Hive exactly as before phase 7.
     """
 
     trail: PheromoneTrail
     chamber: BroodChamber
     memory: MemoryStore
     leavings: LeavingsStore
+    honey: SqliteHoneyStore | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,13 +162,13 @@ class HiveParts:
 
 
 def open_default_stores(manifest: HiveManifest) -> HiveStores:
-    """Open the Hive's own `[hive] db` file as its trail, chamber, memory and leavings store.
+    """Open the Hive's own `[hive] db` file as its trail, chamber, memory, leavings and Honey store.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
 
     Returns:
-        A HiveStores over four separate `sqlite3.Connection`s to the same file (ADR-0006: "two
+        A HiveStores over five separate `sqlite3.Connection`s to the same file (ADR-0006: "two
         stores that write the same file use separate connections; WAL makes that fine").
     """
     db = manifest.resolve_path(manifest.hive.db)
@@ -173,6 +180,7 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         chamber=open_chamber(db, identity),
         memory=open_memory(db),
         leavings=open_leavings(db),
+        honey=open_honey_store(db),  # ADR-0031: the Honey Store lives in the Hive's one file.
     )
 
 
@@ -360,6 +368,7 @@ def build_queen_deps(
     forage_map: ForageMap,
     ledger: ForageLedger,
     virtual_cells: VirtualCellsParts | None = None,
+    honey: HoneyAccess | None = None,
 ) -> QueenDeps:
     """Build the Queen's own QueenDeps from `[forage]`/`[supervision]`/`[memory]` and shared parts.
 
@@ -374,11 +383,14 @@ def build_queen_deps(
             `.virtual_backend_source`/`.dormant_cell_source`/`.on_task_finished`. `None` (the
             default, and every pre-5.6 caller) leaves those four fields at their own defaults,
             keeping placement Real-only.
+        honey: The Hive's Honey Store handles (`hivemind.cli.compose.honey.build_honey_access`),
+            becoming `QueenDeps.honey`; None (no Honey Store, every pre-phase-7 caller) keeps
+            the Queen answering queries empty and skipping every pre-check and deposit.
 
     Returns:
         A QueenDeps ready for `hivemind.queen.Queen(deps)`.
     """
-    base = _base_queen_deps(parts, forage_map, ledger)
+    base = dataclasses.replace(_base_queen_deps(parts, forage_map, ledger), honey=honey)
     return _with_virtual_cells(base, virtual_cells)
 
 

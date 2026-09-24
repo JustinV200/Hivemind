@@ -9,20 +9,28 @@ with` block is open, and tears both down -- releasing the lease, "left as found"
 `run_goal` submits one goal and polls until every one of its tasks reaches a terminal
 `hivemind.brood_chamber.TaskStatus`, or `timeout_s` elapses, forwarding trail events of interest to
 an optional `on_event` callback and syncing any answer `hive inbox answer` left in another process
-(`hivemind.queen.sync_answers_from_chamber`) on every poll.
+(`hivemind.queen.sync_answers_from_chamber`) on every poll. When the stores include a Honey Store
+(roadmap phase 7, the Hive's searchable knowledge base), `build_hive` builds its handles once
+(`hivemind.cli.compose.honey.build_honey_access`) for the Queen's `QueenDeps.honey`, and the House
+Bee's ripening loop (`hivemind.workers.roles.house_bee.HouseBeeRipening`) over them, which
+`run_hive` runs beside the Queen in the same TaskGroup.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.run` (roadmap step 3.21) and by every test that drives the kernel end to end
     against a `hivemind.llm.FakeLLMProvider`. Calls into `hivemind.brood_chamber`, `hivemind.cell`,
-    `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.pheromone`,
-    `hivemind.queen`, `hivemind.wardens` and waggle only.
+    `hivemind.cli.compose.deps`, `.honey`, `.links`, `hivemind.cli.stores`, `hivemind.honey_store`,
+    `hivemind.pheromone`, `hivemind.queen`, `hivemind.wardens`, `hivemind.workers.roles.
+    house_bee` and waggle only.
 
 Key invariants:
     - `build_hive` never touches the network: every provider it constructs is lazy
       (`hivemind.llm.registry.ProviderRegistry.provider`'s own rule), and its own one `asyncio.run`
       call (`hivemind.cell.local.HiveStandSource.cells`, to seed the Queen<->Warden link's Cell)
       only probes this host's own capacity.
+    - The House Bee's ripening loop starts after the Queen and stops before her, so she never
+      runs a tick without it and it never ripens for a Queen already gone; a Hive with no Honey
+      Store (a hand-built HiveStores) has no loop and runs exactly as before phase 7.
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
       their `run()` tasks, and closes the Queen<->Warden link, in that order, whether its
       `async with` block exits cleanly or raises. Awaiting both tasks before its own
@@ -69,15 +77,18 @@ from hivemind.cli.compose.deps import (
     build_warden_deps,
     open_default_stores,
 )
+from hivemind.cli.compose.honey import build_honey_access
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
 from hivemind.forage import ForageMap
+from hivemind.honey_store import HoneyAccess
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
 from hivemind.queen import ForageLedger, Queen, WardenLink, sync_answers_from_chamber
 from hivemind.wardens import Warden
+from hivemind.workers.roles.house_bee import HouseBeeRipening
 from waggle.clock import Clock
 from waggle.ids import TaskId
 
@@ -106,6 +117,10 @@ class Hive:
         virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
             value, when `[virtual_cells] backend` is set; `None` otherwise, in which case
             `run_hive` touches nothing Virtual-Cell-related at all (roadmap step 5.6).
+        honey: The Honey Store's handles, the same ones the Queen holds as `QueenDeps.honey`;
+            None when the stores carry no Honey Store (roadmap phase 7).
+        house_bee: The House Bee's ripening loop over `honey`, run by `run_hive`; None exactly
+            when `honey` is.
     """
 
     manifest: HiveManifest
@@ -118,6 +133,8 @@ class Hive:
     warden_link: WardenLink
     clock: Clock
     virtual_cells: VirtualCellsParts | None = None
+    honey: HoneyAccess | None = None
+    house_bee: HouseBeeRipening | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +214,18 @@ def build_hive(
     return _assemble_hive(parts, source, links, extras)
 
 
+def _honey(parts: HiveParts) -> HoneyAccess | None:
+    """Build the Honey Store's handles once, when the stores carry one (roadmap phase 7).
+
+    Every handle the Queen and the House Bee use comes from this one build, the same way the
+    `hive honey` commands build theirs (`hivemind.cli.compose.honey.build_honey_access`).
+    """
+    store = parts.stores.honey
+    if store is None:
+        return None  # A hand-built HiveStores (a test's in-memory stores): no Honey Store.
+    return build_honey_access(parts.manifest, store, parts.registry, parts.fanner, parts.clock)
+
+
 def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) -> HiveLinks:
     """Probe the Hive Stand's one Cell and build the Queen<->Warden link around it.
 
@@ -221,10 +250,20 @@ class _AssemblyExtras:
 def _assemble_hive(
     parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
-    """Build the Warden and Queen from `parts`, attach the link, and wrap it all as a Hive."""
+    """Build the Warden, Queen and House Bee from `parts`, attach the link, and wrap it all up."""
     warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
-    queen = Queen(build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells))
+    honey = _honey(parts)
+    queen = Queen(
+        build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells, honey)
+    )
     queen.attach_warden(links.queen_link)
+    # The operator's proposed notes are attributed to the Hive Stand: the machine the Queen, and
+    # so the operator's own CLI, runs on (hivemind.workers.roles.house_bee.loop).
+    house_bee = (
+        HouseBeeRipening(honey, links.queen_link.cell.id, parts.clock)
+        if honey is not None
+        else None
+    )
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
@@ -240,6 +279,8 @@ def _assemble_hive(
         warden_link=links.queen_link,
         clock=parts.clock,
         virtual_cells=extras.virtual_cells,
+        honey=honey,
+        house_bee=house_bee,
     )
 
 
@@ -254,17 +295,9 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
         Control to the caller, with `hive.queen` and `hive.warden` both ticking as background
         tasks; call `hive.queen.submit_goal`/`run_goal` inside the `async with` block.
     """
-    if hive.virtual_cells is not None:
-        # Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile
-        # the live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
-        # CellLifecycle.reconcile's own contract: called once, before any other method). The
-        # listener goes first because reconcile constructs every backend, and a Docker or QEMU
-        # backend's QueenEndpoint carries the listener's bound port, which only exists after
-        # start() (the first real Docker run failed on exactly this). Both happen before
-        # hive.warden.start()/the TaskGroup below, so a Cell dialling back in while the Queen is
-        # still coming up is never dropped for connecting "too early".
-        await hive.virtual_cells.listener.start(hive.queen)
-        await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+    # Before the Warden and the TaskGroup below, so a Virtual Cell dialling back in while the
+    # Queen is still coming up is never dropped for connecting "too early".
+    await _open_virtual_cells(hive)
     await hive.warden.start()
     # Structured concurrency (codingrules section 11): both loops are owned by this one
     # asyncio.TaskGroup, which awaits them to completion when the block below exits, whether
@@ -272,9 +305,15 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
     async with asyncio.TaskGroup() as group:
         queen_task = group.create_task(hive.queen.run())
         warden_task = group.create_task(hive.warden.run())
+        # After the Queen (module docstring): ripening runs beside her, never inside her tick.
+        ripening_task = (
+            group.create_task(hive.house_bee.run()) if hive.house_bee is not None else None
+        )
         try:
             yield
         finally:
+            # Before the Queen (module docstring's "Key invariants").
+            await _stop_ripening(hive, ripening_task)
             # Stop the Queen first (codingrules section 8.8: she holds no session, nothing to
             # release), then the Warden, which releases its lease -- "left as found" -- before its
             # own run() loop is allowed to end; both are cooperative signals (their own stop()),
@@ -294,6 +333,36 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
             # is left awaiting a link neither side will ever write to again.
             await hive.warden_link.transport.close()
+
+
+async def _open_virtual_cells(hive: Hive) -> None:
+    """Start the Virtual Cell listener, then reconcile its table; a no-op with none configured.
+
+    Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile the
+    live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
+    CellLifecycle.reconcile's own contract: called once, before any other method). The listener
+    goes first because reconcile constructs every backend, and a Docker or QEMU backend's
+    QueenEndpoint carries the listener's bound port, which only exists after start() (the first
+    real Docker run failed on exactly this).
+    """
+    if hive.virtual_cells is None:
+        return  # `[virtual_cells] backend` unset: nothing Virtual-Cell-related to open.
+    await hive.virtual_cells.listener.start(hive.queen)
+    await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+
+
+async def _stop_ripening(hive: Hive, ripening_task: asyncio.Task[None] | None) -> None:
+    """Stop the House Bee's ripening loop and wait for it; a no-op for a Hive with no Honey Store.
+
+    `stop()` cancels a pass in flight (each store write is its own transaction) and ends the
+    pause at once, so shutdown never waits out a pass. `asyncio.wait`, not a bare await: should
+    the loop itself have failed, `run_hive`'s TaskGroup reports that failure, and the Queen and
+    Warden still stop cleanly after this returns.
+    """
+    if hive.house_bee is None or ripening_task is None:
+        return  # No Honey Store wired: no loop was ever started.
+    hive.house_bee.stop()
+    await asyncio.wait({ripening_task})
 
 
 async def run_goal(

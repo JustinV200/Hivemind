@@ -14,15 +14,20 @@ into one typed `PlannerError` so a caller catches a single name either way. `Pla
 (roadmap step 5.0b), when given, is threaded to `complete_structured` as a pydantic validation
 `context`, the one way `hivemind.queen.planner.schema.PlannedTask`'s own leaves-vs-scratch rule can
 see the Hive Stand's own scratch root without this module (or the ladder) knowing what a "lease
-directory" is.
+directory" is. `PlanBrief.honey` (roadmap step 7.9) carries what the Queen's consultation of the
+Honey Store (the Hive's ripened, searchable knowledge) found for the goal; `_build_request`
+renders it into the prompt's RETRIEVED section, each hit as the same block `hivemind.memory.
+assemble` renders one as, under the same preamble that labels it reference data, never
+instructions (codingrules section 15).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's planner
     sub-package (which MAY import `hivemind.llm`). Called by `hivemind.queen.goal_submission.
     submit_goal`. Calls into `hivemind.brood_chamber` (TaskDraft, TaskGraphDraft), `hivemind.cell`
     (HoneyClearance), `hivemind.llm` (CallGate, LLMRequest, LadderObserver, Message, PromptName,
-    Role, SectionLabel, complete_structured, render), `hivemind.queen.planner.schema` and
-    `waggle.messages` (Postcondition) only.
+    Role, SectionLabel, complete_structured, render), `hivemind.memory` (RETRIEVED_PREAMBLE,
+    render_hit, ITEM_CAP_CHARS), `hivemind.queen.planner.schema` and `waggle.messages`
+    (Postcondition, HoneyHit) only.
 
 Key invariants:
     - `plan_goal` never returns a `TaskGraphDraft` whose first task lacks acceptance criteria or
@@ -31,6 +36,9 @@ Key invariants:
     - Every `PlannedTask.key` becomes its `TaskDraft.key` unchanged, so `depends_on` references
       the model wrote resolve without this module renaming anything; every `PlannedTask.leaves`
       entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason.
+    - A retrieved hit labelled above the goal's clearance never reaches the prompt (the Queen's
+      consultation already filtered by it; this is defence in depth), and no RETRIEVED section is
+      rendered at all when nothing was retrieved.
 
 See Also:
     - .claude/roadmap.md step 3.18 for "the planner emits acceptance for every subtask".
@@ -67,11 +75,14 @@ from hivemind.llm import (
     render,
 )
 from hivemind.llm.slots import BoundModel
+from hivemind.memory import ITEM_CAP_CHARS, RETRIEVED_PREAMBLE, render_hit
 from hivemind.queen.planner.schema import PlannedPostcondition, PlannedTask, PlanSchema
 from waggle.messages import Postcondition
+from waggle.messages.honey import HoneyHit
 
 PLANNER_MAX_OUTPUT_TOKENS = 8_192  # A whole task graph as JSON: generous, still bounded.
 _PLANNER_USER_TURN = "Decompose the goal above into a task graph, following the rules given."
+_RETRIEVED_SEPARATOR = "\n\n"  # A blank line between hit blocks, as memory.assemble renders them.
 
 __all__ = ["PLANNER_MAX_OUTPUT_TOKENS", "PlanBrief", "PlannerError", "describe_fleet", "plan_goal"]
 
@@ -94,7 +105,8 @@ class PlanBrief:
     unit to hand a planner: the text as the human stated it, the data-sensitivity ceiling every
     subtask inherits, the Cells placement will match the plan's needs against, who asked for the
     goal in the first place, the Hive Stand's own scratch root (roadmap step 5.0b) so a declared
-    leaving inside it is caught here, and (roadmap step 5.0e) its own keep root.
+    leaving inside it is caught here, (roadmap step 5.0e) its own keep root, and (roadmap step
+    7.9) what the Honey Store already knows about the goal.
     """
 
     goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
@@ -116,6 +128,10 @@ class PlanBrief:
     # the goal's own artefact belongs there, which then rides to the Drone unchanged on
     # `TaskAssign.leaves` (roadmap step 5.0b), exactly like any other declared leaving.
     keep_root: Path | None = None
+    # Roadmap step 7.9: the Queen's Honey consultation for this goal (hivemind.queen.dispatcher.
+    # consult_for_plan), best first; rendered into the RETRIEVED section as reference data. Empty
+    # (every caller before phase 7, and a Hive with no Honey Store) renders no section at all.
+    honey: tuple[HoneyHit, ...] = ()
 
 
 async def plan_goal(
@@ -175,6 +191,11 @@ def _build_request(brief: PlanBrief, bound: BoundModel) -> LLMRequest:
         )
     if hot_state_lines:
         sections[SectionLabel.HOT_STATE] = "\n\n".join(hot_state_lines)
+    retrieved = _retrieved_section(brief.honey, brief.clearance)
+    if retrieved:
+        # Roadmap step 7.9: what earlier work found, labelled reference data by the preamble and
+        # delimited by render(); decompose_goal.md already names the section and its rules.
+        sections[SectionLabel.RETRIEVED] = retrieved
     system = render(PromptName.DECOMPOSE_GOAL, sections=sections)
     return LLMRequest(
         slot=bound.slot,
@@ -182,6 +203,24 @@ def _build_request(brief: PlanBrief, bound: BoundModel) -> LLMRequest:
         messages=(Message.text(Role.USER, _PLANNER_USER_TURN),),
         max_output_tokens=PLANNER_MAX_OUTPUT_TOKENS,
     )
+
+
+def _retrieved_section(hits: Sequence[HoneyHit], clearance: HoneyClearance) -> str:
+    """Render the goal's Honey hits as the RETRIEVED section; empty when none may be shown.
+
+    The Queen's consultation already capped the hits at the goal's clearance and packed them into
+    her budget, so this renders every one it may show, best first, each block cut at the same
+    per-item cap hot state uses.
+    """
+    # Defence in depth: a hit above the goal's own clearance never reaches the planner's prompt.
+    visible = [
+        hit for hit in hits if HoneyClearance.from_wire(hit.clearance).rank <= clearance.rank
+    ]
+    if not visible:
+        return ""  # No section at all rather than a preamble over nothing.
+    visible.sort(key=lambda hit: (-hit.score, hit.honey_ref))
+    blocks = [render_hit(hit, ITEM_CAP_CHARS) for hit in visible]
+    return _RETRIEVED_SEPARATOR.join((RETRIEVED_PREAMBLE, *blocks))
 
 
 def describe_fleet(cells: Sequence[Cell]) -> str:

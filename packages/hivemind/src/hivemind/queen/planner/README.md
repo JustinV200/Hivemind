@@ -22,9 +22,16 @@ one acceptance postcondition; where nothing machine-checkable exists, the planne
   validated `hivemind.brood_chamber.TaskGraphDraft` -- acyclic, unique keys, every subtask
   carrying acceptance, all enforced by `TaskGraphDraft`'s own construction. Raises `PlannerError`
   for a plan that cannot be turned into one.
+- `PlanBrief.honey` (roadmap step 7.9): what the Queen's consultation of the Honey Store (the
+  Hive's ripened, searchable knowledge) found for the goal, as `waggle.messages.honey.HoneyHit`s.
+  `plan_goal` renders them into the prompt's `RETRIEVED` section with `hivemind.memory`'s own
+  preamble and hit blocks, labelled reference data and never instructions; a hit above the goal's
+  clearance is never shown, and no section is rendered when nothing was retrieved. The
+  consultation itself runs in `hivemind.queen.goal_submission` through
+  `hivemind.queen.dispatcher.consult_for_plan`.
 
 ## How to test this
 
 ```bash
-uv run --frozen pytest packages/hivemind/tests/unit/queen/planner -q
+uv run --frozen pytest packages/hivemind/tests/unit/queen/planner packages/hivemind/tests/unit/queen/test_goal_submission.py -q
 ```

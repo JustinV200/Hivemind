@@ -8,14 +8,18 @@ leaving inside the Hive Stand's own scratch is refused while planning, not disco
 roadmap step 5.0e: `keep_root`, so the planner prompt can be told the manifest's own keep root and
 declare a leaving under it). `Queen.submit_goal` becomes a one-line delegator, exactly like
 `Queen._tick`/`_on_tick_failed` are for `_run_tick`/`_record_recovered_tick_error` in `queen.py`
-itself.
+itself. Roadmap step 7.9 puts the planner's Honey consultation here too: before planning, the
+Queen asks the Honey Store (the Hive's ripened, searchable knowledge) about the goal, reading
+every scope but nothing above the goal's own clearance, and hands the hits to the planner on
+`PlanBrief.honey`; once the goal has an id she records `queen.honey_consulted` with stage `plan`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
     by `hivemind.queen.queen.Queen.submit_goal`, the only caller. Calls into `hivemind.cell`
     (HoneyClearance), `hivemind.forage.slots` (ModelSlot), `hivemind.queen.deps` (QueenDeps,
-    WardenLink), `hivemind.queen.dispatcher` (dispatch_ready), `hivemind.queen.planner` (PlanBrief,
-    plan_goal), `hivemind.queen.trail` (record_event) and waggle (TaskId) only.
+    WardenLink), `hivemind.queen.dispatcher` (dispatch_ready, consult_for_plan, record_consulted),
+    `hivemind.queen.planner` (PlanBrief, plan_goal), `hivemind.queen.trail` (record_event) and
+    waggle (TaskId) only.
 
 Key invariants:
     - Takes `deps` and `wardens` explicitly, never a `Queen` instance: the Queen delegates by
@@ -23,6 +27,8 @@ Key invariants:
       module reaching into her private attributes from outside `queen.py`.
     - The returned TaskId is always the first task minted from the plan (the goal's own id),
       matching `Queen.submit_goal`'s own documented contract.
+    - The Honey consultation never stops a goal from being planned: with no Honey Store wired, or
+      on any failure, the planner is simply shown no retrieved section.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the file-size limit this module exists to keep.
@@ -38,7 +44,7 @@ from collections.abc import Sequence
 from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready
+from hivemind.queen.dispatcher import PLAN_STAGE, consult_for_plan, dispatch_ready, record_consulted
 from hivemind.queen.planner import PlanBrief, plan_goal
 from hivemind.queen.trail import record_event
 from waggle.ids import TaskId
@@ -62,15 +68,22 @@ async def submit_goal(
         The goal's own id (the first task minted from the plan).
     """
     bound = deps.bound_for(ModelSlot.QUEEN)
+    # Roadmap 7.9: what the Hive already knows about this goal; None with no Honey Store wired or
+    # on a failure (logged there), and planning proceeds either way.
+    consultation = await consult_for_plan(deps, goal, clearance)
     brief = PlanBrief(
         goal,
         clearance,
         [link.cell for link in wardens],
         scratch_root=deps.scratch_root,
         keep_root=deps.keep_root,
+        honey=consultation.hits if consultation is not None else (),
     )
     draft = await plan_goal(brief, bound, gate=deps.call_gate)
     minted = await deps.chamber.submit(draft)
+    if consultation is not None:
+        # Recorded now rather than before planning, so its subject is the goal's own id.
+        await record_consulted(deps, minted[0].id, PLAN_STAGE, consultation)
     await record_event(deps, "queen.planned", minted[0].id, task_count=len(minted))
     await dispatch_ready(deps, wardens)
     return minted[0].id  # The goal's own id: the first task minted from the plan.

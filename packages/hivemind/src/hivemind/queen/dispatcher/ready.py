@@ -41,6 +41,12 @@ respectively) hit this same choke point and fail the same way, since both funnel
 left here is the narrower case of a Cell that fits on paper but has no headroom left by the time
 the grant is sized.
 
+Every assignment also carries what the Queen's Honey pre-check found (roadmap steps 7.9 and 7.9a,
+`hivemind.queen.dispatcher.honey.consult_for_assignment`): Honey about the task's objective and
+the chosen Cell's own history, plus that Cell's live Cell Wax, on `TaskAssign.honey`. The
+pre-check runs inside `_send_grant_and_assign`, once the grant is known to be sendable, so a fresh
+dispatch, a retry and a resume all get one; it never raises, and yields no hits when it fails.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and
@@ -51,7 +57,7 @@ Fits into the Hive:
     (Ceilings, ForageGrant, GrantInputs, ModelSlot, grant), `hivemind.pheromone` (ForageEvent),
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
     roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
-    ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.snapshot`,
+    ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.honey`/`.snapshot`,
     `hivemind.queen.trail` (record_event, record_forage_event) and waggle only.
 
 Key invariants:
@@ -67,6 +73,8 @@ Key invariants:
     - A fresh grant with `max_sub_bees < 1` is never sent to a Warden: `_send_grant_and_assign`
       records `forage.denied` and fails the task (RUNNING -> FAILED) instead, whether the grant
       came from a fresh dispatch, a retry or a resume.
+    - The Honey pre-check never stops an assignment: it runs only for a grant that will be sent,
+      and a failed or unwired pre-check leaves `TaskAssign.honey` empty.
 
 See Also:
     - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
@@ -75,6 +83,8 @@ See Also:
     - hivemind.queen.placement for decide, this module's one placement call.
     - hivemind.queen.dispatcher.acquire for resolve_link, this module's Placement-to-Warden call.
     - hivemind.forage.allocate for grant, this module's one allocation call.
+    - hivemind.queen.dispatcher.honey for consult_for_assignment, the pre-check every assignment
+      carries.
 """
 
 from __future__ import annotations
@@ -91,6 +101,7 @@ from hivemind.forage.models.sources import ModelSource
 from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.acquire import resolve_link
+from hivemind.queen.dispatcher.honey import consult_for_assignment
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
@@ -100,6 +111,7 @@ from hivemind.queen.trail import record_event, record_forage_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
 from waggle.messages import HandoffRef
+from waggle.messages.honey import HoneyHit
 from waggle.messages.task import TaskAssign, WorkerRole
 
 __all__ = ["dispatch_ready", "redispatch", "resume_paused"]
@@ -316,9 +328,10 @@ async def _send_grant_and_assign(
     sources: dict[str, ModelSource] = {
         binding.source_id: deps.map.get(binding.source_id) for binding in fresh_grant.allowed
     }
-    assign = _task_assign(
-        task, cell_id, fresh_grant.id, terms.attempt, resume_from=terms.resume_from
-    )
+    # Roadmap 7.9/7.9a: what the Hive already knows about this task and Cell; never raises, and
+    # bounded by its own timeout, so the assignment always goes out.
+    honey = await consult_for_assignment(deps, task, link)
+    assign = _task_assign(task, cell_id, fresh_grant.id, terms, honey=honey)
     await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
     await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
     return fresh_grant
@@ -404,11 +417,12 @@ def _task_assign(
     task: Task,
     cell_id: CellId,
     grant_id: GrantId,
-    attempt: int,
+    terms: _AssignmentTerms,
     *,
-    resume_from: HandoffRef | None = None,
+    honey: tuple[HoneyHit, ...] = (),
 ) -> TaskAssign:
-    """Build the TaskAssign a task's Warden receives, at `attempt`."""
+    """Build the TaskAssign a task's Warden receives, at `terms.attempt`, carrying `honey`."""
+    resume_from = terms.resume_from
     reason = (
         "Resumed by the Queen's dispatcher (Clustering)."
         if resume_from is not None
@@ -426,8 +440,9 @@ def _task_assign(
         tempo=task.spec.needs.tempo.to_wire(),
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,
-        attempt=attempt,
+        attempt=terms.attempt,
         resume_from=resume_from,
+        honey=honey,
         reason=reason,
     )
 

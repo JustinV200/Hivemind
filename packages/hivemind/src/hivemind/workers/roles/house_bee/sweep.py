@@ -7,8 +7,11 @@ note (a Queen-written caution about one Cell) whose own `expires_at` has passed
 (`hivemind.memory.cell_wax.expire_wax`, roadmap step 4.2a's own named wax-expiry hook); then folds
 Bee Bread entries older than the sweep's own window into one new summary per closed task, through
 `hivemind.memory.compact` (never a previous summary -- docs/adr/0022's "one level" rule, enforced
-by `compact` itself). A fourth phase, ripening Bee Bread (and cleared/expired Cell Wax) into Honey
-(the cold tier), is a named no-op hook until phase 7's Honey Store exists. `run_sweep` is
+by `compact` itself). A fourth phase (roadmap steps 7.6 and 7.9a) sends aged Bee Bread and
+cleared or expired Cell Wax down to Honey (the cold tier, the Hive's searchable knowledge base)
+as Nectar deposits, through `hivemind.workers.roles.house_bee.honey`, whenever `SweepDeps.honey`
+names a Honey Store; with none (the Worker-role adapter, every pre-phase-7 caller) it does
+nothing. `run_sweep` is
 deliberately decoupled from the Worker protocol
 (`hivemind.workers.base.Worker`) and from `hivemind.workers.context.WorkerContext`: it takes
 `SweepDeps`/`SweepWindow`, two plain bundles, so a future composition root (a Warden or the Queen,
@@ -30,12 +33,13 @@ way to check.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.house_bee`. Called by
-    `hivemind.workers.roles.house_bee.role.HouseBee.run` today, and by a future timer-driven
-    supervisor directly (module docstring). Calls into `hivemind.cell` (HoneyClearance),
-    `hivemind.llm` (BoundModel, CallGate), `hivemind.memory` (BeeBread, BeeBreadEntry,
-    BeeBreadEntryKind, HotStateSources, MemoryContext, Scorable, compact/CompactionRequest/
-    CompactionDeps, demote, expire_wax, should_demote, MAX_REF_IDS), `hivemind.memory.cell_wax`
-    (WaxState) and waggle only.
+    `hivemind.workers.roles.house_bee.role.HouseBee.run` and by the Queen's own housekeeping
+    tick (`hivemind.queen.ticks.housekeeping`, which also sets `SweepDeps.honey`). Calls into
+    `hivemind.cell` (HoneyClearance), `hivemind.llm` (BoundModel, CallGate), `hivemind.memory`
+    (BeeBread, BeeBreadEntry, BeeBreadEntryKind, HotStateSources, MemoryContext, Scorable,
+    compact/CompactionRequest/CompactionDeps, demote, expire_wax, should_demote, MAX_REF_IDS),
+    `hivemind.memory.cell_wax` (WaxState), `hivemind.workers.roles.house_bee.honey` (the two
+    Honey deposit duties) and waggle only.
 
 Key invariants:
     - Compaction never sees a `BeeBreadEntryKind.SUMMARY` entry as a source (filtered out before
@@ -44,8 +48,9 @@ Key invariants:
       sweep never has to catch and recover from either.
     - `_expire_wax_past_deadline` only ever moves a note WRITTEN -> EXPIRED; a note without an
       `expires_at` (standing wax) is never touched by a sweep.
-    - `_ripen_bee_bread_into_honey` always returns 0: phase 7's Honey Store does not exist yet, so
-      `SweepOutcome.ripened` is honest about doing nothing rather than pretending to.
+    - `_ripen_bee_bread_into_honey` returns 0 whenever `SweepDeps.honey` is None, and never
+      raises for a failed deposit: Bee Bread and Cell Wax are already durable where they are, so
+      a deposit that fails is logged and found again by a later sweep.
     - `run_sweep` never marks a task SUCCEEDED and never raises for "nothing to do": an empty sweep
       (nothing to demote, nothing old enough to compact) returns a `SweepOutcome` of all zeros.
 
@@ -58,6 +63,7 @@ See Also:
       function.
     - hivemind.workers.roles.house_bee.schedule for SweepSchedule, the timer a future supervisor
       checks before calling this function.
+    - hivemind.workers.roles.house_bee.honey for the fourth phase's two deposit duties.
 """
 
 from __future__ import annotations
@@ -84,6 +90,11 @@ from hivemind.memory import (
 )
 from hivemind.memory.bee_bread import MAX_REF_IDS
 from hivemind.memory.cell_wax import WaxState
+from hivemind.workers.roles.house_bee.honey import (
+    HouseBeeHoney,
+    deposit_aged_bee_bread,
+    deposit_retired_wax,
+)
 from waggle.ids import AlarmId, TaskId
 
 # Generous ceilings for one sweep's own Note/decision reads: a sweep runs often (the manifest's
@@ -114,6 +125,8 @@ class SweepDeps:
         gate: The seam that call passes through; `None` exactly when `bound` is.
         sources: A broader `HotStateSources` view for demotion, when the caller has one (module
             docstring); `None` demotes Notes only.
+        honey: The Honey Store and the caller's Cell records, for the fourth phase (roadmap step
+            7.6); `None` (the Worker-role adapter, every pre-phase-7 caller) deposits nothing.
     """
 
     memory: MemoryContext
@@ -121,6 +134,7 @@ class SweepDeps:
     bound: BoundModel | None = None
     gate: CallGate | None = None
     sources: HotStateSources | None = None
+    honey: HouseBeeHoney | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +171,8 @@ class SweepOutcome:
             sources).
         expired_wax: WRITTEN Cell Wax notes past their own `expires_at`, moved to EXPIRED this
             sweep (roadmap step 4.2a; the House Bee sweep's own named wax-expiry hook).
-        ripened: Always 0 until phase 7's Honey Store exists (module docstring).
+        ripened: New Nectar rows this sweep deposited for ripening: aged Bee Bread plus retired
+            Cell Wax (roadmap steps 7.6 and 7.9a); 0 with no Honey Store wired.
         spend_usd: What compaction's own model calls cost this sweep, summed.
     """
 
@@ -170,20 +185,22 @@ class SweepOutcome:
 
 
 async def run_sweep(deps: SweepDeps, window: SweepWindow) -> SweepOutcome:
-    """Run one House Bee sweep: demote, expire Cell Wax, compact, then (a no-op today) ripen.
+    """Run one House Bee sweep: demote, expire Cell Wax, compact, then deposit into Honey.
 
     Args:
-        deps: The memory access and RIPENER binding this sweep writes and calls with.
+        deps: The memory access, RIPENER binding and (optionally) Honey Store this sweep writes
+            and calls with.
         window: The timing and task-closure facts this sweep measures against.
 
     Returns:
         A SweepOutcome summarising what moved, what expired, what was folded together, and what
-        ripened.
+        was deposited for ripening.
     """
     demoted = await _demote_candidates(deps, window)
     expired_wax = await _expire_wax_past_deadline(deps, window)
     compacted_entries, compacted_batches, spend_usd = await _compact_closed_tasks(deps, window)
-    ripened = _ripen_bee_bread_into_honey(deps)
+    # Last, so wax this sweep just expired is already retired when the deposit phase looks.
+    ripened = await _ripen_bee_bread_into_honey(deps, window)
     return SweepOutcome(
         demoted=demoted,
         compacted_entries=compacted_entries,
@@ -235,7 +252,7 @@ async def _expire_wax_past_deadline(deps: SweepDeps, window: SweepWindow) -> int
     `list_wax`'s own contract for the sweep's use case (module docstring's "Store" bullet).
 
     Cleared and expired wax "hands to ripening once phase 7 lands" (roadmap step 4.2a): that hand-
-    off is `_ripen_bee_bread_into_honey`'s own named no-op today, not repeated here.
+    off is `_ripen_bee_bread_into_honey`'s job, later in the same sweep, not repeated here.
     """
     written = await deps.memory.store.list_wax(
         None, frozenset({WaxState.WRITTEN}), window.allowance
@@ -316,12 +333,17 @@ def _chunked(items: Iterable[BeeBreadEntry], size: int) -> Iterable[list[BeeBrea
         yield chunk
 
 
-def _ripen_bee_bread_into_honey(deps: SweepDeps) -> int:
-    """Ripen Bee Bread into Honey; a named no-op until phase 7's Honey Store exists.
+async def _ripen_bee_bread_into_honey(deps: SweepDeps, window: SweepWindow) -> int:
+    """Deposit aged Bee Bread and retired Cell Wax for ripening; 0 with no Honey Store wired.
 
-    TODO(house_bee): wire this to hivemind.honey_store's ripening pipeline once phase 7 lands
-    (roadmap step 4.3: "...and ripens Bee Bread into Honey once phase 7 lands"). Takes `deps`
-    already so that future implementation's signature does not have to change.
+    Roadmap step 4.3's "...and ripens Bee Bread into Honey once phase 7 lands", made real by
+    roadmap steps 7.6 and 7.9a: both duties only deposit Nectar, and the Ripener (the House Bee's
+    own loop, never the sweep's caller) turns it into Honey rows later. Neither raises for a
+    failed deposit (`hivemind.workers.roles.house_bee.honey`'s own invariants), so a Honey Store
+    hiccup never fails the demotion and compaction work this sweep already did.
     """
-    del deps  # Unused until phase 7; named to keep this function's future signature stable.
-    return 0
+    if deps.honey is None:
+        return 0  # No Honey Store wired (module docstring): nothing to deposit into.
+    bee_bread = await deposit_aged_bee_bread(deps, window)
+    wax = await deposit_retired_wax(deps, window)
+    return bee_bread + wax

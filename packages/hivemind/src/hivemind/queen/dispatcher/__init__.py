@@ -7,24 +7,27 @@ this is now a package: `ready` (the public `dispatch_ready`/`redispatch`/`resume
 plus the grant-and-assign wire send both share), `snapshot` (the pure `Inventory`/`ForageView` I/O
 helper `hivemind.queen.placement.decide` reads) and `acquire` (`resolve_link`, the seam that turns
 a Virtual `Placement` into a `WardenLink` through `QueenDeps.virtual_provider`, with the
-retry-once-with-zeroed-headroom path ADR-0028's own Consequences call for). This file is the
-package's face: every name below is exactly what `hivemind.queen.dispatcher.py` used to export, so
-every existing caller (`hivemind.queen.queen`, `hivemind.queen.ticks.results`, `hivemind.queen.
-cluster.protocol`) imports it unchanged.
+retry-once-with-zeroed-headroom path ADR-0028's own Consequences call for). Roadmap phase 7 adds
+`honey`: the Queen's Honey pre-check (roadmap steps 7.9 and 7.9a), which every assignment carries on
+`TaskAssign.honey`, and the planner's own consultation that `hivemind.queen.goal_submission` runs
+before a goal is planned. This file is the package's face: every name `hivemind.queen.
+dispatcher.py` used to export is still here, so every existing caller (`hivemind.queen.queen`,
+`hivemind.queen.ticks.results`, `hivemind.queen.cluster.protocol`) imports it unchanged.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen` package. Called
     unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and once more
     immediately after `submit_goal` and after every `COMPLETE_TASK` decision. Calls into
     `hivemind.queen.placement` (Placement, PlacementError, decide), `hivemind.queen.deps`
-    (QueenDeps, WardenLink, VirtualCellProvider) and everything `ready`/`snapshot`/`acquire` each
-    name in their own module docstrings.
+    (QueenDeps, WardenLink, VirtualCellProvider) and everything `ready`/`snapshot`/`acquire`/
+    `honey` each name in their own module docstrings.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same
       task, whether from a fresh dispatch or a retry (`ready._send_grant_and_assign`'s own order).
     - A Virtual `Placement` is acquired through `acquire.resolve_link` before any chamber
       transition or wire send: a failed acquire never leaves a task half-assigned.
+    - Neither Honey consultation ever stops the work it precedes (`honey`'s own invariants).
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Placement union this package
@@ -34,8 +37,28 @@ See Also:
 
 Public API:
     - dispatch_ready, redispatch, resume_paused: place, grant and (re-)assign a task (ready).
+    - consult_for_assignment, consult_for_plan, record_consulted, Consultation, ASSIGN_STAGE,
+      PLAN_STAGE: the Queen's Honey pre-check and the planner's consultation (honey).
 """
 
+from hivemind.queen.dispatcher.honey import (
+    ASSIGN_STAGE,
+    PLAN_STAGE,
+    Consultation,
+    consult_for_assignment,
+    consult_for_plan,
+    record_consulted,
+)
 from hivemind.queen.dispatcher.ready import dispatch_ready, redispatch, resume_paused
 
-__all__ = ["dispatch_ready", "redispatch", "resume_paused"]
+__all__ = [
+    "ASSIGN_STAGE",
+    "PLAN_STAGE",
+    "Consultation",
+    "consult_for_assignment",
+    "consult_for_plan",
+    "dispatch_ready",
+    "record_consulted",
+    "redispatch",
+    "resume_paused",
+]
