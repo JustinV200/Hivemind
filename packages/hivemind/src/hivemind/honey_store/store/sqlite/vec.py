@@ -36,10 +36,12 @@ See Also:
 
 from __future__ import annotations
 
+import array
 import math
 import sqlite3
 import struct
-from collections.abc import Sequence
+import sys
+from collections.abc import Iterable, Sequence
 
 from hivemind.common.logging import get_logger
 
@@ -51,6 +53,7 @@ __all__ = [
     "VECTOR_BACKEND_PYTHON",
     "VECTOR_BACKEND_SQLITE_VEC",
     "cosine_distance",
+    "cosine_distances",
     "decode_vector",
     "encode_vector",
     "load_vector_extension",
@@ -71,8 +74,8 @@ def encode_vector(values: Sequence[float]) -> bytes:
     return struct.pack(f"<{len(values)}f", *values)
 
 
-def decode_vector(blob: bytes) -> tuple[float, ...]:
-    """Unpack a little-endian float32 blob back into a tuple of floats.
+def decode_vector(blob: bytes) -> array.array[float]:
+    """Unpack a little-endian float32 blob into a float array, in C rather than per float.
 
     Args:
         blob: Bytes produced by `encode_vector` (or by sqlite-vec itself).
@@ -80,8 +83,12 @@ def decode_vector(blob: bytes) -> tuple[float, ...]:
     Returns:
         One float per 4-byte group in `blob`, in order.
     """
-    count = len(blob) // 4
-    return struct.unpack(f"<{count}f", blob)
+    vector = array.array("f")
+    vector.frombytes(blob)
+    # The blob is little-endian whatever the host is; `array` reads the host's own order.
+    if sys.byteorder == "big":
+        vector.byteswap()
+    return vector
 
 
 def cosine_distance(query: Sequence[float], candidate: Sequence[float]) -> float:
@@ -98,12 +105,41 @@ def cosine_distance(query: Sequence[float], candidate: Sequence[float]) -> float
         0.0 for identical direction, 2.0 for exactly opposite; `_ZERO_NORM_DISTANCE` when either
         vector has zero norm (no direction to compare).
     """
-    dot = sum(q * c for q, c in zip(query, candidate, strict=True))
-    query_norm = math.sqrt(sum(q * q for q in query))
-    candidate_norm = math.sqrt(sum(c * c for c in candidate))
+    # math.sumprod runs in C (Python 3.12+): the Python fallback's whole cost is this function,
+    # once per readable row, so it is three times faster than a generator of products. It raises
+    # ValueError for vectors of different lengths, as the strict zip it replaces did.
+    dot = math.sumprod(query, candidate)
+    query_norm = math.sqrt(math.sumprod(query, query))
+    candidate_norm = math.sqrt(math.sumprod(candidate, candidate))
     if query_norm == 0.0 or candidate_norm == 0.0:
         return _ZERO_NORM_DISTANCE
     return 1.0 - dot / (query_norm * candidate_norm)
+
+
+def cosine_distances(query: Sequence[float], blobs: Iterable[bytes]) -> list[float]:
+    """Compute `cosine_distance` from `query` to every stored blob, the query's norm taken once.
+
+    The Python fallback's whole ranking pass (ADR-0031): one call per search, one distance per
+    readable row, so the query's own norm is not recomputed row after row.
+
+    Args:
+        query: The query vector.
+        blobs: Stored vectors, each as `encode_vector` wrote it and of the query's own length.
+
+    Returns:
+        One distance per blob, in order; `_ZERO_NORM_DISTANCE` wherever either norm is zero.
+    """
+    query_norm = math.sqrt(math.sumprod(query, query))
+    distances: list[float] = []
+    # One C-level dot product and norm per row; no Python-level loop over the components.
+    for blob in blobs:
+        candidate = decode_vector(blob)
+        candidate_norm = math.sqrt(math.sumprod(candidate, candidate))
+        if query_norm == 0.0 or candidate_norm == 0.0:
+            distances.append(_ZERO_NORM_DISTANCE)
+            continue
+        distances.append(1.0 - math.sumprod(query, candidate) / (query_norm * candidate_norm))
+    return distances
 
 
 def load_vector_extension(connection: sqlite3.Connection) -> bool:

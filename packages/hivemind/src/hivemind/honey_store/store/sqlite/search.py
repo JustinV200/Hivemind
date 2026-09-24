@@ -5,7 +5,7 @@ hence `ORDER BY bm25(honey_fts)` ascending); `select_vector_candidates`/`select_
 each take a `use_sqlite_vec` flag chosen once at store construction
 (`hivemind.honey_store.store.sqlite.vec.load_vector_extension`): true runs `vec_distance_cosine`
 in SQL over an ordinary indexed scan, false pulls the filtered candidate rows into Python and ranks
-them with `hivemind.honey_store.store.sqlite.vec.cosine_distance` -- identical results, ADR-0031's
+them with `hivemind.honey_store.store.sqlite.vec.cosine_distances` -- identical results, ADR-0031's
 "slower, identical" fallback. `select_count_withheld` re-checks the *specific* top-`limit` live
 matches a first, filter-free query already picked, rather than compare two independently-limited
 queries whose top sets could differ once filtering changes the ranking pool.
@@ -16,7 +16,7 @@ Fits into the Hive:
     Calls into `hivemind.honey_store.models` (ReadFilter, TextCandidate, VectorCandidate),
     `hivemind.honey_store.store.sqlite.filters` (read_filter_clauses, passes_filter),
     `hivemind.honey_store.store.sqlite.honey` (`_row_to_honey`, reused) and `hivemind.honey_store.
-    store.sqlite.vec` (encode_vector, decode_vector, cosine_distance) only.
+    store.sqlite.vec` (encode_vector, cosine_distances) only.
 
 Key invariants:
     - Every filtered method applies `read_filter_clauses` (or, for `nearest_in_scope`, an exact
@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from hivemind.honey_store.models import ReadFilter, TextCandidate, VectorCandidate
 from hivemind.honey_store.store.sqlite.filters import passes_filter, read_filter_clauses
 from hivemind.honey_store.store.sqlite.honey import _row_to_honey
-from hivemind.honey_store.store.sqlite.vec import cosine_distance, decode_vector, encode_vector
+from hivemind.honey_store.store.sqlite.vec import cosine_distances, encode_vector
 
 # No __all__: internal collaborator of hivemind.honey_store.store.sqlite.store only (see
 # hivemind.honey_store.store.sqlite.nectar's identical note).
@@ -155,8 +155,9 @@ def select_nearest_in_scope(
 def _rank_python_fallback(
     vector: Sequence[float], rows: Sequence[sqlite3.Row], limit: int
 ) -> tuple[VectorCandidate, ...]:
-    """Decode every row's blob, rank by cosine_distance in Python, and take the nearest `limit`."""
-    scored = [(row, cosine_distance(vector, decode_vector(row["vector_blob"]))) for row in rows]
+    """Decode every row's blob, rank by cosine distance in Python, and take the nearest `limit`."""
+    distances = cosine_distances(vector, (row["vector_blob"] for row in rows))
+    scored = list(zip(rows, distances, strict=True))
     scored.sort(key=lambda pair: pair[1])  # Nearest (smallest distance) first.
     return tuple(
         VectorCandidate(honey=_row_to_honey(row), distance=distance)
