@@ -43,6 +43,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pydantic import JsonValue
+
 from hivemind.common.logging import get_logger
 from hivemind.pheromone.events import PheromoneEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -154,8 +156,8 @@ class EphemeralSegments:
     def veiling(self, event: PheromoneEvent) -> Veiling | None:
         """Return the Night Veil Cell `event` is about, or None when it is about none.
 
-        An event is about a Cell when its subject or any id in its payload was filed under that
-        Cell; about an expected task when one of those ids is a task expected here.
+        An event is about a Cell when its subject or any id anywhere in its payload was filed
+        under that Cell; about an expected task when one of those ids is a task expected here.
         """
         members = _members(event)
         for member in members:
@@ -232,11 +234,17 @@ class EphemeralSegments:
 
 
 def _members(event: PheromoneEvent) -> tuple[str, ...]:
-    """Return the ids `event` names: its subject, and every string in its payload's top level."""
+    """Return the ids `event` names: its subject, and every string anywhere in its payload."""
     found = [event.subject_id]
-    for value in event.payload.values():
+    # Every level, not only the top: an id nested in a list or an object is still the Cell's, and
+    # a payload is small by construction (sixteen kibibytes at most), so the walk stays cheap.
+    pending: list[JsonValue] = list(event.payload.values())
+    while pending:
+        value = pending.pop()
         if isinstance(value, str):
             found.append(value)
         elif isinstance(value, list):
-            found.extend(item for item in value if isinstance(item, str))
+            pending.extend(value)
+        elif isinstance(value, dict):
+            pending.extend(value.values())
     return tuple(found)

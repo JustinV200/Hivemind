@@ -1,8 +1,8 @@
 """Tests for hivemind.pheromone.retention.segments: EphemeralSegments, the Queen-side segments.
 
-Covers which Cell an event is about (its subject, an id anywhere in its payload's top level, an id
-filed since), holding a living Cell's records and shipped segments, taking a segment whole at
-teardown, and the index outliving the segment so a late record stays veiled.
+Covers which Cell an event is about (its subject, an id anywhere in its payload however deeply
+nested, an id filed since), holding a living Cell's records and shipped segments, taking a segment
+whole at teardown, and the index outliving the segment so a late record stays veiled.
 
 Fits into the Hive:
     Mirrors src/hivemind/pheromone/retention/segments.py (codingrules section 3).
@@ -76,6 +76,8 @@ def test_an_event_is_about_a_cell_by_its_subject_or_any_payload_id() -> None:
     assert setup.segments.veiling(by_payload) == held
     by_list = setup.event("queen.decided", _TASK, {"cells": [setup.cell]})
     assert setup.segments.veiling(by_list) == held
+    nested = setup.event("queen.decided", _TASK, {"placed": {"on": [{"warden": _WARDEN}]}})
+    assert setup.segments.veiling(nested) == held
     assert setup.segments.veiling(setup.event("cell.ready", new_cell_id(setup.clock))) is None
 
 
