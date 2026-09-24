@@ -55,27 +55,35 @@ class SettableSources:
     handoff_: Handoff | None = None
 
     async def active_tasks(self) -> tuple[TaskSummary, ...]:
+        """The tasks a test set."""
         return self.tasks
 
     async def open_alarms(self) -> tuple[AlarmSummary, ...]:
+        """The Alarms a test set."""
         return self.alarms
 
     async def pending_questions(self) -> tuple[QuestionSummary, ...]:
+        """The Questions a test set."""
         return self.questions
 
     async def recent_decisions(self, limit: int) -> tuple[DecisionSummary, ...]:
+        """The first `limit` decisions a test set."""
         return self.decisions[:limit]
 
     async def pins(self) -> tuple[Pin, ...]:
+        """The pins a test set."""
         return self.pins_
 
     async def notes(self) -> tuple[Note, ...]:
+        """The notes a test set."""
         return self.notes_
 
     async def wax(self, cells: frozenset[CellId]) -> tuple[CellWaxSummary, ...]:
+        """The wax a test set, about the Cells in `cells` only."""
         return tuple(item for item in self.wax_ if item.cell_id in cells)
 
     async def handoff(self) -> Handoff | None:
+        """The Handoff a test set, or None."""
         return self.handoff_
 
 

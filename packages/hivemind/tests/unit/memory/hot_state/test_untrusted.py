@@ -28,6 +28,7 @@ from hivemind.memory import (
     UntrustedText,
     render_retrieved,
     render_untrusted,
+    within_scan,
 )
 from hivemind.memory.taint import TaintMarker, TaintSource, TaintState
 from waggle.clock import FakeClock
@@ -72,6 +73,30 @@ def test_outside_text_can_never_close_its_own_fence(action: ScanAction) -> None:
     shown = render_untrusted(_text(action, hostile))
 
     assert shown.count("<<<") == 2 and shown.count(">>>") == 2
+
+
+@pytest.mark.parametrize("action", [ScanAction.PASS, ScanAction.LABEL])
+def test_a_text_cut_at_the_scanners_bound_shows_only_its_scanned_head(action: ScanAction) -> None:
+    item = UntrustedText(
+        label=_LABEL, text=f"Scanned head. {_WORDS}", verdict=make_verdict(action, scanned_chars=13)
+    )
+
+    shown = render_untrusted(item)
+
+    assert "Scanned head" in shown and "Ignore" not in shown
+    assert shown.endswith(
+        f"\n[{len(item.text) - 13} more characters were past the "
+        "untrusted-content scanner's bound, so they were never scanned and are "
+        "not shown.]"
+    )
+
+
+def test_within_scan_leaves_a_whole_text_alone_and_cuts_one_past_the_bound() -> None:
+    whole = within_scan(_WORDS, make_verdict())
+    cut = within_scan(_WORDS, make_verdict(scanned_chars=4))
+
+    assert whole == _WORDS
+    assert cut.startswith("Igno\n[") and "previous" not in cut
 
 
 def test_a_fence_label_is_a_short_plain_phrase() -> None:

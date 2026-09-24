@@ -41,7 +41,7 @@ from hivemind.memory.taint import (
     taint_memory,
 )
 from hivemind.pheromone import TrailQuery
-from waggle.ids import new_event_id, new_worker_id
+from waggle.ids import new_worker_id
 
 
 async def _tainted_handoff(world: TaintWorld, **handoff_fields: object) -> TaintTarget:
@@ -141,7 +141,7 @@ async def test_an_item_too_long_to_show_whole_is_never_judged() -> None:
         _request(world, target), TaintClearDeps(judge=judge, enforcer=world.enforcer, ctx=world.ctx)
     )
 
-    assert 40 * 500 > MAX_REVIEW_CHARS
+    assert MAX_REVIEW_CHARS < 40 * 500
     assert result.outcome is ClearOutcome.UNREVIEWABLE and provider.calls == []
 
 

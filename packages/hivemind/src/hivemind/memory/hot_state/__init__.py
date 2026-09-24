@@ -40,8 +40,9 @@ Public API:
     - HotStateSources: the Protocol a caller implements to supply every candidate.
     - AssembleRequest, Prompt, assemble: the packing entry point and its request/result shapes.
     - ITEM_CAP_CHARS, RECENT_DECISIONS_LIMIT, RESUMED_HANDOFF_ID: packing's own constants.
-    - UntrustedText, RetrievedItem, RetrievedKind, render_untrusted, render_retrieved: outside
-      text under its scan verdict, and the phase 7 retrieval seam (untrusted).
+    - UntrustedText, RetrievedItem, RetrievedKind, render_untrusted, render_retrieved,
+      within_scan: outside text under its scan verdict, and the phase 7 retrieval seam
+      (untrusted).
 """
 
 from hivemind.memory.hot_state.packing import (
@@ -73,6 +74,7 @@ from hivemind.memory.hot_state.untrusted import (
     UntrustedText,
     render_retrieved,
     render_untrusted,
+    within_scan,
 )
 
 __all__ = [
@@ -100,4 +102,5 @@ __all__ = [
     "assemble",
     "render_retrieved",
     "render_untrusted",
+    "within_scan",
 ]

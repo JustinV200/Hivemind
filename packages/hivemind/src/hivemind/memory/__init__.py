@@ -86,8 +86,9 @@ Public API:
     - Principal, TokenBudget, TriggerEvent, TaskSummary, AlarmSummary, QuestionSummary,
       DecisionSummary, CellWaxSummary, HotStateSources, AssembleRequest, Prompt, assemble,
       ITEM_CAP_CHARS, RESUMED_HANDOFF_ID: hot state packing (hot_state).
-    - UntrustedText, RetrievedItem, RetrievedKind, render_untrusted, render_retrieved: outside text
-      under its scan verdict, and the phase 7 retrieval seam (hot_state, roadmap 10.6b).
+    - UntrustedText, RetrievedItem, RetrievedKind, render_untrusted, render_retrieved, within_scan:
+      outside text under its scan verdict, and the phase 7 retrieval seam (hot_state, roadmap
+      10.6b).
     - TaintMarker, TaintSource, TaintState, TaintedKind, TaintTarget, TaintScope, TaintStamp,
       TaintReport, TaintLedger, TaintableItem, taint_memory, is_refused, TaintJudge,
       ModelTaintJudge, TaintReview, TaintVerdict, TaintJudgement, TAINT_RUBRIC_ID, clear_taint,
@@ -198,6 +199,7 @@ from hivemind.memory.hot_state import (
     assemble,
     render_retrieved,
     render_untrusted,
+    within_scan,
 )
 from hivemind.memory.notes import MAX_NOTE_CHARS, MAX_NOTES_PER_AUTHOR, Note, add_note
 from hivemind.memory.overflow import (
@@ -398,6 +400,7 @@ __all__ = [
     "should_demote",
     "shrink",
     "taint_memory",
+    "within_scan",
     "write_checkpoint",
     "write_wax",
 ]

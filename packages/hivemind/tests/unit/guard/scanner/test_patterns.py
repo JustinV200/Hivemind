@@ -51,7 +51,11 @@ def _shipped_raw() -> dict[str, dict[str, object]]:
 
 def _seeds() -> list[tuple[str, str]]:
     """Every (family, example) pair the shipped file holds."""
-    return [(family.name, example) for family in load_scan_patterns().families for example in family.examples]
+    return [
+        (family.name, example)
+        for family in load_scan_patterns().families
+        for example in family.examples
+    ]
 
 
 def test_the_shipped_file_holds_exactly_the_six_roadmap_families_each_with_seeds() -> None:

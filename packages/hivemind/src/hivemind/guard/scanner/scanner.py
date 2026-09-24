@@ -141,13 +141,14 @@ class ContentScanner:
             hivemind.common.errors.SecretStoreError: The scanner key could not be read or minted.
             Whatever the trail's `record` raises: a flag is never returned unrecorded.
         """
-        score = score_text(text, self._patterns, site.targets, self._policy.max_scan_chars)
+        bound = self._policy.max_scan_chars
+        score = score_text(text, self._patterns, site.targets, bound)
         action = decide(score.total, thresholds_for(self._policy, site.tier))
         if action is ScanAction.PASS:
-            return _verdict(action, score, content_hash=None)
+            return _verdict(action, score, bound, content_hash=None)
         # Flagged: hash the whole text under the node's key, then put the flag on the trail
         # before the caller sees the verdict (codingrules 12: the record exists first).
-        verdict = _verdict(action, score, content_hash=await self._hasher.digest(text))
+        verdict = _verdict(action, score, bound, content_hash=await self._hasher.digest(text))
         await site.recorder.trail.record(_suspected_event(verdict, score, site, len(text)))
         return verdict
 
@@ -168,13 +169,19 @@ def default_content_scanner() -> ContentScanner:
     )
 
 
-def _verdict(action: ScanAction, score: ScanScore, content_hash: str | None) -> ScanVerdict:
-    """Build the verdict for `score`, validated (a flag must carry its hash, a pass none)."""
+def _verdict(
+    action: ScanAction, score: ScanScore, bound: int, content_hash: str | None
+) -> ScanVerdict:
+    """Build the verdict for `score`, validated (a flag must carry its hash, a pass none).
+
+    A text cut at `bound` says so with the length that was read, so every renderer can show a
+    model that head and nothing of the unscanned rest.
+    """
     return ScanVerdict(
         action=action,
         score=round(score.total, _SCORE_DIGITS),
         families=score.families,
-        truncated=score.truncated,
+        scanned_chars=bound if score.truncated else None,
         content_hash=content_hash,
     )
 

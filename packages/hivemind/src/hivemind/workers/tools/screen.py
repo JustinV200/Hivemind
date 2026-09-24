@@ -6,8 +6,9 @@ Roadmap step 10.6b runs the untrusted-content scanner (`hivemind.guard.scanner`)
 them, in `ToolRegistry.execute`, before the text becomes the model's next tool-result part.
 `screen_tool_result` builds the scan site from the Worker's own context (its id as the consuming
 bee, its Cell's Comb Shield tier, its own capability set as the task's targets, its own trail), and
-then applies the verdict: a PASS result is returned exactly as the tool produced it (the tool-result
-part is already its own channel, so fencing every clean result would only change every prompt),
+then applies the verdict: a PASS result is returned exactly as the tool produced it, up to the
+scanner's bound (the tool-result part is already its own channel, so fencing every clean result
+would only change every prompt),
 a LABEL result is fenced under a harder label with a warning naming what fired, and a DROP result
 is replaced by a withheld notice carrying the keyed hash, so the injected text never reaches the
 model, the attempt's call records, or a Handoff built from them. A flag never stops the bee: it
@@ -23,7 +24,7 @@ Fits into the Hive:
 Key invariants:
     - Every result a tool returns is scanned before any model can read it; only the registry's own
       refusal and validation messages (the Hive's words, not outside text) skip the scanner.
-    - A DROP verdict's text is never returned.
+    - A DROP verdict's text is never returned, and no verdict's text past the scanner's bound is.
 
 See Also:
     - hivemind.guard.scanner.scanner for ContentScanner.scan.
@@ -37,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from hivemind.cell import CellIdentity
 from hivemind.guard.scanner import ScanAction, ScanRecorder, ScanSite, ScanSource
-from hivemind.memory import UntrustedText, render_untrusted
+from hivemind.memory import UntrustedText, render_untrusted, within_scan
 
 if TYPE_CHECKING:
     # Type-checking only: registry imports this module for real, so a runtime import back would
@@ -61,8 +62,8 @@ async def screen_tool_result(
         text: The result exactly as the tool returned it.
 
     Returns:
-        `text` unchanged on PASS; fenced under a harder label on LABEL; a withheld notice with the
-        keyed hash on DROP.
+        `text` unchanged on PASS (cut at the scanner's bound, with a notice, if it was longer);
+        fenced under a harder label on LABEL; a withheld notice with the keyed hash on DROP.
 
     Raises:
         hivemind.common.errors.SecretStoreError: The scanner's key could not be read or minted.
@@ -87,6 +88,7 @@ async def screen_tool_result(
     # secret-store read the first time; a failure there propagates rather than skip the scan.
     verdict = await ctx.scanner.scan(text, site)
     if verdict.action is ScanAction.PASS:
-        return text
+        # Unfenced, as the tool returned it, but never past the scanner's bound.
+        return within_scan(text, verdict)
     label = f"{source.value} untrusted"
     return render_untrusted(UntrustedText(label=label, text=text, verdict=verdict))

@@ -22,6 +22,8 @@ Fits into the Hive:
 Key invariants:
     - A DROP verdict's text never appears in anything this module returns.
     - Whatever the verdict, the text sits inside exactly one fence it cannot close.
+    - Nothing past the scanner's bound is ever returned: a cut text shows its scanned head and a
+      notice saying how much was left out (`within_scan` for a caller that shows it unfenced).
     - A retrieved item that is TAINTED or above the reader's clearance is never rendered.
 
 See Also:
@@ -51,6 +53,7 @@ __all__ = [
     "UntrustedText",
     "render_retrieved",
     "render_untrusted",
+    "within_scan",
 ]
 
 
@@ -104,15 +107,36 @@ def render_untrusted(item: UntrustedText) -> str:
     Returns:
         PASS: the text in its labelled fence. LABEL: a warning naming what fired, then the text
         in a fence labelled "flagged". DROP: a fence labelled "withheld" holding only a notice
-        and the keyed hash, never the text.
+        and the keyed hash, never the text. A text cut at the scanner's bound shows only its
+        scanned head, with a notice after the fence saying how much was left out.
     """
     verdict = item.verdict
     if verdict.action is ScanAction.DROP:
         return _fenced(f"{item.label} withheld", _withheld_notice(verdict))
-    words = neutralise_fences(item.text)
+    # Only what the scanner read goes in the fence; the notice about any cut sits outside it,
+    # because it is the Hive's own line, not the outside text's.
+    words = neutralise_fences(_head(item.text, verdict))
+    notice = _cut_notice(item.text, verdict)
     if verdict.action is ScanAction.LABEL:
-        return f"{_flag_warning(verdict)}\n{_fenced(f'{item.label} flagged', words)}"
-    return _fenced(item.label, words)
+        return f"{_flag_warning(verdict)}\n{_fenced(f'{item.label} flagged', words)}{notice}"
+    return f"{_fenced(item.label, words)}{notice}"
+
+
+def within_scan(text: str, verdict: ScanVerdict) -> str:
+    """Return the part of `text` its verdict covers, with a trusted line for any unscanned rest.
+
+    For a caller that shows a passing text unfenced (a tool result is already its own channel):
+    even then, nothing past the scanner's bound reaches a model.
+
+    Args:
+        text: The outside text the verdict was reached on.
+        verdict: The scanner's verdict on it.
+
+    Returns:
+        `text` unchanged when the scanner read all of it; otherwise its first
+        `verdict.scanned_chars` characters, then a line saying how many more are not shown.
+    """
+    return f"{_head(text, verdict)}{_cut_notice(text, verdict)}"
 
 
 def render_retrieved(
@@ -140,6 +164,22 @@ def render_retrieved(
             continue
         blocks.append(render_untrusted(item.content))
     return "\n".join(blocks), tuple(refused)
+
+
+def _head(text: str, verdict: ScanVerdict) -> str:
+    """The part of `text` the scanner read: all of it, or its head when it was cut at the bound."""
+    return text if verdict.scanned_chars is None else text[: verdict.scanned_chars]
+
+
+def _cut_notice(text: str, verdict: ScanVerdict) -> str:
+    """The trusted line after a cut text, saying how much was never scanned; "" when none was."""
+    if verdict.scanned_chars is None:
+        return ""
+    unscanned = max(len(text) - verdict.scanned_chars, 0)
+    return (
+        f"\n[{unscanned} more characters were past the untrusted-content scanner's bound, so "
+        "they were never scanned and are not shown.]"
+    )
 
 
 def _fenced(label: str, body: str) -> str:

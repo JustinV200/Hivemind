@@ -23,8 +23,16 @@ from pathlib import Path
 from builders.llm import make_tool, make_tool_call
 from builders.workers import make_assignment, make_context
 
-from hivemind.guard.scanner import INJECTION_SUSPECTED_KIND, ScanSource
+from hivemind.common.secrets import MemorySecretStore
+from hivemind.guard.scanner import (
+    INJECTION_SUSPECTED_KIND,
+    ContentHasher,
+    ContentScanner,
+    ScanSource,
+    load_scan_patterns,
+)
 from hivemind.llm import JsonObject
+from hivemind.manifest.schema.guard import UntrustedContentSection
 from hivemind.pheromone import TrailQuery
 from hivemind.workers.tools import build_registry
 from hivemind.workers.tools.registry import ToolInvocation, ToolRegistry, ToolSpec
@@ -77,6 +85,25 @@ async def test_a_dropped_result_never_reaches_the_model() -> None:
     [event] = await invocation.ctx.trail.query(TrailQuery(kind=INJECTION_SUSPECTED_KIND))
     assert "id_rsa" not in result and "Ignore all previous" not in result
     assert event.payload["action"] == "drop" and str(event.payload["content_hash"]) in result
+
+
+async def test_a_result_past_the_scanners_bound_reaches_the_model_only_as_far_as_it_was_read() -> (
+    None
+):
+    bound = 1_024
+    scanner = ContentScanner(
+        load_scan_patterns(),
+        UntrustedContentSection(max_scan_chars=bound),
+        ContentHasher(MemorySecretStore()),
+    )
+    ctx = make_context(scanner=scanner)
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
+    padded = "x" * bound + _DROPPED
+
+    result = await _registry(padded).execute(invocation, make_tool_call(name="fetch"))
+
+    assert result.startswith("x" * bound) and "id_rsa" not in result
+    assert f"{len(_DROPPED)} more characters were past" in result
 
 
 async def test_a_file_read_through_the_session_is_scanned_as_session_output() -> None:

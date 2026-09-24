@@ -1,4 +1,4 @@
-"""Tests for hivemind.guard.scanner.scanner and .hasher: every flag recorded by keyed hash, never text.
+"""Tests for hivemind.guard.scanner.scanner and .hasher: every flag recorded by keyed hash only.
 
 Roadmap step 10.6b (ADR-0035): `guard.injection_suspected` carries the source, the consuming bee
 and a keyed hash of the content (HMAC under a key minted on first use in the secret store), never
@@ -74,6 +74,23 @@ async def test_a_passing_text_records_nothing_and_carries_no_hash() -> None:
 
     assert verdict.action is ScanAction.PASS and verdict.content_hash is None
     assert await site.recorder.trail.query(TrailQuery()) == ()
+
+
+async def test_a_text_past_the_bound_says_how_much_of_it_was_read() -> None:
+    bound = 1_024
+    scanner = ContentScanner(
+        load_scan_patterns(),
+        UntrustedContentSection(max_scan_chars=bound),
+        ContentHasher(MemorySecretStore()),
+    )
+    site = _site(FakeClock())
+
+    whole = await scanner.scan("x" * bound, site)
+    cut = await scanner.scan("x" * bound + _INJECTION, site)
+
+    assert whole.scanned_chars is None and not whole.truncated
+    assert cut.scanned_chars == bound and cut.truncated
+    assert cut.action is ScanAction.PASS  # The injection past the bound was never read.
 
 
 async def test_a_flag_is_recorded_with_its_site_and_hash_and_never_its_text() -> None:

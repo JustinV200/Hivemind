@@ -7,9 +7,9 @@ the Guard Bee (the Hive's security watcher, roadmap 10.6) can say where a flag c
 carrying the text. `ScanAction` is the three-way verdict a score maps to per Comb Shield tier
 (the Cell's security tier): pass it on unchanged, label it harder, or drop it. `ScanVerdict` is the
 one value that crosses from the Guard to whoever renders the text into a prompt
-(`hivemind.memory.render_untrusted`): the action, the score, which pattern families fired, whether
-the input was cut at the scanner's bound, and the keyed hash that stands in for the text on the
-trail. It never carries the text itself.
+(`hivemind.memory.render_untrusted`): the action, the score, which pattern families fired, how much
+of the input was read when it was cut at the scanner's bound, and the keyed hash that stands in
+for the text on the trail. It never carries the text itself.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.guard.scanner`.
@@ -20,6 +20,8 @@ Fits into the Hive:
 Key invariants:
     - A PASS verdict carries no content hash, and a LABEL or DROP verdict always carries one: a
       flag is always recorded with the hash, and nothing is hashed that was not flagged.
+    - `scanned_chars` is set exactly when the text was cut at the scanner's bound; every renderer
+      shows a model only that head, never the unscanned rest.
     - `families` is sorted and holds only family names, never a matched fragment of the text.
     - `ScanSource` values are stable once shipped: they are recorded on the trail.
 
@@ -89,10 +91,12 @@ class ScanVerdict(BaseModel):
         max_length=MAX_FAMILIES,
         description="The names of the pattern families that fired, sorted; never a fragment.",
     )
-    truncated: bool = Field(
-        default=False,
-        description="True when the text was longer than the scanner's bound and only its head "
-        "was matched ([guard.untrusted_content] max_scan_chars).",
+    scanned_chars: int | None = Field(
+        default=None,
+        ge=0,
+        description="How many leading characters were matched when the text was longer than the "
+        "scanner's bound ([guard.untrusted_content] max_scan_chars); None when it was read whole. "
+        "Nothing past it may reach a model: it was never scanned.",
     )
     content_hash: str | None = Field(
         default=None,
@@ -105,6 +109,11 @@ class ScanVerdict(BaseModel):
     def flagged(self) -> bool:
         """Whether this verdict labels or drops its text (anything but PASS)."""
         return self.action is not ScanAction.PASS
+
+    @property
+    def truncated(self) -> bool:
+        """Whether the text was longer than the scanner's bound, so only its head was matched."""
+        return self.scanned_chars is not None
 
     @model_validator(mode="after")
     def _hash_exactly_when_flagged(self) -> ScanVerdict:

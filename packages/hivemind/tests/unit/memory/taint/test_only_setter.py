@@ -72,7 +72,7 @@ def _calls(tree: ast.Module, name: str) -> list[ast.Call]:
 
 def test_the_walk_sees_the_writers_themselves() -> None:
     # Guards the test against walking the wrong tree and passing vacuously.
-    found = {path: tree for path, tree in _modules()}
+    found = dict(_modules())
 
     assert _calls(found["hivemind/memory/taint/set.py"], "write_taint")
     assert _calls(found["hivemind/memory/taint/clear.py"], "TaintMarker")
