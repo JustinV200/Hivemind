@@ -47,3 +47,15 @@ async def test_approval_is_not_served_on_the_remote_listener() -> None:
         response = await remote.http.post("/v1/entrance/pending/device_x/approve", json={})
 
     assert response.status_code == 404
+
+
+async def test_a_browser_enrols_with_a_passkey_and_logs_in_with_its_webcrypto_key() -> None:
+    async with serving() as rig:
+        client, session = await rig.browser()
+
+        me = await client.call(session, "GET", "/v1/devices/me")
+
+    assert me.status_code == 200, me.text
+    stored = await rig.store.get_device(DeviceId(session.key.device_id))
+    assert stored.key_kind is not None and stored.key_kind.value == "passkey"
+    assert stored.rp_id == "localhost"

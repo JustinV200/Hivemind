@@ -42,6 +42,7 @@ from hivemind.entrance.push import (
     PushNotice,
     PushRegistrationRefusedError,
     Subscription,
+    SubscriptionNotFoundError,
     audience_for,
 )
 from hivemind.entrance.push.dispatch import MAX_SUBSCRIPTIONS_PER_DEVICE
@@ -361,3 +362,35 @@ class _GatedPush:
         self.started.set()
         await self.gate.wait()
         return DeliveryOutcome.DELIVERED
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# unregister
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_unregister_deletes_one_of_the_devices_own_subscriptions() -> None:
+    rig = _rig()
+    device = approved_device(rig.clock, *_ANSWERER)
+    kept = await rig.dispatcher.register(device, ChannelKind.WEBHOOK, HOOK_URL)
+    dropped = await rig.dispatcher.register(
+        device, ChannelKind.WEB_PUSH, PUSH_URL, UserAgent().keys
+    )
+
+    await rig.dispatcher.unregister(device.id, dropped.id)
+
+    assert [subscription.id for subscription in await rig.store.list_for_device(device.id)] == [
+        kept.id
+    ]
+
+
+async def test_unregister_reads_another_devices_subscription_as_missing() -> None:
+    rig = _rig()
+    owner = approved_device(rig.clock, *_ANSWERER)
+    other = approved_device(rig.clock, *_ANSWERER)
+    subscription = await rig.dispatcher.register(owner, ChannelKind.WEBHOOK, HOOK_URL)
+
+    with pytest.raises(SubscriptionNotFoundError):
+        await rig.dispatcher.unregister(other.id, subscription.id)
+
+    assert len(await rig.store.list_for_device(owner.id)) == 1

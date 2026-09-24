@@ -33,6 +33,7 @@ from builders.queen import WardenEnd, make_queen_deps
 from unit.entrance.push.support import OWN_ADDRESS, Recorder, StaticResolver
 
 from hivemind.common.secrets import MemorySecretStore
+from hivemind.entrance.auth import SoftPasskey
 from hivemind.entrance.enrol import CONSOLE_CAPABILITIES, DeviceStatus, EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, ListenerPlan
 from hivemind.entrance.gate import HiveReads
@@ -157,6 +158,38 @@ class ServingRig:
         """Log the console in on loopback, as the operator at the Hive Stand."""
         client = self.client()
         return client, await client.login(self.console, PASSWORD)
+
+    @property
+    def loopback_origin(self) -> str:
+        """The loopback listener's origin by name: the one a browser's page (and passkey) has."""
+        return f"http://localhost:{self.entrance.listeners.loopback_port}"
+
+    async def browser(
+        self, grant: ProgramGrant | None = None
+    ) -> tuple[LandingClient, LandingSession]:
+        """Enrol a browser with a passkey on loopback, approve it as the console, log it in.
+
+        Args:
+            grant: What the approval grants; the defaults when omitted.
+
+        Returns:
+            The browser's client and its session, bound to a WebCrypto P-256 key.
+        """
+        active = grant if grant is not None else ProgramGrant(interactive=True)
+        console, session = await self.console_session()
+        invite = await console.call(session, "POST", "/v1/entrance/invites", {"label": "phone"})
+        assert invite.status_code == 201, invite.text
+        client, passkey = self.client(), SoftPasskey(self.loopback_origin)
+        device_id = await client.enrol_browser(invite.json()["code"], passkey)
+        body = {
+            "name": "phone",
+            "capabilities": list(active.capabilities),
+            "spend_cap_usd_per_day": active.spend_cap_usd_per_day,
+        }
+        path = f"/v1/entrance/pending/{device_id}/approve"
+        approved = await console.call(session, "POST", path, body)
+        assert approved.status_code == 200, approved.text
+        return client, await client.login_browser(device_id, passkey)
 
     async def program(
         self, grant: ProgramGrant | None = None

@@ -24,7 +24,12 @@ from builders.entrance import (
 )
 
 from hivemind.entrance.auth import BindingKind, EndReason
-from hivemind.entrance.auth.session import SessionGrant, token_hash
+from hivemind.entrance.auth.session import (
+    LOGIN_KIND,
+    SESSION_ENDED_KIND,
+    SessionGrant,
+    token_hash,
+)
 from hivemind.entrance.enrol import DeviceStatus, LockReason, lock, revoke
 from hivemind.entrance.store import EntranceStore
 
@@ -162,3 +167,33 @@ async def test_logout_and_step_up_act_on_one_session() -> None:
     assert logged_out
     assert await _ended(auth.store, opened.session.token_hash) is EndReason.LOGOUT
     assert await auth.book.mark_stepped_up(opened.session, auth.clock.now()) is None
+
+
+async def test_open_records_the_login_on_the_trail_without_the_token() -> None:
+    auth = await auth_rig()
+    device, signer = await admitted_program(auth.enrolment)
+
+    opened = await program_login(auth, device, signer)
+
+    [event] = await auth.enrolment.events(LOGIN_KIND)
+    assert (event.subject_id, event.actor) == (device.id, device.id)
+    assert event.payload["listener"] == "loopback"
+    assert event.payload["binding"] == BindingKind.ED25519.value
+    assert opened.token not in event.model_dump_json()
+
+
+async def test_every_ended_session_is_recorded_with_why_and_where() -> None:
+    auth = await auth_rig()
+    device, signer = await admitted_program(auth.enrolment)
+    first = await program_login(auth, device, signer)
+    await program_login(auth, device, signer, REMOTE)
+
+    await auth.book.logout(first.session)
+    await auth.book.end_remote()
+
+    ended = await auth.enrolment.events(SESSION_ENDED_KIND)
+    assert [(event.payload["reason"], event.payload["listener"]) for event in ended] == [
+        (EndReason.LOGOUT.value, "loopback"),
+        (EndReason.REDUCED.value, "remote"),
+    ]
+    assert all(event.payload["sessions"] == 1 for event in ended)

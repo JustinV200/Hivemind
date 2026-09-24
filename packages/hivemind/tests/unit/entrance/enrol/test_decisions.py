@@ -20,15 +20,25 @@ from builders.entrance import (
     Enrolment,
     admitted,
     approval,
+    entry_event,
+    make_device,
     memory_enrolment,
     mint,
     redeem_browser,
 )
 from pydantic import ValidationError
 
-from hivemind.entrance.enrol import ApprovalRequest, DeviceStatus, approve, deny
+from hivemind.entrance.enrol import (
+    ApprovalRequest,
+    DeviceStatus,
+    GrantChange,
+    approve,
+    deny,
+    regrant,
+)
 from hivemind.entrance.errors import (
     CapabilityCeilingError,
+    ConsoleProtectedError,
     DeviceStatusConflictError,
     InvalidApprovalError,
 )
@@ -204,3 +214,62 @@ async def test_only_a_pending_device_is_denied(rig: Enrolment) -> None:
 
     with pytest.raises(DeviceStatusConflictError):
         await deny(rig.deps, approved.id, "human", "too late")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Re-granting an approved device
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_regrant_replaces_the_set_and_cap_and_records_a_fresh_approval(
+    rig: Enrolment,
+) -> None:
+    device = await admitted(rig)
+    change = GrantChange(
+        capabilities=("observe", "entrance:push"), spend_cap_usd_per_day=1.5, actor=_CONSOLE_ID
+    )
+
+    updated = await regrant(rig.deps, device.id, change)
+
+    assert set(updated.capabilities) == {"observe", "entrance:push"}
+    assert updated.spend_cap_usd_per_day == 1.5
+    event = (await rig.events("guard.entrance_approved"))[-1]
+    assert (event.subject_id, event.actor) == (device.id, _CONSOLE_ID)
+    assert event.payload["regrant"] is True
+    assert rig.notifier.notices[-1].event_id == event.id
+
+
+async def test_regrant_without_a_cap_keeps_the_current_one(rig: Enrolment) -> None:
+    device = await admitted(rig)
+    change = GrantChange(capabilities=("observe",), actor=_CONSOLE_ID)
+
+    updated = await regrant(rig.deps, device.id, change)
+
+    assert updated.spend_cap_usd_per_day == device.spend_cap_usd_per_day
+
+
+async def test_regrant_refuses_a_capability_beyond_the_device_ceiling(rig: Enrolment) -> None:
+    device = await admitted(rig)
+    change = GrantChange(capabilities=("supersede",), actor=_CONSOLE_ID)
+
+    with pytest.raises(CapabilityCeilingError):
+        await regrant(rig.deps, device.id, change)
+
+
+async def test_regrant_refuses_a_device_that_is_not_approved(rig: Enrolment) -> None:
+    pending = await admitted(rig, DeviceStatus.PENDING)
+    change = GrantChange(capabilities=("observe",), actor=_CONSOLE_ID)
+
+    with pytest.raises(DeviceStatusConflictError):
+        await regrant(rig.deps, pending.id, change)
+
+
+async def test_regrant_leaves_the_console_alone(rig: Enrolment) -> None:
+    console = make_device(
+        rig.clock, DeviceStatus.APPROVED, loopback_bound=True, interactive=True, expires_at=None
+    )
+    await rig.store.put_device(console, entry_event(console, rig.clock))
+    change = GrantChange(capabilities=("observe",), actor=_CONSOLE_ID)
+
+    with pytest.raises(ConsoleProtectedError):
+        await regrant(rig.deps, console.id, change)

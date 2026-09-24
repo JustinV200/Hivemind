@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from builders.entrance.auth import sign_b64url
+from builders.entrance.auth import BrowserKey, sign_b64url
 from builders.entrance.landing import LandingSession
 from builders.entrance.serving import ProgramGrant, RigOptions, serving
 
@@ -31,7 +31,7 @@ _TARGET = "/v1/devices/me"  # A read every approved device may make.
 
 
 def _headers(
-    session: LandingSession, stamp: int, nonce: str, signer: Ed25519Signer
+    session: LandingSession, stamp: int, nonce: str, signer: Ed25519Signer | BrowserKey
 ) -> dict[str, str]:
     """Sign a GET of the target at ``stamp`` with ``nonce``, by ``signer``."""
     message = request_string("GET", _TARGET, stamp, nonce, sha256_hex(b""))
@@ -174,3 +174,15 @@ async def test_a_capability_denial_is_refused_at_the_entrance_route_point() -> N
     assert response.status_code == 403
     assert response.json()["capability"] == "entrance:submit"
     assert [event.payload["point"] for event in denied] == [EnforcementPoint.ENTRANCE_ROUTE.value]
+
+
+async def test_a_route_returning_personal_content_also_needs_the_c2_clearance() -> None:
+    async with serving() as rig:
+        client, session = await rig.program(ProgramGrant(capabilities=("entrance:submit",)))
+
+        posted = await client.call(session, "POST", "/v1/chat", {"text": "Hello"})
+        read = await client.call(session, "GET", "/v1/chat")
+
+    assert posted.status_code == 202
+    assert read.status_code == 403
+    assert read.json()["capability"] == "honey:clearance:c2"

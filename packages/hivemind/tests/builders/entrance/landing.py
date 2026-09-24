@@ -2,9 +2,10 @@
 
 A test of the Hive Entrance's routes talks to a real listener (uvicorn on a loopback port) or to an
 application through ``httpx.ASGITransport``; either way it needs what every client does: redeem an
-invite with an Ed25519 key, log in with the key plus the operator's password, sign every request
-exactly as sent (``hive-request-v1``) and every socket's first frame (``hive-ws-v1``).
-``LandingClient`` does all of it over one ``httpx.AsyncClient``; ``DeviceKey`` is a program's key.
+invite with an Ed25519 key (or, as a browser, with a new passkey), log in with the key plus the
+operator's password, sign every request exactly as sent (``hive-request-v1``) and every socket's
+first frame (``hive-ws-v1``). ``LandingClient`` does all of it over one ``httpx.AsyncClient``;
+``DeviceKey`` is a program's Ed25519 key or a browser's WebCrypto P-256 session key.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the tests under
@@ -20,9 +21,11 @@ import json
 from dataclasses import dataclass, field
 
 import httpx
-from builders.entrance.auth import PASSWORD, sign_b64url
+from builders.entrance.auth import PASSWORD, BrowserKey, sign_b64url
+from builders.entrance.records import make_description
 
 from hivemind.entrance.auth import (
+    SoftPasskey,
     enrol_string,
     login_string,
     new_nonce,
@@ -41,10 +44,10 @@ __all__ = ["DeviceKey", "LandingClient", "LandingSession"]
 
 @dataclass(frozen=True, slots=True)
 class DeviceKey:
-    """A program's Ed25519 key and the device id the Hive gave it."""
+    """The key a device signs with (a program's Ed25519 key, a browser's P-256 key), and its id."""
 
     device_id: str
-    signer: Ed25519Signer = field(repr=False)
+    signer: Ed25519Signer | BrowserKey = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +95,54 @@ class LandingClient:
         response = await self.http.post("/v1/enrol/ed25519", json=body)
         response.raise_for_status()
         return DeviceKey(response.json()["device_id"], signer)
+
+    async def enrol_browser(self, code: str, passkey: SoftPasskey) -> str:
+        """Redeem ``code`` as a browser, creating a passkey; the device is PENDING afterwards.
+
+        Args:
+            code: The invite code.
+            passkey: The browser's authenticator, for this listener's origin.
+
+        Returns:
+            The device's id.
+        """
+        options = await self.http.post("/v1/enrol/passkey-options", json={"code": code})
+        options.raise_for_status()
+        registration = passkey.create(json.dumps(options.json()["options"]))
+        description = make_description().model_dump(mode="json")
+        body = {"code": code, "registration": json.loads(registration), "description": description}
+        redeemed = await self.http.post("/v1/enrol/passkey", json=body)
+        redeemed.raise_for_status()
+        return str(redeemed.json()["device_id"])
+
+    async def login_browser(
+        self, device_id: str, passkey: SoftPasskey, password: str = PASSWORD
+    ) -> LandingSession:
+        """Log a browser in: its passkey's assertion, a fresh P-256 binding key, the password.
+
+        Args:
+            device_id: The browser's device.
+            passkey: Its authenticator.
+            password: The operator's password.
+
+        Returns:
+            The open session, bound to the new P-256 key.
+        """
+        key = BrowserKey()
+        asked = {"device_id": device_id, "binding_key": key.public_key}
+        challenge = await self.http.post("/v1/auth/challenge", json=asked)
+        challenge.raise_for_status()
+        assertion = passkey.get(json.dumps(challenge.json()["passkey_options"]))
+        body = {
+            "device_id": device_id,
+            "nonce": challenge.json()["nonce"],
+            "assertion": json.loads(assertion),
+            "binding_key": key.public_key,
+            "password": password,
+        }
+        response = await self.http.post("/v1/auth/login", json=body)
+        response.raise_for_status()
+        return LandingSession(response.json()["token"], DeviceKey(device_id, key))
 
     async def login(self, key: DeviceKey, password: str = PASSWORD) -> LandingSession:
         """Log ``key``'s device in: a challenge, then its signature plus the password.
