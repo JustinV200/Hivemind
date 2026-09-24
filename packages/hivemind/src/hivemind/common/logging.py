@@ -76,11 +76,30 @@ def configure_logging(*, json_output: bool, level: str, stream: TextIO | None = 
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
+        # PrintLogger only calls write and flush, which _StandardError provides; the cast names it.
         logger_factory=structlog.PrintLoggerFactory(
-            file=stream if stream is not None else sys.stderr
+            file=stream if stream is not None else cast(TextIO, _StandardError())
         ),
         cache_logger_on_first_use=True,
     )
+
+
+class _StandardError:
+    """Standard error as it is at each write, never the stream that was there at configuration.
+
+    Binding ``sys.stderr`` itself would pin whatever object held that name when logging was
+    configured; a test harness (pytest's capture, typer's CliRunner) swaps it for a stream it
+    later closes, after which every log line in the process raised ``I/O operation on closed
+    file`` (a full test run lost 282 tests to it).
+    """
+
+    def write(self, text: str) -> int:
+        """Write ``text`` to the current standard error; return the characters written."""
+        return sys.stderr.write(text)
+
+    def flush(self) -> None:
+        """Flush the current standard error."""
+        sys.stderr.flush()
 
 
 def get_logger(name: str) -> structlog.typing.FilteringBoundLogger:
