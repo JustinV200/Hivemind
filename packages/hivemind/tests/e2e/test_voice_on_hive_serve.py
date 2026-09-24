@@ -63,12 +63,11 @@ ANSWER_MARK = b"VOICEMARK-ANSWER-9K4X-HIVE"  # Planted in the answer clip's samp
 CHAT_STREAM = "/v1/chat/stream"  # Where the phone holds its talk button.
 WAIT_S = 30.0  # Generous: the whole scenario takes a few seconds locally.
 _CHUNK_BYTES = 4_096  # One push-to-talk slice.
-# The loopback listener on a port the system picks, limits a scripted client never meets, and the
-# Hive Stand's cores pinned so the host's load average cannot zero the Drone's grant.
+# The loopback listener on a port the system picks, and limits a scripted client never meets
+# (`builders.cli.fake_manifest` already pins the Hive Stand's cores against the host's load).
 _EXTRA = (
     '\n[entrance]\nbind = "127.0.0.1:0"\n'
     "rate_limit_per_address = 1000\nrate_limit_per_device = 1000\n"
-    "\n[hive_stand.capacity]\ncores = 64\n"
 )
 _PHONE = {"name": "phone", "capabilities": None, "spend_cap_usd_per_day": 50.0, "interactive": True}
 
