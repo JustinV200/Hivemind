@@ -1924,7 +1924,8 @@ idempotently on reconnection. The bytes are the trail's own export format, opaqu
   and `warden_id` the envelope's `sender` (receiver rule, answered with `control.error`), so
   no Warden can sync a segment under another node's identity; the Queen dedupes by the
   envelope `node_id`, `first_event_id`, `last_event_id` and `sha256` together.
-- `cell_id` (`CellId`): the Cell the Warden owns.
+- `cell_id` (`CellId`): the Cell the Warden owns. A Queen whose link proved the Cell (a Virtual
+  Cell's `CellReady`) refuses a chunk naming any other: she routes a segment by its Cell.
 - `warden_id` (`WardenId`): the Warden that wrote it.
 - `from_at` (`datetime`): timestamp of the segment's first event.
 - `to_at` (`datetime`): timestamp of its last event. At least `from_at` (validator).

@@ -236,12 +236,15 @@ threshold = 1
 confidence = "critical"
 action = "isolate_cell"
 
-# A trail segment shipped under a node or Warden its Cell's link never proved
-# (guard.segment_refused, reason another_node): a Cell writing the Hive's audit record in another
-# node's name. Nothing of it was merged. A shipped dire pattern.
+# A trail segment shipped under a node, Warden or Cell its Cell's link never proved
+# (guard.segment_refused, reason another_node or another_cell): a Cell writing the Hive's audit
+# record in another node's name, or routing it as another Cell's (a Night Veil Cell's onto the
+# durable trail, say). Nothing of it was merged. A shipped dire pattern.
 [rules.segment_forgery]
-title = "a trail segment shipped under another node's identity"
-counts = [{ kind = "guard.segment_refused", where = { reason = ["another_node"] } }]
+title = "a trail segment shipped under another node's or Cell's identity"
+counts = [
+    { kind = "guard.segment_refused", where = { reason = ["another_node", "another_cell"] } },
+]
 group_by = "cell"
 window_s = 3600.0
 threshold = 1

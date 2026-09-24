@@ -127,7 +127,7 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 |---|---|---|---|---|---|---|
 | `subject_forgery` | `guard_bee.subject_forged`: a record a Cell's node made about what another Cell owns | cell (the recorder's) | 1 h | 1 | `isolate_cell`, critical | no |
 | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
-| `segment_forgery` | `guard.segment_refused` for `another_node` | cell | 1 h | 1 | `isolate_cell`, critical | no |
+| `segment_forgery` | `guard.segment_refused` for `another_node` or `another_cell` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_unmergeable` | `guard.segment_refused` for `format` or `corrupt` | cell | 1 h | 1 | `isolate_cell`, high | no |
 | `request_forgery` | `guard.entrance_login_failed` for `request_signature` or `request_replay` | hive | 10 min | 2 | `reduce_entrance`, high | no |
 
@@ -139,7 +139,11 @@ records the next three, about the Cell whose own proved link carried the frame:
   as a node it cannot prove.
 - **`guard.segment_refused`**: a trail segment the Cell shipped was not merged. `another_node`: a
   chunk named a node or Warden its link never proved (the spec's receiver rule), or carried
-  another node's segment, so nothing of it reached the trail. `format` and `corrupt`: an unknown
+  another node's segment, so nothing of it reached the trail. `another_cell`: a chunk named a Cell
+  its link never proved; the Queen routes a segment by its Cell (a Night Veil Cell's to its
+  ephemeral segment), so it would have reached the wrong side of the Night Veil boundary. A Night
+  Veil Cell's own refusals are veiled with the rest of its record (codingrules 12): they reach
+  its segment, never the durable trail the Guard Bee reads. `format` and `corrupt`: an unknown
   segment format, or bytes that do not match the size, digest or event count the chunk declared.
   The link stays up: an honest Cell's bad export is a fault to hear of, not a reason to cut its
   Warden off mid-task.

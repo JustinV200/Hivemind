@@ -141,7 +141,10 @@ every assignment goes to a Warden, over Waggle.
   `submit_goal` expects every task of a Night Veil goal, and `LifecycleVirtualCellProvider.acquire`
   binds a task to the Night Veil Cell it now runs on. `TrailSegmentReceiver` (`trail/sync.py`)
   offers every shipped segment to the ephemeral segments first, so a Night Veil Cell's own trail
-  never merges into the durable one.
+  never merges into the durable one. It routes by the Cell a chunk names, so the Cell gate hands
+  it only chunks naming the Cell their link proved (`cell_gate.refusals`, reason `another_cell`):
+  a Night Veil Cell cannot ship its segment onto the durable trail under a MEADOW Cell's id, nor a
+  MEADOW Cell bury its own in a Night Veil Cell's segment.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A
   `CellWaxProposed` classifies as a routine `WAGGLE_MESSAGE` (roadmap step 4.2a: "scores low"),

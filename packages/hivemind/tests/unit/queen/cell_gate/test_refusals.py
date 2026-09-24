@@ -3,9 +3,12 @@
 Each test gives one link's `LinkRefusals` real chunks, cut by a real `WaggleTrailSync` from a real
 segment, in envelopes wrapped as the link's own node and Warden, and a real receiver over the
 Queen's trail. A chunk that names another node, or carries another node's segment, is refused as
-`another_node`; an unknown format and a digest that does not match are refused as `format` and
-`corrupt`; nothing of a refused chunk is merged. Each reason is recorded once per link, a signature
-failure is recorded by its code's last word, and a proved chunk merges and records nothing.
+`another_node`; one that names another Cell as `another_cell`, which is what keeps a MEADOW Cell's
+segment out of a Night Veil Cell's ephemeral segment and a Night Veil Cell's off the durable trail
+(the receiver routes by the chunk's Cell); an unknown format and a digest that does not match are
+refused as `format` and `corrupt`; nothing of a refused chunk is merged. Each reason is recorded
+once per link, a signature failure is recorded by its code's last word, and a proved chunk merges
+and records nothing.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/cell_gate/refusals.py (codingrules section 3).
@@ -21,7 +24,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivemind.pheromone import CellEvent, PheromoneEvent, TrailQuery, TrailRecorder, TrailSegment
+from hivemind.pheromone import (
+    CellEvent,
+    EphemeralSegments,
+    PheromoneEvent,
+    TrailQuery,
+    TrailRecorder,
+    TrailSegment,
+    VeiledTrail,
+)
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate import (
     ENVELOPE_REFUSED_KIND,
@@ -74,16 +85,19 @@ class _Link:
         return [e for e in await self.queen_trail.query(TrailQuery()) if e.kind in kinds]
 
 
-def _link(recorded: bool = True) -> _Link:
-    """A fresh link and the Queen's trail it merges into; `recorded=False` has no recorder."""
+def _link(recorded: bool = True, segments: EphemeralSegments | None = None) -> _Link:
+    """A fresh link and the Queen's trail it merges into; `recorded=False` has no recorder.
+
+    With `segments`, the Queen records and receives through the Night Veil boundary over them, as
+    a Hive with a Virtual side does; `queen_trail` stays the durable trail behind it.
+    """
     clock = FakeClock()
     hive_id, cell_id, node_id = new_hive_id(clock), new_cell_id(clock), new_node_id(clock)
     queen_trail = MemoryPheromoneTrail(clock)
-    recorder = TrailRecorder(
-        trail=queen_trail, clock=clock, hive_id=hive_id, node_id=new_node_id(clock)
-    )
+    trail = queen_trail if segments is None else VeiledTrail(queen_trail, segments)
+    recorder = TrailRecorder(trail=trail, clock=clock, hive_id=hive_id, node_id=new_node_id(clock))
     refusals = LinkRefusals(recorder if recorded else None, cell_id, node_id)
-    receiver = TrailSegmentReceiver(queen_trail)
+    receiver = TrailSegmentReceiver(trail, segments)
     warden_id = new_warden_id(clock)
     return _Link(clock, hive_id, cell_id, node_id, warden_id, queen_trail, receiver, refusals)
 
@@ -182,6 +196,47 @@ async def test_a_proved_chunk_carrying_another_nodes_segment_is_refused() -> Non
 
     assert await _merged(link) == 0
     assert await _reasons(link) == [(SEGMENT_REFUSED_KIND, "another_node")]
+
+
+async def test_a_chunk_naming_another_cell_is_refused_before_the_receiver_sees_it() -> None:
+    link = _link()
+    chunk = (await _chunk(link)).model_copy(update={"cell_id": new_cell_id(link.clock)})
+
+    await link.refusals.merge(link.receiver, link.envelope(chunk), chunk)
+
+    assert await _merged(link) == 0
+    assert await _reasons(link) == [(SEGMENT_REFUSED_KIND, "another_cell")]
+
+
+async def test_a_meadow_cell_cannot_ship_its_segment_as_a_night_veil_cells() -> None:
+    segments = EphemeralSegments(FakeClock())
+    link = _link(segments=segments)
+    night_veil_cell = new_cell_id(link.clock)
+    segments.open(night_veil_cell)
+    claimed = (await _chunk(link)).model_copy(update={"cell_id": night_veil_cell})
+
+    await link.refusals.merge(link.receiver, link.envelope(claimed), claimed)
+
+    # Nothing reached the Night Veil Cell's segment, to be purged with it, nor the durable trail.
+    assert await segments.query(night_veil_cell, TrailQuery()) == ()
+    assert await _merged(link) == 0
+    # The MEADOW Cell's own refusal is on the durable trail, for the Guard Bee.
+    assert await _reasons(link) == [(SEGMENT_REFUSED_KIND, "another_cell")]
+
+
+async def test_a_night_veil_cell_cannot_ship_its_segment_onto_the_trail_as_a_meadow_cells() -> None:
+    segments = EphemeralSegments(FakeClock())
+    link = _link(segments=segments)
+    segments.open(link.cell_id)  # The link's own Cell is the Night Veil one.
+    claimed = (await _chunk(link)).model_copy(update={"cell_id": new_cell_id(link.clock)})
+
+    await link.refusals.merge(link.receiver, link.envelope(claimed), claimed)
+
+    # Its detail never reached the durable trail; its refusal is veiled with its own record.
+    assert await _merged(link) == 0
+    assert await link.refused() == []
+    held = await segments.query(link.cell_id, TrailQuery())
+    assert [(e.kind, e.payload["reason"]) for e in held] == [(SEGMENT_REFUSED_KIND, "another_cell")]
 
 
 async def test_an_unknown_format_and_a_bad_digest_are_each_recorded_once() -> None:

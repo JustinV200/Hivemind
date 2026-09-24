@@ -6,10 +6,14 @@ Virtual Cell's Warden dials. A frame on an attached Cell's link whose signature 
 (`waggle.errors.SignatureError`) ends the link, as it always did, and is now recorded as
 `guard.envelope_refused`. A `swarm.trail_segment_sync` chunk (one slice of the trail segment the
 Cell's Warden ships) is handed to the receiver only when it names the node and Warden its link
-proved, the receiver rule of docs/waggle/spec.md section 8.10; one that does not, and an export
-the receiver refuses (an unknown format, bytes that do not match what it declared, or another
-node's segment), is recorded as `guard.segment_refused`, and the link stays up: an honest Cell's
-bad export is a fault the Queen should hear of, not a reason to cut its Warden off mid-task.
+proved, the receiver rule of docs/waggle/spec.md section 8.10, and the Cell its link proved too:
+the receiver routes a complete export by the chunk's own `cell_id` (a Night Veil Cell's to its
+ephemeral segment, codingrules section 12), so a chunk naming another Cell would ship a Night Veil
+Cell's segment onto the durable trail under a MEADOW Cell's id, or bury a MEADOW Cell's in a Night
+Veil Cell's segment. One that does not, and an export the receiver refuses (an unknown format,
+bytes that do not match what it declared, or another node's segment), is recorded as
+`guard.segment_refused`, and the link stays up: an honest Cell's bad export is a fault the Queen
+should hear of, not a reason to cut its Warden off mid-task.
 
 Both events are the Queen's own records, about the Cell whose own link carried the frame, and name
 a reason, never the frame. A frame that fails before its link is attached proves no Cell (whoever
@@ -25,8 +29,8 @@ Fits into the Hive:
 Key invariants:
     - A link records each kind and reason at most once, so no Cell can flood the trail by
       repeating a refused frame; the Guard Bee's rules fire on the first.
-    - A chunk that breaks the receiver rule never reaches the receiver, so nothing it carries is
-      merged.
+    - A chunk that breaks the receiver rule, or names a Cell its link did not prove, never
+      reaches the receiver, so nothing it carries is merged or veiled.
     - Nothing is recorded without a recorder: a listener built without one refuses the same way.
 
 See Also:
@@ -64,6 +68,7 @@ class SegmentRefusal(StrEnum):
     """Why a trail segment chunk from a Cell's link was not merged."""
 
     ANOTHER_NODE = "another_node"  # It names a node or Warden its link never proved.
+    ANOTHER_CELL = "another_cell"  # It names a Cell its link never proved: routed as that Cell's.
     FORMAT = "format"  # A segment format this Hive does not read.
     CORRUPT = "corrupt"  # Its bytes, digest or event count do not match what it declared.
 
@@ -103,7 +108,7 @@ class LinkRefusals:
             envelope: The envelope `chunk` arrived in, whose node and sender the link proved.
             chunk: One slice of the Cell's trail segment export.
         """
-        refusal = await _merged(receiver, envelope, chunk)
+        refusal = await _merged(receiver, envelope, chunk, self._cell_id)
         if refusal is not None:
             await self._record(SEGMENT_REFUSED_KIND, refusal.value)
 
@@ -128,12 +133,15 @@ class LinkRefusals:
 
 
 async def _merged(
-    receiver: TrailSegmentReceiver, envelope: Envelope, chunk: TrailSegmentSync
+    receiver: TrailSegmentReceiver, envelope: Envelope, chunk: TrailSegmentSync, cell_id: CellId
 ) -> SegmentRefusal | None:
-    """Merge `chunk` when its link may ship it; return why it was refused, or None."""
+    """Merge `chunk` when its link (proved as `cell_id`) may ship it; return why not, or None."""
     # The receiver rule: only the envelope's own node and sender are proved by the signature.
     if chunk.node_id != envelope.node_id or chunk.warden_id != envelope.sender:
         return SegmentRefusal.ANOTHER_NODE
+    # The receiver routes by the chunk's Cell; only the Cell the handshake proved may be named.
+    if chunk.cell_id != cell_id:
+        return SegmentRefusal.ANOTHER_CELL
     try:
         await receiver.receive(chunk)
     except UnknownSegmentFormatError:
