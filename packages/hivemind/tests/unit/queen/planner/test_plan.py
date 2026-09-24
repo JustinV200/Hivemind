@@ -1,7 +1,9 @@
 """Tests for hivemind.queen.planner.plan.plan_goal: a goal, through a model, into a TaskGraphDraft.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/planner/plan.py (codingrules section 3).
+    Mirrors src/hivemind/queen/planner/plan.py (codingrules section 3). The role round trip
+    PlannedTask -> TaskDraft (roadmap steps 6.9/6.10) continues at test_submission.py's own
+    TaskDraft -> TaskSpec carry-through.
 
 Key invariants:
     - None: this module holds tests only.
@@ -24,6 +26,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.llm import DirectCallGate, FakeLLMProvider
 from hivemind.llm.errors import MalformedOutputError
 from hivemind.queen.planner import PlanBrief, PlannerError, describe_fleet, plan_goal
+from waggle.messages.task import WorkerRole
 
 
 def _valid_plan(goal: str) -> dict[str, object]:
@@ -315,6 +318,54 @@ async def test_plan_goal_omits_the_hot_state_section_without_a_fleet_or_keep_roo
     await plan_goal(brief, bound, gate=DirectCallGate())
 
     assert "<<<hot_state>>>" not in (provider.calls[0].system or "")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# role (roadmap steps 6.9/6.10): PlannedTask.role -> TaskDraft.role, the first leg of the round
+# trip that continues at test_submission.py's TaskDraft.role -> TaskSpec.role.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _plan_with_a_forager_root(goal: str) -> dict[str, object]:
+    """`_valid_plan`, with its root task planned as a FORAGER (needs an Exoskeleton)."""
+    plan = _valid_plan(goal)
+    plan["tasks"][0]["role"] = "FORAGER"  # type: ignore[index]
+    plan["tasks"][0]["needs"] = {"exoskeleton": True}  # type: ignore[index]
+    return plan
+
+
+async def test_plan_goal_carries_role_into_the_task_graph_draft() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_a_forager_root))
+    bound = make_bound(provider=provider)
+
+    draft = await plan_goal(
+        PlanBrief("Read a page.", HoneyClearance.C1), bound, gate=DirectCallGate()
+    )
+
+    assert draft.tasks[0].role is WorkerRole.FORAGER
+    # The child task's own plan JSON never sets a role: PlannedTask's own default (DRONE) carries
+    # through unchanged, exactly like every plan built before this field existed.
+    assert draft.tasks[1].role is WorkerRole.DRONE
+
+
+def _plan_with_scout_wrong_acceptance(goal: str) -> dict[str, object]:
+    """`_valid_plan`, with its root task planned as a SCOUT but its old FILE_EXISTS unchanged."""
+    plan = _valid_plan(goal)
+    plan["tasks"][0]["role"] = "SCOUT"  # type: ignore[index]  # Acceptance stays scratch/done.txt.
+    return plan
+
+
+async def test_plan_goal_retries_a_scout_with_the_wrong_acceptance_inside_the_ladder() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_plan_with_scout_wrong_acceptance))
+    bound = make_bound(provider=provider)
+
+    # PlannedTask's own SCOUT rule requires FILE_EXISTS on SCOUT_REPORT_FILE, so a model that
+    # keeps writing the ordinary scratch/done.txt criterion exhausts the ladder's retries.
+    with pytest.raises(MalformedOutputError):
+        await plan_goal(
+            PlanBrief("Look around a site.", HoneyClearance.C1), bound, gate=DirectCallGate()
+        )
+    assert len(provider.calls) > 1
 
 
 def test_describe_fleet_names_each_cell_and_the_os_placement_matches_on() -> None:

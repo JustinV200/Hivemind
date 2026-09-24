@@ -33,7 +33,8 @@ from waggle.ids import TaskId, WardenId, new_event_id, new_message_id
 from waggle.messages.labels import HandoffRef
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Question
-from waggle.messages.task import ExoskeletonNeed, WorkerRole
+from waggle.messages.task import ExoskeletonNeed, ScoutReport, TaskResult, WorkerRole
+from waggle.messages.task import TaskOutcome as WireTaskOutcome
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -150,6 +151,87 @@ async def test_submit_goal_carries_the_exoskeleton_need_and_scopes_to_the_assign
     assignment = await warden_end.wait_for_assignment()
     assert assignment.exoskeleton == ExoskeletonNeed(browser_only=True)
     assert assignment.network_scopes == ("example.org",)
+    await warden_end.close()
+
+
+def _scout_then_drone_plan(goal: str) -> dict[str, object]:
+    """A SCOUT root task, plus a DRONE child that depends on it (roadmap steps 6.9/6.10)."""
+    return {
+        "tasks": [
+            {
+                "key": "scout",
+                "title": "Scout the site",
+                "objective": f"Look around before acting on: {goal}",
+                "acceptance": [
+                    {
+                        "kind": "FILE_EXISTS",
+                        "subject": "scout-report.json",
+                        "argv": [],
+                        "expected": None,
+                    }
+                ],
+                "role": "SCOUT",
+                "needs": {},
+                "clearance": "C1",
+                "depends_on": [],
+            },
+            {
+                "key": "drone",
+                "title": "Act on the recon",
+                "objective": "Depends on the scout's recon.",
+                "acceptance": [
+                    {
+                        "kind": "FILE_EXISTS",
+                        "subject": "scratch/done.txt",
+                        "argv": [],
+                        "expected": None,
+                    }
+                ],
+                "needs": {},
+                "clearance": "C1",
+                "depends_on": ["scout"],
+            },
+        ]
+    }
+
+
+async def test_a_succeeded_scout_s_report_reaches_its_dependent_s_assignment() -> None:
+    """Roadmap step 6.10, end to end: role and recon carried on the wire TaskAssign."""
+    provider = FakeLLMProvider(responder=plan_responder(_scout_then_drone_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    await queen.submit_goal("Look around, then act.", clearance=HoneyClearance.C1)
+    scout_assignment = await warden_end.wait_for_assignment()
+    assert scout_assignment.role is WorkerRole.SCOUT
+    assert scout_assignment.recon == ()  # The Scout itself has no Scout dependency of its own.
+    run_task = asyncio.ensure_future(queen.run())
+
+    report = ScoutReport(feasible=True, summary="The login form is at /login.")
+    await warden_end.send(
+        TaskResult(
+            task_id=scout_assignment.task_id,
+            attempt=1,
+            outcome=WireTaskOutcome.SUCCEEDED,
+            summary="Looked around.",
+            clearance=WireHoneyClearance.C1,
+            artifacts=(),
+            checked_by=link.warden_id,
+            handoff=None,
+            spend=0.0,
+            reason="Recon complete.",
+            scout_report=report,
+        )
+    )
+    await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    drone_assignment = warden_end.assignments[1]
+    assert drone_assignment.task_id != scout_assignment.task_id
+    assert drone_assignment.role is WorkerRole.DRONE  # The plan never set one: the schema default.
+    assert drone_assignment.recon == (report,)
     await warden_end.close()
 
 

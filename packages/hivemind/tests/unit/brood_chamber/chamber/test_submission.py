@@ -29,6 +29,7 @@ from hivemind.pheromone.trail.protocol import TrailQuery
 from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
 from waggle.messages import PlannedLeaving
+from waggle.messages.task import WorkerRole
 
 
 def _make_chamber(clock: FakeClock) -> tuple[BroodChamber, MemoryTaskStore, MemoryPheromoneTrail]:
@@ -73,6 +74,31 @@ async def test_submit_carries_a_draft_leaving_onto_the_minted_tasks_own_spec() -
     (task,) = await chamber.submit(draft)
 
     assert task.spec.leaves == (leaving,)
+
+
+async def test_submit_carries_a_draft_role_onto_the_minted_tasks_own_spec() -> None:
+    # roadmap steps 6.9/6.10: TaskDraft.role -> TaskSpec.role, unchanged; make_graph_draft's own
+    # drafts never set one, so this also proves the default (DRONE) survives the mint untouched.
+    clock = FakeClock()
+    chamber, _store, _trail = _make_chamber(clock)
+    draft = make_graph_draft({"plan": ()})
+    draft = draft.model_copy(
+        update={"tasks": (draft.tasks[0].model_copy(update={"role": WorkerRole.SCOUT}),)}
+    )
+
+    (task,) = await chamber.submit(draft)
+
+    assert task.spec.role is WorkerRole.SCOUT
+
+
+async def test_submit_defaults_an_unset_draft_role_to_drone_on_the_minted_spec() -> None:
+    clock = FakeClock()
+    chamber, _store, _trail = _make_chamber(clock)
+    draft = make_graph_draft({"plan": ()})
+
+    (task,) = await chamber.submit(draft)
+
+    assert task.spec.role is WorkerRole.DRONE
 
 
 async def test_submit_records_one_task_submitted_event_per_task_without_the_objective() -> None:

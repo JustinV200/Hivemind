@@ -21,6 +21,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,7 @@ from hivemind.pheromone import DuplicateEventError, TaskEvent
 from hivemind.pheromone.trail.sqlite import SqlitePheromoneTrail
 from waggle.clock import FakeClock
 from waggle.ids import EventId, new_event_id, new_hive_id, new_node_id
+from waggle.messages.task import WorkerRole
 
 
 def _make_task_event(clock: FakeClock, subject_id: str, event_id: EventId, kind: str) -> TaskEvent:
@@ -107,6 +109,43 @@ async def test_tasks_and_questions_survive_closing_and_reopening_the_same_file(
     result = await reopened_store.get_task(task.id)
 
     assert result == task
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Backward compatibility (roadmap steps 6.9/6.10): a body written before TaskSpec.role existed
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_a_stored_task_body_without_role_loads_as_drone(tmp_path: Path) -> None:
+    """A defaulted field needs no migration: an old body simply lacks the key (module docstring)."""
+    db_path = tmp_path / "hive.sqlite3"
+    clock = FakeClock()
+    trail_connection = connect(db_path)
+    await SqlitePheromoneTrail.create(trail_connection, clock)
+    store_connection = connect(db_path)
+    store = await SqliteTaskStore.create(store_connection, clock)
+    task = make_task(clock=clock)
+    # Mimics a row written before `role` existed: the same body, with `spec.role` deleted, put
+    # straight into the table with a raw INSERT rather than through insert_tasks (which only ever
+    # builds a Task the current model already stamps a role onto).
+    body = json.loads(task.model_dump_json())
+    del body["spec"]["role"]
+    store_connection.execute(
+        "INSERT INTO tasks (id, goal_id, status, created_at, updated_at, body) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            task.id,
+            task.goal_id,
+            task.status.value,
+            task.created_at.isoformat(),
+            task.updated_at.isoformat(),
+            json.dumps(body),
+        ),
+    )
+
+    loaded = await store.get_task(task.id)
+
+    assert loaded.spec.role is WorkerRole.DRONE
 
 
 # ──────────────────────────────────────────────────────────────────────────────

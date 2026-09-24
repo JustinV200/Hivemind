@@ -22,6 +22,7 @@ from hivemind.brood_chamber.task.state import TaskStatus
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_task_id, new_warden_id
 from waggle.messages import PlannedLeaving
+from waggle.messages.task import ScoutReport, WorkerRole
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TaskSpec: depends_on
@@ -88,6 +89,52 @@ def test_task_spec_leaves_defaults_to_empty_and_carries_a_declared_leaving() -> 
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# TaskSpec/TaskDraft.role (roadmap steps 6.9/6.10)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_task_spec_role_defaults_to_drone_and_round_trips_a_set_one() -> None:
+    assert make_task_spec().role is WorkerRole.DRONE
+
+    spec = make_task_spec(role=WorkerRole.SCOUT)
+
+    assert spec.role is WorkerRole.SCOUT
+    assert TaskSpec.model_validate_json(spec.model_dump_json()).role is WorkerRole.SCOUT
+
+
+@pytest.mark.parametrize(
+    "role", [WorkerRole.GUARD_BEE, WorkerRole.UNDERTAKER, WorkerRole.HOUSE_BEE]
+)
+def test_task_spec_rejects_a_role_the_task_graph_never_assigns(role: WorkerRole) -> None:
+    # A stored body written before this field existed still loads as DRONE (module docstring's
+    # "additive with a default"); only a role explicitly outside PLANNABLE_ROLES is rejected.
+    with pytest.raises(ValidationError, match="must be one of"):
+        make_task_spec(role=role)
+
+
+def test_task_draft_role_defaults_to_drone() -> None:
+    draft = TaskDraft(
+        key="task",
+        title="Do the thing",
+        objective="Do the thing.",
+        acceptance=make_task_spec().acceptance,
+    )
+
+    assert draft.role is WorkerRole.DRONE
+
+
+def test_task_draft_rejects_a_role_the_task_graph_never_assigns() -> None:
+    with pytest.raises(ValidationError, match="must be one of"):
+        TaskDraft(
+            key="task",
+            title="Do the thing",
+            objective="Do the thing.",
+            acceptance=make_task_spec().acceptance,
+            role=WorkerRole.GUARD_BEE,
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # TaskOutcome
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -123,6 +170,18 @@ def test_task_outcome_json_round_trips() -> None:
     restored = TaskOutcome.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_task_outcome_scout_report_defaults_to_none_and_round_trips_a_set_one() -> None:
+    # roadmap step 6.10: set on either a SUCCEEDED or a FAILED (infeasible) Scout's own outcome.
+    assert make_outcome().scout_report is None
+
+    report = ScoutReport(feasible=False, summary="The login form never appeared.")
+    outcome = make_outcome(status=TaskStatus.FAILED, verified_by=None, scout_report=report)
+
+    assert outcome.scout_report == report
+    restored = TaskOutcome.model_validate_json(outcome.model_dump_json())
+    assert restored.scout_report == report
 
 
 # ──────────────────────────────────────────────────────────────────────────────

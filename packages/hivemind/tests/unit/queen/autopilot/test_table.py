@@ -34,7 +34,7 @@ from waggle.messages.supervision import (
     Question,
     WardenState,
 )
-from waggle.messages.task import ArtifactRef, TaskOutcome, TaskResult
+from waggle.messages.task import ArtifactRef, ScoutReport, TaskOutcome, TaskResult
 
 _DEFAULT_LIMIT = 3
 
@@ -56,7 +56,13 @@ def _make_alarm(clock: FakeClock, *, kind: AlarmKind, task_id: object | None = N
     )
 
 
-def _make_result(clock: FakeClock, *, outcome: TaskOutcome, attempt: int = 1) -> TaskResult:
+def _make_result(
+    clock: FakeClock,
+    *,
+    outcome: TaskOutcome,
+    attempt: int = 1,
+    scout_report: ScoutReport | None = None,
+) -> TaskResult:
     return TaskResult(
         task_id=new_task_id(clock),
         attempt=attempt,
@@ -68,6 +74,7 @@ def _make_result(clock: FakeClock, *, outcome: TaskOutcome, attempt: int = 1) ->
         handoff=None,
         spend=0.0,
         reason="Done.",
+        scout_report=scout_report,
     )
 
 
@@ -103,6 +110,35 @@ def test_task_result_succeeded_completes_the_task() -> None:
     action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
 
     assert action is QueenAction.COMPLETE_TASK
+
+
+def test_task_result_succeeded_with_a_feasible_scout_report_still_completes() -> None:
+    # roadmap step 6.10: a feasible report changes nothing about SUCCEEDED's own decision.
+    clock = FakeClock()
+    report = ScoutReport(feasible=True, summary="The login form is at /login.")
+    result = _make_result(clock, outcome=TaskOutcome.SUCCEEDED, scout_report=report)
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+    task = make_task(status=TaskStatus.RUNNING, clock=clock)
+
+    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+
+    assert action is QueenAction.COMPLETE_TASK
+
+
+def test_task_result_succeeded_with_an_infeasible_scout_report_fails_the_task() -> None:
+    # roadmap step 6.10: acceptance passed (the report file exists), but the Scout itself
+    # recommends against the work, so this is FAIL_TASK, never COMPLETE_TASK or RETRY_TASK.
+    clock = FakeClock()
+    report = ScoutReport(feasible=False, summary="The site requires a login we do not have.")
+    result = _make_result(clock, outcome=TaskOutcome.SUCCEEDED, scout_report=report)
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+    task = make_task(status=TaskStatus.RUNNING, clock=clock)
+
+    # attempts=1, limit=1: even a limit that would otherwise force ESCALATE_TO_HUMAN for a FAILED
+    # result never applies here, since the infeasible-Scout branch never consults attempts/limit.
+    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 1)
+
+    assert action is QueenAction.FAIL_TASK
 
 
 def test_task_result_failed_retries_below_the_limit() -> None:

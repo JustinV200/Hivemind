@@ -20,14 +20,14 @@ from collections.abc import Awaitable, Callable
 
 from builders.queen import make_queen_deps, plan_responder
 
-from hivemind.brood_chamber import TaskStatus
+from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.ids import TaskId, WardenId
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
-from waggle.messages.task import TaskOutcome, TaskResult
+from waggle.messages.task import ScoutReport, TaskOutcome, TaskResult
 
 
 def _two_task_plan(goal: str) -> dict[str, object]:
@@ -70,7 +70,11 @@ def _two_task_plan(goal: str) -> dict[str, object]:
 
 
 def _result(
-    task_id: TaskId, warden_id: WardenId, outcome: TaskOutcome, attempt: int = 1
+    task_id: TaskId,
+    warden_id: WardenId,
+    outcome: TaskOutcome,
+    attempt: int = 1,
+    scout_report: ScoutReport | None = None,
 ) -> TaskResult:
     return TaskResult(
         task_id=task_id,
@@ -83,7 +87,49 @@ def _result(
         handoff=None,
         spend=0.0,
         reason="Some reason.",
+        scout_report=scout_report,
     )
+
+
+def _scout_then_child_plan(goal: str) -> dict[str, object]:
+    """A SCOUT root task, plus a plain child that depends on it (roadmap step 6.10)."""
+    return {
+        "tasks": [
+            {
+                "key": "scout",
+                "title": "Scout the site",
+                "objective": f"Look around before acting on: {goal}",
+                "acceptance": [
+                    {
+                        "kind": "FILE_EXISTS",
+                        "subject": "scout-report.json",
+                        "argv": [],
+                        "expected": None,
+                    }
+                ],
+                "role": "SCOUT",
+                "needs": {},
+                "clearance": "C1",
+                "depends_on": [],
+            },
+            {
+                "key": "child",
+                "title": "Child task",
+                "objective": "Depends on the scout's recon.",
+                "acceptance": [
+                    {
+                        "kind": "FILE_EXISTS",
+                        "subject": "scratch/child.txt",
+                        "argv": [],
+                        "expected": None,
+                    }
+                ],
+                "needs": {},
+                "clearance": "C1",
+                "depends_on": ["scout"],
+            },
+        ]
+    }
 
 
 async def test_succeeded_result_completes_the_task_and_dispatches_its_dependant() -> None:
@@ -142,6 +188,57 @@ async def test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_
 
     failed = await deps.chamber.get(first_assignment.task_id)
     assert failed.status is TaskStatus.FAILED
+    await warden_end.close()
+
+
+async def test_an_infeasible_scout_fails_without_retry_and_holds_its_dependent_back() -> None:
+    """Roadmap step 6.10: SUCCEEDED but infeasible is FAIL_TASK, never RETRY_TASK, dependent held.
+
+    Drives hivemind.queen.autopilot.table._decide_task_result, hivemind.queen.queen._act_on_task_
+    result and hivemind.queen.ticks.results.fail_task_from_result through the real Queen tick,
+    the same way test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_fails does
+    for an ordinary FAILED result.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_scout_then_child_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider, alarm_attempt_limit=2)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    await queen.submit_goal("Look around a site.", clearance=HoneyClearance.C1)
+    scout_assignment = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    report = ScoutReport(feasible=False, summary="The site requires a login we do not have.")
+    await warden_end.send(
+        _result(
+            scout_assignment.task_id,
+            link.warden_id,
+            TaskOutcome.SUCCEEDED,  # Acceptance passed (the report file exists); still failed.
+            scout_report=report,
+        )
+    )
+    await _wait_until(lambda: _is_terminal(deps, scout_assignment.task_id))
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    scout_task = await deps.chamber.get(scout_assignment.task_id)
+    assert scout_task.status is TaskStatus.FAILED
+    assert scout_task.outcome is not None
+    assert scout_task.outcome.scout_report == report  # The report survives onto the outcome.
+    assert "infeasible" in scout_task.outcome.summary
+    assert "site requires a login" in scout_task.outcome.summary
+
+    # Never retried: exactly the one, original assignment ever went out for the Scout task.
+    scout_wire = [a for a in warden_end.assignments if a.task_id == scout_assignment.task_id]
+    assert len(scout_wire) == 1
+
+    # The dependent is never dispatched: ready_tasks requires every dependency to SUCCEED, so a
+    # FAILED Scout holds it PENDING for good; no second assignment ever arrives for it either.
+    child_task = next(
+        t for t in await deps.chamber.list(TaskFilter()) if t.id != scout_assignment.task_id
+    )
+    assert child_task.status is TaskStatus.PENDING
+    assert len(warden_end.assignments) == 1
     await warden_end.close()
 
 
