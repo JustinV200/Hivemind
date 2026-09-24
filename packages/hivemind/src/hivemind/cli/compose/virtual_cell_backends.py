@@ -90,7 +90,7 @@ __all__ = ["build_registry", "docker_gateway_url", "night_veil_socks_proxy_url",
 
 
 @dataclass(slots=True)
-class SharedDockerClient:
+class _SharedDockerClient:
     """One SdkDockerClient per Hive, made on first use by the backend or its preparation."""
 
     client: SdkDockerClient | None = None
@@ -113,7 +113,7 @@ class RegistryContext:
     queen_signer: Ed25519Signer
     queen_node_id: NodeId
     environ: Mapping[str, str]
-    docker: SharedDockerClient = field(default_factory=SharedDockerClient)
+    docker: _SharedDockerClient = field(default_factory=_SharedDockerClient)
 
 
 async def prepare_backend(ctx: RegistryContext) -> None:
