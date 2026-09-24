@@ -28,7 +28,7 @@ from builders.queen import make_queen_deps
 from builders.tasks import make_graph_draft
 
 from hivemind.brood_chamber import TaskOutcome, TaskStatus
-from hivemind.cell import CellKind, CombShieldLevel, HoneyClearance
+from hivemind.cell import HIVE_STAND_SOURCE, CellKind, CombShieldLevel, HoneyClearance
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local import HiveStandSource
 from hivemind.honey_store import DepositSource, HoneyAccess, NectarIntake
@@ -37,12 +37,7 @@ from hivemind.memory import MemoryContext, write_checkpoint
 from hivemind.pheromone import MemoryPheromoneTrail
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.state import ClusterState
-from hivemind.queen.ticks.housekeeping import (
-    HIVE_STAND_SOURCE,
-    QueenCellRecords,
-    placed_cell,
-    run_housekeeping,
-)
+from hivemind.queen.ticks.housekeeping import QueenCellRecords, placed_cell, run_housekeeping
 from hivemind.workers.roles.house_bee import GatheredOn
 from waggle.clock import FakeClock
 from waggle.ids import TaskId, new_task_id, new_worker_id

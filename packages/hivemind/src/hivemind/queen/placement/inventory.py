@@ -87,8 +87,9 @@ class RealCandidate:
         cell_id: The Cell itself.
         capabilities: What the Cell is and can do (os, display, network scopes).
         comb_shield: The Cell's own security tier.
-        is_hive_stand: Whether this is the Hive Stand (`cell.source == "hive_stand"`); rule 3's
-            own `allow_hive_stand = false` check reads this, never the Cell's own source string.
+        is_hive_stand: Whether this is the Hive Stand (`cell.source == hivemind.cell.
+            HIVE_STAND_SOURCE`); rule 3's own `allow_hive_stand = false` check reads this, never
+            the Cell's own source string.
         has_free_capacity: Whether Forage already has room for one more bee on this Cell, as the
             caller measured it against the placed bee's own `RoleFootprint` -- `decide` never
             recomputes this (ADR-0028: "a Real Cell needs free capacity... the caller

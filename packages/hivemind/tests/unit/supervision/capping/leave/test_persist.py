@@ -15,7 +15,14 @@ from pathlib import Path
 
 from builders.cells import make_capabilities, make_cell
 
-from hivemind.cell import AccessLevel, Cell, CellKind, CombShieldLevel, OsFamily
+from hivemind.cell import (
+    HIVE_STAND_SOURCE,
+    AccessLevel,
+    Cell,
+    CellKind,
+    CombShieldLevel,
+    OsFamily,
+)
 from hivemind.cell.leavings import ApprovedBy
 from hivemind.supervision.capping.leave.model import LeaveVerdict
 from hivemind.supervision.capping.leave.persist import build_leave_context, decide_persist
@@ -28,7 +35,7 @@ _HOST_OS_FAMILY = OsFamily.WINDOWS if os.name == "nt" else OsFamily.LINUX
 def _cell(
     *,
     kind: CellKind = CellKind.REAL,
-    source: str = "hive_stand",
+    source: str = HIVE_STAND_SOURCE,
     access_level: AccessLevel = AccessLevel.FULL,
     comb_shield: CombShieldLevel = CombShieldLevel.MEADOW,
 ) -> Cell:

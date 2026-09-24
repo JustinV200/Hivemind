@@ -14,9 +14,10 @@ task.
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
-    acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory` (WaxSeverity,
-    WaxState), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.placement`
-    (Inventory, ForageView, RealCandidate, VirtualBackendCandidate, WaxMention) and waggle only.
+    acquire`. Calls into `hivemind.cell` (HIVE_STAND_SOURCE, HoneyClearance), `hivemind.memory`
+    (WaxSeverity, WaxState), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
+    placement` (Inventory, ForageView, RealCandidate, VirtualBackendCandidate, WaxMention) and
+    waggle only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
@@ -39,7 +40,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import Cell, HoneyClearance
+from hivemind.cell import HIVE_STAND_SOURCE, Cell, HoneyClearance
 from hivemind.forage import RoleFootprint
 from hivemind.hive import VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
@@ -209,7 +210,7 @@ def _real_candidate(link: WardenLink, footprint: RoleFootprint) -> RealCandidate
         cell_id=cell.id,
         capabilities=cell.capabilities,
         comb_shield=cell.comb_shield,
-        is_hive_stand=cell.source == "hive_stand",
+        is_hive_stand=cell.source == HIVE_STAND_SOURCE,
         has_free_capacity=_has_free_capacity(cell, footprint),
     )
 

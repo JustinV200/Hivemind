@@ -25,10 +25,10 @@ itself, which calls models, never runs here: the House Bee's own loop does it be
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called once per tick by `hivemind.queen.queen.Queen`'s own `_run_tick`, in place
-    of `run_cluster_tick`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory`
-    (BeeBread, MemoryContext), `hivemind.queen.cluster.tick` (run_cluster_tick, run_release_tick),
-    `hivemind.queen.deps` (QueenDeps, WardenLink, Housekeeping, under TYPE_CHECKING),
-    `hivemind.queen.state` (ClusterState), `hivemind.brood_chamber` (BroodChamber,
+    of `run_cluster_tick`. Calls into `hivemind.cell` (HIVE_STAND_SOURCE, HoneyClearance),
+    `hivemind.memory` (BeeBread, MemoryContext), `hivemind.queen.cluster.tick` (run_cluster_tick,
+    run_release_tick), `hivemind.queen.deps` (QueenDeps, WardenLink, Housekeeping, under
+    TYPE_CHECKING), `hivemind.queen.state` (ClusterState), `hivemind.brood_chamber` (BroodChamber,
     TaskNotFoundError), `hivemind.pheromone` (the chamber's own placement records),
     `hivemind.workers.roles.house_bee` (SweepDeps, SweepSchedule, SweepWindow, run_sweep,
     HouseBeeHoney, GatheredOn) and waggle only.
@@ -82,7 +82,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from hivemind.brood_chamber import BroodChamber, TaskNotFoundError
-from hivemind.cell import HoneyClearance
+from hivemind.cell import HIVE_STAND_SOURCE, HoneyClearance
 from hivemind.common.logging import get_logger
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import BoundModel, UnresolvableSlotError
@@ -109,7 +109,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ASSIGNED_KIND",
-    "HIVE_STAND_SOURCE",
     "QueenCellRecords",
     "placed_cell",
     "run_housekeeping",
@@ -119,9 +118,6 @@ __all__ = [
 # above C2 (hivemind.queen.awake's own episodes are the highest-clearance writer), so this is
 # generous enough to sweep everything a Queen-run House Bee could ever see.
 _SWEEP_ALLOWANCE = HoneyClearance.C2
-# The `Cell.source` the Hive Stand's own Cell carries (hivemind.cell.local); the same test
-# hivemind.queen.dispatcher.snapshot uses to tell placement which candidate is the Hive Stand.
-HIVE_STAND_SOURCE = "hive_stand"
 ASSIGNED_KIND = "task.assigned"  # The chamber's own event for a placement; it names the Cell.
 log = get_logger(__name__)
 
