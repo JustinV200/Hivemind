@@ -13,7 +13,7 @@ Honey Store in phase 7) can never disagree about what a scope reaches.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.memory.taint`. Built by
-    the taint's callers (`queen/isolation.py`, the quarantine path in `wardens/`) and passed to
+    the taint's callers (`queen/isolation/`, the quarantine path in `wardens/`) and passed to
     `hivemind.memory.taint.set.taint_memory`; read by every `TaintLedger.find_taintable`. Calls into
     this package's `marker` and waggle only.
 

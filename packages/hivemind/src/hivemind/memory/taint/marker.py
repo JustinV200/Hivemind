@@ -62,7 +62,7 @@ __all__ = [
 class TaintSource(Enum):
     """Who may label memory tainted: a closed set of three, and nothing else (ADR-0035)."""
 
-    ISOLATION = "isolation"  # The Queen isolating one Cell (queen/isolation.py, roadmap 10.6a).
+    ISOLATION = "isolation"  # The Queen isolating one Cell (queen/isolation/, roadmap 10.6a).
     QUARANTINE = "quarantine"  # The one Quarantine code path in wardens/ (roadmap 10.6c).
     GUARD_REPORT = "guard_report"  # The Queen on a Guard report about a Honey item (10.6, phase 7).
 

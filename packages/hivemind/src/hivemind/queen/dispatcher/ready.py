@@ -295,7 +295,7 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     # acquired now would sit idle, and a fresh Virtual one would be provisioned again next pass.
     if await hold_for_goal(deps, task):
         return
-    inventory = await build_inventory(deps, wardens)
+    inventory = await build_inventory(deps, wardens, goal_id=task.goal_id)
     placement = decide(
         task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
     )

@@ -383,6 +383,8 @@ async def _run_tick(queen: Queen) -> None:
     # A task whose dependency failed or was cancelled can never run: close it rather than let its
     # goal wait out every timeout (hivemind.brood_chamber.task.graph.stranded_tasks).
     await queen._deps.chamber.cancel_stranded()
+    # Roadmap step 10.6a: a quarantined task whose checkpoint a judge cleared resumes from it.
+    await quarantine.resume_cleared(queen._deps, queen.wardens)
     await dispatch_ready(queen._deps, queen.wardens)
     # This dispatch's own fix 3: the tick now calls the exact same retry-safe function hive run's
     # own poll loop calls (hivemind.cli.compose.run_goal), instead of a separate sweep that used

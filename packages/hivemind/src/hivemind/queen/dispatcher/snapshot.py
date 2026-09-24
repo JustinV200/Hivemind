@@ -9,7 +9,10 @@ populate them with anything beyond the empty defaults). `build_inventory`'s own 
 `exclude_dormant` keyword arguments are the retry-once-with-zeroed-headroom path ADR-0028's own
 Consequences names: `hivemind.queen.dispatcher.acquire` passes a narrowed copy rather than mutating
 `deps` itself, so a failed provision never leaks into the next placement decision for a different
-task.
+task. Roadmap step 10.6a: `goal_id` names the goal being placed, and every active Guard
+`PlacementHold` on that goal (the Hive Stand's fallback, where the Queen may not isolate) joins the
+blocked Cells for this one decision, exactly as a BLOCK Cell Wax note would: placement data, never
+a special case inside `decide`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -17,7 +20,8 @@ Fits into the Hive:
     acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory` (WaxSeverity,
     WaxState), `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps,
     WardenLink), `hivemind.queen.placement` (Inventory, ForageView, RealCandidate,
-    VirtualBackendCandidate, WaxMention) and waggle only.
+    VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's placement holds)
+    and waggle only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
@@ -57,7 +61,7 @@ from hivemind.queen.placement import (
     VirtualBackendCandidate,
     WaxMention,
 )
-from waggle.ids import CellId
+from waggle.ids import CellId, TaskId
 from waggle.messages.task import WorkerRole
 
 __all__ = [
@@ -75,6 +79,7 @@ async def build_inventory(
     *,
     virtual_backends: tuple[VirtualBackendCandidate, ...] | None = None,
     exclude_dormant: frozenset[CellId] = frozenset(),
+    goal_id: TaskId | None = None,
 ) -> Inventory:
     """Build the pure Inventory snapshot `decide` reads, doing every bit of I/O `decide` cannot.
 
@@ -90,12 +95,17 @@ async def build_inventory(
         exclude_dormant: Dormant Cell ids to drop from `deps.dormant_cells`, for the same retry
             path when a `ReuseDormant` Placement's own resume failed (`docs/adr/0029`: "a Cell that
             fails to resume within the ready timeout is destroyed and placement falls through").
+        goal_id: The goal the placed task belongs to; the Guard's active holds on it block their
+            Cells for this decision (roadmap step 10.6a). None places with no hold applied.
 
     Returns:
         The `Inventory` `decide()` reads for this one placement decision.
     """
     footprint = deps.footprints[WorkerRole.DRONE]
     blocked, cautioned = await _wax_maps(deps)
+    if goal_id is not None:
+        # A Cell's own BLOCK note, when it has one, is the mention its placement reason names.
+        blocked = {**await _held_for(deps, goal_id), **blocked}
     real = tuple(_real_candidate(link, footprint) for link in wardens)
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
@@ -247,6 +257,16 @@ async def _wax_maps(
         elif wax.severity is WaxSeverity.CAUTION:
             cautioned[wax.cell_id] = mention
     return blocked, cautioned
+
+
+async def _held_for(deps: QueenDeps, goal_id: TaskId) -> dict[CellId, WaxMention]:
+    """Read the Guard's active placement holds on `goal_id`, as the Cells they block."""
+    held: dict[CellId, WaxMention] = {}
+    for hold in await deps.guard.requests.holds():
+        if hold.is_active and goal_id in hold.goal_ids:
+            text = f"placement of goal {goal_id} held here by Guard report {hold.report_id}"
+            held[CellId(hold.cell_id)] = WaxMention(id=hold.report_id, text=text)
+    return held
 
 
 async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandidate, ...]:

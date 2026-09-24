@@ -109,6 +109,7 @@ from hivemind.pheromone import SqlitePheromoneTrail
 from hivemind.queen.chat import SqliteChatLog
 from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.forage.ledger import SqliteLedgerStore
+from hivemind.queen.guard_requests import SqliteGuardRequestStore
 from hivemind.queen.intake import SqliteGoalRequestStore
 from waggle.clock import Clock, SystemClock
 
@@ -147,6 +148,7 @@ __all__ = [
     "open_chat_log",
     "open_cluster_orders",
     "open_goal_requests",
+    "open_guard_requests",
     "open_leavings",
     "open_ledger",
     "open_memory",
@@ -270,6 +272,27 @@ def open_chat_log(db: Path) -> SqliteChatLog:
         # Same rule again: a human message's arrival and a reply insert their event here too.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteChatLog.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_guard_requests(db: Path) -> SqliteGuardRequestStore:
+    """Open `db` and return the Queen's durable Guard request table (roadmap step 10.6a).
+
+    `hivemind.cli.compose.guard.build_guard_deps` calls this so a Guard request is committed on the
+    Hive's own file before the Guard Bee's filing returns (ADR-0035), and survives a restart. The
+    table records no trail event of its own (the Guard Bee's `guard.alert` and the Queen's
+    `queen.decided` are the audit rows), so no trail migration has to run first.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteGuardRequestStore whose `guard_requests` table exists and is current.
+    """
+
+    async def _open() -> SqliteGuardRequestStore:
+        return await SqliteGuardRequestStore.create(connect(db), SystemClock())
 
     return asyncio.run(_open())
 

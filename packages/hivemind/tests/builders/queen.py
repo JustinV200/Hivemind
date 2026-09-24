@@ -85,7 +85,13 @@ from waggle.ids import (
 )
 from waggle.messages.base import WaggleMessage
 from waggle.messages.cell import CellWaxWritten
-from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued, PlanWritten
+from waggle.messages.forage import (
+    CeilingsSet,
+    ForageReply,
+    GrantIssued,
+    GrantRevoked,
+    PlanWritten,
+)
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
@@ -373,6 +379,7 @@ class WardenEnd:
         self.task_pauses: list[TaskPause] = []  # Roadmap step 4.9 (Clustering).
         self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
         self.task_cancels: list[TaskCancel] = []  # Roadmap step 10.5: a revocation's cancel.
+        self.grant_revokes: list[GrantRevoked] = []  # Roadmap step 10.6a (isolation).
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -512,6 +519,9 @@ class WardenEnd:
         elif isinstance(payload, PlanWritten):
             self.plans_written.append(payload)
             self.received_kinds.append("plan_written")
+        elif isinstance(payload, GrantRevoked):
+            self.grant_revokes.append(payload)
+            self.received_kinds.append("grant_revoked")
         else:
             return False
         return True

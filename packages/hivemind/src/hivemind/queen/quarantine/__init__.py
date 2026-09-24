@@ -5,14 +5,17 @@ Warden (`hivemind.wardens.quarantine`). The Queen, the Hive's orchestrator, only
 keeps her task store true: `order` sends a Warden the `Intervene(QUARANTINE)` (a
 `QueenAction.QUARANTINE_BEE` decision, or a Guard report she acts on) and `hold` moves the task to
 PAUSED in the Brood Chamber when the Warden reports it held (a `QueenAction.PAUSE_TASK` decision on
-a `task.progress` at stage PAUSED). She is told of every quarantine, hers or a Warden's own, by the
+a `task.progress` at stage PAUSED). `release` is the way out (roadmap step 10.6a): once a judge's
+verdict clears the checkpoint the quarantine wrote (`memory.taint_cleared` on the trail), her tick
+resumes the task from it. She is told of every quarantine, hers or a Warden's own, by the
 SECURITY Alarm the Warden raises, which her escalation policy sends on to the human.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called by
     `hivemind.queen.queen`'s tick and `hivemind.queen.ticks.alarms`. Calls into
-    `hivemind.brood_chamber`, `hivemind.queen.deps`, `hivemind.queen.trail`,
-    `hivemind.supervision` and waggle only.
+    `hivemind.brood_chamber`, `hivemind.pheromone`, `hivemind.queen.deps`,
+    `hivemind.queen.dispatcher` (resume_paused), `hivemind.queen.isolation` (read_isolation),
+    `hivemind.queen.trail`, `hivemind.supervision` and waggle only.
 
 Key invariants:
     - The Queen never quarantines a bee herself: she has no session and no sub-bee, only the order.
@@ -25,9 +28,19 @@ Public API (roadmap step 10.6c):
     - order_quarantine, lever_from_alarm: send a Warden the order, and read one off an Alarm
       (order).
     - hold_task, MAX_HOLD_REASON_CHARS: move a task its Warden reports held to PAUSED (hold).
+    - resume_cleared, RESUME_REASON: resume a held task once a judge clears its quarantine
+      checkpoint, the Queen's half of the way out (release, roadmap step 10.6a).
 """
 
 from hivemind.queen.quarantine.hold import MAX_HOLD_REASON_CHARS, hold_task
 from hivemind.queen.quarantine.order import lever_from_alarm, order_quarantine
+from hivemind.queen.quarantine.release import RESUME_REASON, resume_cleared
 
-__all__ = ["MAX_HOLD_REASON_CHARS", "hold_task", "lever_from_alarm", "order_quarantine"]
+__all__ = [
+    "MAX_HOLD_REASON_CHARS",
+    "RESUME_REASON",
+    "hold_task",
+    "lever_from_alarm",
+    "order_quarantine",
+    "resume_cleared",
+]

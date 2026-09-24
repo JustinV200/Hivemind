@@ -7,15 +7,20 @@ state. `hive_state` names it from the manifest and this machine: the resolved `[
 manifest file itself, and every address this machine's own interfaces answer on (the Hive
 Stand's own addresses), so the Hive-state floor refuses a bee `fs:read`/`fs:write` on any of them
 and `net` to any of them. `guard_policy` is the one policy the Hive's Enforcer (`build_enforcer`,
-shared by the Queen and the Hive Stand's Warden) decides against.
+shared by the Queen and the Hive Stand's Warden) decides against. Roadmap step 10.6a:
+`build_guard_deps` builds the Queen's side of a Guard request (`QueenDeps.guard`): her durable
+request table on the `[hive] db` file, `[guard] dire_patterns`, and the egress seam isolation cuts
+a Virtual Cell's network through (the Hive's own `CellLifecycle`, when it has a Virtual side).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive` (through `hivemind.cli.compose.deps`, which re-exports
     `build_enforcer`). Calls into `hivemind.cell` (CellIdentity), `hivemind.guard` (the policy
     loader, `Enforcer`, `HiveState`, the address helpers), `hivemind.manifest`,
-    `hivemind.pheromone`, `psutil` (this machine's interface addresses; the standard library
-    cannot list them portably), waggle and the standard library only.
+    `hivemind.pheromone`, `hivemind.hive` (CellLifecycle, LifecycleEgress), `hivemind.queen.
+    guard_requests` (GuardDeps), `hivemind.cli.stores` (open_guard_requests), `psutil` (this
+    machine's interface addresses; the standard library cannot list them portably), waggle and the
+    standard library only.
 
 Key invariants:
     - Reading the interfaces never fails the Hive's start: a machine whose interfaces cannot be
@@ -38,17 +43,27 @@ from pathlib import Path
 import psutil
 
 from hivemind.cell import CellIdentity
+from hivemind.cli.stores import open_guard_requests
 from hivemind.guard import Enforcer, GuardPolicy, load_guard_policy
 from hivemind.guard.net import IPAddress, ip_literal
 from hivemind.guard.policy import HiveState
+from hivemind.hive import LifecycleEgress
+from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import PheromoneTrail
+from hivemind.queen.guard_requests import GuardDeps
 from waggle.clock import Clock
 
 # The address families an interface can be reached on over IP; link-layer entries are not.
 _IP_FAMILIES = frozenset({socket.AF_INET, socket.AF_INET6})
 
-__all__ = ["build_enforcer", "guard_policy", "hive_state", "interface_addresses"]
+__all__ = [
+    "build_enforcer",
+    "build_guard_deps",
+    "guard_policy",
+    "hive_state",
+    "interface_addresses",
+]
 
 
 def build_enforcer(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) -> Enforcer:
@@ -64,6 +79,26 @@ def build_enforcer(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) 
     """
     identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
     return Enforcer(guard_policy(manifest), trail, clock, identity)
+
+
+def build_guard_deps(manifest: HiveManifest, lifecycle: CellLifecycle | None) -> GuardDeps:
+    """Build the Queen's side of a Guard request from the manifest (roadmap step 10.6a).
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[hive] db` and
+            `[guard] dire_patterns` are read.
+        lifecycle: The Hive's Virtual Cell lifecycle, when `[virtual_cells] backend` is set; None
+            leaves isolation with no egress to cut (every Cell is then Real, left as found).
+
+    Returns:
+        GuardDeps over a SQLite request table on the Hive's own file, durable across a restart.
+    """
+    egress = LifecycleEgress(lifecycle) if lifecycle is not None else None
+    return GuardDeps(
+        requests=open_guard_requests(manifest.resolve_path(manifest.hive.db)),
+        dire_patterns=frozenset(manifest.guard.dire_patterns),
+        egress=egress,
+    )
 
 
 def guard_policy(manifest: HiveManifest) -> GuardPolicy:

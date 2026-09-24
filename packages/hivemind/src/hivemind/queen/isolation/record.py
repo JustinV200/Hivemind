@@ -8,7 +8,10 @@ what each step did. ISOLATED -> OPEN is `cell.isolation_lifted`, which only the 
 records. The trail itself is where the state lives: the Cell's state is whichever of its two
 events is newer (`read_isolation`), so a Queen that restarts finds every Cell as it left it with
 no table of her own to reconcile, and the event is the state change, trivially in one transaction
-(Appendix C rule 3). What placement reads is the `BLOCK` wax the isolation wrote, not this state.
+(Appendix C rule 3). "Newer" is the trail's own order (`TRAIL_ORDER_KEY`, then the order recorded),
+never the event id. What placement reads is the `BLOCK` wax the isolation wrote, not this state.
+A lift recorded while no isolation stands (the human releasing the Queen's placement holds on the
+Hive Stand, which she may not isolate) names no isolated event and leaves the state OPEN.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -36,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import JsonValue
 
-from hivemind.pheromone import CellEvent, PheromoneEvent, TrailQuery
+from hivemind.pheromone import MAX_QUERY_LIMIT, CellEvent, PheromoneEvent, TrailQuery
 from hivemind.queen.isolation.order import IsolationOrder, IsolationOutcome
 from waggle.ids import CellId, EventId, new_event_id
 
@@ -46,6 +49,7 @@ if TYPE_CHECKING:
 
 ISOLATED_KIND = "cell.isolated"  # OPEN -> ISOLATED.
 LIFTED_KIND = "cell.isolation_lifted"  # ISOLATED -> OPEN, the human's alone.
+CELL_FAMILY = "cell"  # Both kinds' family, for the one same-instant tiebreak query.
 
 __all__ = [
     "ISOLATED_KIND",
@@ -115,10 +119,7 @@ async def read_isolation(deps: QueenDeps, cell_id: CellId) -> IsolationRecord:
     """
     isolated = await _newest(deps, ISOLATED_KIND, cell_id)
     lifted = await _newest(deps, LIFTED_KIND, cell_id)
-    # Event ids are ULIDs minted on the Queen's own clock, so (at, id) orders her two edges.
-    if isolated is None or (
-        lifted is not None and (lifted.at, lifted.id) > (isolated.at, isolated.id)
-    ):
+    if isolated is None or (lifted is not None and await _lifted_last(deps, isolated, lifted)):
         return IsolationRecord(state=IsolationState.OPEN, isolated=isolated)
     return IsolationRecord(state=IsolationState.ISOLATED, isolated=isolated)
 
@@ -171,6 +172,29 @@ async def _newest(deps: QueenDeps, kind: str, cell_id: CellId) -> PheromoneEvent
     query = TrailQuery(kind=kind, subject_id=cell_id, newest_first=True, limit=1)
     events = await deps.trail.query(query)
     return events[0] if events else None
+
+
+async def _lifted_last(deps: QueenDeps, isolated: PheromoneEvent, lifted: PheromoneEvent) -> bool:
+    """Whether `lifted` comes after `isolated` in the trail's own order (TRAIL_ORDER_KEY).
+
+    Both are the Queen's own rows, so `at` orders them; two stamped in the same instant (a test's
+    FakeClock, a fast lift) keep the order they were recorded in, which only the trail knows: an
+    event id is no tiebreaker (a ULID's tail inside one millisecond is random).
+    """
+    if lifted.at != isolated.at:
+        return lifted.at > isolated.at
+    same_instant = TrailQuery(
+        family=CELL_FAMILY,
+        subject_id=isolated.subject_id,
+        since=isolated.at,
+        until=isolated.at,
+        newest_first=True,
+        limit=MAX_QUERY_LIMIT,
+    )
+    for event in await deps.trail.query(same_instant):
+        if event.kind in (ISOLATED_KIND, LIFTED_KIND):
+            return event.kind == LIFTED_KIND  # The newer of the two, in recorded order.
+    return False
 
 
 async def _record(

@@ -81,6 +81,7 @@ from hivemind.cli.compose.deps import (
     build_warden_deps,
     open_default_stores,
 )
+from hivemind.cli.compose.guard import build_guard_deps
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
@@ -89,7 +90,7 @@ from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.streams import TelemetryBoard
 from hivemind.forage import ForageCapacity, ForageMap
-from hivemind.guard import Enforcer
+from hivemind.guard import Enforcer, GuardRequestDoor
 from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
@@ -161,6 +162,15 @@ class Hive:
     queen_deps: QueenDeps
     telemetry: TelemetryBoard
     virtual_cells: VirtualCellsParts | None = None
+
+    @property
+    def guard_door(self) -> GuardRequestDoor:
+        """The Queen's door for a Guard request: the running Queen herself (roadmap step 10.6a).
+
+        The Guard Bee (roadmap step 10.6) is handed this and files every request through it; the
+        request is durable before `file_guard_request` returns and decided on her next tick.
+        """
+        return self.queen
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,12 +351,16 @@ def _assemble_hive(
     telemetry = TelemetryBoard()
     # The zero-grant fix: how long a fresh task may wait for its Cell's live figures to make room.
     waits = GrantWaits(patience_s=parts.manifest.forage.zero_grant_patience_s)
+    # Roadmap step 10.6a: her Guard request table, dire patterns and the egress seam isolation uses.
+    lifecycle = extras.virtual_cells.lifecycle if extras.virtual_cells is not None else None
+    guard = build_guard_deps(parts.manifest, lifecycle)
     queen_deps = replace(
         queen_deps,
         scanner=scanner,
         human_channel=relay,
         on_heartbeat=telemetry.record,
         grant_waits=waits,
+        guard=guard,
     )
     queen = Queen(queen_deps)
     if extras.virtual_cells is not None:

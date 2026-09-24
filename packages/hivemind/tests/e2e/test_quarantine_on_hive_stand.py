@@ -13,9 +13,10 @@ the human's inbox.
 
 Then the only way out, on the same run. The Queen's resume from the checkpoint while it is still
 tainted is refused at the `quarantine` point (`guard.denied`), nothing spawns, and the task is held
-again. Once a judge has cleared the checkpoint (`clear_taint`, CLEARED), the same resume is
-admitted: a fresh Drone resumes from the cleared checkpoint and the goal finishes with its three
-real files.
+again. Once a judge has cleared the checkpoint (`clear_taint`, CLEARED), nobody resumes it by hand:
+the Queen's own tick reads the `memory.taint_cleared` row and resumes the task from the cleared
+checkpoint (`hivemind.queen.quarantine.resume_cleared`, roadmap step 10.6a), the gate admits it, a
+fresh Drone resumes from it and the goal finishes with its three real files.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -238,9 +239,9 @@ async def _way_out(hive: Hive, drone: _SuspectDrone, held: _Held) -> None:
     )
     assert hive.warden.sub_bees == ()  # Nothing spawned from the tainted checkpoint.
 
+    drone.let_out = True  # Before the verdict: from here on the Queen resumes it on her own.
     assert await _clear(hive, held) is ClearOutcome.CLEARED
-    drone.let_out = True
-    await _resume(hive, held)
+    # No resume by hand: her tick reads memory.taint_cleared and resumes from the checkpoint.
 
 
 async def _run(hive: Hive, drone: _SuspectDrone) -> tuple[GoalReport, list[PheromoneEvent]]:
@@ -285,6 +286,9 @@ def test_a_drone_quarantined_mid_command_is_killed_held_and_let_out_only_once_cl
             "task.succeeded",
         ),
     )
+    # Two resumes: the test's own, refused while tainted, then the Queen's after the verdict.
+    resumed = [index for index, kind in enumerate(kinds) if kind == "task.resumed"]
+    assert len(resumed) == 2 and resumed[1] > kinds.index("memory.taint_cleared")
     # Two Drones: the quarantined one, and the one let out after the verdict, never before it.
     spawned = [index for index, kind in enumerate(kinds) if kind == "worker.spawned"]
     assert len(spawned) == 2 and spawned[1] > kinds.index("memory.taint_cleared")
