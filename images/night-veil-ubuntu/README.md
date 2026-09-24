@@ -4,25 +4,23 @@ Night Veil is the Comb Shield tier for work that must not be linkable to the ope
 section 8.7): Virtual only, all traffic through OpenVPN plus Tor with direct egress blocked, every
 model slot local, and a Waggle control link that reaches the Hive Stand through a Tor hidden
 service, never the VPN tunnel and never a clearnet address. This image is what a Night Veil Cell
-actually boots: `hivemind/base-ubuntu:dev` (roadmap step 5.3) plus the OpenVPN client, Tor, Tor
+actually boots: `hivemind/desktop-ubuntu:dev` (roadmap step 6.1) plus the OpenVPN client, Tor, Tor
 Browser, an nftables kill-switch, and the location-blind defaults baked in. `hive.night_veil`
 (roadmap step 5.7b) attests this image deterministically before `CellReady`; nothing is installed
 or configured at runtime -- everything in this document is baked in at build time, which is the
 whole point (`docs/adr/0030-night-veil-retention-and-clearance-boundary.md`: "readiness is
 attestation of an image, never configuration of a Cell").
 
-**TODO(6.1):** this image is built on `base-ubuntu`, not `desktop-ubuntu` (roadmap step 6.1), which
-does not exist yet -- see the Dockerfile's own top-of-file comment for exactly why and what the
-rebase is expected to look like once it does. Tor Browser is installed by this image already, but
-is only really usable once the Exoskeleton bundle (`desktop-ubuntu`) gives it a display.
+Built on `desktop-ubuntu` (roadmap step 6.1) since phase 6: Tor Browser needs a display, and that
+image carries the Exoskeleton's on-demand display, input, audio and browser toolchain.
 
-## Packages this image adds over base-ubuntu
+## Packages this image adds over desktop-ubuntu
 
 | Package | Why |
 |---|---|
 | `openvpn` | The VPN client every tier above MEADOW needs (PROPOLIS is OpenVPN-only; NIGHT_VEIL layers Tor on top). Ships `openvpn-client@.service`, a systemd template unit; `openvpn-client-override.conf` re-orders it after the kill-switch. |
 | `tor` | The Tor daemon, configured by `torrc` (below). Ships `tor.service`; `tor-override.conf` re-orders it after OpenVPN. |
-| `torbrowser-launcher` | Installs and verifies Tor Browser through Ubuntu's own universe repository -- apt's own signature chain, not a hand-verified tarball in this Dockerfile. `hivemind.hive.night_veil.session_commands.CMD_TOR_BROWSER` (`which tor-browser`) checks the binary this package puts on PATH. |
+| Tor Browser (`/opt/tor-browser`, `tor-browser` on PATH) | The Tor Project's signed release, fetched in its own build stage from the permanent archive and verified with `gpgv` against the Tor Browser Developers signing key, located over WKD and pinned by fingerprint (`TOR_BROWSER_VERSION`, `TOR_BROWSER_KEY_FINGERPRINT` build arguments). Ubuntu's `torbrowser-launcher`, used first, carries only a launcher that downloads Tor Browser at its first GUI run, so a real build had no `tor-browser` and `CMD_TOR_BROWSER` (`which tor-browser`) could never pass attestation -- found building this image for real in phase 6. |
 | `nftables` | The kill-switch (`nftables.conf`, below). |
 | `systemd`, `systemd-sysv` | base-ubuntu's own runtime stage installs neither (a plain `ENTRYPOINT` needs no init); this image runs systemd as PID 1 instead, so the fixed nftables -> openvpn -> tor -> Warden ordering codingrules section 8.7 requires is expressed as unit dependencies rather than a hand-rolled shell script, and so `hive.night_veil`'s own `tor_healthy`/`timezone_utc` checks (`systemctl`, `timedatectl`) have something to query. `systemd-sysv` provides `/sbin/init`, the `ENTRYPOINT`. |
 | `tzdata`, `locales` | UTC and `C.UTF-8` need their own data files; see "Location-blind defaults" below. |
@@ -117,9 +115,10 @@ the file will be there).
 
 ## What this image does not attempt
 
-- **Verified against a real build.** Docker was not available in the environment that wrote this
-  Dockerfile (exactly `images/base-ubuntu/Dockerfile`'s own disclaimer); reviewed carefully by
-  reading, not built. `.github/workflows/integration.yml` is what proves it builds.
+- **Verified against a real build end to end.** Every stage but the Tor Browser download was
+  built for real in phase 6 (on `desktop-ubuntu`, in a sandbox that cannot reach the Tor Project);
+  `.github/workflows/integration.yml` builds the whole image nightly, after the integration tests,
+  so a Tor Project outage never hides their results.
 - **Running under the Docker backend today.** systemd as PID 1 needs more than the `NET_ADMIN`
   capability the kill-switch alone would need: `hivemind.hive.backends.docker.backend.
   DockerCellBackend._build_container_spec` applies `cap_drop=("ALL",)` and `read_only_rootfs=True`
@@ -131,19 +130,22 @@ the file will be there).
   Docker backend able to run this image at all (a relaxed, VPN_TOR-only container spec, on top of
   the `cap_add=NET_ADMIN` gap `hive.backends.docker.backend`'s own comment already names) is a
   report item, not something this dispatch's file list can close.
-- **A real, hand-verified Tor Browser signature check.** `torbrowser-launcher`'s own apt
-  installation is the verification path (Ubuntu's package signing chain); a hand-rolled GPG check
-  of a downloaded tarball was considered and rejected as strictly more code for no more assurance.
+- **Reaching the Tor Project from every build host.** The Tor Browser stage needs
+  `archive.torproject.org` and the Tor Project's WKD key server; a build sandbox without them
+  (the one phase 6 was built in) cannot build this image at all, and says so at that stage.
 
 ## Building and testing this image
 
 ```sh
+docker build -f images/base-ubuntu/Dockerfile -t hivemind/base-ubuntu:dev .
+docker build -f images/desktop-ubuntu/Dockerfile -t hivemind/desktop-ubuntu:dev .
 docker build -f images/night-veil-ubuntu/Dockerfile -t hivemind/night-veil-ubuntu:dev .
 ```
 
 Same repository-root build context as `base-ubuntu` (its own README's "Build context" section);
 this Dockerfile's `COPY` lines reference `images/night-veil-ubuntu/*` explicitly for that reason.
-Built alongside `base-ubuntu` in `.github/workflows/integration.yml`, since it `FROM`s that image.
+Built after `base-ubuntu` and `desktop-ubuntu` in `.github/workflows/integration.yml`, since it
+`FROM`s the latter.
 
 A real build-and-boot integration test (a later step, mirroring
 `packages/hivemind/tests/integration/test_docker_backend.py`) must confirm, at minimum:

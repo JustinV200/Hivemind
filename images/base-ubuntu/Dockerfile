@@ -8,10 +8,9 @@
 # (codingrules section 8.6; scripts/check_no_model_ids.py's CI gate covers images/ too): model
 # access is entirely the Queen's own `[llm]` manifest, never anything baked into a Cell image.
 #
-# NOTE: Docker was not available in the environment that wrote this file. It has been reviewed
-# carefully by reading, not by building; the integration workflow (a later roadmap step, once a
-# Docker-enabled runner exists) is what proves it builds and runs. See the README's own "Building
-# and testing this image" section for exactly what that workflow must check.
+# NOTE: built and run for real (Docker Desktop in phase 5, a Linux daemon in phase 6), and built
+# nightly by .github/workflows/integration.yml; the README's own "Building and testing this image"
+# section says what that workflow checks.
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════
 # Stage 1: builder -- uv, the workspace lockfile, and exactly the "hivemind" package's own
@@ -21,22 +20,24 @@
 # ══════════════════════════════════════════════════════════════════════════════════════════════
 FROM ubuntu:24.04 AS builder
 
-# ca-certificates: TLS for the uv installer and for PyPI; curl: fetches the installer.
-# python3/python3-venv: the interpreter uv's own venv wraps (codingrules section 2: Python 3.12+;
-# Ubuntu 24.04's default python3 is 3.12).
+# ca-certificates: TLS for PyPI. python3/python3-venv: the interpreter uv's own venv wraps
+# (codingrules section 2: Python 3.12+; Ubuntu 24.04's default python3 is 3.12), and the venv the
+# uv bootstrap below installs into.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        curl \
         python3 \
         python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# uv itself (codingrules section 2: "never pip install by hand"), from astral's own installer,
-# into a fixed location so PATH does not depend on which shell profile ran it.
-ENV UV_INSTALL_DIR=/usr/local/bin
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/usr/local/bin:${PATH}"
+# uv itself, bootstrapped once from PyPI into a throwaway venv and linked onto PATH. codingrules
+# section 2's "never pip install by hand" is about the Hive's own dependencies, which uv resolves
+# from uv.lock below; this is the one tool that does that. It replaced `curl ... | sh`: a failed
+# download there exits 0 (the pipeline's status is the shell's), so the build went on and failed
+# much later with a misleading "uv: not found" (found building this image for phase 6).
+RUN python3 -m venv /opt/uv-bootstrap \
+    && /opt/uv-bootstrap/bin/pip install --no-cache-dir "uv>=0.8.17" \
+    && ln -s /opt/uv-bootstrap/bin/uv /usr/local/bin/uv
 
 WORKDIR /build
 
@@ -72,7 +73,7 @@ RUN uv sync --frozen --no-dev --no-editable --package hivemind
 # ══════════════════════════════════════════════════════════════════════════════════════════════
 FROM ubuntu:24.04 AS runtime
 
-# Only what the installed venv needs at run time: no compiler, no uv, no curl.
+# Only what the installed venv needs at run time: no compiler, no uv, no pip.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \

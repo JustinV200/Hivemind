@@ -36,7 +36,19 @@ jobs:
         with:
           enable-cache: true
           python-version-file: ".python-version"
-      - run: uv sync --frozen --all-groups --all-extras  # the docker extra: the SDK the Docker backend and its integration test import
+      # Every member's extras: `--all-extras` alone covers only the workspace root's (it has
+      # none), so until phase 6 the docker SDK never reached this job and the Docker tests skipped
+      # themselves ("no Docker daemon reachable") on every run. docker: the Docker backend's SDK;
+      # browser: Playwright, the Exoskeleton's fast path; whisper: in-process transcription.
+      - run: uv sync --frozen --all-groups --all-packages --all-extras
+      # roadmap phase 6: the Exoskeleton's X11 backends run on the Hive Stand itself (a Linux
+      # Real Cell with a lease-started display), so the runner needs the same toolchain
+      # images/desktop-ubuntu carries, plus Playwright's Chromium for the browser fast path.
+      - name: Install the Exoskeleton toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb openbox xdotool xauth x11-utils imagemagick pulseaudio pulseaudio-utils
+          uv run --frozen playwright install --with-deps chromium
       # Docker Cell backends (codingrules section 4: hive/backends/) need a live daemon; fail
       # fast with a clear message instead of letting the first integration test's own error stand
       # in for "the runner had no Docker".
@@ -48,13 +60,10 @@ jobs:
       # silently never proving the Docker backend against a real container on this runner.
       - name: Build images/base-ubuntu:dev
         run: docker build -f images/base-ubuntu/Dockerfile -t hivemind/base-ubuntu:dev .
-      # roadmap step 5.3a: images/night-veil-ubuntu builds FROM hivemind/base-ubuntu:dev, so it
-      # must come after that image exists. Built here (rather than only when a Night Veil
-      # integration test needs it) so a Dockerfile regression is caught the same night as any
-      # other image's, per this workflow's own "prove it builds" role (images/night-veil-ubuntu/
-      # README.md's own build command, repository root as build context).
-      - name: Build images/night-veil-ubuntu:dev
-        run: docker build -f images/night-veil-ubuntu/Dockerfile -t hivemind/night-veil-ubuntu:dev .
+      # roadmap step 6.1: images/desktop-ubuntu builds FROM hivemind/base-ubuntu:dev and is what
+      # the Exoskeleton's Docker integration tests provision.
+      - name: Build images/desktop-ubuntu:dev
+        run: docker build -f images/desktop-ubuntu/Dockerfile -t hivemind/desktop-ubuntu:dev .
       # No integration test existed until phase 5 added the first Docker Cell backend, and pytest
       # exits 5 ("no tests collected") when a marker selects nothing. Treat that one exit code as
       # success explicitly, rather than with `continue-on-error` (which would also swallow a real
@@ -70,3 +79,10 @@ jobs:
             exit 0
           fi
           exit "$status"
+      # roadmap step 5.3a: images/night-veil-ubuntu builds FROM hivemind/desktop-ubuntu:dev (since
+      # phase 6) and fetches Tor Browser from the Tor Project in its own verifying stage. Built
+      # after the tests, so an outage at the Tor Project fails this step without hiding every other
+      # integration result, and still built nightly so a Dockerfile regression is caught the same
+      # night as any other image's.
+      - name: Build images/night-veil-ubuntu:dev
+        run: docker build -f images/night-veil-ubuntu/Dockerfile -t hivemind/night-veil-ubuntu:dev .

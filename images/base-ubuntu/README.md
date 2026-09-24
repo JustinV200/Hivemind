@@ -51,12 +51,12 @@ actually reads the `TrailSegmentSync` chunks this image already sends.
 | # | Layer | Why |
 |---|---|---|
 | 1 | `ubuntu:24.04` (both stages) | codingrules section 2: every Virtual Cell image is Ubuntu LTS. |
-| 2 | `ca-certificates`, `curl`, `python3`, `python3-venv` (builder only) | TLS for the uv installer and PyPI, the installer itself, and the interpreter uv's venv wraps. Ubuntu 24.04's default `python3` is 3.12 (codingrules section 2: Python 3.12+). |
-| 3 | `uv`, from astral's own installer (builder only) | codingrules section 2: "never `pip install` by hand." |
+| 2 | `ca-certificates`, `python3`, `python3-venv` (builder only) | TLS for PyPI, and the interpreter uv's venv wraps. Ubuntu 24.04's default `python3` is 3.12 (codingrules section 2: Python 3.12+). |
+| 3 | `uv` (at least 0.8.17), bootstrapped from PyPI into a throwaway venv (builder only) | The one tool that installs the Hive's own dependencies from `uv.lock` (codingrules section 2). It replaced `curl ... \| sh`, whose pipeline exits 0 when the download fails, so a blocked or broken download surfaced only much later as "uv: not found". |
 | 4 | The workspace lockfile (`uv.lock`) and every member's own `pyproject.toml` | uv needs every `[tool.uv.workspace] members` entry on disk to resolve the workspace graph, even though only `hivemind`'s own closure gets installed. |
 | 5 | The `waggle` and `hivemind` source trees only | Not `pollen` (a different device's own connector) and not `packages/observation-web` (the browser front end): neither belongs inside a Virtual Cell. |
 | 6 | `uv sync --frozen --no-dev --no-editable --package hivemind` | Installs `hivemind` and its own dependency closure (`waggle`, transitively, via `packages/hivemind/pyproject.toml`'s own `dependencies`). `--frozen`: fail rather than silently re-resolve. `--no-dev`: never ruff/mypy/pytest/import-linter inside a shipped image. `--no-editable`: a built distribution, not a path-reference shim back into the builder stage's own source tree (the runtime stage copies only the resulting virtual environment). |
-| 7 | `ca-certificates`, `python3` (runtime stage) | Only what the installed venv needs to run; no compiler, no uv, no curl in the shipped image. |
+| 7 | `ca-certificates`, `python3` (runtime stage) | Only what the installed venv needs to run; no compiler, no uv, no pip in the shipped image. |
 | 8 | A non-root `hive` user, home directory and `/var/lib/hivemind/scratch` | Codingrules section 15: least privilege; nothing runs as root once installed. `/var/lib/hivemind/scratch` is `hivemind.cli.in_cell.config.DEFAULT_SCRATCH_ROOT`, where `InCellSpawnSource` creates each lease's own scratch subdirectory. |
 | 9 | The builder stage's venv, built at `/opt/hivemind/venv` (`UV_PROJECT_ENVIRONMENT`) so its console scripts' absolute shebangs are right in the shipped image, copied in and put on `PATH` | The only thing carried from the builder stage into the shipped image. |
 | 10 | No `EXPOSE` | Codingrules section 15: a Virtual Cell opens no inbound port. Every Waggle link is dialled **out**. |
