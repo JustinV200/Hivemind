@@ -1510,7 +1510,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   loopback-only routes; it is committed as `docs/entrance/openapi.json` and CI fails when the
   generated document differs. The Entrance also serves `packages/observation-web/`'s build as
   static files.
-- [ ] **10.5a Remote exposure.** `entrance/expose.py` and the `[entrance]` manifest section
+- [x] **10.5a Remote exposure.** `entrance/expose.py` and the `[entrance]` manifest section
   (coding rules 13): `expose = "loopback" | "vpn" | "lan" | "tunnel"`, `remote_bind`,
   `public_url`, `tls`, `mutual_tls`, `rate_limit_per_device`. `loopback` is the default and the
   loopback listener never goes away. `vpn` is the recommended remote path: the remote listener
@@ -1536,7 +1536,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   the Entrance through the committed OpenAPI document with a generic client and nothing else, so
   a third-party program written from the document alone is known to work. A Python client
   package is post-1.0.
-- [ ] **10.5d Device enrolment, approved at the Hive Stand.** `entrance/enrol/`: `hive entrance
+- [x] **10.5d Device enrolment, approved at the Hive Stand.** `entrance/enrol/`: `hive entrance
   invite --device "phone"` on loopback mints a short-lived, single-use invite shown as a code and
   a QR; the device opens the Entrance, presents the invite, generates its keypair and sends the
   public key with a self-description; the request lands in a pending table and is pushed to every
@@ -1551,6 +1551,8 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   (`INVITED → PENDING → APPROVED`, `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`,
   `→ REVOKED`) lives in `entrance/enrol/state.py` (Appendix C); every edge is a
   `guard.entrance_*` event (a trail kind has exactly one dot).
+  *The Observation Hive's approve and revoke screens are 12.8a's; the loopback routes they call
+  are these, and `hive entrance` drives the same routes today.*
 - [ ] **10.5e Login, sessions, step-up and the Entrance Reducer.** `entrance/auth/`: login is
   the device key (a passkey assertion with user verification, or a signed challenge) plus the
   operator password; sessions carry `session_ttl_hours` and `idle_timeout_minutes` and are bound
@@ -1695,7 +1697,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   operator's grant through `hive swarm access` (11.12); the Pollen Packet's `requested_access`
   is on the wire (`waggle.messages.swarm.enrolment`) for 11.1 and 11.3 to send and honour; the
   web screens are 12.4 and 12.6.*
-- [ ] **10.8 CLI.** `hive entrance invite|pending|approve|deny|devices|revoke|steward|
+- [x] **10.8 CLI.** `hive entrance invite|pending|approve|deny|devices|revoke|steward|
   reduce|open|status|expose|operator add`; `hive keys create|revoke|list` for Waggle-side
   principals; `hive run --remote`, `hive inbox --remote` (the CLI on a laptop is an enrolled
   device like any other).
