@@ -136,26 +136,12 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
         TravelLockUnavailableError: ``travel_lock`` is on where it cannot run.
     """
     port = int(loopback.getsockname()[1])
-    settings, clock = parts.settings, parts.clock
-    records = EnrolmentRecords(parts.tables.store, parts.tables.trail, clock, settings.identity)
-    sessions = SessionRules.from_section(settings.section, _origins(parts, port))
-    book = SessionBook(
-        records, sessions, SplitSessionTable(parts.tables.store.sessions, MemorySessionTable())
-    )
-    push = _push(parts)
-    sockets = SocketRegistry()
-    seams = EnrolmentSeams(
-        notifier=PushSecurityNotifier(push.outbox),
-        offboarder=EntranceOffboarder(book, push.dispatcher, sockets),
-        goals=QueenGoalLedger(parts.hive.reads.goal_requests, parts.hive.queen),
-    )
-    limiter = RateLimiter(
-        clock, settings.section.rate_limit_per_device, settings.section.rate_limit_per_address
-    )
-    shared = _Shared(records, book, seams, limiter, PasswordHasher())
+    push, sockets = _push(parts), SocketRegistry()
+    shared = _shared(parts, push, sockets, port)
     listeners = EntranceListeners(loopback, _remote_setup(parts))
-    reducer = EntranceReducer(records, book, ReducerSeams(listeners, sockets, seams.notifier))
-    hub = StreamHub(parts.tables.trail, clock, settings.poll_interval_s)
+    seams = ReducerSeams(listeners, sockets, shared.seams.notifier)
+    reducer = EntranceReducer(shared.records, shared.book, seams)
+    hub = StreamHub(parts.tables.trail, parts.clock, parts.settings.poll_interval_s)
     served = _listener_deps(parts, shared, port)
     services = EntranceServices(
         queen=parts.hive.queen,
@@ -165,17 +151,42 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
         guards=_guards(parts, shared, served[Listener.LOOPBACK].enrolment),
         reducer=reducer,
         streams=StreamServices(hub, sockets),
-        rules=EntranceRules(
-            step_up_spend=settings.section.step_up_spend,
-            goal_spend_cap_usd=settings.goal_spend_cap_usd,
-            steward_devices=settings.section.steward_devices,
-        ),
+        rules=_rules(parts),
         door=listeners,
-        clock=clock,
+        clock=parts.clock,
     )
     listeners.mount(_apps(parts, services, port))
-    workers = EntranceWorkers(hub, push.outbox, ReduceOrderFollower(hub, reducer, records.trail))
+    follower = ReduceOrderFollower(hub, reducer, shared.records.trail)
+    workers = EntranceWorkers(hub, push.outbox, follower)
     return BuiltEntrance(HiveEntrance(services, listeners, workers), PushHumanChannel(push.outbox))
+
+
+def _shared(parts: EntranceParts, push: _Push, sockets: SocketRegistry, port: int) -> _Shared:
+    """Build what both listeners share: the records, the session book, the seams, the limits."""
+    settings, clock = parts.settings, parts.clock
+    records = EnrolmentRecords(parts.tables.store, parts.tables.trail, clock, settings.identity)
+    rules = SessionRules.from_section(settings.section, _origins(parts, port))
+    # The console's sessions stay in memory; every other device's are durable.
+    tables = SplitSessionTable(parts.tables.store.sessions, MemorySessionTable())
+    book = SessionBook(records, rules, tables)
+    seams = EnrolmentSeams(
+        notifier=PushSecurityNotifier(push.outbox),
+        offboarder=EntranceOffboarder(book, push.dispatcher, sockets),
+        goals=QueenGoalLedger(parts.hive.reads.goal_requests, parts.hive.queen),
+    )
+    section = settings.section
+    limiter = RateLimiter(clock, section.rate_limit_per_device, section.rate_limit_per_address)
+    return _Shared(records, book, seams, limiter, PasswordHasher())
+
+
+def _rules(parts: EntranceParts) -> EntranceRules:
+    """The thresholds routes decide with, from the manifest."""
+    section = parts.settings.section
+    return EntranceRules(
+        step_up_spend=section.step_up_spend,
+        goal_spend_cap_usd=parts.settings.goal_spend_cap_usd,
+        steward_devices=section.steward_devices,
+    )
 
 
 def _origins(parts: EntranceParts, port: int) -> dict[Listener, frozenset[str]]:

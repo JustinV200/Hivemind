@@ -351,3 +351,25 @@ way to be reached back from outside the CLI process otherwise, and `HiveStandSou
 random Cell id on every construction. `queen/cluster/test_orders.py` and `test_tick.py` gained
 RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.py` gained
 `NullWaxRetirer` and `destroy_virtual`'s own returned event id.
+
+## Command groups (phase 10 step 10.5)
+
+- `serve.py` -- `hive serve --manifest hive.toml`: runs the Queen, her Hive Stand Warden and the
+  Hive Entrance (the HTTP door) in one event loop until SIGINT or SIGTERM, which it owns. Before
+  anything listens it checks `[entrance]` against this host (`gather_facts`, `plan_exposure`: a
+  mode whose prerequisites do not hold exits 2 naming the rule) and binds the loopback listener
+  (a port it cannot bind exits 1). It prints where the loopback listener answers; the remote one
+  starts only while exposed and not reduced. A bare command like `run`. The composition lives in
+  `compose/entrance.py`: `build_served_hive` is `build_hive`, and `serve_hive` binds the Hive's
+  `human_channel` relay (the Queen's `HumanChannel`) to the Entrance's push channel, opens its tables on
+  the Hive's own database file, loads its keys from the secret store (the Hive's Ed25519 key,
+  the Web Push keys with `HIVEMIND_ENTRANCE_VAPID_SUBJECT` or else `public_url` as the contact, and
+  in a remote mode the Hive's certificate authority), builds the Entrance and runs it inside
+  `run_hive`, stopping it (every socket, both listeners) before the Queen. `Hive` gained the
+  Hive's one `enforcer` and the Queen's `human_channel` relay, both additive.
+
+How to test it: `tests/unit/cli/test_serve.py` (the exit codes through `CliRunner`),
+`tests/unit/cli/compose/test_entrance.py` (loopback serves; lan without mutual TLS, vpn without TLS
+and tunnel without a command refuse; an unbindable loopback port refuses) and
+`tests/e2e/test_hive_serve.py` (a program enrolled, approved, running a goal and reading the
+Queen's reply over real sockets and the Hive's SQLite file).

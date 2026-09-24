@@ -6,7 +6,9 @@ composition root's own home, split from `hive.py`'s own 300-line budget into `li
 Queen<->Warden Waggle link this phase uses) and `deps.py` (every manifest-to-deps conversion,
 `WardenDeps` and `QueenDeps` included). `build_hive` is the one entry point every command that
 needs a running Hive (`hive run`, roadmap step 3.21) calls; `run_hive` and `run_goal` are the two
-things a caller does with what it returns.
+things a caller does with what it returns. `entrance.py` (roadmap step 10.5) composes `hive serve`:
+the same Hive plus the Hive Entrance; it is imported from its own module, not re-exported here, so
+`hive run` never loads the web stack.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.run` and by every test
@@ -15,8 +17,9 @@ Fits into the Hive:
     `hivemind.manifest`, `hivemind.pheromone`, `hivemind.queen`, `hivemind.wardens` and waggle.
 
 Key invariants:
-    - `build_hive` is the only function in this package (or below `cli`) that reads a
-      `HiveManifest` directly; every other collaborator it builds takes a manifest slice.
+    - `build_hive` and `hive serve`'s composition (`entrance.py`) are the only functions in this
+      package (or below `cli`) that read a `HiveManifest` directly; every collaborator they
+      build takes a manifest slice.
     - Nothing in this package branches on `cell.kind` or a provider's own `name`
       (`scripts/check_no_kind_branches.py`); see `hivemind.cli.compose.deps`'s own docstring for
       the one place a `kind` string (never a `CellKind`) does select a factory.
@@ -28,10 +31,11 @@ See Also:
       run_goal, the module every name below is re-exported from (bar HiveStores, from .deps).
     - hivemind.cli.compose.deps for the manifest-to-deps conversions build_hive composes.
     - hivemind.cli.compose.links for the Queen<->Warden Waggle link build_hive composes.
+    - hivemind.cli.compose.entrance for ServedHive, build_served_hive and serve_hive.
 
 Public API:
     - Hive: everything `hive run` needs a handle on (manifest, stores, registry, fanner, source,
-      warden, queen, warden_link, clock).
+      warden, queen, warden_link, clock, enforcer).
     - HiveStores: the trail, chamber and memory store one Hive shares a SQLite file for.
     - GoalReport: what `run_goal` returns.
     - build_hive: the one HiveManifest -> Hive composition function.

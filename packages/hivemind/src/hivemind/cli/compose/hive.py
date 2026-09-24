@@ -76,18 +76,13 @@ from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
+from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.forage import ForageMap
 from hivemind.guard import Enforcer
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
-from hivemind.queen import (
-    ForageLedger,
-    HumanChannel,
-    Queen,
-    WardenLink,
-    sync_answers_from_chamber,
-)
+from hivemind.queen import ForageLedger, Queen, WardenLink, sync_answers_from_chamber
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
@@ -119,6 +114,9 @@ class Hive:
         clock: The injected time source every collaborator above shares.
         enforcer: The Hive's one Guard Enforcer, the Queen's and the Hive Entrance's (roadmap
             step 10.5: `hive serve` hands it to the Entrance's route enforcement point).
+        human_channel: The Queen's HumanChannel: a relay that drops every call until `hive
+            serve` binds it to the Hive Entrance's push channel (`hive run` never does, which
+            is QueenDeps' own no-op default in effect).
         virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
             value, when `[virtual_cells] backend` is set; `None` otherwise, in which case
             `run_hive` touches nothing Virtual-Cell-related at all (roadmap step 5.6).
@@ -134,6 +132,7 @@ class Hive:
     warden_link: WardenLink
     clock: Clock
     enforcer: Enforcer
+    human_channel: HumanChannelRelay
     virtual_cells: VirtualCellsParts | None = None
 
 
@@ -170,7 +169,6 @@ def build_hive(
     clock: Clock,
     stores: HiveStores | None = None,
     responders: Mapping[str, Responder] | None = None,
-    human_channel: HumanChannel | None = None,
 ) -> Hive:
     """Turn a loaded Hive Manifest into a running Hive's every collaborator, not yet started.
 
@@ -188,9 +186,6 @@ def build_hive(
             SQLite, `[hive] db`) when omitted.
         responders: Installed on every `kind = "fake"` provider this Hive constructs
             (`hivemind.cli.compose.deps.build_provider_registry`); `None` in production.
-        human_channel: How the Queen tells the human's devices something is waiting (`hive
-            serve` passes a relay to the Hive Entrance's push channel); `None` keeps
-            `QueenDeps`'s own no-op default, as `hive run` does.
 
     Returns:
         A Hive not yet started (no lease, no tick, no Warden attached); pass it to `run_hive`.
@@ -215,12 +210,7 @@ def build_hive(
         clock=clock,
         enforcer=build_enforcer(manifest, hive_stores.trail, clock),  # Roadmap step 10.3.
     )
-    extras = _AssemblyExtras(
-        forage_map=forage_map,
-        ledger=ledger,
-        virtual_cells=virtual_cells,
-        human_channel=human_channel,
-    )
+    extras = _AssemblyExtras(forage_map=forage_map, ledger=ledger, virtual_cells=virtual_cells)
     return _assemble_hive(parts, source, links, extras)
 
 
@@ -262,7 +252,6 @@ class _AssemblyExtras:
     forage_map: ForageMap
     ledger: ForageLedger
     virtual_cells: VirtualCellsParts | None
-    human_channel: HumanChannel | None = None
 
 
 def _assemble_hive(
@@ -271,10 +260,10 @@ def _assemble_hive(
     """Build the Warden and Queen from `parts` and wrap them as a Hive; `run_hive` attaches."""
     warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
     queen_deps = build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells)
-    if extras.human_channel is not None:
-        # Roadmap step 10.5: `hive serve`'s relay to the Entrance's push channel.
-        queen_deps = replace(queen_deps, human_channel=extras.human_channel)
-    queen = Queen(queen_deps)
+    # Roadmap step 10.5: the Queen tells devices through a relay `hive serve` binds to the
+    # Entrance's push channel once that exists (the Entrance is built inside the event loop).
+    relay = HumanChannelRelay()
+    queen = Queen(replace(queen_deps, human_channel=relay))
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
@@ -290,6 +279,7 @@ def _assemble_hive(
         warden_link=links.queen_link,
         clock=parts.clock,
         enforcer=parts.enforcer,
+        human_channel=relay,
         virtual_cells=extras.virtual_cells,
     )
 

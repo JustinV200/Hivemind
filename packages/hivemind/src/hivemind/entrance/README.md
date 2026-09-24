@@ -6,69 +6,95 @@ device enrolment, auth, push delivery, exposure control and the human inbox. App
 exist on the remote listener. Every client, the Hive Stand's own console included, is a device
 enrolled with its own key and approved at the Hive Stand, and logs in with that key plus the
 operator's password (codingrules 8.15, `docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md`).
+It runs inside `hive serve`, in the Queen's own process and event loop (ADR-0032), and every write
+it makes into the Hive goes through the Queen's door.
 
-Roadmap steps 10.4, 10.5a (remote exposure), 10.5b (push), 10.5d (device enrolment, both
-halves) and 10.5e (login, sessions, step-up and the Entrance Reducer) landed what is below; the
-listeners and routes are later steps of phase 10.
+Roadmap steps 10.4, 10.5a (remote exposure), 10.5b (push), 10.5d (device enrolment), 10.5e
+(login, sessions, step-up and the Entrance Reducer) and 10.5 (the application, its routes, streams
+and runtime, `hive serve`) landed what is below.
 
 ## Layout
 
 | Package | What it holds |
 |---|---|
 | `errors.py` | `EntranceError` and every refusal, each also in its `hivemind.common.errors` category. |
-| `auth/` | Credential primitives (the signed strings, device keys, networks, Argon2id passwords, the wrapped console key, WebAuthn, the `ChallengeBook`, `SoftPasskey`) and the flows built on them: `session/` (sessions bound to a key, every request signed, a socket's first frame), `login/` (the key proof first, then the password; lockout), `step_up/` (when, how, break-glass phrases), `confirm/` (pending confirmations), `limits/` (rate limits, the denial-burst lock), `travel/` (the travel lock over tailscaled). |
-| `enrol/` | Device enrolment: the enrolled-device model and its state machine, the operator/console bootstrap, invites, redemption by Ed25519 key or passkey, approval and denial, revocation, lock, unlock and the expiry sweep, the device-ceiling and steward rules, and the seams later steps implement. |
-| `reducer.py` | The Entrance Reducer: `EntranceMode` (`OPEN` and `REDUCED`, persisted), `reduce` (ends every remote session, stops the remote listener, closes remote sockets), `reopen` (loopback only, after step-up), `start_mode` (a restart comes back reduced). |
-| `store/` | The Entrance tables: `EntranceStore`, its SQLite and in-memory implementations, and the sessions, logins, pending-confirmation and mode tables; every status change is written with its `guard.*` trail event in one transaction. |
-| `push/` | The push channels (roadmap 10.5b); its own README. |
-| `expose/` | Remote exposure (roadmap 10.5a): the pure mode check over gathered host facts (vpn, lan, tunnel; never public), the Hive's own certificate authority and the mutual-TLS context rebuilt on every revocation, the supervised tunnel client, the loopback listener's Host and forwarding-header check; its own README. |
-| `routes/` | A skeleton, populated when the Entrance app and its listeners land. |
+| `auth/` | Credential primitives (the signed strings, device keys, networks, Argon2id passwords, the wrapped console key, WebAuthn, the `ChallengeBook`, `SoftPasskey`) and the flows built on them: `session/` (sessions bound to a key, every request signed, a socket's first frame, `guard.entrance_login` and `guard.entrance_session_ended`), `login/`, `step_up/`, `confirm/` (pending confirmations and their `guard.entrance_held` / `_confirmed` / `_hold_ended` events), `limits/` (rate limits, the denial-burst lock), `travel/` (the travel lock over tailscaled). |
+| `enrol/` | Device enrolment: the enrolled-device model and its state machine, the operator/console bootstrap, invites, redemption by Ed25519 key or passkey, approval, denial and re-granting, revocation, lock, unlock and the expiry sweep, and the seams the runtime implements (`SecurityNotifier`, `DeviceOffboarder`, `GoalLedger`). |
+| `reducer.py` | The Entrance Reducer: `EntranceMode` (`OPEN`, `REDUCED`, persisted), `reduce` (ends every remote session, tells every remote socket why, stops the remote listener), `reopen` (loopback only, after step-up), `start_mode`. |
+| `store/` | The Entrance tables; every change is written with its `guard.*` trail event in one transaction. |
+| `push/` | The push channels (webhooks, Web Push, the live socket hub, the dispatcher); its own README. |
+| `expose/` | Remote exposure: the pure mode check, the Hive's certificate authority and the mutual-TLS context, the tunnel client, the loopback Host check; its own README. |
+| `gate/` | What every request passes: the route table's rows (`spec`), the ASGI wrappers (`middleware`: security headers, the loopback check, the per-address limit, the body limit), admission (`admit`: the signed request, the per-device limit, the travel lock, each capability at `EnforcementPoint.ENTRANCE_ROUTE`), step-up, the error handlers, and the services a route is handed. |
+| `models/` | The Landing Board's request and response models, one module per resource. |
+| `routes/` | One module per resource, each declaring its rows; `registry` lists them; its own README holds the route table. |
+| `streams/` | The live views: `StreamHub` (one trail follower, bounded queues), the socket registry and lifecycle, the chat, push and security views, and the follower obeying a Guard Bee's `guard.reduce_ordered`. |
+| `notify/` | `PushOutbox` (notices off the caller's path, ordered per ref), `PushHumanChannel` (the Queen's `HumanChannel`), `PushSecurityNotifier`, `HumanChannelRelay`. |
+| `app.py` | Builds both FastAPI applications from one route table (the remote one mounts only `REMOTE` rows). |
+| `landing_board.py` | Generates the OpenAPI document (`docs/entrance/openapi.json`) from the same table. |
+| `runtime/` | `build_entrance` (the wiring), `HiveEntrance` (start-up checks, both listeners, background work, a clean stop), the listeners on uvicorn, the TLS context, the offboarder and goal ledger. |
+
+## How a request travels
+
+```
+socket (bound by the Entrance) ── uvicorn, in the Hive's loop
+   │
+   ▼
+SecurityHeaders ─► LoopbackGate (loopback only: Host, no forwarding header; bare 403)
+   │                 ─► AddressLimit (per address) ─► BodyLimit ─► FastAPI (CORS: public_url, remote only)
+   ▼
+route row ── public? ──────────────────────────────► endpoint
+   │ authenticated
+   ▼
+gate_for(access): authenticate_request (token + binding-key signature over the request exactly as
+sent, fresh timestamp, single-use nonce, the listener it was opened on, an APPROVED device)
+   ─► per-device limit ─► travel lock ─► Enforcer.check at ENTRANCE_ROUTE (a denial: guard.denied,
+      and a count toward the burst lock) ─► honey:clearance:c2 for personal content
+   ▼
+endpoint ── writes through the Queen's door (request_goal, post_human_message, answer_question, ...)
+         └─ or an Entrance flow (invite, approve, lock, revoke, reduce, hold, confirm)
+```
+
+A WebSocket view authenticates its first frame (within five seconds) the same way, then races the
+view, the client, the socket registry (a logout, a lock, a revocation or a reduction closes it with
+its reason) and a session watchdog.
 
 ## Public API
 
-The face (`hivemind.entrance`) re-exports what most callers need; each sub-package's own face
-lists the rest.
+The face (`hivemind.entrance`) re-exports the credential primitives, the enrolled-device model,
+enrolment, the tables, login and sessions, and the Reducer, as before; the application and the
+runtime are reached through their own modules, so importing the face never loads FastAPI:
 
-- `EntranceError` and its subclasses: every refusal the Entrance makes on purpose.
-- `KeyKind`, `PasswordHasher`, `RelyingParty`, `SoftPasskey`, `ChallengeBook`: the credential
-  primitives.
-- `DeviceStatus`, `EnrolledDevice`, `DeviceDescription`, `DeviceInvite`, `OperatorCredential`:
-  the enrolled-device model and its state machine.
-- `ConsoleDeps`, `bootstrap_operator`, `change_operator_password`, `unlock_console_key`: the
-  operator and the Hive Stand console.
-- `EnrolmentDeps`, `EntranceIdentity`, `mint_invite`, `cancel_invite`, `passkey_options`,
-  `redeem_ed25519`, `redeem_passkey`, `Ed25519Proof`, `ApprovalRequest`, `approve`, `deny`,
-  `revoke`, `lock`, `unlock`, `LockReason`, `expire_due`, `steward_grant`: device enrolment.
-- `EntranceStore`, `SqliteEntranceStore`, `MemoryEntranceStore`, `SplitSessionTable`: the
-  Entrance tables.
-- `SessionBook`, `SessionRules`, `AuthDeps`, `begin_login`, `finish_login`,
-  `authenticate_request`, `authenticate_websocket`, `step_up`, `requires_step_up`, `hold`,
-  `confirm`: login, sessions, step-up and pending confirmations.
-- `EntranceReducer`, `EntranceMode`, `ReduceReason`, `ReducerSeams`, `RemoteListenerControl`,
-  `StreamCloser`: the Entrance Reducer.
+- `hivemind.entrance.runtime`: `EntranceParts` (and its `EntranceSettings`, `EntranceTables`,
+  `EntranceHive`, `EntranceKeys`), `build_entrance`, `BuiltEntrance`, `HiveEntrance`,
+  `EntranceListeners`, `ListenerServer`, `bind_listener`, `RemoteTls`.
+- `hivemind.entrance.app`: `route_table`, `build_listener_app`, `ListenerOptions`, `OPENAPI_PATH`.
+- `hivemind.entrance.landing_board`: `openapi_document`, `render_document`, `write_document`,
+  `DOCUMENT_PATH`.
+- `hivemind.entrance.gate`, `hivemind.entrance.streams`, `hivemind.entrance.notify`: their faces
+  list every name.
 
 Nothing in the Entrance stores a password, an invite code, a session token or a private key in
-the clear: the tables hold an Argon2id hash and public keys, invites and sessions are stored as
-the SHA-256 of their code or token, and the console's private key sits in the secret store sealed
-under the operator password (its sessions are kept in memory only). No
-trail event carries a code, a key, a signature or a password either; a test walks a whole
-enrolment lifecycle and checks every event for each of them.
+the clear, and no log line or trail event carries a code, a key, a token, a signature, a password
+or a human's words.
 
 ## How to test this
 
 ```bash
 uv run --frozen pytest packages/hivemind/tests/unit/entrance \
     packages/hivemind/tests/contracts/test_entrance_store_contract.py \
+    packages/hivemind/tests/contracts/test_entrance_grant_contract.py \
     packages/hivemind/tests/contracts/test_entrance_session_table_contract.py \
-    packages/hivemind/tests/contracts/test_entrance_auth_tables_contract.py
+    packages/hivemind/tests/contracts/test_entrance_auth_tables_contract.py \
+    packages/hivemind/tests/unit/cli/compose/test_entrance.py \
+    packages/hivemind/tests/unit/cli/test_serve.py \
+    packages/hivemind/tests/e2e/test_hive_serve.py
 ```
 
-The password, wrapping and console tests run the real 64 MiB Argon2id (about a tenth of a second
-per derivation), so they take a few seconds. `tests/unit/entrance/enrol/test_flow.py` runs the
-whole lifecycle (console bootstrap, a program and a browser enrolling, approval, lock, unlock,
-revocation, expiry, a refused replay) over in-memory tables and over one real SQLite file;
-`tests/unit/entrance/auth/test_flow.py` does the same for authentication (the real console
-bootstrap, logins, a held request confirmed after a real step-up, a reduction, a restart that
-comes back reduced, a reopening). Passkey tests need no browser: `SoftPasskey` answers the
-Entrance's options exactly as a browser's `PublicKeyCredential.toJSON()` would, and the real
-`webauthn` verification checks it.
+The route, gate, stream and runtime tests run a real Entrance (`builders.entrance.serving`): uvicorn
+on loopback ports over a real Queen, push deliveries to a recording fake push service, and a device
+client (`builders.entrance.landing`) that enrols (Ed25519 or passkey), logs in and signs exactly as a
+program or a browser does. `tests/e2e/test_hive_serve.py` runs `hive serve`'s own composition over
+the Hive's SQLite file with a scripted provider: the console approves a program, which submits a
+goal the Hive finishes and reads the Queen's reply. After changing a route or a model, run
+`uv run --frozen python scripts/write_landing_board.py` and commit `docs/entrance/openapi.json`;
+the drift test fails until you do.

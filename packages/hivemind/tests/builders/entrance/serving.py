@@ -127,13 +127,15 @@ class ServingRig:
     deps: QueenDeps
     warden_end: WardenEnd
     store: MemoryEntranceStore
-    push_store: MemorySubscriptionStore
     push_service: Recorder
-    resolver: StaticResolver
     console: DeviceKey
     clock: SystemClock
-    hive_id: str
     http: list[httpx.AsyncClient] = field(default_factory=list)
+
+    @property
+    def hive_id(self) -> str:
+        """The Hive every signed string names."""
+        return self.deps.identity.hive_id
 
     @property
     def loopback_url(self) -> str:
@@ -240,21 +242,14 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
     )
     queen = Queen(deps)
     await queen.attach_warden(link)
-    store = MemoryEntranceStore(deps.trail)
-    push_store = MemorySubscriptionStore()
+    store, push_store = MemoryEntranceStore(deps.trail), MemorySubscriptionStore()
     console = await _console(store, clock)
-    recorder = Recorder(*active.push_statuses)
-    resolver = StaticResolver()
+    recorder, resolver = Recorder(*active.push_statuses), StaticResolver()
     async with recorder.client() as push_http:
         parts = EntranceParts(
             settings=_settings(deps, active),
             tables=EntranceTables(store=store, push=push_store, trail=deps.trail),
-            hive=EntranceHive(
-                queen=queen,
-                reads=HiveReads(deps.goal_requests, deps.chat, deps.chamber),
-                enforcer=deps.enforcer,
-                policy=deps.enforcer.policy,
-            ),
+            hive=_hive(queen, deps),
             keys=await _keys(clock),
             clock=clock,
             http=push_http,
@@ -269,22 +264,36 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             deps=deps,
             warden_end=warden_end,
             store=store,
-            push_store=push_store,
             push_service=recorder,
-            resolver=resolver,
             console=console,
             clock=clock,
-            hive_id=deps.identity.hive_id,
         )
-        async with asyncio.TaskGroup() as group:
-            group.create_task(built.entrance.run())
-            try:
-                await built.entrance.wait_running()
-                yield rig
-            finally:
-                for http in rig.http:
-                    await http.aclose()
-                await built.entrance.stop()
+        async with _running(rig):
+            yield rig
+
+
+def _hive(queen: Queen, deps: QueenDeps) -> EntranceHive:
+    """The Hive as the Entrance sees it: the Queen's door, her stores, her enforcer."""
+    return EntranceHive(
+        queen=queen,
+        reads=HiveReads(deps.goal_requests, deps.chat, deps.chamber),
+        enforcer=deps.enforcer,
+        policy=deps.enforcer.policy,
+    )
+
+
+@asynccontextmanager
+async def _running(rig: ServingRig) -> AsyncIterator[None]:
+    """Run the rig's Entrance in a task group; close the rig's clients and stop it on exit."""
+    async with asyncio.TaskGroup() as group:
+        group.create_task(rig.entrance.run())
+        try:
+            await rig.entrance.wait_running()
+            yield
+        finally:
+            for http in rig.http:
+                await http.aclose()
+            await rig.entrance.stop()
 
 
 def _settings(deps: QueenDeps, options: RigOptions) -> EntranceSettings:

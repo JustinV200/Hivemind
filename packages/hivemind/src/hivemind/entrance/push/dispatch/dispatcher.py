@@ -33,7 +33,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 
 from hivemind.common.logging import get_logger
 from hivemind.entrance.enrol import EnrolledDevice
@@ -150,7 +150,9 @@ class PushDispatcher:
                 for subscription in await self._store.list_all()
                 if subscription.device_id in audience.device_ids
             ]
-            report = await self._send(notice, subscriptions, audience.device_ids, record=True)
+            # Deliver through the courier, then settle: delete what is gone, record what arrived.
+            report = await self._courier.deliver(notice, subscriptions, audience.device_ids)
+            await self._courier.settle(report, subscriptions, record=True)
             self._live_recipients.add(notice.ref, report.live_devices)
         return report
 
@@ -168,7 +170,8 @@ class PushDispatcher:
         async with self._ref_locks.hold(ref):
             recipients = await self._store.recipients(ref)
             live = self._live_recipients.take(ref)
-            report = await self._send(notice, recipients, live, record=False)
+            report = await self._courier.deliver(notice, recipients, live)
+            await self._courier.settle(report, recipients, record=False)
             # Withdrawn is final: the log's rows for this ref have done their job.
             await self._store.forget_ref(ref)
         log.info(
@@ -259,16 +262,3 @@ class PushDispatcher:
             await self._store.delete(same.id)
         await self._store.add(subscription)
         return subscription
-
-    async def _send(
-        self,
-        notice: PushNotice,
-        subscriptions: Sequence[Subscription],
-        live_devices: frozenset[DeviceId],
-        *,
-        record: bool,
-    ) -> PushReport:
-        """Deliver through the courier, then settle: delete what is gone, record what arrived."""
-        report = await self._courier.deliver(notice, subscriptions, live_devices)
-        await self._courier.settle(report, subscriptions, record=record)
-        return report

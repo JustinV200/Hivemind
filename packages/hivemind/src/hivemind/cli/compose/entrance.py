@@ -2,8 +2,8 @@
 
 `hive serve` runs the Queen (the central orchestrator), her Warden and the Hive Entrance (the Hive's
 one HTTP door) in one event loop (ADR-0032). `build_served_hive` builds the Hive exactly as
-`build_hive` does, the Queen's `HumanChannel` being a relay the Entrance's push channel is bound to
-once it exists; `serve_hive` then, in the running loop, checks `[entrance]` against this host
+`build_hive` does (its Queen's `HumanChannel` is a relay, bound to the Entrance's push channel once
+that exists); `serve_hive` then, in the running loop, checks `[entrance]` against this host
 (`gather_facts`, then `plan_exposure`, which refuses a mode whose prerequisites do not hold), binds
 the loopback listener's socket (a loopback listener that cannot bind refuses to start), opens the
 Entrance's tables on the Hive's own `[hive] db` file, loads the keys from the secret store (the
@@ -53,7 +53,6 @@ from hivemind.entrance.expose import (
     tunnel_environment,
 )
 from hivemind.entrance.gate import HiveReads
-from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.push import (
     Resolver,
     SqliteSubscriptionStore,
@@ -94,15 +93,14 @@ class ServedHive:
     """A Hive built for `hive serve`, not yet started.
 
     Attributes:
-        hive: The Hive `build_hive` built, its Queen holding the relay as her HumanChannel.
-        relay: The Queen's HumanChannel, bound to the Entrance's push channel by `serve_hive`.
+        hive: The Hive `build_hive` built; `serve_hive` binds its `human_channel` relay to the
+            Entrance's push channel.
         environ: The composition root's environment: the Web Push key and contact, the tunnel's.
         interfaces: This host's interfaces; the kernel's unless a test injects its own.
         resolver: Resolves push destinations; the system resolver unless a test injects one.
     """
 
     hive: Hive
-    relay: HumanChannelRelay
     environ: Mapping[str, str] = field(repr=False)
     interfaces: LocalInterfaces = field(default_factory=SystemInterfaces)
     resolver: Resolver = system_resolver
@@ -115,7 +113,7 @@ def build_served_hive(
     clock: Clock,
     responders: Mapping[str, Responder] | None = None,
 ) -> ServedHive:
-    """Build the Hive `hive serve` runs: `build_hive`'s, the Queen telling devices through a relay.
+    """Build the Hive `hive serve` runs: exactly `build_hive`'s, not yet started.
 
     Must run outside any event loop, like `build_hive` itself.
 
@@ -126,13 +124,10 @@ def build_served_hive(
         responders: Installed on every `kind = "fake"` provider; None in production.
 
     Returns:
-        The Hive and the relay, not yet started.
+        The Hive, not yet started.
     """
-    relay = HumanChannelRelay()
-    hive = build_hive(
-        manifest, environ=environ, clock=clock, responders=responders, human_channel=relay
-    )
-    return ServedHive(hive=hive, relay=relay, environ=environ)
+    hive = build_hive(manifest, environ=environ, clock=clock, responders=responders)
+    return ServedHive(hive=hive, environ=environ)
 
 
 @asynccontextmanager
@@ -173,7 +168,8 @@ async def serve_hive(served: ServedHive) -> AsyncIterator[HiveEntrance]:
             resolver=served.resolver,
         )
         built = build_entrance(parts, loopback)
-        served.relay.bind(built.human_channel)
+        # From here on the Queen's calls reach the human's devices.
+        hive.human_channel.bind(built.human_channel)
         async with run_hive(hive), _running(built.entrance) as entrance:
             yield entrance
 

@@ -14,7 +14,11 @@ confirmations, lockout, rate limits and the travel lock (``auth``'s sub-packages
 the Entrance Reducer (``reducer``), the Entrance tables (``store``) and the error tree
 (``errors``). The push channels (``push``, roadmap 10.5b) and remote exposure (``expose``, 10.5a:
 the mode check, the Hive's own certificate authority for mutual TLS, the tunnel child, the
-loopback listener's Host check) have their own faces.
+loopback listener's Host check) have their own faces. The application itself (step 10.5) is
+reached through its own modules, so importing this face never loads the web stack: ``app`` (both
+listeners' applications from one route table), ``landing_board`` (the OpenAPI document),
+``runtime`` (``build_entrance`` and the running ``HiveEntrance``), and the ``gate``, ``models``,
+``routes``, ``streams`` and ``notify`` packages behind them.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an enrolled device or the Observation

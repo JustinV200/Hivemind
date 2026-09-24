@@ -251,14 +251,7 @@ class SessionBook:
         )
         # Latency: one local insert (or an in-memory one for the console).
         await self._tables.put(session)
-        payload: dict[str, JsonValue] = {
-            "listener": session.listener.value,
-            "address": session.address,
-            "network": session.network,
-            "binding": session.binding_kind.value,
-            "needs_step_up": session.needs_step_up,
-        }
-        await self._record(LOGIN_KIND, grant.device.id, payload, grant.device.id)
+        await _record_login(self._records, session)
         log.info(
             "entrance.session_opened", device_id=grant.device.id, listener=session.listener.value
         )
@@ -278,16 +271,16 @@ class SessionBook:
         session = await self._tables.get(hashed)
         if session is None or not session.is_open:
             return None
-        device = await self._device(session.device_id)
+        device = await _device(self._records, session.device_id)
         # Dead if it ran out, or its device is gone (a damaged file), not APPROVED or lapsed.
-        dead = self._lapse(session, now)
+        dead = _lapse(self._rules, session, now)
         if dead is None:
             dead = EndReason.NOT_APPROVED if device is None else _standing(device, now)
         if dead is not None or device is None:
             reason = dead or EndReason.NOT_APPROVED
             # Latency: one local session-table statement; only the call that ended it records it.
             if await self._tables.end(hashed, now, reason):
-                await self._ended(session.device_id, reason, session.listener, 1)
+                await _record_ended(self._records, session.device_id, reason, session.listener, 1)
             return None
         return LiveSession(session, device)
 
@@ -318,7 +311,9 @@ class SessionBook:
             session.token_hash, self._records.clock.now(), EndReason.LOGOUT
         )
         if ended:
-            await self._ended(session.device_id, EndReason.LOGOUT, session.listener, 1)
+            await _record_ended(
+                self._records, session.device_id, EndReason.LOGOUT, session.listener, 1
+            )
         return ended
 
     async def end_sessions(self, device_id: DeviceId, reason: DeviceStatus) -> int:
@@ -336,7 +331,7 @@ class SessionBook:
         # Latency: one local session-table statement.
         ended = await self._tables.end_for_device(device_id, now, end_reason)
         if ended:
-            await self._ended(device_id, end_reason, None, ended)
+            await _record_ended(self._records, device_id, end_reason, None, ended)
         log.info(
             "entrance.sessions_ended", device_id=device_id, reason=end_reason.value, ended=ended
         )
@@ -363,7 +358,7 @@ class SessionBook:
         # Many devices at once: the event is about the Hive whose door narrowed.
         if ended:
             hive_id = self._records.identity.hive_id
-            await self._ended(hive_id, EndReason.REDUCED, Listener.REMOTE, ended)
+            await _record_ended(self._records, hive_id, EndReason.REDUCED, Listener.REMOTE, ended)
         return ended
 
     async def revalidate(self) -> int:
@@ -383,41 +378,64 @@ class SessionBook:
                 ended += 1
         return ended
 
-    async def _ended(
-        self, subject_id: str, reason: EndReason, listener: Listener | None, sessions: int
-    ) -> None:
-        """Record ``guard.entrance_session_ended``: whose sessions, why, where, how many."""
-        payload: dict[str, JsonValue] = {
-            "reason": reason.value,
-            "listener": listener.value if listener is not None else None,
-            "sessions": sessions,
-        }
-        await self._record(SESSION_ENDED_KIND, subject_id, payload, None)
 
-    async def _record(
-        self, kind: str, subject_id: str, payload: dict[str, JsonValue], actor: str | None
-    ) -> None:
-        """Build and record one ``guard`` event stamped now, from the Entrance's identity."""
-        records = self._records
-        event = records.identity.event(records.clock, kind, subject_id, payload, actor)
-        # Latency: one local trail write, awaited so the record exists before the call returns.
-        await records.trail.record(event)
+async def _record_login(records: EnrolmentRecords, session: Session) -> None:
+    """Record ``guard.entrance_login``: the device, the listener, the address; never the token."""
+    payload: dict[str, JsonValue] = {
+        "listener": session.listener.value,
+        "address": session.address,
+        "network": session.network,
+        "binding": session.binding_kind.value,
+        "needs_step_up": session.needs_step_up,
+    }
+    await _record(records, LOGIN_KIND, session.device_id, payload, session.device_id)
 
-    def _lapse(self, session: Session, now: datetime) -> EndReason | None:
-        """Say whether ``session`` has run out: its absolute expiry, or its idle timeout."""
-        if now >= session.expires_at:
-            return EndReason.EXPIRED
-        if now >= session.last_seen_at + self._rules.idle_timeout:
-            return EndReason.IDLE
+
+async def _record_ended(
+    records: EnrolmentRecords,
+    subject_id: str,
+    reason: EndReason,
+    listener: Listener | None,
+    sessions: int,
+) -> None:
+    """Record ``guard.entrance_session_ended``: whose sessions, why, where, how many."""
+    payload: dict[str, JsonValue] = {
+        "reason": reason.value,
+        "listener": listener.value if listener is not None else None,
+        "sessions": sessions,
+    }
+    await _record(records, SESSION_ENDED_KIND, subject_id, payload, None)
+
+
+async def _record(
+    records: EnrolmentRecords,
+    kind: str,
+    subject_id: str,
+    payload: dict[str, JsonValue],
+    actor: str | None,
+) -> None:
+    """Build and record one ``guard`` event stamped now, from the Entrance's identity."""
+    event = records.identity.event(records.clock, kind, subject_id, payload, actor)
+    # Latency: one local trail write, awaited so the record exists before the call returns.
+    await records.trail.record(event)
+
+
+def _lapse(rules: SessionRules, session: Session, now: datetime) -> EndReason | None:
+    """Say whether ``session`` has run out: its absolute expiry, or its idle timeout."""
+    if now >= session.expires_at:
+        return EndReason.EXPIRED
+    if now >= session.last_seen_at + rules.idle_timeout:
+        return EndReason.IDLE
+    return None
+
+
+async def _device(records: EnrolmentRecords, device_id: DeviceId) -> EnrolledDevice | None:
+    """Read a session's device; None if the record is gone (a damaged file)."""
+    try:
+        # Latency: one local primary-key read.
+        return await records.store.get_device(device_id)
+    except DeviceNotFoundError:
         return None
-
-    async def _device(self, device_id: DeviceId) -> EnrolledDevice | None:
-        """Read a session's device; None if the record is gone (a damaged file)."""
-        try:
-            # Latency: one local primary-key read.
-            return await self._records.store.get_device(device_id)
-        except DeviceNotFoundError:
-            return None
 
 
 def _standing(device: EnrolledDevice, now: datetime) -> EndReason | None:

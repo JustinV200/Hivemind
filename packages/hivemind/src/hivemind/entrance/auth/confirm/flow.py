@@ -109,15 +109,7 @@ async def hold(
             or the action is break-glass (only an interactive device may ask for one).
         pydantic.ValidationError: The payload is too large.
     """
-    if device.interactive:
-        raise ConfirmationRefusedError(
-            f"Device {device.id} is interactive: it steps up itself instead of waiting."
-        )
-    if device.status is not DeviceStatus.APPROVED:
-        raise ConfirmationRefusedError(f"Device {device.id} is {device.status.name}, not APPROVED.")
-    # ADR-0033: break-glass only ever comes from an interactive device, so it is never held.
-    if action in BREAK_GLASS_ACTIONS or ttl <= timedelta(0):
-        raise ConfirmationRefusedError(f"{action.value} cannot be held for device {device.id}.")
+    _check_holdable(device, action, ttl)
     records = deps.records
     now = records.clock.now()
     pending = PendingConfirmation(
@@ -137,6 +129,19 @@ async def hold(
     await notify(deps, device.id, event)
     log.info("entrance.held", pending_id=pending.id, device_id=device.id, action=action.value)
     return pending.id
+
+
+def _check_holdable(device: EnrolledDevice, action: ActionKind, ttl: timedelta) -> None:
+    """Refuse a request that may not wait for a person: see ``hold``'s Raises."""
+    if device.interactive:
+        raise ConfirmationRefusedError(
+            f"Device {device.id} is interactive: it steps up itself instead of waiting."
+        )
+    if device.status is not DeviceStatus.APPROVED:
+        raise ConfirmationRefusedError(f"Device {device.id} is {device.status.name}, not APPROVED.")
+    # ADR-0033: break-glass only ever comes from an interactive device, so it is never held.
+    if action in BREAK_GLASS_ACTIONS or ttl <= timedelta(0):
+        raise ConfirmationRefusedError(f"{action.value} cannot be held for device {device.id}.")
 
 
 async def confirm(

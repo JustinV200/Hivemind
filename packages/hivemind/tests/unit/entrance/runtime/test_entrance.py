@@ -17,13 +17,14 @@ from __future__ import annotations
 import asyncio
 import time
 
+from builders.entrance import make_identity
 from builders.entrance.serving import ProgramGrant, RigOptions, serving
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 from hivemind.entrance.app import OPENAPI_PATH
 from hivemind.entrance.reducer import EntranceMode
-from hivemind.entrance.streams import CloseReason
+from hivemind.entrance.streams import REDUCE_ORDERED_KIND, CloseReason
 from hivemind.queen.chat import ChatKind, ChatQuery
 
 _STREAM = "/v1/entrance/stream"  # The security view: any observing device may open it.
@@ -79,3 +80,22 @@ async def test_a_remote_listener_that_cannot_start_reduces_and_raises_an_alarm()
     assert not rig.entrance.listeners.remote_listening
     assert len(alarms) == 1 and "remote listener failed" in alarms[0].text
     assert loopback.status_code == 200
+
+
+async def test_a_guard_bees_reduce_order_on_the_trail_reduces_the_entrance() -> None:
+    async with serving(RigOptions(remote=True)) as rig:
+        identity = make_identity(rig.clock)
+        order = identity.event(
+            rig.clock, REDUCE_ORDERED_KIND, rig.hive_id, {"reason": "failure_burst"}
+        )
+
+        await rig.deps.trail.record(order)
+        async with asyncio.timeout(2.0):
+            # The hub polls the trail; the order is obeyed within a poll or two.
+            while True:
+                if await rig.store.entrance_mode.get() is EntranceMode.REDUCED:
+                    break
+                await asyncio.sleep(0.02)
+        listening = rig.entrance.listeners.remote_listening
+
+    assert not listening

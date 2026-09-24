@@ -225,3 +225,15 @@ async def test_the_interactive_documentation_routes_do_not_exist() -> None:
         statuses = [(await http.get(path)).status_code for path in ("/docs", "/redoc")]
 
     assert statuses == [404, 404]
+
+
+async def test_an_address_past_its_rate_is_answered_429_before_any_route() -> None:
+    strict = RIG_SECTION.model_copy(update={"rate_limit_per_address": 2})
+    async with serving(RigOptions(section=strict)) as rig:
+        http = rig.client().http
+
+        statuses = [(await http.get(OPENAPI_PATH)).status_code for _ in range(3)]
+        last = await http.get(OPENAPI_PATH)
+
+    assert statuses == [200, 200, 429]
+    assert last.headers["content-security-policy"] == CONTENT_SECURITY_POLICY

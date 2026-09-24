@@ -1,14 +1,15 @@
 """Provide HumanChannelRelay: the Queen's HumanChannel before and after the Entrance is built.
 
-``hive serve`` builds the Queen first (the Hive ``hive run`` builds, synchronously), and the Hive
-Entrance's push side only inside the running event loop, where its tables open. The Queen is
-therefore handed this relay as her ``HumanChannel``, and the composition root points it at the
-Entrance's ``PushHumanChannel`` once that exists, before her first tick. A call that arrives with no
-target is dropped, which loses nothing: the chat and the trail hold everything a notice points at.
+The CLI builds the Queen first (synchronously, as ``hive run`` does), and ``hive serve`` builds the
+Hive Entrance's push side only inside the running event loop, where its tables open. Every Queen
+the CLI builds is therefore handed this relay as her ``HumanChannel``; ``hive serve`` points it at
+the Entrance's ``PushHumanChannel`` once that exists, before her first tick, and ``hive run`` never
+does. A call that arrives with no target is dropped, which loses nothing: the chat and the trail
+hold everything a notice points at.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.notify``. Built and bound
-    by the ``hive serve`` composition root; called by the Queen. Calls into its target only.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.notify``. Built by the
+    CLI's Hive composition, bound by ``hive serve``'s; called by the Queen. Calls into its target.
 
 Key invariants:
     - Every call is forwarded unchanged to the target, or dropped when there is none yet.

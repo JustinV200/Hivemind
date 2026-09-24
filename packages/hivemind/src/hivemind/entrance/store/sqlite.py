@@ -388,6 +388,14 @@ def _transition(
     return _rewrite(connection, device_id, apply, event)
 
 
+def _device_row(connection: sqlite3.Connection, device_id: DeviceId) -> sqlite3.Row:
+    """Read a device's row inside the caller's transaction; a missing device is refused."""
+    row: sqlite3.Row | None = connection.execute(_SELECT_DEVICE_SQL, (device_id,)).fetchone()
+    if row is None:
+        raise DeviceNotFoundError(device_id)
+    return row
+
+
 def _rewrite(
     connection: sqlite3.Connection,
     device_id: DeviceId,
@@ -396,9 +404,7 @@ def _rewrite(
 ) -> EnrolledDevice:
     """Re-read a device, apply one rule to it, and write the result and its event together."""
     with transaction(connection):
-        row = connection.execute(_SELECT_DEVICE_SQL, (device_id,)).fetchone()
-        if row is None:
-            raise DeviceNotFoundError(device_id)
+        row = _device_row(connection, device_id)
         updated = apply(EnrolledDevice.model_validate_json(row["body"]))
         connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), device_id))
         insert_event(connection, event)
@@ -408,9 +414,7 @@ def _rewrite(
 def _insert_invite(connection: sqlite3.Connection, invite: DeviceInvite) -> None:
     """Insert an invite for an existing INVITED device, checking in the protocol's order."""
     with transaction(connection):
-        row = connection.execute(_SELECT_DEVICE_SQL, (invite.device_id,)).fetchone()
-        if row is None:
-            raise DeviceNotFoundError(invite.device_id)
+        row = _device_row(connection, invite.device_id)
         taken = connection.execute(
             _INVITE_TAKEN_SQL, (invite.code_hash, invite.device_id)
         ).fetchone()
@@ -443,9 +447,7 @@ def _redeem(
         check_status_change(used.device_id, *pending, event)
         # An invite is only ever written for an existing device, and device rows are never
         # deleted; a missing one would be a damaged file, refused like any unknown device.
-        device_row = connection.execute(_SELECT_DEVICE_SQL, (used.device_id,)).fetchone()
-        if device_row is None:
-            raise DeviceNotFoundError(used.device_id)
+        device_row = _device_row(connection, used.device_id)
         current = EnrolledDevice.model_validate_json(device_row["body"])
         updated = transition_device(current, *pending, changes)
         connection.execute(_UPDATE_INVITE_SQL, (_body(used), code_hash))
@@ -463,9 +465,7 @@ def _login(
     """Re-read the device, apply the login rule, and write the result (its status unchanged)."""
     at, network = seen
     with transaction(connection):
-        row = connection.execute(_SELECT_DEVICE_SQL, (device_id,)).fetchone()
-        if row is None:
-            raise DeviceNotFoundError(device_id)
+        row = _device_row(connection, device_id)
         updated = apply_login(
             EnrolledDevice.model_validate_json(row["body"]), at, network, sign_count
         )
