@@ -5,8 +5,9 @@ directly, and never sees an SDK type: it calls this Protocol instead, which two 
 -- `hivemind.hive.backends.docker.sdk_client.SdkDockerClient` (the real thing, the only module
 that may `import docker`) and `hivemind.hive.backends.docker.fake.FakeDockerClient` (in-memory, for
 tests and `hive doctor`). Keeping the Protocol narrow (create/start/remove a container, create/
-remove a network, create/remove a volume, list containers by label, pause/unpause, commit a
-container to an image and recreate one from an image) rather than wrapping the whole Docker SDK
+remove a network, attach or detach one, create/remove a volume, list containers by label,
+pause/unpause, commit a container to an image and recreate one from an image) rather than wrapping
+the whole Docker SDK
 means a fake can implement it honestly in a few hundred lines, and it documents exactly what this
 backend relies on Docker for: nothing here does image builds, `docker exec` or log streaming.
 
@@ -14,6 +15,14 @@ Roadmap step 5.10 adds `commit_container`/`remove_image`/`recreate_from_image`: 
 `hivemind.hive.snapshot.docker.DockerSnapshotter` needs for Capping's whole-Cell rollback
 (`hivemind.cell.snapshot.Snapshotter`), reusing this same Protocol and its two implementations
 rather than opening a second door to Docker.
+
+Roadmap step 10.6a adds the network slice isolation needs, as `DockerNetworkPort`, the base
+`DockerClientPort` extends (it holds the two network calls that were already here, beside the
+three new ones, so each Protocol stays within the class limit): `ensure_network` (the per-Hive
+control network every Cell's Waggle link rides, created once and then reused), and
+`connect_network`/`disconnect_network`, the runtime lever that attaches a running container to
+its egress network or takes it off again (`hivemind.hive.backends.docker.egress`).
+`ContainerInfo.networks` says which networks a container is on now, so that lever is idempotent.
 
 The value types below (`ContainerSpec`, `ContainerInfo`, `NetworkSpec`, `VolumeSpec`,
 `CommitResult`) are this Protocol's own request/response shapes: frozen dataclasses (codingrules
@@ -36,6 +45,8 @@ Key invariants:
     - Every `remove_*` method is idempotent: removing a container, network or volume that does not
       exist returns normally, never raises `DockerClientError` -- `DockerCellBackend.destroy`'s own
       idempotency (codingrules Appendix A.1) depends on that, and both implementations honour it.
+    - `connect_network`/`disconnect_network` are idempotent too: attaching an attached container,
+      or detaching a detached one, returns normally, so a repeated cut or restore changes nothing.
     - `DockerClientError` is the only exception any method raises for an operation that genuinely
       failed; `hivemind.hive.backends.docker.backend` is what translates it into
       `hivemind.hive.errors.CellProvisionError`/`CellDestroyError`, so this Protocol itself stays
@@ -60,6 +71,7 @@ __all__ = [
     "ContainerSpec",
     "DockerClientError",
     "DockerClientPort",
+    "DockerNetworkPort",
     "NetworkSpec",
     "VolumeSpec",
 ]
@@ -137,6 +149,8 @@ class ContainerInfo:
         status: Docker's own status string (`"running"`, `"paused"`, `"exited"`, ...).
         labels: Every label on the container.
         created_at: When Docker created it.
+        networks: The name of every network the container is attached to right now (roadmap step
+            10.6a: an isolated Cell is on its control network alone).
     """
 
     id: str
@@ -144,6 +158,7 @@ class ContainerInfo:
     status: str
     labels: Mapping[str, str]
     created_at: datetime
+    networks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,11 +173,21 @@ class NetworkSpec:
             this does and does not block, including the Docker Desktop caveat).
         labels: Labels to stamp on the network, for `list_cells`-independent cleanup by an
             operator's own `docker network ls --filter label=...`.
+        subnet: The IPv4 subnet the daemon must give the network, in CIDR form, or None to let it
+            choose one (every per-Cell network). The control network fixes it, so the Queen's
+            listener can bind its gateway before any Cell exists.
+        gateway: The host's own address on the network (the bridge's), or None to let the daemon
+            choose; set together with `subnet`.
+        isolates_peers: True turns inter-container traffic on the bridge off, so the containers on
+            it cannot reach one another, only the host (the per-Hive control network).
     """
 
     name: str
     internal: bool
     labels: Mapping[str, str]
+    subnet: str | None = None
+    gateway: str | None = None
+    isolates_peers: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +220,81 @@ class CommitResult:
     size_bytes: int
 
 
-class DockerClientPort(Protocol):
+class DockerNetworkPort(Protocol):
+    """The network slice of `DockerClientPort`: create, reuse, remove, attach and detach.
+
+    A base Protocol of its own (module docstring) so `DockerClientPort` stays within the class
+    limit; every `DockerClientPort` implementation implements these too.
+    """
+
+    async def create_network(self, spec: NetworkSpec) -> str:
+        """Create a bridge network from `spec`.
+
+        Args:
+            spec: The network's name, internal flag and labels.
+
+        Returns:
+            Docker's own network id.
+
+        Raises:
+            DockerClientError: The daemon refused or failed to create it.
+        """
+        ...
+
+    async def remove_network(self, name: str) -> None:
+        """Remove a network by name. Idempotent: a missing `name` returns normally, not an error.
+
+        Args:
+            name: The network's name.
+
+        Raises:
+            DockerClientError: The daemon acknowledged the network exists but refused to remove it
+                (e.g. a container is still attached).
+        """
+        ...
+
+    async def ensure_network(self, spec: NetworkSpec) -> str:
+        """Create `spec` unless a network of its name exists; reuse that one when it matches.
+
+        Args:
+            spec: The network's name, internal flag, subnet, gateway and labels.
+
+        Returns:
+            Docker's own network id, the existing network's or the new one's.
+
+        Raises:
+            DockerClientError: The daemon refused or failed to create it, or a network of that
+                name exists with a different internal flag, subnet or gateway: a Cell is never
+                attached to a network that does not enforce what `spec` says.
+        """
+        ...
+
+    async def connect_network(self, network: str, container: str) -> None:
+        """Attach `container` to `network`. Idempotent: an attached container returns normally.
+
+        Args:
+            network: The network's name.
+            container: The container's name.
+
+        Raises:
+            DockerClientError: Either does not exist, or the daemon refused the attachment.
+        """
+        ...
+
+    async def disconnect_network(self, network: str, container: str) -> None:
+        """Detach `container` from `network`. Idempotent: a detached one returns normally.
+
+        Args:
+            network: The network's name.
+            container: The container's name.
+
+        Raises:
+            DockerClientError: The container does not exist, or the daemon refused.
+        """
+        ...
+
+
+class DockerClientPort(DockerNetworkPort, Protocol):
     """The slice of the Docker API DockerCellBackend needs, with no SDK type in sight.
 
     Implementations must be safe to call concurrently: `DockerCellBackend.provision` may run
@@ -276,32 +375,6 @@ class DockerClientPort(Protocol):
 
         Raises:
             DockerClientError: The daemon refused or failed to unpause it.
-        """
-        ...
-
-    async def create_network(self, spec: NetworkSpec) -> str:
-        """Create a bridge network from `spec`.
-
-        Args:
-            spec: The network's name, internal flag and labels.
-
-        Returns:
-            Docker's own network id.
-
-        Raises:
-            DockerClientError: The daemon refused or failed to create it.
-        """
-        ...
-
-    async def remove_network(self, name: str) -> None:
-        """Remove a network by name. Idempotent: a missing `name` returns normally, not an error.
-
-        Args:
-            name: The network's name.
-
-        Raises:
-            DockerClientError: The daemon acknowledged the network exists but refused to remove it
-                (e.g. a container is still attached).
         """
         ...
 

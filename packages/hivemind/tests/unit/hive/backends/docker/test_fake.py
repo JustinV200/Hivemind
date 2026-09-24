@@ -15,6 +15,8 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from hivemind.hive.backends.docker.client import (
@@ -272,3 +274,90 @@ async def test_recreate_from_image_failure_is_one_shot() -> None:
     await client.recreate_from_image(  # succeeds the second time
         _CONTAINER_SPEC.name, "hivemind-snapshot:abc"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 10.6a: the network slice (ensure, attach, detach, attachments listed).
+# ──────────────────────────────────────────────────────────────────────────────
+
+_CONTROL = NetworkSpec(
+    name="hivemind-hive_test-control",
+    internal=True,
+    labels={"hivemind.hive_id": "hive_test"},
+    subnet="10.213.7.0/24",
+    gateway="10.213.7.1",
+    isolates_peers=True,
+)
+_OWN = NetworkSpec(name="hivemind-cell-test-net", internal=False, labels={})
+
+
+async def _dual_homed(client: FakeDockerClient) -> None:
+    """Create the two networks, a container on the control one, attached to its own too."""
+    await client.ensure_network(_CONTROL)
+    await client.create_network(_OWN)
+    await client.create_container(dataclasses.replace(_CONTAINER_SPEC, network_name=_CONTROL.name))
+    await client.connect_network(_OWN.name, _CONTAINER_SPEC.name)
+
+
+async def test_ensure_network_creates_once_then_reuses_the_same_one() -> None:
+    client = FakeDockerClient()
+
+    first = await client.ensure_network(_CONTROL)
+    second = await client.ensure_network(_CONTROL)
+
+    assert first == second == _CONTROL.name
+    assert client.networks == {_CONTROL.name: _CONTROL}
+
+
+async def test_ensure_network_refuses_a_same_named_network_that_does_not_match() -> None:
+    client = FakeDockerClient()
+    await client.create_network(NetworkSpec(name=_CONTROL.name, internal=False, labels={}))
+
+    # A non-internal network of the control network's name would carry the Cells' egress too.
+    with pytest.raises(DockerClientError, match="does not match"):
+        await client.ensure_network(_CONTROL)
+
+
+async def test_a_container_lists_every_network_it_is_attached_to() -> None:
+    client = FakeDockerClient()
+
+    await _dual_homed(client)
+    records = await client.list_containers({"hivemind.cell_id": "cell_test"})
+
+    assert records[0].networks == tuple(sorted((_CONTROL.name, _OWN.name)))
+
+
+async def test_detach_and_attach_move_a_container_off_and_back_on_idempotently() -> None:
+    client = FakeDockerClient()
+    await _dual_homed(client)
+
+    await client.disconnect_network(_OWN.name, _CONTAINER_SPEC.name)
+    await client.disconnect_network(_OWN.name, _CONTAINER_SPEC.name)
+    cut = client.attached(_CONTAINER_SPEC.name)
+    await client.connect_network(_OWN.name, _CONTAINER_SPEC.name)
+    await client.connect_network(_OWN.name, _CONTAINER_SPEC.name)
+
+    assert cut == frozenset({_CONTROL.name})
+    assert client.attached(_CONTAINER_SPEC.name) == frozenset({_CONTROL.name, _OWN.name})
+
+
+async def test_attaching_to_a_missing_network_or_container_raises() -> None:
+    client = FakeDockerClient()
+    await client.create_container(_CONTAINER_SPEC)
+
+    with pytest.raises(DockerClientError, match="not found"):
+        await client.connect_network("no-such-network", _CONTAINER_SPEC.name)
+    with pytest.raises(DockerClientError, match="not found"):
+        await client.disconnect_network(_OWN.name, "no-such-container")
+
+
+async def test_the_attach_failure_switch_fires_once() -> None:
+    client = FakeDockerClient()
+    await _dual_homed(client)
+    client.set_attach_failure("daemon busy")
+
+    with pytest.raises(DockerClientError, match="daemon busy"):
+        await client.disconnect_network(_OWN.name, _CONTAINER_SPEC.name)
+    await client.disconnect_network(_OWN.name, _CONTAINER_SPEC.name)
+
+    assert client.attached(_CONTAINER_SPEC.name) == frozenset({_CONTROL.name})

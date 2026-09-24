@@ -12,9 +12,13 @@ one module may need `docker` installed just to import).
 
 Every docker-py call is synchronous and blocking (it is a thin HTTP client over the daemon's Unix
 socket or named pipe), so every method here runs its docker-py calls under `asyncio.to_thread`
-(codingrules section 11) rather than on the event loop directly. Every docker-py exception is
-caught and translated into `hivemind.hive.backends.docker.client.DockerClientError`: no SDK type
-or exception ever reaches `hivemind.hive.backends.docker.backend.DockerCellBackend`.
+(codingrules section 11) rather than on the event loop directly. Roadmap step 10.6a adds the
+network slice isolation needs (`ensure_network`, `connect_network`, `disconnect_network`, and the
+networks `list_containers` reports per container) and keeps every network a container was on
+across a snapshot rollback's recreate, so a dual-homed Cell comes back dual-homed. Every
+docker-py exception is caught and translated into `hivemind.hive.backends.docker.client.
+DockerClientError`: no SDK type or exception ever reaches `hivemind.hive.backends.docker.backend.
+DockerCellBackend`.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.docker`. Implements
@@ -71,15 +75,17 @@ _INSTALL_HINT = (
     "The 'docker' package is not installed; install the 'hivemind[docker]' extra "
     "(e.g. `uv sync --extra docker`) to use SdkDockerClient."
 )
+# The bridge driver's inter-container switch: "false" keeps containers on one bridge apart.
+_ICC_OPTION = "com.docker.network.bridge.enable_icc"
 
 
 @dataclass(frozen=True, slots=True)
 class _DockerHandle:
     """Bundles `SdkDockerClient._client`/`._docker`, so a module function takes this one argument.
 
-    Codingrules section 5.1's five-parameter limit: the module-level `_sync_commit_container`/
-    `_sync_remove_image`/`_sync_recreate_from_image` functions below take this instead of the two
-    separately.
+    Codingrules section 5.1's five-parameter limit: the module-level blocking halves below (the
+    network and volume calls, and roadmap step 5.10's commit, image removal and recreate) take
+    this instead of the two separately, and live outside the class for its 200-line limit.
     """
 
     client: Any
@@ -112,20 +118,32 @@ class SdkDockerClient:
         self._client: Any = client if client is not None else docker.from_env()
 
     async def create_network(self, spec: NetworkSpec) -> str:
-        """See `DockerClientPort.create_network`."""
-        return await asyncio.to_thread(self._sync_create_network, spec)
+        """See `DockerNetworkPort.create_network`."""
+        return await asyncio.to_thread(_sync_create_network, self._handle(), spec)
+
+    async def ensure_network(self, spec: NetworkSpec) -> str:
+        """See `DockerNetworkPort.ensure_network` (roadmap step 10.6a)."""
+        return await asyncio.to_thread(_sync_ensure_network, self._handle(), spec)
 
     async def remove_network(self, name: str) -> None:
-        """See `DockerClientPort.remove_network` (idempotent)."""
-        await asyncio.to_thread(self._sync_remove_network, name)
+        """See `DockerNetworkPort.remove_network` (idempotent)."""
+        await asyncio.to_thread(_sync_remove_network, self._handle(), name)
+
+    async def connect_network(self, network: str, container: str) -> None:
+        """See `DockerNetworkPort.connect_network` (idempotent; roadmap step 10.6a)."""
+        await asyncio.to_thread(_sync_attach, self._handle(), network, container, True)
+
+    async def disconnect_network(self, network: str, container: str) -> None:
+        """See `DockerNetworkPort.disconnect_network` (idempotent; roadmap step 10.6a)."""
+        await asyncio.to_thread(_sync_attach, self._handle(), network, container, False)
 
     async def create_volume(self, spec: VolumeSpec) -> str:
         """See `DockerClientPort.create_volume`."""
-        return await asyncio.to_thread(self._sync_create_volume, spec)
+        return await asyncio.to_thread(_sync_create_volume, self._handle(), spec)
 
     async def remove_volume(self, name: str) -> None:
         """See `DockerClientPort.remove_volume` (idempotent)."""
-        await asyncio.to_thread(self._sync_remove_volume, name)
+        await asyncio.to_thread(_sync_remove_volume, self._handle(), name)
 
     async def create_container(self, spec: ContainerSpec) -> str:
         """See `DockerClientPort.create_container`."""
@@ -160,56 +178,17 @@ class SdkDockerClient:
         section 5.1's class-size limit: this class was already at its own 200-line ceiling before
         roadmap step 5.10 added three more methods for it).
         """
-        handle = _DockerHandle(self._client, self._docker)
         return await asyncio.to_thread(
-            _sync_commit_container, handle, name, repository, tag, labels
+            _sync_commit_container, self._handle(), name, repository, tag, labels
         )
 
     async def remove_image(self, image: str) -> None:
         """See `DockerClientPort.remove_image` (idempotent; roadmap step 5.10)."""
-        handle = _DockerHandle(self._client, self._docker)
-        await asyncio.to_thread(_sync_remove_image, handle, image)
+        await asyncio.to_thread(_sync_remove_image, self._handle(), image)
 
     async def recreate_from_image(self, name: str, image: str) -> None:
         """See `DockerClientPort.recreate_from_image` (roadmap step 5.10)."""
-        handle = _DockerHandle(self._client, self._docker)
-        await asyncio.to_thread(_sync_recreate_from_image, handle, name, image)
-
-    def _sync_create_network(self, spec: NetworkSpec) -> str:
-        """Blocking half of create_network: runs on a worker thread, never the event loop."""
-        try:
-            network = self._client.networks.create(
-                name=spec.name, driver="bridge", internal=spec.internal, labels=dict(spec.labels)
-            )
-        except self._docker.errors.APIError as exc:
-            raise DockerClientError(f"could not create network {spec.name!r}: {exc}") from exc
-        return str(network.id)
-
-    def _sync_remove_network(self, name: str) -> None:
-        """Blocking half of remove_network: a missing network is success, not failure."""
-        try:
-            self._client.networks.get(name).remove()
-        except self._docker.errors.NotFound:
-            return  # Idempotent: nothing to remove, matching DockerClientPort's own contract.
-        except self._docker.errors.APIError as exc:
-            raise DockerClientError(f"could not remove network {name!r}: {exc}") from exc
-
-    def _sync_create_volume(self, spec: VolumeSpec) -> str:
-        """Blocking half of create_volume: runs on a worker thread, never the event loop."""
-        try:
-            volume = self._client.volumes.create(name=spec.name, labels=dict(spec.labels))
-        except self._docker.errors.APIError as exc:
-            raise DockerClientError(f"could not create volume {spec.name!r}: {exc}") from exc
-        return str(volume.name)
-
-    def _sync_remove_volume(self, name: str) -> None:
-        """Blocking half of remove_volume: a missing volume is success, not failure."""
-        try:
-            self._client.volumes.get(name).remove()
-        except self._docker.errors.NotFound:
-            return  # Idempotent: nothing to remove, matching DockerClientPort's own contract.
-        except self._docker.errors.APIError as exc:
-            raise DockerClientError(f"could not remove volume {name!r}: {exc}") from exc
+        await asyncio.to_thread(_sync_recreate_from_image, self._handle(), name, image)
 
     def _sync_create_container(self, spec: ContainerSpec) -> str:
         """Blocking half of create_container: maps ContainerSpec onto docker-py's own kwargs."""
@@ -279,9 +258,134 @@ class SdkDockerClient:
                 status=str(container.status),
                 labels=dict(container.labels),
                 created_at=_parse_created_at(container.attrs.get("Created")),
+                networks=_attached_networks(container.attrs),
             )
             for container in containers
         )
+
+    def _handle(self) -> _DockerHandle:
+        """Bundle the SDK client and module for a module-level blocking half (class docstring)."""
+        return _DockerHandle(self._client, self._docker)
+
+
+def _sync_create_network(handle: _DockerHandle, spec: NetworkSpec) -> str:
+    """Blocking half of create_network: a bridge network with whatever subnet `spec` fixes."""
+    options = {_ICC_OPTION: "false"} if spec.isolates_peers else None
+    ipam = None
+    # A fixed subnet and gateway only when the spec names them (the control network); every
+    # per-Cell network lets the daemon pick a free one from its own address pools.
+    if spec.subnet is not None:
+        pool = handle.docker_module.types.IPAMPool(subnet=spec.subnet, gateway=spec.gateway)
+        ipam = handle.docker_module.types.IPAMConfig(pool_configs=[pool])
+    try:
+        network = handle.client.networks.create(
+            name=spec.name,
+            driver="bridge",
+            internal=spec.internal,
+            labels=dict(spec.labels),
+            options=options,
+            ipam=ipam,
+        )
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not create network {spec.name!r}: {exc}") from exc
+    return str(network.id)
+
+
+def _sync_ensure_network(handle: _DockerHandle, spec: NetworkSpec) -> str:
+    """Blocking half of ensure_network: reuse a network of that name that matches, else create."""
+    existing = _find_network(handle, spec.name)
+    if existing is None:
+        try:
+            return _sync_create_network(handle, spec)
+        except DockerClientError:
+            # A concurrent provision may have created it between the lookup and the create: reuse
+            # that one after the same check, or fail with the create's own error if there is none.
+            existing = _find_network(handle, spec.name)
+            if existing is None:
+                raise
+    network_id, attrs = existing
+    _check_matches(attrs, spec)
+    return network_id
+
+
+def _sync_remove_network(handle: _DockerHandle, name: str) -> None:
+    """Blocking half of remove_network: a missing network is success, not failure."""
+    try:
+        handle.client.networks.get(name).remove()
+    except handle.docker_module.errors.NotFound:
+        return  # Idempotent: nothing to remove, matching DockerNetworkPort's own contract.
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not remove network {name!r}: {exc}") from exc
+
+
+def _sync_attach(handle: _DockerHandle, network: str, container: str, attach: bool) -> None:
+    """Blocking half of connect/disconnect_network: attach or detach, unless it already is so."""
+    verb = "attach" if attach else "detach"
+    try:
+        target = handle.client.containers.get(container)
+        # Read first, so a repeated cut or restore changes nothing (DockerNetworkPort's contract);
+        # a network already gone counts as detached, since the container is on it no longer.
+        if (network in _attached_networks(target.attrs)) == attach:
+            return
+        bridge = handle.client.networks.get(network)
+        if attach:
+            bridge.connect(container)
+        else:
+            bridge.disconnect(container)
+    except handle.docker_module.errors.NotFound as exc:
+        raise DockerClientError(f"could not {verb} {container!r} ({network!r}): {exc}") from exc
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not {verb} {container!r} ({network!r}): {exc}") from exc
+
+
+def _sync_create_volume(handle: _DockerHandle, spec: VolumeSpec) -> str:
+    """Blocking half of create_volume: runs on a worker thread, never the event loop."""
+    try:
+        volume = handle.client.volumes.create(name=spec.name, labels=dict(spec.labels))
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not create volume {spec.name!r}: {exc}") from exc
+    return str(volume.name)
+
+
+def _sync_remove_volume(handle: _DockerHandle, name: str) -> None:
+    """Blocking half of remove_volume: a missing volume is success, not failure."""
+    try:
+        handle.client.volumes.get(name).remove()
+    except handle.docker_module.errors.NotFound:
+        return  # Idempotent: nothing to remove, matching DockerClientPort's own contract.
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not remove volume {name!r}: {exc}") from exc
+
+
+def _find_network(handle: _DockerHandle, name: str) -> tuple[str, dict[str, Any]] | None:
+    """Return the id and inspect attrs of the network named `name`, or None when there is none."""
+    try:
+        network = handle.client.networks.get(name)
+    except handle.docker_module.errors.NotFound:
+        return None
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not inspect network {name!r}: {exc}") from exc
+    return str(network.id), dict(network.attrs)
+
+
+def _check_matches(attrs: dict[str, Any], spec: NetworkSpec) -> None:
+    """Raise DockerClientError unless an existing network enforces what `spec` asks of it."""
+    pool = ((attrs.get("IPAM") or {}).get("Config") or [{}])[0]
+    isolates = (attrs.get("Options") or {}).get(_ICC_OPTION) == "false"
+    # The flags must agree; an unset subnet or gateway accepts whatever the network already has.
+    if (
+        bool(attrs.get("Internal")) != spec.internal
+        or isolates != spec.isolates_peers
+        or spec.subnet not in (None, pool.get("Subnet"))
+        or spec.gateway not in (None, pool.get("Gateway"))
+    ):
+        raise DockerClientError(f"network {spec.name!r} exists but does not match {spec}")
+
+
+def _attached_networks(attrs: dict[str, Any]) -> tuple[str, ...]:
+    """Return the names of the networks an inspected container is attached to, sorted."""
+    networks = (attrs.get("NetworkSettings") or {}).get("Networks") or {}
+    return tuple(sorted(networks))
 
 
 def _sync_commit_container(
@@ -320,8 +424,13 @@ def _sync_recreate_from_image(handle: _DockerHandle, name: str, image: str) -> N
     try:
         old = handle.client.containers.get(name)
         spec = _recreate_spec(old.attrs, image)
+        networks = _attached_networks(old.attrs)
         old.remove(force=True)
         new_container = handle.client.containers.create(**spec)
+        # `create` attached the first; every other network the old one was on is attached before
+        # start, so a dual-homed Cell comes back dual-homed, and an isolated one still isolated.
+        for extra in networks[1:]:
+            handle.client.networks.get(extra).connect(new_container)
         new_container.start()
     except handle.docker_module.errors.NotFound as exc:
         raise DockerClientError(f"could not recreate container {name!r}: not found: {exc}") from exc
@@ -341,8 +450,8 @@ def _recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:
     """
     host_config = attrs.get("HostConfig", {})
     config = attrs.get("Config", {})
-    networks = attrs.get("NetworkSettings", {}).get("Networks", {})
-    network_name = next(iter(networks), None)
+    networks = _attached_networks(attrs)
+    network_name = networks[0] if networks else None
     volumes = {
         mount["Name"]: {"bind": mount["Destination"], "mode": "rw"}
         for mount in attrs.get("Mounts", [])
@@ -354,11 +463,13 @@ def _recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:
         "environment": config.get("Env", []),
         "labels": config.get("Labels") or {},
         "network": network_name,
+        "extra_hosts": host_config.get("ExtraHosts") or None,
         "volumes": volumes,
         "nano_cpus": host_config.get("NanoCpus") or None,
         "mem_limit": host_config.get("Memory") or None,
         "pids_limit": host_config.get("PidsLimit") or None,
         "cap_drop": host_config.get("CapDrop") or None,
+        "cap_add": host_config.get("CapAdd") or None,
         "security_opt": host_config.get("SecurityOpt") or None,
         "read_only": bool(host_config.get("ReadonlyRootfs", False)),
         "tmpfs": host_config.get("Tmpfs") or {},

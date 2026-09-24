@@ -26,7 +26,11 @@ from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
 from hivemind.hive.backends.bootstrap import NightVeilLink, QueenEndpoint
-from hivemind.hive.backends.docker.backend import _DEFAULT_PIDS_LIMIT, DockerCellBackend
+from hivemind.hive.backends.docker.backend import (
+    _DEFAULT_PIDS_LIMIT,
+    DockerBackendConfig,
+    DockerCellBackend,
+)
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.hive.backends.docker.network import network_name
 from hivemind.hive.backends.fake import FakeReadinessGate
@@ -69,7 +73,9 @@ def _make_backend(
         queen_verify_key_hex="00" * 32,
         night_veil=night_veil,
     )
-    backend = DockerCellBackend(client, gate, endpoint, clock, max_cells=max_cells)
+    backend = DockerCellBackend(
+        client, gate, endpoint, clock, DockerBackendConfig(max_cells=max_cells)
+    )
     return backend, client, gate
 
 

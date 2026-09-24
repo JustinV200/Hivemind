@@ -6,7 +6,11 @@ daemon. Every method records its call and every create/remove step has its own f
 `DockerCellBackend.provision`'s all-or-nothing cleanup at each stage without ever touching a real
 daemon (roadmap step 5.4's own test list: "cleanup-on-failure at each stage"). Shipped code, not
 test-only (codingrules 14.4: "fakes live in src/ beside their Protocol"), because `hive doctor` and
-demo paths use it too, exactly like `hivemind.hive.backends.fake.FakeCellBackend`.
+demo paths use it too, exactly like `hivemind.hive.backends.fake.FakeCellBackend`. Roadmap step
+10.6a adds the network slice (`_FakeNetworks`, a base of its own for the class limit): every
+container remembers which networks it is attached to, `ensure_network` reuses a matching network
+and refuses a different one of the same name, and `connect_network`/`disconnect_network` move a
+container on and off one, idempotently, with `set_attach_failure` to make the next one fail.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.docker`. Implements
@@ -33,7 +37,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from hivemind.hive.backends.docker.client import (
@@ -57,15 +61,95 @@ class _TrackedContainer:
     spec: ContainerSpec
     status: str
     created_at: datetime
+    networks: set[str] = field(default_factory=set)  # Attached now: creation's, plus connects.
 
 
-class FakeDockerClient:
+class _FakeNetworks:
+    """The network slice of FakeDockerClient (`DockerNetworkPort`): a table and its attachments.
+
+    A base of its own so FakeDockerClient stays within the class limit (codingrules 5.1); it reads
+    the container table FakeDockerClient's own `__init__` builds.
+    """
+
+    _containers: dict[str, _TrackedContainer]
+
+    def __init__(self) -> None:
+        """Start with no network, no attachment change recorded and no failure armed."""
+        self._networks: dict[str, NetworkSpec] = {}
+        self._create_network_failure: str | None = None
+        self._attach_failure: str | None = None
+        self.create_network_calls: list[NetworkSpec] = []
+        self.remove_network_calls: list[str] = []
+        self.ensure_network_calls: list[NetworkSpec] = []
+        self.connect_network_calls: list[tuple[str, str]] = []
+        self.disconnect_network_calls: list[tuple[str, str]] = []
+
+    @property
+    def networks(self) -> dict[str, NetworkSpec]:
+        """Every network this fake holds now, by name, for a test to assert against."""
+        return dict(self._networks)
+
+    def set_create_network_failure(self, reason: str | None) -> None:
+        """Arm (or disarm, with None) the next `create_network` call to raise."""
+        self._create_network_failure = reason
+
+    def set_attach_failure(self, reason: str | None) -> None:
+        """Arm (or disarm, with None) the next `connect_network`/`disconnect_network` to raise."""
+        self._attach_failure = reason
+
+    def attached(self, container: str) -> frozenset[str]:
+        """Return the networks `container` is attached to now (empty when it does not exist)."""
+        tracked = self._containers.get(container)
+        return frozenset(tracked.networks) if tracked is not None else frozenset()
+
+    async def create_network(self, spec: NetworkSpec) -> str:
+        """Record and store `spec`; see `DockerNetworkPort.create_network`."""
+        self.create_network_calls.append(spec)
+        _fire(self, "_create_network_failure", f"network {spec.name!r}")
+        self._networks[spec.name] = spec
+        return spec.name
+
+    async def ensure_network(self, spec: NetworkSpec) -> str:
+        """Reuse a matching network of `spec`'s name, else store it; see `DockerNetworkPort`."""
+        self.ensure_network_calls.append(spec)
+        existing = self._networks.get(spec.name)
+        if existing is None:
+            self._networks[spec.name] = spec
+        elif existing != spec:
+            raise DockerClientError(f"network {spec.name!r} exists but does not match {spec}")
+        return spec.name
+
+    async def remove_network(self, name: str) -> None:
+        """Drop `name` from this fake's table; see `DockerNetworkPort.remove_network`."""
+        self.remove_network_calls.append(name)
+        self._networks.pop(name, None)
+
+    async def connect_network(self, network: str, container: str) -> None:
+        """Attach `container` to `network`; see `DockerNetworkPort.connect_network`."""
+        self.connect_network_calls.append((network, container))
+        _fire(self, "_attach_failure", f"container {container!r}")
+        tracked = self._containers.get(container)
+        if tracked is None or network not in self._networks:
+            raise DockerClientError(f"cannot attach {container!r} to {network!r}: not found")
+        tracked.networks.add(network)
+
+    async def disconnect_network(self, network: str, container: str) -> None:
+        """Detach `container` from `network`; see `DockerNetworkPort.disconnect_network`."""
+        self.disconnect_network_calls.append((network, container))
+        _fire(self, "_attach_failure", f"container {container!r}")
+        tracked = self._containers.get(container)
+        if tracked is None:
+            raise DockerClientError(f"cannot detach {container!r} from {network!r}: not found")
+        tracked.networks.discard(network)
+
+
+class FakeDockerClient(_FakeNetworks):
     """An in-memory DockerClientPort: creates, starts, pauses and removes with no real daemon."""
 
     def __init__(self) -> None:
         """Create a FakeDockerClient with nothing created and no failure armed."""
-        self._containers: dict[str, _TrackedContainer] = {}
-        self._networks: dict[str, NetworkSpec] = {}
+        super().__init__()
+        self._containers = {}
         self._volumes: dict[str, VolumeSpec] = {}
         # Roadmap step 5.10: image ref -> the container it was committed from, purely for a test
         # to assert against; recreate_from_image reads _containers, never this table.
@@ -75,7 +159,6 @@ class FakeDockerClient:
         # it (see the module docstring's key invariant).
         self._create_container_failure: str | None = None
         self._start_container_failure: str | None = None
-        self._create_network_failure: str | None = None
         self._create_volume_failure: str | None = None
         self._remove_container_failure: str | None = None
         self._commit_container_failure: str | None = None
@@ -83,8 +166,6 @@ class FakeDockerClient:
         self.create_container_calls: list[ContainerSpec] = []
         self.start_container_calls: list[str] = []
         self.remove_container_calls: list[str] = []
-        self.create_network_calls: list[NetworkSpec] = []
-        self.remove_network_calls: list[str] = []
         self.create_volume_calls: list[VolumeSpec] = []
         self.remove_volume_calls: list[str] = []
         self.pause_container_calls: list[str] = []
@@ -100,10 +181,6 @@ class FakeDockerClient:
     def set_start_container_failure(self, reason: str | None) -> None:
         """Arm (or disarm, with None) the next `start_container` call to raise."""
         self._start_container_failure = reason
-
-    def set_create_network_failure(self, reason: str | None) -> None:
-        """Arm (or disarm, with None) the next `create_network` call to raise."""
-        self._create_network_failure = reason
 
     def set_create_volume_failure(self, reason: str | None) -> None:
         """Arm (or disarm, with None) the next `create_volume` call to raise."""
@@ -125,18 +202,6 @@ class FakeDockerClient:
         """Arrange what every following `commit_container` call reports as its `size_bytes`."""
         self._commit_size_bytes = size
 
-    async def create_network(self, spec: NetworkSpec) -> str:
-        """Record and store `spec`; see `DockerClientPort.create_network`."""
-        self.create_network_calls.append(spec)
-        _fire(self, "_create_network_failure", f"network {spec.name!r}")
-        self._networks[spec.name] = spec
-        return spec.name
-
-    async def remove_network(self, name: str) -> None:
-        """Drop `name` from this fake's table; see `DockerClientPort.remove_network`."""
-        self.remove_network_calls.append(name)
-        self._networks.pop(name, None)
-
     async def create_volume(self, spec: VolumeSpec) -> str:
         """Record and store `spec`; see `DockerClientPort.create_volume`."""
         self.create_volume_calls.append(spec)
@@ -157,7 +222,7 @@ class FakeDockerClient:
         self.create_container_calls.append(spec)
         _fire(self, "_create_container_failure", f"container {spec.name!r}")
         self._containers[spec.name] = _TrackedContainer(
-            spec=spec, status="created", created_at=datetime.now(UTC)
+            spec=spec, status="created", created_at=datetime.now(UTC), networks={spec.network_name}
         )
         return spec.name
 
@@ -187,6 +252,7 @@ class FakeDockerClient:
                 status=tracked.status,
                 labels=dict(tracked.spec.labels),
                 created_at=tracked.created_at,
+                networks=tuple(sorted(tracked.networks)),
             )
             for name, tracked in self._containers.items()
             if labels.items() <= tracked.spec.labels.items()
@@ -239,7 +305,7 @@ class FakeDockerClient:
         tracked.status = "running"
 
 
-def _fire(client: FakeDockerClient, attr: str, subject: str) -> None:
+def _fire(client: _FakeNetworks, attr: str, subject: str) -> None:
     """Raise DockerClientError and clear the one-shot switch named `attr` if it is armed.
 
     A tiny shared helper so each create/start/remove method above stays a two-line "record, maybe

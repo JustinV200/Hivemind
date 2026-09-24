@@ -10,15 +10,18 @@ or `FakeReadinessGate`), and a `hivemind.hive.backends.bootstrap.QueenEndpoint` 
 is, as reachable from inside a Cell). `hivemind.hive.backends.docker.network` decides what network
 each `VirtualCellSpec.network_policy` needs; this module does everything else: resource-limit
 mapping, the all-or-nothing provisioning sequence and its cleanup, idempotent destroy, label-only
-listing, and pause/resume.
+listing, and pause/resume. Roadmap step 10.6a: given the Hive's control network (`[virtual_cells]
+control_subnet`), it dual-homes every Cell whose link does not ride Tor -- created on the control
+network, attached to its own per-policy network before it starts, and dialling the control
+gateway -- and declares `can_cut_egress`, carried out by `hivemind.hive.backends.docker.egress`.
 
 Fits into the Hive:
     Layer 3 (sources of Cells). Implements `hivemind.hive.backends.base.CellBackend`; constructed
     by the composition root (a later phase's `cli/`) when `[hive] backend = "docker"` and
     registered through `hivemind.hive.registry.BackendRegistry`. Calls into hivemind.cell,
     hivemind.hive.backends.base, hivemind.hive.backends.bootstrap, hivemind.hive.backends.docker
-    (client, network), hivemind.hive.cell_state, hivemind.hive.errors, hivemind.hive.models and
-    waggle only.
+    (client, egress, network), hivemind.hive.cell_state, hivemind.hive.errors, hivemind.hive.models
+    and waggle only.
 
 Key invariants:
     - provision() either returns a Cell of kind VIRTUAL or raises CellProvisionError; any resource
@@ -39,7 +42,8 @@ See Also:
       class implements.
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the readiness
       handshake (CellReady plus the first Heartbeat) `provision()` waits on through ReadinessGate.
-    - hivemind.hive.backends.docker.network for exactly what each NetworkPolicy enforces.
+    - hivemind.hive.backends.docker.network for exactly what each NetworkPolicy enforces, and the
+      dual-homing a control network adds.
     - hivemind.hive.backends.docker.client for DockerClientPort and its value types.
     - hivemind.hive.backends.docker.fake and hivemind.hive.backends.fake for the two fakes this
       backend is tested against with no real Docker daemon or Queen.
@@ -48,6 +52,8 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from hivemind.cell import AccessLevel, Cell, CellKind
 from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
@@ -66,9 +72,20 @@ from hivemind.hive.backends.docker.client import (
     DockerClientPort,
     VolumeSpec,
 )
-from hivemind.hive.backends.docker.network import NetworkPlan, network_name, plan_network
+from hivemind.hive.backends.docker.egress import cut_egress, ensure_control, restore_egress
+from hivemind.hive.backends.docker.network import (
+    ControlNetwork,
+    NetworkPlan,
+    network_name,
+    plan_network,
+)
 from hivemind.hive.cell_state import VirtualCellStatus
-from hivemind.hive.errors import BackendCapabilityError, CellDestroyError, CellProvisionError
+from hivemind.hive.errors import (
+    BackendCapabilityError,
+    CellDestroyError,
+    CellEgressError,
+    CellProvisionError,
+)
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId
@@ -89,7 +106,25 @@ _LABEL_COMB_SHIELD = "hivemind.comb_shield"
 # (images/night-veil-ubuntu, roadmap step 5.3a); provision() refuses VPN_TOR on any other image.
 _NIGHT_VEIL_IMAGE = "night-veil-ubuntu"
 
-__all__ = ["DockerCellBackend", "build_docker_backend", "container_name"]
+__all__ = ["DockerBackendConfig", "DockerCellBackend", "build_docker_backend", "container_name"]
+
+
+@dataclass(frozen=True, slots=True)
+class DockerBackendConfig:
+    """What `DockerCellBackend` needs beyond client/gate/endpoint/clock, bundled (codingrules 5.1).
+
+    Mirrors `hivemind.hive.backends.qemu.backend.QemuBackendConfig`: one value rather than more
+    keyword arguments once the constructor's parameter count would cross the limit.
+
+    Attributes:
+        max_cells: The most Cells the backend may hold at once, or None for no cap of its own
+            beyond whatever the daemon itself enforces.
+        control: The Hive's control network (roadmap step 10.6a), or None: with one, every Cell
+            whose link does not ride Tor is dual-homed and its egress can be cut.
+    """
+
+    max_cells: int | None = None
+    control: ControlNetwork | None = None
 
 
 class DockerCellBackend:
@@ -101,8 +136,7 @@ class DockerCellBackend:
         gate: ReadinessGate,
         endpoint: QueenEndpoint,
         clock: Clock,
-        *,
-        max_cells: int | None = None,
+        config: DockerBackendConfig | None = None,
     ) -> None:
         """Create a DockerCellBackend with nothing provisioned yet.
 
@@ -113,14 +147,16 @@ class DockerCellBackend:
             endpoint: Where and who the Queen is, as every provisioned Cell must reach her.
             clock: Source of every minted CellId (`hivemind.hive.backends.bootstrap.
                 mint_cell_bootstrap`).
-            max_cells: The most Cells this backend may hold at once, or None for no cap of its
-                own beyond whatever the daemon itself enforces.
+            config: Its headroom and the Hive's control network; the defaults (no cap, no control
+                network) when None.
         """
+        config = config if config is not None else DockerBackendConfig()
         self._client = client
+        self._control = config.control
         self._gate = gate
         self._endpoint = endpoint
         self._clock = clock
-        self._max_cells = max_cells
+        self._max_cells = config.max_cells
         # In-process bookkeeping only, for `capabilities.headroom`: `list_cells` and `destroy`
         # never read this, since they work from Docker's own labels and deterministic names
         # instead (this module's own key invariant: destroy survives a process restart).
@@ -143,11 +179,16 @@ class DockerCellBackend:
 
     @property
     def capabilities(self) -> BackendCapabilities:
-        """Docker can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count."""
+        """Docker can snapshot (5.10), pause, and cut egress once it has a control network."""
         headroom = (
             None if self._max_cells is None else max(0, self._max_cells - len(self._active_ids))
         )
-        return BackendCapabilities(can_snapshot=True, can_pause=True, headroom=headroom)
+        return BackendCapabilities(
+            can_snapshot=True,
+            can_pause=True,
+            headroom=headroom,
+            can_cut_egress=self._control is not None,
+        )
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         """See `CellBackend.provision`."""
@@ -166,23 +207,29 @@ class DockerCellBackend:
         # refused here before anything exists; every other tier keeps this backend's endpoint.
         endpoint = cell_endpoint(self._endpoint, spec, self.name)
         bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
+        plan = _plan(spec, bootstrap, self._control)
         # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify
         # this Cell's very first signed frame, which can arrive the instant the container starts.
         await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)
         try:
-            cell = await self._provision_resources(spec, bootstrap)
-        except (DockerClientError, TimeoutError) as exc:
+            cell = await self._provision_resources(spec, bootstrap, plan)
+        except (DockerClientError, CellEgressError, TimeoutError) as exc:
             await self._gate.forget(bootstrap.cell_id)
             raise CellProvisionError(self.name, spec.image, str(exc)) from exc
         self._active_ids.add(bootstrap.cell_id)
         return cell
 
-    async def _provision_resources(self, spec: VirtualCellSpec, bootstrap: CellBootstrap) -> Cell:
-        """Create the network, volume and container in order, cleaning up all of it on failure."""
+    async def _provision_resources(
+        self, spec: VirtualCellSpec, bootstrap: CellBootstrap, plan: NetworkPlan
+    ) -> Cell:
+        """Create the networks, volume and container in order, cleaning up all of it on failure."""
         cell_id = bootstrap.cell_id
         created: list[tuple[str, str]] = []  # (kind, name), in creation order, for _cleanup.
         try:
-            plan = plan_network(spec, cell_id)
+            # The Hive's control network is shared and outlives every Cell: made or reused here,
+            # never recorded for _cleanup.
+            if plan.control is not None and self._control is not None:
+                await ensure_control(self._client, self._control)
             await self._client.create_network(plan.spec)
             created.append(("network", plan.spec.name))
             volume_spec = _build_volume_spec(spec, cell_id)
@@ -191,12 +238,16 @@ class DockerCellBackend:
             container_spec = _build_container_spec(spec, bootstrap, plan, volume_spec.name)
             await self._client.create_container(container_spec)
             created.append(("container", container_spec.name))
+            if plan.control is not None:
+                # Dual-homed: created on the control network, given its own before it starts, so
+                # its first packet already has both (hivemind.hive.backends.docker.network).
+                await self._client.connect_network(plan.spec.name, container_spec.name)
             await self._client.start_container(container_spec.name)
             # No timeout wrapper here: ReadinessGate.wait_ready's own `timeout_s` argument is the
             # deadline (its contract: raises TimeoutError past it), so a second one would only
             # race the first for no benefit.
             ready_info = await self._gate.wait_ready(cell_id, spec.ready_timeout_s)
-        except (DockerClientError, TimeoutError):
+        except (DockerClientError, CellEgressError, TimeoutError):
             await self._cleanup(created)
             raise
         return _build_cell(spec, cell_id, self.name, ready_info)
@@ -246,14 +297,25 @@ class DockerCellBackend:
             raise BackendCapabilityError(self.name, "resume", cell_id=cell_id)
         await self._client.unpause_container(container_name(cell_id))
 
+    async def cut_egress(self, cell_id: CellId) -> None:
+        """See `EgressCutter.cut_egress`: detach its own network, keep the control network."""
+        if self._control is None:
+            raise BackendCapabilityError(self.name, "cut_egress", cell_id=cell_id)
+        await cut_egress(self._client, self._control, cell_id)
+
+    async def restore_egress(self, cell_id: CellId) -> None:
+        """See `EgressCutter.restore_egress`: attach its own network again."""
+        if self._control is None:
+            raise BackendCapabilityError(self.name, "restore_egress", cell_id=cell_id)
+        await restore_egress(self._client, self._control, cell_id)
+
 
 def build_docker_backend(
     client: DockerClientPort,
     gate: ReadinessGate,
     endpoint: QueenEndpoint,
     clock: Clock,
-    *,
-    max_cells: int | None = None,
+    config: DockerBackendConfig | None = None,
 ) -> Callable[[], DockerCellBackend]:
     """Close over this backend's collaborators and return a zero-arg factory for the registry.
 
@@ -270,7 +332,7 @@ def build_docker_backend(
         gate: How the backend learns a Cell has become reachable.
         endpoint: Where and who the Queen is.
         clock: Source of every minted CellId.
-        max_cells: The most Cells the backend may hold at once, or None for no cap of its own.
+        config: The backend's headroom and the Hive's control network, or None for neither.
 
     Returns:
         A callable that builds a fresh `DockerCellBackend` from the given collaborators each time
@@ -278,7 +340,7 @@ def build_docker_backend(
     """
 
     def factory() -> DockerCellBackend:
-        return DockerCellBackend(client, gate, endpoint, clock, max_cells=max_cells)
+        return DockerCellBackend(client, gate, endpoint, clock, config)
 
     return factory
 
@@ -317,7 +379,8 @@ def _build_container_spec(
         image=spec.image,
         environment=bootstrap.environment(),
         labels=labels,
-        network_name=network_plan.spec.name,
+        # Dual-homed: created on the control network; its own is attached before it starts.
+        network_name=network_plan.control or network_plan.spec.name,
         extra_hosts=network_plan.extra_hosts,
         volume_name=volume_name,
         volume_mount_path=_SCRATCH_MOUNT_PATH,
@@ -340,6 +403,33 @@ def _build_container_spec(
         read_only_rootfs=spec.read_only_rootfs,
         tmpfs={_TMP_MOUNT_PATH: ""},
     )
+
+
+def _plan(
+    spec: VirtualCellSpec, bootstrap: CellBootstrap, control: ControlNetwork | None
+) -> NetworkPlan:
+    """Plan the Cell's networks; refuse a dual-homed Cell that would not dial the control gateway.
+
+    A Night Veil Cell's link rides Tor over its egress (it dials through a SOCKS proxy), so it is
+    never dual-homed; any other Cell of a Hive with a control network is, and it must dial the
+    gateway, or the first cut would take its link with the egress (network module docstring).
+
+    Raises:
+        CellProvisionError: A dual-homed Cell's endpoint names some other host.
+    """
+    endpoint = bootstrap.endpoint
+    joins = control if endpoint.socks_proxy_url is None else None
+    plan = plan_network(spec, bootstrap.cell_id, joins)
+    if plan.control is not None and control is not None:
+        host = urlsplit(endpoint.waggle_url).hostname
+        if host != control.gateway:
+            raise CellProvisionError(
+                _BACKEND_NAME,
+                spec.image,
+                f"a Cell on the control network dials its gateway {control.gateway}, but its "
+                f"endpoint names {host}; set [virtual_cells] listen_host to the gateway",
+            )
+    return plan
 
 
 def _build_cell(

@@ -23,8 +23,11 @@ from datetime import UTC, datetime
 import pytest
 
 from hivemind.common.errors import ConfigurationError
+from hivemind.hive.backends.docker.client import DockerClientError, NetworkSpec
 from hivemind.hive.backends.docker.sdk_client import (
     SdkDockerClient,
+    _attached_networks,
+    _check_matches,
     _parse_created_at,
     _recreate_spec,
 )
@@ -112,3 +115,66 @@ def test_recreate_spec_tolerates_missing_optional_sections() -> None:
     assert spec["volumes"] == {}
     assert spec["nano_cpus"] is None
     assert spec["read_only"] is False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 10.6a: attachments read back, a reused network checked, a dual-homed recreate.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_CONTROL = NetworkSpec(
+    name="hivemind-hive_x-control",
+    internal=True,
+    labels={},
+    subnet="10.213.7.0/24",
+    gateway="10.213.7.1",
+    isolates_peers=True,
+)
+_CONTROL_ATTRS = {
+    "Internal": True,
+    "IPAM": {"Config": [{"Subnet": "10.213.7.0/24", "Gateway": "10.213.7.1"}]},
+    "Options": {"com.docker.network.bridge.enable_icc": "false"},
+}
+
+
+def test_attached_networks_reads_every_network_a_container_is_on_sorted() -> None:
+    attrs: dict[str, object] = {"NetworkSettings": {"Networks": {"own-net": {}, "control": {}}}}
+
+    assert _attached_networks(attrs) == ("control", "own-net")
+    assert _attached_networks({}) == ()
+
+
+def test_an_existing_network_that_enforces_the_plan_is_reused() -> None:
+    _check_matches(_CONTROL_ATTRS, _CONTROL)  # Does not raise.
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"Internal": False},
+        {"Options": {}},
+        {"IPAM": {"Config": [{"Subnet": "10.99.0.0/24", "Gateway": "10.99.0.1"}]}},
+    ],
+)
+def test_an_existing_network_that_does_not_enforce_the_plan_is_refused(
+    change: dict[str, object],
+) -> None:
+    # Not internal (egress through it), peers able to talk, or another subnet than the listener's.
+    with pytest.raises(DockerClientError, match="does not match"):
+        _check_matches({**_CONTROL_ATTRS, **change}, _CONTROL)
+
+
+def test_recreate_spec_keeps_the_first_network_its_hosts_entries_and_added_capabilities() -> None:
+    attrs: dict[str, object] = {
+        "HostConfig": {
+            "ExtraHosts": ["host.docker.internal:host-gateway"],
+            "CapAdd": ["NET_ADMIN"],
+        },
+        "NetworkSettings": {"Networks": {"own-net": {}, "control": {}}},
+    }
+
+    spec = _recreate_spec(attrs, "hivemind-snapshot:abc")
+
+    # The rest are attached before the recreated container starts (_sync_recreate_from_image).
+    assert spec["network"] == "control"
+    assert spec["extra_hosts"] == ["host.docker.internal:host-gateway"]
+    assert spec["cap_add"] == ["NET_ADMIN"]

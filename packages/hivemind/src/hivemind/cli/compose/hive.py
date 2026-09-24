@@ -465,7 +465,9 @@ async def _start(hive: Hive) -> None:
         # backend's QueenEndpoint carries the listener's bound port, which only exists after
         # start() (the first real Docker run failed on exactly this). Both happen before
         # hive.warden.start()/the TaskGroup in run_hive, so a Cell dialling back in while the Queen
-        # is still coming up is never dropped for connecting "too early".
+        # is still coming up is never dropped for connecting "too early". Before either, the
+        # Docker control network the listener binds the gateway of (roadmap step 10.6a).
+        await hive.virtual_cells.prepare()
         await hive.virtual_cells.listener.start(hive.queen)
         await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
     await hive.warden.start()

@@ -33,7 +33,7 @@ Public API:
       (hivemind.hive.models).
     - VirtualCellStatus, TRANSITIONS, can_transition, assert_transition, can_enter_dormant,
       assert_dormant_allowed: the Virtual Cell lifecycle state machine (hivemind.hive.cell_state).
-    - HiveError, CellProvisionError, CellDestroyError, UnknownBackendError,
+    - HiveError, CellProvisionError, CellDestroyError, CellEgressError, UnknownBackendError,
       InvalidCellTransitionError, BackendCapabilityError: this package's error tree
       (hivemind.hive.errors).
     - CellBackend, BackendCapabilities, VirtualCellRecord, FakeCellBackend: the provisioning
@@ -102,6 +102,7 @@ from hivemind.hive.egress import EGRESS_TIMEOUT_S, CellEgress, EgressOutcome, Li
 from hivemind.hive.errors import (
     BackendCapabilityError,
     CellDestroyError,
+    CellEgressError,
     CellProvisionError,
     HiveError,
     InvalidCellTransitionError,
@@ -166,6 +167,7 @@ __all__ = [
     "CellBootstrap",
     "CellDestroyError",
     "CellEgress",
+    "CellEgressError",
     "CellLifecycle",
     "CellProvisionError",
     "CellReadyInfo",

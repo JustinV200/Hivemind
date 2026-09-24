@@ -44,27 +44,39 @@ What each policy really enforces at the Docker level, and what it does not:
     `"night-veil-ubuntu"` before ever reaching here (defensive: the in-image kill-switch is the
     only real enforcement, so a spec that does not boot that image must never be accepted at all).
 
-Cutting a RUNNING Cell's egress (isolation, roadmap step 10.6a) is not something this backend
-offers, so `DockerCellBackend` does not declare `can_cut_egress`, and isolation records that the
-Cell's egress stayed as it was. Docker fixes a network's options when it creates it: `internal`
-(the one flag above that withholds outbound NAT) cannot be set on an existing network (the Engine
-has no network-update call), and nothing in the Engine API scopes a running container's egress
-(`container update` changes resources and the restart policy only). The one runtime lever is
-`network connect`/`disconnect`, and it cuts the very link isolation must keep: moving the container
-onto a fresh `internal` network means disconnecting it from the network its Waggle WebSocket was
-opened over, and that connection dies with the interface; on native Linux the redial then has no
-route either, because an `internal` network gives a container no path to the host-gateway address
-(`docker0`'s, outside its subnet) that `host.docker.internal` resolves to. A real implementation
-needs an egress control the Hive Stand owns beside Docker: host firewall rules in the `DOCKER-USER`
-chain for the Cell's own bridge subnet (each Cell already has its own network, so its subnet names
-it) that drop everything except the Queen's listener address and port, installed and removed by a
-privileged helper; or an egress proxy every Cell's traffic goes through from provision on, whose
-per-Cell policy isolation flips to "control link only". Either leaves the established link alone.
+Cutting a RUNNING Cell's egress (isolation, roadmap step 10.6a) needs the Cell's Waggle link to
+ride a network the cut leaves alone. Docker fixes a network's options when it creates it
+(`internal`, the one flag above that withholds outbound NAT, cannot be set on an existing network,
+and `container update` scopes resources, not egress); its one runtime lever is `network connect`/
+`disconnect`, and it takes an interface away with every connection on it. So a Hive that sets
+`[virtual_cells] control_subnet` dual-homes every Docker Cell (ADR-0027: the Cell still dials
+out, only over a second network):
+
+    CONTROL: one per-Hive `internal` bridge network (`control_network`), on the subnet the operator
+    names, whose gateway is the host's own address on it; inter-container traffic on it is off, so
+    a Cell reaches the host there and no other Cell. The Queen's listener binds that gateway, and a
+    Cell dials it (`[virtual_cells] listen_host`), so the Waggle link rides this network alone. An
+    `internal` network gives a container no default route, so the only thing it can reach over
+    this network is the gateway: the host's own services bound to the gateway or to every
+    interface, the listener among them, and nothing beyond the host.
+
+    EGRESS: the Cell's own per-policy network above (`network_name`), attached before the Cell
+    starts. It carries the default route, so it is how the Cell reaches anything else, the host's
+    other addresses (`host.docker.internal`, the host gateway a provider's URL names) included.
+    Disconnecting it (`hivemind.hive.backends.docker.egress.cut_egress`) leaves the Cell the
+    control network alone; connecting it again restores the policy. A VPN_TOR Cell is never
+    dual-homed: its link rides Tor, over its egress, so it is never cut either.
+
+Without a control subnet a Cell has its per-policy network alone, as before, and the backend
+declares no `can_cut_egress`. Under NONE that means no link at all on native Linux, since an
+`internal` network routes nowhere but its own subnet and `host-gateway` is docker0's address; a
+control subnet is what makes NONE work there too.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.docker`. Called by
-    `hivemind.hive.backends.docker.backend.DockerCellBackend`. Calls into hivemind.hive.models
-    (NetworkPolicy) only.
+    `hivemind.hive.backends.docker.backend.DockerCellBackend`, `.egress` and the composition root
+    (`control_network`). Calls into hivemind.hive.models (NetworkPolicy), this package's client
+    (NetworkSpec) and waggle only.
 
 Key invariants:
     - `host_gateway_extra_hosts()` is added to every Cell's container regardless of policy: the
@@ -72,6 +84,8 @@ Key invariants:
     - VPN_TOR's own network plan is created exactly like EGRESS_ONLY's (module docstring): Docker
       gives unrestricted outbound reach either way, and the difference between the two tiers is
       entirely inside the container, not in what this module asks Docker to create.
+    - A dual-homed Cell is created on the control network and attached to its egress network
+      before it starts; a VPN_TOR Cell never joins the control network.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for why the control
@@ -83,12 +97,13 @@ See Also:
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from hivemind.hive.backends.docker.client import NetworkSpec
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
-from waggle.ids import CellId
+from waggle.ids import CellId, HiveId
 
 # Docker Desktop resolves this automatically; native Linux Engine (>=20.10) needs the special
 # "host-gateway" value passed as an extra_hosts entry, which is harmless to also pass on Desktop.
@@ -99,12 +114,18 @@ HOST_GATEWAY_VALUE = "host-gateway"
 # hosts; the in-Cell firewall Night Veil's kill-switch work adds (roadmap step 5.7a) is what will
 # actually enforce this label's contents. Until then this is audit metadata only.
 ALLOWLIST_LABEL = "hivemind.network_allowlist"
+# A control subnet needs the gateway plus room for Cells; smaller than a /29 holds five at most.
+MIN_CONTROL_ADDRESSES = 8
+_ROLE_LABEL = "hivemind.network_role"  # "control" on the per-Hive control network.
 
 __all__ = [
     "ALLOWLIST_LABEL",
     "HOST_GATEWAY_HOSTNAME",
     "HOST_GATEWAY_VALUE",
+    "MIN_CONTROL_ADDRESSES",
+    "ControlNetwork",
     "NetworkPlan",
+    "control_network",
     "host_gateway_extra_hosts",
     "network_name",
     "plan_network",
@@ -112,17 +133,37 @@ __all__ = [
 
 
 @dataclass(frozen=True, slots=True)
+class ControlNetwork:
+    """The per-Hive internal network every dual-homed Cell's Waggle link rides (roadmap 10.6a).
+
+    Attributes:
+        name: The network's name, recomputable from the Hive's id alone.
+        spec: What `DockerNetworkPort.ensure_network` creates or reuses: internal, its subnet and
+            gateway fixed, inter-container traffic off.
+        gateway: The host's own address on it: where the Queen's listener binds and a Cell dials.
+    """
+
+    name: str
+    spec: NetworkSpec
+    gateway: str
+
+
+@dataclass(frozen=True, slots=True)
 class NetworkPlan:
     """What `DockerCellBackend.provision` needs to create and label this Cell's network.
 
     Attributes:
-        spec: The `NetworkSpec` to pass `DockerClientPort.create_network`.
+        spec: The `NetworkSpec` to pass `DockerClientPort.create_network`: the Cell's own
+            per-policy network, its egress network when it is dual-homed.
         extra_hosts: `/etc/hosts` entries every container on this network needs, host-gateway
             included, so the control link works under every policy.
+        control: The control network the container is created on, when it is dual-homed; None
+            for a Cell on its own network alone (no control subnet, or VPN_TOR).
     """
 
     spec: NetworkSpec
     extra_hosts: Mapping[str, str]
+    control: str | None = None
 
 
 def network_name(cell_id: CellId) -> str:
@@ -147,17 +188,54 @@ def host_gateway_extra_hosts() -> Mapping[str, str]:
     return {HOST_GATEWAY_HOSTNAME: HOST_GATEWAY_VALUE}
 
 
-def plan_network(spec: VirtualCellSpec, cell_id: CellId) -> NetworkPlan:
+def control_network(hive_id: HiveId, subnet: str) -> ControlNetwork:
+    """Plan the Hive's control network on `subnet`: internal, peers apart, gateway its first host.
+
+    Args:
+        hive_id: The Hive it serves, for its name and its label.
+        subnet: The operator's `[virtual_cells] control_subnet`, an IPv4 CIDR.
+
+    Returns:
+        The ControlNetwork every dual-homed Cell of this Hive joins.
+
+    Raises:
+        ValueError: `subnet` is not a private IPv4 network of at least `MIN_CONTROL_ADDRESSES`.
+    """
+    network = ipaddress.ip_network(subnet, strict=True)
+    # A public range would let the host answer the Cells on an address the world may route to.
+    if network.version != 4 or not network.is_private:
+        raise ValueError(f"control subnet {subnet!r} must be a private IPv4 network")
+    if network.num_addresses < MIN_CONTROL_ADDRESSES:
+        raise ValueError(f"control subnet {subnet!r} holds fewer than {MIN_CONTROL_ADDRESSES}")
+    gateway = str(next(network.hosts()))
+    name = f"hivemind-{hive_id}-control"
+    labels = {"hivemind.hive_id": str(hive_id), _ROLE_LABEL: "control"}
+    spec = NetworkSpec(
+        name=name,
+        internal=True,
+        labels=labels,
+        subnet=str(network),
+        gateway=gateway,
+        isolates_peers=True,
+    )
+    return ControlNetwork(name=name, spec=spec, gateway=gateway)
+
+
+def plan_network(
+    spec: VirtualCellSpec, cell_id: CellId, control: ControlNetwork | None = None
+) -> NetworkPlan:
     """Decide the Docker-level network for one Cell, per its `network_policy`.
 
     Args:
         spec: The Cell's own request; only `network_policy`, `network_allowlist`, `hive_id` and
             `labels` are read.
         cell_id: The Cell this network belongs to, for its deterministic name.
+        control: The Hive's control network, when it has one: the Cell is dual-homed on it and
+            its own network, unless it is VPN_TOR (module docstring).
 
     Returns:
         A NetworkPlan ready for `DockerClientPort.create_network` plus the container's own
-        `extra_hosts`.
+        `extra_hosts` and the control network it is created on, if any.
     """
     labels: dict[str, str] = {"hivemind.hive_id": str(spec.hive_id), "hivemind.cell_id": cell_id}
     if spec.network_policy is NetworkPolicy.ALLOWLIST:
@@ -178,4 +256,8 @@ def plan_network(spec: VirtualCellSpec, cell_id: CellId) -> NetworkPlan:
             labels=labels,
         ),
         extra_hosts=host_gateway_extra_hosts(),
+        # A VPN_TOR Cell's link rides Tor over its own network: never dual-homed (module docstring).
+        control=None
+        if control is None or spec.network_policy is NetworkPolicy.VPN_TOR
+        else control.name,
     )

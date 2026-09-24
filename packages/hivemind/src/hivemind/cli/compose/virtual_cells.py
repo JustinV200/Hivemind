@@ -132,7 +132,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
 from hivemind.cell import Cell, CellIdentity, CombShieldLevel
@@ -145,6 +145,7 @@ from hivemind.cli.compose.virtual_cell_backends import (
 )
 from hivemind.cli.compose.virtual_cell_backends import (
     docker_gateway_url,
+    prepare_backend,
 )
 from hivemind.cli.stores import open_snapshot_ledger
 from hivemind.hive import (
@@ -219,6 +220,9 @@ class VirtualCellsParts:
         night_veil: The Night Veil boundary every Virtual Cell's records pass through; its
             segments sit behind the `VeiledTrail` every Queen-side writer records through, and
             an Absconding purges through it.
+        prepare: Awaited by `run_hive` before the listener starts: makes or reuses the Docker
+            control network whose gateway the listener binds (roadmap step 10.6a); a no-op for a
+            Hive with no control subnet.
     """
 
     registry: BackendRegistry
@@ -232,6 +236,7 @@ class VirtualCellsParts:
     on_cell_granted: OnCellGranted
     retire_all: RetireAll
     night_veil: NightVeilBoundary
+    prepare: Callable[[], Awaitable[None]]
 
 
 def build_virtual_cells(
@@ -263,7 +268,7 @@ def build_virtual_cells(
         return None
     # One boundary for the whole Virtual side, around the trail it records through (docstring).
     night_veil = build_night_veil(manifest, trail, clock)
-    gate, listener, registry, lifecycle = _build_lifecycle(
+    gate, listener, registry, lifecycle, ctx = _build_lifecycle(
         manifest, night_veil.veiled, clock, environ or {}, hive_signer
     )
     lifecycle.attach_night_veil(night_veil)
@@ -283,6 +288,7 @@ def build_virtual_cells(
         on_cell_granted=make_on_cell_granted(lifecycle),
         retire_all=make_retire_all(lifecycle, quiesce),
         night_veil=night_veil,
+        prepare=lambda: prepare_backend(ctx),
     )
 
 
@@ -292,8 +298,8 @@ def _build_lifecycle(
     clock: Clock,
     environ: Mapping[str, str],
     hive_signer: Ed25519Signer | None,
-) -> tuple[QueenReadinessGate, CellListener, BackendRegistry, CellLifecycle]:
-    """Build the gate, listener, registry and lifecycle `build_virtual_cells` folds together.
+) -> tuple[QueenReadinessGate, CellListener, BackendRegistry, CellLifecycle, _RegistryContext]:
+    """Build the gate, listener, registry, lifecycle and the backends' own context, together.
 
     Split out of `build_virtual_cells` for its own line budget (codingrules 5.1). The listener
     signs with `hive_signer`, and every backend's QueenEndpoint publishes its public half.
@@ -335,7 +341,7 @@ def _build_lifecycle(
         # pure overhead (and, in a short-lived test process, an unclosed file handle nothing here
         # ever gets a chance to release). Only a real backend gets the snapshot relay wired in.
         _attach_snapshot(manifest, listener, lifecycle, clock)
-    return gate, listener, registry, lifecycle
+    return gate, listener, registry, lifecycle, ctx
 
 
 def _build_provider(

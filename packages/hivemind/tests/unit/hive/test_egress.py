@@ -122,3 +122,21 @@ async def test_lifecycle_egress_reports_a_backend_that_cannot_cut() -> None:
 
     assert await egress.cut(cell_id) is EgressOutcome.UNSUPPORTED
     assert backend.egress_calls == []  # Branching on the capability: the backend is never asked.
+
+
+class _RefusesThisCell(FakeCellBackend):
+    """Declares the capability, then refuses a Cell whose link its cut would take with it."""
+
+    async def cut_egress(self, cell_id: CellId) -> None:
+        """Refuse, as the Docker backend does for a Cell not on the control network."""
+        raise BackendCapabilityError("fake", "cut_egress", cell_id=cell_id)
+
+
+async def test_lifecycle_egress_reports_a_cell_its_backend_refuses_as_unsupported() -> None:
+    backend = _RefusesThisCell(FakeClock())
+    egress, cell_id = await _tracked(backend)
+
+    # Able in general, not for this Cell: nothing changed, recorded exactly like an unable backend.
+    assert backend.capabilities.can_cut_egress
+    assert await egress.cut(cell_id) is EgressOutcome.UNSUPPORTED
+    assert not backend.egress_is_cut(cell_id)

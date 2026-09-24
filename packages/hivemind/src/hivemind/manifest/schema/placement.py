@@ -36,6 +36,12 @@ never true for a Docker container reaching its own host, hence the field). This 
 Ed25519 key material of its own: `hivemind.hive.backends.bootstrap.QueenEndpoint` (a later
 composition-root value, not a manifest field) is where the Queen's own key hex is threaded in.
 
+Roadmap step 10.6a adds ``control_subnet`` (Docker only): the private IPv4 subnet of the Hive's
+internal control network, which dual-homes every Docker Cell so isolation can cut its egress and
+keep its Waggle link (`hivemind.hive.backends.docker.network`). Its first host is the gateway
+(``control_gateway``): the validator holds ``listen_host`` to it, and ``advertise_url`` too when
+set, since a Cell reaches the listener there and nowhere else once its egress is cut.
+
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
     ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``waggle.messages.task``
@@ -63,8 +69,10 @@ See Also:
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -87,8 +95,9 @@ DEFAULT_VIRTUAL_CELLS_DISK_BYTES = 8 * 1024**3  # 8 GiB.
 # the Queen through the host gateway (ADR-0027), and "none" is an `internal` Docker network, which
 # on Docker Desktop has no route to host.docker.internal at all -- the Warden inside never
 # connects, every placement times out and the task falls back to the Hive Stand (a real run,
-# 2026-09-23). An operator who wants an isolated Cell on native Linux, where an internal network
-# still reaches the bridge, sets "none" explicitly.
+# 2026-09-23). On native Linux an internal network reaches its own bridge's address and nothing
+# else, docker0 (where host-gateway points) included; an operator who wants "none" there sets
+# [virtual_cells] control_subnet too, whose gateway the link then rides (roadmap step 10.6a).
 DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY: NetworkPolicyName = "egress_only"
 DEFAULT_READY_TIMEOUT_S = 60.0  # Matches hivemind.hive.models.DEFAULT_READY_TIMEOUT_S.
 DEFAULT_MAX_CELLS = 4  # A conservative cap until the operator raises it deliberately.
@@ -105,6 +114,9 @@ DEFAULT_VIRTUAL_CELLS_LISTEN_PORT = 0  # 0: let the OS choose, like WebSocketSer
 # whose disk itself defaults to 8 GiB (DEFAULT_VIRTUAL_CELLS_DISK_BYTES above).
 DEFAULT_SNAPSHOT_RETENTION_S = 3600.0
 DEFAULT_SNAPSHOT_DISK_BUDGET_MB = 4096
+# A control subnet holds the gateway plus the Cells; a /29 (eight addresses) is the smallest.
+MIN_CONTROL_SUBNET_ADDRESSES = 8
+_IPV4 = 4  # ipaddress's own version number for an IPv4 network.
 
 __all__ = [
     "DEFAULT_ALLOW_HIVE_STAND",
@@ -125,6 +137,7 @@ __all__ = [
     "DEFAULT_VIRTUAL_CELLS_LISTEN_PORT",
     "DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES",
     "DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY",
+    "MIN_CONTROL_SUBNET_ADDRESSES",
     "NetworkPolicyName",
     "PlacementRoleOverride",
     "PlacementSection",
@@ -317,3 +330,41 @@ class VirtualCellsSection(BaseModel):
         "'qemu' only; hivemind.hive.backends.qemu.QemuBackendConfig.vm_root, and the matching "
         "ProcessQemuRunner's own vm_root). Required when backend is 'qemu'.",
     )
+    control_subnet: str | None = Field(
+        default=None,
+        description="(backend = 'docker' only; roadmap step 10.6a) A private IPv4 CIDR for the "
+        "Hive's internal control network: every Docker Cell whose link does not ride Tor joins it "
+        "beside its own network, its Waggle link rides it, and so isolation can cut the Cell's "
+        "egress and keep the link (hivemind.hive.backends.docker.network). listen_host must be "
+        "its first host, the gateway, and advertise_url, if set, must name it too. None: no "
+        "control network, and a Docker Cell's egress cannot be cut.",
+    )
+
+    @property
+    def control_gateway(self) -> str | None:
+        """The control subnet's first host, where the listener binds and Cells dial, or None."""
+        if self.control_subnet is None:
+            return None
+        return str(next(ipaddress.ip_network(self.control_subnet, strict=True).hosts()))
+
+    @model_validator(mode="after")
+    def _control_subnet_fits(self) -> VirtualCellsSection:
+        """Refuse a control subnet the Cells could not use: wrong backend, range or listener."""
+        if self.control_subnet is None:
+            return self
+        network = ipaddress.ip_network(self.control_subnet, strict=True)
+        if self.backend != "docker":
+            raise ValueError("[virtual_cells] control_subnet is Docker's alone: set backend.")
+        # A public range would have the host answer Cells on an address the world may route to.
+        if network.version != _IPV4 or not network.is_private:
+            raise ValueError(f"control_subnet {network} must be a private IPv4 network.")
+        if network.num_addresses < MIN_CONTROL_SUBNET_ADDRESSES:
+            raise ValueError(f"control_subnet {network} is smaller than a /29.")
+        gateway = self.control_gateway
+        # The listener must be on the one address a Cell can reach there, and a Cell must be
+        # told that address, or the first cut takes its link with its egress.
+        if self.listen_host != gateway:
+            raise ValueError(f"listen_host must be the control gateway {gateway}.")
+        if self.advertise_url is not None and urlsplit(self.advertise_url).hostname != gateway:
+            raise ValueError(f"advertise_url must name the control gateway {gateway}.")
+        return self

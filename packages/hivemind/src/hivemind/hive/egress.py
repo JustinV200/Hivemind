@@ -9,8 +9,11 @@ the one adapter that asks: it finds the Cell's backend through the `CellLifecycl
 branches on the declared capability (never on the backend's name), and answers with an
 `EgressOutcome` the isolation records on `cell.isolated`. A Cell the lifecycle does not track (a
 Real Cell, borrowed and never re-networked) is `UNTRACKED`; a backend that cannot is
-`UNSUPPORTED`; a backend call that fails or overruns is `FAILED`. None of these stops the rest of
-an isolation: revoking the grant, pausing the bees and the `BLOCK` Cell Wax still apply.
+`UNSUPPORTED`, and so is one that can in general but refuses this Cell (a
+`BackendCapabilityError`: a Docker Cell whose link does not ride the control network, whose egress
+the cut would take its link with); a backend call that fails or overruns is `FAILED`. None of
+these stops the rest of an isolation: revoking the grant, pausing the bees and the `BLOCK` Cell
+Wax still apply.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside the hive package. Built by the composition root over the
@@ -26,7 +29,8 @@ Key invariants:
 See Also:
     - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Only the
       Queen isolates a Cell".
-    - hivemind.hive.backends.docker.network for why Docker declares no such capability.
+    - hivemind.hive.backends.docker.network for how Docker declares it: dual-homing, when the
+      Hive sets a control subnet.
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ from typing import Protocol
 
 from hivemind.common.logging import get_logger
 from hivemind.hive.backends.base import EgressCutter
-from hivemind.hive.errors import HiveError
+from hivemind.hive.errors import BackendCapabilityError, HiveError
 from hivemind.hive.lifecycle import CellLifecycle
 from waggle.ids import CellId
 
@@ -55,7 +59,7 @@ class EgressOutcome(Enum):
 
     CUT = "cut"  # Only the Cell's control link is reachable now.
     RESTORED = "restored"  # The Cell's own network policy applies again.
-    UNSUPPORTED = "unsupported"  # Its backend declares no can_cut_egress: egress is unchanged.
+    UNSUPPORTED = "unsupported"  # Its backend cannot cut this Cell's egress: it is unchanged.
     UNTRACKED = "untracked"  # No Virtual Cell this lifecycle tracks (a Real Cell): nothing to cut.
     FAILED = "failed"  # The backend refused or overran: egress is as it was, as far as is known.
 
@@ -120,6 +124,10 @@ class LifecycleEgress:
             # External await: one backend call; bounded, and a refusal is an outcome, not a crash.
             async with asyncio.timeout(EGRESS_TIMEOUT_S):
                 await call(cell_id)
+        except BackendCapabilityError:
+            # Able in general, not for this Cell: nothing was changed, exactly as for a backend
+            # that declares no capability at all.
+            return EgressOutcome.UNSUPPORTED
         except (TimeoutError, HiveError) as failure:
             log.warning(
                 "hive.egress_failed", cell_id=cell_id, cut=cut, error=type(failure).__name__
