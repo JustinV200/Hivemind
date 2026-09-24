@@ -48,6 +48,10 @@ Key invariants:
       `hivemind.manifest.env.provider_api_key`'s own derivation (which this module cannot call
       directly, for the same reason it cannot import `ProviderSpec`) so a provider's secret still
       comes from exactly one environment variable, never the config itself (codingrules 13).
+    - `aclose()` closes everything this registry constructed, each under its own
+      `PROVIDER_CLOSE_TIMEOUT_S`, and forgets it; one provider's failed close is logged at warning
+      and never stops the next, so a shutdown releases every connection it can. It is idempotent:
+      a second call finds nothing left to close.
 
 See Also:
     - .claude/codingrules.md section 8.6 for "offline is a first-class mode" and "one door".
@@ -62,6 +66,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Protocol
@@ -70,10 +75,11 @@ from urllib.parse import urlsplit
 from pydantic import SecretStr
 
 from hivemind.common.errors import InvariantViolationError
+from hivemind.common.logging import get_logger
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import ProviderCapabilities, ProviderHealth
-from hivemind.llm.errors import OfflineViolationError, UnknownProviderError
+from hivemind.llm.errors import LLMError, OfflineViolationError, UnknownProviderError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
@@ -90,8 +96,15 @@ ProviderKind = Literal["anthropic", "openai_compat", "fake"]
 # the completeness test excludes exactly this set from "every ProviderKind must have a factory".
 PENDING_KINDS: frozenset[ProviderKind] = frozenset()
 
+PROVIDER_CLOSE_TIMEOUT_S = 5.0  # Closing a pooled HTTP client is local work measured in
+# milliseconds; five seconds absorbs a slow socket teardown without letting one provider hold the
+# whole Hive's shutdown hostage.
+
+log = get_logger(__name__)
+
 __all__ = [
     "PENDING_KINDS",
+    "PROVIDER_CLOSE_TIMEOUT_S",
     "MissingDefaultModelError",
     "ProviderConfig",
     "ProviderFactory",
@@ -249,6 +262,26 @@ class ProviderRegistry:
         """
         return {name: await instance.health() for name, instance in self._cache.items()}
 
+    async def aclose(self, timeout_s: float = PROVIDER_CLOSE_TIMEOUT_S) -> None:
+        """Close every provider this registry constructed, then forget them.
+
+        Called once by the composition root when the Hive stops, so no adapter's pooled
+        connections outlive it. Each close runs under its own `timeout_s` and a failure is
+        logged at warning with the provider's name, never raised: one stuck or broken provider
+        must not keep the others' sockets open. Forgetting what was closed makes a second call a
+        no-op; a provider asked for after this is built afresh (and closed by the next call).
+
+        Args:
+            timeout_s: How long one provider's close may take before it is abandoned; must be
+                > 0. `PROVIDER_CLOSE_TIMEOUT_S` by default; a test passes a tiny value.
+        """
+        # Snapshot and clear first, so a concurrent second aclose() (or a re-entrant one from a
+        # provider's own close) finds nothing left and never closes the same client twice.
+        closing = list(self._cache.items())
+        self._cache.clear()
+        for name, instance in closing:
+            await _close_quietly(name, instance, timeout_s)
+
 
 def apply_overrides(
     base: ProviderCapabilities, overrides: Mapping[str, bool | int]
@@ -276,6 +309,32 @@ def default_factories() -> Mapping[ProviderKind, ProviderFactory]:
         "openai_compat": _build_openai_compat,
         "anthropic": _build_anthropic,
     }
+
+
+class _Closable(Protocol):
+    """Anything the registry built that holds connections: an LLMProvider or a transcriber."""
+
+    async def aclose(self) -> None:
+        """Release every connection held; idempotent."""
+        ...
+
+
+async def _close_quietly(name: str, closable: _Closable, timeout_s: float) -> None:
+    """Close one provider under `timeout_s`, logging (never raising) a failure.
+
+    The caught set is every way a close is known to fail at shutdown, and nothing broader
+    (codingrules section 10 allows `except Exception` in three named places, and this is not
+    one): our own timeout expiring, an OS-level socket error while tearing a connection down, a
+    `RuntimeError` from an event loop already shutting down underneath the client, and an
+    adapter's own typed `LLMError`. Anything else is a bug and propagates.
+    """
+    try:
+        # External await, bounded: a stuck teardown is abandoned after timeout_s, not waited on.
+        async with asyncio.timeout(timeout_s):
+            await closable.aclose()
+    except (TimeoutError, OSError, RuntimeError, LLMError) as exc:
+        # Logged, not swallowed: the operator learns which provider may have leaked a connection.
+        log.warning("llm.provider_close_failed", provider=name, error=type(exc).__name__)
 
 
 def _check_offline(name: str, base_url: str, offline: bool) -> None:

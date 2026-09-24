@@ -30,6 +30,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+import anthropic
+import httpx
+import httpx2
 import pytest
 from builders.llm import make_bound, make_request, make_tool
 from contracts.llm_provider_harness import (
@@ -63,9 +66,10 @@ from hivemind.llm import (
 )
 from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
 from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
-from waggle.clock import SystemClock
+from waggle.clock import FakeClock, SystemClock
 
 _SECRET = "supersecret-value"  # noqa: S105 -- a probe value, never a real credential (item 11).
+_UNREACHABLE_BASE_URL = "http://127.0.0.1:9/v1"  # Port 9: nothing listens; never a real server.
 # A capability combo no real adapter declares on purpose, but the ladder must still honour it: json
 # mode without schema enforcement, the middle rung between NATIVE and PROMPTED.
 _JSON_MODE_ONLY = ProviderCapabilities.full().model_copy(update={"schema_output": False})
@@ -371,6 +375,53 @@ async def test_no_secret_leak_in_error_messages(harness: ProviderHarness, kind: 
         await provider.complete(_request())
 
     assert _SECRET not in str(excinfo.value)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 12. Closing: idempotent everywhere, and an adapter's own client really closed
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_aclose_is_idempotent(harness: ProviderHarness) -> None:
+    provider = harness.make_provider()
+
+    await provider.aclose()
+    await provider.aclose()
+
+
+async def test_a_closed_openai_compat_provider_has_closed_its_http_client() -> None:
+    # The client is built here, not by the harness, so the test can inspect the very object the
+    # provider was handed; the transport never runs, since closing makes no request.
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+        base_url=_UNREACHABLE_BASE_URL,
+    )
+    config = OpenAICompatConfig(
+        base_url=_UNREACHABLE_BASE_URL,
+        model=DEFAULT_MODEL,
+        timeout_s=5.0,
+        capabilities=ProviderCapabilities.full(),
+    )
+    provider = OpenAICompatProvider("openai_compat", config, client, FakeClock())
+
+    await provider.aclose()
+
+    assert client.is_closed
+
+
+async def test_a_closed_anthropic_provider_has_closed_its_sdk_client() -> None:
+    sdk = anthropic.AsyncAnthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=anthropic.DefaultAsyncHttpxClient(
+            transport=httpx2.MockTransport(lambda _request: httpx2.Response(500))
+        ),
+    )
+    provider = AnthropicProvider("anthropic", AnthropicConfig(), sdk, FakeClock())
+
+    await provider.aclose()
+
+    assert sdk.is_closed()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

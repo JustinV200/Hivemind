@@ -34,6 +34,8 @@ Key invariants:
       against yet.
     - `health()` never raises: every failure mode becomes a `ProviderHealth` reading instead,
       per `LLMProvider.health`'s contract.
+    - `aclose()` closes the one `httpx.AsyncClient` this provider owns, and with it every pooled
+      connection; it is idempotent because httpx's own `aclose` is.
 
 See Also:
     - .claude/codingrules.md section 8.6 for the LLM provider independence rules this implements.
@@ -280,6 +282,12 @@ class OpenAICompatProvider:
             )
         state, detail = _health_from_status(response.status_code)
         return ProviderHealth(state=state, detail=detail, checked_at=self._clock.now())
+
+    async def aclose(self) -> None:
+        """Close the httpx client and its pooled connections; see `LLMProvider.aclose`."""
+        # External await, local work: closing pooled sockets takes milliseconds. The registry
+        # bounds it (PROVIDER_CLOSE_TIMEOUT_S) so one slow teardown never stalls a shutdown.
+        await self._http.aclose()
 
     def _ensure_model_served(self, model: str) -> None:
         """Raise if `probe()` has run and `model` is not in the server's listing.
