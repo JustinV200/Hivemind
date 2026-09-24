@@ -34,6 +34,7 @@ from waggle.messages.labels import (
     PostconditionKind,
     Tempo,
 )
+from waggle.messages.task import ExoskeletonNeed, ScoutReport
 from waggle.messages.task.assignment import (
     MAX_ACCEPTANCE_CHARS,
     MAX_ACCEPTANCE_ITEMS,
@@ -45,6 +46,8 @@ from waggle.messages.task.assignment import (
     TaskResume,
     WorkerRole,
 )
+from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES
+from waggle.messages.task.recon import MAX_RECON_REPORTS
 from waggle.messages.task.reports import (
     MAX_ARTIFACTS,
     MAX_SUMMARY_CHARS,
@@ -299,6 +302,57 @@ def test_task_assign_leaves_defaults_to_empty_so_an_older_peers_message_still_va
     rebuilt = TaskAssign.model_validate(payload)
 
     assert rebuilt.leaves == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "default"), [("exoskeleton", None), ("network_scopes", ()), ("recon", ())]
+)
+def test_task_assign_protocol_1_6_fields_default_so_an_older_peers_message_still_validates(
+    field: str, default: object
+) -> None:
+    # Protocol 1.6 (roadmap phase 6): each new field is additive, so a payload built before it
+    # existed -- one with no key for it at all -- must still validate to the documented default.
+    payload = _example(TaskAssign).model_dump(mode="json")
+    payload.pop(field, None)
+
+    rebuilt = TaskAssign.model_validate(payload)
+
+    assert getattr(rebuilt, field) == default
+
+
+def test_task_assign_carries_an_exoskeleton_need_scopes_and_recon_through_a_round_trip() -> None:
+    report = ScoutReport(feasible=True, summary="The login form is at /login.")
+    assign = _rebuild(
+        _example(TaskAssign),
+        exoskeleton=ExoskeletonNeed(browser_only=True),
+        network_scopes=("example.test",),
+        recon=(report,),
+    )
+
+    rebuilt = TaskAssign.model_validate_json(assign.model_dump_json())
+
+    assert rebuilt == assign
+    assert rebuilt.model_dump()["exoskeleton"] == {"browser_only": True, "audio": False}
+
+
+def test_task_assign_network_scopes_and_recon_are_bounded() -> None:
+    report = ScoutReport(feasible=True, summary="s")
+    with pytest.raises(ValidationError):
+        _rebuild(_example(TaskAssign), network_scopes=("h",) * (MAX_TASK_NETWORK_SCOPES + 1))
+    with pytest.raises(ValidationError):
+        _rebuild(_example(TaskAssign), network_scopes=("",))
+    with pytest.raises(ValidationError):
+        _rebuild(_example(TaskAssign), recon=(report,) * (MAX_RECON_REPORTS + 1))
+
+
+def test_task_result_carries_a_scout_report_and_defaults_to_none() -> None:
+    example = _example(TaskResult)
+    report = ScoutReport(feasible=False, summary="The site is down.")
+    payload = example.model_dump(mode="json")
+    payload.pop("scout_report", None)
+
+    assert TaskResult.model_validate(payload).scout_report is None
+    assert _rebuild(example, scout_report=report).model_dump()["scout_report"]["feasible"] is False
 
 
 def test_task_assign_leaves_is_bounded() -> None:

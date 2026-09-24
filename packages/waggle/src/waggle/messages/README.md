@@ -21,11 +21,11 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
-  3): `task/` (`assignment.py`, `reports.py`); `supervision/` (`oversight.py`, `telemetry.py`,
+  3): `task/` (`assignment.py`, `reports.py`, `needs.py`, `recon.py`); `supervision/` (`oversight.py`, `telemetry.py`,
   `alarms.py`, `questions.py`); `forage/` (`grants.py`, `values.py`, `capacity.py`,
   `hosting.py`); `cell/` (`status.py`, `leases.py`, `wax.py`); `session/` (`commands.py`,
   `output.py`, `files.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
-  `call.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `verdict.py`); `swarm/`
+  `call.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `gui.py`, `verdict.py`); `swarm/`
   (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`). Enums that only one
   family uses live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all

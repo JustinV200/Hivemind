@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.5`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.6`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.5"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.6"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.5"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 5` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.6"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 6` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -458,9 +458,15 @@ Enums:
 - `AccuracyBar`: `LOW`, `NORMAL`, `HIGH`, `CRITICAL`. The accuracy half of a Tempo.
 - `OsFamily`: `LINUX`, `WINDOWS`, `MACOS`. Adding a member later (a phone gateway) is a minor.
 - `PostconditionKind`: `FILE_EXISTS`, `FILE_ABSENT`, `COMMAND_EXITS_ZERO`, `TEST_PASSES`,
-  `HTTP_STATUS`, `ELEMENT_TEXT`, `JUDGE_RUBRIC`. The machine-checkable assertions of the Capping
-  gate (the quality gate: propose, check, apply, verify, roll back) plus the judge's rubric for
-  what no machine can check.
+  `HTTP_STATUS`, `ELEMENT_TEXT`, `JUDGE_RUBRIC`, and from `PROTOCOL_MINOR` 6 (roadmap step 6.5)
+  `URL_MATCHES` (the attached browser's page URL equals `expected`, or starts with it when
+  `expected` ends in `*`) and `REGION_CHANGED` (the pixels of the display rectangle `subject`
+  differ after the action from before it). The machine-checkable assertions of the Capping gate
+  (the quality gate: propose, check, apply, verify, roll back) plus the judge's rubric for what no
+  machine can check. `ELEMENT_TEXT` holds when the text of the element `subject` names contains
+  `expected`; `subject` is `role=<role>` optionally followed by `;name=<accessible name>`,
+  `label=<label>`, `text=<visible text>`, `selector=<css>`, or a bare CSS selector (the 1.0
+  reading, still accepted, so no existing subject is refused).
 
 Value models:
 
@@ -474,13 +480,14 @@ Value models:
   `capping.proposal_submitted`).
   - `kind` (`PostconditionKind`): what is asserted.
   - `subject` (`str`): the path, URL, selector or test id the assertion is about, or a short
-    label for `JUDGE_RUBRIC`. Min 1, max `MAX_PATH_CHARS` chars.
+    label for `JUDGE_RUBRIC`. Min 1, max `MAX_PATH_CHARS` chars. For `REGION_CHANGED` it is
+    `x,y,width,height` in display pixels, width and height at least 1 (validator).
   - `argv` (`tuple[str, ...]`): the command as an argument list, never a shell string. Max 32
     items, each max 1024 chars; non-empty only for `COMMAND_EXITS_ZERO` and `TEST_PASSES`
     (validator).
-  - `expected` (`str | None`): the HTTP status, the element text or the rubric text; None for
-    kinds with nothing to compare. Max 4000 chars; required for `HTTP_STATUS`, `ELEMENT_TEXT`
-    and `JUDGE_RUBRIC` (validator).
+  - `expected` (`str | None`): the HTTP status, the element text, the URL or the rubric text;
+    None for kinds with nothing to compare. Max 4000 chars; required for `HTTP_STATUS`,
+    `ELEMENT_TEXT`, `JUDGE_RUBRIC` and `URL_MATCHES` (validator).
 - `HandoffRef`: a reference to a Handoff (the structured document a bee writes before its
   context is reset, which the next bee resumes from). No Handoff id kind exists, so the
   reference is the trail event that recorded it.
@@ -508,6 +515,9 @@ Value models:
 - `CellCapabilitiesReport`: the wire form of `CellCapabilities`, what a Cell can do; placement
   and Workers branch on these flags, never on the Cell's kind.
   - `has_display`, `has_audio`, `has_browser`, `can_start_display`, `can_host_model` (`bool`).
+  - `real_display_allowed` (`bool`, `PROTOCOL_MINOR` 6): whether the operator allows the Hive to
+    drive the display already running on the Cell (their own screen); never implied by
+    `has_display`. Defaults to False.
   - `network_scopes` (`tuple[str, ...]`): network scopes reachable from the Cell (capability
     syntax, e.g. `net:internet`). Max 32 items, each max 256 chars.
 - `GpuReport`: one GPU on a host.
@@ -541,6 +551,18 @@ Family enums and value models:
   - `path` (`str`): the scratch or capped-and-applied path. Max `MAX_PATH_CHARS`.
   - `size_bytes` (`int`): size. At least 0.
   - `sha256` (`str`): digest of the file.
+- `ExoskeletonNeed` (`PROTOCOL_MINOR` 6, `messages/task/needs.py`): the Exoskeleton a task needs,
+  so its Warden attaches exactly that.
+  - `browser_only` (`bool`): the browser fast path alone is enough. Defaults to False.
+  - `audio` (`bool`): the task needs to hear or speak through the Cell. Defaults to False; never
+    together with `browser_only` (validator).
+- `ScoutReport` (`PROTOCOL_MINOR` 6, `messages/task/recon.py`): what a Scout found; untrusted
+  model prose.
+  - `feasible` (`bool`): whether the Scout recommends committing Foragers as planned; False holds
+    the dependent tasks back.
+  - `summary` (`str`): one paragraph. Min 1, max 1000.
+  - `findings`, `suggested_steps` (`tuple[str, ...]`): max 16 items each; `risks`, `targets`
+    (`tuple[str, ...]`): max 8 items each. Every item min 1, max 500 chars.
 
 #### TaskAssign
 
@@ -564,6 +586,13 @@ resume from, to the Warden that owns the chosen Cell, which re-issues it to the 
   defaults to empty, so an envelope from before this field existed still validates. A Drone
   cannot widen this set, only raise a `Question`.
 - `tempo` (`Tempo`): the task's latency budget and accuracy bar.
+- `exoskeleton` (`ExoskeletonNeed | None`, `PROTOCOL_MINOR` 6): the Exoskeleton the task needs;
+  None for a terminal-only task and by default.
+- `network_scopes` (`tuple[str, ...]`, `PROTOCOL_MINOR` 6): outbound hosts the task's capability
+  set must allow reaching, so the Warden grants exactly those. Max 32 items, each min 1, max 253
+  chars; defaults to empty.
+- `recon` (`tuple[ScoutReport, ...]`, `PROTOCOL_MINOR` 6): reports from the Scout tasks this one
+  depended on, for the Worker's brief. Max 4; defaults to empty.
 - `clearance` (`HoneyClearance`): the highest label the task's bee may read, resume from or
   write.
 - `grant_id` (`GrantId`): the Forage grant (Queen to Warden) or the slice the Warden carved
@@ -619,6 +648,9 @@ from the Worker, then the Warden's verified result after the acceptance checks.
 - `spend` (`float`): the attempt's total spend. At least 0.
 - `reason` (`str`): why this outcome: the failure cause, the cancellation cause, or the
   acceptance summary.
+- `scout_report` (`ScoutReport | None`, `PROTOCOL_MINOR` 6): what a Scout found, carried
+  unchanged from the Worker's claim through the Warden's result; None for every other role and
+  by default.
 
 #### TaskCancel
 
@@ -1586,9 +1618,28 @@ Family enums and value models:
 - `RiskTier`: `READ_ONLY`, `SCRATCH_WRITE`, `OUTSIDE_SCRATCH_WRITE`, `NETWORK_EGRESS`, `SPEND`,
   `DEVICE_COMMAND`, `IRREVERSIBLE`. Which check ladder applies and whether a snapshot precedes
   apply.
-- `ActionKind`: `DIFF`, `COMMAND`, `ACTION_SEQUENCE`, `COPY` (`PROTOCOL_MINOR` 4, roadmap step
-  5.0e: the `keep` tool moves a scratch file outside it; a diff cannot carry a binary, so this
-  moves the bytes by digest instead of inline).
+- `ActionKind`: `DIFF`, `COMMAND`, `ACTION_SEQUENCE` (prose steps, for a device), `COPY`
+  (`PROTOCOL_MINOR` 4, roadmap step 5.0e: the `keep` tool moves a scratch file outside it; a diff
+  cannot carry a binary, so this moves the bytes by digest instead of inline), `GUI`
+  (`PROTOCOL_MINOR` 6, roadmap step 6.5: typed Exoskeleton steps the gate applies through the
+  attached Exoskeleton, never prose).
+- `GuiOp` (`PROTOCOL_MINOR` 6, `messages/capping/gui.py`): `MOVE`, `CLICK`, `DOUBLE_CLICK`,
+  `TYPE`, `PRESS`, `SCROLL` (desktop); `NAVIGATE`, `BROWSER_CLICK`, `BROWSER_FILL`,
+  `BROWSER_PRESS` (browser); `SAY` (audio). `MouseButton`: `LEFT`, `MIDDLE`, `RIGHT`.
+- `ElementTarget` (`PROTOCOL_MINOR` 6): one element on a page, named exactly one way (validator):
+  `role` (optionally with `name`, its accessible name), `label`, `text` or `selector`, each min 1,
+  max 512 chars; `name` only beside `role`.
+- `GuiStep` (`PROTOCOL_MINOR` 6): one typed step; the fields its `op` needs are required and every
+  other field is None (validator). `x`, `y` (`int | None`, 0 to 16384: display pixels; MOVE,
+  CLICK, DOUBLE_CLICK, optional for SCROLL); `button` (`MouseButton | None`, CLICK and
+  DOUBLE_CLICK, None meaning LEFT); `text` (`str | None`, min 1, max 4000: TYPE, BROWSER_FILL);
+  `secret` (`bool`, default False, only on TYPE and BROWSER_FILL: the text is redacted wherever
+  the step is recorded or rendered); `keys` (`str | None`, max 64, pattern
+  `^[A-Za-z0-9_]+(\+[A-Za-z0-9_]+)*$`: one chord, PRESS and BROWSER_PRESS); `dx`, `dy` (`int |
+  None`, -100 to 100 wheel steps: SCROLL, at least one non-zero); `url` (`str | None`, max 2048,
+  http, https, file or about:blank only: NAVIGATE); `target` (`ElementTarget | None`:
+  BROWSER_CLICK, BROWSER_FILL, optional for BROWSER_PRESS); `clip` (`str | None`, max
+  `MAX_PATH_CHARS`: the scratch path of a WAV clip, SAY).
 - `ProposedAction`: the action, in a shape deterministic checks can read.
   - `kind` (`ActionKind`), `summary` (`str`, max 1000), `diff` (`str | None`, max 131072; a
     larger diff is written to scratch with the session and referenced by `paths` plus
@@ -1600,15 +1651,18 @@ Family enums and value models:
     non-empty only for `ACTION_SEQUENCE`), `copy_sha256` (`str | None`, `PROTOCOL_MINOR` 4: the
     sha256 pattern, set exactly for `COPY`; the gate reads the source's bytes from scratch itself
     at apply time and verifies this digest, so the proposal never carries the bytes), `copy_size`
-    (`int | None`, `PROTOCOL_MINOR` 4: the source's size in bytes, set exactly for `COPY`, ge 0).
-    The field matching `kind` must be populated, and the characters across `summary`, `diff`,
-    `command`, `paths` and `steps` total at most 262,144 (validator).
+    (`int | None`, `PROTOCOL_MINOR` 4: the source's size in bytes, set exactly for `COPY`, ge 0),
+    `gui` (`tuple[GuiStep, ...]`, `PROTOCOL_MINOR` 6, max 32: non-empty exactly for `GUI`,
+    applied in order). The field matching `kind` must be populated, and the characters across
+    `summary`, `diff`, `command`, `paths`, `steps` and the text of every GUI step total at most
+    262,144 (validator).
 - `CheckKind`: `SCHEMA`, `LINT`, `TYPES`, `ALLOWLIST`, `SIZE_CAP`, `SANDBOX_TESTS`, `JUDGE`,
   `HUMAN`. The rungs of the ladder, cheapest first.
 - `CheckOutcome`: `PASSED`, `FAILED`, `CHANGES_REQUESTED` (judge and human only).
 - `VerdictOutcome`: `VERIFIED`, `REJECTED`, `ROLLED_BACK`, `CHANGES_REQUESTED`.
 - `RollbackMethod`: `SNAPSHOT`, `REVERSE_DIFF`, `NONE` (nothing possible: the documented no-op
-  on Real Cells).
+  on Real Cells), `GUI_STATE` (`PROTOCOL_MINOR` 6: the Exoskeleton restored its own checkpoint,
+  the browser page, cookies and local storage it held before a GUI action; client state only).
 
 #### ProposalSubmitted
 

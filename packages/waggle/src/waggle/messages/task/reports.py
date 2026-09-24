@@ -54,6 +54,7 @@ from waggle.messages.base import (
 )
 from waggle.messages.labels import HandoffRef, HoneyClearance
 from waggle.messages.task.assignment import MIN_ATTEMPT
+from waggle.messages.task.recon import ScoutReport
 
 MIN_SUMMARY_CHARS = 1  # A report always says something; an empty summary reports nothing.
 MAX_SUMMARY_CHARS = 2_000  # One paragraph of what changed or what was done; never a transcript.
@@ -191,6 +192,12 @@ class TaskResult(WaggleMessage):
     reason: _Reason = Field(
         description="Why this outcome: the failure cause, the cancellation cause, or the "
         "acceptance summary."
+    )
+    scout_report: ScoutReport | None = Field(
+        default=None,
+        description="What a Scout found (roadmap step 6.10), carried unchanged from the Worker's "
+        "claim through the Warden's verified result to the Queen; None for every other role. "
+        "Protocol 1.6.",
     )
 
     @model_validator(mode="after")

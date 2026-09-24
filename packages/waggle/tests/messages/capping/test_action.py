@@ -58,6 +58,7 @@ def test_action_kind_members_and_values_match_the_spec() -> None:
         "COMMAND",
         "ACTION_SEQUENCE",
         "COPY",
+        "GUI",
     ]
     assert all(member.value == member.name for member in ActionKind)
 

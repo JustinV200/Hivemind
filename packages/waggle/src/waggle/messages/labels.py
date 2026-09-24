@@ -16,7 +16,9 @@ such assertion, or one acceptance criterion a planner attaches to a task), ``Han
 pointer to a Handoff, the document a bee writes before its context is reset) and
 ``PlannedLeaving`` (roadmap step 5.0b: one path a task's plan declares should stay on its Cell
 after the lease is released -- the same shape rides on a ``TaskDraft``, a stored ``Task`` and a
-``task.assign``). The four host and capability report models of the same spec section live in
+``task.assign``). ``PostconditionKind`` gained ``URL_MATCHES`` and ``REGION_CHANGED`` in protocol
+1.6 (roadmap step 6.5, ADR-0032): the structural and pixel assertions the Exoskeleton's GUI
+actions declare. The four host and capability report models of the same spec section live in
 ``waggle.messages.reports``, split out by responsibility so each file stays under the codingrules
 5.1 size limit. ``hivemind`` mirrors these enums (``cell.tiers``, ``forage.tempo``) and a test
 there keeps them in sync.
@@ -190,16 +192,26 @@ class PostconditionKind(Enum):
     COMMAND_EXITS_ZERO = "COMMAND_EXITS_ZERO"
     TEST_PASSES = "TEST_PASSES"
     HTTP_STATUS = "HTTP_STATUS"
-    ELEMENT_TEXT = "ELEMENT_TEXT"
+    ELEMENT_TEXT = "ELEMENT_TEXT"  # A page element's text contains `expected` (browser).
     JUDGE_RUBRIC = "JUDGE_RUBRIC"  # What no machine can check; a judge model scores it.
+    URL_MATCHES = "URL_MATCHES"  # 1.6: the page URL is `expected`; a trailing * matches a prefix.
+    REGION_CHANGED = "REGION_CHANGED"  # 1.6: the pixels of region `subject` ("x,y,w,h") changed.
 
 
 # The kinds whose check runs a command, so they are the only ones that carry an argv.
 _COMMAND_KINDS = frozenset({PostconditionKind.COMMAND_EXITS_ZERO, PostconditionKind.TEST_PASSES})
 # The kinds whose check compares against a stated value, so `expected` is required for them.
 _COMPARISON_KINDS = frozenset(
-    {PostconditionKind.HTTP_STATUS, PostconditionKind.ELEMENT_TEXT, PostconditionKind.JUDGE_RUBRIC}
+    {
+        PostconditionKind.HTTP_STATUS,
+        PostconditionKind.ELEMENT_TEXT,
+        PostconditionKind.JUDGE_RUBRIC,
+        PostconditionKind.URL_MATCHES,
+    }
 )
+# A REGION_CHANGED subject: "x,y,width,height" in display pixels, a width and height of at least 1,
+# so the checker can crop exactly that rectangle before and after the action (protocol 1.6).
+_REGION_SUBJECT = re.compile(r"^\d{1,5},\d{1,5},[1-9]\d{0,4},[1-9]\d{0,4}$")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -262,6 +274,19 @@ class Postcondition(BaseModel):
             raise ValueError(
                 f"A {self.kind.value} postcondition carries no argv; only COMMAND_EXITS_ZERO "
                 "and TEST_PASSES run a command."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _region_subject_is_a_rectangle(self) -> Postcondition:
+        """Reject a REGION_CHANGED subject that is not "x,y,width,height"."""
+        # The gate crops this rectangle from a frame before and after the action; anything else
+        # (a selector, a label) would leave it nothing to compare.
+        if self.kind is PostconditionKind.REGION_CHANGED and not _REGION_SUBJECT.match(
+            self.subject
+        ):
+            raise ValueError(
+                f"A REGION_CHANGED subject is 'x,y,width,height' in pixels, got {self.subject!r}."
             )
         return self
 

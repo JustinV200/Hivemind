@@ -4,7 +4,8 @@ Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle d
 the gate every side effect passes: a Worker (the bee that does the work) proposes an action,
 checkers report each rung of the ladder, and the Warden (the always-on supervisor of one Cell)
 gives the verdict. ``proposals`` holds the proposal and the check result; ``action`` the proposed
-action itself (a diff, a command or a step sequence); ``verdict`` the gate's word, each
+action itself (a diff, a command, a step sequence, a copy or typed GUI steps); ``gui`` the typed
+Exoskeleton step a GUI action carries (protocol 1.6); ``verdict`` the gate's word, each
 postcondition result and a rollback. This package is the family's face: a caller imports any of its
 messages, enums or value models from here without knowing which module defines them. The bounds
 each module names stay in that module, because the spec makes the number normative, not the name.
@@ -22,17 +23,19 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.9 for the family's normative fields and rules.
-    - waggle.messages.capping.proposals, waggle.messages.capping.action and
-      waggle.messages.capping.verdict for the definitions.
+    - waggle.messages.capping.proposals, waggle.messages.capping.action,
+      waggle.messages.capping.gui and waggle.messages.capping.verdict for the definitions.
 
 Public API:
     - Proposals (proposals): CheckKind, CheckOutcome, CheckResult, ProposalSubmitted, RiskTier.
     - Action (action): ActionKind, ProposedAction.
+    - GUI steps (gui): ElementTarget, GuiOp, GuiStep, MouseButton.
     - Verdict (verdict): PostconditionResult, RollbackDone, RollbackMethod, Verdict,
       VerdictOutcome.
 """
 
 from waggle.messages.capping.action import ActionKind, ProposedAction
+from waggle.messages.capping.gui import ElementTarget, GuiOp, GuiStep, MouseButton
 from waggle.messages.capping.proposals import (
     CheckKind,
     CheckOutcome,
@@ -53,6 +56,10 @@ __all__ = [
     "CheckKind",
     "CheckOutcome",
     "CheckResult",
+    "ElementTarget",
+    "GuiOp",
+    "GuiStep",
+    "MouseButton",
     "PostconditionResult",
     "ProposalSubmitted",
     "ProposedAction",

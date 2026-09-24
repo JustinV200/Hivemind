@@ -64,6 +64,8 @@ _MEMBERS: list[tuple[type[Enum], list[str]]] = [
             "HTTP_STATUS",
             "ELEMENT_TEXT",
             "JUDGE_RUBRIC",
+            "URL_MATCHES",
+            "REGION_CHANGED",
         ],
     ),
 ]
@@ -83,8 +85,11 @@ def _postcondition(kind: PostconditionKind, **overrides: object) -> Postconditio
         PostconditionKind.HTTP_STATUS,
         PostconditionKind.ELEMENT_TEXT,
         PostconditionKind.JUDGE_RUBRIC,
+        PostconditionKind.URL_MATCHES,
     ):
         fields["expected"] = "200"
+    if kind is PostconditionKind.REGION_CHANGED:
+        fields["subject"] = "10,20,300,40"  # A rectangle: the only subject this kind accepts.
     return Postcondition.model_validate({**fields, **overrides})
 
 
@@ -170,9 +175,32 @@ def test_postcondition_expected_is_required_on_comparison_kinds() -> None:
         PostconditionKind.HTTP_STATUS,
         PostconditionKind.ELEMENT_TEXT,
         PostconditionKind.JUDGE_RUBRIC,
+        PostconditionKind.URL_MATCHES,
     ):
         with pytest.raises(ValidationError, match="requires `expected`"):
             _postcondition(kind, expected=None)
+
+
+@pytest.mark.parametrize("subject", ["10,20,300,40", "0,0,1,1", "16383,16383,99999,1"])
+def test_postcondition_region_changed_accepts_a_rectangle(subject: str) -> None:
+    assert _postcondition(PostconditionKind.REGION_CHANGED, subject=subject).subject == subject
+
+
+@pytest.mark.parametrize(
+    "subject", ["#submit", "10,20,300", "10,20,0,40", "10,20,300,0", "-1,0,5,5", "a,b,c,d"]
+)
+def test_postcondition_region_changed_rejects_anything_but_a_rectangle(subject: str) -> None:
+    # A selector, a missing side or a zero-width region would leave the checker nothing to crop.
+    with pytest.raises(ValidationError, match="x,y,width,height"):
+        _postcondition(PostconditionKind.REGION_CHANGED, subject=subject)
+
+
+def test_postcondition_element_text_keeps_accepting_a_bare_selector() -> None:
+    # Protocol 1.0 read ELEMENT_TEXT's subject as a selector; 1.6 adds role=/label=/text= forms
+    # but never refuses the old one (a tightened bound would be a major bump, spec section 4).
+    postcondition = _postcondition(PostconditionKind.ELEMENT_TEXT, subject="#greeting")
+
+    assert postcondition.subject == "#greeting"
 
 
 def test_postcondition_bounds() -> None:

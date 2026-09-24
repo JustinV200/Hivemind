@@ -85,7 +85,7 @@ def _rebuild(example: WaggleMessage, **changes: object) -> WaggleMessage:
     ("enum_type", "names"),
     [
         (VerdictOutcome, ["VERIFIED", "REJECTED", "ROLLED_BACK", "CHANGES_REQUESTED"]),
-        (RollbackMethod, ["SNAPSHOT", "REVERSE_DIFF", "NONE"]),
+        (RollbackMethod, ["SNAPSHOT", "REVERSE_DIFF", "NONE", "GUI_STATE"]),
     ],
 )
 def test_verdict_enum_members_and_values_match_the_spec(

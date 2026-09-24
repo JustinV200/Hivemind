@@ -116,6 +116,12 @@ class CellCapabilitiesReport(BaseModel):
     can_host_model: bool = Field(
         description="Whether the Cell can run a local model server (a Nuc candidate)."
     )
+    real_display_allowed: bool = Field(
+        default=False,
+        description="Whether the operator allows the Hive to drive the display already running "
+        "on this Cell (their own screen); never implied by has_display. Protocol 1.6, roadmap "
+        "step 6.3; defaults to False so an older peer's report still validates.",
+    )
     network_scopes: tuple[Annotated[str, Field(max_length=MAX_NETWORK_SCOPE_CHARS)], ...] = Field(
         max_length=MAX_NETWORK_SCOPES,
         description="Network scopes reachable from the Cell, in capability syntax "

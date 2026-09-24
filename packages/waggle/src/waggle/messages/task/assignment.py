@@ -53,6 +53,8 @@ from waggle.messages.base import (
     WaggleMessage,
 )
 from waggle.messages.labels import HandoffRef, HoneyClearance, PlannedLeaving, Postcondition, Tempo
+from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES, ExoskeletonNeed, NetworkScope
+from waggle.messages.task.recon import MAX_RECON_REPORTS, ScoutReport
 
 MIN_OBJECTIVE_CHARS = 1  # A task with no objective asks for nothing.
 MAX_OBJECTIVE_CHARS = 8_000  # A planner's brief: a page or two; anything longer belongs in Honey.
@@ -141,6 +143,24 @@ class TaskAssign(WaggleMessage):
         "task.assign still validates. A Drone cannot widen this set, only raise a Question.",
     )
     tempo: Tempo = Field(description="The task's latency budget and accuracy bar.")
+    exoskeleton: ExoskeletonNeed | None = Field(
+        default=None,
+        description="The Exoskeleton the task needs, so its Warden attaches exactly that; None "
+        "for a terminal-only task. Protocol 1.6 (ADR-0031): before it, the need never reached "
+        "the Cell that had to honour it.",
+    )
+    network_scopes: tuple[NetworkScope, ...] = Field(
+        default=(),
+        max_length=MAX_TASK_NETWORK_SCOPES,
+        description="Outbound hosts the task's capability set must allow reaching, carried from "
+        "its needs so the Warden grants exactly those. Protocol 1.6.",
+    )
+    recon: tuple[ScoutReport, ...] = Field(
+        default=(),
+        max_length=MAX_RECON_REPORTS,
+        description="Reports from the Scout tasks this one depended on (roadmap step 6.10), "
+        "for the Worker's brief; untrusted model prose. Protocol 1.6.",
+    )
     clearance: HoneyClearance = Field(
         description="The highest label the task's bee may read, resume from or write."
     )

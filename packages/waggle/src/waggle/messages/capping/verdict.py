@@ -86,6 +86,9 @@ class RollbackMethod(Enum):
     SNAPSHOT = "SNAPSHOT"  # The Cell was restored from a snapshot taken before apply.
     REVERSE_DIFF = "REVERSE_DIFF"  # The diff was applied in reverse.
     NONE = "NONE"  # Nothing possible: the documented no-op on Real Cells.
+    # Protocol 1.6 (roadmap step 6.5, ADR-0032): the Exoskeleton restored its own checkpoint, the
+    # browser page, cookies and local storage it held before a GUI action; client state only.
+    GUI_STATE = "GUI_STATE"
 
 
 # The outcomes a check rung, rather than a failed postcondition, decides.
