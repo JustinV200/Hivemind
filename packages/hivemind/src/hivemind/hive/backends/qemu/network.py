@@ -15,12 +15,14 @@ VM is `10.0.2.15`, the virtual router (and QEMU's own alias for "the host") is `
 every Cell this backend makes never collides -- the same reasoning Docker's `host.docker.internal`
 alias relies on for every container.
 
-Cutting a RUNNING VM's egress (isolation, roadmap step 10.6a) is not offered either, so
+Cutting a RUNNING VM's egress (isolation, roadmap step 10.6a) is not offered, so
 `QemuCellBackend` does not declare `can_cut_egress`: `restrict=on` is fixed when the `-netdev` is
 created, and the runtime levers QMP has (`set_link` off, or `netdev_del` and a fresh `netdev_add`)
-take the guest's one NIC down with every connection on it, the Waggle link included. A real
-implementation needs the same thing Docker's does (`hivemind.hive.backends.docker.network`): an
-egress control beside the hypervisor that can drop the VM's traffic except the control link's.
+take the guest's one NIC down with every connection on it, the Waggle link included. A cut needs
+the split Docker makes (`hivemind.hive.backends.docker.network`, where the link rides a network of
+its own): a control NIC (`restrict=on` plus the one `guestfwd` to the Queen, as NONE builds below)
+and an egress NIC carrying the default route, both brought up by cloud-init, the cut and the lift
+then being QMP `set_link` on the egress NIC alone. Not built: this host has no QEMU (ADR-0026).
 
 What each policy really enforces at the QEMU level, and what it does not:
 

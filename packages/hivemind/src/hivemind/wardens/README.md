@@ -101,6 +101,15 @@ Warden never provisions Cells itself.
   checkpoint and `read_handoff` reads that checkpoint as CLEARED by a judge (`clear_taint`);
   any other respawn is refused at the `quarantine` point (`guard.scope.quarantine_checkpoint`),
   its grant dropped, and the Queen told again that the task is held.
+- `wardens.isolation` (roadmap step 10.6a, ADR-0035's "Only the Queen isolates a Cell"): an
+  isolated Cell's Warden carries out the Queen's `CellTaintOrder` (`taint.taint_own_memory`: the
+  isolation setter over the store the Warden keeps, `TaintSource.ISOLATION`, the order's bees and
+  tasks plus itself and the bees it runs now, from the order's instant, caused by her
+  `cell.isolated`; an order for another Cell, or from anyone but the Queen, labels nothing), and
+  `gate.admit_resume` stands in front of every `TaskAssign` after the quarantine gate: a resume
+  from a Handoff the store labels tainted is refused at the `isolation` point
+  (`guard.scope.tainted_handoff`), its grant dropped, the refusal shipped and the task reported
+  held. `WardenAction.TAINT_MEMORY` is the order's autopilot action.
 - `wardens.offline`, `wardens.watch`: placeholders; populated in phase 11.
 
 ## Enforcement points (roadmap step 10.3)

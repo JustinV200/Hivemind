@@ -29,18 +29,22 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   audit-rate raise the Guard Bee has in force when the grant is issued (`RaisedAuditRate`, in
   `forage/values.py`: the tier by name, the raised rate, when it lapses; at most one per tier, by
   validator), so every Warden's gate, a Virtual Cell's in-Cell one included, samples at it.
+- Waggle 1.8 (roadmap step 10.6a, ADR-0035): `cell/taint.py` adds `cell.taint_order`
+  (`CellTaintOrder`), the Queen's order to an isolated Cell's Warden to taint the memory store it
+  keeps inside the Cell: the Cell, the `cell.isolated` event as the cause, `suspect_at`, and the
+  bees and tasks it covers (bounded; at least one, by validator).
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
   3): `task/` (`assignment.py`, `reports.py`); `supervision/` (`oversight.py`, `telemetry.py`,
   `alarms.py`, `questions.py`); `forage/` (`grants.py`, `values.py`, `capacity.py`,
-  `hosting.py`); `cell/` (`status.py`, `leases.py`, `wax.py`); `session/` (`commands.py`,
+  `hosting.py`); `cell/` (`status.py`, `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`,
   `output.py`, `files.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
   `call.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `verdict.py`); `swarm/`
   (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`). Enums that only one
   family uses live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all
-  seventy kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
+  seventy-one kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
   `all_kinds`. Message classes never carry their own kind.
 
 Rules every family follows: every id field uses a base.py alias; every `reason` is bounded by

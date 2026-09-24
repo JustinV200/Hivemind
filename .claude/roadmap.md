@@ -1641,9 +1641,13 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   human's `POST /v1/cells/{cell_id}/isolate` and `/lift` (interactive, step-up,
   `entrance:steward`). The Hive Stand's fallback holds goals through `PlacementHold` rows that
   placement reads; a quarantine checkpoint a judge clears resumes its task on the Queen's tick.
-  The taint reaches the Hive's own memory tables; a Virtual Cell's in-Cell store is a seam (its
-  Warden must run the setter on a new Waggle order). Only the fake backend cuts a running Cell's
-  egress: Docker and QEMU declare why not, and what a real cut needs.*
+  The taint reaches the Hive's own memory tables and, by Waggle 1.8's `cell.taint_order`
+  (resent while the isolation stands), the store a Virtual Cell's Warden keeps inside the Cell,
+  whose resume gate then refuses a tainted Handoff (`hivemind.wardens.isolation`). Docker cuts a
+  running Cell's egress by dual-homing it on a per-Hive internal control network
+  (`[virtual_cells] control_subnet`, the listener on its gateway) beside its own egress network,
+  detached by the cut and reattached by the lift; proved on a real daemon by
+  `tests/integration/test_docker_egress.py`. QEMU declares why not, and what a cut needs.*
 - [x] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
   every point where outside text enters a prompt, tool results in the Worker runtime (3.16),
   session output, Honey hits at assembly (7.7), Nectar intake (7.4) and Landing Board messages

@@ -232,8 +232,9 @@ every assignment goes to a Warden, over Waggle.
   lease), writes the `BLOCK` Cell Wax, revokes the Warden's grants (`access`), checkpoints and
   pauses every bee on the Cell with a bounded wait for their `worker.paused` (`pause`), cuts a
   Virtual Cell's egress, records `cell.isolated` (`record`, where a Cell's `OPEN`/`ISOLATED` state
-  lives), taints its memory from the first cited event (`taint`) and raises a CRITICAL SECURITY
-  Alarm (`site`). `lift_isolation` is the human's lift (holds released, wax cleared, egress
+  lives), taints its memory from the first cited event (`taint`: the Hive's tables, then a
+  `CellTaintOrder` for the store the Cell's Warden keeps, resent by `resend_taint_order` whenever
+  that Warden attaches while the isolation stands) and raises a CRITICAL SECURITY Alarm (`site`). `lift_isolation` is the human's lift (holds released, wax cleared, egress
   restored, `cell.isolation_lifted`; taint and paused tasks stay). `IsolationDoor` gives the
   running `Queen` both as methods for the Hive Entrance's `POST /v1/cells/{cell_id}/isolate` and
   `/lift`. Her own `ISOLATE` policy row (`QueenAction.ISOLATE_CELL`, `ticks.alarms`) isolates an

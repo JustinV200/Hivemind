@@ -2,7 +2,9 @@
 
 Roadmap step 10.6a, [ADR-0035](../adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
 Code: `hivemind.queen.guard_requests` (the request, its decision), `hivemind.queen.isolation`
-(the one isolation path and the lift), `hivemind.entrance.routes.isolation` (the human's levers).
+(the one isolation path and the lift), `hivemind.wardens.isolation` (a Cell's Warden tainting its
+own store and refusing a tainted resume), `hivemind.hive.backends.docker` (the control network and
+the egress lever), `hivemind.entrance.routes.isolation` (the human's levers).
 State machines: [codingrules Appendix C](../../.claude/codingrules.md), "Cell isolation" and
 "Guard request" rows.
 
@@ -66,24 +68,87 @@ human's lever. In order:
    bee that does not answer is named as unacknowledged, and the path goes on. Each task moves to
    PAUSED.
 6. A Virtual Cell's egress is cut to its Waggle link alone (`hivemind.hive.CellEgress`). A backend
-   that cannot do this says so (`unsupported`). A Real Cell is left exactly as found
-   (`untracked`).
+   that cannot do this, or cannot for this Cell, says so (`unsupported`). A Real Cell is left
+   exactly as found (`untracked`). A Docker Cell's link rides the Hive's control network, so the
+   cut leaves it alone (below).
 7. `cell.isolated` is recorded with the reason, who ordered it, the report, the evidence, the
    decision and every step's result.
 8. The Cell's memory is tainted from the first cited event on (`TaintSource.ISOLATION`, caused by
-   `cell.isolated`). See [tainted memory](tainted-memory.md).
+   `cell.isolated`, which keeps that instant as `suspect_at`), first on the Hive's own tables. Then
+   the Cell's Warden gets a `CellTaintOrder` (Waggle 1.8) naming the same bees, tasks, instant and
+   cause, and runs the same setter over the memory store it keeps inside the Cell, which the
+   Hive's label cannot reach. An order lost to a closed link is sent again whenever the Warden
+   attaches while the isolation stands; the setter is idempotent. See
+   [tainted memory](tainted-memory.md).
 9. A CRITICAL SECURITY Alarm tells the human.
 
 Nothing on the path releases, tears down or overwinters the Cell. Its lease and scratch are kept
 for forensics.
+
+From then on the Cell's Warden refuses any `TaskAssign` that would resume a bee from a Handoff its
+own store labels tainted: nothing spawns, the refusal is `guard.denied` at the `isolation` point
+(`guard.scope.tainted_handoff`), the task's grant is withdrawn and the Queen is told the task is
+held (PAUSED). A lift restores placement and egress; it never lets a resume through a tainted
+Handoff. Only a judge's clearance does.
 
 ### Egress on the backends
 
 | Backend | `can_cut_egress` | What it takes |
 |---|---|---|
 | fake | yes | The reference: a per-Cell flag. |
-| Docker | no | A network's `internal` flag is fixed at creation. The only runtime lever, `disconnect`, drops the very WebSocket isolation must keep, and an internal network has no route to `host-gateway`. A real cut needs host firewall rules (DOCKER-USER, per Cell bridge subnet, installed by a privileged helper) or an egress proxy. |
-| QEMU | no | `restrict=on` is fixed at creation; QMP's link and netdev levers take the one NIC down. |
+| Docker | yes, with `[virtual_cells] control_subnet` | Dual-homing (below): the cut detaches the Cell from its own network, the lift attaches it again. Without a control subnet, no: a network's `internal` flag is fixed at creation, and `disconnect` would take the Waggle link with it. |
+| QEMU | no | `restrict=on` is fixed at creation, and QMP's link and netdev levers take the VM's one NIC down, the link's included. It would need the same split as Docker: a second NIC, so the link and the egress never share one (below). |
+
+### Docker: the control network
+
+A Hive that sets `control_subnet` dual-homes every Docker Cell whose link does not ride Tor
+(`hivemind.hive.backends.docker.network`):
+
+- **Control.** One per-Hive `internal` bridge network on that subnet, its gateway the host's own
+  address there, inter-container traffic off. The Queen's listener binds the gateway, and a Cell
+  dials it: the Waggle link rides this network alone. An `internal` network gives a container no
+  default route, so over it a Cell reaches the gateway and nothing beyond the host, and no other
+  Cell. `hive run` makes the network (or reuses it, if it matches) before the listener binds.
+- **Egress.** The Cell's own per-policy network (as before), attached before the Cell starts. It
+  carries the default route, so it is how the Cell reaches everything else, the host's docker0
+  (`host.docker.internal`, which a provider's URL names) included.
+
+The cut is `docker network disconnect` of the egress network, and the lift `connect`, both
+idempotent. The link's connection lives on the control interface, so it never notices: no redial,
+no missed heartbeat, no `CELL_UNREACHABLE`. The manifest holds `listen_host` to the gateway (and
+`advertise_url`, if set), and the backend refuses to provision a dual-homed Cell whose endpoint
+names another host, because that link would ride the egress and go with the first cut.
+
+```toml
+[virtual_cells]
+backend = "docker"
+control_subnet = "10.213.1.0/24"   # private IPv4, at least a /29; not used by any other network
+listen_host = "10.213.1.1"         # its first host: the gateway
+listen_port = 47800
+```
+
+What it does not do. Anything on the Hive Stand bound to every interface answers on the control
+gateway too, so an isolated Cell that dials that address still reaches it; bind the model servers
+Cells use to docker0 (`172.17.0.1`) or to loopback behind a proxy, never `0.0.0.0`. A Night Veil
+(VPN_TOR) Cell is never dual-homed, since its link rides Tor over its egress, so its egress is not
+cut (`unsupported`), and neither is a Cell provisioned before the control subnet was set. Under
+`network_policy = "none"` a Cell's own network is `internal`, so the control network is its only
+way to the Queen; without a control subnet such a Cell has no route to docker0 on native Linux.
+
+Proved against a real daemon by `tests/integration/test_docker_egress.py`: from inside the
+container an outside host and docker0 answer before the cut and not after it, the control
+gateway's listener answers throughout, heartbeats keep arriving with no re-attach, the lift
+restores both, and the container is gone at teardown.
+
+### QEMU: what a cut would need
+
+QEMU's user networking gives a VM one NIC per `-netdev`, and `restrict=on` is fixed when it is
+created. A cut that keeps the link needs two: a control NIC (`restrict=on` plus the one `guestfwd`
+to the Queen, as the NONE policy builds today) and an egress NIC (an unrestricted user netdev)
+carrying the default route, with the cloud-init network config bringing both up and routing the
+Queen's forwarded address through the control NIC. The cut is then QMP `set_link` on the egress
+NIC (`up=false`) and the lift `up=true`. Not built: this host has no QEMU to prove it on
+(ADR-0026).
 
 ## The Hive Stand exception
 
@@ -142,11 +207,12 @@ resume and nothing else.
 
 ## Known limits
 
-- A Virtual Cell's own memory store lives inside the Cell (ADR-0027), so the Queen's taint
-  reaches only the Hive's own tables. The isolated Cell is kept whole, and nothing resumes on it
-  while it stands. Tainting the in-Cell store needs a Waggle message that asks the Cell's Warden to
-  run the setter (a follow-up).
-- The Docker and QEMU backends cannot cut egress yet (see the table above).
+- The Cell's Warden labels what its store holds when the order arrives; memory written there
+  afterwards is not labelled by it. The paused bees write none: a paused bee holds before its next
+  tool call, and nothing resumes it in place (a resume is a fresh `TaskAssign`, which meets the
+  gate).
+- The QEMU backend cannot cut egress yet (see above), and neither can Docker without a control
+  subnet or for a Night Veil Cell.
 - An isolation the Queen orders on a Cell whose link is gone (the Cell gate closes a link that
   carried a forged frame) finds no attached Warden: her decision records `cell_not_attached`,
   and the human still gets the CRITICAL Alarm naming the report.

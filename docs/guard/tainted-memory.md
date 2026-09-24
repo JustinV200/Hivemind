@@ -33,7 +33,7 @@ label. Three callers may call it, one per `TaintSource`:
 
 | Source | Caller | Roadmap |
 |---|---|---|
-| `isolation` | the Queen isolating a Cell, from the Guard report's first cited event on ([isolation](isolation.md)) | 10.6a |
+| `isolation` | the Queen isolating a Cell, from the Guard report's first cited event on ([isolation](isolation.md)); and, on her `CellTaintOrder`, the Cell's own Warden over the store it keeps inside the Cell | 10.6a |
 | `quarantine` | the one quarantine intervention in `wardens/`, from the suspect episode on | 10.6c |
 | `guard_report` | the Queen acting on a Guard report about a Honey item | 10.6, phase 7 |
 
@@ -42,9 +42,12 @@ a label is written anywhere else: a `write_taint(...)` call or a `TaintMarker(..
 `taint/set.py` and `taint/clear.py`, a `"tainted"` key set outside the stores that persist the
 label, a `tainted=` argument that is not a label read off another item, or a call to
 `taint_memory` from a module that is not one of the three setters. Each setter's module is in the
-test's `_SETTER_CALLERS`, bound to its own source. 10.6c's has landed, so the test also pins it as
-real and single: `wardens/quarantine/path.py` is the only module that labels with `quarantine`, and
-nothing else in `wardens/` calls the setter.
+test's `_SETTER_CALLERS`, bound to its own source. 10.6a and 10.6c have landed, so the test also
+pins each as real: `wardens/quarantine/path.py` is the only module that labels with `quarantine`;
+exactly two modules label with `isolation`, `queen/isolation/taint.py` on the Hive's tables and
+`wardens/isolation/taint.py`, the in-Cell setter call a Warden makes on its own store at the Queen's
+order (a Virtual Cell keeps its store inside the Cell, where her label cannot reach); and nothing
+else in `wardens/` calls the setter.
 
 A `TaintScope` names the slice of memory one taint covers: the bees whose items it covers (a
 Handoff's `written_by`, an episode's principal), the tasks whose items it covers, the moment from
@@ -71,6 +74,7 @@ be tainted again by a later incident.
 |---|---|
 | `memory.assemble` | A tainted decision, a tainted retrieved item (`AssembleRequest.retrieved`) and a tainted resumed Handoff are left out and listed in `Prompt.refused`; none is handed to `on_drop`. A resumed Handoff above the reader's clearance is refused the same way; it used to bypass the clearance filter. |
 | `memory.read_handoff` and every Handoff loader | Raises `TaintedMemoryError`. |
+| A Warden's resume gate | A `TaskAssign` that resumes from a Handoff the Warden's own store labels tainted is refused before anything spawns: `guard.denied` at the `isolation` point (`guard.scope.tainted_handoff`), the task's grant withdrawn, the task reported held (`wardens/isolation/gate.py`). A quarantined task's resume meets the quarantine's own gate first. |
 | The Worker runtime | A `TaskAssign` that resumes from a tainted Handoff fails the attempt with a `WORKER_CRASHED` Alarm before the role runs, so the Warden's escalation policy decides what follows. |
 | The memory stores | Every list a prompt is built from (episodes, Bee Bread by task or by time) leaves a `tainted` row out (`taint_state IS NOT 'tainted'` in SQLite), and a Bee Bread lookup by id raises `TaintedMemoryError`. A Handoff lookup returns the Handoff with its marker, for its loader to refuse. A `cleared` row is ordinary memory again. |
 | Phase 7 retrieval | Builds `RetrievedItem`s carrying the label, and `assemble` refuses the tainted ones. |

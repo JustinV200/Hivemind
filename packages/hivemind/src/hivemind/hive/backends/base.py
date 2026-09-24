@@ -15,9 +15,10 @@ Roadmap step 10.6a adds one narrow, optional capability for a RUNNING Cell: `Egr
 backend declaring `can_cut_egress` implements, cuts the Cell's egress to its Waggle control link
 alone (isolation, ADR-0035: the link checkpointing, pausing and forensics need stays up) and puts
 the Cell's own network policy back when the human lifts it. It is a separate Protocol, not two more
-`CellBackend` members, because most backends cannot do it to a running Cell at all (see
-`hivemind.hive.backends.docker.network` for why Docker cannot), and a caller that finds the
-capability undeclared records that the egress stayed as it was rather than attempting a cut.
+`CellBackend` members, because most backends cannot do it to a running Cell at all (Docker can
+only by dual-homing its Cells on a control network, `hivemind.hive.backends.docker.network`; QEMU
+cannot yet), and a caller that finds the capability undeclared, or a backend that refuses it for one
+Cell, records that the egress stayed as it was rather than attempting a cut.
 
 Fits into the Hive:
     Layer 3 (sources of Cells). Called by hivemind.hive.lifecycle (roadmap step 5.6, not yet
