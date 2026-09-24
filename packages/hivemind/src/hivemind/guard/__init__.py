@@ -49,6 +49,8 @@ Public API:
       and the points still pending (policy, roadmap step 10.3).
     - Enforcer: the effectful adapter every enforcement point calls: `check` and, for a refusal
       the point decides itself, `refuse` (enforcer).
+    - WatchObservation, WATCH_OBSERVATIONS, watch_permits: what watch mode may observe on a Real
+      Cell, bounded by READ_ONLY and never the screen or the input (watch, roadmap step 10.7).
     - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError: this
       package's error tree (errors).
 """
@@ -101,6 +103,7 @@ from hivemind.guard.policy import (
     worker_principal,
     worker_role_name,
 )
+from hivemind.guard.watch import WATCH_OBSERVATIONS, WatchObservation, watch_permits
 
 __all__ = [
     "AUTHORISED_AT",
@@ -110,6 +113,7 @@ __all__ = [
     "QUEEN_ROLE",
     "SCRATCH_PLACEHOLDER",
     "WARDEN_ROLE",
+    "WATCH_OBSERVATIONS",
     "Capability",
     "CapabilityFamily",
     "CapabilitySet",
@@ -127,6 +131,7 @@ __all__ = [
     "PrincipalKind",
     "PrincipalRef",
     "ScopeKind",
+    "WatchObservation",
     "admits",
     "cap_to_access",
     "ceiling_for",
@@ -141,6 +146,7 @@ __all__ = [
     "role_set",
     "warden_principal",
     "warden_set",
+    "watch_permits",
     "worker_principal",
     "worker_role_name",
 ]
