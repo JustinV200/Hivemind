@@ -33,7 +33,7 @@ label. Three callers may call it, one per `TaintSource`:
 
 | Source | Caller | Roadmap |
 |---|---|---|
-| `isolation` | the Queen isolating a Cell, from the Guard report's first cited event on | 10.6a |
+| `isolation` | the Queen isolating a Cell, from the Guard report's first cited event on ([isolation](isolation.md)) | 10.6a |
 | `quarantine` | the one quarantine intervention in `wardens/`, from the suspect episode on | 10.6c |
 | `guard_report` | the Queen acting on a Guard report about a Honey item | 10.6, phase 7 |
 

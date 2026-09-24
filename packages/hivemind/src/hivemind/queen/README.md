@@ -197,12 +197,40 @@ every assignment goes to a Warden, over Waggle.
   moves it RUNNING -> PAUSED (the Brood Chamber is hers alone to write). `Queen.intervene(warden,
   Quarantine(...))` carries a whole lever too. The Warden's SECURITY Alarm about it goes to the
   human by the shipped policy; the way out is a `resume_paused` from the quarantine's checkpoint
-  once a judge has cleared it, which the Warden's gate admits and nothing else does.
+  once a judge has cleared it, which the Warden's gate admits and nothing else does. Roadmap step
+  10.6a orchestrates it: `resume_cleared(deps, wardens)` (`release.py`), run on every tick, resumes
+  each PAUSED task whose `warden.intervened` checkpoint a `memory.taint_cleared` names, when that
+  verdict is newer than the task's last pause and its Cell is not isolated.
+- `queen.guard_requests` (roadmap step 10.6a, ADR-0035, `docs/guard/isolation.md`): the Queen's
+  side of a Guard request. `QueenGuardDoor`/`GuardDoor` (the running `Queen` *is* the Guard Bee's
+  `hivemind.guard.GuardRequestDoor`, handed over as `Hive.guard_door`) file a request into her own
+  durable table (`GuardRequestStore`: `InMemoryGuardRequestStore`, `SqliteGuardRequestStore` on the
+  `[hive] db` file) before returning, and wake her; `report_to_human` shows a CRITICAL report as a
+  SECURITY Alarm, once per report id (`show.show_alert`, the one showing path). `guard_items`
+  turns every undecided row into a `GUARD_REQUEST` inbox item (a fixed 100 times the Guard
+  principal's multiplier: above every Alarm and human message). `GuardDeps` is her one
+  `QueenDeps.guard` field: the table, `[guard] dire_patterns`, the `CellEgress` seam and the pause
+  bound. `decision.decide_guard_item` decides each item on her tick: the dire-pattern rule
+  (`queen.autopilot.guard`, no model), one awake episode with the report's facts, or the fallback
+  (isolate); records `queen.decided` before any effect; carries it out (`act`: the one isolation
+  path, the Hive Stand's fallback of quarantine orders plus a `PlacementHold` placement reads as a
+  block for the held goals, a quarantine order, or nothing); stamps the row.
+- `queen.isolation` (roadmap step 10.6a): the one Cell isolation path. `isolate_cell(site, order)`
+  checks `EnforcementPoint.ISOLATION` (`authority`: the Queen is refused the Hive Stand's own
+  lease), writes the `BLOCK` Cell Wax, revokes the Warden's grants (`access`), checkpoints and
+  pauses every bee on the Cell with a bounded wait for their `worker.paused` (`pause`), cuts a
+  Virtual Cell's egress, records `cell.isolated` (`record`, where a Cell's `OPEN`/`ISOLATED` state
+  lives), taints its memory from the first cited event (`taint`) and raises a CRITICAL SECURITY
+  Alarm (`site`). `lift_isolation` is the human's lift (holds released, wax cleared, egress
+  restored, `cell.isolation_lifted`; taint and paused tasks stay). `IsolationDoor` gives the
+  running `Queen` both as methods for the Hive Entrance's `POST /v1/cells/{cell_id}/isolate` and
+  `/lift`. Her own `ISOLATE` policy row (`QueenAction.ISOLATE_CELL`, `ticks.alarms`) isolates an
+  Alarm's Cell the same way.
 - `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
 ## Enforcement points (roadmap step 10.3)
 
-The Queen passes six of ADR-0031's points through `QueenDeps.enforcer` (the Guard's `Enforcer`,
+The Queen passes seven of ADR-0031's points through `QueenDeps.enforcer` (the Guard's `Enforcer`,
 built by the composition root); `queen.authority` names what each principal holds there (her
 `queen` role default; a Warden's set as `warden_set` computes it from its Cell's access level; a
 goal's set, or None for the operator's own local path) and builds her requests.
@@ -224,6 +252,9 @@ goal's set, or None for the operator's own local path) and builds her requests.
   `warden.spawned`, and raises `WardenSpawnRefusedError` with nothing attached on a refusal.
 - `question_routing`: `questions.block_on_question` refuses a Question from a Warden whose set
   lacks `question:human`, answering it back down its link instead of blocking the task.
+- `isolation` (roadmap step 10.6a): `isolation.authority.authorize_isolation` requires the Cell's
+  own capability (`cell:hive_stand`, `cell:virtual`, `cell:real:<id>`) of the Queen's or the
+  operator's set, and refuses the Queen the Hive Stand's own lease (`guard.scope.hive_stand`).
 
 Roadmap steps 10.3a-d add the tiers' floors (`hivemind.guard.policy.floors`):
 

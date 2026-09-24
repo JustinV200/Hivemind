@@ -1776,7 +1776,7 @@ transaction as the state change.
 
 | Machine | Owner and file | States and transitions | Notes |
 |---|---|---|---|
-| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering, and a quarantine until a judge clears its checkpoint); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
+| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering, a quarantine until a judge clears its checkpoint, or an isolation); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
 | Question | Brood Chamber, `brood_chamber/questions.py` | `ASKED → ANSWERED / WITHDRAWN` | Asking blocks the task; answering resumes it. |
 | Proposal | Capping, `supervision/capping/state.py` | `PROPOSED → CHECKING → CAPPED → APPLIED → VERIFIED`; `CHECKING → REJECTED`; `APPLIED → ROLLED_BACK` | Tier decides the checks between `CHECKING` and `CAPPED`. |
 | Alarm | Supervision, `supervision/alarm.py` | `RAISED → HANDLING → RESOLVED`; `HANDLING → ESCALATED → HANDLING` (at the next level) | Attempt count travels with it; same id at every level. |
@@ -1797,6 +1797,8 @@ transaction as the state change.
 | Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | Persisted in the Entrance tables, so a restart resumes the mode it left; `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up; a failed remote listener reduces rather than stopping the Queen. |
 | Goal request | Queen, `queen/intake/state.py` | `RECEIVED → PLANNING → PLANNED / REFUSED`; `RECEIVED → AWAITING_CONFIRMATION → RECEIVED / REFUSED` (the human confirms or declines an echoed-back goal); `RECEIVED → REFUSED` (its device was revoked before it was planned, as from the other two unplanned states) | Committed before the Entrance answers `202`; only the Queen plans it, on her own tick; on a restart a `PLANNING` row whose goal already exists becomes `PLANNED` and any other is planned again, so a request is planned exactly once; every edge is a `queen.goal_request_*` event. |
 | Pending confirmation | Entrance, `entrance/auth/confirm/state.py` | `PENDING → CONFIRMED / EXPIRED / CANCELLED` | Holds a non-interactive device's request that needs step-up; confirmed only from an interactive device inside its step-up window, and carried out at most once; a hold whose device has lost its approval is settled `CANCELLED` when it is next touched; break-glass actions are never held. |
+| Cell isolation | Queen, `queen/isolation/record.py` | `OPEN → ISOLATED` (`cell.isolated`: the Queen's decision on a Guard request or her own `ISOLATE` policy row, or the human's order; the Hive Stand's own lease only by the human); `ISOLATED → OPEN` (`cell.isolation_lifted`: the human only, with step-up) | The state is the trail: a Cell's newer of its two events, in trail order; placement reads the `BLOCK` Cell Wax the isolation wrote, not the state; the lease and its scratch are kept; a lift leaves tainted memory tainted and paused tasks paused; a lift with no isolation standing only releases the Queen's placement holds and leaves the state `OPEN`. |
+| Guard request | Queen, `queen/guard_requests/model.py` | `PENDING → DECIDED` (her decision stamped: `ISOLATE_CELL`, `QUARANTINE_BEE` or `DISMISS`, by rule, awake episode or fallback) | Committed before the Guard Bee's filing returns; decided on her own tick only; the edge's event is `queen.decided`, recorded before the decision is carried out and the row stamped after it, so a crash in between decides it again (every action is idempotent); a placement hold it leaves stands until the human lifts it. |
 
 Where state lives, and what survives a Queen crash:
 
@@ -1817,6 +1819,8 @@ Where state lives, and what survives a Queen crash:
 | A bee's in-flight reasoning | Its process, and its last Handoff | Via the Handoff | Resume from the Handoff on the same or another slot or host. |
 | Hive identity and the Queen's address | Secret store (keypair); manifest `[hive_stand] address`; every device's enrolment record | Yes | Supersedure (8.16) rewrites the address on every node with a signed `QueenMoved`. |
 | Goal requests, the chat log | Queen tables (SQLite) | Yes | `RECEIVED` and `PLANNING` requests are planned (or settled) on start; unhandled human messages are read again. |
+| Guard requests, their decisions and placement holds | Queen tables (SQLite) | Yes | Undecided requests are decided on her first tick after a start; a hold stands until the human lifts it. |
+| Cell isolation | Pheromone Trail, plus the `BLOCK` Cell Wax in the memory tables | Yes | Read back from the trail on demand; nothing to reconcile. |
 | Operator credential, enrolled devices, sessions, push subscriptions | Entrance tables (SQLite) | Yes | Password hash and device public keys only; sessions are re-validated against device state on start; move with the stores on Supersedure. |
 
 Five rules follow from the tables:
