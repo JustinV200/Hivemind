@@ -148,7 +148,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
             try:
                 await _dispatch_one(deps, wardens, task)
             except PlacementError as exc:
-                # The next ready task still gets a chance; this one stays PENDING to retry later.
+                # The next ready task still gets a chance; this one stays PENDING to retry later,
+                # unless its goal's own set excluded every Cell, which cancels it for good.
                 await _record_placement_failure(deps, task, exc)
 
 
@@ -270,15 +271,26 @@ async def _record_placement_failure(deps: QueenDeps, task: Task, error: Placemen
     `queen.decided` carries the error's own message (every rule that eliminated a candidate),
     bounded to the trail's per-string limit. When the goal's set alone left no candidate
     (`error.denied`, roadmap step 10.3), the Queen acting for the goal checks each missing
-    capability at the placement point, so each is a `guard.denied` row with its reason.
+    capability at the placement point, so each is a `guard.denied` row with its reason, and then
+    cancels the task: a goal's set is fixed for its whole life, so no later pass could place it,
+    and leaving it PENDING would re-record the same refusals on every tick.
     """
     detail = str(error)[:MAX_PAYLOAD_STRING_CHARS]
     await record_event(deps, "queen.decided", task.id, reason="placement_failed", detail=detail)
+    # Capacity and fit failures are transient (a Cell frees up, a backend returns): only a goal
+    # ceiling that excludes every candidate is final.
+    if not error.denied:
+        return
     held = goal_held(task) or CapabilitySet.empty()  # `denied` is only ever set for a goal set.
     context = task_context(task)
     for needed in error.denied:
         request = request_for(deps, EnforcementPoint.PLACEMENT, needed, held)
         await deps.enforcer.check(request.model_copy(update={"context": context}))
+    lacking = ", ".join(str(needed) for needed in error.denied)
+    reason = f"The goal's capability set admits no Cell: it lacks {lacking}."
+    # PENDING -> CANCELLED is the chamber's edge for "the Queen cancels the goal"; the reason is
+    # task.cancelled's own, so the operator reads why without searching the trail.
+    await deps.chamber.cancel(task.id, reason[:MAX_PAYLOAD_STRING_CHARS])
 
 
 async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> None:

@@ -3,7 +3,8 @@
 Roadmap step 10.3 (ADR-0031, "A goal carries a ceiling"): `Queen.submit_goal` threads the
 submitter's set to every planned task, the dispatcher sends it (and the task's network scopes) on
 the Waggle 1.6 `task.assign`, and a goal whose set admits no Cell fails placement with one
-`guard.denied` per capability it lacked, the task left PENDING.
+`guard.denied` per capability it lacked, once: the task is cancelled with the reason, because a
+goal's set never changes and a PENDING task would be refused again on every tick.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/queen.py and .dispatcher (codingrules section 3); split by feature
@@ -26,6 +27,7 @@ from hivemind.cell import CellKind, HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import WardenLink
+from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.queen import Queen
 
 _SCOPE = "api.example.com"
@@ -96,7 +98,9 @@ async def test_a_goal_set_admitting_no_cell_fails_placement_with_a_guard_denial(
 
     deps = queen._deps
     [task] = await deps.chamber.list(TaskFilter(goal_id=goal_id))
-    assert task.status is TaskStatus.PENDING  # Nothing to run it on; nothing was assigned.
+    assert task.status is TaskStatus.CANCELLED  # Nothing could ever run it; nothing was assigned.
+    assert task.outcome is not None
+    assert f"lacks cell:real:{link.cell.id}" in task.outcome.summary
     [denial] = await deps.trail.query(TrailQuery(kind="guard.denied"))
     assert denial.payload["point"] == "placement"
     assert denial.payload["principal_kind"] == "queen"
@@ -104,4 +108,22 @@ async def test_a_goal_set_admitting_no_cell_fails_placement_with_a_guard_denial(
     [decided] = await deps.trail.query(TrailQuery(kind="queen.decided"))
     assert decided.payload["reason"] == "placement_failed"
     assert "goal lacks cell:real:" in str(decided.payload["detail"])
+    await warden_end.close()
+
+
+async def test_an_unplaceable_goal_is_refused_once_not_on_every_tick() -> None:
+    # Before the fix the task stayed PENDING and every dispatch pass (every Queen tick) recorded
+    # the same queen.decided and guard.denied again, flooding the trail and the Guard's counts.
+    queen, link, warden_end = _networked_queen()
+    await queen.attach_warden(link)
+    await queen.submit_goal(
+        "Fetch.", clearance=HoneyClearance.C1, capabilities=("tool:*", "cell:comb_shield:*")
+    )
+    deps = queen._deps
+
+    await dispatch_ready(deps, (link,))
+    await dispatch_ready(deps, (link,))
+
+    assert len(await deps.trail.query(TrailQuery(kind="guard.denied"))) == 1
+    assert len(await deps.trail.query(TrailQuery(kind="queen.decided"))) == 1
     await warden_end.close()
