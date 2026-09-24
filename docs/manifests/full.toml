@@ -205,6 +205,14 @@ max_sub_bees_per_goal = 4
 # reading a live grant was computed from, before the ledger recomputes that grant instead of
 # reusing it (roadmap step 4.7).
 measurement_drift_threshold = 0.15
+# Seconds a fresh task may wait PENDING while a passing shortfall on its Cell leaves its grant
+# with no sub-bee: the Hive Stand's load or free memory right now (both re-read on every dispatch
+# pass). The Queen records one `forage.denied` with `deferred = true` when the wait starts, tries
+# again on every later pass, and past this fails the task with the figures. A shortfall no wait
+# can lift (a reserve that claims every seat, a Cell whose whole memory cannot hold one bee, a
+# Virtual Cell, whose resources its spec fixes) still fails the task at once. A task whose goal's
+# other running tasks hold its whole `max_sub_bees_per_goal` waits until one of them finishes.
+zero_grant_patience_s = 300.0
 
 [forage.roles.drone]
 # Logical cores this role's bee occupies while running.
