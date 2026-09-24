@@ -242,6 +242,64 @@ async def test_error_body_that_is_not_json_still_raises_provider_request_error()
         await client.get_json("/models")
 
 
+async def test_a_2xx_body_that_is_not_json_raises_provider_request_error() -> None:
+    client = _make_client(lambda _request: httpx.Response(200, content=b"plain text"))
+
+    with pytest.raises(ProviderRequestError, match="not JSON"):
+        await client.get_json("/models")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# post_form: the multipart upload the transcription adapter sends
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_post_form_sends_fields_and_file_parts_and_returns_the_parsed_body() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"text": "ok"})
+
+    client = _make_client(handler)
+
+    parsed = await client.post_form(
+        "/audio/transcriptions", {"model": "m"}, {"file": ("a.wav", b"RIFF", "audio/wav")}
+    )
+
+    assert parsed == {"text": "ok"}
+    assert seen[0].headers["content-type"].startswith("multipart/form-data")
+    assert b'name="model"\r\n\r\nm\r\n' in seen[0].content
+    assert b'filename="a.wav"' in seen[0].content
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(503, ProviderUnavailableError), (429, RateLimitedError), (415, ProviderRequestError)],
+)
+async def test_post_form_maps_every_failure_to_the_typed_tree(
+    status: int, expected: type[Exception]
+) -> None:
+    client = _make_client(_json_response(status, {"error": {"message": "no"}}))
+
+    with pytest.raises(expected):
+        await client.post_form("/audio/transcriptions", {}, {"file": ("a.wav", b"x", "audio/wav")})
+
+
+async def test_a_client_without_a_context_window_never_reads_a_400_as_an_overflow() -> None:
+    body = (FIXTURES_DIR / "error_context_length.json").read_text(encoding="utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, content=body, headers={"content-type": "application/json"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url=BASE_URL)
+    client = OpenAICompatClient(http, provider="p", context_window=None)
+
+    with pytest.raises(ProviderRequestError) as excinfo:
+        await client.post_form("/audio/transcriptions", {}, {"file": ("a.wav", b"x", "audio/wav")})
+    assert not isinstance(excinfo.value, ContextTooLongError)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # stream_sse
 # ──────────────────────────────────────────────────────────────────────────────

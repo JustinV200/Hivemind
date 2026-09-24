@@ -20,7 +20,8 @@ Key invariants:
       empty queue raises `ProviderUnavailableError`, never `IndexError`.
     - `set_outage(True)` makes every call raise `ProviderUnavailableError` before touching the
       queue or `calls`, and `health()` report DOWN.
-    - `calls` records every clip and normalised language hint actually transcribed, in order.
+    - `calls` records every clip and normalised language hint actually transcribed, in order;
+      a clip refused for its format (or during an outage) was never transcribed and is absent.
     - `aclose()` releases nothing and changes nothing but `is_closed`.
 
 See Also:
@@ -135,16 +136,17 @@ class FakeTranscription:
         """Return the next scripted answer for `clip`; see `TranscriptionProvider.transcribe`."""
         if self._is_down:
             raise ProviderUnavailableError(self._name, "an outage is simulated")
-        hint = normalise_language(language)
-        self.calls.append(TranscriptionCall(clip=clip, language=hint))
         if clip.media_type not in self._capabilities.media_types:
-            # A real server refuses a container it cannot decode; so does an honest fake.
+            # A real adapter refuses a container it cannot decode before uploading anything, so
+            # an honest fake refuses it before recording a call.
             raise ProviderRequestError(
                 self._name,
                 UNSUPPORTED_MEDIA_TYPE_STATUS,
                 error_type="unsupported_media_type",
                 detail=f"{clip.media_type.value} is not a format this provider decodes",
             )
+        hint = normalise_language(language)
+        self.calls.append(TranscriptionCall(clip=clip, language=hint))
         return self._honour_capabilities(self._next_answer(clip), hint)
 
     async def stream(

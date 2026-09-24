@@ -1,8 +1,9 @@
 """Provide OpenAICompatClient: one small async HTTP layer over httpx for the OpenAI-compatible wire.
 
-This is the only place `httpx` request/response mechanics (status codes, headers, SSE framing)
-are handled for this adapter; `hivemind.llm.providers.openai_compat.provider` calls
-`get_json`/`post_json`/`stream_sse` and never touches `httpx.Response` itself. Every httpx-specific
+This is the only place `httpx` request/response mechanics (status codes, headers, SSE framing,
+multipart forms) are handled for this adapter; `hivemind.llm.providers.openai_compat.provider`
+calls `get_json`/`post_json`/`stream_sse`, and `...openai_compat.transcription` calls `post_form`,
+and neither touches `httpx.Response` itself. Every httpx-specific
 error (a connection failure, a timeout, an HTTP status) is mapped here to one of
 `hivemind.llm.errors`'s typed `LLMError`s, so nothing above this module ever catches an `httpx.*`
 exception (codingrules section 8.6: adapters raise typed errors, never a vendor exception).
@@ -23,6 +24,10 @@ Key invariants:
       perspective both mean "try again later, possibly on a fallback", so they share a type.
     - `stream_sse`'s error path fully reads the response body (`aread()`) before mapping it, since
       an unread streaming response has no `.json()`/`.text` available yet.
+    - A client built with no context window (the transcription adapter's: audio has none) never
+      raises `ContextTooLongError`; its 400s are all `ProviderRequestError`.
+    - A 2xx body that is not a JSON object is a `ProviderRequestError`, never a raw
+      `ValueError`: a caller catches one error family whatever the server sent.
 
 See Also:
     - .claude/codingrules.md section 8.6 for "vendor SDKs and model-server HTTP clients are
@@ -35,7 +40,7 @@ See Also:
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 
 import httpx
 from pydantic import JsonValue
@@ -89,7 +94,7 @@ class OpenAICompatClient:
     httpx concurrency guarantees apply unchanged).
     """
 
-    def __init__(self, http: httpx.AsyncClient, provider: str, context_window: int) -> None:
+    def __init__(self, http: httpx.AsyncClient, provider: str, context_window: int | None) -> None:
         """Create a client wrapping an already-configured `httpx.AsyncClient`.
 
         Args:
@@ -97,7 +102,9 @@ class OpenAICompatClient:
                 `OpenAICompatProvider.create`. Injected (rather than built here) so tests can pass
                 one built on `httpx.MockTransport`.
             provider: The manifest provider name, folded into every raised `LLMError`.
-            context_window: The bound model's context window, for `ContextTooLongError`.
+            context_window: The bound model's context window, for `ContextTooLongError`; None for
+                a model with no context window (a transcriber), whose 400s are never read as an
+                overflow.
         """
         self._http = http
         self._provider = provider
@@ -168,6 +175,35 @@ class OpenAICompatClient:
         parsed, response = await self._request_json("POST", path, body)
         return parsed, dict(response.headers)
 
+    async def post_form(
+        self, path: str, fields: Mapping[str, str], files: Mapping[str, tuple[str, bytes, str]]
+    ) -> JsonObject:
+        """POST a multipart form to `path` and return the parsed JSON object response.
+
+        The audio transcription wire takes its upload as `multipart/form-data`, not JSON; httpx
+        builds the form itself from `data=`/`files=`, so no extra dependency is needed.
+
+        Args:
+            path: A path relative to the client's `base_url` (e.g. `"/audio/transcriptions"`).
+            fields: The form's plain text fields, name to value.
+            files: The form's file parts, name to `(filename, content, content type)`.
+
+        Returns:
+            The parsed JSON object.
+
+        Raises:
+            ProviderUnavailableError: A connection failure, timeout, or 5xx response.
+            RateLimitedError: A 429 response.
+            ProviderRequestError: Any other 4xx response, or a 2xx body that is not a JSON object.
+        """
+        try:
+            # External await: inherits the httpx client's configured timeout (module docstring).
+            response = await self._http.post(path, data=dict(fields), files=dict(files))
+        except _CONNECTION_EXCEPTIONS as exc:
+            raise ProviderUnavailableError(self._provider, _describe(exc)) from exc
+        self._raise_for_status(response)
+        return _json_object(response, self._provider)
+
     async def stream_sse(self, path: str, body: JsonObject) -> AsyncIterator[JsonObject]:
         """POST `body` to `path` and yield each SSE `data:` line's parsed JSON object.
 
@@ -220,12 +256,7 @@ class OpenAICompatClient:
         except _CONNECTION_EXCEPTIONS as exc:
             raise ProviderUnavailableError(self._provider, _describe(exc)) from exc
         self._raise_for_status(response)
-        parsed: JsonValue = response.json()
-        if not isinstance(parsed, dict):
-            raise ProviderRequestError(
-                self._provider, response.status_code, detail="response body was not a JSON object"
-            )
-        return parsed, response
+        return _json_object(response, self._provider), response
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         """Raise the typed error matching `response`'s status, or return for a 2xx.
@@ -241,9 +272,36 @@ class OpenAICompatClient:
         if response.status_code == 429:
             raise RateLimitedError(self._provider, retry_after_s=_parse_retry_after(response))
         message, error_type = _read_error(response)
-        if response.status_code == 400 and _looks_like_context_overflow(message):
+        # Only a model with a context window can overflow one; a transcriber's 400 is plain.
+        if (
+            response.status_code == 400
+            and self._context_window is not None
+            and _looks_like_context_overflow(message)
+        ):
             raise ContextTooLongError(self._provider, window=self._context_window)
         raise ProviderRequestError(self._provider, response.status_code, error_type, detail=message)
+
+
+def _json_object(response: httpx.Response, provider: str) -> JsonObject:
+    """Parse a successful response's body as a JSON object, or raise ProviderRequestError.
+
+    Args:
+        response: A fully read 2xx response.
+        provider: The manifest provider name, folded into the raised error.
+    """
+    try:
+        parsed: JsonValue = response.json()
+    except ValueError as exc:
+        # A 2xx that is not JSON at all (a server answering plain text) is as unusable as one
+        # that is JSON but not an object; both become the same typed error.
+        raise ProviderRequestError(
+            provider, response.status_code, detail="response body was not JSON"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ProviderRequestError(
+            provider, response.status_code, detail="response body was not a JSON object"
+        )
+    return parsed
 
 
 def _parse_sse_line(line: str) -> tuple[bool, JsonObject | None]:

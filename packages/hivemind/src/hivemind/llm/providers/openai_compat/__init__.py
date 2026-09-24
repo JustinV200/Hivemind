@@ -19,8 +19,9 @@ Fits into the Hive:
     section 8.6).
 
 Key invariants:
-    - No name beyond `OpenAICompatConfig`/`OpenAICompatProvider` is exported here; `mapping`'s,
-      `client`'s and `rate_limit`'s contents are this package's own implementation detail.
+    - No name beyond the two chat and two transcription names below is exported here;
+      `mapping`'s, `client`'s and `rate_limit`'s contents are this package's own implementation
+      detail.
     - Importing this module has no side effect: constructing a provider (`OpenAICompatProvider.
       create`) is the composition root's job, not import time (codingrules section 5.5).
 
@@ -35,8 +36,20 @@ See Also:
 Public API:
     - OpenAICompatConfig: this provider's validated configuration.
     - OpenAICompatProvider: the LLMProvider implementation, with `.create(name, config, clock)`.
+    - OpenAICompatTranscriptionConfig: the same kind of server serving the TRANSCRIBER slot.
+    - OpenAICompatTranscription: the TranscriptionProvider for `/audio/transcriptions`, with
+      `.create(name, config, clock)` (roadmap step 6.5a's subset for 10.5f).
 """
 
 from hivemind.llm.providers.openai_compat.provider import OpenAICompatConfig, OpenAICompatProvider
+from hivemind.llm.providers.openai_compat.transcription import (
+    OpenAICompatTranscription,
+    OpenAICompatTranscriptionConfig,
+)
 
-__all__ = ["OpenAICompatConfig", "OpenAICompatProvider"]
+__all__ = [
+    "OpenAICompatConfig",
+    "OpenAICompatProvider",
+    "OpenAICompatTranscription",
+    "OpenAICompatTranscriptionConfig",
+]
