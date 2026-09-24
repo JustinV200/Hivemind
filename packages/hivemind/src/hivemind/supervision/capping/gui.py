@@ -58,13 +58,15 @@ ACCEPTANCE_GUI_KINDS = frozenset({PostconditionKind.URL_MATCHES, PostconditionKi
 _DESKTOP_OPS = frozenset(
     {GuiOp.MOVE, GuiOp.CLICK, GuiOp.DOUBLE_CLICK, GuiOp.TYPE, GuiOp.PRESS, GuiOp.SCROLL}
 )
-_BROWSER_OPS = frozenset(
+# The steps the browser fast path runs; a browser procedure (roadmap step 6.7) is made of these.
+BROWSER_OPS = frozenset(
     {GuiOp.NAVIGATE, GuiOp.BROWSER_CLICK, GuiOp.BROWSER_FILL, GuiOp.BROWSER_PRESS}
 )
 _OFF_CELL_SCHEMES = frozenset({"http", "https"})  # file:// and about:blank never leave the Cell.
 
 __all__ = [
     "ACCEPTANCE_GUI_KINDS",
+    "BROWSER_OPS",
     "GUI_POSTCONDITION_KINDS",
     "GuiApplyResult",
     "GuiSurface",

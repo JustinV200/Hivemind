@@ -10,6 +10,8 @@ it started never became ready; attach has already stopped whatever it started wh
 `PeripheralError` is a peripheral that was attached failing one operation: its command exited
 non-zero, timed out, or its process is gone. `ElementNotFoundError` is the browser failing to find
 the element a step names, the one failure a bee most often corrects by trying a different target.
+`ProcedureError` is a recording that cannot be exported as a browser procedure, or a rehearsal
+that cannot start (roadmap step 6.7).
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Raised by every module under
@@ -38,6 +40,7 @@ __all__ = [
     "ElementNotFoundError",
     "ExoskeletonError",
     "PeripheralError",
+    "ProcedureError",
     "RecordingNotFoundError",
 ]
 
@@ -116,3 +119,23 @@ class RecordingNotFoundError(ExoskeletonError):
         """
         super().__init__(f"No flight recording with id {recording_id!r} exists.")
         self.recording_id = recording_id
+
+
+class ProcedureError(ExoskeletonError):
+    """Raise when a recording cannot become a browser procedure, or a rehearsal cannot start.
+
+    A recording with nothing verified, a desktop step or a pixel postcondition cannot be exported;
+    a rehearsal handed no value for one of the procedure's secrets, or no browser, cannot begin.
+    A procedure whose replay simply fails is not an error: that is a failed RehearsalReport.
+    """
+
+    code: ClassVar[str] = "hivemind.exoskeleton.procedure_invalid"
+
+    def __init__(self, reason: str) -> None:
+        """Build the error for one procedure that cannot be exported or rehearsed.
+
+        Args:
+            reason: Why, naming the action or secret slot at fault; never a secret's value.
+        """
+        super().__init__(f"Browser procedure: {reason}")
+        self.reason = reason
