@@ -58,6 +58,18 @@ def test_virtual_cells_section_backend_is_unset_by_default() -> None:
     assert section.overwinter == VirtualCellsOverwinterSection()
 
 
+def test_virtual_cells_section_network_policy_defaults_to_egress_only() -> None:
+    """A Cell must dial the Queen through the host gateway; "none" cannot on Docker Desktop."""
+    assert VirtualCellsSection().network_policy == "egress_only"
+    assert VirtualCellsSection(network_policy="none").network_policy == "none"
+
+
+def test_virtual_cells_section_root_filesystem_is_writable_by_default() -> None:
+    """A Virtual Cell is AccessLevel.FULL: only an explicit true narrows it to scratch and /tmp."""
+    assert VirtualCellsSection().read_only_rootfs is False
+    assert VirtualCellsSection(read_only_rootfs=True).read_only_rootfs is True
+
+
 def test_virtual_cells_section_rejects_an_unknown_backend() -> None:
     with pytest.raises(ValidationError):
         VirtualCellsSection(backend="not-a-backend")

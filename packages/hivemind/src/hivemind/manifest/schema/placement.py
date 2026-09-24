@@ -83,7 +83,13 @@ DEFAULT_VIRTUAL_CELLS_IMAGE = "base-ubuntu"  # Terminal-first; matches images/ba
 DEFAULT_VIRTUAL_CELLS_CPU_CORES = 1.0  # A modest default footprint for one fresh Virtual Cell.
 DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES = 1 * 1024**3  # 1 GiB.
 DEFAULT_VIRTUAL_CELLS_DISK_BYTES = 8 * 1024**3  # 8 GiB.
-DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY: NetworkPolicyName = "none"  # Matches hive's own default.
+# Deliberately wider than hivemind.hive.VirtualCellSpec's own NONE default: a Cell must dial out to
+# the Queen through the host gateway (ADR-0027), and "none" is an `internal` Docker network, which
+# on Docker Desktop has no route to host.docker.internal at all -- the Warden inside never
+# connects, every placement times out and the task falls back to the Hive Stand (a real run,
+# 2026-09-23). An operator who wants an isolated Cell on native Linux, where an internal network
+# still reaches the bridge, sets "none" explicitly.
+DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY: NetworkPolicyName = "egress_only"
 DEFAULT_READY_TIMEOUT_S = 60.0  # Matches hivemind.hive.models.DEFAULT_READY_TIMEOUT_S.
 DEFAULT_MAX_CELLS = 4  # A conservative cap until the operator raises it deliberately.
 DEFAULT_OVERWINTER_ENABLED = True  # docs/adr/0029: reuse is the point of the pool.
@@ -244,6 +250,12 @@ class VirtualCellsSection(BaseModel):
         description="The default outbound network shape; converted to hivemind.hive.NetworkPolicy "
         "by the composition root. Never 'vpn_tor': that profile is Night Veil's own forced "
         "default, not a configurable one (hivemind.queen.placement.decide._place_night_veil).",
+    )
+    read_only_rootfs: bool = Field(
+        default=False,
+        description="Whether a Virtual Cell's root filesystem is mounted read-only, leaving only "
+        "scratch and /tmp writable. False by default: a Virtual Cell is AccessLevel.FULL and "
+        "disposable (hivemind.hive.VirtualCellSpec.read_only_rootfs).",
     )
     ready_timeout_s: float = Field(
         default=DEFAULT_READY_TIMEOUT_S,

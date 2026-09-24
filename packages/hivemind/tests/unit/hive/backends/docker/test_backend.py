@@ -85,9 +85,27 @@ async def test_provision_sets_least_privilege_flags() -> None:
     container = client.create_container_calls[0]
     assert container.cap_drop == ("ALL",)
     assert container.security_opt == ("no-new-privileges:true",)
-    assert container.read_only_rootfs is True
     assert "/tmp" in container.tmpfs  # noqa: S108  # SAFETY: a container-internal tmpfs path, not a host one.
     assert container.volume_mount_path == "/var/lib/hivemind/scratch"
+
+
+async def test_provision_leaves_the_root_filesystem_writable_by_default() -> None:
+    """A Virtual Cell is FULL access: the spec's default gives the bee the whole filesystem."""
+    backend, client, _ = _make_backend(FakeClock())
+
+    await backend.provision(_make_spec())
+
+    assert client.create_container_calls[0].read_only_rootfs is False
+
+
+async def test_provision_honours_a_spec_that_asks_for_a_read_only_root() -> None:
+    backend, client, _ = _make_backend(FakeClock())
+
+    await backend.provision(_make_spec(read_only_rootfs=True))
+
+    container = client.create_container_calls[0]
+    assert container.read_only_rootfs is True
+    assert "/tmp" in container.tmpfs  # noqa: S108  # SAFETY: a container-internal tmpfs path, not a host one.
 
 
 async def test_provision_stamps_required_labels_over_a_callers_own() -> None:

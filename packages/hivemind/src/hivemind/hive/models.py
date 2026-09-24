@@ -139,6 +139,14 @@ class VirtualCellSpec(BaseModel):
         description="Whether this Cell needs a display, input and audio attachment on top of its "
         "plain terminal session.",
     )
+    read_only_rootfs: bool = Field(
+        default=False,
+        description="Whether the backend mounts the Cell's root filesystem read-only, leaving "
+        "only scratch and /tmp writable. False by default: a Virtual Cell is AccessLevel.FULL "
+        "(codingrules section 6.1) and disposable, so its whole filesystem is the bee's to use; "
+        "the container's other least-privilege flags (no capabilities, no-new-privileges, "
+        "non-root user, pids limit) do not change with this.",
+    )
     capacity: ForageCapacity = Field(
         description="The ForageCapacity this image promises once running: host figures, seats "
         "and its own sub-bee cap, read by placement before the Cell exists."

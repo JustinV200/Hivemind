@@ -418,6 +418,11 @@ disk_bytes = 8589934592
 # The default outbound network shape: "none", "egress_only" or "allowlist". Never "vpn_tor": that
 # profile is Night Veil's own forced default, not a configurable one.
 network_policy = "egress_only"
+# Whether a Virtual Cell's root filesystem is mounted read-only, leaving only its scratch volume
+# and /tmp writable. false (the default) gives the bee the whole filesystem: a Virtual Cell is
+# AccessLevel.FULL and disposable. The container still runs as a non-root user with every
+# capability dropped, whichever way this is set.
+read_only_rootfs = false
 # Seconds to wait for a freshly provisioned Cell to report ready.
 ready_timeout_s = 60.0
 # The most Virtual Cells this Hive may hold running at once.

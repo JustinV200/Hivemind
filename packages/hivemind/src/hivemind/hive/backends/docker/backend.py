@@ -330,9 +330,10 @@ def _build_container_spec(
         # other network policy gets nothing back (least privilege, codingrules 15).
         cap_add=("NET_ADMIN",) if spec.network_policy is NetworkPolicy.VPN_TOR else (),
         security_opt=("no-new-privileges:true",),
-        # Read-only root plus a writable tmpfs /tmp and the writable scratch volume: least
-        # privilege (codingrules 15) without breaking a Python process that expects /tmp to exist.
-        read_only_rootfs=True,
+        # The root filesystem is writable unless the spec says otherwise: a Virtual Cell is FULL
+        # access (VirtualCellSpec.read_only_rootfs's own docstring). A tmpfs /tmp is mounted either
+        # way so a read-only Cell still has the /tmp a Python process expects.
+        read_only_rootfs=spec.read_only_rootfs,
         tmpfs={_TMP_MOUNT_PATH: ""},
     )
 
