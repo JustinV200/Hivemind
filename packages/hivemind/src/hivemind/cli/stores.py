@@ -27,8 +27,10 @@ Fits into the Hive:
     `hivemind.cli.trail` (the store functions) and by `hivemind.cli.llm` (the manifest-conversion
     functions), and by every later CLI step that needs a live `ProviderRegistry`;
     `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8); `build_
-    hive_stand_source` calls `open_leavings` (roadmap step 5.0a). Calls into `hivemind.brood_
-    chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`, `hivemind.pheromone`,
+    hive_stand_source` calls `open_leavings` (roadmap step 5.0a); the Hive's composition root and
+    `hive honey` call `open_honey_store` (roadmap phase 7). Calls into `hivemind.brood_
+    chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`, `hivemind.honey_store`,
+    `hivemind.pheromone`,
     `hivemind.forage`, `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
 
 Key invariants:
@@ -94,6 +96,7 @@ from hivemind.common.sqlite import connect
 from hivemind.forage import Abundance, ForageMap, ModelSource
 from hivemind.forage.map import SlotBinding
 from hivemind.hive.snapshot import SqliteSnapshotLedger
+from hivemind.honey_store import SqliteHoneyStore
 from hivemind.llm import (
     ProviderConfig,
     ProviderFactory,
@@ -142,6 +145,7 @@ __all__ = [
     "load_manifest_or_exit",
     "open_chamber",
     "open_cluster_orders",
+    "open_honey_store",
     "open_leavings",
     "open_ledger",
     "open_memory",
@@ -221,6 +225,28 @@ def open_memory(db: Path) -> MemoryStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_honey_store(db: Path) -> SqliteHoneyStore:
+    """Open `db` and return a ready SqliteHoneyStore, applying both subsystems' migrations first.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteHoneyStore whose tables exist and are current, on its own connection, with
+        sqlite-vec loaded when this host can load it (the Python fallback otherwise, ADR-0031).
+    """
+
+    async def _open() -> SqliteHoneyStore:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same "trail's migration runs first" rule open_memory follows: SqliteHoneyStore.create
+        # refuses without a pheromone_events table already on this connection.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteHoneyStore.create(connection, clock)
 
     return asyncio.run(_open())
 

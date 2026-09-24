@@ -45,6 +45,7 @@ Public API:
       SqliteHoneyStore (store): the persistence protocol, its SQL builder and its durable
       implementation.
     - HoneyIdentity, honey_event (identity): the one place a HoneyEvent is minted.
+    - HoneyAccess (access): one Hive's store, intake, retriever and Ripener, bundled.
     - NectarIntake, NectarSubmission, DepositSource, IntakeResult, handoff_source_key (nectar):
       the one door every deposit comes in through.
     - Ripener, RipenerDeps, PassOutcome, RipenOutcome (ripening): Nectar into Honey.
@@ -52,6 +53,7 @@ Public API:
       retrieval under a reader's scope, clearance and budget.
 """
 
+from hivemind.honey_store.access import HoneyAccess
 from hivemind.honey_store.clearance import (
     LabelApprover,
     check_lowering,
@@ -148,6 +150,7 @@ __all__ = [
     "DepositTimedOutError",
     "FirstChunkNotAtZeroError",
     "Honey",
+    "HoneyAccess",
     "HoneyDraft",
     "HoneyIdentity",
     "HoneyNotFoundError",

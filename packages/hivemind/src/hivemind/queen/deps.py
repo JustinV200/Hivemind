@@ -69,6 +69,7 @@ from hivemind.forage import (
     RoyalReserve,
     SlotBinding,
 )
+from hivemind.honey_store.access import HoneyAccess
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -354,6 +355,11 @@ class QueenDeps:
             None (the default) until the operator sets one. Read only by `hivemind.queen.
             goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.
             keep_root` so the planner can be told the keep root and declare a leaving under it.
+        honey: The Hive's Honey Store handles (roadmap phase 7): intake for a Waggle deposit or a
+            verified task's outcome, the retriever for a bee's query and the Queen's own
+            pre-check. None (the default, every hand-built QueenDeps before phase 7) means no
+            Honey Store is wired: a query is answered empty with that reason, a deposit is refused
+            with `control.error`, and no pre-check runs.
     """
 
     chamber: BroodChamber
@@ -419,3 +425,6 @@ class QueenDeps:
     # to hivemind.queen.planner.PlanBrief.keep_root so the planner prompt can be told it (TaskAssign
     # itself carries no keep_root field -- see PlanBrief.keep_root's own docstring for why).
     keep_root: Path | None = None
+    # Roadmap phase 7: the Honey Store's handles, built by hivemind.cli.compose.honey; None keeps
+    # every pre-phase-7 caller (and every test that builds QueenDeps by hand) working unchanged.
+    honey: HoneyAccess | None = None
