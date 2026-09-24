@@ -102,6 +102,7 @@ provision time -- code in this image still never names a model or vendor itself.
 | `HIVEMIND_<NAME>_API_KEY` | no | One such variable per provider named in `HIVEMIND_PROVIDERS` that actually has a key configured (e.g. `HIVEMIND_ANTHROPIC_API_KEY`) -- the exact name `[llm.providers.<name>].api_key_env` derives, never the JSON above (a key VALUE never rides that blob). |
 | `HIVEMIND_LLM_OFFLINE` | no | Mirrors the Hive Stand's own `[llm] offline` flag; `"true"` when set, absent otherwise. A gateway-alias `base_url` (`host.docker.internal`, QEMU's `10.0.2.2`) is never treated as "non-local" for this check, since it IS the Hive Stand's own machine from inside the Cell. |
 | `HIVEMIND_LOG_LEVEL` | no | The structured-logging level (`hivemind.common.logging`); `INFO` if unset. |
+| `HIVEMIND_SCRATCH_ROOT` | no | Where the Warden creates each lease's own scratch directory; `/var/lib/hivemind/scratch` (layer 8) if unset. A real container never sets it; a test or an in-process Cell on a host that cannot create that path (Linux CI) does. |
 
 ## Building and testing this image
 

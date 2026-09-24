@@ -23,6 +23,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -47,9 +48,17 @@ _CELL_ID = "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 
 def _environ(
-    server_uri: str, queen_node_id: str, hive_id: str, queen_signer: Ed25519Signer
+    server_uri: str,
+    queen_node_id: str,
+    hive_id: str,
+    queen_signer: Ed25519Signer,
+    scratch_root: Path,
 ) -> dict[str, str]:
-    """A real `HIVEMIND_*` environment naming `server_uri` as this Cell's own Queen."""
+    """A real `HIVEMIND_*` environment naming `server_uri` as this Cell's own Queen.
+
+    `scratch_root` stands in for the image's own /var/lib/hivemind/scratch, which this host
+    (Linux CI in particular) cannot create.
+    """
     cell_signer = Ed25519Signer.generate()
     return {
         "HIVEMIND_QUEEN_WAGGLE_URL": server_uri,
@@ -58,10 +67,13 @@ def _environ(
         "HIVEMIND_QUEEN_NODE_ID": queen_node_id,
         "HIVEMIND_CELL_SIGNING_KEY": cell_signer.private_key_bytes.hex(),
         "HIVEMIND_QUEEN_VERIFY_KEY": queen_signer.public_key_bytes.hex(),
+        "HIVEMIND_SCRATCH_ROOT": str(scratch_root),
     }
 
 
-async def test_run_in_cell_warden_connects_announces_and_stops_on_shutdown() -> None:
+async def test_run_in_cell_warden_connects_announces_and_stops_on_shutdown(
+    tmp_path: Path,
+) -> None:
     # Signed with queen_signer, the same key named as HIVEMIND_QUEEN_VERIFY_KEY below: the
     # in-Cell Warden's own transport carries a verifier (signing is mandatory across a machine
     # boundary, roadmap step 1.7) and refuses an unsigned frame outright, closing the connection
@@ -72,7 +84,7 @@ async def test_run_in_cell_warden_connects_announces_and_stops_on_shutdown() -> 
     try:
         hive_id = new_hive_id(_CLOCK)
         queen_node_id = new_node_id(_CLOCK)
-        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer)
+        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer, tmp_path)
 
         run_task = asyncio.ensure_future(run_in_cell_warden(environ, SystemClock()))
         connections = server.connections()
@@ -113,7 +125,9 @@ async def test_run_in_cell_warden_raises_on_missing_configuration() -> None:
         await run_in_cell_warden({}, SystemClock())
 
 
-async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider() -> None:
+async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider(
+    tmp_path: Path,
+) -> None:
     """The injection seam roadmap step 5's e2e slice needs: script the provider, never a global."""
     queen_signer = Ed25519Signer.generate()
     server = WebSocketServer(Codec(signer=queen_signer))
@@ -121,7 +135,7 @@ async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider()
     try:
         hive_id = new_hive_id(_CLOCK)
         queen_node_id = new_node_id(_CLOCK)
-        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer)
+        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer, tmp_path)
         seen_calls: list[WardenDeps] = []
 
         def _on_deps_built(deps: WardenDeps) -> None:
@@ -153,7 +167,9 @@ async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider()
 
 
 @pytest.mark.parametrize("close_server_first", [False, True])
-async def test_run_in_cell_warden_finishes_its_cancellation(close_server_first: bool) -> None:
+async def test_run_in_cell_warden_finishes_its_cancellation(
+    close_server_first: bool, tmp_path: Path
+) -> None:
     """A cancelled in-Cell Warden task completes: sub-bees reaped, link closed, no hang.
 
     A backend destroying a Cell (or a Queen tearing its listener down first) cancels the process
@@ -166,7 +182,7 @@ async def test_run_in_cell_warden_finishes_its_cancellation(close_server_first: 
     try:
         hive_id = new_hive_id(_CLOCK)
         queen_node_id = new_node_id(_CLOCK)
-        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer)
+        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer, tmp_path)
 
         run_task = asyncio.ensure_future(run_in_cell_warden(environ, SystemClock()))
         connections = server.connections()

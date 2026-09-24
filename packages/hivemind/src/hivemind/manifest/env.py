@@ -191,6 +191,13 @@ class InCellEnv(BaseModel):
         description="HIVEMIND_SOCKS_PROXY_URL: a SOCKS proxy Waggle should dial through once "
         "Night Veil routes it over Tor (roadmap step 5.7a); carried here, not yet acted on.",
     )
+    scratch_root: Path | None = Field(
+        default=None,
+        description="HIVEMIND_SCRATCH_ROOT: where this Cell's Warden creates each lease's own "
+        "scratch directory; unset means hivemind.cli.in_cell.config.DEFAULT_SCRATCH_ROOT, the "
+        "path images/base-ubuntu creates. Set by a test or an in-process Cell that cannot write "
+        "there (Linux CI cannot create /var/lib/hivemind; Windows quietly could, which hid it).",
+    )
     providers_json: str | None = Field(
         default=None,
         description="HIVEMIND_PROVIDERS: this Hive's own [llm.providers] table, as a JSON array "
@@ -238,6 +245,7 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
     signing_key = environ.get("HIVEMIND_CELL_SIGNING_KEY")
     signing_key_file = environ.get("HIVEMIND_CELL_SIGNING_KEY_FILE")
     verify_key_file = environ.get("HIVEMIND_QUEEN_VERIFY_KEY_FILE")
+    scratch_root = environ.get("HIVEMIND_SCRATCH_ROOT")
     return InCellEnv(
         queen_waggle_url=environ.get("HIVEMIND_QUEEN_WAGGLE_URL"),
         cell_id=environ.get("HIVEMIND_CELL_ID"),
@@ -248,6 +256,7 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         queen_verify_key_hex=environ.get("HIVEMIND_QUEEN_VERIFY_KEY"),
         queen_verify_key_file=Path(verify_key_file) if verify_key_file is not None else None,
         socks_proxy_url=environ.get("HIVEMIND_SOCKS_PROXY_URL"),
+        scratch_root=Path(scratch_root) if scratch_root is not None else None,
         providers_json=environ.get("HIVEMIND_PROVIDERS"),
         slots_json=environ.get("HIVEMIND_SLOTS"),
         llm_offline=_read_offline_flag(environ),

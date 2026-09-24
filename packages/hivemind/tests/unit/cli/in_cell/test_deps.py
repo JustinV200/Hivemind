@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 
 from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
@@ -63,9 +64,17 @@ _CELL_ID = "cell_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 
 def _environ(
-    server_uri: str, queen_node_id: str, hive_id: str, queen_signer: Ed25519Signer
+    server_uri: str,
+    queen_node_id: str,
+    hive_id: str,
+    queen_signer: Ed25519Signer,
+    scratch_root: Path,
 ) -> dict[str, str]:
-    """A real `HIVEMIND_*` environment naming `server_uri` as this Cell's own Queen."""
+    """A real `HIVEMIND_*` environment naming `server_uri` as this Cell's own Queen.
+
+    `scratch_root` stands in for the image's own /var/lib/hivemind/scratch, which this host
+    (Linux CI in particular) cannot create.
+    """
     cell_signer = Ed25519Signer.generate()
     return {
         "HIVEMIND_QUEEN_WAGGLE_URL": server_uri,
@@ -74,6 +83,7 @@ def _environ(
         "HIVEMIND_QUEEN_NODE_ID": queen_node_id,
         "HIVEMIND_CELL_SIGNING_KEY": cell_signer.private_key_bytes.hex(),
         "HIVEMIND_QUEEN_VERIFY_KEY": queen_signer.public_key_bytes.hex(),
+        "HIVEMIND_SCRATCH_ROOT": str(scratch_root),
     }
 
 
@@ -145,10 +155,14 @@ class _Connected:
     server_transport: WebSocketTransport
 
 
-async def _connect_and_announce(server: WebSocketServer, queen_signer: Ed25519Signer) -> _Connected:
+async def _connect_and_announce(
+    server: WebSocketServer, queen_signer: Ed25519Signer, scratch_root: Path
+) -> _Connected:
     """Build this Cell's config/transport/source/cell and send its CellReady, draining it."""
     clock = FakeClock()
-    environ = _environ(server.uri, new_node_id(clock), new_hive_id(clock), queen_signer)
+    environ = _environ(
+        server.uri, new_node_id(clock), new_hive_id(clock), queen_signer, scratch_root
+    )
     config = build_runtime_config(read_in_cell_env(environ), clock)
     codec = Codec(signer=config.signer, verifier=config.verifier)
     transport = WebSocketClientTransport(config.queen_waggle_url, codec, clock)
@@ -183,9 +197,11 @@ async def _connect_and_announce(server: WebSocketServer, queen_signer: Ed25519Si
     )
 
 
-async def _build_scenario(server: WebSocketServer, queen_signer: Ed25519Signer) -> _Scenario:
+async def _build_scenario(
+    server: WebSocketServer, queen_signer: Ed25519Signer, scratch_root: Path
+) -> _Scenario:
     """Build and start a real in-Cell Warden, connected to `server`, its provider scripted."""
-    connected = await _connect_and_announce(server, queen_signer)
+    connected = await _connect_and_announce(server, queen_signer, scratch_root)
     config = connected.config
     deps = build_in_cell_warden_deps(
         config, connected.source, connected.transport, connected.trail, connected.clock
@@ -248,12 +264,14 @@ async def _wait_for_result(server_receive: AsyncIterator[Envelope]) -> TaskResul
     raise AssertionError("No TaskResult arrived within 20 envelopes.")
 
 
-async def test_a_task_assign_completes_via_a_real_drone_and_a_scripted_fake_provider() -> None:
+async def test_a_task_assign_completes_via_a_real_drone_and_a_scripted_fake_provider(
+    tmp_path: Path,
+) -> None:
     queen_signer = Ed25519Signer.generate()
     server = WebSocketServer(Codec(signer=queen_signer))
     await server.start()
     try:
-        scenario = await _build_scenario(server, queen_signer)
+        scenario = await _build_scenario(server, queen_signer, tmp_path)
         clock = FakeClock()  # A fresh clock for id minting only; not shared with the Warden's own.
         grant_id = new_grant_id(clock)
         grant = _grant(clock, grant_id, scenario.warden_id)

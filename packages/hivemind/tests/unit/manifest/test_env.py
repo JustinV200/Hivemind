@@ -252,6 +252,15 @@ def test_read_in_cell_env_reads_every_recognised_variable() -> None:
     assert env.environ == raw
 
 
+def test_read_in_cell_env_reads_the_scratch_root_override_as_a_path() -> None:
+    """HIVEMIND_SCRATCH_ROOT lets a host without /var/lib/hivemind (Linux CI) run a Cell."""
+    assert read_in_cell_env({}).scratch_root is None
+
+    env = read_in_cell_env({"HIVEMIND_SCRATCH_ROOT": "/tmp/hivemind-cell"})  # noqa: S108  # SAFETY: a test's own literal, never created.
+
+    assert env.scratch_root == Path("/tmp/hivemind-cell")  # noqa: S108  # SAFETY: as above.
+
+
 def test_read_in_cell_env_rejects_an_unrecognised_llm_offline_value() -> None:
     with pytest.raises(ManifestError, match="HIVEMIND_LLM_OFFLINE"):
         read_in_cell_env({"HIVEMIND_LLM_OFFLINE": "maybe"})

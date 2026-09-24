@@ -43,8 +43,10 @@ requirements-audit.txt
 # per Warden tenancy) and anything else the runtime parks under .hive/.
 .hive/
 # The operator's own local manifest: real hive/node ids and local model bindings. The committed
-# examples live in docs/manifests/.
+# examples live in docs/manifests/. hive-virtual.toml is the same manifest with a Docker Virtual
+# Cell side, kept beside it for real runs.
 /hive.toml
+/hive-virtual.toml
 # Waggle outbox logs (waggle.outbox.log, append-only JSONL), `hive trail export` segments and any
 # other runtime logs.
 *.jsonl

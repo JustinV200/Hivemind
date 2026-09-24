@@ -162,7 +162,10 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
     )
     signer = Ed25519Signer(_signing_key_bytes(env))
     verifier = Ed25519Verifier({queen_node_id: _verify_key_bytes(env)})
-    probed = probe_host(_probe_config())
+    # HIVEMIND_SCRATCH_ROOT overrides the image's own path: a test or an in-process Cell on a host
+    # that cannot create /var/lib/hivemind (Linux CI) sets it; a real container never needs to.
+    scratch_root = env.scratch_root if env.scratch_root is not None else DEFAULT_SCRATCH_ROOT
+    probed = probe_host(_probe_config(scratch_root))
     spawn_config = InCellSpawnConfig(
         cell_id=cell_id,
         capabilities=probed.capabilities,
@@ -170,7 +173,7 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
         # New Virtual Cells default to MEADOW (codingrules section 8.7); a higher tier is a Queen
         # provisioning decision (roadmap step 5.7), not something this entry point chooses itself.
         comb_shield=CombShieldLevel.MEADOW,
-        scratch_root=DEFAULT_SCRATCH_ROOT,
+        scratch_root=scratch_root,
     )
     return InCellRuntimeConfig(
         queen_waggle_url=_require_queen_waggle_url(env.queen_waggle_url),
@@ -411,16 +414,17 @@ def _load_json_array(raw: str, var_name: str) -> list[object]:
     return parsed
 
 
-def _probe_config() -> HiveStandConfig:
+def _probe_config(scratch_root: Path) -> HiveStandConfig:
     """Build a throwaway HiveStandConfig, only to reuse probe_host's own stdlib-only probing.
 
     `HiveStandConfig` is a Real Cell concept (its own module docstring); nothing here reads its
     `access_level`/`comb_shield` back -- `InCellSpawnConfig` above sets those itself for a Virtual
-    Cell. Only `probe_host`'s `capabilities`/`capacity` output is used.
+    Cell. Only `probe_host`'s `capabilities`/`capacity` output is used; `scratch_root` is the one
+    the Cell will really use, so the probe measures (and may create) the same directory.
     """
     return HiveStandConfig(
         enabled=True,
-        scratch_root=DEFAULT_SCRATCH_ROOT,
+        scratch_root=scratch_root,
         scratch_quota_mb=1,  # Unused: InCellSession carries no scratch-quota watchdog (5.5).
         disk_reserve_mb=0,
         max_sub_bees=None,

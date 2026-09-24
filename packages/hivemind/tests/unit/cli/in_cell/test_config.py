@@ -79,6 +79,15 @@ def _full_environ(**overrides: str) -> dict[str, str]:
     return fields
 
 
+def test_build_runtime_config_honours_the_scratch_root_override(tmp_path: Path) -> None:
+    """HIVEMIND_SCRATCH_ROOT replaces the image's own path for a host that cannot create it."""
+    environ = _full_environ(HIVEMIND_SCRATCH_ROOT=str(tmp_path / "cell-scratch"))
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.spawn_config.scratch_root == tmp_path / "cell-scratch"
+
+
 def test_build_runtime_config_succeeds_with_every_required_variable_set() -> None:
     config = build_runtime_config(read_in_cell_env(_full_environ()), FakeClock())
 

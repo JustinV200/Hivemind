@@ -75,6 +75,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import shutil
+import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,6 +89,7 @@ from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, HoneyClearance
 from hivemind.cli.compose import Hive
 from hivemind.cli.in_cell.main import run_in_cell_warden
+from hivemind.cli.readback.virtual_abscond import AbscondDeps, AbscondSummary, run_abscond
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellBootstrap, QueenEndpoint
 from hivemind.hive.backends.fake import FakeCellBackend, ReadinessGateExpect
@@ -104,6 +107,8 @@ from hivemind.memory.cell_wax import (
     write_wax,
 )
 from hivemind.pheromone import PheromoneEvent
+from hivemind.queen import ForageLedger
+from hivemind.queen.cluster.orders import OrderStore
 from hivemind.queen.placement.policy import PlacementPolicy
 from hivemind.wardens.deps import WardenDeps
 from waggle.clock import Clock, SystemClock
@@ -115,6 +120,7 @@ __all__ = [
     "ContainerScript",
     "ContainerSpawningFakeCellBackend",
     "VirtualCellsTuning",
+    "abscond_now",
     "assert_every_warden_flushed_its_trail",
     "clear_wax_note",
     "default_container_script",
@@ -123,6 +129,7 @@ __all__ = [
     "patch_submit_goal_dispatch_race",
     "single_haiku_plan",
     "virtual_cells_manifest",
+    "without_shutdown_retire",
     "write_block_wax",
     "write_call_tool",
 ]
@@ -526,9 +533,14 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         # SystemClock, not the FakeClock a unit test might inject as `self._clock`: this container
         # talks to the Queen over a real loopback WebSocket, which needs real wall-clock progress
         # to ever connect or time out (mirrors tests.unit.cli.in_cell.test_main's own choice).
-        await run_in_cell_warden(
-            bootstrap.environment(), SystemClock(), on_deps_built=_on_deps_built
-        )
+        # An in-process "container" has no /var/lib/hivemind (the image's own scratch root;
+        # Linux CI cannot create it), so each one gets its own temporary scratch root instead.
+        scratch_root = tempfile.mkdtemp(prefix=f"hivemind-{cell_id}-")
+        environ = {**bootstrap.environment(), "HIVEMIND_SCRATCH_ROOT": scratch_root}
+        try:
+            await run_in_cell_warden(environ, SystemClock(), on_deps_built=_on_deps_built)
+        finally:
+            shutil.rmtree(scratch_root, ignore_errors=True)
 
     async def destroy(self, cell_id: CellId) -> None:
         """Destroy as `FakeCellBackend` does, then stop this Cell's own container task."""
@@ -579,3 +591,41 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         await asyncio.gather(
             *(self._stop_container(cell_id) for cell_id in tuple(self.container_tasks))
         )
+
+
+def without_shutdown_retire(hive: Hive) -> Hive:
+    """Return `hive` with `run_hive`'s own shutdown retire step disabled, standing in for a crash.
+
+    `run_hive` retires every Virtual Cell it still tracks on a clean exit
+    (`hivemind.queen.cell_gate.shutdown`), so a scenario that needs Cells left behind on the
+    backend -- what `hive cells abscond` exists for -- disables that one step and nothing else.
+    """
+    assert hive.virtual_cells is not None
+
+    async def _never_retire() -> tuple[CellId, ...]:
+        return ()
+
+    parts = dataclasses.replace(hive.virtual_cells, retire_all=_never_retire)
+    return dataclasses.replace(hive, virtual_cells=parts)
+
+
+async def abscond_now(hive: Hive, ledger: ForageLedger, orders: OrderStore) -> AbscondSummary:
+    """Run the same pass `hive cells abscond --yes` runs, over `hive`'s own live parts.
+
+    Driven in the caller's own event loop rather than through CliRunner: that swaps sys.stdout
+    process-wide, which collides with pytest's capture when run from a worker thread, and its own
+    asyncio.run cannot host this loop's in-process containers. `hive.virtual_cells` is reused so
+    abscond sees the Cells the run just provisioned; the CLI's own unit tests cover the argument
+    parsing and the printed receipt.
+    """
+    return await run_abscond(
+        AbscondDeps(
+            manifest=hive.manifest,
+            trail=hive.stores.trail,
+            ledger=ledger,
+            orders=orders,
+            clock=SystemClock(),
+            virtual_cells=hive.virtual_cells,
+            leavings=hive.stores.leavings,
+        )
+    )

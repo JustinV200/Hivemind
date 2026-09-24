@@ -27,10 +27,11 @@ htmlcov/
 docs/
 packages/observation-web/
 
-# The other two image directories: a given image's own Dockerfile only ever COPYs its own
-# packages/*/pyproject.toml and packages/*/src, never a sibling image's directory.
+# A sibling image's directory is never COPYed by another image's Dockerfile. images/night-veil-ubuntu
+# is deliberately NOT listed: its own Dockerfile COPYs its torrc, nftables.conf and systemd units
+# from `images/night-veil-ubuntu/...` with the repository root as build context, and excluding the
+# directory here made every one of those COPYs fail with "not found" in CI (Integration, 2026-09-24).
 images/desktop-ubuntu/
-images/night-veil-ubuntu/
 
 # Dev tooling not needed inside any built image.
 scripts/
