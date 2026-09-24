@@ -27,7 +27,9 @@ Key invariants:
       read from a manifest: `hivemind.workers.context.WorkerContext` carries no manifest reference
       (codingrules section 8.6's ladders already isolate `workers` from `hivemind.manifest`), so
       these mirror the manifest's own `[memory] budget_fraction`/`output_reserve_tokens` defaults
-      rather than reading them.
+      rather than reading them. The reserve is capped at a quarter of a small model's window
+      (`drone_output_reserve`): a fixed 4,096 on an 8,192-token window left the assembled sections
+      819 tokens, too few to carry even one of the Queen's pre-check hits.
     - `assemble_drone_prompt` takes its budget explicitly (roadmap step 4.4): `hivemind.workers.
       roles.drone.role.Drone.run` calls `initial_drone_budget` once, then re-calls
       `assemble_drone_prompt` with a smaller budget on each `hivemind.memory.overflow.
@@ -83,16 +85,21 @@ DRONE_ROLE = "drone"  # Principal.role for every Drone episode; matches the mani
 # docstring), so they are fixed here rather than threaded through from the composition root.
 DRONE_BUDGET_FRACTION = 0.6
 DRONE_OUTPUT_RESERVE_TOKENS = 4_096
+# A reply never reserves more than this share of the window: on a small local model (8,192 tokens)
+# the full reserve would take half of it and starve the assembled sections, Honey included.
+DRONE_MAX_OUTPUT_SHARE = 0.25
 TASK_ASSIGN_EVENT_KIND = "task.assign"  # TriggerEvent.kind for a fresh (non-resumed) attempt.
 
 __all__ = [
     "DRONE_BUDGET_FRACTION",
+    "DRONE_MAX_OUTPUT_SHARE",
     "DRONE_OUTPUT_RESERVE_TOKENS",
     "DRONE_ROLE",
     "TASK_ASSIGN_EVENT_KIND",
     "assemble_drone_prompt",
     "brief_for",
     "build_request",
+    "drone_output_reserve",
     "initial_drone_budget",
     "select_counter",
 ]
@@ -106,12 +113,27 @@ def initial_drone_budget(ctx: WorkerContext) -> TokenBudget:
 
     Returns:
         A `TokenBudget` at `DRONE_BUDGET_FRACTION` of `ctx.bound.context_window`, minus
-        `DRONE_OUTPUT_RESERVE_TOKENS`.
+        `drone_output_reserve` for that window.
     """
+    window = ctx.bound.context_window
     return TokenBudget(
-        max_input_tokens=int(ctx.bound.context_window * DRONE_BUDGET_FRACTION),
-        output_reserve=DRONE_OUTPUT_RESERVE_TOKENS,
+        max_input_tokens=int(window * DRONE_BUDGET_FRACTION),
+        output_reserve=drone_output_reserve(window),
     )
+
+
+def drone_output_reserve(context_window: int) -> int:
+    """Return the tokens a Drone's reply may take: the full reserve, or a quarter of a small window.
+
+    Args:
+        context_window: The bound model's own context window.
+
+    Returns:
+        `DRONE_OUTPUT_RESERVE_TOKENS`, capped at `DRONE_MAX_OUTPUT_SHARE` of the window; used both
+        as the budget's output reserve and as the request's `max_output_tokens`, so the reply and
+        the packed sections never overcommit the window between them.
+    """
+    return min(DRONE_OUTPUT_RESERVE_TOKENS, int(context_window * DRONE_MAX_OUTPUT_SHARE))
 
 
 async def assemble_drone_prompt(
@@ -181,7 +203,7 @@ def build_request(
         system=system,
         messages=(Message.text(Role.USER, brief_for(assignment, ctx.cell)),),
         tools=tools,
-        max_output_tokens=DRONE_OUTPUT_RESERVE_TOKENS,
+        max_output_tokens=drone_output_reserve(ctx.bound.context_window),
     )
 
 
