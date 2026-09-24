@@ -430,6 +430,19 @@ precheck_max_hits = 6
 # The most a query waits for its own embedding before searching full text only.
 embed_timeout_s = 10.0
 
+# Judge-reviewed label lowering (ADR-0034). When only the Real Cell floor holds a Nectar's label up
+# and the Ripener read its text as less sensitive, the House Bee files one proposal to lower it,
+# and the JUDGE slot reviews it; with no JUDGE binding, or enabled = false, it waits for the human.
+[honey.lowering]
+enabled = true
+# The longest decoded text the judge is shown, in characters; a longer one waits for the human.
+max_judge_chars = 12000
+# Proposals filed and reviewed per House Bee pass, at most (one JUDGE call per review).
+max_proposals_per_pass = 8
+max_reviews_per_pass = 4
+# Times the judge may fail to answer one proposal before it waits for the human.
+max_attempts = 3
+
 [brood_chamber]
 # The most tasks one goal's task graph may hold at once.
 max_graph_tasks = 64

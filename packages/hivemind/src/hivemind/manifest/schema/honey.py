@@ -1,4 +1,4 @@
-"""Define the ``[honey.store]``, ``[honey.ripening]`` and ``[honey.retrieval]`` manifest sections.
+"""Define the Honey Store's ``[honey.*]`` manifest sections: store, ripening, retrieval, lowering.
 
 Phase 7 makes the Honey Store (the Hive's cold-tier knowledge base: raw Nectar deposits ripened
 into searchable Honey) real, and every number it runs on is an operator's choice, so it lives
@@ -9,8 +9,12 @@ runs, how much it takes per pass, how text is chunked, when a model summarises, 
 are batched and when two chunks count as the same; ``HoneyRetrievalSection`` sets how a query is
 ranked and budgeted: the weight of full-text against vector evidence, the floor a hit must clear,
 how much of a reader's context window a result may fill, and how many hits the Queen's pre-check
-attaches to an assignment. The three sit beside ``[honey.clearance]`` under ``[honey]``
-(``hivemind.manifest.schema.security.HoneySection``), which is where a dotted TOML header nests.
+attaches to an assignment; ``HoneyLoweringSection`` sets how the House Bee files and the JUDGE slot
+reviews proposals to lower a label the Real Cell floor alone holds up (ADR-0034): whether the judge
+reviews at all, the longest text it is shown, how many proposals one pass files and reviews, and
+how often the judge may fail to answer one before it waits for the human. The four sit beside
+``[honey.clearance]`` under ``[honey]`` (``hivemind.manifest.schema.security.HoneySection``), which
+is where a dotted TOML header nests.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -29,6 +33,7 @@ Key invariants:
 See Also:
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for what each number governs.
     - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the embedding pass fields.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for `[honey.lowering]`.
     - hivemind.manifest.schema.security for HoneySection, the ``[honey]`` table these nest in.
     - docs/manifests/full.toml for every field shown with its default.
 """
@@ -69,15 +74,23 @@ DEFAULT_MAX_BUDGET_TOKENS = 6_000  # A hard ceiling on one result, however large
 DEFAULT_PRECHECK_MAX_HITS = 6  # A handful for the assignment; the bee may query for more.
 MAX_PRECHECK_MAX_HITS = 16  # waggle.messages.task.assignment.MAX_ASSIGN_HONEY_ITEMS.
 DEFAULT_EMBED_TIMEOUT_S = 10.0  # A query never waits longer than this for its own embedding.
+DEFAULT_MAX_JUDGE_CHARS = 12_000  # The ripener's own input bound: the judge sees what it read.
+MAX_JUDGE_CHARS_CEILING = 100_000  # About 25,000 tokens: past this no judge window holds it whole.
+DEFAULT_MAX_PROPOSALS_PER_PASS = 8  # Filing is a few cheap reads and writes per proposal.
+DEFAULT_MAX_REVIEWS_PER_PASS = 4  # One JUDGE call each; a pass stays short beside ripening.
+DEFAULT_MAX_JUDGE_ATTEMPTS = 3  # A judge that fails three passes running is not going to answer.
 
 __all__ = [
     "DEFAULT_BUDGET_FRACTION",
     "DEFAULT_CHUNK_CHARS",
     "DEFAULT_CHUNK_OVERLAP_CHARS",
+    "DEFAULT_MAX_JUDGE_CHARS",
     "DEFAULT_MAX_NECTAR_PER_PASS",
     "DEFAULT_PRECHECK_MAX_HITS",
     "DEFAULT_RIPEN_INTERVAL_S",
+    "MAX_JUDGE_CHARS_CEILING",
     "MAX_NECTAR_BYTES_CEILING",
+    "HoneyLoweringSection",
     "HoneyRetrievalSection",
     "HoneyRipeningSection",
     "HoneyStoreSection",
@@ -246,3 +259,43 @@ class HoneyRetrievalSection(BaseModel):
         if self.fts_weight + self.vector_weight <= 0:
             raise ValueError("[honey.retrieval] fts_weight and vector_weight cannot both be zero.")
         return self
+
+
+class HoneyLoweringSection(BaseModel):
+    """``[honey.lowering]``: judge-reviewed label lowering, filed and reviewed by the House Bee.
+
+    ADR-0034: a Nectar whose label only the Real Cell floor holds up, and whose text the Ripener
+    read as less sensitive, gets one lowering proposal; the independent JUDGE slot reviews it, or
+    it waits for the human (`hive honey review`).
+    """
+
+    model_config = _MODEL_CONFIG
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether the judge reviews lowering proposals; false leaves every proposal "
+        "waiting for the human, as a Hive with no JUDGE binding does.",
+    )
+    max_judge_chars: int = Field(
+        default=DEFAULT_MAX_JUDGE_CHARS,
+        gt=0,
+        le=MAX_JUDGE_CHARS_CEILING,
+        description="The longest deposit text, in decoded characters, the judge is shown; a "
+        "longer one waits for the human, because a judge must see everything it clears.",
+    )
+    max_proposals_per_pass: int = Field(
+        default=DEFAULT_MAX_PROPOSALS_PER_PASS,
+        gt=0,
+        description="Lowering proposals one House Bee pass files, at most.",
+    )
+    max_reviews_per_pass: int = Field(
+        default=DEFAULT_MAX_REVIEWS_PER_PASS,
+        gt=0,
+        description="Waiting proposals one pass asks the judge about, at most (one call each).",
+    )
+    max_attempts: int = Field(
+        default=DEFAULT_MAX_JUDGE_ATTEMPTS,
+        gt=0,
+        description="Times the judge may fail to answer one proposal before it waits for the "
+        "human.",
+    )

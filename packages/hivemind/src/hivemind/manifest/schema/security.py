@@ -46,6 +46,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.manifest.schema.honey import (
+    HoneyLoweringSection,
     HoneyRetrievalSection,
     HoneyRipeningSection,
     HoneyStoreSection,
@@ -179,7 +180,8 @@ class HoneySection(BaseModel):
     flat key named ``"honey.clearance"``; this thin wrapper is what lets `HiveManifest.honey`
     carry that nesting the same way `LlmSection.providers` carries `[llm.providers.<name>]`'s.
     Phase 3 gave `[honey]` its clearance sub-section; phase 7 (the Honey Store itself, ADR-0031)
-    adds `store`, `ripening` and `retrieval` beside it (`hivemind.manifest.schema.honey`).
+    adds `store`, `ripening` and `retrieval` beside it, and ADR-0034 adds `lowering`
+    (`hivemind.manifest.schema.honey`).
     """
 
     model_config = _MODEL_CONFIG
@@ -199,6 +201,11 @@ class HoneySection(BaseModel):
     retrieval: HoneyRetrievalSection = Field(
         default_factory=HoneyRetrievalSection,
         description="Hybrid ranking weights, the score floor and the result budget (7.7, 7.9).",
+    )
+    lowering: HoneyLoweringSection = Field(
+        default_factory=HoneyLoweringSection,
+        description="Judge-reviewed label lowering: whether, how much text, how many per pass "
+        "(ADR-0034).",
     )
 
 

@@ -1,4 +1,4 @@
-"""Tests for hivemind.manifest.schema.honey: the Honey Store's store, ripening and retrieval tables.
+"""Tests for hivemind.manifest.schema.honey: the Honey Store's four `[honey.*]` tables.
 
 Fits into the Hive:
     Mirrors src/hivemind/manifest/schema/honey.py (codingrules section 3: tests/unit mirrors
@@ -20,7 +20,10 @@ import pytest
 from pydantic import ValidationError
 
 from hivemind.manifest.schema.honey import (
+    DEFAULT_MAX_JUDGE_CHARS,
+    MAX_JUDGE_CHARS_CEILING,
     MAX_NECTAR_BYTES_CEILING,
+    HoneyLoweringSection,
     HoneyRetrievalSection,
     HoneyRipeningSection,
     HoneyStoreSection,
@@ -105,7 +108,7 @@ def test_retrieval_section_rejects_out_of_range_values(changes: dict[str, object
         HoneyRetrievalSection.model_validate(changes)
 
 
-def test_honey_section_nests_all_four_sub_tables_from_toml() -> None:
+def test_honey_section_nests_all_five_sub_tables_from_toml() -> None:
     document = tomllib.loads(
         """
         [clearance]
@@ -116,6 +119,8 @@ def test_honey_section_nests_all_four_sub_tables_from_toml() -> None:
         interval_s = 5.0
         [retrieval]
         precheck_max_hits = 3
+        [lowering]
+        enabled = false
         """
     )
 
@@ -124,9 +129,37 @@ def test_honey_section_nests_all_four_sub_tables_from_toml() -> None:
     assert section.store.max_nectar_bytes == 1_048_576
     assert section.ripening.interval_s == 5.0
     assert section.retrieval.precheck_max_hits == 3
+    assert section.lowering.enabled is False
 
 
 def test_every_section_forbids_unknown_keys() -> None:
-    for model in (HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection):
+    models = (HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection, HoneyLoweringSection)
+    for model in models:
         with pytest.raises(ValidationError):
             model.model_validate({"surprise": 1})
+
+
+def test_lowering_section_defaults_let_the_judge_review_what_the_ripener_read() -> None:
+    section = HoneyLoweringSection()
+
+    assert section.enabled is True
+    assert section.max_judge_chars == DEFAULT_MAX_JUDGE_CHARS
+    # The judge sees at least as much of a deposit as the ripener did (ADR-0034).
+    assert section.max_judge_chars >= HoneyRipeningSection().summarise_max_input_chars
+    assert (section.max_proposals_per_pass, section.max_reviews_per_pass) == (8, 4)
+    assert section.max_attempts == 3
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"max_judge_chars": 0},
+        {"max_judge_chars": MAX_JUDGE_CHARS_CEILING + 1},
+        {"max_proposals_per_pass": 0},
+        {"max_reviews_per_pass": 0},
+        {"max_attempts": 0},
+    ],
+)
+def test_lowering_section_rejects_out_of_range_values(changes: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        HoneyLoweringSection.model_validate(changes)
