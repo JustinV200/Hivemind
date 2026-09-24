@@ -68,6 +68,7 @@ __all__ = [
     "CHAT_FORBIDDEN_NOTE",
     "GOAL_RECHECK_S",
     "FollowOutcome",
+    "FollowPace",
     "Follower",
     "GoalAsk",
     "follow_goal",
@@ -107,6 +108,19 @@ class GoalAsk:
 
 
 @dataclass(frozen=True, slots=True)
+class FollowPace:
+    """How long a follow may last, and how often the goal is re-read when no view says it moved.
+
+    Attributes:
+        timeout_s: The longest to follow; the goal itself goes on regardless.
+        recheck_s: The longest the goal's state goes unread; a view's news re-reads it sooner.
+    """
+
+    timeout_s: float
+    recheck_s: float = GOAL_RECHECK_S
+
+
+@dataclass(frozen=True, slots=True)
 class FollowOutcome:
     """Where the goal request stood when the follow ended.
 
@@ -120,14 +134,14 @@ class FollowOutcome:
 
 
 async def submit_and_follow(
-    board: SignedIn, ask: GoalAsk, timeout_s: float, follower: Follower
+    board: SignedIn, ask: GoalAsk, pace: FollowPace, follower: Follower
 ) -> FollowOutcome:
-    """Submit ``ask`` and follow it until it is finished or refused, or ``timeout_s`` passes.
+    """Submit ``ask`` and follow it until it is finished or refused, or the pace's timeout.
 
     Args:
         board: The logged-in device.
         ask: The goal.
-        timeout_s: The longest to follow, the submission included.
+        pace: How long to follow, and how often to re-read the goal.
         follower: Told everything that arrives.
 
     Returns:
@@ -144,19 +158,19 @@ async def submit_and_follow(
     follower.submitted(accepted)
     if after is None:
         follower.note(CHAT_FORBIDDEN_NOTE)
-    return await follow_goal(board, accepted.id, after, timeout_s, follower)
+    return await follow_goal(board, accepted.id, after, pace, follower)
 
 
 async def follow_goal(
-    board: SignedIn, request_id: str, after: int | None, timeout_s: float, follower: Follower
+    board: SignedIn, request_id: str, after: int | None, pace: FollowPace, follower: Follower
 ) -> FollowOutcome:
-    """Follow one goal request until it is finished or refused, or ``timeout_s`` passes.
+    """Follow one goal request until it is finished or refused, or the pace's timeout.
 
     Args:
         board: The logged-in device.
         request_id: The goal request (``goalreq_...``).
         after: The chat position to relay lines after; None follows without the chat.
-        timeout_s: The longest to follow.
+        pace: How long to follow, and how often to re-read the goal.
         follower: Told every line that arrives.
 
     Returns:
@@ -167,8 +181,8 @@ async def follow_goal(
     """
     try:
         # External wait: the Hive's own work, bounded by the caller's patience.
-        async with asyncio.timeout(timeout_s):
-            view = await _race(board, request_id, after, follower)
+        async with asyncio.timeout(pace.timeout_s):
+            view = await _race(board, request_id, after, pace.recheck_s, follower)
     except TimeoutError:
         # The goal goes on without this terminal; say where it stood.
         return FollowOutcome(await _read_goal(board, request_id), timed_out=True)
@@ -179,7 +193,7 @@ async def follow_goal(
 
 
 async def _race(
-    board: SignedIn, request_id: str, after: int | None, follower: Follower
+    board: SignedIn, request_id: str, after: int | None, recheck_s: float, follower: Follower
 ) -> GoalView:
     """Watch both views while re-reading the goal until it ends; stop the views then."""
     moved = asyncio.Event()
@@ -188,14 +202,16 @@ async def _race(
         if after is not None:
             watchers.append(group.create_task(_relay_chat(board, after, follower, moved)))
         try:
-            return await _until_done(board, request_id, moved)
+            return await _until_done(board, request_id, recheck_s, moved)
         finally:
             for watcher in watchers:
                 watcher.cancel()
 
 
-async def _until_done(board: SignedIn, request_id: str, moved: asyncio.Event) -> GoalView:
-    """Re-read the goal whenever a view says it moved, and at least every GOAL_RECHECK_S."""
+async def _until_done(
+    board: SignedIn, request_id: str, recheck_s: float, moved: asyncio.Event
+) -> GoalView:
+    """Re-read the goal whenever a view says it moved, and at least every ``recheck_s``."""
     while True:
         # Cleared before the read, so a push that lands during it wakes the next wait at once.
         moved.clear()
@@ -203,7 +219,7 @@ async def _until_done(board: SignedIn, request_id: str, moved: asyncio.Event) ->
         if view.finished_at is not None or view.refused:
             return view
         try:
-            async with asyncio.timeout(GOAL_RECHECK_S):
+            async with asyncio.timeout(recheck_s):
                 await moved.wait()
         except TimeoutError:
             continue

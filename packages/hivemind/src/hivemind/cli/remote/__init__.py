@@ -29,8 +29,8 @@ Public API:
       (profiles).
     - EnrolmentOrder, InviteLink, enrol_device, read_invite_link: enrolment (enrol).
     - remote_session, run_remote, REMOTE, PROFILE: logging in as the device (session).
-    - GoalAsk, FollowOutcome, Follower, submit_and_follow, follow_goal: a goal followed to its end
-      (goals).
+    - GoalAsk, FollowPace, FollowOutcome, Follower, submit_and_follow, follow_goal: a goal followed
+      to its end (goals).
     - chat_lines, inbox_lines, outcome_line: what is printed (render).
 """
 
@@ -47,6 +47,7 @@ from hivemind.cli.remote.enrol import EnrolmentOrder, InviteLink, enrol_device, 
 from hivemind.cli.remote.goals import (
     Follower,
     FollowOutcome,
+    FollowPace,
     GoalAsk,
     follow_goal,
     submit_and_follow,
@@ -67,6 +68,7 @@ __all__ = [
     "REMOTE",
     "EnrolmentOrder",
     "FollowOutcome",
+    "FollowPace",
     "Follower",
     "GoalAsk",
     "InviteLink",

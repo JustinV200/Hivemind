@@ -45,7 +45,7 @@ from hivemind.cli.landing import (
     shown,
 )
 from hivemind.cli.remote.enrol import EnrolmentOrder, enrol_device
-from hivemind.cli.remote.goals import FollowOutcome, GoalAsk, submit_and_follow
+from hivemind.cli.remote.goals import FollowOutcome, FollowPace, GoalAsk, submit_and_follow
 from hivemind.cli.remote.profiles import DEFAULT_PROFILE, ProfileStore
 from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line
 from hivemind.cli.remote.session import PROFILE, run_remote
@@ -188,7 +188,7 @@ def remote_run(order: RemoteRun) -> NoReturn:
 
     async def work(board: SignedIn) -> FollowOutcome:
         """Submit and follow."""
-        return await submit_and_follow(board, order.goal, order.timeout_s, printer)
+        return await submit_and_follow(board, order.goal, FollowPace(order.timeout_s), printer)
 
     outcome = run_remote("run --remote", order.profile, order.from_stdin, work)
     if order.as_json:
