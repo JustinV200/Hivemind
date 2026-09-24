@@ -14,7 +14,12 @@ builds the Entrance, and runs it inside `run_hive` until the caller leaves the b
 the serve record (the loopback listener's port) the console commands find it by. The Web Push
 contact defaults to `[entrance] public_url` when `HIVEMIND_ENTRANCE_VAPID_SUBJECT` is unset; with
 neither, Web Push is not offered. The tunnel child's environment is the Hive's without its own
-variables and without any provider's API key, plus `HIVEMIND_ENTRANCE_TUNNEL_*`.
+variables and without any provider's API key, plus `HIVEMIND_ENTRANCE_TUNNEL_*`. While
+`[entrance.voice]` is on (roadmap step 10.5f), the `TRANSCRIBER` slot is bound through the Hive's
+own provider registry and metered by its own Fanner (`bind_transcriber`), so every clip is one
+`llm.call` on the Hive's trail, and a slot bound to a provider that cannot transcribe refuses to
+start `hive serve` rather than failing the first spoken word; the transcript is scored by the
+Queen's own scanner, and a kept clip goes to the in-memory Nectar seam until phase 7.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.serve` and by the
@@ -25,6 +30,7 @@ Key invariants:
     - Nothing listens before the serve lock is held, the exposure plan holds and the loopback
       socket is bound.
     - The Entrance stops (every socket closed, both listeners down) before the Queen does.
+    - Voice is wired only while `[entrance.voice]` is on; off, its route is never mounted.
 
 See Also:
     - hivemind.entrance.runtime for what is built here.
@@ -84,7 +90,9 @@ from hivemind.entrance.runtime import (
     build_entrance,
 )
 from hivemind.entrance.store import SqliteEntranceStore
-from hivemind.llm import Responder
+from hivemind.entrance.voice import InMemoryAudioNectar, VoiceRules, VoiceServices
+from hivemind.forage.tempo import AccuracyBar, Tempo
+from hivemind.llm import Responder, bind_transcriber
 from hivemind.manifest import EnvOverrides, HiveManifest, read_env
 from hivemind.manifest.schema.entrance import split_host_port
 from waggle.clock import Clock
@@ -94,10 +102,13 @@ OBSERVATION_BUILD = Path(
 )  # The front end's build, manifest-relative.
 PUSH_HTTP_TIMEOUT_S = 10.0  # One push delivery's whole request; each channel also bounds its own.
 ENTRANCE_ACTOR = "system"  # What the Entrance process records as when no device decided.
+# A person waits at the door for the echo of what they said: the Fanner orders a clip's seat
+# queue (and spills, where a chain has a fallback) by this budget, at an ordinary accuracy bar.
+VOICE_TEMPO = Tempo(latency_budget_s=30.0, accuracy=AccuracyBar.NORMAL)
 
 log = get_logger(__name__)
 
-__all__ = ["OBSERVATION_BUILD", "ServedHive", "build_served_hive", "serve_hive"]
+__all__ = ["OBSERVATION_BUILD", "VOICE_TEMPO", "ServedHive", "build_served_hive", "serve_hive"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +170,8 @@ async def serve_hive(served: ServedHive) -> AsyncIterator[HiveEntrance]:
         HiveBusyError: Another `hive serve`, or an offline `hive entrance` step, holds the Hive.
         ExposureRefusedError: `[entrance]` asks for a mode this host cannot honour.
         OSError: The loopback listener could not bind.
+        TranscriptionUnsupportedError: Voice is on and `[llm.slots.transcriber]` (or a
+            fallback) names a provider that cannot transcribe.
     """
     manifest = served.hive.manifest
     db = manifest.resolve_path(manifest.hive.db)
@@ -181,6 +194,8 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
     hive = served.hive
     manifest, clock = hive.manifest, hive.clock
     plan = await _plan(served)
+    # Bound before anything listens, so a transcriber that cannot be bound refuses to start.
+    voice = _voice(hive)
     loopback = bind_listener(plan.loopback.host, plan.loopback.port)
     async with AsyncExitStack() as stack:
         # Closed on every way out, a failed build included; closing it twice is harmless.
@@ -200,6 +215,7 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
             http=http,
             own_addresses=await _own_addresses(served, plan),
             resolver=served.resolver,
+            voice=voice,
         )
         built = build_entrance(parts, loopback)
         # From here on the Queen's calls reach the human's devices.
@@ -319,6 +335,19 @@ def _entrance_hive(hive: Hive) -> EntranceHive:
     )
     return EntranceHive(
         queen=hive.queen, reads=reads, enforcer=hive.enforcer, policy=hive.enforcer.policy
+    )
+
+
+def _voice(hive: Hive) -> VoiceServices | None:
+    """Bind and meter the TRANSCRIBER slot for voice at the Entrance; None while voice is off."""
+    section = hive.manifest.entrance.voice
+    if not section.enabled:
+        return None
+    return VoiceServices(
+        transcriber=bind_transcriber(hive.registry, hive.fanner, VOICE_TEMPO),
+        scanner=hive.queen_deps.scanner,
+        nectar=InMemoryAudioNectar(),
+        rules=VoiceRules.from_section(section),
     )
 
 
