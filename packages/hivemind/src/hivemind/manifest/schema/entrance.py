@@ -42,7 +42,7 @@ from __future__ import annotations
 import ipaddress
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 __all__ = [
     "DEFAULT_ENTRANCE_BIND",
@@ -142,6 +142,30 @@ class EntranceVoiceSection(BaseModel):
     max_clip_seconds: float = Field(
         default=120.0, gt=0, description="The longest clip accepted, in seconds."
     )
+    audio_seconds_per_minute: float = Field(
+        default=120.0,
+        gt=0,
+        description="Seconds of audio one device may send a minute: a token bucket of that many "
+        "seconds, refilling at that rate, charged each clip's length before it is transcribed. "
+        "At least max_clip_seconds, so the longest clip always fits a full bucket.",
+    )
+    keep_audio_hours: float = Field(
+        default=24.0,
+        gt=0,
+        description="How long a kept clip stays as C2 Nectar before the retention sweep deletes "
+        "it; read only when keep_audio is true.",
+    )
+
+    @model_validator(mode="after")
+    def _budget_fits_a_clip(self) -> EntranceVoiceSection:
+        """Refuse an audio budget smaller than the longest clip: that clip could never be heard."""
+        if self.audio_seconds_per_minute < self.max_clip_seconds:
+            raise ValueError(
+                f"[entrance.voice] audio_seconds_per_minute ({self.audio_seconds_per_minute:g}) "
+                f"is below max_clip_seconds ({self.max_clip_seconds:g}): a clip that long could "
+                "never fit a device's audio budget."
+            )
+        return self
 
 
 class EntranceSection(BaseModel):
