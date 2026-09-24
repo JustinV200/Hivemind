@@ -52,6 +52,9 @@ from hivemind.forage import ForageCapacity
 from waggle.ids import HiveId
 
 MAX_IMAGE_NAME_CHARS = 128  # Generous for an images/<name> directory name plus a tag suffix.
+# The one image whose in-image kill-switch can hold a Night Veil Cell (roadmap step 5.3a); every
+# backend refuses VPN_TOR on any other, so placement stamps it on every Night Veil spec.
+NIGHT_VEIL_IMAGE = "night-veil-ubuntu"
 MAX_LABEL_KEY_CHARS = (
     63  # Mirrors a familiar label-key limit so a Docker/cloud tag never truncates.
 )
@@ -72,6 +75,7 @@ __all__ = [
     "MAX_LABELS",
     "MAX_LABEL_KEY_CHARS",
     "MAX_LABEL_VALUE_CHARS",
+    "NIGHT_VEIL_IMAGE",
     "NetworkPolicy",
     "VirtualCellSpec",
 ]

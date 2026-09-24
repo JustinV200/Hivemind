@@ -57,6 +57,7 @@ import hivemind.queen.placement.rules as rules
 from hivemind.cell import CombShieldLevel, TaskNeeds
 from hivemind.guard import Capability, CapabilitySet
 from hivemind.hive import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.models import NIGHT_VEIL_IMAGE
 from hivemind.queen.errors import QueenError
 from hivemind.queen.placement.inventory import (
     DormantCandidate,
@@ -330,6 +331,9 @@ def _place_night_veil(
         # empty allowlist for every policy but ALLOWLIST -- the result is provably still valid.
         spec = base.model_copy(
             update={
+                # Roadmap step 10.3a: the tier's own image, whatever the template names, since no
+                # backend runs VPN_TOR on another (a phase 5 gap once the profile was built).
+                "image": NIGHT_VEIL_IMAGE,
                 "comb_shield": CombShieldLevel.NIGHT_VEIL,
                 "network_policy": NetworkPolicy.VPN_TOR,
                 "network_allowlist": (),
