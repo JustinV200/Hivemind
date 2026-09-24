@@ -12,7 +12,6 @@
         "type": "string"
       },
       "AcknowledgedView": {
-        "additionalProperties": false,
         "description": "An Alarm acknowledged.",
         "properties": {
           "acknowledged": {
@@ -41,10 +40,10 @@
           "new_network"
         ],
         "title": "ActionKind",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "AlarmView": {
-        "additionalProperties": false,
         "description": "An Alarm that reached the human.",
         "properties": {
           "detail": {
@@ -129,7 +128,6 @@
         "type": "object"
       },
       "AnsweredView": {
-        "additionalProperties": false,
         "description": "A question answered: its task runs again.",
         "properties": {
           "question_id": {
@@ -223,7 +221,6 @@
         "type": "object"
       },
       "CapacityView": {
-        "additionalProperties": false,
         "description": "One Cell's latest capacity report.",
         "properties": {
           "cell_id": {
@@ -293,7 +290,6 @@
         "type": "object"
       },
       "CellFrame": {
-        "additionalProperties": false,
         "description": "One Cell whose status changed (or every Cell, first), from ``/v1/cells/stream``.",
         "properties": {
           "cell": {
@@ -324,7 +320,6 @@
         "type": "string"
       },
       "CellList": {
-        "additionalProperties": false,
         "description": "Every Cell the Hive knows, Real and Virtual.",
         "properties": {
           "cells": {
@@ -352,7 +347,6 @@
         "type": "string"
       },
       "CellView": {
-        "additionalProperties": false,
         "description": "One Cell, as the Fleet list and a Cell page show it (observe).",
         "properties": {
           "access_level": {
@@ -556,7 +550,6 @@
         "type": "object"
       },
       "ChallengeView": {
-        "additionalProperties": false,
         "description": "A login (or step-up) challenge: what the device answers.",
         "properties": {
           "device_id": {
@@ -600,7 +593,6 @@
         "type": "object"
       },
       "ChangedView": {
-        "additionalProperties": false,
         "description": "What a reduction or a reopening did.",
         "properties": {
           "changed": {
@@ -627,10 +619,10 @@
           "web_push"
         ],
         "title": "ChannelKind",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "ChatAccepted": {
-        "additionalProperties": false,
         "description": "A message appended to the chat; the Queen reads it on her next tick.",
         "properties": {
           "id": {
@@ -655,7 +647,6 @@
         "type": "string"
       },
       "ChatFrame": {
-        "additionalProperties": false,
         "description": "One new chat line, as ``/v1/chat/stream`` sends it (C2).",
         "properties": {
           "entry": {
@@ -686,10 +677,10 @@
           "notice"
         ],
         "title": "ChatKind",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "ChatLine": {
-        "additionalProperties": false,
         "description": "One line of the chat (C2).",
         "properties": {
           "at": {
@@ -761,7 +752,6 @@
         "type": "object"
       },
       "ChatPage": {
-        "additionalProperties": false,
         "description": "A page of the chat, oldest first.",
         "properties": {
           "entries": {
@@ -833,7 +823,6 @@
         "type": "string"
       },
       "ConfirmationList": {
-        "additionalProperties": false,
         "description": "Every request still held.",
         "properties": {
           "confirmations": {
@@ -852,7 +841,6 @@
         "type": "object"
       },
       "ConfirmationView": {
-        "additionalProperties": false,
         "description": "A request held for a person's confirmation (C2: its payload is shown).",
         "properties": {
           "action": {
@@ -907,7 +895,6 @@
         "type": "object"
       },
       "ConfirmedView": {
-        "additionalProperties": false,
         "description": "What confirming a held request carried out.",
         "properties": {
           "action": {
@@ -972,7 +959,6 @@
         "type": "object"
       },
       "DeviceDescription": {
-        "additionalProperties": false,
         "description": "What a device says about itself when it redeems an invite, shown to the operator at approval.\n\nUnauthenticated and unverified: it crosses the Landing Board from a device nobody trusts yet,\nso it is display text only, bounded and free of control characters.",
         "properties": {
           "name": {
@@ -1004,7 +990,6 @@
         "type": "object"
       },
       "DeviceList": {
-        "additionalProperties": false,
         "description": "Every device matching a listing.",
         "properties": {
           "devices": {
@@ -1037,7 +1022,6 @@
         "type": "string"
       },
       "DeviceView": {
-        "additionalProperties": false,
         "description": "One enrolled device, as the Landing Board shows it.",
         "properties": {
           "approved_at": {
@@ -1252,7 +1236,6 @@
         "type": "string"
       },
       "EpisodeFrame": {
-        "additionalProperties": false,
         "description": "One new episode record, as ``/v1/episodes/stream`` sends it (C2).",
         "properties": {
           "episode": {
@@ -1274,7 +1257,6 @@
         "type": "object"
       },
       "EpisodeList": {
-        "additionalProperties": false,
         "description": "Episode records, newest first.",
         "properties": {
           "episodes": {
@@ -1293,7 +1275,6 @@
         "type": "object"
       },
       "EpisodeView": {
-        "additionalProperties": false,
         "description": "One episode record: who decided what, and why (observe:thoughts, C2).",
         "properties": {
           "action": {
@@ -1440,7 +1421,6 @@
         "type": "object"
       },
       "ErrorBody": {
-        "additionalProperties": false,
         "description": "The body of every refusal the Landing Board answers with.",
         "properties": {
           "capability": {
@@ -1498,7 +1478,6 @@
         "type": "object"
       },
       "ForageFrame": {
-        "additionalProperties": false,
         "description": "One Forage ledger delta, as ``/v1/forage/stream`` sends it.",
         "properties": {
           "event": {
@@ -1537,7 +1516,6 @@
         "type": "object"
       },
       "ForageView": {
-        "additionalProperties": false,
         "description": "The Queen's Forage ledger as it stands (observe).",
         "properties": {
           "capacities": {
@@ -1574,7 +1552,6 @@
         "type": "object"
       },
       "GoalAccepted": {
-        "additionalProperties": false,
         "description": "A goal request committed in the Queen's tables (``202 Accepted``).",
         "properties": {
           "id": {
@@ -1613,7 +1590,8 @@
           "spoken"
         ],
         "title": "GoalSource",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "GoalSubmission": {
         "additionalProperties": false,
@@ -1663,7 +1641,6 @@
         "type": "object"
       },
       "GoalView": {
-        "additionalProperties": false,
         "description": "A goal request's progress, without its text.",
         "properties": {
           "budget_usd": {
@@ -1797,7 +1774,6 @@
         "type": "string"
       },
       "GrantView": {
-        "additionalProperties": false,
         "description": "One live grant: the share of Forage a Warden holds, as a lease.",
         "properties": {
           "cell_id": {
@@ -1892,7 +1868,6 @@
         "type": "object"
       },
       "HeadroomView": {
-        "additionalProperties": false,
         "description": "What the shared pool still has free.",
         "properties": {
           "shared_seats": {
@@ -1914,7 +1889,6 @@
         "type": "object"
       },
       "HiveKeyView": {
-        "additionalProperties": false,
         "description": "The Hive's public signing key: what a webhook receiver verifies with.",
         "properties": {
           "algorithm": {
@@ -1936,7 +1910,6 @@
         "type": "object"
       },
       "HiveView": {
-        "additionalProperties": false,
         "description": "The Hive a device is joining or logging into: what its signed strings name.",
         "properties": {
           "hive_id": {
@@ -1962,7 +1935,6 @@
         "type": "string"
       },
       "InboxView": {
-        "additionalProperties": false,
         "description": "Everything waiting on the human (C2).",
         "properties": {
           "alarms": {
@@ -2008,7 +1980,6 @@
         "type": "object"
       },
       "InviteView": {
-        "additionalProperties": false,
         "description": "A minted invite, shown once: the code, its link and its QR code.",
         "properties": {
           "code": {
@@ -2072,7 +2043,6 @@
         "type": "string"
       },
       "LlmView": {
-        "additionalProperties": false,
         "description": "The LLM wiring and how the Queen judges it (observe).",
         "properties": {
           "providers": {
@@ -2178,7 +2148,6 @@
         "type": "object"
       },
       "ModeView": {
-        "additionalProperties": false,
         "description": "The Entrance's mode.",
         "properties": {
           "exposed": {
@@ -2218,10 +2187,10 @@
           "TRANSCRIBER"
         ],
         "title": "ModelSlot",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "NotBuiltView": {
-        "additionalProperties": false,
         "description": "A resource the contract names whose phase has not landed yet (501).",
         "properties": {
           "detail": {
@@ -2266,10 +2235,10 @@
           "withdrawn"
         ],
         "title": "NoticeKind",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "OpenedSessionView": {
-        "additionalProperties": false,
         "description": "A new session: its bearer token, handed out this once, and how long it lives.",
         "properties": {
           "device_id": {
@@ -2317,7 +2286,8 @@
           "MACOS"
         ],
         "title": "OsFamily",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "PasskeyOptionsRequest": {
         "additionalProperties": false,
@@ -2337,7 +2307,6 @@
         "type": "object"
       },
       "PasskeyOptionsView": {
-        "additionalProperties": false,
         "description": "The options a browser creates its passkey with.",
         "properties": {
           "options": {
@@ -2398,7 +2367,6 @@
         "type": "string"
       },
       "Postcondition": {
-        "additionalProperties": false,
         "description": "One assertion a bee states before acting, or one acceptance criterion a planner sets.\n\nThe same shape serves both task.assign (acceptance criteria) and\ncapping.proposal_submitted (postconditions), so the Capping gate checks them alike.",
         "properties": {
           "argv": {
@@ -2457,7 +2425,8 @@
           "JUDGE_RUBRIC"
         ],
         "title": "PostconditionKind",
-        "type": "string"
+        "type": "string",
+        "x-hive-open": true
       },
       "ProviderHealthView": {
         "description": "How the Queen currently judges a provider, from her own bookkeeping.",
@@ -2470,7 +2439,6 @@
         "type": "string"
       },
       "ProviderView": {
-        "additionalProperties": false,
         "description": "One configured model provider.",
         "properties": {
           "clustered": {
@@ -2509,7 +2477,6 @@
         "type": "object"
       },
       "PushNotice": {
-        "additionalProperties": false,
         "description": "One \"something is waiting\" notice: what kind, pointing at which item, minted when.\n\nCrosses every push channel as ``notice_json``: a webhook body, a Web Push plaintext, a\nWebSocket frame. The event id is minted once and reused by every retry and every channel, so\na receiver dedupes on it.",
         "properties": {
           "created_at": {
@@ -2568,7 +2535,6 @@
         "type": "string"
       },
       "QuestionView": {
-        "additionalProperties": false,
         "description": "A question waiting on the human.",
         "properties": {
           "asked_at": {
@@ -2617,7 +2583,6 @@
         "type": "object"
       },
       "RedemptionView": {
-        "additionalProperties": false,
         "description": "A redeemed invite: the request now waits for the operator on the Hive Stand.",
         "properties": {
           "device_id": {
@@ -2655,7 +2620,6 @@
         "type": "string"
       },
       "ReserveView": {
-        "additionalProperties": false,
         "description": "The Royal Reserve: what every headroom computation holds back first.",
         "properties": {
           "headroom_fraction": {
@@ -2683,7 +2647,6 @@
         "type": "object"
       },
       "RevocationView": {
-        "additionalProperties": false,
         "description": "What a revocation did.",
         "properties": {
           "device": {
@@ -2738,7 +2701,6 @@
         "type": "object"
       },
       "SecurityEventView": {
-        "additionalProperties": false,
         "description": "An Entrance security event, as the trail records it.",
         "properties": {
           "actor": {
@@ -2788,7 +2750,6 @@
         "type": "object"
       },
       "SecurityFrame": {
-        "additionalProperties": false,
         "description": "One Entrance security event, as ``/v1/entrance/stream`` sends it.",
         "properties": {
           "event": {
@@ -2810,7 +2771,6 @@
         "type": "object"
       },
       "SlotView": {
-        "additionalProperties": false,
         "description": "One [llm.slots] binding: a slot, or a named binding a fallback chain reaches.",
         "properties": {
           "effort": {
@@ -2966,7 +2926,6 @@
         "type": "object"
       },
       "SteppedUpView": {
-        "additionalProperties": false,
         "description": "A session just stepped up.",
         "properties": {
           "stepped_up_until": {
@@ -3017,7 +2976,6 @@
         "type": "object"
       },
       "SubscriptionView": {
-        "additionalProperties": false,
         "description": "A stored push subscription.",
         "properties": {
           "channel": {
@@ -3045,7 +3003,6 @@
         "type": "object"
       },
       "TaskBriefView": {
-        "additionalProperties": false,
         "description": "What a task was asked to do and what it reported, in its own words (C2).",
         "properties": {
           "acceptance": {
@@ -3117,7 +3074,6 @@
         "type": "object"
       },
       "TaskGraphFrame": {
-        "additionalProperties": false,
         "description": "One task that changed, in one principal's task graph (``/v1/tasks/stream``).",
         "properties": {
           "principal": {
@@ -3145,7 +3101,6 @@
         "type": "object"
       },
       "TaskOutcomeView": {
-        "additionalProperties": false,
         "description": "How a finished task ended, without its summary or artifact paths (both C2).",
         "properties": {
           "artifact_count": {
@@ -3185,7 +3140,6 @@
         "type": "object"
       },
       "TaskPage": {
-        "additionalProperties": false,
         "description": "One page of tasks, oldest first by (created_at, id).",
         "properties": {
           "next_after": {
@@ -3232,7 +3186,6 @@
         "type": "string"
       },
       "TaskView": {
-        "additionalProperties": false,
         "description": "One task as an observing device sees it: where it stands, never what it says (observe).",
         "properties": {
           "attempt": {
@@ -3410,7 +3363,6 @@
         "type": "object"
       },
       "TelemetryFrame": {
-        "additionalProperties": false,
         "description": "One telemetry sample, as ``/v1/telemetry/stream`` sends it (C2).",
         "properties": {
           "sample": {
@@ -3432,7 +3384,6 @@
         "type": "object"
       },
       "TelemetrySampleView": {
-        "additionalProperties": false,
         "description": "One bee's self-report from a Heartbeat: its context, goal line and spend (C2).",
         "properties": {
           "at": {
@@ -3547,7 +3498,6 @@
         "type": "object"
       },
       "TrailCursor": {
-        "additionalProperties": false,
         "description": "Where the next page starts: pass these back as query parameters, with the same filters.",
         "properties": {
           "since": {
@@ -3591,7 +3541,6 @@
         "type": "object"
       },
       "TrailEventView": {
-        "additionalProperties": false,
         "description": "One Pheromone Trail event, as the trail records it (observe).",
         "properties": {
           "actor": {
@@ -3688,7 +3637,6 @@
         "type": "object"
       },
       "TrailFrame": {
-        "additionalProperties": false,
         "description": "One trail event, as ``/v1/trail/stream`` sends it.",
         "properties": {
           "event": {
@@ -3710,7 +3658,6 @@
         "type": "object"
       },
       "TrailPage": {
-        "additionalProperties": false,
         "description": "One page of trail events, in trail order (or newest first when asked).",
         "properties": {
           "events": {
@@ -3741,7 +3688,6 @@
         "type": "object"
       },
       "TrailUsageView": {
-        "additionalProperties": false,
         "description": "The normalised usage an ``llm.call`` event records.",
         "properties": {
           "cached_tokens": {
@@ -3775,7 +3721,6 @@
         "type": "object"
       },
       "VapidKeyView": {
-        "additionalProperties": false,
         "description": "The key a browser's PushManager.subscribe takes as applicationServerKey.",
         "properties": {
           "application_server_key": {
@@ -3806,7 +3751,6 @@
         "type": "string"
       },
       "WardenList": {
-        "additionalProperties": false,
         "description": "Every Warden attached to the Queen.",
         "properties": {
           "wardens": {
@@ -3839,7 +3783,6 @@
         "type": "string"
       },
       "WardenView": {
-        "additionalProperties": false,
         "description": "One attached Warden, as the Queen sees it (observe).",
         "properties": {
           "cell_id": {
@@ -9585,6 +9528,39 @@
       }
     }
   },
+  "x-hive-bare-refusals": [
+    {
+      "listeners": [
+        "loopback"
+      ],
+      "status": 403,
+      "when": "The Host is not a loopback name on this listener's port, or the request carries Forwarded, Via, X-Real-IP, X-Forwarded-* or Tailscale-*."
+    },
+    {
+      "listeners": [
+        "loopback",
+        "remote"
+      ],
+      "status": 429,
+      "when": "The peer address is over its request rate (a Hive setting); retry later."
+    },
+    {
+      "listeners": [
+        "loopback",
+        "remote"
+      ],
+      "status": 413,
+      "when": "The request body is larger than 262144 bytes."
+    },
+    {
+      "listeners": [
+        "loopback",
+        "remote"
+      ],
+      "status": 408,
+      "when": "The request body did not arrive within 30 seconds."
+    }
+  ],
   "x-hive-signing": {
     "digest": "Lowercase hex SHA-256.",
     "encoding": "Each string is its tag then its fields, one per line, joined by a single line feed (U+000A), encoded as UTF-8; no field may contain a line break.",
@@ -9601,6 +9577,14 @@
       "nonce": "X-Hive-Nonce",
       "signature": "X-Hive-Signature",
       "timestamp": "X-Hive-Timestamp"
+    },
+    "invite_code": {
+      "example": {
+        "canonical": "AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4",
+        "sha256": "182d83e87bd40269e496ef5d36ca254adf515e5235076d565c49099a1dc52ff3",
+        "typed": "aaaq eaye auda ocaj bifq ydio b4"
+      },
+      "form": "Hash the code in its canonical form, as UTF-8: its 26 base32 characters (A-Z, 2-7) upper case, in groups of four joined by '-' (the last group has two). A person may type it in any case, with or without dashes or spaces."
     },
     "nonce": "Unpadded base64url over at least 16 random bytes; single use.",
     "signature": "Unpadded base64url: Ed25519's raw 64 bytes, or a WebCrypto P-256 signature in IEEE P1363 form (r || s, 64 bytes).",
@@ -9637,6 +9621,49 @@
     "timestamp": "Integer Unix seconds, in decimal.",
     "webhooks": "A webhook carries X-Hive-Signature (the Hive's Ed25519 key over hive-webhook-v1), X-Hive-Timestamp and X-Hive-Event-Id (dedupe on it); verify with the key GET /v1/push/hive-key answers, which enrolment also returned."
   },
+  "x-hive-socket-close": [
+    {
+      "code": 1000,
+      "name": "unsubscribed",
+      "reason": "closed"
+    },
+    {
+      "code": 1001,
+      "name": "shutting_down",
+      "reason": "the entrance is shutting down"
+    },
+    {
+      "code": 4401,
+      "name": "authentication_failed",
+      "reason": "authentication failed"
+    },
+    {
+      "code": 4403,
+      "name": "forbidden",
+      "reason": "forbidden"
+    },
+    {
+      "code": 4409,
+      "name": "fell_behind",
+      "reason": "fell behind; reconnect from your cursor"
+    },
+    {
+      "code": 4410,
+      "name": "session_ended",
+      "reason": "session ended"
+    },
+    {
+      "code": 4411,
+      "name": "reduced",
+      "reason": "the entrance was reduced"
+    },
+    {
+      "code": 1008,
+      "name": "refused_before_accept",
+      "reason": "",
+      "when": "The loopback listener refused the handshake's Host or a forwarding header, or the address is over its rate limit."
+    }
+  ],
   "x-hive-streams": [
     {
       "first_frame": {
@@ -9818,5 +9845,11 @@
         "remote"
       ]
     }
-  ]
+  ],
+  "x-hive-versioning": {
+    "additive": "Within /v1/ only additive changes ship: a new route, a new optional request field, a new response field, a new member of an enum marked x-hive-open. Anything else ships as /v2/, with /v1/ kept for one Brood release beside it.",
+    "enums": "An enum marked x-hive-open may gain members within /v1/: treat a member you do not know as unknown, never as an error. Every other enum is closed until /v2/.",
+    "requests": "A request body with a field this document does not declare is refused (422): send only declared fields.",
+    "responses": "Every object a client reads (a response body or a stream frame) may gain fields within /v1/: ignore the ones you do not know."
+  }
 }

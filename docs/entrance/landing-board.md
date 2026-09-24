@@ -138,10 +138,11 @@ operator). The answer is `202` with a `RedemptionView`:
 - `hive_public_key_hex`: the Hive's own Ed25519 key. Pin it, because it signs every webhook
   (section 8.2).
 
-**Not in the document:** the code is hashed in the form the Hive Stand shows it, upper case with the
-dashes (`ABCD-EFGH-...-YZ`), as UTF-8. The document names the field only as "invite code SHA-256
-(hex)". The helper script puts a code typed in any case, with or without dashes, into that form
-before hashing it. The `code` member of the body may be sent as typed.
+The code is hashed in the form the Hive Stand shows it, upper case with the dashes
+(`ABCD-EFGH-...-YZ`), as UTF-8; the document's `x-hive-signing.invite_code` states the form and
+carries a worked example (a code as typed, its canonical form and its SHA-256). The helper script
+puts a code typed in any case, with or without dashes, into that form before hashing it. The `code`
+member of the body may be sent as typed.
 
 <!-- run: enrol -->
 ```sh
@@ -384,8 +385,10 @@ Send that line as the socket's first text frame, from any WebSocket client:
   websocat "$(printf '%s' "$HIVE_URL" | sed 's/^http/ws/')/v1/push/stream"
 ```
 
-**Not in the document:** the close codes. `1000` means the view ended or you left. `1001` means the
-Entrance is shutting down. `4401` means the first frame failed or came late. `4403` means the device
+The close codes are in the document's `x-hive-socket-close`. `1000` means the view ended or you
+left. `1001` means the Entrance is shutting down. `1008` means the handshake itself was refused
+before it was accepted (a foreign `Host` or forwarding header on loopback, or an address over its
+rate). `4401` means the first frame failed or came late. `4403` means the device
 lacks the view's capability. `4409` means you fell behind: reconnect from your cursor. `4410` means
 the session ended (logout, expiry, idle, lock or revocation). `4411` means the Entrance was reduced
 and every remote socket closed.
@@ -525,7 +528,8 @@ The document does not enumerate the codes. The ones above are what the Entrance 
 burst lock: `[entrance] lockout_denials` of them inside `lockout_denial_window_s` (20 in 60 seconds
 by default) lock the device.
 
-**Not in the document:** some refusals happen before routing and carry no body at all:
+Some refusals happen before routing and carry no body at all; the document lists them in
+`x-hive-bare-refusals`:
 
 - the loopback listener's `403` for a foreign `Host` or a forwarding header;
 - the per-address `429` (`[entrance] rate_limit_per_address`);
@@ -545,10 +549,11 @@ header. A failure inside the Hive is `500` with a code and a fixed sentence.
   kept beside it for one Brood release.
 - The document is generated from the Entrance's own route models and committed. The build fails
   when the two differ, so every change to the contract is visible in review.
-- **Ignore response members you do not know.** The response schemas say
-  `additionalProperties: false`. That describes this version's shape, not a promise that no member
-  will be added within `/v1/`.
-- **Enums.** No enum in the document is marked open yet, and the document does not yet say how it
-  would mark one. Until it does, every enum it lists is closed within `/v1/`. If one is ever marked
-  open, treat a value you do not know as "something else" rather than an error.
+- **Ignore response members you do not know.** Every object you read (a response body or a stream
+  frame) is published open: its schema never says `additionalProperties: false`, because a later
+  `/v1/` may add a member. The document's `x-hive-versioning` states the rule.
+- **Enums.** An enum the document marks `x-hive-open` may gain members within `/v1/`: today the
+  kinds of push notice, chat line, push channel, step-up action, model slot, device family,
+  acceptance check and goal source. Treat a value you do not know as "something else" rather than
+  an error. Every other enum (a state machine, a security tier) is closed until `/v2/`.
 - **Send only what the document declares.** Request schemas refuse unknown members with `422`.

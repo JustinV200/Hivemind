@@ -7,7 +7,9 @@ module implements exactly the keywords the document uses (OpenAPI 3.1 schemas ar
 2020-12): ``$ref`` into the document, ``anyOf``, ``type``, ``enum``, ``const``, ``properties``,
 ``required``, ``additionalProperties``, ``items``, ``maxItems``, the string and number bounds,
 ``pattern`` and the ``date-time`` format. A keyword it does not know fails the check rather than
-being skipped, so the document can never quietly outgrow the validator.
+being skipped, so the document can never quietly outgrow the validator; an OpenAPI extension
+(``x-``) describes and never constrains, and an enum marked ``x-hive-open`` accepts a member of its
+own type that was added after the client was written (the document's ``x-hive-versioning``).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Called by
@@ -83,7 +85,8 @@ def _check(value: object, schema: Mapping[str, object], at: _At) -> None:
     if isinstance(reference, str):
         _check(value, _resolve(reference, at.document), at)
     for keyword, argument in schema.items():
-        if keyword == "$ref" or keyword in _ANNOTATIONS:
+        # An x- keyword is an OpenAPI extension: it describes, it never constrains.
+        if keyword == "$ref" or keyword in _ANNOTATIONS or keyword.startswith("x-"):
             continue
         checker = _KEYWORDS.get(keyword)
         if checker is None:
@@ -134,11 +137,19 @@ def _type(value: object, argument: object, _schema_: Mapping[str, object], at: _
         _fail(at, f"{value!r} is not of type {argument!r}")
 
 
-def _enum(value: object, argument: object, _schema_: Mapping[str, object], at: _At) -> None:
-    """``enum``: one of the listed values (a bool never equals 0 or 1 here)."""
+def _enum(value: object, argument: object, schema: Mapping[str, object], at: _At) -> None:
+    """``enum``: one of the listed values (a bool never equals 0 or 1 here).
+
+    An enum the document marks ``x-hive-open`` may gain members within ``/v1/`` (its
+    ``x-hive-versioning``), so a value of the members' own type that the list does not name is a
+    member added after this client was written, not an error.
+    """
     members = argument if isinstance(argument, list) else []
-    if not any(type(value) is type(member) and value == member for member in members):
-        _fail(at, f"{value!r} is not one of {members!r}")
+    if any(type(value) is type(member) and value == member for member in members):
+        return
+    if schema.get("x-hive-open") is True and any(type(value) is type(m) for m in members):
+        return
+    _fail(at, f"{value!r} is not one of {members!r}")
 
 
 def _const(value: object, argument: object, _schema_: Mapping[str, object], at: _At) -> None:
