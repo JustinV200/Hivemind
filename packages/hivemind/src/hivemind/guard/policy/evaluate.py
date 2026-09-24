@@ -5,18 +5,25 @@ enforcement point, the capability the action needs, the set the principal holds 
 action happens, it answers allow or deny with a stable rule id, a sentence a human can read on
 the trail, and what a denial escalates to (the policy's per-point table, `REFUSE` by default).
 Rules run cheapest and hardest first, and only holding the capability can turn anything into an
-allow: the tier floors, then the access-level ceiling, then the hive-wide deny list, each of
-which can only refuse, and last the held set. The floors are an explicit hook that roadmap step
-10.3a fills; nothing here invents one. `refusal` (roadmap step 10.3) builds the same shape of
-decision for a refusal an enforcement point reaches on its own, when the principal holds the
-capability but the action's target lies outside what it may touch with it (a grant another Warden
-holds): the rule is a `guard.scope.<why>` id and the reason reads like every other one.
+allow: the floors, then the access-level ceiling, then the hive-wide deny list, each of which
+can only refuse, and last the held set. The floors are `hivemind.guard.policy.floors` (roadmap
+step 10.3a): the Hive-state floor every bee meets (`guard.state_floor.<floor>`) and the Comb
+Shield tier floors (`guard.tier_floor.<floor>`: Night Veil's initiation, Virtual-only placement,
+local-only slots, clearance, location blindness and control link, and tier inheritance), each
+reading the request's context and the policy's data, never the held set. `floor_decision` runs
+the floors alone, for a point whose held set is checked elsewhere (the Capping gate checks a
+Worker's `exec` and `fs:write`), so a floor still refuses there first. `refusal` (roadmap step
+10.3) builds the same shape of decision for a refusal an enforcement point reaches on its own,
+when the principal holds the capability but the action's target lies outside what it may touch
+with it (a grant another Warden holds): the rule is a `guard.scope.<why>` id and the reason reads
+like every other one.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.guard.enforcer.
     Enforcer.check`, the one adapter every enforcement point goes through (roadmap step 10.3).
-    Calls into `hivemind.guard.access` (`admits`) and this package's `models` and `table`; no
-    I/O, no clock, no trail: the enforcer records a denial, this module only decides it.
+    Calls into `hivemind.guard.access` (`admits`) and this package's `floors`, `models` and
+    `table`; no I/O, no clock, no trail: the enforcer records a denial, this module only decides
+    it.
 
 Key invariants:
     - Pure and total: the same request and policy always give the same decision, and every
@@ -25,7 +32,8 @@ Key invariants:
       does not hold the needed capability is always refused.
     - A decision's reason names the principal (kind, id, role), the point and the capability,
       never any content the action carried.
-    - `refusal` only ever refuses: it cannot allow, so the invariant above still holds.
+    - `refusal` and `floor_decision` only ever refuse: neither can allow, so the invariant above
+      still holds.
 
 See Also:
     - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Policy is a pure
@@ -39,6 +47,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from hivemind.guard.access import admits
+from hivemind.guard.policy.floors import STATE_FLOOR_RULE, TIER_FLOOR_RULE, floor_refusal
 from hivemind.guard.policy.models import (
     EscalationAction,
     PolicyDecision,
@@ -51,7 +60,6 @@ HELD_RULE = "guard.held"  # The only rule that allows: the principal holds what 
 NOT_HELD_RULE = "guard.not_held"  # Refused because the held set does not cover the need.
 DENY_LIST_RULE = "guard.deny_list"  # Refused because the hive-wide deny list covers the need.
 ACCESS_LEVEL_RULE = "guard.access_level"  # Prefix: `.read_only`, `.scratch`: the Cell's level.
-TIER_FLOOR_RULE = "guard.tier_floor"  # Prefix for step 10.3a's floors: `.night_veil`, ...
 SCOPE_RULE = "guard.scope"  # Prefix: `.grant_holder`, ...: held, but not over this target.
 
 __all__ = [
@@ -60,8 +68,10 @@ __all__ = [
     "HELD_RULE",
     "NOT_HELD_RULE",
     "SCOPE_RULE",
+    "STATE_FLOOR_RULE",
     "TIER_FLOOR_RULE",
     "evaluate",
+    "floor_decision",
     "refusal",
 ]
 
@@ -84,7 +94,7 @@ def evaluate(request: PolicyRequest, policy: GuardPolicy) -> PolicyDecision:
     Returns:
         A PolicyDecision: allowed by `guard.held` when the held set covers the need and no
         refusing rule applies; otherwise refused by the first rule that applies, in ADR-0031's
-        order (a tier floor, the access-level ceiling, the deny list), or by `guard.not_held`.
+        order (a floor, the access-level ceiling, the deny list), or by `guard.not_held`.
         Its escalation is the point's configured action, REFUSE when it has none.
 
     Example:
@@ -129,18 +139,36 @@ def refusal(request: PolicyRequest, policy: GuardPolicy, scope: str, why: str) -
     return _decision(request, False, verdict, policy.escalation_for(request.point))
 
 
-def _tier_floor(request: PolicyRequest, policy: GuardPolicy) -> _Verdict | None:
-    """Refuse an action a floor forbids whatever the principal holds; none exist yet.
+def floor_decision(request: PolicyRequest, policy: GuardPolicy) -> PolicyDecision | None:
+    """Run the floors alone: the refusal the first floor makes, or None when none refuses.
 
-    Empty on purpose until roadmap step 10.3a. The floors ADR-0031 names (the Hive's own state
-    paths; Night Veil's Virtual-only placement, local-only slots, Tor-only link, refusal of `c2`
-    Honey and of the location families; Night Veil initiated only by a human; tier inheritance)
-    read `request.context` (the Cell's tier, the task's bound or requested tier, the origin),
-    never the shape of the held set, and each will return a `guard.tier_floor.<floor>` refusal
-    from here. Returning None applies no floor.
+    For a point whose held set is checked by another rule (the Capping gate's allowlist checks a
+    Worker's `exec` and `fs:write`): the floors still refuse there first, recorded like every
+    other refusal (`hivemind.guard.enforcer.Enforcer.check_floors`), and the held set is left to
+    that rule.
+
+    Args:
+        request: Who is acting, at which point, needing what, holding what, and where.
+        policy: The Guard policy: its Hive state and the per-point escalation table.
+
+    Returns:
+        A refused PolicyDecision under the floor's own rule, or None; never an allow.
     """
-    del request, policy  # Read by the floors step 10.3a adds; nothing reads them until then.
-    return None
+    verdict = _floors(request, policy)
+    if verdict is None:
+        return None
+    return _decision(request, False, verdict, policy.escalation_for(request.point))
+
+
+def _floors(request: PolicyRequest, policy: GuardPolicy) -> _Verdict | None:
+    """Refuse an action a floor forbids whatever the principal holds (roadmap step 10.3a).
+
+    The floors (`hivemind.guard.policy.floors`) read `request.context` and the policy's data,
+    never the shape of the held set: the Hive's own state, then Night Veil's initiation and its
+    tier floors, then tier inheritance. Returning None applies no floor.
+    """
+    found = floor_refusal(request, policy)
+    return None if found is None else _Verdict(found.rule, found.why)
 
 
 def _access_level_ceiling(request: PolicyRequest, policy: GuardPolicy) -> _Verdict | None:
@@ -167,7 +195,7 @@ def _deny_list(request: PolicyRequest, policy: GuardPolicy) -> _Verdict | None:
 
 # ADR-0031's order for the rules that can only refuse: floors, the access ceiling, the deny list.
 _REFUSING_RULES: tuple[Callable[[PolicyRequest, GuardPolicy], _Verdict | None], ...] = (
-    _tier_floor,
+    _floors,
     _access_level_ceiling,
     _deny_list,
 )

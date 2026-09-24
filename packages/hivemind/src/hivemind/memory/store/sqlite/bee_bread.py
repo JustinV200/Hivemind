@@ -30,7 +30,8 @@ from datetime import datetime
 from hivemind.cell import HoneyClearance
 from hivemind.common.sqlite import transaction
 from hivemind.memory.bee_bread.entry import BeeBreadEntry
-from hivemind.memory.store.sqlite.records import _allowed_clearance_values
+from hivemind.memory.store.sqlite.records import UNTAINTED_CLAUSE, _allowed_clearance_values
+from hivemind.memory.taint import require_unlabelled
 from hivemind.pheromone import MemoryEvent, insert_event
 
 # No __all__: see hivemind.memory.store.sqlite.records's own note; the same reasoning applies here.
@@ -48,6 +49,7 @@ def add_entry_transaction(
     connection: sqlite3.Connection, entry: BeeBreadEntry, event: MemoryEvent
 ) -> None:
     """Insert one bee_bread row then its event, in one transaction; run on the store's thread."""
+    require_unlabelled(entry.tainted, entry.id)  # Only the taint ledger writes a label.
     with transaction(connection):
         connection.execute(
             _INSERT_SQL,
@@ -75,7 +77,10 @@ def select_by_task_rows(
     """Select bee_bread entries for `task_id` within `allowance`, oldest first."""
     values = _allowed_clearance_values(allowance)
     placeholders = ",".join("?" for _ in values)
-    sql = f"{_SELECT_SQL} WHERE task_id = ? AND clearance IN ({placeholders}){_ORDER_BY}"
+    sql = (
+        f"{_SELECT_SQL} WHERE task_id = ? AND clearance IN ({placeholders}) "
+        f"AND {UNTAINTED_CLAUSE}{_ORDER_BY}"
+    )
     return connection.execute(sql, (task_id, *values)).fetchall()
 
 
@@ -87,6 +92,6 @@ def select_between_rows(
     placeholders = ",".join("?" for _ in values)
     sql = (
         f"{_SELECT_SQL} WHERE created_at >= ? AND created_at <= ? "
-        f"AND clearance IN ({placeholders}){_ORDER_BY}"
+        f"AND clearance IN ({placeholders}) AND {UNTAINTED_CLAUSE}{_ORDER_BY}"
     )
     return connection.execute(sql, (start.isoformat(), end.isoformat(), *values)).fetchall()

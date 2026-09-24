@@ -6,7 +6,8 @@ its Cell must meet, the ids of tasks it depends on, since roadmap step 10.3 the 
 of the goal it was planned from, and since roadmap step 10.5 the goal request that asked for the
 goal and the spend cap that request set); `TaskOutcome` is how it ended, recorded
 once it reaches a terminal `TaskStatus` (`hivemind.brood_chamber.task.state`); `Task` is the whole
-record the Brood Chamber stores, spec plus current status plus placement plus outcome, immutable
+record the Brood Chamber stores, spec plus current status plus placement (with, since roadmap step
+10.3b, the Comb Shield tier the task is bound to on its Cell) plus outcome, immutable
 like every boundary value in the Hive (state changes produce a new `Task` via `model_copy`,
 codingrules section 8.5) rather than being mutated in place. `TaskDraft` and `TaskGraphDraft` are a
 second, smaller model family: the JSON file a human hands to `hive tasks submit` (roadmap step
@@ -30,6 +31,10 @@ Key invariants:
     - Task.pending_question_id is set if and only if Task.status is TaskStatus.BLOCKED.
     - Task.warden_id and Task.cell_id are both set or both None, and are set exactly when status
       is one of ASSIGNED, RUNNING, BLOCKED, PAUSED (the "placed" statuses).
+    - Task.bound_tier is None whenever the task is not placed: a task is bound to its Cell's tier
+      at assignment (roadmap step 10.3b) and unbound when it leaves the Cell, so a task placed
+      again is re-bound before it runs. A placed task stored before binding existed may carry
+      None, which every reader takes as its requested tier.
     - A Task never appears in its own spec.depends_on, and Task.updated_at is never earlier than
       Task.created_at.
     - TaskOutcome.status is always terminal, and TaskOutcome.verified_by (a WardenId) is set if
@@ -60,7 +65,7 @@ from hivemind.brood_chamber.task.goal_request import GoalRequestRef, GoalSpendCa
 from hivemind.brood_chamber.task.goal_set import GoalCapabilities
 from hivemind.brood_chamber.task.graph import is_acyclic_edges
 from hivemind.brood_chamber.task.state import TERMINAL_STATUSES, TaskStatus
-from hivemind.cell import HoneyClearance, RequestOrigin, TaskNeeds
+from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin, TaskNeeds
 from waggle.messages import PlannedLeaving, Postcondition
 from waggle.messages.base import (
     CellIdField,
@@ -238,6 +243,12 @@ class Task(BaseModel):
     cell_id: CellIdField | None = Field(
         default=None, description="The Cell this task runs on, once placed."
     )
+    bound_tier: CombShieldLevel | None = Field(
+        default=None,
+        description="The Comb Shield tier the task is bound to on its Cell (roadmap step "
+        "10.3b): set at assignment from the Cell it lands on, carried to every later check for "
+        "the task, and cleared when the task leaves the Cell. None whenever it is not placed.",
+    )
     created_at: UtcDatetime = Field(description="When this task was first submitted.")
     updated_at: UtcDatetime = Field(description="When this record was last written.")
     last_summary: str | None = Field(
@@ -367,7 +378,7 @@ def _check_pending_question_matches_status(task: Task) -> None:
 
 
 def _check_placement_matches_status(task: Task) -> None:
-    """Require warden_id and cell_id together, set exactly when status is a placed status."""
+    """Require warden_id and cell_id together, set exactly when placed; no tier when not."""
     placed = task.status in _PLACED_STATUSES
     both_set = task.warden_id is not None and task.cell_id is not None
     both_unset = task.warden_id is None and task.cell_id is None
@@ -379,6 +390,9 @@ def _check_placement_matches_status(task: Task) -> None:
         )
     if not placed and not both_unset:
         raise ValueError(f"Task {task.id} is {task.status.name} and must not carry a placement.")
+    # A tier binding belongs to a placement: a task off every Cell is bound to none.
+    if not placed and task.bound_tier is not None:
+        raise ValueError(f"Task {task.id} is {task.status.name} and must not carry a bound tier.")
 
 
 def _check_no_self_dependency(task: Task) -> None:

@@ -239,3 +239,20 @@ async def test_count_tokens_is_none_without_the_capability() -> None:
     estimate = await provider.count_tokens(make_request())
 
     assert estimate is None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# aclose
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_aclose_records_the_close_and_the_fake_keeps_answering() -> None:
+    provider = FakeLLMProvider()
+    provider.script(text_response("still here"))
+
+    await provider.aclose()
+    await provider.aclose()
+    response = await provider.complete(make_request())
+
+    assert provider.is_closed
+    assert response.text == "still here"

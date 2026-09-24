@@ -29,6 +29,7 @@ from hivemind.cell import (
 )
 from hivemind.forage import ForageCapacity
 from hivemind.hive import BackendCapabilities, NetworkPolicy, VirtualCellSpec
+from hivemind.hive.models import NIGHT_VEIL_IMAGE
 from hivemind.queen.placement import (
     DormantCandidate,
     ForageView,
@@ -276,6 +277,21 @@ def test_night_veil_requires_every_model_slot_to_resolve_locally() -> None:
 
     with pytest.raises(PlacementError, match="resolve locally"):
         decide(needs, Inventory(virtual_backends=(backend,)), forage, policy)
+
+
+def test_night_veil_stamps_its_own_image_and_a_broken_rule_is_final() -> None:
+    # Roadmap step 10.3a: the template names the ordinary image, and no backend runs VPN_TOR on it.
+    backend = _backend(image="base-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    inventory = Inventory(virtual_backends=(backend,))
+
+    placement = decide(needs, inventory, _forage(), _policy(night_veil=_night_veil_constraints()))
+
+    assert isinstance(placement, ProvisionVirtual)
+    assert placement.spec.image == NIGHT_VEIL_IMAGE
+    with pytest.raises(PlacementError) as refused:
+        decide(needs, inventory, _forage(), _policy(night_veil=None))
+    assert refused.value.final
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -16,10 +16,11 @@ its messages through one shared implementation.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Owned by exactly one `WorkerRuntime` instance (roadmap step
-    3.15), constructed in its `__init__` and driven from its `_tick`. Calls into `hivemind.llm.
-    errors` (ProviderUnavailableError, RateLimitedError -- `_alarm_kind_for_crash`'s own
-    classification table, this dispatch's own fix 3a; workers may import hivemind.llm),
-    `hivemind.memory`, `hivemind.supervision.alarm` and waggle only; the `WorkerRuntime` type it
+    3.15), constructed in its `__init__` and driven from its `_tick`. Calls into `hivemind.cell`
+    (HoneyClearance), `hivemind.llm.errors` (ProviderUnavailableError, RateLimitedError --
+    `_alarm_kind_for_crash`'s own classification table, this dispatch's own fix 3a; workers may
+    import hivemind.llm), `hivemind.memory`, `hivemind.supervision.alarm` and waggle only; the
+    `WorkerRuntime` type it
     is built with is imported under `TYPE_CHECKING` only, so no runtime import cycle exists
     between this module and `hivemind.workers.runtime.loop`.
 
@@ -45,6 +46,8 @@ Key invariants:
       `hivemind.workers.runtime.loop.WorkerRuntime._tick` only catches an Alarm noted before the
       role's own task was observed done, so a role that notes one on its very last tool call and
       then returns needs this second checkpoint or the Alarm is never sent at all.
+    - A resume Handoff its loader refuses (tainted, roadmap 10.6d, or over-cleared) fails the
+      attempt in `begin_attempt` before the role starts: the role never sees it.
 
 See Also:
     - .claude/codingrules.md section 5.2 for the module-split rule this class follows.
@@ -61,15 +64,22 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from hivemind.cell import HoneyClearance
 from hivemind.common.tasks import reap
 from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
-from hivemind.memory import Handoff, write_checkpoint
+from hivemind.memory import (
+    ClearanceError,
+    Handoff,
+    TaintedMemoryError,
+    read_handoff,
+    write_checkpoint,
+)
 from hivemind.memory.overflow import ContextOverflowError
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.runtime.reports import AlarmDetails, ResultDetails
 from hivemind.workers.state import WorkerState
 from waggle.messages.supervision import AlarmKind
-from waggle.messages.task import TaskOutcome, TaskStage
+from waggle.messages.task import TaskAssign, TaskOutcome, TaskStage
 
 # A crashed role's own exception, classified into the AlarmKind its Warden's policy keys on (this
 # dispatch's own fix 3a): a table, not an isinstance chain, so a new provider-shaped error only
@@ -89,7 +99,7 @@ if TYPE_CHECKING:
     # would cycle back (see the module docstring).
     from hivemind.workers.runtime.loop import WorkerRuntime
 
-__all__ = ["AttemptManager"]
+__all__ = ["AttemptManager", "begin_attempt"]
 
 
 class AttemptManager:
@@ -209,16 +219,13 @@ class AttemptManager:
         AlarmRaised is what tells the Warden, whose own escalation policy decides retry, respawn
         or escalate, and only the Warden's hop ever closes a task with a non-CLAIMED TaskResult.
         """
-        runtime = self._runtime
-        await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
-        runtime._reporter.transition(WorkerState.FAILED)
-        await runtime._reporter.record_event("worker.failed")
-        await runtime._reporter.send_alarm(
+        await _fail(
+            self._runtime,
             AlarmDetails(
                 kind=_alarm_kind_for_crash(error),
                 detail=str(error),
                 reason=f"{type(error).__name__} raised while running the role.",
-            )
+            ),
         )
 
     async def _handle_outcome(self, outcome: WorkerOutcome) -> None:
@@ -306,6 +313,46 @@ async def _cancel_role_task(attempt: AttemptManager) -> None:
     if attempt._role_task is not None:
         await reap(attempt._role_task)
     attempt._role_task = None
+
+
+async def begin_attempt(runtime: WorkerRuntime, assign: TaskAssign) -> None:
+    """Start the role for `assign`, resuming from the Handoff it names, or fail if that is refused.
+
+    Module-level for the same size reason as `_cancel_role_task`. A Handoff the loader refuses
+    (tainted, roadmap 10.6d, or above this attempt's clearance) is never resumed from: the attempt
+    fails with a WORKER_CRASHED Alarm naming the refusal (ids only, never the Handoff's text)
+    before the role starts, so the Warden's own escalation policy decides what follows, instead of
+    the refusal ending the runtime.
+
+    Args:
+        runtime: The WorkerRuntime starting this attempt, already RUNNING with `assign` set.
+        assign: The TaskAssign being started.
+    """
+    resume_from: Handoff | None = None
+    if assign.resume_from is not None:
+        allowance = HoneyClearance.from_wire(assign.clearance)
+        try:
+            resume_from = await read_handoff(runtime._ctx.memory, assign.resume_from, allowance)
+        except (TaintedMemoryError, ClearanceError) as refusal:
+            reason = "The Handoff this attempt was to resume from was refused; nothing ran."
+            await _fail(
+                runtime,
+                AlarmDetails(kind=AlarmKind.WORKER_CRASHED, detail=str(refusal), reason=reason),
+            )
+            return
+    await runtime._reporter.send_progress(TaskStage.STARTED, "Started.")
+    runtime._attempt.start(resume_from)
+
+
+async def _fail(runtime: WorkerRuntime, details: AlarmDetails) -> None:
+    """Move the attempt to FAILED, record `worker.failed` and raise `details` as its Alarm.
+
+    Sends no TaskResult: see `AttemptManager._handle_crashed`, one of this function's two callers.
+    """
+    await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
+    runtime._reporter.transition(WorkerState.FAILED)
+    await runtime._reporter.record_event("worker.failed")
+    await runtime._reporter.send_alarm(details)
 
 
 def _alarm_kind_for_crash(error: BaseException) -> AlarmKind:

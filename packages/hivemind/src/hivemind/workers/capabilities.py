@@ -57,7 +57,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import TaskNeeds
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, glob_literal
 
 __all__ = ["worker_capabilities"]
 
@@ -131,7 +131,9 @@ def _write_root_specs(roots: tuple[Path, ...]) -> list[str]:
     """
     specs: list[str] = []
     for root in roots:
-        posix_root = root.as_posix().rstrip("/")
+        # Escaped like a scratch root (`hivemind.guard.glob_literal`): a root containing `*`, `?`
+        # or `[` must never widen these grants to every sibling it would match as a pattern.
+        posix_root = glob_literal(root.as_posix().rstrip("/"))
         # One exact and one nested scope per family, for a file root and a directory root alike.
         for family in ("fs:write", "cell:outside_scratch"):
             specs.append(f"{family}:{posix_root}")

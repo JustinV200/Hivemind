@@ -22,7 +22,9 @@ exact same pair. Roadmap step 10.5 (ADR-0032) adds her human end: the durable go
 (`goal_requests`), the chat log (`chat`), the seam that tells the human's devices something is
 waiting (`human_channel`), and two small pieces of her own runtime bookkeeping kept here beside
 `housekeeping`: the in-process `wake` signal her tick awaits beside her Warden links, and the
-`planning` lane her one in-flight goal plan runs in (`PlanningLane`).
+`planning` lane her one in-flight goal plan runs in (`PlanningLane`). Roadmap step 10.6b adds the
+untrusted-content scanner a human's chat message passes through before her episode reads it
+(`scanner`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -77,6 +79,7 @@ from hivemind.forage import (
     SlotBinding,
 )
 from hivemind.guard import Enforcer
+from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -407,6 +410,15 @@ class QueenDeps:
             goal request, a human message or a finished plan; it starts set, so her first tick
             drains whatever rows a crash left behind.
         planning: Her one in-flight goal plan (`PlanningLane`).
+        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0035) a human's chat
+            words pass through before her awake episode reads them (`hivemind.queen.ticks.awake.
+            scan_human_text`); the composition root's, keyed from the Hive's secret store. Defaults
+            to the shipped patterns and thresholds with an in-memory key.
+        in_process_providers: The `[llm.providers]` names whose model runs inside whichever
+            process binds it (`hivemind.llm.registry.IN_PROCESS_KINDS`), so a grant binding on
+            one of them is local to the Cell it is issued for, like a source that Cell serves
+            itself (roadmap step 10.3a: a Night Veil grant names local bindings only). Defaults
+            to none, so a Night Veil grant fails closed unless a composition root states them.
     """
 
     chamber: BroodChamber
@@ -450,11 +462,8 @@ class QueenDeps:
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S
     hot_window_s: float = _DEFAULT_HOT_WINDOW_S
-    # Roadmap step 5.7 (ADR-0028): additive fields, every one defaulted so a QueenDeps built
-    # before this dispatch (every existing test) keeps placing every task on the Real side alone,
-    # exactly as before. `virtual_backends`/`dormant_cells` stay empty until roadmap step 5.6 (the
-    # Virtual Cell lifecycle) and step 5.9 (the Overwintering pool) give a composition root
-    # something real to populate them with.
+    # Roadmap step 5.7 (ADR-0028): additive and defaulted, so a QueenDeps built without them
+    # places every task on the Real side alone, exactly as before the Virtual side existed.
     placement_policy: PlacementPolicy = field(default_factory=PlacementPolicy)
     virtual_backends: tuple[VirtualBackendCandidate, ...] = field(default_factory=tuple)
     dormant_cells: tuple[DormantCandidate, ...] = field(default_factory=tuple)
@@ -470,10 +479,7 @@ class QueenDeps:
     # provision inside resolve_link, the other call site could otherwise pick the same still-PENDING
     # task and lose the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
     dispatch_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # Roadmap step 5.0e: the manifest's own [hive_stand] keep_root, resolved; None until the
-    # operator sets one. Read only by hivemind.queen.goal_submission.submit_goal, which passes it
-    # to hivemind.queen.planner.PlanBrief.keep_root so the planner prompt can be told it (TaskAssign
-    # itself carries no keep_root field -- see PlanBrief.keep_root's own docstring for why).
+    # Roadmap step 5.0e (see the docstring): TaskAssign carries no keep_root, the planner does.
     keep_root: Path | None = None
     # Roadmap step 10.5 (ADR-0032): the human end. Defaulted so a composition root that wires no
     # Hive Entrance (hive run, every test) tells nobody, and so the Queen's own mutable wake and
@@ -481,3 +487,7 @@ class QueenDeps:
     human_channel: HumanChannel = field(default_factory=NullHumanChannel)
     wake: asyncio.Event = field(default_factory=_set_event)
     planning: PlanningLane = field(default_factory=PlanningLane)
+    # Roadmap step 10.6b: defaulted so every QueenDeps built without one still scans chat words.
+    scanner: ContentScanner = field(default_factory=default_content_scanner)
+    # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil grant fails closed.
+    in_process_providers: frozenset[str] = frozenset()

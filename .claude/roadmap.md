@@ -1477,12 +1477,12 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   route; and enforce that Night Veil capability
   sets allow `honey:clearance:c0` and `honey:clearance:c1` while denying any attempt to read or
   write `c2` Honey.
-- [ ] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
+- [x] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
   `CombShieldLevel`; no runtime path may weaken controls after placement. A task moved between
   Cells is re-evaluated and re-bound to the new Cell's tier before resume.
-- [ ] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
+- [x] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
   initiated by explicit human request through the inbox or API, never by autonomous escalation.
-- [ ] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
+- [x] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
   capabilities on Night Veil Cells (`geo:*`, Wi-Fi scan, host metadata access), and reject task
   tool plans that request them.
 - [x] **10.4 Principals, the operator and device keys.** Principals: the human operator, Queen,
@@ -1621,7 +1621,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   goal on the Hive Stand, and raising a `CRITICAL` Alarm to the human with the report. Tests: a
   Guard request never isolates without a Queen decision on the trail; a tainted Handoff is
   refused; the Hive Stand path is human-only and the fallback fires instead.
-- [ ] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
+- [x] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
   every point where outside text enters a prompt, tool results in the Worker runtime (3.16),
   session output, Honey hits at assembly (7.7), Nectar intake (7.4) and Landing Board messages
   (10.5). It emits `guard.injection_suspected` carrying the source, the consuming bee and a
@@ -1638,6 +1638,9 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   drop per Comb Shield tier. A flag alone never stops a bee; only the correlation rule in 10.6
   escalates. The chaos seeds in 13.6 are drawn from the same file, so a pattern change is a
   visible diff and the invariant stays testable.
+  *Landed for tool results, session output and Landing Board messages; Honey hits at assembly
+  and Nectar intake are named seams (`ScanSource.HONEY_HIT`, `NECTAR_INTAKE`,
+  `AssembleRequest.retrieved`) that phase 7 fills.*
 - [ ] **10.6c Quarantine, one intervention.** `Quarantine` joins the `Intervention` union (3.13)
   and `InterventionAction` on the wire (minor bump), carrying the episode id from which the
   bee's memory is suspect. One code path in `wardens/`, nothing composed by hand anywhere else:
@@ -1648,7 +1651,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   policy row for its own sub-bee, since a Warden may already cancel it; the Queen is told
   either way. The only way out is a respawn from a Handoff the judge has cleared. A test
   asserts no other path marks memory tainted.
-- [ ] **10.6d Taint, one label.** `tainted` is one marker on checkpoints, Handoffs, episode
+- [x] **10.6d Taint, one label.** `tainted` is one marker on checkpoints, Handoffs, episode
   records, Nectar and Honey items, with the reason and the event that set it. Set by isolation
   (10.6a), by quarantine (10.6c), or by the Queen on a Guard report about a Honey item, and by
   nothing else. `memory.assemble` and retrieval (7.7) refuse a tainted item outright; the
@@ -1658,6 +1661,10 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   retired, never edited. `memory.tainted` and `memory.taint_cleared` on the trail. A test seeds
   a tainted Handoff, a tainted Honey hit and a tainted Nectar deposit and asserts none reaches a
   prompt until cleared.
+  *Landed on checkpoints, Handoffs, episode records and Bee Bread entries, with the one setter
+  (`memory.taint.taint_memory`) and the one clearer (a judge verdict through `TAINT_CLEAR`); the
+  Honey and Nectar halves and the House Bee's re-ripening are declared seams (`TaintLedger`,
+  `TaintedNectarRipener`) that phase 7's stores implement.*
 - [ ] **10.7 Access levels.** `guard/access.py` (3.13a) grows the full permission data for
   `AccessLevel` (2.3a) on every Real Cell (`read_only`, `scratch`, `full`), stored with the node
   and the lease and shown in the UI. Virtual Cells are

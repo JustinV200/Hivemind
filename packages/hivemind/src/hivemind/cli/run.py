@@ -1,6 +1,7 @@
 """Provide `hive run`: build a Hive from a manifest and run one goal through it.
 
-`hive run "goal" --manifest hive.toml [--clearance C1] [--timeout 120] [--json]` is the thinnest
+`hive run "goal" --manifest hive.toml [--clearance C1] [--comb-shield night_veil] [--timeout 120]
+[--json]` is the thinnest
 possible typer layer over `hivemind.cli.compose`: it loads the manifest, calls `build_hive` with a
 `waggle.clock.SystemClock` (codingrules section 11: `SystemClock` only at the command edge),
 enters `run_hive`, and awaits `run_goal`, streaming one line per trail event of interest as it
@@ -12,7 +13,12 @@ wrapped in its own `typer.Typer` the way every other command group in this packa
 subcommand of its own, and a single-command `typer.Typer` added through `add_typer` still demands
 one (`hive run run "goal"`) -- verified against this repository's pinned typer version before
 writing this module, rather than assumed. `hivemind.cli.app` registers it directly on the root
-application with `app.command("run")(run_command)` instead.
+application with `app.command("run", cls=RunCommand)(run_command)` instead: `RunCommand` carries
+the two options past codingrules 5.1's five-parameter cap (`--json` and `--comb-shield`). Roadmap
+step 10.3c: `--comb-shield` names the goal's tier explicitly, and the goal is then asked for as a
+durable goal request, the one way Night Veil work is initiated (`hivemind.cli.compose.request`);
+a request the Queen refuses (a Night Veil goal that asks where its Cell is, say) prints as a
+refusal, not a failure. Without it, the goal is submitted directly, exactly as before.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
@@ -26,8 +32,9 @@ Key invariants:
       any other failure during the run itself is this module's own final `except Exception` at
       the top of the command body (codingrules section 10's third allowed broad catch site).
     - The process exit code is 0 only when `GoalReport.succeeded` is True, 2 when
-      `GoalReport.timed_out` is True, and 1 for every other failure (an unsucceeded, not-timed-out
-      goal, or an exception this command body itself caught).
+      `GoalReport.timed_out` is True (or a requested goal was still unplanned at the timeout),
+      and 1 for every other failure (an unsucceeded, not-timed-out goal, a refused request, or an
+      exception this command body itself caught).
 
 See Also:
     - .claude/roadmap.md step 3.21 for this command's own roadmap bullet.
@@ -40,19 +47,23 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, NoReturn, cast
 
 import typer
+from typer.core import TyperCommand, TyperOption
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.cli.compose import GoalReport, Hive, build_hive, run_goal, run_hive
+from hivemind.cli.compose.hive import run_requested_goal
+from hivemind.cli.compose.request import GoalAsk, GoalNotPlannedError
 from hivemind.cli.stores import DEFAULT_MANIFEST, ManifestOption, load_manifest_or_exit
 from hivemind.pheromone import PheromoneEvent
 from waggle.clock import SystemClock
 
-__all__ = ["run_command"]
+__all__ = ["RunCommand", "run_command"]
 
 DEFAULT_TIMEOUT_S = 120.0  # Two minutes: generous for a multi-step goal against a hosted model.
 DEFAULT_CLEARANCE = "C1"  # codingrules 8.9's own default label for ordinary, non-personal work.
@@ -100,34 +111,97 @@ ClearanceOption = Annotated[
         callback=_validate_clearance,
     ),
 ]
+
+
 TimeoutOption = Annotated[
     float, typer.Option("--timeout", help="Seconds to wait for the goal before giving up.")
 ]
-JsonOption = Annotated[bool, typer.Option("--json", help="Print the final report as JSON only.")]
+
+# Where `RunCommand` leaves its two options' values on the command's context (`ctx.meta`).
+_JSON_META = "hivemind.cli.run.json"
+_COMB_SHIELD_META = "hivemind.cli.run.comb_shield"
+
+
+def _keep_json(ctx: typer.Context, _param: object, value: bool) -> None:
+    """Option callback: leave `--json` on the context for `run_command`."""
+    ctx.meta[_JSON_META] = bool(value)
+
+
+def _keep_comb_shield(ctx: typer.Context, _param: object, value: str | None) -> None:
+    """Option callback: validate `--comb-shield` names a tier, in any case, and leave it."""
+    if value is None:
+        return  # Not given: the goal is submitted directly, exactly as before.
+    try:
+        ctx.meta[_COMB_SHIELD_META] = CombShieldLevel[value.upper()]
+    except KeyError as exc:
+        raise typer.BadParameter(
+            f"{value!r} is not a Comb Shield tier (meadow, propolis or night_veil)."
+        ) from exc
+
+
+class RunCommand(TyperCommand):
+    """`hive run`'s command: the options `run_command` declares, plus `--json` and `--comb-shield`.
+
+    Codingrules 5.1 caps a function at five parameters, and typer turns each parameter into one
+    option, so the two options past that cap are declared here, on the command itself; each one's
+    callback leaves its value on the context, where `run_command` reads it.
+    """
+
+    def __init__(self, name: str | None, **settings: object) -> None:
+        """Build the command as typer does, then add the two context-carried options."""
+        # typer passes every other setting by keyword, exactly as TyperCommand itself takes them.
+        super().__init__(name, **cast("dict[str, Any]", settings))
+        self.params.append(
+            TyperOption(
+                param_decls=["--json"],
+                is_flag=True,
+                default=False,
+                expose_value=False,
+                callback=_keep_json,
+                help="Print the final report as JSON only.",
+            )
+        )
+        self.params.append(
+            TyperOption(
+                param_decls=["--comb-shield"],
+                default=None,
+                expose_value=False,
+                callback=_keep_comb_shield,
+                help="Ask for the goal at this tier (meadow, propolis or night_veil), as a "
+                "goal request (roadmap step 10.3c).",
+            )
+        )
 
 
 def run_command(
+    ctx: typer.Context,
     goal: Annotated[str, typer.Argument(help="The goal text, exactly as the human stated it.")],
     manifest: ManifestOption = DEFAULT_MANIFEST,
     clearance: ClearanceOption = DEFAULT_CLEARANCE,
     timeout: TimeoutOption = DEFAULT_TIMEOUT_S,
-    as_json: JsonOption = False,
 ) -> None:
     """Build a Hive from MANIFEST and run GOAL through it, streaming progress as it lands."""
+    # `--json` and `--comb-shield` arrive on the context (`RunCommand`'s own docstring).
+    as_json = bool(ctx.meta.get(_JSON_META, False))
+    tier: CombShieldLevel | None = ctx.meta.get(_COMB_SHIELD_META)
     loaded = load_manifest_or_exit(manifest)
     # build_hive must run outside any event loop: hivemind.cli.stores.open_trail/open_chamber/
     # open_memory (which a stores=None build_hive calls through open_default_stores) each run
     # their own asyncio.run internally, so calling build_hive from inside the asyncio.run below
     # would raise "asyncio.run() cannot be called from a running event loop".
     hive = build_hive(loaded, environ=os.environ, clock=SystemClock())
+    options = _RunOptions(HoneyClearance[clearance], timeout, as_json, tier)
     try:
-        report = asyncio.run(_run(hive, goal, HoneyClearance[clearance], timeout, as_json))
+        result = asyncio.run(_run(hive, goal, options))
     except Exception as exc:
         # SAFETY: the command body's own broad catch (codingrules section 10's third allowed
         # site): a run that fails for any reason still ends in one clean stderr line and exit 1,
         # never a traceback dumped on an operator's terminal.
         typer.echo(f"hive run failed: {_describe(exc)}", err=True)
         raise typer.Exit(code=1) from exc
+    if isinstance(result, GoalNotPlannedError):
+        _exit_unplanned(result)
+    report = result
     _print_summary(report, as_json)
     if loaded.hive_stand.keep_scratch and not as_json:
         _print_kept_scratch(loaded.resolve_path(loaded.hive_stand.scratch_root))
@@ -155,18 +229,55 @@ def _describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
-async def _run(
-    hive: Hive, goal: str, clearance: HoneyClearance, timeout_s: float, as_json: bool
-) -> GoalReport:
-    """Start and run one goal through `hive`; stream lines unless `as_json`."""
+@dataclass(frozen=True, slots=True)
+class _RunOptions:
+    """How one goal is run (codingrules 5.1's argument group for `_run`).
+
+    Attributes:
+        clearance: The goal's own HoneyClearance.
+        timeout_s: Seconds to wait for the goal, planning included.
+        as_json: Print only the final report, as JSON.
+        comb_shield: The tier the operator named, or None to submit the goal directly.
+    """
+
+    clearance: HoneyClearance
+    timeout_s: float
+    as_json: bool
+    comb_shield: CombShieldLevel | None
+
+
+async def _run(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | GoalNotPlannedError:
+    """Start and run one goal through `hive`; stream lines unless `as_json`.
+
+    A requested goal that is never planned is returned, not raised, so it leaves `run_hive`
+    as a plain outcome rather than a failure of the Hive's own tasks.
+    """
+    on_event = None if options.as_json else _print_event
     async with run_hive(hive):
-        return await run_goal(
-            hive,
-            goal,
-            clearance=clearance,
-            timeout_s=timeout_s,
-            on_event=None if as_json else _print_event,
-        )
+        if options.comb_shield is None:
+            return await run_goal(
+                hive,
+                goal,
+                clearance=options.clearance,
+                timeout_s=options.timeout_s,
+                on_event=on_event,
+            )
+        ask = GoalAsk(goal, options.clearance, options.comb_shield)
+        try:
+            return await run_requested_goal(
+                hive, ask, timeout_s=options.timeout_s, on_event=on_event
+            )
+        except GoalNotPlannedError as unplanned:
+            return unplanned
+
+
+def _exit_unplanned(unplanned: GoalNotPlannedError) -> NoReturn:
+    """Print why a requested goal was never planned, then exit: 1 refused, 2 timed out."""
+    if unplanned.refusal is None:
+        typer.echo(f"hive run timed out: {unplanned}", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(f"hive run refused: {unplanned.refusal}", err=True)
+    raise typer.Exit(code=1)
 
 
 def _print_event(event: PheromoneEvent) -> None:

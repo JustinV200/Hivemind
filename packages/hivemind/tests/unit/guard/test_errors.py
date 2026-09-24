@@ -19,6 +19,7 @@ from hivemind.guard.errors import (
     GuardError,
     GuardPolicyError,
     InvalidCapabilityError,
+    UnresolvableHostError,
 )
 
 
@@ -66,12 +67,20 @@ def test_guard_policy_error_is_a_guard_error() -> None:
     assert str(GuardPolicyError("role 'x' is unknown.")) == "role 'x' is unknown."
 
 
+def test_unresolvable_host_error_is_a_guard_error_carrying_the_host() -> None:
+    error = UnresolvableHostError("api.example", "gaierror")
+
+    assert isinstance(error, GuardError)
+    assert (error.host, error.reason) == ("api.example", "gaierror")
+
+
 def test_guard_errors_each_have_their_own_code() -> None:
     codes = {
         GuardError.code,
         InvalidCapabilityError.code,
         CapabilityWideningError.code,
         GuardPolicyError.code,
+        UnresolvableHostError.code,
     }
 
-    assert len(codes) == 4
+    assert len(codes) == 5

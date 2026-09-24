@@ -53,7 +53,7 @@ from pathlib import PurePath, PurePosixPath
 from types import MappingProxyType
 
 from hivemind.cell.tiers import AccessLevel
-from hivemind.guard.capabilities import CapabilityFamily, CapabilitySet
+from hivemind.guard.capabilities import CapabilityFamily, CapabilitySet, glob_literal
 
 SCRATCH_PLACEHOLDER = "{scratch}"  # Stands for a lease's POSIX scratch root inside a capability.
 _SAMPLE_SCRATCH_ROOT = PurePosixPath("/scratch")  # Any root will do where only families matter.
@@ -196,10 +196,12 @@ def fill_scratch(template: str, scratch_root: PurePath) -> str:
 
     Returns:
         `template` with each placeholder replaced by the root's POSIX form, stripped of a
-        trailing "/" so `{scratch}/**` never becomes a doubled `//**` for a root of "/". Glob
-        matching normalises backslashes on both sides, so a Windows root still compares correctly.
+        trailing "/" so `{scratch}/**` never becomes a doubled `//**` for a root of "/", and
+        escaped (`glob_literal`) so a root containing `*`, `?` or `[` matches only itself rather
+        than widening the grant to every sibling it would match as a pattern. Glob matching
+        normalises backslashes on both sides, so a Windows root still compares correctly.
     """
-    posix_root = scratch_root.as_posix().rstrip("/")
+    posix_root = glob_literal(scratch_root.as_posix().rstrip("/"))
     return template.replace(SCRATCH_PLACEHOLDER, posix_root)
 
 

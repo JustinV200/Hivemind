@@ -29,6 +29,8 @@ Key invariants:
     - EpisodeStream.subscribe never returns on its own and never swallows cancellation: the only
       way to stop iterating it is to cancel the task consuming it, exactly like
       `hivemind.pheromone.trail.tail.follow`.
+    - A record is written unlabelled; its `tainted` label is only ever set by
+      `hivemind.memory.taint`, and `list_episodes` never returns a TAINTED record (roadmap 10.6d).
 
 See Also:
     - .claude/codingrules.md section 12 for "Thoughts are memory, not audit".
@@ -50,6 +52,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory.context import MemoryContext
 from hivemind.memory.hot_state import TriggerEvent
+from hivemind.memory.taint.marker import TaintMarker
 from hivemind.pheromone import LlmUsage, MemoryEvent
 from waggle.ids import new_event_id
 from waggle.messages.base import EventIdField, UtcDatetime
@@ -112,6 +115,11 @@ class EpisodeRecord(BaseModel):
     )
     is_autopilot: bool = Field(
         description="True for a deterministic autopilot dispatch; False for an awake episode."
+    )
+    tainted: TaintMarker | None = Field(
+        default=None,
+        description="The taint label (roadmap step 10.6d); a TAINTED record never feeds a prompt. "
+        "Set only by hivemind.memory.taint.",
     )
 
 

@@ -27,6 +27,8 @@ Key invariants:
       construction always succeeds and the first real call fails loudly and typed instead.
     - `health()` never raises: every failure mode becomes a `ProviderHealth` reading instead, per
       `LLMProvider.health`'s contract (delegated to `AnthropicClient.probe_health`).
+    - `aclose()` closes the SDK client and its pooled connections (`AnthropicClient.aclose`);
+      idempotent, because the SDK's own `close()` is.
 
 See Also:
     - .claude/codingrules.md section 8.6 for the LLM provider independence rules this implements.
@@ -202,3 +204,7 @@ class AnthropicProvider:
     async def health(self) -> ProviderHealth:
         """Return this provider's current health; see `LLMProvider.health`."""
         return await self._client.probe_health(self._clock)
+
+    async def aclose(self) -> None:
+        """Close the SDK client and its pooled connections; see `LLMProvider.aclose`."""
+        await self._client.aclose()

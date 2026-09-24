@@ -36,21 +36,31 @@ See Also:
       for the enforcement points that call it.
 
 Public API:
-    - CapabilityFamily, ScopeKind, Capability, CapabilitySet: the capability grammar
-      (capabilities).
+    - CapabilityFamily, ScopeKind, Capability, CapabilitySet, glob_literal: the capability
+      grammar, and the escape every path embedded in a glob scope goes through (capabilities).
     - CELL_EFFECT_FAMILIES, governs, admits, ceiling_for, cap_to_access, fill_scratch,
       SCRATCH_PLACEHOLDER: what each AccessLevel permits, as data (access).
     - EnforcementPoint, PrincipalKind, PrincipalRef, PolicyContext, PolicyRequest,
       EscalationAction, PolicyDecision, GuardPolicy, load_guard_policy, evaluate, role_set,
       warden_set, proposed_set, worker_role_name: the policy engine (policy).
+    - floor_decision, TIER_FLOOR_RULE, STATE_FLOOR_RULE, HiveState, comparable_path, ControlLink,
+      GoalRequestFacts: the floors every decision runs first, the Hive's own state they protect
+      and the facts they read (policy, roadmap steps 10.3a-d).
     - queen_principal, warden_principal, worker_principal, QUEEN_ROLE, WARDEN_ROLE: who each bee
       acts as at a point, and the two roots' role names (policy).
     - AUTHORISED_AT, NOT_ACTIONS, PENDING_POINTS, classify: every trail kind's classification
       and the points still pending (policy, roadmap step 10.3).
     - Enforcer: the effectful adapter every enforcement point calls: `check` and, for a refusal
       the point decides itself, `refuse` (enforcer).
-    - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError: this
-      package's error tree (errors).
+    - WatchObservation, WATCH_OBSERVATIONS, watch_permits: what watch mode may observe on a Real
+      Cell, bounded by READ_ONLY and never the screen or the input (watch, roadmap step 10.7).
+    - ContentScanner, ScanSite, ScanSource, ScanAction, ScanVerdict, ScanRecorder,
+      ContentHasher, default_content_scanner, load_scan_patterns, score_text, decide,
+      thresholds_for, INJECTION_SUSPECTED_KIND, SCANNER_KEY_NAME, HASH_PREFIX: the deterministic
+      untrusted-content scanner every outside text passes before a model reads it (scanner,
+      roadmap step 10.6b); its full API is on `hivemind.guard.scanner`.
+    - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError,
+      UnresolvableHostError: this package's error tree (errors).
 """
 
 from hivemind.guard.access import (
@@ -62,30 +72,44 @@ from hivemind.guard.access import (
     fill_scratch,
     governs,
 )
-from hivemind.guard.capabilities import Capability, CapabilityFamily, CapabilitySet, ScopeKind
+from hivemind.guard.capabilities import (
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+    ScopeKind,
+    glob_literal,
+)
 from hivemind.guard.enforcer import Enforcer
 from hivemind.guard.errors import (
     CapabilityWideningError,
     GuardError,
     GuardPolicyError,
     InvalidCapabilityError,
+    UnresolvableHostError,
 )
 from hivemind.guard.policy import (
     AUTHORISED_AT,
     NOT_ACTIONS,
     PENDING_POINTS,
     QUEEN_ROLE,
+    STATE_FLOOR_RULE,
+    TIER_FLOOR_RULE,
     WARDEN_ROLE,
+    ControlLink,
     EnforcementPoint,
     EscalationAction,
+    GoalRequestFacts,
     GuardPolicy,
+    HiveState,
     PolicyContext,
     PolicyDecision,
     PolicyRequest,
     PrincipalKind,
     PrincipalRef,
     classify,
+    comparable_path,
     evaluate,
+    floor_decision,
     load_guard_policy,
     proposed_set,
     queen_principal,
@@ -95,45 +119,90 @@ from hivemind.guard.policy import (
     worker_principal,
     worker_role_name,
 )
+from hivemind.guard.scanner import (
+    HASH_PREFIX,
+    INJECTION_SUSPECTED_KIND,
+    SCANNER_KEY_NAME,
+    ContentHasher,
+    ContentScanner,
+    ScanAction,
+    ScanRecorder,
+    ScanSite,
+    ScanSource,
+    ScanVerdict,
+    decide,
+    default_content_scanner,
+    load_scan_patterns,
+    score_text,
+    thresholds_for,
+)
+from hivemind.guard.watch import WATCH_OBSERVATIONS, WatchObservation, watch_permits
 
 __all__ = [
     "AUTHORISED_AT",
     "CELL_EFFECT_FAMILIES",
+    "HASH_PREFIX",
+    "INJECTION_SUSPECTED_KIND",
     "NOT_ACTIONS",
     "PENDING_POINTS",
     "QUEEN_ROLE",
+    "SCANNER_KEY_NAME",
     "SCRATCH_PLACEHOLDER",
+    "STATE_FLOOR_RULE",
+    "TIER_FLOOR_RULE",
     "WARDEN_ROLE",
+    "WATCH_OBSERVATIONS",
     "Capability",
     "CapabilityFamily",
     "CapabilitySet",
     "CapabilityWideningError",
+    "ContentHasher",
+    "ContentScanner",
+    "ControlLink",
     "EnforcementPoint",
     "Enforcer",
     "EscalationAction",
+    "GoalRequestFacts",
     "GuardError",
     "GuardPolicy",
     "GuardPolicyError",
+    "HiveState",
     "InvalidCapabilityError",
     "PolicyContext",
     "PolicyDecision",
     "PolicyRequest",
     "PrincipalKind",
     "PrincipalRef",
+    "ScanAction",
+    "ScanRecorder",
+    "ScanSite",
+    "ScanSource",
+    "ScanVerdict",
     "ScopeKind",
+    "UnresolvableHostError",
+    "WatchObservation",
     "admits",
     "cap_to_access",
     "ceiling_for",
     "classify",
+    "comparable_path",
+    "decide",
+    "default_content_scanner",
     "evaluate",
     "fill_scratch",
+    "floor_decision",
+    "glob_literal",
     "governs",
     "load_guard_policy",
+    "load_scan_patterns",
     "proposed_set",
     "queen_principal",
     "role_set",
+    "score_text",
+    "thresholds_for",
     "warden_principal",
     "warden_set",
+    "watch_permits",
     "worker_principal",
     "worker_role_name",
 ]

@@ -13,6 +13,14 @@ implements: a Virtual Cell exposes no inbound port, so its `images/base-ubuntu` 
 this module's constants mirror), and the Queen must know the Cell's public key -- minted here,
 before the container exists -- to verify the signed frames that Cell sends once connected.
 
+A Night Veil Cell reaches the Queen another way (codingrules 8.7: its Waggle link goes over Tor
+to a `.onion` hidden service, never the VPN tunnel or a clearnet address), so a `QueenEndpoint`
+may carry a `NightVeilLink` beside its ordinary URL, and `cell_endpoint` is the one choice every
+backend makes when it mints a Cell: the ordinary endpoint for MEADOW and PROPOLIS, the Night Veil
+link (its hidden-service URL and the Tor SOCKS proxy on the Cell's own loopback) for NIGHT_VEIL,
+and a refusal (`CellProvisionError`) for a Night Veil Cell whose Hive configured no link, so such
+a Cell is never handed a clearnet address (roadmap step 10.3a).
+
 `ReadinessGate` is deliberately only a Protocol: the real, Queen-side implementation (matching a
 freshly-dialled Cell's `node_id`, chosen at random inside the container at boot per
 `hivemind.cli.in_cell.config`, back to the `cell_id` this module minted for it) is a later
@@ -37,6 +45,8 @@ Key invariants:
     - `CellBootstrap.environment()` returns exactly the `HIVEMIND_*` keys
       `images/base-ubuntu/README.md`'s "Runtime configuration" table documents as required, plus
       `HIVEMIND_SOCKS_PROXY_URL` only when `endpoint.socks_proxy_url` is set.
+    - A Cell minted for NIGHT_VEIL through `cell_endpoint` always dials its Night Veil link's
+      `.onion` URL through that link's SOCKS proxy, or is never minted at all.
     - `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` (roadmap step 8.x's own gap, closed by this dispatch):
       rendered only when `endpoint.providers`/`.slots` are non-empty, so a Cell provisioned with no
       table at all (every pre-existing caller, and `hivemind.hive.backends.fake`'s own e2e slice)
@@ -59,13 +69,14 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from pydantic import SecretStr
 
-from hivemind.cell import CellCapabilities
+from hivemind.cell import CellCapabilities, CombShieldLevel
 from hivemind.forage import ForageCapacity
 from hivemind.hive.backends.provider_table import (
     CellProviderSpec,
@@ -73,6 +84,8 @@ from hivemind.hive.backends.provider_table import (
     render_providers_json,
     render_slots_json,
 )
+from hivemind.hive.errors import CellProvisionError
+from hivemind.hive.models import VirtualCellSpec
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId, NodeId, new_cell_id
 from waggle.signing import Ed25519Signer, public_key_hex
@@ -93,13 +106,67 @@ _ENV_SLOTS = "HIVEMIND_SLOTS"
 # read on the Hive Stand and in-Cell sides respectively: one flag name, one meaning, everywhere.
 _ENV_LLM_OFFLINE = "HIVEMIND_LLM_OFFLINE"
 
+_WEBSOCKET_SCHEME = "ws://"  # Tor authenticates and encrypts an onion service end to end.
+_SCHEME_SEPARATOR = "://"  # A hidden-service address written as a whole URL keeps its scheme.
+
 __all__ = [
     "CellBootstrap",
     "CellReadyInfo",
+    "NightVeilLink",
     "QueenEndpoint",
     "ReadinessGate",
+    "cell_endpoint",
     "mint_cell_bootstrap",
+    "night_veil_waggle_url",
 ]
+
+
+def night_veil_waggle_url(hidden_service_address: str) -> str:
+    """Return the Waggle URL a Night Veil Cell dials for the Hive Stand's hidden service.
+
+    Args:
+        hidden_service_address: `[security.tiers.NIGHT_VEIL] hidden_service_address`: a `.onion`
+            host, with or without a port, or a whole `ws://` URL.
+
+    Returns:
+        The address unchanged when it already names a scheme; otherwise `ws://<address>`, since an
+        onion service is already authenticated and encrypted by Tor itself.
+    """
+    if _SCHEME_SEPARATOR in hidden_service_address:
+        return hidden_service_address
+    return f"{_WEBSOCKET_SCHEME}{hidden_service_address}"
+
+
+@dataclass(frozen=True, slots=True)
+class NightVeilLink:
+    """How a Night Veil Cell reaches the Queen: her hidden service, through its own Tor proxy.
+
+    Attributes:
+        waggle_url: The Hive Stand's hidden-service Waggle URL (`night_veil_waggle_url`).
+        socks_proxy_url: The Tor SOCKS proxy on the Cell's own loopback
+            (`[security.tiers.NIGHT_VEIL] tor_socks`, e.g. `socks5h://127.0.0.1:9050`).
+    """
+
+    waggle_url: str
+    socks_proxy_url: str
+
+    @classmethod
+    def from_profile(cls, hidden_service_address: str, tor_socks: str) -> NightVeilLink | None:
+        """Build the link from the Night Veil tier profile, or None when it is not configured.
+
+        Args:
+            hidden_service_address: The profile's hidden-service address; empty when unset.
+            tor_socks: The profile's Tor SOCKS proxy URL; empty when unset.
+
+        Returns:
+            The link, or None when either value is empty: a Hive with no hidden service or no
+            Tor proxy has no way to reach a Night Veil Cell, and says so by having no link.
+        """
+        if not hidden_service_address or not tor_socks:
+            return None
+        return cls(
+            waggle_url=night_veil_waggle_url(hidden_service_address), socks_proxy_url=tor_socks
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +204,9 @@ class QueenEndpoint:
             8.x's own gap: a gateway-host base URL is not loopback from the Cell's own point of
             view, so the Cell's offline check needs the same gateway carve-out
             `waggle.uris.is_virtual_cell_gateway_host` gives the Hive Stand's link validation).
+        night_veil: How a Night Veil Cell reaches the Queen instead (roadmap step 10.3a): her
+            hidden service through its own Tor proxy; None when this Hive configured none, in
+            which case no Night Veil Cell is ever minted (`cell_endpoint`).
     """
 
     waggle_url: str
@@ -147,6 +217,7 @@ class QueenEndpoint:
     slots: tuple[CellSlotSpec, ...] = ()
     provider_api_keys: Mapping[str, SecretStr] = field(default_factory=dict)
     llm_offline: bool = False
+    night_veil: NightVeilLink | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,4 +362,36 @@ def mint_cell_bootstrap(hive_id: HiveId, endpoint: QueenEndpoint, clock: Clock) 
         endpoint=endpoint,
         private_key_hex=SecretStr(signer.private_key_bytes.hex()),
         public_key_hex=public_key_hex(signer.public_key_bytes),
+    )
+
+
+def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) -> QueenEndpoint:
+    """Return the endpoint a Cell provisioned from `spec` dials: ordinary, or its Night Veil link.
+
+    Args:
+        endpoint: The backend's endpoint, possibly carrying a Night Veil link.
+        spec: The Cell about to be provisioned; its `comb_shield` decides.
+        backend: The provisioning backend's name, for the refusal.
+
+    Returns:
+        `endpoint` itself for MEADOW and PROPOLIS; for NIGHT_VEIL, a copy whose Waggle URL is
+        the hidden service and whose SOCKS proxy is the Tor proxy (and which carries no link of
+        its own, so nothing downstream can choose again).
+
+    Raises:
+        CellProvisionError: The Cell is NIGHT_VEIL and `endpoint` carries no Night Veil link, so
+            it could only be handed a clearnet address; nothing has been created.
+    """
+    if spec.comb_shield is not CombShieldLevel.NIGHT_VEIL:
+        return endpoint
+    link = endpoint.night_veil
+    if link is None:
+        raise CellProvisionError(
+            backend,
+            spec.image,
+            "a NIGHT_VEIL Cell dials the Queen only through her Tor hidden service, and no "
+            "[security.tiers.NIGHT_VEIL] hidden_service_address and tor_socks are configured",
+        )
+    return dataclasses.replace(
+        endpoint, waggle_url=link.waggle_url, socks_proxy_url=link.socks_proxy_url, night_veil=None
     )

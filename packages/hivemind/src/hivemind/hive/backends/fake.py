@@ -80,6 +80,7 @@ from hivemind.hive.backends.bootstrap import (
     CellBootstrap,
     CellReadyInfo,
     QueenEndpoint,
+    cell_endpoint,
     mint_cell_bootstrap,
 )
 from hivemind.hive.cell_state import VirtualCellStatus
@@ -278,7 +279,10 @@ class FakeCellBackend:
         endpoint = self._endpoint() if callable(self._endpoint) else self._endpoint
         if endpoint is None:
             return new_cell_id(self._clock)
-        bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
+        # Roadmap step 10.3a: the same per-tier choice every real backend makes.
+        bootstrap = mint_cell_bootstrap(
+            spec.hive_id, cell_endpoint(endpoint, spec, self.name), self._clock
+        )
         self.bootstraps[bootstrap.cell_id] = bootstrap
         if self._gate is not None:
             await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)

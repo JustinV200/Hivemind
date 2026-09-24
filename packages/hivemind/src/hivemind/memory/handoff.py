@@ -24,6 +24,9 @@ Key invariants:
       a caller must pass an explicit value, even an empty tuple, for each one.
     - clearance is the Handoff's own label; `hivemind.memory.checkpoint.read_handoff` refuses to
       return one above a reader's allowance (a ClearanceError).
+    - `tainted` is the taint label (roadmap step 10.6d): only `hivemind.memory.taint` ever sets
+      it, through a store's `write_taint`; a bee writes every Handoff unlabelled (the stores
+      refuse one that arrives labelled), and `read_handoff` refuses a TAINTED one outright.
 
 See Also:
     - .claude/codingrules.md section 8.9 for the Handoff shape and "one mechanism, many names".
@@ -38,6 +41,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import HoneyClearance
+from hivemind.memory.taint.marker import TaintMarker
 from waggle.messages.base import TaskIdField
 
 MIN_GOAL_CHARS = 1  # A Handoff always restates what it is working toward.
@@ -137,4 +141,9 @@ class Handoff(BaseModel):
     )
     task_id: TaskIdField | None = Field(
         default=None, description="The task this Handoff concerns, if it concerns one at all."
+    )
+    tainted: TaintMarker | None = Field(
+        default=None,
+        description="The taint label (roadmap step 10.6d); None unless an isolation, a quarantine "
+        "or a Guard report labelled it. Set only by hivemind.memory.taint.",
     )

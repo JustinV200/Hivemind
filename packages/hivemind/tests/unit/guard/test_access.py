@@ -152,6 +152,23 @@ def test_fill_scratch_never_doubles_a_slash_for_the_root() -> None:
     assert fill_scratch("fs:write:{scratch}/**", Path("/s/")) == "fs:write:/s/**"
 
 
+@pytest.mark.parametrize("root", ["/lease/run*", "/lease/run?", "/lease/run[1]", "/lease/[x]*?"])
+def test_a_scratch_root_with_glob_characters_matches_only_itself(root: str) -> None:
+    # Unescaped, "/lease/run*/**" would grant every sibling directory the pattern happens to match.
+    ceiling = ceiling_for(AccessLevel.SCRATCH, Path(root))
+
+    assert ceiling.allows(Capability.parse(f"fs:write:{root}/out.txt")) is True
+    assert ceiling.allows(Capability.parse("fs:write:/lease/runX/out.txt")) is False
+    assert ceiling.allows(Capability.parse("fs:write:/lease/run1/out.txt")) is False
+
+
+def test_a_set_built_from_an_escaped_root_still_attenuates_to_itself() -> None:
+    # A Worker's set is filtered through its Warden's: the same escaped scope must cover itself.
+    ceiling = ceiling_for(AccessLevel.SCRATCH, Path("/lease/run[1]*"))
+
+    assert ceiling.attenuate(ceiling) == ceiling
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # admits: whether a level permits a family at all
 # ──────────────────────────────────────────────────────────────────────────────

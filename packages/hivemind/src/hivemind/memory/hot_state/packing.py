@@ -13,15 +13,22 @@ replaced by a short reference before it is even token-counted, so one huge tool 
 out everything else in hot state ("a large tool result is stored as Nectar with a reference in hot
 state, never inlined" -- until the Honey Store exists in phase 7, that reference is a
 `hivemind.memory.bee_bread.deposit.deposit_tool_result` entry id, deposited by a caller, never by
-this module itself, which stays pure). The result's `sections` are keyed only `PINS` and
-`HOT_STATE` (never `RETRIEVED`, which stays empty in memory v0), ready to hand straight to
-`hivemind.llm.prompts.render`. A resumed `hivemind.memory.Handoff` (`HotStateSources.handoff`) is
-rendered unconditionally into its own delimited block inside `HOT_STATE` (`_render_handoff`) --
-never scored or dropped for budget the way the candidates above are, only bounded by
+this module itself, which stays pure). The result's `sections` are keyed `PINS` and `HOT_STATE`,
+plus `RETRIEVED` only when a caller passes retrieved items (`AssembleRequest.retrieved`, the phase 7
+seam for Honey hits and Nectar), ready to hand straight to `hivemind.llm.prompts.render`. A
+resumed `hivemind.memory.Handoff` (`HotStateSources.handoff`) is rendered unconditionally into
+its own delimited block inside `HOT_STATE` (`_render_handoff`) -- never scored or dropped for
+budget the way the candidates above are, only bounded by
 `item_cap_chars` -- because what a prior attempt already did and must not repeat is safety-critical
 context a resuming bee cannot afford to lose to relevance ranking (defect 2 this dispatch fixes:
 before this, only a resumed Handoff's `decisions` reached the model at all, through
-`recent_decisions`).
+`recent_decisions`). Roadmap steps 10.6b and 10.6d add two refusals and one rendering rule: a
+tainted item (a decision from a tainted record, a tainted resumed Handoff, a tainted retrieved item)
+is refused outright, whatever its score, and its id recorded in `Prompt.refused`; the resumed
+Handoff is filtered by the reader's clearance like every other candidate (it used to bypass that
+filter); and outside text (the trigger's `untrusted` words, each retrieved item) is rendered under
+its scan verdict by `hivemind.memory.hot_state.untrusted.render_untrusted`: fenced as data,
+labelled harder, or withheld.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by queen.awake and wardens.awake
@@ -45,6 +52,9 @@ Key invariants:
       (when `request.now` is unset) the wall clock: given the same request, sources and counter
       answers, it always packs the same Prompt. `on_drop` (roadmap step 4.4) is a synchronous
       callback invoked once per dropped candidate; unset, it changes nothing.
+    - A TAINTED item never reaches a Prompt, and a resumed Handoff above the reader's clearance
+      never does either (roadmap 10.6d); neither is passed to `on_drop`, since neither was a
+      budget drop and both are already stored.
     - A resumed Handoff's own `do_not_redo` and `next_steps` render as explicit instruction lists
       ("Already done, do not repeat: ...", "Next: ...") and `pinned_facts` renders verbatim,
       never re-summarised (codingrules section 8.9: "compaction... copies pins verbatim").
@@ -86,9 +96,15 @@ from hivemind.memory.hot_state.summaries import (
     TokenBudget,
     TriggerEvent,
 )
+from hivemind.memory.hot_state.untrusted import (
+    RetrievedItem,
+    render_retrieved,
+    render_untrusted,
+)
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from hivemind.memory.relevance import RelevanceScore, Scorable, item_id, score
+from hivemind.memory.taint.marker import is_refused
 from waggle.ids import CellId, TaskId
 from waggle.messages.base import UtcDatetime
 
@@ -98,6 +114,9 @@ RECENT_DECISIONS_LIMIT = 20  # Generous default; packing still drops whichever o
 # on, so this is a separate, much smaller render budget -- oversized lists are truncated with a
 # count (module docstring's own "Key invariants" on the handoff section, added below).
 MAX_HANDOFF_LIST_ITEMS_SHOWN = 10
+# The id a refused resumed Handoff is recorded under in Prompt.refused: the Handoff itself carries
+# no id (its key is the HandoffRef the resuming runtime holds), and there is only ever one.
+RESUMED_HANDOFF_ID = "resumed-handoff"
 
 # Pins sort before every category at equal relevance score (PIN_FLOOR already guarantees that in
 # practice); the rest follow codingrules section 8.9's old tie-break order. Only ever breaks a tie
@@ -116,6 +135,7 @@ __all__ = [
     "ITEM_CAP_CHARS",
     "MAX_HANDOFF_LIST_ITEMS_SHOWN",
     "RECENT_DECISIONS_LIMIT",
+    "RESUMED_HANDOFF_ID",
     "AssembleRequest",
     "Prompt",
     "assemble",
@@ -146,6 +166,12 @@ class AssembleRequest(BaseModel):
         "candidate (hivemind.memory.hot_state.summaries.HotStateSources.wax); empty means no "
         "Cell's wax appears in this prompt at all.",
     )
+    retrieved: tuple[RetrievedItem, ...] = Field(
+        default=(),
+        description="Honey hits and Nectar for this episode, already scanned (the phase 7 seam, "
+        "roadmaps 7.4 and 7.7): rendered into RETRIEVED under each one's verdict, a TAINTED or "
+        "over-clearance one refused. Empty until phase 7's retrieval fills it.",
+    )
 
 
 class Prompt(BaseModel):
@@ -164,6 +190,11 @@ class Prompt(BaseModel):
     token_count: int = Field(ge=0, description="Tokens spent on sections plus event_text.")
     included: tuple[str, ...] = Field(default=(), description="Ids of every item packed in.")
     dropped: tuple[str, ...] = Field(default=(), description="Ids of every candidate left out.")
+    refused: tuple[str, ...] = Field(
+        default=(),
+        description="Ids of every item refused outright for its taint label (roadmap 10.6d), and "
+        "RESUMED_HANDOFF_ID for a resumed Handoff refused for its taint or its clearance.",
+    )
 
 
 @dataclass
@@ -201,51 +232,70 @@ async def assemble(
     target_tokens = request.budget.max_input_tokens - request.budget.output_reserve
     now = request.now if request.now is not None else datetime.now(UTC)
 
-    candidates = await _gather_candidates(sources, allowance, request.cells_in_play)
+    candidates, refused = await _gather_candidates(sources, allowance, request.cells_in_play)
     active_tasks = frozenset(item.id for item in candidates if isinstance(item, TaskSummary))
     pin_ids = frozenset(item_id(item) for item in candidates if isinstance(item, Pin))
 
     ranked = _rank(candidates, now, active_tasks, pin_ids)
     packed = await _pack(ranked, target_tokens, request.budget.item_cap_chars, counter, on_drop)
-    handoff_text, handoff_tokens = await _handoff_section(sources, request.budget, counter)
+    handoff = await _handoff_section(sources, request, counter)
+    retrieved_text, retrieved_refused = render_retrieved(request.retrieved, allowance)
+    retrieved_tokens = await counter.count(retrieved_text) if retrieved_text else 0
 
     event_text = _event_text(request)
     event_tokens = await counter.count(event_text)
     return Prompt(
-        sections=_render_sections(packed.included, handoff_text),
+        sections=_render_sections(packed.included, handoff.text, retrieved_text),
         event_text=event_text,
-        token_count=packed.total_tokens + handoff_tokens + event_tokens,
+        token_count=packed.total_tokens + handoff.tokens + retrieved_tokens + event_tokens,
         included=tuple(item_id(item) for item, _text in packed.included),
         dropped=tuple(packed.dropped),
+        refused=(*refused, *handoff.refused, *retrieved_refused),
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _HandoffSection:
+    """A resumed Handoff's rendered block, its token count, and its id if it was refused."""
+
+    text: str = ""  # "" when there is no Handoff, or it was refused.
+    tokens: int = 0
+    refused: tuple[str, ...] = ()  # (RESUMED_HANDOFF_ID,) when it was refused.
+
+
 async def _handoff_section(
-    sources: HotStateSources, budget: TokenBudget, counter: TokenCounter
-) -> tuple[str, int]:
-    """Fetch, render and token-count a resumed Handoff, or return ("", 0) when there is none.
+    sources: HotStateSources, request: AssembleRequest, counter: TokenCounter
+) -> _HandoffSection:
+    """Fetch, check, render and token-count a resumed Handoff; empty when there is none.
 
     Defect 2 (this dispatch's own report): a resumed Handoff used to reach a resuming bee's
     prompt only through `recent_decisions`; every other field (`do_not_redo`, `next_steps`, ...)
     never appeared at all. Rendered unconditionally into its own delimited block inside
     `HOT_STATE` -- never scored or dropped for budget, only bounded by `item_cap_chars` -- because
     what a prior attempt already did and must not be redone is safety-critical, not a
-    relevance-ranked nice-to-have.
+    relevance-ranked nice-to-have. Roadmap 10.6d: unconditional stops at the two refusals every
+    other item meets, its clearance above the reader's and its taint label, which it used to
+    bypass.
     """
     handoff = await sources.handoff()
-    text = _render_handoff(handoff, budget.item_cap_chars)
-    tokens = await counter.count(text) if text else 0
-    return text, tokens
+    if handoff is None:
+        return _HandoffSection()
+    over_cleared = handoff.clearance.rank > request.principal.clearance.rank
+    if over_cleared or is_refused(handoff.tainted):
+        return _HandoffSection(refused=(RESUMED_HANDOFF_ID,))
+    text = _render_handoff(handoff, request.budget.item_cap_chars)
+    return _HandoffSection(text=text, tokens=await counter.count(text))
 
 
 async def _gather_candidates(
     sources: HotStateSources, allowance: HoneyClearance, cells_in_play: frozenset[CellId]
-) -> list[Scorable]:
-    """Fetch every candidate (pins included) and filter by clearance; unsorted.
+) -> tuple[list[Scorable], tuple[str, ...]]:
+    """Fetch every candidate (pins included), filter by clearance and taint; unsorted.
 
     `sources.wax(cells_in_play)` is always called, even with an empty set: its own contract
     (`HotStateSources.wax`) is to return nothing for no Cells, so an empty `cells_in_play` still
-    yields an empty `wax` tuple rather than needing a special case here.
+    yields an empty `wax` tuple rather than needing a special case here. Returns the survivors
+    and the ids of every candidate refused for its taint label (roadmap 10.6d).
     """
     tasks = await sources.active_tasks()
     alarms = await sources.open_alarms()
@@ -257,7 +307,16 @@ async def _gather_candidates(
     # Name the pool's union type explicitly: mypy widens a splat of seven different tuple types to
     # BaseModel otherwise, losing the `clearance` every candidate carries.
     pool: tuple[Scorable, ...] = (*pins, *tasks, *alarms, *questions, *decisions, *notes, *wax)
-    return [item for item in pool if item.clearance.rank <= allowance.rank]
+    visible = [item for item in pool if item.clearance.rank <= allowance.rank]
+    # A decision carries the taint label of the record it came from; a TAINTED one is refused
+    # outright, before scoring, so no relevance can ever pack it (roadmap 10.6d).
+    refused = tuple(item_id(item) for item in visible if _is_tainted(item))
+    return [item for item in visible if not _is_tainted(item)], refused
+
+
+def _is_tainted(item: Scorable) -> bool:
+    """Return whether a candidate carries a TAINTED label (only decisions can carry one)."""
+    return isinstance(item, DecisionSummary) and is_refused(item.tainted)
 
 
 def _rank(
@@ -315,7 +374,7 @@ def _reference(iid: str, raw_text: str) -> str:
 
 
 def _render_sections(
-    included: Sequence[tuple[Scorable, str]], handoff_text: str
+    included: Sequence[tuple[Scorable, str]], handoff_text: str, retrieved_text: str
 ) -> dict[SectionLabel, str]:
     """Split packed (item, text) pairs back into PINS and HOT_STATE, preserving pack order.
 
@@ -324,6 +383,8 @@ def _render_sections(
         handoff_text: The resumed Handoff's own rendered block (`_render_handoff`), or "" when
             this episode is not resuming one; appended after the scored hot-state lines so it
             reads after pins and hot state, before the event (codingrules 8.9's "stable prefix").
+        retrieved_text: The rendered retrieved items (`render_retrieved`), or "" when there are
+            none; its own RETRIEVED section, so render() delimits it as retrieved content.
     """
     pin_lines = [text for item, text in included if isinstance(item, Pin)]
     hot_lines = [text for item, text in included if not isinstance(item, Pin)]
@@ -334,14 +395,24 @@ def _render_sections(
         sections[SectionLabel.PINS] = "\n".join(pin_lines)
     if hot_lines:
         sections[SectionLabel.HOT_STATE] = "\n".join(hot_lines)
+    if retrieved_text:
+        sections[SectionLabel.RETRIEVED] = retrieved_text
     return sections
 
 
 def _event_text(request: AssembleRequest) -> str:
-    """Fold `system_hint` (when set) onto the triggering event's own summary text."""
+    """Build the event's text: `system_hint`, the summary, then its outside text under its verdict.
+
+    The summary is the Hive's own framing and is shown as it is; the trigger's `untrusted` words
+    (a human's chat message) are rendered by `render_untrusted`, so the scanner's verdict decides
+    whether they are fenced as data, labelled harder, or withheld (roadmap 10.6b).
+    """
+    body = request.event.summary
+    if request.event.untrusted is not None:
+        body = f"{body}\n{render_untrusted(request.event.untrusted)}"
     if request.system_hint is None:
-        return request.event.summary
-    return f"{request.system_hint}\n\n{request.event.summary}"
+        return body
+    return f"{request.system_hint}\n\n{body}"
 
 
 def _raw_text(item: Scorable) -> str:

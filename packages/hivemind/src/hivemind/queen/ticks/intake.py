@@ -19,7 +19,8 @@ Fits into the Hive:
     (`stop_planning`). Calls into `hivemind.brood_chamber`, `hivemind.common.tasks`,
     `hivemind.llm.errors`, `hivemind.queen.chat` (post_notice), `hivemind.queen.cluster`
     (awake_available), `hivemind.queen.deps`, `hivemind.queen.goal_submission`,
-    `hivemind.queen.intake`, `hivemind.queen.planner` (PlannerError) and waggle only.
+    `hivemind.queen.intake`, `hivemind.queen.planner` (PlannerError, NightVeilLocationError)
+    and waggle only.
 
 Key invariants:
     - At most one plan is in flight; its task is owned by `deps.planning`, reaped by the first
@@ -60,13 +61,15 @@ from hivemind.queen.intake import (
     start_planning,
 )
 from hivemind.queen.planner import PlannerError
+from hivemind.queen.planner.location import NightVeilLocationError
 from waggle.ids import TaskId
 
 MAX_REQUESTS_PER_TICK = 20  # A page of RECEIVED rows looked at per tick; the rest wait in order.
 MAX_GOALS_CHECKED_PER_TICK = 50  # Planned goals checked for completion per tick, oldest first.
 # The failures that refuse a request rather than fail the Queen: the plan could not become a
-# valid graph, or the planner's model failed on every rung and every binding of its chain.
-_PLANNING_FAILURES: tuple[type[Exception], ...] = (PlannerError, LLMError)
+# valid graph, the planner's model failed on every rung and every binding of its chain, or a
+# Night Veil goal asked where its Cell is (roadmap step 10.3d).
+_PLANNING_FAILURES: tuple[type[Exception], ...] = (PlannerError, LLMError, NightVeilLocationError)
 
 __all__ = [
     "MAX_GOALS_CHECKED_PER_TICK",

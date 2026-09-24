@@ -24,11 +24,14 @@ from hivemind.brood_chamber.errors import InvalidTransitionError
 from hivemind.brood_chamber.store.memory import MemoryTaskStore
 from hivemind.brood_chamber.task.model import Task
 from hivemind.brood_chamber.task.state import TaskStatus
+from hivemind.cell import CombShieldLevel
 from hivemind.pheromone import PheromoneEvent, TaskEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_event_id, new_hive_id, new_node_id, new_warden_id
+
+_MEADOW = CombShieldLevel.MEADOW  # The default tier, for tests about anything but binding.
 
 
 def _make_chamber(clock: FakeClock) -> tuple[BroodChamber, MemoryTaskStore, MemoryPheromoneTrail]:
@@ -78,7 +81,9 @@ async def test_assign_moves_pending_to_assigned_and_places_it() -> None:
     task = await _seed(store, clock, status=TaskStatus.PENDING)
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
 
-    assigned = await chamber.assign(task.id, warden_id, cell_id, reason="placement")
+    assigned = await chamber.assign(
+        task.id, warden_id, cell_id, reason="placement", bound_tier=CombShieldLevel.PROPOLIS
+    )
 
     assert assigned.status is TaskStatus.ASSIGNED
     assert (assigned.warden_id, assigned.cell_id) == (warden_id, cell_id)
@@ -91,7 +96,9 @@ async def test_assign_from_running_raises_invalid_transition() -> None:
     task = await _seed(store, clock, status=TaskStatus.RUNNING)
 
     with pytest.raises(InvalidTransitionError):
-        await chamber.assign(task.id, new_warden_id(clock), new_cell_id(clock), reason="x")
+        await chamber.assign(
+            task.id, new_warden_id(clock), new_cell_id(clock), reason="x", bound_tier=_MEADOW
+        )
 
 
 async def test_unassign_then_assign_again_bumps_attempt() -> None:
@@ -104,8 +111,72 @@ async def test_unassign_then_assign_again_bumps_attempt() -> None:
     assert (unassigned.warden_id, unassigned.cell_id) == (None, None)
     assert unassigned.attempt == 2
 
-    reassigned = await chamber.assign(task.id, new_warden_id(clock), new_cell_id(clock), "retry")
+    reassigned = await chamber.assign(
+        task.id, new_warden_id(clock), new_cell_id(clock), "retry", bound_tier=_MEADOW
+    )
     assert reassigned.attempt == 2
+
+
+async def test_assign_binds_the_task_to_its_cells_tier_and_records_it() -> None:
+    # Roadmap step 10.3b: a task inherits the Comb Shield tier of the Cell where it executes.
+    clock = FakeClock()
+    chamber, store, trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.PENDING)
+
+    assigned = await chamber.assign(
+        task.id,
+        new_warden_id(clock),
+        new_cell_id(clock),
+        "placement",
+        bound_tier=CombShieldLevel.NIGHT_VEIL,
+    )
+
+    assert assigned.bound_tier is CombShieldLevel.NIGHT_VEIL
+    assert (await store.get_task(task.id)).bound_tier is CombShieldLevel.NIGHT_VEIL
+    [assigned_event] = [e for e in await _events_for(trail, task.id) if e.kind == "task.assigned"]
+    assert assigned_event.payload["bound_tier"] == "NIGHT_VEIL"
+
+
+async def test_a_task_moved_to_a_cell_of_another_tier_is_rebound_before_it_runs() -> None:
+    # Roadmap step 10.3b: a Warden lost before its Worker started; the next placement re-binds.
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.PENDING)
+    await chamber.assign(
+        task.id, new_warden_id(clock), new_cell_id(clock), "first", bound_tier=_MEADOW
+    )
+
+    unassigned = await chamber.unassign(task.id, reason="warden lost")
+    assert unassigned.bound_tier is None
+    await chamber.assign(
+        task.id,
+        new_warden_id(clock),
+        new_cell_id(clock),
+        "second",
+        bound_tier=CombShieldLevel.PROPOLIS,
+    )
+    started = await chamber.start(task.id)
+
+    assert started.status is TaskStatus.RUNNING
+    assert started.bound_tier is CombShieldLevel.PROPOLIS
+
+
+async def test_every_ending_leaves_the_task_bound_to_no_tier() -> None:
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.PENDING)
+    await chamber.assign(
+        task.id, new_warden_id(clock), new_cell_id(clock), "p", bound_tier=CombShieldLevel.PROPOLIS
+    )
+
+    cancelled = await chamber.cancel(task.id, "the human cancelled the goal")
+
+    assert cancelled.bound_tier is None
+
+
+def test_a_task_off_every_cell_may_not_carry_a_bound_tier() -> None:
+    with pytest.raises(ValueError, match="must not carry a bound tier"):
+        make_task(status=TaskStatus.PENDING, bound_tier=CombShieldLevel.MEADOW)
 
 
 async def test_start_moves_assigned_to_running() -> None:

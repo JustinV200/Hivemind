@@ -7,7 +7,9 @@ read back as a longer family is reserved), and `scope_matches` says whether a he
 needed one of the same family. Both are pure and total over valid input, so `Capability` can call
 them from its validator and its `matches` without any state of its own. The `net` family's HOST
 kind is involved enough to live in `hivemind.guard.capabilities.hosts`; this module dispatches to
-it like to any other kind.
+it like to any other kind. `glob_literal` makes a path safe to embed in a glob scope: a scratch
+root or a keep root that happens to contain `*`, `?` or `[` would otherwise widen the grant built
+from it to every sibling the pattern happens to match.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.guard.
@@ -23,6 +25,8 @@ Key invariants:
       everything the needed scope can name is something the held scope already admits.
     - A spend amount is a plain non-negative decimal (`5`, `5.00`); no sign, exponent, `inf` or
       `nan`, so an amount compares as a number and reads back exactly as written.
+    - A glob scope built from a path goes through `glob_literal` first, so the path matches only
+      itself; a held glob scope always covers an identical needed one.
 
 See Also:
     - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for each kind's rule.
@@ -40,8 +44,9 @@ from hivemind.guard.capabilities.hosts import host_covers, host_error
 
 WILDCARD = "*"  # Every name of an enumerated family, no spend ceiling, or (glob/prefix) anything.
 _AMOUNT = re.compile(r"[0-9]+(\.[0-9]+)?")  # A plain decimal amount: digits, then optional cents.
+_GLOB_SPECIALS = frozenset("*?[")  # The characters fnmatch reads as pattern syntax, not text.
 
-__all__ = ["WILDCARD", "scope_error", "scope_matches"]
+__all__ = ["WILDCARD", "glob_literal", "scope_error", "scope_matches"]
 
 
 def scope_error(family: CapabilityFamily, scope: str) -> str | None:
@@ -82,9 +87,12 @@ def scope_matches(family: CapabilityFamily, held: str, needed: str) -> bool:
         case ScopeKind.FLAG:
             return True  # No scope to compare: holding the family is the whole grant.
         case ScopeKind.GLOB:
-            # fnmatch's "*" already crosses "/", so "**" needs no special case; both sides are
-            # POSIX-normalised so a Windows path and a POSIX pattern still meet.
-            return fnmatch.fnmatchcase(_to_posix(needed), _to_posix(held))
+            # Equal scopes first: a needed scope that is itself a pattern (attenuating one set by
+            # another) is compared as text, and an escaped path (`glob_literal`) never matches its
+            # own escaped text. fnmatch's "*" already crosses "/", so "**" needs no special case;
+            # both sides are POSIX-normalised so a Windows path and a POSIX pattern still meet.
+            posix_held, posix_needed = _to_posix(held), _to_posix(needed)
+            return posix_held == posix_needed or fnmatch.fnmatchcase(posix_needed, posix_held)
         case ScopeKind.PREFIX:
             return held == needed or (held.endswith(WILDCARD) and needed.startswith(held[:-1]))
         case ScopeKind.HOST:
@@ -136,6 +144,23 @@ def _shadowing_family(family: CapabilityFamily, scope: str) -> CapabilityFamily 
         elif written.startswith(f"{other.value}:"):
             return other
     return None
+
+
+def glob_literal(text: str) -> str:
+    """Escape `text` so a glob scope built from it matches it literally, never as a pattern.
+
+    Args:
+        text: A path (or any text) about to be embedded in a glob scope, e.g. a scratch root.
+
+    Returns:
+        `text` with each `*`, `?` and `[` wrapped in a one-character class (`[*]`, `[?]`, `[[]`),
+        which fnmatch reads as exactly that character; every other character is unchanged.
+
+    Example:
+        >>> glob_literal("/scratch/run[1]*")
+        '/scratch/run[[]1][*]'
+    """
+    return "".join(f"[{char}]" if char in _GLOB_SPECIALS else char for char in text)
 
 
 def _to_posix(scope: str) -> str:

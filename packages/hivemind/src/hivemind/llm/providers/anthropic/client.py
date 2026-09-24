@@ -238,6 +238,17 @@ class AnthropicClient:
             )
         return ProviderHealth(state=HealthState.HEALTHY, detail="ok", checked_at=clock.now())
 
+    async def aclose(self) -> None:
+        """Close the SDK client's own HTTP connection pool; see `LLMProvider.aclose`.
+
+        `AsyncAnthropic.close()` is the SDK's documented way to release its pooled connections,
+        and it is idempotent (closing an already-closed underlying client is a no-op), so this
+        wrapper needs no closed flag of its own.
+        """
+        # External await, local work: tearing down pooled sockets takes milliseconds; the
+        # registry bounds it with PROVIDER_CLOSE_TIMEOUT_S so a shutdown never hangs here.
+        await self._sdk.close()
+
 
 def map_error(exc: anthropic.APIError, provider: str, *, context_window: int) -> LLMError:
     """Map one `anthropic.APIError` to the matching typed `LLMError`.

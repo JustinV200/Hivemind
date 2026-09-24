@@ -1,0 +1,32 @@
+{
+  "task": "transcribe",
+  "language": "english",
+  "duration": 1.0,
+  "text": " Turn on the porch lights.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0.0,
+      "end": 0.6,
+      "text": " Turn on",
+      "tokens": [50364, 7956, 322],
+      "temperature": 0.0,
+      "avg_logprob": -0.21,
+      "compression_ratio": 0.83,
+      "no_speech_prob": 0.02
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 0.6,
+      "end": 1.0,
+      "text": " the porch lights.",
+      "tokens": [264, 29460, 5811, 13],
+      "temperature": 0.0,
+      "avg_logprob": -0.18,
+      "compression_ratio": 0.83,
+      "no_speech_prob": 0.02
+    }
+  ]
+}

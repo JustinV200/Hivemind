@@ -11,6 +11,9 @@ error to a tool call, skip a placement candidate), and `decision.escalation` say
 raise an Alarm or ask the human as well. `refuse` (roadmap step 10.3) is the same edge for a
 refusal the point reached itself, when the principal holds the capability but not over this
 target (a Warden asking to grow a grant another Warden holds): it records the identical row.
+`check_floors` (roadmap step 10.3a) runs only the floors, for a point whose held set another rule
+checks (a Worker's command or write, whose `exec` and `fs:write` the Capping gate checks): a floor
+still refuses there first, and records the identical row.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by a composition root with the
@@ -43,6 +46,7 @@ from hivemind.guard.policy import (
     PolicyRequest,
     PrincipalRef,
     evaluate,
+    floor_decision,
     refusal,
 )
 from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS, GuardEvent, PheromoneTrail
@@ -100,6 +104,28 @@ class Enforcer:
         if not decision.allowed:
             # A local trail write (milliseconds, no network), awaited before the refusal is
             # returned so the record always exists first; a failure propagates to the caller.
+            await self._trail.record(self._denied_event(request, decision))
+        return decision
+
+    async def check_floors(self, request: PolicyRequest) -> PolicyDecision | None:
+        """Run only the floors for `request`; record and return a refusal, or return None.
+
+        For a point whose held set another rule checks (the Capping gate's allowlist): the floors
+        still refuse first, whatever the principal holds (`hivemind.guard.policy.floor_decision`).
+
+        Args:
+            request: Who is acting, at which point, needing what, holding what, and where.
+
+        Returns:
+            The floor's refused PolicyDecision, already on the trail as `guard.denied`; None when
+            no floor refuses, which says nothing about whether the need is held.
+
+        Raises:
+            Whatever the trail's `record` raises: a refusal is never returned unrecorded.
+        """
+        decision = floor_decision(request, self._policy)
+        if decision is not None:
+            # The same local, awaited trail write `check` makes before returning a refusal.
             await self._trail.record(self._denied_event(request, decision))
         return decision
 

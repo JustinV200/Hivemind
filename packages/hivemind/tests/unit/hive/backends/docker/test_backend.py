@@ -25,7 +25,7 @@ import pytest
 from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
-from hivemind.hive.backends.bootstrap import QueenEndpoint
+from hivemind.hive.backends.bootstrap import NightVeilLink, QueenEndpoint
 from hivemind.hive.backends.docker.backend import _DEFAULT_PIDS_LIMIT, DockerCellBackend
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.hive.backends.docker.network import network_name
@@ -50,8 +50,14 @@ def _make_spec(**overrides: object) -> VirtualCellSpec:
     return VirtualCellSpec(**fields)
 
 
+# The Hive's Night Veil link, as a composition root builds it from [security.tiers.NIGHT_VEIL].
+_LINK = NightVeilLink(
+    waggle_url="ws://hivestandhiddenservice.onion:8710", socks_proxy_url="socks5h://127.0.0.1:9050"
+)
+
+
 def _make_backend(
-    clock: FakeClock, *, max_cells: int | None = None
+    clock: FakeClock, *, max_cells: int | None = None, night_veil: NightVeilLink | None = None
 ) -> tuple[DockerCellBackend, FakeDockerClient, FakeReadinessGate]:
     """Build a fresh DockerCellBackend over fresh fakes, plus the fakes for direct assertions."""
     client = FakeDockerClient()
@@ -60,6 +66,7 @@ def _make_backend(
         waggle_url="ws://localhost:8710",
         queen_node_id=new_node_id(clock),
         queen_verify_key_hex="00" * 32,
+        night_veil=night_veil,
     )
     backend = DockerCellBackend(client, gate, endpoint, clock, max_cells=max_cells)
     return backend, client, gate
@@ -165,15 +172,19 @@ async def test_provision_refuses_vpn_tor_on_any_image_but_night_veil_ubuntu() ->
     assert gate.expect_calls == []
 
 
-async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
-    backend, client, _ = _make_backend(FakeClock())
-    spec = _make_spec(
+def _night_veil_spec() -> VirtualCellSpec:
+    """A Night Veil Cell on the one image whose kill-switch can hold it."""
+    return _make_spec(
         image="night-veil-ubuntu",
         network_policy=NetworkPolicy.VPN_TOR,
         comb_shield=CombShieldLevel.NIGHT_VEIL,
     )
 
-    cell = await backend.provision(spec)
+
+async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
+    backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    cell = await backend.provision(_night_veil_spec())
 
     assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
     # Docker's own network gives unrestricted outbound reach (module docstring: the in-image
@@ -183,6 +194,37 @@ async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> Non
     # Roadmap step 5.7a: cap_drop=("ALL",) would otherwise strip the CAP_NET_ADMIN the in-image
     # nftables kill-switch needs to load its own ruleset at boot; VPN_TOR gets it back.
     assert client.create_container_calls[0].cap_add == ("NET_ADMIN",)
+
+
+async def test_a_night_veil_container_dials_the_hidden_service_through_tor() -> None:
+    # Roadmap step 10.3a: a Night Veil Cell is never handed the Queen's clearnet address.
+    backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    await backend.provision(_night_veil_spec())
+
+    environment = client.create_container_calls[0].environment
+    assert environment["HIVEMIND_QUEEN_WAGGLE_URL"] == _LINK.waggle_url
+    assert environment["HIVEMIND_SOCKS_PROXY_URL"] == _LINK.socks_proxy_url
+
+
+async def test_provision_refuses_a_night_veil_cell_when_no_link_is_configured() -> None:
+    backend, client, gate = _make_backend(FakeClock())
+
+    with pytest.raises(CellProvisionError, match="hidden service"):
+        await backend.provision(_night_veil_spec())
+
+    assert client.create_network_calls == []
+    assert gate.expect_calls == []
+
+
+async def test_a_meadow_container_keeps_the_ordinary_endpoint_beside_a_link() -> None:
+    backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    await backend.provision(_make_spec())
+
+    environment = client.create_container_calls[0].environment
+    assert environment["HIVEMIND_QUEEN_WAGGLE_URL"] == "ws://localhost:8710"
+    assert "HIVEMIND_SOCKS_PROXY_URL" not in environment
 
 
 async def test_provision_grants_no_extra_capabilities_off_vpn_tor() -> None:

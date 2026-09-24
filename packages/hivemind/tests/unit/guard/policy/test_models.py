@@ -13,11 +13,14 @@ See Also:
 
 from __future__ import annotations
 
+import ipaddress
+
 import pytest
 from pydantic import ValidationError
 
 from hivemind.cell import AccessLevel, CombShieldLevel, RequestOrigin
 from hivemind.guard.capabilities import Capability, CapabilitySet
+from hivemind.guard.policy.facts import ControlLink, GoalRequestFacts
 from hivemind.guard.policy.models import (
     OPERATOR_ID,
     EscalationAction,
@@ -78,6 +81,31 @@ def test_context_defaults_to_not_on_a_cell_and_not_a_task() -> None:
     assert context.access_level is None
     assert context.bound_tier is None
     assert context.origin is None
+    # Roadmap step 10.3a's facts: absent means the action is not that kind of action.
+    assert context.binding_local is None
+    assert context.control_link is None
+    assert context.resolved_addresses is None
+    assert context.goal_request is None
+
+
+def test_context_with_every_floor_fact_round_trips_through_json() -> None:
+    context = PolicyContext(
+        bound_tier=CombShieldLevel.NIGHT_VEIL,
+        origin=RequestOrigin.HUMAN,
+        binding_local=True,
+        control_link=ControlLink(host="x.onion", socks_proxy_url="socks5h://127.0.0.1:9050"),
+        resolved_addresses=(ipaddress.ip_address("10.0.0.1"), ipaddress.ip_address("::1")),
+        goal_request=GoalRequestFacts(
+            origin=RequestOrigin.HUMAN, comb_shield=CombShieldLevel.NIGHT_VEIL
+        ),
+    )
+
+    assert PolicyContext.model_validate_json(context.model_dump_json()) == context
+
+
+def test_context_refuses_a_resolved_address_that_is_not_one() -> None:
+    with pytest.raises(ValidationError):
+        PolicyContext.model_validate({"resolved_addresses": ["not-an-address"]})
 
 
 def test_request_round_trips_through_json() -> None:

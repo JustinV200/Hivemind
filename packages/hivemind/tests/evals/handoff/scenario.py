@@ -450,6 +450,10 @@ class _CheckpointAfterNCalls:
         """Delegate to `inner.health`; never counted toward the trigger."""
         return await self._inner.health()
 
+    async def aclose(self) -> None:
+        """Delegate to `inner.aclose`: the wrapped provider owns every connection."""
+        await self._inner.aclose()
+
     def _note_call(self) -> None:
         """Count one landed call, flipping `handoff_requested` once `trigger_after` is reached."""
         self._calls += 1

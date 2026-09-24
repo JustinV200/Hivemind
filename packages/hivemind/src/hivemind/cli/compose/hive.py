@@ -16,8 +16,9 @@ Fits into the Hive:
     `hivemind.cli.run` (roadmap step 3.21) and by every test that drives the kernel end to end
     against a `hivemind.llm.FakeLLMProvider`. Calls into `hivemind.brood_chamber`, `hivemind.cell`,
     `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.common.secrets` (the
-    Hive's persisted signing key, for the Virtual side), `hivemind.pheromone`, `hivemind.queen`,
-    `hivemind.wardens` and waggle only.
+    Hive's persisted signing key, for the Virtual side, and the untrusted-content scanner's key),
+    `hivemind.guard.scanner`, `hivemind.pheromone`, `hivemind.queen`, `hivemind.wardens` and
+    waggle only.
 
 Key invariants:
     - `build_hive` never touches the network: every provider it constructs is lazy
@@ -26,15 +27,19 @@ Key invariants:
       seed the Queen<->Warden link's Cell) and, with a Virtual side, read or mint the Hive's
       signing key in the local secret store (`_hive_signer`).
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
-      their `run()` tasks, and closes the Queen<->Warden link, in that order, whether its
-      `async with` block exits cleanly or raises. Awaiting both tasks before its own
-      `asyncio.TaskGroup` block ends is this dispatch's own shutdown-hygiene fix: without it, an
-      exception propagating out of the caller's `async with run_hive(hive):` body would reach the
-      TaskGroup while a tick might still be in flight, and the TaskGroup would cancel it itself
-      rather than let the cooperative `stop()` above finish on its own.
+      their `run()` tasks, closes the Queen<->Warden link and then every model provider's
+      connections, in that order, whether its `async with` block exits cleanly or raises.
+      Awaiting both tasks before its own `asyncio.TaskGroup` block ends is this dispatch's own
+      shutdown-hygiene fix: without it, an exception propagating out of the caller's `async with
+      run_hive(hive):` body would reach the TaskGroup while a tick might still be in flight, and
+      the TaskGroup would cancel it itself rather than let the cooperative `stop()` above finish
+      on its own.
     - `run_goal` never blocks past `timeout_s`: `GoalReport.timed_out` is True whenever the goal's
       own tasks are not all terminal by then, and `succeeded` is False in that case regardless of
       how far the goal got.
+    - The Queen and the Hive Stand's Warden share one untrusted-content scanner (roadmap 10.6b),
+      built from `[guard.untrusted_content]` and keyed from the secret store at `[hive]
+      secrets_dir`; its key is minted on the first flag, never at build time.
 
 See Also:
     - .claude/codingrules.md section 13 for "the composition root is the only place a HiveManifest
@@ -73,12 +78,14 @@ from hivemind.cli.compose.deps import (
     open_default_stores,
 )
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
+from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.forage import ForageMap
 from hivemind.guard import Enforcer
+from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
@@ -88,7 +95,15 @@ from waggle.clock import Clock
 from waggle.ids import TaskId
 from waggle.signing import Ed25519Signer
 
-__all__ = ["GoalReport", "Hive", "build_hive", "run_goal", "run_hive"]
+__all__ = [
+    "GoalReport",
+    "Hive",
+    "build_content_scanner",
+    "build_hive",
+    "run_goal",
+    "run_hive",
+    "run_requested_goal",
+]
 
 # run_goal's own polling cadence, on the injected Clock: short enough that a FakeClock-driven unit
 # test (codingrules 14.5) finishes in a handful of iterations, gentle enough to be a real interval
@@ -245,6 +260,29 @@ def _hive_signer(manifest: HiveManifest) -> Ed25519Signer | None:
     return asyncio.run(load_or_mint_hive_signer(store))
 
 
+def build_content_scanner(manifest: HiveManifest) -> ContentScanner:
+    """Build the Hive's untrusted-content scanner: the shipped patterns, `[guard]`'s thresholds.
+
+    Roadmap step 10.6b: the Queen (chat messages) and the Hive Stand's Warden (its sub-bees' tool
+    results) share this one scanner, so every flag on this node is hashed under one key. The key
+    lives in the secret store at the manifest's resolved `[hive] secrets_dir`, beside the Hive's
+    signing key, and is minted on the first flag, so building the scanner touches no disk.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
+
+    Returns:
+        A ContentScanner over `load_scan_patterns()` and `[guard.untrusted_content]`.
+
+    Raises:
+        hivemind.guard.GuardPolicyError: The shipped pattern file is unreadable or invalid.
+    """
+    store = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
+    return ContentScanner(
+        load_scan_patterns(), manifest.guard.untrusted_content, ContentHasher(store)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _AssemblyExtras:
     """Builder outputs `_assemble_hive` needs beyond `parts`/`source`/`links` (codingrules 5.1)."""
@@ -258,12 +296,16 @@ def _assemble_hive(
     parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
     """Build the Warden and Queen from `parts` and wrap them as a Hive; `run_hive` attaches."""
-    warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
+    # Roadmap 10.6b: one configured scanner, shared by the Queen and the Hive Stand's Warden,
+    # replaces each deps bundle's shipped-default one, so every flag here is hashed under one key.
+    scanner = build_content_scanner(parts.manifest)
+    warden_deps = replace(build_warden_deps(parts, source, links), scanner=scanner)
+    warden = Warden(links.warden_id, warden_deps)
     queen_deps = build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells)
     # Roadmap step 10.5: the Queen tells devices through a relay `hive serve` binds to the
     # Entrance's push channel once that exists (the Entrance is built inside the event loop).
     relay = HumanChannelRelay()
-    queen = Queen(replace(queen_deps, human_channel=relay))
+    queen = Queen(replace(queen_deps, scanner=scanner, human_channel=relay))
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
@@ -328,6 +370,10 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
             # is left awaiting a link neither side will ever write to again.
             await hive.warden_link.transport.close()
+            # Last, once nothing can call a model any more: release every provider's pooled
+            # connections (hivemind.llm.ProviderRegistry.aclose, bounded per provider), which a
+            # long-running `hive serve` would otherwise leak for good.
+            await hive.registry.aclose()
 
 
 async def _start(hive: Hive) -> None:
@@ -379,13 +425,55 @@ async def run_goal(
         timeout.
     """
     clock = hive.clock
-    start = clock.monotonic()
-    submitted_at = clock.now()
-    goal_id = await hive.queen.submit_goal(goal, clearance=clearance)
-    # The deadline runs from `start`, before planning: submit_goal's own model call can take
+    # The deadline runs from here, before planning: submit_goal's own model call can take
     # minutes on a local model, and "never blocks past timeout_s" (module docstring) has to
     # include it.
-    submission = _Submission(start=start, at=submitted_at)
+    submission = _Submission(start=clock.monotonic(), at=clock.now())
+    goal_id = await hive.queen.submit_goal(goal, clearance=clearance)
+    return await _follow(hive, goal_id, timeout_s, on_event, submission)
+
+
+async def run_requested_goal(
+    hive: Hive,
+    ask: GoalAsk,
+    *,
+    timeout_s: float,
+    on_event: Callable[[PheromoneEvent], None] | None = None,
+) -> GoalReport:
+    """Ask for `ask` as a durable goal request, then follow its goal like `run_goal` does.
+
+    Roadmap step 10.3c: a tier the operator named is asked for the way the Hive Entrance asks,
+    the one way a tier like NIGHT_VEIL is initiated (`hivemind.cli.compose.request`).
+
+    Args:
+        hive: A Hive whose Queen and Warden are running (inside an `async with run_hive(hive):`).
+        ask: The goal, its clearance and the tier the operator named.
+        timeout_s: The most wall time to wait, planning included.
+        on_event: As for `run_goal`.
+
+    Returns:
+        A GoalReport over the planned goal, as `run_goal` returns.
+
+    Raises:
+        hivemind.cli.compose.request.GoalNotPlannedError: The Queen refused the request, or it was
+            not planned before the timeout.
+    """
+    clock = hive.clock
+    submission = _Submission(start=clock.monotonic(), at=clock.now())
+    deadline_s = submission.start + timeout_s
+    requests = hive.stores.goal_requests
+    goal_id = await request_goal_and_wait(hive.queen, requests, clock, ask, deadline_s)
+    return await _follow(hive, goal_id, timeout_s, on_event, submission)
+
+
+async def _follow(
+    hive: Hive,
+    goal_id: TaskId,
+    timeout_s: float,
+    on_event: Callable[[PheromoneEvent], None] | None,
+    submission: _Submission,
+) -> GoalReport:
+    """Poll `goal_id`'s tasks to the end (or the deadline) and report on them."""
     timed_out = await _poll_until_terminal(hive, goal_id, timeout_s, on_event, submission)
     tasks = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
     succeeded = (
@@ -395,8 +483,8 @@ async def run_goal(
         goal_id=goal_id,
         tasks=tasks,
         succeeded=succeeded,
-        spend_usd=await _spend_since(hive, submitted_at),
-        elapsed_s=clock.monotonic() - start,
+        spend_usd=await _spend_since(hive, submission.at),
+        elapsed_s=hive.clock.monotonic() - submission.start,
         timed_out=timed_out,
     )
 

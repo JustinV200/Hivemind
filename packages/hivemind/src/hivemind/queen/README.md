@@ -183,6 +183,25 @@ goal's set, or None for the operator's own local path) and builds her requests.
 - `question_routing`: `questions.block_on_question` refuses a Question from a Warden whose set
   lacks `question:human`, answering it back down its link instead of blocking the task.
 
+Roadmap steps 10.3a-d add the tiers' floors (`hivemind.guard.policy.floors`):
+
+- A task asking for or bound to NIGHT_VEIL meets the floors at `placement` before any Cell is
+  chosen (`dispatcher.night_veil.check_night_veil_placement`): only a human's durable goal
+  request naming the tier initiates it (the request `QueenDeps.goal_requests` holds, cited by
+  `TaskSpec.goal_request_id`), and the control link configured for its Cell must be a `.onion`
+  host through a loopback `socks5h` proxy. A floor's refusal, or an incomplete Night Veil tier
+  profile (`placement.policy.check_night_veil`), is a final `PlacementError`: the task is
+  cancelled once, with the reason on `queen.decided` and `task.cancelled`.
+- `comb_shield_egress` runs the floors for every task, the operator's own included, with the
+  Cell's tier and the Night Veil facts on the context (`dispatcher.night_veil.tier_context`).
+- Every grant check states whether a binding is local to its Cell (a source that Cell serves, or
+  a provider in `QueenDeps.in_process_providers`), so a Night Veil grant keeps local bindings only.
+- `chamber.assign` binds the task to its Cell's tier (`Task.bound_tier`); `authority.task_context`
+  carries it at every later check, and `queen.placed` names the goal request a placement stands on.
+- A goal whose request named NIGHT_VEIL is refused when its ceiling or its planned needs ask for a
+  location capability (`planner.location`, `NightVeilLocationError`, one `guard.denied` each); the
+  intake settles it REFUSED like any other planning failure.
+
 ## How to test this
 
 Every module is tested against fakes: `hivemind.brood_chamber.MemoryTaskStore`-backed

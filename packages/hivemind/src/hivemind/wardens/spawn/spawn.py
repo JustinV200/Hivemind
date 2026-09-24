@@ -313,7 +313,12 @@ def binding_check(
         grant=grant,
         binding_key=binding_key,
         slot=ModelSlot.from_wire(assignment.slot),
-        context=PolicyContext(comb_shield=ctx.cell.comb_shield, access_level=ctx.cell.access_level),
+        # Roadmap step 10.3b: the task is bound to its Cell's tier; a rebind is checked against it.
+        context=PolicyContext(
+            comb_shield=ctx.cell.comb_shield,
+            access_level=ctx.cell.access_level,
+            bound_tier=ctx.cell.comb_shield,
+        ),
     )
 
 
@@ -447,6 +452,7 @@ def _build_worker_context(
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
         enforcer=deps.enforcer,
+        scanner=deps.scanner,  # Roadmap 10.6b: every tool result is scanned on this node's key.
     )
 
 

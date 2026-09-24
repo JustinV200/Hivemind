@@ -36,14 +36,23 @@ See Also:
 Public API:
     - AnthropicConfig, AnthropicProvider (hivemind.llm.providers.anthropic).
     - OpenAICompatConfig, OpenAICompatProvider (hivemind.llm.providers.openai_compat).
+    - OpenAICompatTranscriptionConfig, OpenAICompatTranscription (the same package's
+      transcription adapter, roadmap step 6.5a).
 """
 
 from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
-from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
+from hivemind.llm.providers.openai_compat import (
+    OpenAICompatConfig,
+    OpenAICompatProvider,
+    OpenAICompatTranscription,
+    OpenAICompatTranscriptionConfig,
+)
 
 __all__ = [
     "AnthropicConfig",
     "AnthropicProvider",
     "OpenAICompatConfig",
     "OpenAICompatProvider",
+    "OpenAICompatTranscription",
+    "OpenAICompatTranscriptionConfig",
 ]

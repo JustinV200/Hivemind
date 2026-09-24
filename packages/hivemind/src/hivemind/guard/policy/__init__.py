@@ -9,8 +9,12 @@ the held set and the context (`models`). `roles` builds a principal's set from i
 Warden's (its role default narrowed to its Cell's access level, less the deny list), a Worker
 role's default, a device's proposed approval; `principals` builds the ref each bee acts as.
 `catalogue` (roadmap step 10.3) classifies every trail event kind as authorised at a point or no
-action at all, and names the points still pending. Everything in this package is pure; recording
-a denial on the trail is `hivemind.guard.enforcer`'s job.
+action at all, and names the points still pending. `floors` (roadmap steps 10.3a-10.3d) holds the
+rules `evaluate` runs first, which refuse whatever a set holds: the Hive's own state for every bee
+(`hive_state` names those paths and addresses), and the Night Veil and tier-inheritance floors,
+which read facts only an enforcement point knows (`facts`: a Cell's control link, a task's goal
+request). Everything in this package is pure; recording a denial on the trail is
+`hivemind.guard.enforcer`'s job.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by the composition roots
@@ -34,12 +38,16 @@ Public API:
     - EnforcementPoint: every named place an action is authorised (points).
     - PrincipalKind, PrincipalRef, OPERATOR_ID, PolicyContext, PolicyRequest, EscalationAction,
       PolicyDecision: the request and the answer (models).
+    - ControlLink, GoalRequestFacts: the facts a floor reads that only a point knows (facts).
     - GuardPolicy, RoleDefaults, POLICY_ROLES, WARDEN_ROLE, DEVICE_ROLE: the checked policy
       (table).
+    - HiveState, comparable_path: the Hive's own state paths and addresses (hive_state).
     - load_guard_policy, DEFAULT_POLICY_FILENAME: build it from a file and `[guard]` (defaults).
-    - evaluate, refusal, HELD_RULE, NOT_HELD_RULE, DENY_LIST_RULE, ACCESS_LEVEL_RULE,
-      TIER_FLOOR_RULE, SCOPE_RULE: the decision, a point-decided refusal and the stable rule ids
-      (evaluate).
+    - evaluate, floor_decision, refusal, HELD_RULE, NOT_HELD_RULE, DENY_LIST_RULE,
+      ACCESS_LEVEL_RULE, TIER_FLOOR_RULE, STATE_FLOOR_RULE, SCOPE_RULE: the decision, the floors
+      alone, a point-decided refusal and the stable rule ids (evaluate).
+    - floors: the floor rules themselves, reached as `hivemind.guard.policy.floors` (its own face
+      names every floor and its rule id).
     - role_set, warden_set, proposed_set, worker_role_name: a principal's set from its role
       (roles).
     - queen_principal, warden_principal, worker_principal: the ref each bee acts as (principals).
@@ -56,10 +64,14 @@ from hivemind.guard.policy.evaluate import (
     HELD_RULE,
     NOT_HELD_RULE,
     SCOPE_RULE,
+    STATE_FLOOR_RULE,
     TIER_FLOOR_RULE,
     evaluate,
+    floor_decision,
     refusal,
 )
+from hivemind.guard.policy.facts import ControlLink, GoalRequestFacts
+from hivemind.guard.policy.hive_state import HiveState, comparable_path
 from hivemind.guard.policy.models import (
     OPERATOR_ID,
     EscalationAction,
@@ -95,11 +107,15 @@ __all__ = [
     "POLICY_ROLES",
     "QUEEN_ROLE",
     "SCOPE_RULE",
+    "STATE_FLOOR_RULE",
     "TIER_FLOOR_RULE",
     "WARDEN_ROLE",
+    "ControlLink",
     "EnforcementPoint",
     "EscalationAction",
+    "GoalRequestFacts",
     "GuardPolicy",
+    "HiveState",
     "PolicyContext",
     "PolicyDecision",
     "PolicyRequest",
@@ -107,7 +123,9 @@ __all__ = [
     "PrincipalRef",
     "RoleDefaults",
     "classify",
+    "comparable_path",
     "evaluate",
+    "floor_decision",
     "load_guard_policy",
     "proposed_set",
     "queen_principal",

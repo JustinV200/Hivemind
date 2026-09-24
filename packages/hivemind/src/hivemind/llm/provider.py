@@ -25,6 +25,9 @@ Key invariants:
       `llm/providers/<name>/` package.
     - `count_tokens` returns `None`, not a wrong number, when the provider cannot estimate before
       sending; callers must treat `None` as "unknown", never as zero.
+    - `aclose` is idempotent and is the provider's last call: whoever built the provider (the
+      registry, `hivemind.llm.registry.ProviderRegistry.aclose`) calls it at shutdown so no
+      pooled connection outlives the Hive, and nothing calls the provider afterwards.
 
 See Also:
     - .claude/codingrules.md section 8.1 for the Protocol-at-every-seam rule this module follows.
@@ -131,5 +134,17 @@ class LLMProvider(Protocol):
             A fresh ProviderHealth reading. Never cached across the life of the provider instance
             longer than the caller's own polling interval decides; health is re-probed in memory
             only (Appendix C: "Provider health... In memory, re-probed on start").
+        """
+        ...
+
+    async def aclose(self) -> None:
+        """Release every connection this provider holds; safe to call more than once.
+
+        An adapter's HTTP or SDK client keeps a pool of open connections for the life of the
+        provider; left unclosed at shutdown they leak (the interpreter warns about every
+        unclosed socket, and the test suite turns that warning into an error). The owner of the
+        provider -- `hivemind.llm.registry.ProviderRegistry.aclose` in practice -- calls this
+        once when the Hive stops. A second call does nothing. A provider with nothing to release
+        (the fake) implements it as a no-op. Nothing calls a provider after closing it.
         """
         ...

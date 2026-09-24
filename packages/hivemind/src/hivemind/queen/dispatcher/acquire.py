@@ -18,6 +18,9 @@ Queen, acting for the goal, passes the `comb_shield_egress` enforcement point: t
 set, when it carries one, must hold `cell:comb_shield:<tier>` for the tier the Cell will carry.
 Placement already excludes a tier the goal lacks, so this refuses only a path that reached here
 some other way; a refusal is `guard.denied` on the trail and a `PlacementError` to the dispatcher.
+Roadmap steps 10.3a-c: the Guard's floors run at that point for every task, the operator's own
+included, with the Cell's tier and the Night Veil facts on the context
+(`hivemind.queen.dispatcher.night_veil.tier_context`), and a floor's refusal is final.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -50,10 +53,11 @@ import dataclasses
 from collections.abc import Sequence
 
 from hivemind.brood_chamber import Task
-from hivemind.guard import EnforcementPoint
+from hivemind.guard import CapabilitySet, EnforcementPoint
 from hivemind.hive import CellProvisionError
-from hivemind.queen.authority import goal_held, request_for, task_context
+from hivemind.queen.authority import goal_held, request_for
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.dispatcher.night_veil import tier_context
 from hivemind.queen.dispatcher.snapshot import (
     build_forage_view,
     build_inventory,
@@ -169,23 +173,34 @@ async def _authorize_egress(
 
     A fresh provision carries its spec's own tier; a dormant Cell was matched on the task's own
     requested tier (`hivemind.queen.placement.decide._matching_dormant`), so that is its tier.
+    The floors run first and for every task (roadmap steps 10.3a-c: the tier's initiation,
+    inheritance and control link), since they hold whatever a set says; the goal's set is then
+    checked only when the goal carries one.
 
     Raises:
-        PlacementError: The goal's set does not hold `cell:comb_shield:<tier>`; the Enforcer has
-            already recorded `guard.denied`.
+        PlacementError: A floor refused (final), or the goal's set does not hold
+            `cell:comb_shield:<tier>`; the Enforcer has already recorded `guard.denied`.
     """
-    goal = goal_held(task)
-    if goal is None:
-        return  # The operator's own local path: no ceiling to check the tier against.
     tier = (
         placement.spec.comb_shield
         if isinstance(placement, ProvisionVirtual)
         else task.spec.needs.comb_shield
     )
+    goal = goal_held(task)
     request = request_for(
-        deps, EnforcementPoint.COMB_SHIELD_EGRESS, rules.tier_capability(tier), goal
-    )
-    decision = await deps.enforcer.check(request.model_copy(update={"context": task_context(task)}))
+        deps,
+        EnforcementPoint.COMB_SHIELD_EGRESS,
+        rules.tier_capability(tier),
+        goal or CapabilitySet.empty(),  # The floors never read it; the operator's path has none.
+    ).model_copy(update={"context": await tier_context(deps, task, tier)})
+    floor = await deps.enforcer.check_floors(request)
+    if floor is not None:
+        raise PlacementError(
+            f"Task {task.id} may not activate {tier.name}: {floor.reason}", final=True
+        )
+    if goal is None:
+        return  # The operator's own local path: no ceiling to check the tier against.
+    decision = await deps.enforcer.check(request)
     if not decision.allowed:
         raise PlacementError(f"Task {task.id} may not activate {tier.name}: {decision.reason}")
 

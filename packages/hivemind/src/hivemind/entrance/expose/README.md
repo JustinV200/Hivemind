@@ -14,7 +14,10 @@ value, and every remote mode is TLS on a DNS name.
 
 "TLS" means `public_url` names a DNS host (never an IP, never `localhost`), the `[entrance.tls]`
 certificate and key are readable, unencrypted PEM, belong together, are valid now, and the
-certificate's names cover that host; `rp_id`, when set, is that host or a parent domain of it.
+certificate's names cover that host; `rp_id`, when set, is that host or a parent domain of it,
+and never a public suffix a browser refuses as a relying party (a single label, or a known
+suffix such as Tailscale's `ts.net`; the full Public Suffix List is still the browser's to
+enforce at the first ceremony).
 
 ```text
                       [entrance] section ──┐
@@ -41,6 +44,7 @@ certificate's names cover that host; `rp_id`, when set, is that host or a parent
 | `names.py` | `public_host`, `public_origin`, `certificate_covers`, `is_same_or_parent_domain`: DNS name rules. |
 | `loopback.py` | `loopback_request_allowed`: the loopback listener's `Host` and forwarding-header check. |
 | `tunnel.py` | `TunnelSupervisor`, `tunnel_environment`: the one Entrance module that starts a process. |
+| `process_tree.py` | `kill_process_tree`: ends a child and everything it started (Windows has no process groups). |
 | `interfaces/` | `LocalInterfaces`, `SystemInterfaces` (psutil), `FakeInterfaces`. |
 | `tls/` | The Hive's certificate authority (`entrance.ca_key`, `entrance.ca_cert` in the secret store), device certificates (from a CSR, or PKCS#12 for a browser), the revocation list, `server_context`, `ContextSwitch`. |
 
@@ -68,7 +72,9 @@ certificate's names cover that host; `rp_id`, when set, is that host or a parent
   third-party client has no business with the Hive's provider or VAPID keys. Its stdio is the null
   device; logs name the program, a pid, an exit code and a delay, never arguments or environment.
   `stop()` sends SIGTERM (to the whole process group on POSIX), waits half a second, then SIGKILL:
-  it returns within about a second, the Entrance Reducer's bound for cutting the door.
+  it returns within about a second, the Entrance Reducer's bound for cutting the door. Windows has
+  no process-group signal, so there `process_tree.kill_process_tree` ends every process the child
+  started, then the child, and no helper keeps the door open.
 - **The loopback check is a deny-list plus a strict Host.** Proxies that announce themselves
   (`Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via`, `Tailscale-*`) are refused; a bare TCP
   forwarder is invisible at HTTP level, which is why the client guide forbids fronting loopback.

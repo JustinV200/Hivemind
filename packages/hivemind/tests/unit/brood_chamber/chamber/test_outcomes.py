@@ -18,7 +18,7 @@ See Also:
 from __future__ import annotations
 
 import pytest
-from builders.tasks import make_task
+from builders.tasks import make_graph_draft, make_task
 
 from hivemind.brood_chamber.chamber import BroodChamber, ChamberIdentity
 from hivemind.brood_chamber.errors import InvalidTransitionError
@@ -26,7 +26,7 @@ from hivemind.brood_chamber.store.memory import MemoryTaskStore
 from hivemind.brood_chamber.task.model import Task, TaskOutcome
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.common.errors import InvariantViolationError
-from hivemind.pheromone import TaskEvent
+from hivemind.pheromone import TaskEvent, TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from waggle.clock import FakeClock
 from waggle.ids import new_event_id, new_hive_id, new_node_id, new_warden_id, new_worker_id
@@ -144,3 +144,20 @@ async def test_cancel_a_terminal_task_raises_invalid_transition() -> None:
 
     with pytest.raises(InvalidTransitionError):
         await chamber.cancel(task.id, reason="too late")
+
+
+async def test_cancel_stranded_cancels_only_what_a_dead_dependency_left_waiting() -> None:
+    clock = FakeClock()
+    chamber, _store, trail = _make_chamber(clock)
+    graph = make_graph_draft({"root": (), "child": ("root",), "free": ()})
+    root, child, free = await chamber.submit(graph)
+    await chamber.cancel(root.id, reason="the human cancelled it")
+
+    cancelled = await chamber.cancel_stranded()
+
+    assert [task.id for task in cancelled] == [child.id]
+    assert cancelled[0].outcome is not None and root.id in cancelled[0].outcome.summary
+    assert (await chamber.get(free.id)).status is TaskStatus.PENDING
+    kinds = [event.kind for event in await trail.query(TrailQuery(subject_id=child.id))]
+    assert kinds == ["task.submitted", "task.cancelled"]
+    assert await chamber.cancel_stranded() == ()  # Nothing left to strand: idempotent.

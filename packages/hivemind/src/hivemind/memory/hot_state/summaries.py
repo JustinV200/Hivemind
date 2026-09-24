@@ -24,6 +24,9 @@ Fits into the Hive:
 Key invariants:
     - Every summary model carries a `clearance` field, like every other memory-tier row
       (codingrules section 8.9): `assemble` filters every candidate by it before anything else.
+    - A `DecisionSummary` carries the taint label of the record it came from, and a
+      `TriggerEvent`'s outside text travels with its scan verdict, so `assemble` can refuse the
+      one and apply the other without reading any store itself (roadmap steps 10.6b, 10.6d).
     - AlarmSummary.raised_at and QuestionSummary.asked_at exist so every hot-state category can be
       ordered by recency the same way (codingrules section 8.9's "packed by relevance... until the
       budget fills"); they are this module's own addition to the roadmap's compact field list,
@@ -47,8 +50,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.cell import HoneyClearance
 from hivemind.forage.slots import ModelSlot
 from hivemind.memory.handoff import Handoff
+from hivemind.memory.hot_state.untrusted import UntrustedText
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
+from hivemind.memory.taint.marker import TaintMarker
 from waggle.ids import CellId
 from waggle.messages.base import AlarmIdField, CellIdField, MessageIdField, TaskIdField, UtcDatetime
 
@@ -127,6 +132,12 @@ class TriggerEvent(BaseModel):
         description="A reference to further detail, when there is more than the summary.",
     )
     clearance: HoneyClearance = Field(description="This trigger's data-sensitivity label.")
+    untrusted: UntrustedText | None = Field(
+        default=None,
+        description="Outside text the trigger carries (a human's chat words, roadmap step 10.5), "
+        "with its scan verdict; assemble renders it after the summary, fenced, labelled harder "
+        "or withheld by that verdict (roadmap step 10.6b). None when the trigger carries none.",
+    )
 
 
 class TaskSummary(BaseModel):
@@ -200,6 +211,11 @@ class DecisionSummary(BaseModel):
         max_length=SUMMARY_TEXT_CAP_CHARS, description="A capped summary of the action taken."
     )
     clearance: HoneyClearance = Field(description="The decision's data-sensitivity label.")
+    tainted: TaintMarker | None = Field(
+        default=None,
+        description="The taint label of the record this decision came from (an episode record, "
+        "a resumed Handoff); a TAINTED decision is refused by assemble outright (10.6d).",
+    )
 
 
 class CellWaxSummary(BaseModel):

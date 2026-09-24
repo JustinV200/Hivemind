@@ -58,13 +58,23 @@ from __future__ import annotations
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
-from hivemind.llm.registry import ProviderConfig, ProviderRegistry, RegistryDeps, default_factories
+from hivemind.llm.registry import (
+    ProviderConfig,
+    ProviderRegistry,
+    RegistryDeps,
+    default_factories,
+    runs_locally,
+)
 from waggle.clock import Clock
 
 DEFAULT_IN_CELL_PROVIDER_NAME = "fake"  # Never a real vendor or server name (codingrules 8.6).
 _FAKE_MODEL_ID = "in-cell-placeholder"  # Named, not a magic string repeated at each binding.
 
-__all__ = ["DEFAULT_IN_CELL_PROVIDER_NAME", "build_in_cell_provider_registry"]
+__all__ = [
+    "DEFAULT_IN_CELL_PROVIDER_NAME",
+    "build_in_cell_provider_registry",
+    "local_provider_names",
+]
 
 
 def build_in_cell_provider_registry(clock: Clock, config: InCellRuntimeConfig) -> ProviderRegistry:
@@ -86,6 +96,24 @@ def build_in_cell_provider_registry(clock: Clock, config: InCellRuntimeConfig) -
         factories=default_factories(), environ=config.environ, clock=clock, map=None
     )
     return ProviderRegistry(config.providers, config.slots, config.llm_offline, deps)
+
+
+def local_provider_names(config: InCellRuntimeConfig) -> frozenset[str]:
+    """Name the providers this Cell's own registry serves locally: in process, or on loopback.
+
+    Roadmap step 10.3a: a Night Veil binding is local only when every provider its chain reaches
+    is one of these. A gateway-host base URL is the Hive Stand's machine, never this Cell's.
+
+    Args:
+        config: This process's own validated runtime config; `.providers` is read.
+
+    Returns:
+        The fallback fake's name when no table was sent (the same branch the registry takes),
+        otherwise every provider `hivemind.llm.registry.runs_locally` accepts.
+    """
+    if not config.providers:
+        return frozenset({DEFAULT_IN_CELL_PROVIDER_NAME})  # The in-process fake, and only it.
+    return frozenset(name for name, cfg in config.providers.items() if runs_locally(cfg))
 
 
 def _build_fake_registry(clock: Clock) -> ProviderRegistry:

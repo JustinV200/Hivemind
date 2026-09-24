@@ -10,15 +10,20 @@ groups what a goal is planned under into `GoalTerms`: `plan_goal_graph` plans an
 half the Queen's own intake drain runs for a durable goal request, beside her tick, with the
 request's budget, tier, origin, device, ceiling and id), and `submit_goal` adds the immediate
 dispatch `hive run` relies on, unchanged for it: it passes no request (`hive tasks submit` writes
-a drafted graph to the Brood Chamber itself and never plans).
+a drafted graph to the Brood Chamber itself and never plans). Roadmap step 10.3d: a goal whose
+request named NIGHT_VEIL is refused before it is planned when its ceiling asks where its Cell is,
+and before its graph is persisted when a planned task's needs do
+(`hivemind.queen.planner.location`); each ask is refused through the Guard's Night Veil floor at
+the placement point, the Queen acting for the goal, so it is `guard.denied` on the trail.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
     by `hivemind.queen.queen.Queen.submit_goal` (`submit_goal`) and `hivemind.queen.ticks.intake`
     (`plan_goal_graph`). Calls into `hivemind.brood_chamber.task` (GoalRequestId), `hivemind.cell`,
-    `hivemind.forage.slots` (ModelSlot), `hivemind.queen.deps`, `hivemind.queen.dispatcher`
-    (dispatch_ready), `hivemind.queen.planner` (PlanBrief, plan_goal), `hivemind.queen.trail`
-    (record_event) and waggle only.
+    `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (the location asks' refusals),
+    `hivemind.queen.authority`, `hivemind.queen.deps`, `hivemind.queen.dispatcher`
+    (dispatch_ready), `hivemind.queen.planner` (PlanBrief, plan_goal, location),
+    `hivemind.queen.trail` (record_event) and waggle only.
 
 Key invariants:
     - Takes `deps` and `wardens` explicitly, never a `Queen` instance: the Queen delegates by
@@ -43,9 +48,17 @@ from pydantic import JsonValue
 from hivemind.brood_chamber.task import GoalRequestId
 from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin
 from hivemind.forage.slots import ModelSlot
+from hivemind.guard import Capability, CapabilitySet, EnforcementPoint, PolicyContext
+from hivemind.guard.policy import GoalRequestFacts
+from hivemind.queen.authority import request_for
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.planner import PlanBrief, plan_goal
+from hivemind.queen.planner.location import (
+    NightVeilLocationError,
+    ceiling_location_asks,
+    needs_location_asks,
+)
 from hivemind.queen.trail import record_event
 from waggle.ids import DeviceId, TaskId
 
@@ -119,7 +132,13 @@ async def plan_goal_graph(
     Raises:
         hivemind.queen.planner.PlannerError: The plan could not become a valid task graph.
         hivemind.llm.errors.LLMError: The planner's model call failed on every rung and binding.
+        hivemind.queen.planner.location.NightVeilLocationError: A Night Veil goal's ceiling or
+            planned needs ask where its Cell is (roadmap step 10.3d); nothing was persisted.
     """
+    night_veil = terms.comb_shield is CombShieldLevel.NIGHT_VEIL
+    if night_veil:
+        # Before the model call: a ceiling that asks for location is refused without planning.
+        await _refuse_location_asks(deps, terms, ceiling_location_asks(terms.capabilities))
     bound = deps.bound_for(ModelSlot.QUEEN)
     brief = PlanBrief(
         goal,
@@ -136,6 +155,10 @@ async def plan_goal_graph(
     # External await: one model call, seconds to minutes on a local model; the ladder retries
     # and steps down rungs itself, and a failure on every rung raises for the caller to refuse.
     draft = await plan_goal(brief, bound, gate=deps.call_gate)
+    if night_veil:
+        # Before persisting: no task of a Night Veil goal may ask where its Cell is either.
+        needs = (task.needs for task in draft.tasks)
+        await _refuse_location_asks(deps, terms, needs_location_asks(needs))
     minted = await deps.chamber.submit(draft)
     await record_event(deps, "queen.planned", minted[0].id, **_planned_payload(len(minted), terms))
     return minted[0].id  # The goal's own id: the first task minted from the plan.
@@ -150,3 +173,30 @@ def _planned_payload(task_count: int, terms: GoalTerms) -> dict[str, JsonValue]:
     if terms.device_id is not None:
         payload["device_id"] = terms.device_id
     return payload
+
+
+async def _refuse_location_asks(
+    deps: QueenDeps, terms: GoalTerms, asks: tuple[Capability, ...]
+) -> None:
+    """Refuse each location ask through the Guard, then the goal; nothing when there is none.
+
+    The Queen acts for the goal at the placement point with the goal's own facts on the context
+    (its bound tier, origin and request), so the Night Veil floor is what refuses each ask and
+    records its `guard.denied`.
+
+    Raises:
+        NightVeilLocationError: `asks` is not empty.
+    """
+    if not asks:
+        return
+    facts = (
+        GoalRequestFacts(origin=terms.origin, comb_shield=terms.comb_shield)
+        if terms.goal_request_id is not None
+        else None
+    )
+    context = PolicyContext(bound_tier=terms.comb_shield, origin=terms.origin, goal_request=facts)
+    held = CapabilitySet.parse(*(terms.capabilities or ()))
+    for ask in asks:
+        request = request_for(deps, EnforcementPoint.PLACEMENT, ask, held)
+        await deps.enforcer.check_floors(request.model_copy(update={"context": context}))
+    raise NightVeilLocationError(asks)

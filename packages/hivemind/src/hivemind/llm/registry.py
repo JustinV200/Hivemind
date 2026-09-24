@@ -7,7 +7,11 @@ production implementation, plus the one place a `kind` string turns into a live 
 a Hive with nine slots bound to three providers only ever builds three provider objects.
 `default_factories()` is the built-in `kind -> ProviderFactory` table for the three adapters this
 phase ships (`fake`, `openai_compat`, `anthropic`); `apply_overrides` is the one place a manifest's
-per-provider capability override replaces a base `ProviderCapabilities` field. Offline mode
+per-provider capability override replaces a base `ProviderCapabilities` field. The TRANSCRIBER slot
+(audio in, text out) binds through the same registry to a different door: `transcriber()` resolves
+its chain to a `hivemind.llm.transcription.BoundTranscriber`, building each link's
+`TranscriptionProvider` from `default_transcriber_factories()` (`fake`, `openai_compat`) and
+refusing a kind with no transcription adapter there and then, never at the first call. Offline mode
 (`[llm] offline = true`, codingrules section 8.6) is enforced a second time here, at
 construction, on top of the manifest's own load-time check -- belt and braces, and the only way
 to catch a provider kind (`ANTHROPIC`) whose *default* endpoint is hosted even when its
@@ -30,10 +34,12 @@ the same way it builds `hivemind.forage.map.SlotBinding` rows for `resolve`/`res
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Constructed once by the composition root
     (`cli/stores.py`, roadmap step 3.21) and read by every Worker, Warden and the Queen for a
-    `BoundModel`, and by `hive llm providers` for `health()`. Calls into `hivemind.forage.map`,
-    `hivemind.forage.slots`, `hivemind.llm.provider`, `hivemind.llm.capabilities`,
-    `hivemind.llm.errors`, `hivemind.llm.fake`, `hivemind.llm.providers.openai_compat`,
-    `hivemind.llm.slots` and `waggle` only -- never `hivemind.manifest` (see above).
+    `BoundModel`, by `hive llm providers` for `health()`, and by a voice-serving composition root
+    for `transcriber()` (through `hivemind.llm.fanner.bind_transcriber`). Calls into
+    `hivemind.forage.map`, `hivemind.forage.slots`, `hivemind.llm.provider`,
+    `hivemind.llm.capabilities`, `hivemind.llm.errors`, `hivemind.llm.fake`,
+    `hivemind.llm.providers`, `hivemind.llm.slots`, `hivemind.llm.transcription`,
+    `hivemind.common.logging` and `waggle` only -- never `hivemind.manifest` (see above).
 
 Key invariants:
     - `provider(name)` constructs at most once per name: a second call for the same name returns
@@ -48,6 +54,12 @@ Key invariants:
       `hivemind.manifest.env.provider_api_key`'s own derivation (which this module cannot call
       directly, for the same reason it cannot import `ProviderSpec`) so a provider's secret still
       comes from exactly one environment variable, never the config itself (codingrules 13).
+    - Transcription providers are cached per `(provider, model)`, not per provider: one server
+      may host several speech models, and the model id travels on each upload.
+    - `aclose()` closes everything this registry constructed, each under its own
+      `PROVIDER_CLOSE_TIMEOUT_S`, and forgets it; one provider's failed close is logged at warning
+      and never stops the next, so a shutdown releases every connection it can. It is idempotent:
+      a second call finds nothing left to close.
 
 See Also:
     - .claude/codingrules.md section 8.6 for "offline is a first-class mode" and "one door".
@@ -62,6 +74,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Protocol
@@ -70,15 +83,28 @@ from urllib.parse import urlsplit
 from pydantic import SecretStr
 
 from hivemind.common.errors import InvariantViolationError
+from hivemind.common.logging import get_logger
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import ProviderCapabilities, ProviderHealth
-from hivemind.llm.errors import OfflineViolationError, UnknownProviderError
+from hivemind.llm.errors import LLMError, OfflineViolationError, UnknownProviderError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
-from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
+from hivemind.llm.providers.openai_compat import (
+    OpenAICompatConfig,
+    OpenAICompatProvider,
+    OpenAICompatTranscription,
+    OpenAICompatTranscriptionConfig,
+)
 from hivemind.llm.slots import BoundModel, resolve, resolve_key
+from hivemind.llm.transcription import (
+    BoundTranscriber,
+    FakeTranscription,
+    TranscriptionProvider,
+    TranscriptionUnsupportedError,
+    resolve_transcriber,
+)
 from waggle.clock import Clock
 from waggle.uris import is_loopback_host, is_virtual_cell_gateway_host
 
@@ -90,16 +116,32 @@ ProviderKind = Literal["anthropic", "openai_compat", "fake"]
 # the completeness test excludes exactly this set from "every ProviderKind must have a factory".
 PENDING_KINDS: frozenset[ProviderKind] = frozenset()
 
+PROVIDER_CLOSE_TIMEOUT_S = 5.0  # Closing a pooled HTTP client is local work measured in
+# milliseconds; five seconds absorbs a slow socket teardown without letting one provider hold the
+# whole Hive's shutdown hostage.
+
+log = get_logger(__name__)
+
+# Roadmap step 10.3a: provider kinds whose model runs inside the calling process itself, so a call
+# to one never leaves the machine it is made on (Night Veil's local-only rule, `runs_locally`).
+IN_PROCESS_KINDS: frozenset[ProviderKind] = frozenset({"fake"})
+
 __all__ = [
+    "IN_PROCESS_KINDS",
     "PENDING_KINDS",
+    "PROVIDER_CLOSE_TIMEOUT_S",
     "MissingDefaultModelError",
     "ProviderConfig",
     "ProviderFactory",
     "ProviderKind",
     "ProviderRegistry",
     "RegistryDeps",
+    "TranscriberFactory",
     "apply_overrides",
     "default_factories",
+    "default_transcriber_factories",
+    "runs_in_process",
+    "runs_locally",
 ]
 
 
@@ -161,6 +203,29 @@ class ProviderFactory(Protocol):
         ...
 
 
+class TranscriberFactory(Protocol):
+    """Build a live TranscriptionProvider for one provider row and one speech model id."""
+
+    def __call__(
+        self,
+        name: str,
+        config: ProviderConfig,
+        model: str,
+        api_key: SecretStr | None,
+        clock: Clock,
+    ) -> TranscriptionProvider:
+        """Return a new transcription provider for `name` serving `model`.
+
+        Args:
+            name: The manifest's `[llm.providers.<name>]` key.
+            config: That provider's config.
+            model: The speech model id the binding row names.
+            api_key: The resolved secret, or None when this provider needs none.
+            clock: Passed through to the provider's own health() readings.
+        """
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class RegistryDeps:
     """Collaborators a ProviderRegistry needs beyond the manifest-derived config it is given."""
@@ -169,6 +234,11 @@ class RegistryDeps:
     environ: Mapping[str, str]  # Read only by _resolve_api_key (codingrules section 13).
     clock: Clock  # Passed to every factory and, through it, to every constructed provider.
     map: ForageMap | None = None  # Prices resolve()'s BoundModels; None leaves them unpriced.
+    # kind -> how to build a transcription provider of it; a kind absent here cannot transcribe.
+    # A lambda because the default table is defined further down this module.
+    transcribers: Mapping[ProviderKind, TranscriberFactory] = field(
+        default_factory=lambda: default_transcriber_factories()
+    )
 
 
 class ProviderRegistry:
@@ -198,6 +268,7 @@ class ProviderRegistry:
         self._offline = offline
         self._deps = deps
         self._cache: dict[str, LLMProvider] = {}
+        self._transcribers: dict[tuple[str, str], TranscriptionProvider] = {}
 
     def names(self) -> tuple[str, ...]:
         """Return every `[llm.providers.*]` name this registry knows, in manifest order."""
@@ -241,6 +312,28 @@ class ProviderRegistry:
         """Resolve a named binding for `slot`; see `hivemind.llm.slots.resolve_key`."""
         return resolve_key(key, slot, self._bindings, self.provider, self._deps.map)
 
+    def transcriber(self, slot: ModelSlot = ModelSlot.TRANSCRIBER) -> BoundTranscriber:
+        """Bind `slot`'s chain to transcription providers, building (and caching) each one.
+
+        Called once by a composition root that serves voice (the Entrance), so a manifest that
+        binds TRANSCRIBER to a provider that cannot transcribe fails when the Hive starts.
+
+        Args:
+            slot: The slot to bind; TRANSCRIBER, the one audio slot.
+
+        Returns:
+            The bound chain; see `hivemind.llm.transcription.resolve_transcriber`.
+
+        Raises:
+            TranscriptionUnsupportedError: A row's provider kind has no transcription adapter.
+            UnknownProviderError: A row names no configured provider.
+            OfflineViolationError: `[llm] offline = true` and a row's provider is not local.
+            UnresolvableSlotError: No row binds `slot`, or its chain cycles.
+        """
+        return resolve_transcriber(
+            slot, self._bindings, self._transcription_provider, self._deps.map
+        )
+
     async def health(self) -> dict[str, ProviderHealth]:
         """Probe every provider this registry has already constructed.
 
@@ -248,6 +341,53 @@ class ProviderRegistry:
         health of what is actually in play, not every name the manifest happens to list.
         """
         return {name: await instance.health() for name, instance in self._cache.items()}
+
+    async def aclose(self, timeout_s: float = PROVIDER_CLOSE_TIMEOUT_S) -> None:
+        """Close every provider this registry constructed, then forget them.
+
+        Called once by the composition root when the Hive stops, so no adapter's pooled
+        connections outlive it. Each close runs under its own `timeout_s` and a failure is
+        logged at warning with the provider's name, never raised: one stuck or broken provider
+        must not keep the others' sockets open. Forgetting what was closed makes a second call a
+        no-op; a provider asked for after this is built afresh (and closed by the next call).
+
+        Args:
+            timeout_s: How long one provider's close may take before it is abandoned; must be
+                > 0. `PROVIDER_CLOSE_TIMEOUT_S` by default; a test passes a tiny value.
+        """
+        # Snapshot and clear first, so a concurrent second aclose() (or a re-entrant one from a
+        # provider's own close) finds nothing left and never closes the same client twice.
+        closing: list[tuple[str, _Closable]] = list(self._cache.items())
+        closing.extend((name, instance) for (name, _), instance in self._transcribers.items())
+        self._cache.clear()
+        self._transcribers.clear()
+        for name, instance in closing:
+            await _close_quietly(name, instance, timeout_s)
+
+    def _transcription_provider(self, binding: SlotBinding) -> TranscriptionProvider:
+        """Return the cached transcription provider for `binding`, building it on first use.
+
+        The production `hivemind.llm.transcription.TranscriberLookup`; see its Raises. Refusal
+        comes before construction, and offline mode is checked before a factory runs, exactly
+        as `provider()` does for chat.
+        """
+        key = (binding.provider, binding.model)
+        cached = self._transcribers.get(key)
+        if cached is not None:
+            return cached
+        config = self._providers.get(binding.provider)
+        if config is None:
+            raise UnknownProviderError(binding.provider)
+        factory = self._deps.transcribers.get(config.kind)
+        if factory is None:
+            raise TranscriptionUnsupportedError(
+                binding.provider, config.kind, binding.key, self._deps.transcribers.keys()
+            )
+        _check_offline(binding.provider, config.base_url, self._offline)
+        api_key = _resolve_api_key(binding.provider, config.api_key_env, self._deps.environ)
+        instance = factory(binding.provider, config, binding.model, api_key, self._deps.clock)
+        self._transcribers[key] = instance
+        return instance
 
 
 def apply_overrides(
@@ -278,6 +418,45 @@ def default_factories() -> Mapping[ProviderKind, ProviderFactory]:
     }
 
 
+def default_transcriber_factories() -> Mapping[ProviderKind, TranscriberFactory]:
+    """Return the built-in `kind -> TranscriberFactory` table: every kind that can transcribe.
+
+    `anthropic` is absent on purpose: its API takes no audio upload, so binding TRANSCRIBER to it
+    is refused (`TranscriptionUnsupportedError`). The in-process Whisper kind joins this table in
+    roadmap step 6.5a proper.
+    """
+    return {
+        "fake": _build_fake_transcription,
+        "openai_compat": _build_openai_compat_transcription,
+    }
+
+
+class _Closable(Protocol):
+    """Anything the registry built that holds connections: an LLMProvider or a transcriber."""
+
+    async def aclose(self) -> None:
+        """Release every connection held; idempotent."""
+        ...
+
+
+async def _close_quietly(name: str, closable: _Closable, timeout_s: float) -> None:
+    """Close one provider under `timeout_s`, logging (never raising) a failure.
+
+    The caught set is every way a close is known to fail at shutdown, and nothing broader
+    (codingrules section 10 allows `except Exception` in three named places, and this is not
+    one): our own timeout expiring, an OS-level socket error while tearing a connection down, a
+    `RuntimeError` from an event loop already shutting down underneath the client, and an
+    adapter's own typed `LLMError`. Anything else is a bug and propagates.
+    """
+    try:
+        # External await, bounded: a stuck teardown is abandoned after timeout_s, not waited on.
+        async with asyncio.timeout(timeout_s):
+            await closable.aclose()
+    except (TimeoutError, OSError, RuntimeError, LLMError) as exc:
+        # Logged, not swallowed: the operator learns which provider may have leaked a connection.
+        log.warning("llm.provider_close_failed", provider=name, error=type(exc).__name__)
+
+
 def _check_offline(name: str, base_url: str, offline: bool) -> None:
     """Raise OfflineViolationError when `offline` and `base_url` is not provably local.
 
@@ -291,6 +470,39 @@ def _check_offline(name: str, base_url: str, offline: bool) -> None:
         return
     if not _is_provably_local(base_url):
         raise OfflineViolationError(name, base_url)
+
+
+def runs_in_process(config: ProviderConfig) -> bool:
+    """Return whether a provider's model runs inside whichever process binds it.
+
+    Args:
+        config: One provider's configuration.
+
+    Returns:
+        True for a kind in `IN_PROCESS_KINDS`: local to any Cell that binds it (roadmap 10.3a).
+    """
+    return config.kind in IN_PROCESS_KINDS
+
+
+def runs_locally(config: ProviderConfig) -> bool:
+    """Return whether a provider serves from the calling machine itself: in process, or loopback.
+
+    Roadmap step 10.3a (ADR-0030): a Night Veil task binds only local models, never a hosted one
+    and never the Hive Stand's. Stricter than offline's own `_is_provably_local` on purpose: a
+    Virtual Cell gateway host is the Hive Stand's machine seen from inside a Cell, so it is
+    local enough for `offline` and never local for Night Veil.
+
+    Args:
+        config: One provider's configuration, as the caller's own registry holds it.
+
+    Returns:
+        True for an in-process kind (`IN_PROCESS_KINDS`) or a base URL on a loopback host;
+        False for a hosted endpoint, a gateway host or any other address.
+    """
+    if runs_in_process(config):
+        return True  # Nothing leaves the process, so nothing leaves the machine.
+    hostname = urlsplit(config.base_url).hostname if config.base_url else None
+    return hostname is not None and is_loopback_host(hostname)
 
 
 def _is_provably_local(base_url: str) -> bool:
@@ -375,3 +587,24 @@ def _build_openai_compat(
         capabilities=capabilities,
     )
     return OpenAICompatProvider.create(name, oc_config, clock)
+
+
+def _build_fake_transcription(
+    name: str, config: ProviderConfig, model: str, api_key: SecretStr | None, clock: Clock
+) -> TranscriptionProvider:
+    """Build a FakeTranscription; the config, model and key are accepted and unused."""
+    return FakeTranscription(name=name, clock=clock)
+
+
+def _build_openai_compat_transcription(
+    name: str, config: ProviderConfig, model: str, api_key: SecretStr | None, clock: Clock
+) -> TranscriptionProvider:
+    """Build an OpenAICompatTranscription for `model` on this provider's server.
+
+    The key is the one the chat adapter would use (`_resolve_api_key`), and the manifest's
+    per-provider `timeout_s` bounds each whole transcription.
+    """
+    transcription_config = OpenAICompatTranscriptionConfig(
+        base_url=config.base_url, model=model, api_key=api_key, timeout_s=config.timeout_s
+    )
+    return OpenAICompatTranscription.create(name, transcription_config, clock)

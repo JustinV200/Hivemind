@@ -18,7 +18,8 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.expose``. Built by the
     Entrance's composition root from an ``ExposurePlan``'s ``tunnel_argv`` and the tunnel
     variables ``hivemind.manifest.env`` read; stopped by the Entrance Reducer and at shutdown.
-    Calls into ``asyncio``'s subprocess support and the injected ``Clock``.
+    Calls into ``asyncio``'s subprocess support, the injected ``Clock`` and, on Windows,
+    ``hivemind.entrance.expose.process_tree`` (every process the child started ends with it).
 
 Key invariants:
     - The child never inherits a ``HIVEMIND_*`` variable or a withheld provider key variable,
@@ -49,6 +50,7 @@ from pydantic import SecretStr
 
 from hivemind.common.logging import get_logger
 from hivemind.entrance.expose.errors import ExposureRefusedError
+from hivemind.entrance.expose.process_tree import kill_process_tree
 from hivemind.entrance.expose.rules import ExposureRule
 from hivemind.manifest.schema import EntranceExposure
 from waggle.clock import Clock
@@ -304,8 +306,9 @@ def _signal(process: asyncio.subprocess.Process, *, force: bool) -> None:
         return
     try:
         if sys.platform == "win32":
-            # Windows has no process-group signals; TerminateProcess ends the child itself.
-            process.kill()
+            # Windows has no process-group signals, and TerminateProcess ends only the child: kill
+            # every process it started too, so no helper keeps the door open after a reduction.
+            kill_process_tree(process.pid)
         else:
             os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
     except ProcessLookupError:

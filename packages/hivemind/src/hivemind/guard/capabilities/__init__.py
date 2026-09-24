@@ -30,6 +30,7 @@ Public API:
     - Capability: one grant, with `parse`, `str()` and `matches` (capability).
     - CapabilitySet: every grant one principal holds, with `parse`, `empty`, `allows`,
       `attenuate`, `issubset`, `as_strings` (capability_set).
+    - glob_literal: escape a path before embedding it in a glob scope (scopes).
 """
 
 from hivemind.guard.capabilities.capability import Capability
@@ -40,6 +41,7 @@ from hivemind.guard.capabilities.families import (
     CapabilityFamily,
     ScopeKind,
 )
+from hivemind.guard.capabilities.scopes import glob_literal
 
 __all__ = [
     "FAMILIES_BY_KIND",
@@ -48,4 +50,5 @@ __all__ = [
     "CapabilityFamily",
     "CapabilitySet",
     "ScopeKind",
+    "glob_literal",
 ]

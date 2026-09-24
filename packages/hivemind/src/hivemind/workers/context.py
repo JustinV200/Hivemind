@@ -5,9 +5,12 @@ session on it, the model it is bound to, its own slice of the Warden's `ForageGr
 (`GrantSlice`), its `CapabilitySet` (`hivemind.workers.capabilities.worker_capabilities` computes
 it), where to write memory and the trail, a way to ask a blocking `Question`
 (`QuestionChannel`), its mutable telemetry, its Capping gate, a view of its Real Cell lease, the
-seam every model call passes through, and (roadmap step 10.3) the Guard's `Enforcer` its tools
-check every action against. It never carries a provider, a subprocess handle, or the
-Cell's `kind` (codingrules section 8.7: "branch on capabilities, never on kind") -- a role reads
+seam every model call passes through, (roadmap step 10.3) the Guard's `Enforcer` its tools
+check every action against, (roadmap step 10.6b) the untrusted-content scanner every tool result
+passes through before the model reads it, and (roadmap step 10.3a) the resolver its network tool
+resolves a destination with before the Guard judges the addresses it got back. It never carries a
+provider, a subprocess handle, or the Cell's `kind` (codingrules section 8.7: "branch on
+capabilities, never on kind") -- a role reads
 `ctx.cell.capabilities`, never `ctx.cell.kind`. `GrantSlice` is deliberately nothing model-shaped:
 no provider, no model id, because `ctx.bound` (a `hivemind.llm.BoundModel`) already names the model
 this Worker calls, and `GrantSlice` only ever answers "how much" (spend, tokens, which named
@@ -21,9 +24,10 @@ Fits into the Hive:
     (`hivemind.workers.runtime.mailbox.Mailbox`, which satisfies `QuestionChannel` structurally),
     and passes a `hivemind.llm.FannerLane` or a bare `hivemind.llm.DirectCallGate` as `call_gate`;
     read by `hivemind.workers.base.Worker.run` implementations (the Drone, roadmap step 3.16) and
-    by every tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.guard`,
-    `hivemind.llm`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.supervision.capping`,
-    `hivemind.workers.telemetry` and waggle only.
+    by every tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.guard`
+    (its `net` resolver seam and its `scanner`), `hivemind.llm`, `hivemind.memory`,
+    `hivemind.pheromone`, `hivemind.supervision.capping`, `hivemind.workers.telemetry` and waggle
+    only.
 
 Key invariants:
     - GrantSlice is frozen and forbids extras like every boundary value in this repository; its
@@ -52,13 +56,15 @@ See Also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell, CellSession
 from hivemind.guard import CapabilitySet, Enforcer
+from hivemind.guard.net import Resolver, system_resolver
+from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm import BoundModel, CallGate
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -156,6 +162,14 @@ class WorkerContext:
         enforcer: The Guard's adapter (roadmap step 10.3, ADR-0031) every one of this Worker's
             tools calls before acting; its Warden's own, so each refusal is a `guard.denied` row
             on the same trail the Warden records to.
+        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0035) every tool result
+            passes through before the model reads it (`hivemind.workers.tools.screen`); its
+            Warden's own, so one key hashes every flag on the node. Defaults to the shipped
+            patterns and thresholds with an in-memory key, for a context built without a Warden.
+        resolver: Resolves a destination host to the addresses a connection would use, so the
+            HTTP tool can have the Guard judge them and pin its request to the one it checked
+            (roadmap step 10.3a). The operating system's resolver by default; a test passes a
+            `hivemind.guard.net.FakeResolver`, so no test ever performs a lookup.
     """
 
     worker_id: WorkerId
@@ -175,3 +189,5 @@ class WorkerContext:
     lease: LeaseView
     call_gate: CallGate
     enforcer: Enforcer
+    scanner: ContentScanner = field(default_factory=default_content_scanner)
+    resolver: Resolver = system_resolver

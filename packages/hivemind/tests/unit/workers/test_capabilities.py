@@ -20,7 +20,7 @@ import pytest
 
 from hivemind.cell import Isolation, OsFamily, TaskNeeds
 from hivemind.cell.tiers import CombShieldLevel
-from hivemind.guard import CapabilitySet, load_guard_policy, role_set
+from hivemind.guard import Capability, CapabilitySet, load_guard_policy, role_set
 from hivemind.guard.errors import CapabilityWideningError, InvalidCapabilityError
 from hivemind.workers.capabilities import worker_capabilities
 
@@ -133,6 +133,19 @@ def test_extra_write_roots_are_granted_when_the_warden_holds_an_unconfined_fs_wr
     granted = set(slice_.as_strings())
     assert "fs:write:/keep/artifact.exe" in granted
     assert "fs:write:/keep/artifact.exe/**" in granted
+
+
+def test_an_extra_write_root_with_glob_characters_grants_only_itself() -> None:
+    # Unescaped, "/keep/build*" would grant a write to every sibling it matches as a pattern.
+    warden_caps = _warden("fs:write:**")
+
+    slice_ = worker_capabilities(
+        warden_caps, _DRONE, _needs(), extra_write_roots=(Path("/keep/build*"),)
+    )
+
+    assert slice_.allows(Capability.parse("fs:write:/keep/build*/out.exe"))
+    assert not slice_.allows(Capability.parse("fs:write:/keep/build-other/out.exe"))
+    assert not slice_.allows(Capability.parse("fs:write:/keep/buildX"))
 
 
 def test_extra_write_roots_are_withheld_when_the_warden_lacks_an_unconfined_fs_write() -> None:

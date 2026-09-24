@@ -14,7 +14,10 @@ deposit_handoff_ref`), so "Stored Handoffs... are entries too" holds without a s
 search path, and a caller that also has the episode's transcript text may pass it to deposit it in
 full. `read_handoff` is the other half: it fetches the stored Handoff and its clearance, and refuses
 (`ClearanceError`) to hand it back if that clearance is above the reader's own allowance --
-codingrules section 8.9's "a Night Veil bee... never resumes from a Royal Handoff."
+codingrules section 8.9's "a Night Veil bee... never resumes from a Royal Handoff." -- and, since
+roadmap step 10.6d, refuses (`TaintedMemoryError`) a Handoff labelled TAINTED, whatever the reader's
+clearance: memory written while a bee may have been compromised is never resumed from until a
+judge verdict clears it.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). `write_checkpoint` is called by a
@@ -30,6 +33,7 @@ Key invariants:
     - `read_handoff` trusts only the store's own returned clearance for its allowance check, never
       a caller-supplied `HandoffRef.clearance` -- the latter is informational for the caller, the
       former is the authoritative check.
+    - `read_handoff` never returns a TAINTED Handoff (roadmap 10.6d); a CLEARED one it returns.
     - `write_checkpoint`'s `transcript` parameter is optional and defaults to `None` (no deposit),
       so `hivemind.workers.runtime.attempt`'s existing three-positional-argument call keeps working
       unchanged (codingrules: keep a public signature stable unless a new parameter has a default).
@@ -55,7 +59,7 @@ from pydantic import JsonValue
 from hivemind.cell import HoneyClearance
 from hivemind.memory.bee_bread import deposit_handoff_ref, deposit_transcript
 from hivemind.memory.context import MemoryContext
-from hivemind.memory.errors import ClearanceError
+from hivemind.memory.errors import ClearanceError, TaintedMemoryError
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.store.protocol import MemoryStore
 from hivemind.pheromone import MemoryEvent
@@ -137,8 +141,12 @@ async def read_handoff(store: MemoryStore, ref: HandoffRef, allowance: HoneyClea
     Raises:
         hivemind.memory.errors.HandoffNotFoundError: No Handoff with `ref.event_id` exists.
         ClearanceError: The stored Handoff's clearance is above `allowance`.
+        TaintedMemoryError: The stored Handoff is labelled TAINTED (roadmap 10.6d).
     """
     handoff, clearance = await store.get_handoff(ref.event_id)
     if clearance.rank > allowance.rank:
         raise ClearanceError(clearance, allowance)
+    # Refused outright, whatever the clearance allows: only a judge verdict makes it usable again.
+    if handoff.tainted is not None and handoff.tainted.refuses:
+        raise TaintedMemoryError(ref.event_id, handoff.tainted.event_id)
     return handoff

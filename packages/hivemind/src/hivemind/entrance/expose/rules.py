@@ -53,6 +53,7 @@ class ExposureRule(Enum):
     PUBLIC_URL_MISSING = "public_url_missing"
     PUBLIC_URL_NOT_A_NAME = "public_url_not_a_name"
     RP_ID_OUTSIDE_PUBLIC_URL = "rp_id_outside_public_url"
+    RP_ID_PUBLIC_SUFFIX = "rp_id_public_suffix"
     # TLS on that name.
     TLS_NOT_CONFIGURED = "tls_not_configured"
     TLS_CERT_UNREADABLE = "tls_cert_unreadable"
@@ -131,6 +132,10 @@ _REQUIREMENTS: dict[ExposureRule, str] = {
     ExposureRule.RP_ID_OUTSIDE_PUBLIC_URL: (
         "rp_id must be public_url's host or a parent domain of it, or every passkey ceremony "
         "on the remote listener fails"
+    ),
+    ExposureRule.RP_ID_PUBLIC_SUFFIX: (
+        "rp_id must be a domain you control, never a public suffix such as ts.net, which "
+        "browsers refuse as a relying party; use the full MagicDNS name or your own domain"
     ),
     ExposureRule.TLS_NOT_CONFIGURED: (
         "every remote mode needs [entrance.tls] cert and key, because remote always means TLS "

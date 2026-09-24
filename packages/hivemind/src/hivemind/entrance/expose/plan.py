@@ -50,6 +50,7 @@ from hivemind.entrance.expose.interfaces import IPAddress, unscoped
 from hivemind.entrance.expose.names import (
     certificate_covers,
     describe_public_host,
+    is_public_suffix,
     is_same_or_parent_domain,
     public_host,
     public_origin,
@@ -302,6 +303,9 @@ def _public_name(section: EntranceSection) -> tuple[str, str]:
     if not is_same_or_parent_domain(rp_id, host):
         detail = f"rp_id is {section.rp_id!r} and public_url's host is {host!r}."
         _refuse(section, ExposureRule.RP_ID_OUTSIDE_PUBLIC_URL, detail)
+    # A parent domain can still be one every browser refuses: a suffix shared by strangers.
+    if is_public_suffix(rp_id):
+        _refuse(section, ExposureRule.RP_ID_PUBLIC_SUFFIX, f"rp_id is {rp_id!r}.")
     return host, rp_id
 
 

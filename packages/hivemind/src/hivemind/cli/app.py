@@ -46,7 +46,7 @@ import typer
 
 from hivemind.cli import capping, forage, llm, memory, tasks, trail
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
-from hivemind.cli.run import run_command
+from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
 from hivemind.cli.version import collect_version_info, format_version
 
@@ -77,7 +77,7 @@ app.add_typer(capping.app, name="capping")
 # `run` is a bare command, not a group (see this module's own "Key invariants" and
 # hivemind.cli.run's own docstring for why `app.command` and not `app.add_typer` here); `cells`,
 # `inbox` and `wardens` (hivemind.cli.readback) are ordinary single- or multi-subcommand groups.
-app.command("run")(run_command)
+app.command("run", cls=RunCommand)(run_command)
 app.add_typer(cells_app, name="cells")
 app.add_typer(inbox_app, name="inbox")
 app.add_typer(wardens_app, name="wardens")

@@ -395,6 +395,7 @@ class _WardenHotState:
                 decision=episode.decision[:500],
                 action=episode.action[:500],
                 clearance=episode.clearance,
+                tainted=episode.tainted,  # Roadmap 10.6d: assemble refuses a TAINTED one outright.
             )
             for episode in episodes
         )
