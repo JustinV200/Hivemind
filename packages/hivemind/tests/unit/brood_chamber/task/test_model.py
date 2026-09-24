@@ -21,6 +21,7 @@ from hivemind.brood_chamber.task.model import Task, TaskDraft, TaskGraphDraft, T
 from hivemind.brood_chamber.task.state import TaskStatus
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_task_id, new_warden_id
+from waggle.messages import PlannedLeaving
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TaskSpec: depends_on
@@ -74,6 +75,16 @@ def test_task_spec_json_round_trips() -> None:
     restored = TaskSpec.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_task_spec_leaves_defaults_to_empty_and_carries_a_declared_leaving() -> None:
+    assert make_task_spec().leaves == ()
+
+    leaving = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
+    spec = make_task_spec(leaves=(leaving,))
+
+    assert spec.leaves == (leaving,)
+    assert TaskSpec.model_validate_json(spec.model_dump_json()).leaves == (leaving,)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -374,3 +385,19 @@ def test_task_graph_draft_json_round_trips() -> None:
     restored = TaskGraphDraft.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_task_draft_leaves_defaults_to_empty_and_round_trips_a_declared_leaving() -> None:
+    assert _draft("a").leaves == ()
+
+    leaving = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
+    draft = TaskDraft(
+        key="a",
+        title="Task a",
+        objective="Install the project.",
+        acceptance=make_task_spec().acceptance,
+        leaves=(leaving,),
+    )
+
+    assert draft.leaves == (leaving,)
+    assert TaskDraft.model_validate_json(draft.model_dump_json()).leaves == (leaving,)

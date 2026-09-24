@@ -22,9 +22,15 @@ import pytest
 from builders.cells import make_hive_stand_config, make_identity, make_lease_request
 
 from hivemind.cell.errors import LeaseRefusedError
+from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local.source import HiveStandSource
 from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock
+
+
+def _leavings(clock: FakeClock) -> InMemoryLeavingsStore:
+    """A throwaway leavings store: none of this module's tests ever release a lease."""
+    return InMemoryLeavingsStore(MemoryPheromoneTrail(clock))
 
 
 async def test_a_first_lease_creates_a_scratch_root_that_does_not_exist_yet(
@@ -44,6 +50,7 @@ async def test_a_first_lease_creates_a_scratch_root_that_does_not_exist_yet(
         make_identity(clock=clock),
         MemoryPheromoneTrail(clock),
         clock,
+        _leavings(clock),
     )
     cell = (await source.cells())[0]
 
@@ -64,6 +71,7 @@ async def test_a_scratch_root_that_cannot_be_created_refuses_the_lease(tmp_path:
         make_identity(clock=clock),
         MemoryPheromoneTrail(clock),
         clock,
+        _leavings(clock),
     )
     cell = (await source.cells())[0]
 
@@ -80,6 +88,7 @@ async def test_free_disk_under_the_reserve_refuses_the_lease(tmp_path: Path) -> 
         make_identity(clock=clock),
         MemoryPheromoneTrail(clock),
         clock,
+        _leavings(clock),
     )
     cell = (await source.cells())[0]
 

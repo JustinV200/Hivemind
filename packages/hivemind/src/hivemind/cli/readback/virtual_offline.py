@@ -72,13 +72,14 @@ from hivemind.cell import (
     RealCellLease,
     Snapshotter,
 )
+from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandLeaseReleaser
 from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive import BackendRegistry, CellBackend, VirtualCellRecord
 from hivemind.pheromone import MAX_QUERY_LIMIT, ForageEvent, PheromoneTrail, TrailQuery
 from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.workers.roles.undertaker import (
-    NullLeavingsRemover,
+    LeavingsStoreRemover,
     NullWaxRetirer,
     Undertaker,
     UndertakerDeps,
@@ -103,6 +104,7 @@ _PLACEHOLDER_MAX_SUB_BEES = 1
 __all__ = [
     "LeaseOrphan",
     "LedgerGrantRevoker",
+    "OfflineCellDeps",
     "build_snapshotter",
     "build_undertaker",
     "list_all_virtual",
@@ -165,28 +167,48 @@ class LedgerGrantRevoker:
         await self._trail.record(event)
 
 
-def build_undertaker(
-    backend: CellBackend,
-    trail: PheromoneTrail,
-    clock: Clock,
-    identity: CellIdentity,
-    ledger: ForageLedger,
-) -> Undertaker:
-    """Build an offline `Undertaker`: a real `LedgerGrantRevoker`, no Wax or Leavings store.
+@dataclass(frozen=True, slots=True)
+class OfflineCellDeps:
+    """The four collaborators every offline Cell effect needs, bundled per codingrules 5.1.
 
-    `hive cells destroy`/`abscond` (roadmap step 5.13) have no live Cell Wax store or Leavings
-    ledger to wire in (the latter lives on another branch, not yet merged --
-    `hivemind.workers.roles.undertaker.role.LeavingsRemover`'s own docstring), so both use the
-    documented no-op defaults already shipped for exactly this gap.
+    `build_undertaker` and `reconstruct_lease` both need exactly this set (a trail to record on, a
+    clock to mint from, the identity to stamp, and the Leavings ledger a destroyed Cell's rows or a
+    released lease's persisted paths land in), and both were already at the five-parameter limit
+    before the Leavings ledger existed, so they take this instead of four more arguments each.
+
+    Attributes:
+        trail: Where every `cell.*` event this pass records lands.
+        clock: Source of every id minted and every timestamp written.
+        identity: The Hive, node and actor stamped on every event.
+        leavings: The live Leavings ledger (roadmap step 5.0a): where a released lease's
+            `persist=True` restore records land, and whose rows a destroyed Virtual Cell's own
+            `LeavingsStoreRemover` marks removed.
+    """
+
+    trail: PheromoneTrail
+    clock: Clock
+    identity: CellIdentity
+    leavings: LeavingsStore
+
+
+def build_undertaker(
+    backend: CellBackend, offline: OfflineCellDeps, ledger: ForageLedger
+) -> Undertaker:
+    """Build an offline `Undertaker`: a real `LedgerGrantRevoker` and `LeavingsStoreRemover`.
+
+    `hive cells destroy`/`abscond` (roadmap step 5.13) still have no live Cell Wax store to wire
+    in, so `NullWaxRetirer` stands in for that one seam alone. The Leavings ledger is real now that
+    roadmap step 5.0a has landed: a destroyed Virtual Cell's own ledgered paths die with the Cell,
+    and `LeavingsStoreRemover` marks each row removed with its own `cell.leaving_removed` event.
     """
     deps = UndertakerDeps(
         backend=backend,
-        grant_revoker=LedgerGrantRevoker(ledger, trail, clock, identity),
+        grant_revoker=LedgerGrantRevoker(ledger, offline.trail, offline.clock, offline.identity),
         wax_retirer=NullWaxRetirer(),
-        leavings_remover=NullLeavingsRemover(),
-        trail=trail,
-        clock=clock,
-        identity=identity,
+        leavings_remover=LeavingsStoreRemover(offline.leavings, offline.clock, offline.identity),
+        trail=offline.trail,
+        clock=offline.clock,
+        identity=offline.identity,
     )
     return Undertaker(deps)
 
@@ -299,11 +321,7 @@ async def queen_likely_running(trail: PheromoneTrail) -> bool:
 
 
 def reconstruct_lease(
-    orphan: LeaseOrphan,
-    scratch_root: Path,
-    trail: PheromoneTrail,
-    clock: Clock,
-    identity: CellIdentity,
+    orphan: LeaseOrphan, scratch_root: Path, offline: OfflineCellDeps
 ) -> RealCellLease:
     """Rebuild an already-OPEN `RealCellLease` from `orphan`'s own trail facts, for release().
 
@@ -324,8 +342,13 @@ def reconstruct_lease(
         comb_shield=orphan.comb_shield,
         allowed_paths=(),
     )
+    releaser = HiveStandLeaseReleaser(offline.clock, offline.leavings, offline.identity)
     lease = RealCellLease(
-        facts, trail=trail, clock=clock, identity=identity, releaser=HiveStandLeaseReleaser(clock)
+        facts,
+        trail=offline.trail,
+        clock=offline.clock,
+        identity=offline.identity,
+        releaser=releaser,
     )
     # Reconstruction of already-open state, not a fresh open (module docstring's own "Key
     # invariants"): set directly rather than through open(), which would re-record cell.leased.

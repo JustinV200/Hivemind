@@ -15,7 +15,7 @@ def test_build_registry_offers_the_baseline_tools_without_a_net_capability() -> 
     registry = build_registry(ctx)
 
     names = {definition.name for definition in registry.definitions()}
-    assert names == {"run_command", "read_file", "write_file", "ask"}
+    assert names == {"run_command", "read_file", "write_file", "ask", "keep"}
 
 
 def test_build_registry_adds_http_request_when_a_net_capability_is_held() -> None:

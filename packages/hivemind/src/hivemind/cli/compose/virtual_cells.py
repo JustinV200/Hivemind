@@ -163,7 +163,7 @@ from hivemind.queen.dispatcher.snapshot import (
     virtual_backend_candidate_from_lifecycle,
 )
 from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
-from hivemind.queen.trail_sync import TrailSegmentReceiver
+from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.ids import HiveId
 from waggle.messages import OsFamily as WireOsFamily

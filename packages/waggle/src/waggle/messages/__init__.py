@@ -35,7 +35,7 @@ Public API:
     - WaggleMessage, MessageShape (base): the class every message subclasses, and the request,
       reply or event shape the registry fixes per kind.
     - Labels (labels): AccessLevel, AccuracyBar, AlarmSeverity, CombShieldLevel, HandoffRef,
-      HoneyClearance, OsFamily, Postcondition, PostconditionKind, Tempo, Urgency.
+      HoneyClearance, OsFamily, PlannedLeaving, Postcondition, PostconditionKind, Tempo, Urgency.
     - Reports (reports): CellCapabilitiesReport, GpuReport, HostCapacityReport, PlatformReport.
     - Task (task): TaskAssign, TaskProgress, TaskResult, TaskCancel, TaskPause,
       TaskResume.
@@ -113,6 +113,7 @@ from waggle.messages.labels import (
     HandoffRef,
     HoneyClearance,
     OsFamily,
+    PlannedLeaving,
     Postcondition,
     PostconditionKind,
     Tempo,
@@ -226,6 +227,7 @@ __all__ = [
     "OsFamily",
     "Ping",
     "PlanWritten",
+    "PlannedLeaving",
     "PlatformReport",
     "Pong",
     "Postcondition",

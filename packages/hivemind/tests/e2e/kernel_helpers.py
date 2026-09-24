@@ -15,8 +15,11 @@ on a real `SystemClock`, never a fixed `asyncio.sleep`); `snapshot_tree` and `pi
 scenario (h)'s left-as-found assertion checks against.
 
 Fits into the Hive:
-    Test infrastructure (codingrules section 14.5), not shipped. Used only by
-    `tests/e2e/test_kernel_on_hive_stand.py`.
+    Test infrastructure (codingrules section 14.5), not shipped. Used mainly by
+    `tests/e2e/test_kernel_on_hive_stand.py`; `set_budget_fraction`/`set_forage_reserve_seats` are
+    also used directly by other e2e scenario modules that need one manifest knob `builders.cli.
+    fake_manifest` does not expose (each function's own docstring explains why it patches the
+    written file instead of extending that builder).
 
 Key invariants:
     - `HaikuScript.responder` is the one `hivemind.llm.Responder` this whole suite ever installs;
@@ -102,6 +105,7 @@ __all__ = [
     "pid_alive",
     "plan_response",
     "set_budget_fraction",
+    "set_forage_reserve_seats",
     "single_task_plan",
     "snapshot_tree",
     "task_status_is",
@@ -135,6 +139,27 @@ def set_budget_fraction(manifest_path: Path, fraction: float) -> None:
     else:
         text = f"{text}\n[memory]\nbudget_fraction = {fraction}\n"
     manifest_path.write_text(text, encoding="utf-8")
+
+
+def set_forage_reserve_seats(manifest_path: Path, seats: int) -> None:
+    """Patch `[forage.reserve] seats` onto an already-written manifest, appended as its own table.
+
+    `builders.cli.fake_manifest` writes no `[forage.reserve]` section at all (that builder is
+    outside this dispatch's own file list to extend with a reserve knob of its own; mirrors
+    `set_budget_fraction`, above), so a manifest-level test that needs the shared reserve to claim
+    every seat its own `[forage.map]` entry offers (`builders.cli`'s own `_forage_section` sets
+    `seats = 4` there, exactly to avoid this) patches the file directly instead. `RoyalReserve`'s
+    own field defaults still apply for `memory_bytes`/`headroom_fraction`, so `seats` alone can
+    still drive `max_sub_bees` to 0 (`hivemind.forage.allocate.grant`'s own `_reachable_seats`).
+
+    Args:
+        manifest_path: The manifest `fake_manifest` already wrote.
+        seats: The `[forage.reserve] seats` value to install; no `[forage.reserve]` table exists
+            yet to insert into (`fake_manifest` never writes one), so this always appends a fresh
+            one rather than patching an existing key the way `set_budget_fraction` does.
+    """
+    text = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text(f"{text}\n[forage.reserve]\nseats = {seats}\n", encoding="utf-8")
 
 
 def capture_encoded_envelope_sizes(monkeypatch: pytest.MonkeyPatch) -> list[int]:

@@ -1,10 +1,10 @@
-"""Tests for waggle.messages.labels: the shared enums, Tempo, Postcondition and HandoffRef.
+"""Tests for waggle.messages.labels: the shared enums and value models.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins every enum's members and wire values to
     spec section 8.1, the rank order of the two totally ordered enums, and for each value model
     construction, the JSON round trip and at least one rejection, plus both Postcondition
-    validators in both directions.
+    validators in both directions and every PlannedLeaving pattern refusal (roadmap step 5.0b).
 
 Key invariants:
     - None: this module holds tests only.
@@ -24,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 
 from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
-from waggle.messages.base import MAX_PATH_CHARS
+from waggle.messages.base import MAX_PATH_CHARS, MAX_REASON_CHARS
 from waggle.messages.labels import (
     MAX_ARGV_ITEM_CHARS,
     MAX_ARGV_ITEMS,
@@ -36,6 +36,7 @@ from waggle.messages.labels import (
     HandoffRef,
     HoneyClearance,
     OsFamily,
+    PlannedLeaving,
     Postcondition,
     PostconditionKind,
     Tempo,
@@ -221,3 +222,74 @@ def test_handoff_ref_rejects_a_non_event_id_and_a_naive_time() -> None:
             written_at=datetime(2020, 1, 1),  # naive on purpose
             clearance=HoneyClearance.C0,
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PlannedLeaving (roadmap step 5.0b)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "/home/user/project",
+        r"C:\Users\me\project",
+        "C:/Users/me/project",
+        "~/project",
+        r"~\project",
+        r"\\server\share\project",
+    ],
+)
+def test_planned_leaving_accepts_every_rooted_pattern_shape(pattern: str) -> None:
+    leaving = PlannedLeaving(pattern=pattern, reason="Installed for the goal.")
+
+    assert leaving.pattern == pattern
+    assert _round_trips(leaving)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "relative/path",  # Not absolute or ~-rooted at all.
+        "/",  # A bare POSIX root.
+        "C:\\",  # A bare drive.
+        "C:/",  # Same drive, the other slash style.
+        "~",  # A bare home.
+        "~bob/project",  # Another user's home; not supported.
+        "C:foo",  # Drive-relative, not drive-rooted.
+    ],
+)
+def test_planned_leaving_rejects_a_bare_root_drive_or_relative_pattern(pattern: str) -> None:
+    with pytest.raises(ValidationError, match=r"PlannedLeaving\.pattern"):
+        PlannedLeaving(pattern=pattern, reason="x")
+
+
+@pytest.mark.parametrize(
+    "pattern", ["/home/user/../etc/passwd", r"C:\Users\me\..\Administrator\secrets"]
+)
+def test_planned_leaving_rejects_a_dotdot_segment(pattern: str) -> None:
+    with pytest.raises(ValidationError, match=r"`\.\.` segment"):
+        PlannedLeaving(pattern=pattern, reason="x")
+
+
+@pytest.mark.parametrize("pattern", ["~/*", "/**", r"C:\*\notes.txt", "~/[a-z]*/x"])
+def test_planned_leaving_rejects_a_wildcard_first_segment(pattern: str) -> None:
+    # A glob straight under the root, drive or home is that whole tree under another spelling.
+    with pytest.raises(ValidationError, match="wildcard segment"):
+        PlannedLeaving(pattern=pattern, reason="x")
+
+
+def test_planned_leaving_bounds_pattern_and_reason() -> None:
+    with pytest.raises(ValidationError, match="at least 1"):
+        PlannedLeaving(pattern="", reason="x")
+    with pytest.raises(ValidationError, match=f"at most {MAX_PATH_CHARS}"):
+        PlannedLeaving(pattern="/" + "x" * MAX_PATH_CHARS, reason="x")
+    with pytest.raises(ValidationError, match="at least 1"):
+        PlannedLeaving(pattern="/x", reason="")
+    with pytest.raises(ValidationError, match=f"at most {MAX_REASON_CHARS}"):
+        PlannedLeaving(pattern="/x", reason="x" * (MAX_REASON_CHARS + 1))
+
+
+def test_planned_leaving_rejects_an_extra_field() -> None:
+    with pytest.raises(ValidationError, match="extra"):
+        PlannedLeaving.model_validate({"pattern": "/x", "reason": "x", "approved_by": "POLICY"})

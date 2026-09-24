@@ -11,9 +11,12 @@ no side effect the Capping gate needs to check.
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
     `hivemind.workers.tools.registry.build_registry`. Calls into `hivemind.llm`,
-    `hivemind.workers.tools.registry` and waggle only.
+    `hivemind.supervision.capping.checks` (LEAVE_QUESTION_OPTIONS), `hivemind.workers.tools.
+    registry` and waggle only.
 
 Key invariants:
+    - A model can never raise a Question carrying the Capping gate's own leave options (roadmap
+      step 5.0d): only `HumanCheck` words that Question, because the Queen remembers its answer.
     - `question.question_id` is minted here, from `ctx.clock`, never reused from any envelope id
       (`waggle.messages.supervision.questions`'s own rule).
     - The returned text always includes the chosen option's own text, not just its index, when the
@@ -30,6 +33,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.llm import JsonObject, ToolDefinition
+from hivemind.supervision.capping.checks import LEAVE_QUESTION_OPTIONS
 from hivemind.workers.tools.registry import ToolInvocation, ToolSpec
 from waggle.ids import new_message_id
 from waggle.messages.supervision import Question
@@ -69,6 +73,12 @@ async def ask(invocation: ToolInvocation, arguments: JsonObject) -> str:
         return "text must be a non-empty string."
     ctx = invocation.ctx
     options = _coerce_options(arguments.get("options"))
+    if _is_reserved(options):
+        # The Queen recognises a Capping leave Question by exactly these options and remembers a
+        # human's "keep for this whole goal" for every later one (roadmap step 5.0d). A model
+        # must never be able to word that Question itself, or one misleading ask would approve
+        # leavings the human was never shown.
+        return "those options are reserved for the Capping gate; ask with different options."
     question = Question(
         question_id=new_message_id(ctx.clock),
         task_id=invocation.assignment.task_id,
@@ -93,6 +103,14 @@ def _coerce_options(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(str(item) for item in value[:MAX_OPTIONS_ACCEPTED])
+
+
+def _is_reserved(options: tuple[str, ...]) -> bool:
+    """Return whether `options` reads as the Capping gate's own closed leave options."""
+    # Compared case- and space-insensitively: wider than the Queen's exact match on purpose, so a
+    # near copy a human would read as the same three choices is refused too.
+    folded = tuple(option.strip().casefold() for option in options)
+    return folded == tuple(option.casefold() for option in LEAVE_QUESTION_OPTIONS)
 
 
 ASK_SPEC = ToolSpec(definition=ASK_DEFINITION, run=ask)

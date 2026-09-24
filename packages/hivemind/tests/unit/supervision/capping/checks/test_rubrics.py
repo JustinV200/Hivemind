@@ -18,6 +18,29 @@ def test_load_judge_rubrics_reads_the_shipped_v0_table() -> None:
     assert set(rubrics) == set(RiskTier)
 
 
+def test_outside_scratch_write_rubric_checks_the_tasks_stated_objective() -> None:
+    """Roadmap step 5.0c: the judge rubric gains a criterion an over-declaring plan cannot dodge."""
+    rubric = load_judge_rubrics()[RiskTier.OUTSIDE_SCRATCH_WRITE]
+
+    assert "stated objective" in rubric.text
+    assert rubric.rubric_id == "outside_scratch_write-v3"
+
+
+def test_outside_scratch_write_rubric_does_not_demand_the_impossible_of_postconditions() -> None:
+    """The rubric no longer demands a postcondition prove correctness no v0 kind can prove.
+
+    2026-09-21: the old wording ("postconditions would actually catch a bad outcome") made a
+    judge reject a correct write_file proposal for carrying only a FILE_EXISTS postcondition,
+    since v0 has no cheaper checkable kind that could also prove new content correct (roadmap
+    5.0e follow-up). The softened wording asks only for checkable postconditions that match the
+    stated effect.
+    """
+    rubric = load_judge_rubrics()[RiskTier.OUTSIDE_SCRATCH_WRITE]
+
+    assert "must be checkable and match" in rubric.text
+    assert "would actually catch a bad outcome" not in rubric.text
+
+
 @pytest.mark.parametrize("tier", list(RiskTier))
 def test_every_shipped_rubric_has_a_rubric_id_and_nonempty_text(tier: RiskTier) -> None:
     rubrics = load_judge_rubrics()

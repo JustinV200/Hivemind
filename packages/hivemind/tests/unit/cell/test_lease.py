@@ -6,11 +6,19 @@ from pathlib import Path
 
 import pytest
 from builders.cells import make_identity, make_lease_request
+from pydantic import ValidationError
 
 from hivemind.cell.errors import InvalidLeaseTransitionError
 from hivemind.cell.fake import FakeLeaseReleaser
-from hivemind.cell.lease import LeaseFacts, LeaseReleaser, LeaseReleaseReport, RealCellLease
+from hivemind.cell.lease import (
+    MAX_ALLOWED_PATHS,
+    LeaseFacts,
+    LeaseReleaser,
+    LeaseReleaseReport,
+    RealCellLease,
+)
 from hivemind.cell.lease_state import LeaseState
+from hivemind.cell.leavings import ApprovedBy
 from hivemind.cell.tiers import CombShieldLevel
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import PheromoneTrail, TrailQuery
@@ -29,6 +37,26 @@ class _CountingReleaser:
 
     async def release(self, lease: RealCellLease) -> LeaseReleaseReport:
         self.calls += 1
+        return self._report
+
+
+class _FlakyReleaser:
+    """A LeaseReleaser stub that raises on its first N calls, then succeeds.
+
+    Roadmap 5.8's own retry case: a releaser that fails mid-way must be retryable.
+    """
+
+    def __init__(self, failures: int, report: LeaseReleaseReport | None = None) -> None:
+        self.calls = 0
+        self._failures = failures
+        self._report = report or LeaseReleaseReport(
+            killed_processes=1, residual_paths=(), is_restored=True
+        )
+
+    async def release(self, lease: RealCellLease) -> LeaseReleaseReport:
+        self.calls += 1
+        if self.calls <= self._failures:
+            raise OSError(f"simulated release failure #{self.calls}")
         return self._report
 
 
@@ -140,6 +168,34 @@ def test_is_path_allowed_collapses_dotdot_before_checking(tmp_path: Path) -> Non
     assert not lease.is_path_allowed(sneaky)
 
 
+def test_note_allowed_path_widens_reachability(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    widened = tmp_path.parent / "keep"
+
+    lease.note_allowed_path(widened)
+
+    assert lease.is_path_allowed(widened / "file.txt")
+    assert widened.resolve(strict=False) in lease.allowed_paths
+
+
+def test_note_allowed_path_is_a_noop_for_an_already_reachable_path(tmp_path: Path) -> None:
+    already_allowed = tmp_path.parent / "allowed"
+    lease = _make_lease(tmp_path, allowed_paths=(already_allowed,))
+
+    lease.note_allowed_path(already_allowed)
+
+    assert lease.allowed_paths == (already_allowed.resolve(strict=False),)
+
+
+def test_note_allowed_path_stops_widening_once_at_the_cap(tmp_path: Path) -> None:
+    filler = tuple(tmp_path.parent / f"allowed-{i}" for i in range(MAX_ALLOWED_PATHS))
+    lease = _make_lease(tmp_path, allowed_paths=filler)
+
+    lease.note_allowed_path(tmp_path.parent / "one-too-many")
+
+    assert len(lease.allowed_paths) == MAX_ALLOWED_PATHS
+
+
 async def test_release_is_idempotent_and_returns_the_first_report(tmp_path: Path) -> None:
     releaser = _CountingReleaser()
     lease = _make_lease(tmp_path, releaser=releaser)
@@ -180,3 +236,136 @@ async def test_release_before_open_raises_invalid_lease_transition(tmp_path: Pat
 
     with pytest.raises(InvalidLeaseTransitionError):
         await lease.release()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# release() failure: RELEASING -> ORPHANED, and the ORPHANED -> RELEASING retry
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_release_moves_to_orphaned_and_reraises_when_delegate_fails(
+    tmp_path: Path,
+) -> None:
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser)
+    await lease.open()
+
+    with pytest.raises(OSError, match="simulated release failure #1"):
+        await lease.release()
+
+    assert lease.state is LeaseState.ORPHANED
+    assert releaser.calls == 1
+
+
+async def test_release_retried_after_orphaned_failure_succeeds_once_delegate_recovers(
+    tmp_path: Path,
+) -> None:
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser)
+    await lease.open()
+
+    with pytest.raises(OSError):
+        await lease.release()
+
+    report = await lease.release()
+
+    assert lease.state is LeaseState.RELEASED
+    assert releaser.calls == 2
+    assert report.killed_processes == 1
+
+
+async def test_release_records_cell_released_only_once_after_a_failed_retry(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser, trail=trail, clock=clock)
+    await lease.open()
+
+    with pytest.raises(OSError):
+        await lease.release()
+    await lease.release()
+
+    events = await trail.query(TrailQuery(kind="cell.released"))
+    assert len(events) == 1
+
+
+async def test_release_after_orphaned_from_failure_is_legal_release_still_idempotent(
+    tmp_path: Path,
+) -> None:
+    releaser = _FlakyReleaser(failures=1)
+    lease = _make_lease(tmp_path, releaser=releaser)
+    await lease.open()
+    with pytest.raises(OSError):
+        await lease.release()
+
+    first = await lease.release()
+    second = await lease.release()
+
+    assert first is second
+    assert releaser.calls == 2  # The second, successful release() call is never repeated.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# note_restore_path (roadmap step 5.0a: persist/approved_by/reason)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_note_restore_path_inside_scratch_records_nothing(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+
+    lease.note_restore_path(tmp_path / "inside.txt", b"old")
+
+    assert lease.restore_records == ()
+
+
+def test_note_restore_path_outside_scratch_defaults_to_not_persisted(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    lease.note_restore_path(outside, b"old")
+
+    assert len(lease.restore_records) == 1
+    record = lease.restore_records[0]
+    assert record.path == outside.resolve(strict=False)
+    assert record.prior == b"old"
+    assert record.persist is False
+    assert record.approved_by is None
+    assert record.reason is None
+
+
+def test_note_restore_path_persist_true_records_approved_by_and_reason(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    lease.note_restore_path(
+        outside, None, persist=True, approved_by=ApprovedBy.HUMAN, reason="operator kept it"
+    )
+
+    record = lease.restore_records[0]
+    assert record.persist is True
+    assert record.approved_by is ApprovedBy.HUMAN
+    assert record.reason == "operator kept it"
+
+
+def test_note_restore_path_persist_true_without_approved_by_raises(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    with pytest.raises(ValidationError):
+        lease.note_restore_path(outside, None, persist=True, reason="missing approved_by")
+
+
+def test_note_restore_path_persist_false_with_approved_by_raises(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    outside = tmp_path.parent / "outside.txt"
+
+    with pytest.raises(ValidationError):
+        lease.note_restore_path(outside, None, approved_by=ApprovedBy.POLICY, reason="stray")
+
+
+def test_lease_release_report_left_paths_defaults_to_empty() -> None:
+    report = LeaseReleaseReport(killed_processes=0, residual_paths=(), is_restored=True)
+
+    assert report.left_paths == ()

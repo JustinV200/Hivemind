@@ -23,6 +23,24 @@ is already placed on (no placement decision at all), leaving the chamber's own `
 RUNNING throughout -- the same way a Warden's own internal RETRY/REBIND never tells the Brood
 Chamber anything happened at all.
 
+`_send_grant_and_assign` is also the one choke point that used to send a grant computing to
+`max_sub_bees == 0` (a Cell so out of headroom that not even one Drone fits) exactly like every
+other grant: the Warden then raised `GRANT_EXCEEDED` ("allows zero sub-bees"), the Queen escalated
+that to the human inbox, and the task sat RUNNING until its whole timeout elapsed with no Drone and
+nothing in `hive run`'s own view saying why (`.claude/phase-4-handoff.md` section 4.2 item 1, found
+for real on 2026-09-20 when low free RAM sized a grant to zero). Since this fix, a fresh grant that
+computes to `max_sub_bees < 1` is never sent: it is recorded as `forage.denied` instead, carrying
+the allocator's own `reason` string plus the free-memory, reserve and seat figures that produced
+zero, and the task fails at once (`task.failed`) with that reason as its outcome summary, so an
+operator watching `hive run` sees the cause on screen in seconds. Capacity is probed once, at lease
+time (codingrules section 8.10), so nothing here waits for memory to free up; failing fast is the
+right v0 behaviour. `redispatch` and `resume_paused` (a RUNNING retry and a resumed PAUSED task,
+respectively) hit this same choke point and fail the same way, since both funnel through
+`_send_grant_and_assign` too. A placement no Cell can bear at all never reaches this point:
+`hivemind.queen.placement`'s own fit rule refuses the Cell first (roadmap step 5.7), so what is
+left here is the narrower case of a Cell that fits on paper but has no headroom left by the time
+the grant is sized.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and
@@ -34,7 +52,7 @@ Fits into the Hive:
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
     roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
     ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.snapshot`,
-    `hivemind.queen.trail` (record_event) and waggle only.
+    `hivemind.queen.trail` (record_event, record_forage_event) and waggle only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task,
@@ -46,6 +64,9 @@ Key invariants:
       RUNNING task's own status is untouched by a retry.
     - `queen.placed` is always recorded before `queen.assigned`, for a fresh dispatch: the reason a
       Cell was chosen precedes the record that it was actually assigned.
+    - A fresh grant with `max_sub_bees < 1` is never sent to a Warden: `_send_grant_and_assign`
+      records `forage.denied` and fails the task (RUNNING -> FAILED) instead, whether the grant
+      came from a fresh dispatch, a retry or a resume.
 
 See Also:
     - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
@@ -63,7 +84,7 @@ from dataclasses import dataclass
 
 from pydantic import JsonValue
 
-from hivemind.brood_chamber import Task
+from hivemind.brood_chamber import Task, TaskOutcome, TaskStatus
 from hivemind.cell import Cell
 from hivemind.forage import Ceilings, ForageGrant, GrantInputs, ModelSlot, grant
 from hivemind.forage.models.sources import ModelSource
@@ -75,7 +96,7 @@ from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
 from hivemind.queen.forage.hosting import write_hosting_plan
 from hivemind.queen.placement import Placement, PlacementError, ProvisionVirtual, decide
-from hivemind.queen.trail import record_event
+from hivemind.queen.trail import record_event, record_forage_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
 from waggle.messages import HandoffRef
@@ -129,8 +150,10 @@ async def redispatch(
         attempt: The attempt number to stamp on the fresh `TaskAssign`.
 
     Returns:
-        None, once a fresh grant and assignment have been sent, or silently if the task is
-        somehow not placed or its Warden is no longer attached (nothing to resend to).
+        None, once a fresh grant and assignment have been sent; silently if the task is somehow
+        not placed or its Warden is no longer attached (nothing to resend to); or having instead
+        denied the grant and failed the task if it computed to `max_sub_bees < 1` (module
+        docstring's own zero-grant fix -- a retry hits the same choke point a fresh dispatch does).
     """
     task = await deps.chamber.get(task_id)
     if task.warden_id is None or task.cell_id is None:
@@ -139,6 +162,8 @@ async def redispatch(
     if link is None:
         return  # Its Warden is no longer attached; nothing to resend to.
     fresh_grant = await _send_grant_and_assign(deps, link, task, _AssignmentTerms(attempt=attempt))
+    if fresh_grant is None:
+        return  # Denied: _send_grant_and_assign already failed the task (module docstring).
     await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
 
 
@@ -167,8 +192,11 @@ async def resume_paused(
         reason: Why it resumes now, for the chamber's own trail event.
 
     Returns:
-        None, once resumed, or silently if the task is somehow not placed or its Warden is no
-        longer attached (nothing to resume it through).
+        None, once resumed; silently if the task is somehow not placed or its Warden is no longer
+        attached (nothing to resume it through); or having instead denied the grant and failed the
+        now-RUNNING task if it computed to `max_sub_bees < 1` (module docstring's own zero-grant
+        fix -- a resumed task, `resume_from` included, hits the same choke point a fresh dispatch
+        does).
     """
     task = await deps.chamber.get(task_id)
     if task.warden_id is None or task.cell_id is None:
@@ -181,6 +209,8 @@ async def resume_paused(
     # the Queen owns the attempt number on every Queen-to-Warden hop.
     terms = _AssignmentTerms(attempt=task.attempt + 1, resume_from=resume_from)
     fresh_grant = await _send_grant_and_assign(deps, link, task, terms)
+    if fresh_grant is None:
+        return  # Denied: _send_grant_and_assign already failed the task (module docstring).
     await _record_forage_granted(deps, task, fresh_grant, task.warden_id)
 
 
@@ -210,6 +240,8 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     fresh_grant = await _send_grant_and_assign(
         deps, link, task, _AssignmentTerms(attempt=task.attempt)
     )
+    if fresh_grant is None:
+        return  # Denied: _send_grant_and_assign already failed the task (module docstring).
     # "placed" and "assigned" (both just above) precede "granted" on the trail.
     await _record_forage_granted(deps, task, fresh_grant, link.warden_id)
 
@@ -250,14 +282,26 @@ class _AssignmentTerms:
 
 async def _send_grant_and_assign(
     deps: QueenDeps, link: WardenLink, task: Task, terms: _AssignmentTerms
-) -> ForageGrant:
-    """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign."""
+) -> ForageGrant | None:
+    """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign.
+
+    Returns None instead, having denied the grant and failed `task`, when the fresh grant computes
+    to `max_sub_bees < 1` (module docstring's own zero-grant fix): a grant that empty can run no
+    Drone at all, so it is never sent.
+    """
     cell_id, warden_id = link.cell.id, link.warden_id
     # Roadmap step 4.8's own wiring step: the first dispatch ever sent to a Warden sets its
     # ceilings and writes its Cell's hosting plan first (hivemind.wardens.ticks.control handles
     # both on arrival); every later dispatch to the same Warden is a no-op here.
     await _ensure_warden_provisioned(deps, link)
-    fresh_grant = grant(_grant_inputs(deps, link, warden_id, cell_id, task))
+    inputs = _grant_inputs(deps, link, warden_id, cell_id, task)
+    fresh_grant = grant(inputs)
+    # The one choke point (module docstring's own zero-grant fix): sending this anyway is what
+    # used to park the task RUNNING until its whole timeout elapsed, with nothing on screen saying
+    # why (`.claude/phase-4-handoff.md` section 4.2 item 1).
+    if fresh_grant.max_sub_bees < 1:
+        await _deny_zero_grant(deps, task, inputs, fresh_grant)
+        return None
     # roadmap step 4.7: the ledger is the live book of every shared grant, not only the ones a
     # ForageRequest later grows; activate() moves it past ISSUED since a task dispatch means the
     # Warden is about to draw on it at once. The Cell's own capacity is reported here too, from the
@@ -278,6 +322,38 @@ async def _send_grant_and_assign(
     await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
     await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
     return fresh_grant
+
+
+async def _deny_zero_grant(
+    deps: QueenDeps, task: Task, inputs: GrantInputs, fresh_grant: ForageGrant
+) -> None:
+    """Record `forage.denied` for a grant that computed to zero sub-bees, and fail `task` at once.
+
+    Carries the allocator's own `reason` string (`hivemind.forage.allocate.grant`'s own
+    `_reason`) plus the free-memory, reserve and seat figures that produced zero, so an operator
+    reading the trail -- or `hive run`'s own streamed line -- never has to guess why. Capacity is
+    probed once, at lease time (codingrules section 8.10: "grants are leases"), so nothing here
+    waits for memory to free up; failing the task at once is the right v0 behaviour.
+    """
+    host = inputs.cell_capacity.host
+    await record_forage_event(
+        deps,
+        "forage.denied",
+        fresh_grant.id,
+        task_id=task.id,
+        warden_id=inputs.holder,
+        cell_id=inputs.cell_id,
+        max_sub_bees=fresh_grant.max_sub_bees,
+        cell_cap=inputs.cell_capacity.max_sub_bees,
+        free_memory_bytes=host.memory_free_bytes,
+        reserve_memory_bytes=inputs.reserve.memory_bytes,
+        reserve_seats=inputs.reserve.seats,
+        footprint_memory_bytes=inputs.footprint.memory_bytes,
+        reason=fresh_grant.reason,
+    )
+    summary = f"Forage denied: grant allows zero sub-bees. {fresh_grant.reason}"
+    outcome = TaskOutcome(status=TaskStatus.FAILED, summary=summary)
+    await deps.chamber.fail(task.id, outcome)
 
 
 def _grant_inputs(
@@ -346,6 +422,7 @@ def _task_assign(
         slot=ModelSlot.WORKER.to_wire(),
         objective=task.spec.objective,
         acceptance=task.spec.acceptance,
+        leaves=task.spec.leaves,
         tempo=task.spec.needs.tempo.to_wire(),
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,

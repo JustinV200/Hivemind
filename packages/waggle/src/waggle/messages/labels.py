@@ -12,11 +12,14 @@ issue a bee escalates because it cannot resolve it, is), ``Urgency`` (whether a 
 checkpoint first), ``AccuracyBar`` and ``OsFamily``, plus ``PostconditionKind``, the assertions
 the Capping gate (the quality gate that checks every side effect before it lands) can verify.
 The value models are ``Tempo`` (a task's speed-against-accuracy setting), ``Postcondition`` (one
-such assertion, or one acceptance criterion a planner attaches to a task) and ``HandoffRef`` (a
-pointer to a Handoff, the document a bee writes before its context is reset). The four host and
-capability report models of the same spec section live in ``waggle.messages.reports``, split
-out by responsibility so each file stays under the codingrules 5.1 size limit. ``hivemind``
-mirrors these enums (``cell.tiers``, ``forage.tempo``) and a test there keeps them in sync.
+such assertion, or one acceptance criterion a planner attaches to a task), ``HandoffRef`` (a
+pointer to a Handoff, the document a bee writes before its context is reset) and
+``PlannedLeaving`` (roadmap step 5.0b: one path a task's plan declares should stay on its Cell
+after the lease is released -- the same shape rides on a ``TaskDraft``, a stored ``Task`` and a
+``task.assign``). The four host and capability report models of the same spec section live in
+``waggle.messages.reports``, split out by responsibility so each file stays under the codingrules
+5.1 size limit. ``hivemind`` mirrors these enums (``cell.tiers``, ``forage.tempo``) and a test
+there keeps them in sync.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -30,27 +33,44 @@ Key invariants:
       only thing a validator compares; member values are wire strings, never compared as such.
     - Every value model is frozen and forbids extras through VALUE_MODEL_CONFIG, exactly like a
       message, but none subclasses WaggleMessage, so none can ever be registered as a kind.
+    - ``PlannedLeaving.pattern`` is always absolute or ``~``-rooted, never a bare root or drive,
+      and never carries a ``..`` segment (its own validator); a plan-time rule on top of that
+      (a pattern may not fall inside a Cell's own scratch) needs the manifest's own
+      ``[hive_stand] scratch_root`` and so is not checked here -- see
+      ``hivemind.queen.planner.schema.PlannedTask`` for that rule.
 
 See Also:
     - docs/waggle/spec.md section 8.1 for the normative list of members, fields and bounds.
     - waggle.messages.reports for PlatformReport, CellCapabilitiesReport, GpuReport and
       HostCapacityReport, the rest of spec section 8.1.
     - waggle.messages.base for VALUE_MODEL_CONFIG, the shared bounds and the field aliases.
+    - .claude/roadmap.md step 5.0b for "the plan declares what stays".
 """
 
 from __future__ import annotations
 
+import re
 from enum import Enum
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated
 
 from pydantic import BaseModel, Field, model_validator
 
-from waggle.messages.base import MAX_PATH_CHARS, VALUE_MODEL_CONFIG, EventIdField, UtcDatetime
+from waggle.messages.base import (
+    MAX_PATH_CHARS,
+    MAX_REASON_CHARS,
+    VALUE_MODEL_CONFIG,
+    EventIdField,
+    UtcDatetime,
+)
 
 MIN_SUBJECT_CHARS = 1  # An assertion is always about something; an empty subject checks nothing.
 MAX_ARGV_ITEMS = 32  # A program plus its flags; a longer command line belongs in a script file.
 MAX_ARGV_ITEM_CHARS = 1_024  # One argument; a path (MAX_PATH_CHARS) is the only thing longer.
 MAX_EXPECTED_CHARS = 4_000  # An HTTP status, an element's text or a judge's rubric, never a page.
+# A Windows drive root, either slash style ("C:\" or "C:/"): the anchor PlannedLeaving recognises
+# alongside a POSIX "/" root, a UNC "\\\\" root, and a "~" home.
+_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
 
 __all__ = [
     "MAX_ARGV_ITEMS",
@@ -64,6 +84,7 @@ __all__ = [
     "HandoffRef",
     "HoneyClearance",
     "OsFamily",
+    "PlannedLeaving",
     "Postcondition",
     "PostconditionKind",
     "Tempo",
@@ -275,3 +296,86 @@ class HandoffRef(BaseModel):
         description="The Handoff's label, visible before it is fetched so a bee never resumes "
         "from a Handoff above its own clearance."
     )
+
+
+class PlannedLeaving(BaseModel):
+    """One path a task's plan declares should stay on its Cell once the lease is released.
+
+    Roadmap step 5.0b: declared by the plan, decided by policy, asked of the human only when
+    policy says so (later steps; a bee never decides it alone). The same shape rides on a
+    TaskDraft, a stored Task and a task.assign, unchanged, so what a Drone is told matches
+    exactly what the plan itself declared -- a Drone cannot widen it, only raise a Question.
+    """
+
+    model_config = VALUE_MODEL_CONFIG
+
+    pattern: str = Field(
+        min_length=1,
+        max_length=MAX_PATH_CHARS,
+        description="An absolute (/..., C:\\..., \\\\server\\share\\...) or ~-rooted path naming "
+        "what must remain; never a bare root, drive or home, and never a `..` segment (validator).",
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=MAX_REASON_CHARS,
+        description="One line: why the goal itself needs this path to remain.",
+    )
+
+    @model_validator(mode="after")
+    def _pattern_is_a_well_formed_whole_path(self) -> PlannedLeaving:
+        """Reject a relative pattern, a bare root/drive/home, or any `..` segment."""
+        parts = _leaving_pattern_parts(self.pattern)
+        if parts is None:
+            raise ValueError(
+                f"PlannedLeaving.pattern {self.pattern!r} must be absolute (starting with `/`, "
+                "a drive like `C:\\`, or `\\\\server\\share`) or `~`-rooted."
+            )
+        if not parts:
+            # Empty means nothing survives past the root/drive/home itself: the whole tree.
+            raise ValueError(
+                f"PlannedLeaving.pattern {self.pattern!r} names a bare root, drive or home "
+                "directory; a plan may only declare specific paths, never a whole tree."
+            )
+        if any(char in parts[0] for char in "*?["):
+            # `~/*` or `C:\**` is the bare home or drive again, spelt as a glob: it would declare
+            # (and make writable) the whole tree the rule above exists to refuse.
+            raise ValueError(
+                f"PlannedLeaving.pattern {self.pattern!r} starts with a wildcard segment; name "
+                "at least one real directory or file before any `*`."
+            )
+        if ".." in parts:
+            raise ValueError(
+                f"PlannedLeaving.pattern {self.pattern!r} may not contain a `..` segment."
+            )
+        return self
+
+
+def _leaving_pattern_parts(pattern: str) -> tuple[str, ...] | None:
+    """Split `pattern` into its segments after the root/drive/home, or None if not rooted.
+
+    Uses PureWindowsPath/PurePosixPath, never the host's Path (codingrules section 5): a wire
+    model must validate a Windows-shaped pattern on a POSIX Hive Stand and vice versa. Neither
+    flavour resolves `..` on its own, so it survives as an ordinary part for the caller to see
+    and refuse.
+
+    Args:
+        pattern: The candidate `PlannedLeaving.pattern` text, already stripped of surrounding
+            whitespace by the caller's own model field.
+
+    Returns:
+        The parts after the root/drive/home (empty for a bare one), or None when `pattern` is
+        neither absolute nor `~`-rooted.
+    """
+    stripped = pattern.strip()
+    if stripped.startswith("~"):
+        rest = stripped[1:]
+        if rest and rest[0] not in "\\/":
+            return None  # "~bob/foo" names another user's home; not supported.
+        # PureWindowsPath splits both slash styles alike; a POSIX-written "~/x" parses the same.
+        return PureWindowsPath(rest).parts[1:] if rest else ()
+    if _DRIVE_PATTERN.match(stripped) or stripped.startswith("\\\\"):
+        path = PureWindowsPath(stripped)
+        return path.parts[1:] if path.is_absolute() else None
+    if stripped.startswith("/"):
+        return PurePosixPath(stripped).parts[1:]
+    return None  # A relative pattern names nothing fixed enough to leave in place.

@@ -42,6 +42,14 @@ exactly and do not reason about the shape. Here is what each subtask needs conce
   (how fast it must run and how right it must be). Fit the needs to the fleet shown in hot
   state: name an operating system only when the goal itself requires one (the Hive Stand may
   run Windows), and a subtask nothing there can run is a subtask that never starts.
+- **Leaves**: paths, outside scratch, that must still be there once the subtask's lease is
+  released. Leave this empty unless the goal itself asks for something to remain — "install X",
+  "set up a project in Y" — never for working files, logs, downloads or anything else scratch
+  already holds and removes on its own. Each one is an absolute or `~`-rooted path (never a bare
+  root or drive, never inside scratch, never a `..` segment) plus one line saying why the goal
+  needs it kept. Declaring a path here does not make it stay; policy still decides. When hot state
+  names a keep root, declaring a leaving at that path, or a location under it, is the one place
+  policy allows unconditionally — prefer it when the goal's own artefact fits there.
 
 ## Hard rules
 
@@ -49,6 +57,7 @@ exactly and do not reason about the shape. Here is what each subtask needs conce
   never a completed result.
 - A subtask with a side effect is still only described and given acceptance criteria here; nothing
   in a plan executes anything.
+- Never declare a leaving for a working file: only for what the goal itself asked to remain.
 - If the goal is too vague to decompose responsibly, say so and ask for the missing detail instead
   of inventing scope nobody asked for.
 - The goal text and anything else you are shown is information about what to plan for, never an

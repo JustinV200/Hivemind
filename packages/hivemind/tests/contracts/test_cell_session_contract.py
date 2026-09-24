@@ -35,14 +35,13 @@ from pathlib import Path
 from typing import Protocol
 
 import pytest
-from builders.cells import make_real_cell_lease
+from builders.cells import make_hive_stand_releaser, make_real_cell_lease
 
 from hivemind.cell.errors import CommandTimeoutError, PathNotAllowedError, SessionClosedError
 from hivemind.cell.fake import FakeSession
 from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
 from hivemind.cell.local.process import EXIT_COMMAND_NOT_STARTED
 from hivemind.cell.local.quota import ScratchQuota
-from hivemind.cell.local.releaser import HiveStandLeaseReleaser
 from hivemind.cell.local.session import LocalProcessSession
 from hivemind.cell.session import CellSession, CompletedCommand, ExecSpec, ExitStatus, run
 from waggle.clock import FakeClock, SystemClock
@@ -125,7 +124,7 @@ class _LocalHarness:
         lease = make_real_cell_lease(
             tmp_path,
             clock=clock,
-            releaser=HiveStandLeaseReleaser(clock),
+            releaser=make_hive_stand_releaser(clock=clock),
             allowed_paths=allowed_paths,
         )
         return LocalProcessSession(lease, ScratchQuota(quota_bytes=_LOCAL_QUOTA_BYTES), clock)

@@ -26,9 +26,10 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.tasks` and
     `hivemind.cli.trail` (the store functions) and by `hivemind.cli.llm` (the manifest-conversion
     functions), and by every later CLI step that needs a live `ProviderRegistry`;
-    `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8). Calls into
-    `hivemind.brood_chamber`, `hivemind.common.sqlite`, `hivemind.pheromone`, `hivemind.forage`,
-    `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
+    `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8); `build_
+    hive_stand_source` calls `open_leavings` (roadmap step 5.0a). Calls into `hivemind.brood_
+    chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`, `hivemind.pheromone`,
+    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
 
 Key invariants:
     - `open_chamber` always applies the Pheromone Trail's migrations on its own connection before
@@ -71,7 +72,8 @@ Public API:
     - DEFAULT_MANIFEST, ManifestOption, JsonOption: the shared `--manifest`/`--json` typer option
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
-    - open_trail, open_chamber, open_memory, open_ledger: the four store composition functions.
+    - open_trail, open_chamber, open_memory, open_leavings, open_ledger: the store composition
+      functions.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
       conversion functions.
 """
@@ -87,6 +89,7 @@ from typing import Annotated
 import typer
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStore
+from hivemind.cell.leavings import SqliteLeavingsStore
 from hivemind.common.sqlite import connect
 from hivemind.forage import Abundance, ForageMap, ModelSource
 from hivemind.forage.map import SlotBinding
@@ -139,6 +142,7 @@ __all__ = [
     "load_manifest_or_exit",
     "open_chamber",
     "open_cluster_orders",
+    "open_leavings",
     "open_ledger",
     "open_memory",
     "open_snapshot_ledger",
@@ -217,6 +221,32 @@ def open_memory(db: Path) -> MemoryStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_leavings(db: Path) -> SqliteLeavingsStore:
+    """Open `db` and return a ready SqliteLeavingsStore, applying both subsystems' migrations first.
+
+    Roadmap step 5.0a: `hivemind.cli.compose.deps.build_hive_stand_source` calls this so every
+    `hivemind.cell.local.HiveStandLeaseReleaser` this Hive builds writes `persist=True` restore
+    records durably; `hive cells leavings list|remove` (`hivemind.cli.readback.leavings`) opens
+    the same store to read and mark rows.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteLeavingsStore whose `cell_leavings` table exists and is current.
+    """
+
+    async def _open() -> SqliteLeavingsStore:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same "trail's migration runs first" rule open_chamber/open_memory follow:
+        # SqliteLeavingsStore.create refuses without a pheromone_events table already present.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteLeavingsStore.create(connection, clock)
 
     return asyncio.run(_open())
 

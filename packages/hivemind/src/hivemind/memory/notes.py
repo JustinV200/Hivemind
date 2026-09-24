@@ -72,6 +72,13 @@ class Note(BaseModel):
     )
     clearance: HoneyClearance = Field(description="This note's data-sensitivity label.")
     written_at: UtcDatetime = Field(description="When it was written.")
+    chosen_option: int | None = Field(
+        default=None,
+        description="Set by `hive inbox answer --option N` when this note records a human's "
+        "answer to a closed-option Question: the index `hivemind.queen.questions._forward_from_"
+        "note` threads onto the forwarded wire Answer's own `chosen_option`, which a bare `text` "
+        "note (or one predating this field) leaves None.",
+    )
 
     @field_validator("text")
     @classmethod

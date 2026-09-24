@@ -1,8 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.5` (`1.3` and `1.4` are minor bumps made on another branch, not merged into
-this history yet -- this document's own version jumps straight from `1.2` to `1.5`). This document
-is the source of truth for every message the Hive's bees
+Protocol version `1.5`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -48,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.2"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.5"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -72,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.2"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 2` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.5"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 5` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -491,6 +489,14 @@ Value models:
   - `written_at` (`datetime`): when the Handoff was written.
   - `clearance` (`HoneyClearance`): the Handoff's label, visible before it is fetched so a bee
     never resumes from a Handoff above its own clearance.
+- `PlannedLeaving` (roadmap step 5.0b, `PROTOCOL_MINOR` 3): one path a task's plan declares
+  should stay on its Cell once the lease is released; the same shape rides on a `TaskDraft`, a
+  stored `Task` and a `task.assign`, unchanged.
+  - `pattern` (`str`): an absolute (`/...`, `C:\...`, `\\server\share\...`) or `~`-rooted path.
+    Min 1, max `MAX_PATH_CHARS` chars; never a bare root, drive or home, never a `..` segment
+    (validator).
+  - `reason` (`str`): one line, why the goal itself needs this path to remain. Min 1, max
+    `MAX_REASON_CHARS` chars.
 - `PlatformReport`: what a device or Cell runs, the one home for OS and architecture on the wire.
   - `os` (`OsFamily`): the operating system family.
   - `distribution` (`str | None`): distribution or edition name; None when not applicable.
@@ -553,6 +559,10 @@ resume from, to the Warden that owns the chosen Cell, which re-issues it to the 
 - `acceptance` (`tuple[Postcondition, ...]`): the criteria the Warden checks before the task may
   reach `SUCCEEDED`; a `JUDGE_RUBRIC` entry stands in where nothing is machine-checkable. Min 1,
   max 32 items; total characters across all criteria at most 65,536 (validator).
+- `leaves` (`tuple[PlannedLeaving, ...]`, `PROTOCOL_MINOR` 3): what the plan declared should stay
+  on this Cell once the lease is released, carried unchanged from the plan. Max 16 items;
+  defaults to empty, so an envelope from before this field existed still validates. A Drone
+  cannot widen this set, only raise a `Question`.
 - `tempo` (`Tempo`): the task's latency budget and accuracy bar.
 - `clearance` (`HoneyClearance`): the highest label the task's bee may read, resume from or
   write.
@@ -1576,16 +1586,22 @@ Family enums and value models:
 - `RiskTier`: `READ_ONLY`, `SCRATCH_WRITE`, `OUTSIDE_SCRATCH_WRITE`, `NETWORK_EGRESS`, `SPEND`,
   `DEVICE_COMMAND`, `IRREVERSIBLE`. Which check ladder applies and whether a snapshot precedes
   apply.
-- `ActionKind`: `DIFF`, `COMMAND`, `ACTION_SEQUENCE`.
+- `ActionKind`: `DIFF`, `COMMAND`, `ACTION_SEQUENCE`, `COPY` (`PROTOCOL_MINOR` 4, roadmap step
+  5.0e: the `keep` tool moves a scratch file outside it; a diff cannot carry a binary, so this
+  moves the bytes by digest instead of inline).
 - `ProposedAction`: the action, in a shape deterministic checks can read.
   - `kind` (`ActionKind`), `summary` (`str`, max 1000), `diff` (`str | None`, max 131072; a
     larger diff is written to scratch with the session and referenced by `paths` plus
     `diff_sha256`), `diff_sha256` (`str | None`: the sha256 pattern; set exactly when `diff` is
     None for a `DIFF` action, validator), `command` (`tuple[str, ...]`: argv, max 64 items
     each max 4096; non-empty only for `COMMAND`), `cwd` (`str | None`, max `MAX_PATH_CHARS`),
-    `paths` (`tuple[str, ...]`: paths touched, max 64 each max `MAX_PATH_CHARS`), `steps`
-    (`tuple[str, ...]`, max 100 each max 1000; non-empty only for `ACTION_SEQUENCE`). The
-    field matching `kind` must be populated, and the characters across `summary`, `diff`,
+    `paths` (`tuple[str, ...]`: paths touched, max 64 each max `MAX_PATH_CHARS`; exactly 2 for
+    `COPY`, `(source, destination)`), `steps` (`tuple[str, ...]`, max 100 each max 1000;
+    non-empty only for `ACTION_SEQUENCE`), `copy_sha256` (`str | None`, `PROTOCOL_MINOR` 4: the
+    sha256 pattern, set exactly for `COPY`; the gate reads the source's bytes from scratch itself
+    at apply time and verifies this digest, so the proposal never carries the bytes), `copy_size`
+    (`int | None`, `PROTOCOL_MINOR` 4: the source's size in bytes, set exactly for `COPY`, ge 0).
+    The field matching `kind` must be populated, and the characters across `summary`, `diff`,
     `command`, `paths` and `steps` total at most 262,144 (validator).
 - `CheckKind`: `SCHEMA`, `LINT`, `TYPES`, `ALLOWLIST`, `SIZE_CAP`, `SANDBOX_TESTS`, `JUDGE`,
   `HUMAN`. The rungs of the ladder, cheapest first.

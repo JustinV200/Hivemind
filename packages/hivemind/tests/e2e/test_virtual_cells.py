@@ -664,6 +664,7 @@ async def _run_scenario_g(hive: Hive, abscond_stores: tuple[ForageLedger, OrderS
                 orders=abscond_stores[1],
                 clock=SystemClock(),
                 virtual_cells=hive.virtual_cells,
+                leavings=hive.stores.leavings,
             )
         )
         assert summary.left_as_found, summary

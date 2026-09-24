@@ -14,20 +14,22 @@ Vocabulary (family -> kind -> when it is recorded):
     cell: provisioned (a Virtual Cell backend created it); attested (Night Veil attestation ran,
         pass or fail per check); ready (its Warden's first heartbeat arrived); leased (a Real Cell
         lease opened); released (a Real Cell lease closed and the device restored); touched_
-        outside_scratch (a lease wrote or read outside its scratch directory); sting_cut (a human
-        disconnected the Cell); overwintered (a Virtual Cell was paused dormant); destroyed (a
-        Virtual Cell was torn down); purged (Night Veil teardown purge completed for the Cell);
-        provisioning (a hivemind.hive.lifecycle.CellLifecycle.provision call began, roadmap step
-        5.6); granted (a Virtual Cell was handed to a task, GRANTED); virtual_released (a Virtual
-        Cell's task ended, RELEASED, pending an overwinter-or-teardown decision -- distinct from
-        `released` above, which is a Real Cell's own lease closing); resumed (an Overwintered
-        Virtual Cell woke back to READY); destroying (a CellBackend.destroy call began, before
-        `destroyed`); provision_failed (a CellLifecycle.provision call's own backend.provision
-        raised); evicted (the Undertaker force-released a stale Real Cell lease or expired
-        Overwintered Cell outside the normal `released`/`destroyed` path -- distinct from both, so
-        an operator can tell a sweep-forced ending from a task-driven one); orphans_swept (one
-        Undertaker sweep pass's rollup: how many Cells it evicted or destroyed, roadmap step
-        5.0-adjacent housekeeping).
+        outside_scratch (a lease wrote or read outside its scratch directory); left (release()
+        wrote a Leavings ledger row for a persist=True restore record, roadmap step 5.0a);
+        leaving_removed (`hive cells leavings remove` replayed and marked a Leaving row, roadmap
+        step 5.0a); sting_cut (a human disconnected the Cell); overwintered (a Virtual Cell was
+        paused dormant); destroyed (a Virtual Cell was torn down); purged (Night Veil teardown
+        purge completed for the Cell); provisioning (a hivemind.hive.lifecycle.CellLifecycle.
+        provision call began, roadmap step 5.6); granted (a Virtual Cell was handed to a task,
+        GRANTED); virtual_released (a Virtual Cell's task ended, RELEASED, pending an
+        overwinter-or-teardown decision -- distinct from `released` above, which is a Real Cell's
+        own lease closing); resumed (an Overwintered Virtual Cell woke back to READY); destroying
+        (a CellBackend.destroy call began, before `destroyed`); provision_failed (a CellLifecycle.
+        provision call's own backend.provision raised); evicted (the Undertaker force-released a
+        stale Real Cell lease or expired Overwintered Cell outside the normal `released`/
+        `destroyed` path -- distinct from both, so an operator can tell a sweep-forced ending from
+        a task-driven one); orphans_swept (one Undertaker sweep pass's rollup: how many Cells it
+        evicted or destroyed, roadmap step 5.8).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
         report, no transition); blocked (RUNNING -> BLOCKED, a question was asked); answered
@@ -61,7 +63,10 @@ Vocabulary (family -> kind -> when it is recorded):
         step 3.20); planned (a goal was decomposed and its task graph persisted, roadmap step
         3.20); assigned (a ready task was placed, granted and assigned to a Warden, roadmap step
         3.20); awake (one stateless awake episode ran for the Queen, roadmap step 3.20 -- distinct
-        from the existing `woke`, reserved for other Queen lifecycle wake-ups).
+        from the existing `woke`, reserved for other Queen lifecycle wake-ups); leave_remembered
+        (the Queen answered a leave Question herself from "keep for this whole goal" memory,
+        roadmap step 5.0d; carries the goal id, Cell id and the original wire question id the
+        remembered answer derives from).
     warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
         moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
@@ -82,9 +87,11 @@ Vocabulary (family -> kind -> when it is recorded):
         rolled_back (postconditions failed after applying, and the effect was undone); audited (a
         sampled, already-terminal proposal was reviewed after the fact by the judge -- roadmap
         step 4.10's AuditSampler, for a tier the table marks as not judge-gated in real time;
-        findings become Nectar and an AUDIT_FAILED Alarm on a REJECT verdict); summary (a per-tier
-        rollup of approved/rejected/rolled_back counts, the only capping.* record kept through a
-        Night Veil teardown, codingrules section 12).
+        findings become Nectar and an AUDIT_FAILED Alarm on a REJECT verdict); leave_decided (the
+        leave policy decided ALLOW/ASK/DENY for one outside-scratch path, roadmap step 5.0c;
+        carries the path, its PathClass and whether it was persisted -- never the human-readable
+        reason); summary (a per-tier rollup of approved/rejected/rolled_back counts, the only
+        capping.* record kept through a Night Veil teardown, codingrules section 12).
     llm: call (one model call completed; carries the normalised Usage, slot and provider);
         rebound (a call was retried on the same binding after a transient failure); fallback (a
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
@@ -169,6 +176,8 @@ class CellEvent(PheromoneEvent):
             "cell.leased",
             "cell.released",
             "cell.touched_outside_scratch",
+            "cell.left",
+            "cell.leaving_removed",
             "cell.sting_cut",
             "cell.overwintered",
             "cell.destroyed",
@@ -289,6 +298,7 @@ class QueenEvent(PheromoneEvent):
             "queen.planned",
             "queen.assigned",
             "queen.awake",
+            "queen.leave_remembered",
         }
     )
 
@@ -358,6 +368,7 @@ class CappingEvent(PheromoneEvent):
             "capping.rejected",
             "capping.rolled_back",
             "capping.audited",
+            "capping.leave_decided",
             "capping.summary",
         }
     )

@@ -9,7 +9,9 @@ Undertaker, Drone and HouseBee, each implementing the shared Worker protocol.
   hot-state prompt and runs a bounded `hivemind.llm.run_tool_loop` over the tools its capabilities
   allow, until the model stops calling tools, the round cap is reached, or its own telemetry says
   to checkpoint. Split by responsibility: `sources.py` (`DroneSources`, what one attempt knows for
-  hot-state packing), `prompt.py` (assembling that hot state and building the `LLMRequest`),
+  hot-state packing), `prompt.py` (assembling that hot state and building the `LLMRequest`;
+  `brief_for` also lists `TaskAssign.leaves`, roadmap step 5.0b, beside the acceptance criteria --
+  a Drone reads what the plan declared must stay but cannot widen the set, only raise a Question),
   `outcome.py` (`HandoffRequestedError`, the tool-executor adapter that cooperates with pause, cancel
   and handoff, and the two ways one attempt ends); `Drone` itself lives in the package's own
   `__init__.py`. See `hivemind.workers.roles.drone`'s own docstring for the full shape.

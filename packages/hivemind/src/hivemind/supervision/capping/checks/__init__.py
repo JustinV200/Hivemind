@@ -7,7 +7,9 @@ composition root wires into `hivemind.supervision.capping.gate.GateDeps`. `judge
 independent-review rung (`JudgeCheck`, `CheckKind.JUDGE`) behind the same `Check` Protocol, plus
 the `JudgeReviewer` seam a Warden-layer dispatch satisfies with a real model call later; `rubrics.
 py` loads the per-tier rubric a judge reviews against; `fake.py` a scripted `JudgeReviewer` for
-tests. A later phase adds a sandbox-test and human rung the same way, without touching the gate.
+tests; `human.py` supplies `HumanCheck` (roadmap step 5.0d), the HUMAN rung a leave-policy ASK
+verdict calls directly, never through the generic ladder (that module's own docstring). A later
+phase adds a sandbox-test rung the same way, without touching the gate.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.supervision.capping`.
@@ -33,6 +35,8 @@ Public API:
       independent-review rung and deterministic_checks()'s sibling registry (judge).
     - JudgeRubric, load_judge_rubrics: the per-tier rubric a judge reviews against (rubrics).
     - FakeJudgeReviewer: a scripted JudgeReviewer for tests and demo paths (fake).
+    - HumanCheck, LEAVE_QUESTION_OPTIONS, KEEP_OPTION, KEEP_FOR_GOAL_OPTION, DISCARD_OPTION: the
+      HUMAN rung a leave-policy ASK verdict calls directly (human).
 """
 
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
@@ -44,6 +48,13 @@ from hivemind.supervision.capping.checks.deterministic import (
     deterministic_checks,
 )
 from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
+from hivemind.supervision.capping.checks.human import (
+    DISCARD_OPTION,
+    KEEP_FOR_GOAL_OPTION,
+    KEEP_OPTION,
+    LEAVE_QUESTION_OPTIONS,
+    HumanCheck,
+)
 from hivemind.supervision.capping.checks.judge import (
     JudgeCheck,
     JudgeOutcome,
@@ -55,12 +66,17 @@ from hivemind.supervision.capping.checks.judge import (
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric, load_judge_rubrics
 
 __all__ = [
+    "DISCARD_OPTION",
+    "KEEP_FOR_GOAL_OPTION",
+    "KEEP_OPTION",
+    "LEAVE_QUESTION_OPTIONS",
     "Check",
     "CheckContext",
     "CheckResultRecord",
     "CommandAllowlistCheck",
     "DiffSizeCapCheck",
     "FakeJudgeReviewer",
+    "HumanCheck",
     "JudgeCheck",
     "JudgeOutcome",
     "JudgeRequest",

@@ -13,6 +13,8 @@ See Also:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -108,6 +110,42 @@ def test_hive_stand_section_rejects_a_non_loopback_ws_address() -> None:
 def test_hive_stand_section_rejects_a_non_waggle_uri() -> None:
     with pytest.raises(ValidationError):
         HiveStandSection(address="http://127.0.0.1:8720")
+
+
+def test_hive_stand_section_defaults_keep_root_to_none() -> None:
+    assert HiveStandSection().keep_root is None
+
+
+def test_hive_stand_section_accepts_a_keep_root_outside_scratch_under_full_access() -> None:
+    section = HiveStandSection(
+        scratch_root=Path("hive/scratch"), keep_root=Path("hive/keep"), access_level="FULL"
+    )
+
+    assert section.keep_root == Path("hive/keep")
+
+
+@pytest.mark.parametrize(
+    "keep_root",
+    [Path("hive/scratch"), Path("hive/scratch/nested"), Path("hive")],
+    ids=["same as scratch_root", "inside scratch_root", "contains scratch_root"],
+)
+def test_hive_stand_section_rejects_a_keep_root_overlapping_scratch_root(keep_root: Path) -> None:
+    with pytest.raises(ValidationError, match="keep_root"):
+        HiveStandSection(
+            scratch_root=Path("hive/scratch"), keep_root=keep_root, access_level="FULL"
+        )
+
+
+@pytest.mark.parametrize("access_level", ["READ_ONLY", "SCRATCH"])
+def test_hive_stand_section_rejects_a_keep_root_under_less_than_full_access(
+    access_level: str,
+) -> None:
+    with pytest.raises(ValidationError, match="access_level"):
+        HiveStandSection(
+            scratch_root=Path("hive/scratch"),
+            keep_root=Path("hive/keep"),
+            access_level=access_level,
+        )
 
 
 def test_brood_chamber_section_has_a_sensible_default() -> None:

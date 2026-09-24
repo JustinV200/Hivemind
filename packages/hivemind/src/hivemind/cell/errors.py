@@ -8,7 +8,10 @@ abstraction itself raised on purpose (codingrules section 10). Most of these map
 `hivemind.common.errors`' six base categories: a refused lease is a `ConflictError` (another lease
 already holds the Cell), a closed session or a path outside a lease's reach are permission-shaped
 failures, a missed command deadline is a `DeadlineExceededError`, and an illegal lease-state edge
-is a `ConflictError` for the same reason `brood_chamber.errors.InvalidTransitionError` is.
+is a `ConflictError` for the same reason `brood_chamber.errors.InvalidTransitionError` is. A
+missing Leavings ledger row is a `NotFoundError` and re-removing an already-removed one is a
+`ConflictError`, the same two categories `hivemind.cell.leavings.store_sqlite.SqliteLeavingsStore`
+and `.store_memory.InMemoryLeavingsStore` both raise for the same conditions (roadmap step 5.0a).
 `SnapshotUnsupportedError` and `ProbeError` do not map onto any base category -- one names a
 capability a Real Cell never has, the other a host this process cannot describe -- so both
 subclass `CellError` directly, the same way `guard.errors.InvalidCapabilityError` subclasses
@@ -17,8 +20,8 @@ subclass `CellError` directly, the same way `guard.errors.InvalidCapabilityError
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by every other module in this
     package (`models.py`, `session.py`, `lease_state.py`, `lease.py`, `snapshot.py`, `fake/`,
-    `local/`) and read by every layer above that leases a Cell, opens a session on one, or asks a
-    Snapshotter to act on one.
+    `local/`, `leavings/`) and read by every layer above that leases a Cell, opens a session on
+    one, or asks a Snapshotter to act on one.
 
 Key invariants:
     - Every CellError subclass sets its own `code`; none shares a code with another.
@@ -46,6 +49,7 @@ from hivemind.common.errors import (
     ConflictError,
     DeadlineExceededError,
     HiveMindError,
+    NotFoundError,
     PermissionDeniedError,
 )
 
@@ -54,6 +58,8 @@ __all__ = [
     "CommandTimeoutError",
     "InvalidLeaseTransitionError",
     "LeaseRefusedError",
+    "LeavingAlreadyRemovedError",
+    "LeavingNotFoundError",
     "PathNotAllowedError",
     "ProbeError",
     "ScratchQuotaExceededError",
@@ -239,3 +245,46 @@ class ScratchQuotaExceededError(CellError):
         self.scratch_dir = scratch_dir
         self.quota_bytes = quota_bytes
         self.observed_bytes = observed_bytes
+
+
+class LeavingNotFoundError(NotFoundError):
+    """Raise when a `hivemind.cell.leavings.LeavingsStore` lookup names a path with no ledger row.
+
+    Covers `get_leaving` and `mark_removed` (roadmap step 5.0a): `hive cells leavings remove`
+    reports this as "nothing left there" rather than a stack trace.
+    """
+
+    code: ClassVar[str] = "hivemind.cell.leaving_not_found"
+
+    def __init__(self, cell_id: str, path: Path) -> None:
+        """Build the error for a Leaving lookup that found no row.
+
+        Args:
+            cell_id: The `CellId` the lookup was scoped to.
+            path: The resolved path that has no active (or any) ledger row.
+        """
+        super().__init__(f"No Leaving recorded for {path} on cell {cell_id!r}.")
+        self.cell_id = cell_id
+        self.path = path
+
+
+class LeavingAlreadyRemovedError(ConflictError):
+    """Raise when `LeavingsStore.mark_removed` targets a row that is already removed.
+
+    `remove` is not idempotent on purpose: a second `hive cells leavings remove` on the same path
+    would otherwise silently skip replaying bytes a first, already-completed run already replayed,
+    masking a genuine double-invocation from an operator.
+    """
+
+    code: ClassVar[str] = "hivemind.cell.leaving_already_removed"
+
+    def __init__(self, cell_id: str, path: Path) -> None:
+        """Build the error for a Leaving that was already marked removed.
+
+        Args:
+            cell_id: The `CellId` the row belongs to.
+            path: The path whose ledger row is already removed.
+        """
+        super().__init__(f"The Leaving at {path} on cell {cell_id!r} is already removed.")
+        self.cell_id = cell_id
+        self.path = path

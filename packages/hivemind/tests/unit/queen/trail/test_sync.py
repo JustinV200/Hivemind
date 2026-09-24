@@ -1,4 +1,4 @@
-"""Tests for hivemind.queen.trail_sync: TrailSegmentReceiver reassembles and merges chunks.
+"""Tests for hivemind.queen.trail.sync: TrailSegmentReceiver reassembles and merges chunks.
 
 The Queen-side half of `hivemind.wardens.trail_sync` (roadmap step 5.3 / ADR-0027): this module
 drives a real `hivemind.wardens.trail_sync.WaggleTrailSync` sender over a `MemoryTransport` pair,
@@ -7,13 +7,13 @@ reads whatever `TrailSegmentSync` chunks it actually produces off the wire, and 
 report names that gap), just without a real transport loop around it.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/trail_sync.py (codingrules section 3).
+    Mirrors src/hivemind/queen/trail/sync.py (codingrules section 3).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.queen.trail_sync for the module under test.
+    - hivemind.queen.trail.sync for the module under test.
     - hivemind.wardens.trail_sync for WaggleTrailSync, the sender these chunks come from.
 """
 
@@ -23,7 +23,7 @@ import pytest
 
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.queen.trail_sync import (
+from hivemind.queen.trail.sync import (
     CorruptSegmentError,
     TrailSegmentReceiver,
     UnknownSegmentFormatError,

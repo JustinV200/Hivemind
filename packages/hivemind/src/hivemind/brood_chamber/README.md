@@ -23,7 +23,9 @@ Task` without knowing the split.
   row.
 - `task/model.py` -- `TaskSpec` (the brief), `TaskOutcome` (how it ended) and `Task` (the full
   record), plus `TaskDraft`/`TaskGraphDraft`, the JSON graph file a human hands to
-  `hive tasks submit`.
+  `hive tasks submit`. Both `TaskSpec` and `TaskDraft` carry `leaves`, a bounded tuple of
+  `waggle.messages.PlannedLeaving` declared by the plan (roadmap step 5.0b), empty by default;
+  `chamber/submission.py` copies a draft's `leaves` onto its minted `TaskSpec` unchanged.
 - `task/graph.py` -- pure functions over a task graph: `is_acyclic_edges` (generic, used by
   `TaskGraphDraft`'s own validator), `is_acyclic`, `ready_tasks`, `descendants`. No I/O.
 

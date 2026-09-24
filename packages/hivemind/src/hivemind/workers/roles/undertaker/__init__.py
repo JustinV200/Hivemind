@@ -39,8 +39,14 @@ Public API:
       (hivemind.workers.roles.undertaker.sweep).
     - UndertakerSweepSchedule, DEFAULT_UNDERTAKER_SWEEP_INTERVAL_S: the pure periodic-sweep timer
       (hivemind.workers.roles.undertaker.schedule).
+    - LeavingsStoreRemover, DEFAULT_REMOVAL_EVENT: the LeavingsRemover over the real Leavings
+      ledger (hivemind.workers.roles.undertaker.leavings).
 """
 
+from hivemind.workers.roles.undertaker.leavings import (
+    DEFAULT_REMOVAL_EVENT,
+    LeavingsStoreRemover,
+)
 from hivemind.workers.roles.undertaker.role import (
     DEFAULT_BACKOFF_FACTOR,
     DEFAULT_INITIAL_BACKOFF_S,
@@ -75,12 +81,14 @@ __all__ = [
     "DEFAULT_INITIAL_BACKOFF_S",
     "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_MAX_BACKOFF_S",
+    "DEFAULT_REMOVAL_EVENT",
     "DEFAULT_UNDERTAKER_SWEEP_INTERVAL_S",
     "DormantEvictor",
     "GrantRevoker",
     "KnownLiveCells",
     "LeaseFinder",
     "LeavingsRemover",
+    "LeavingsStoreRemover",
     "NullLeavingsRemover",
     "NullWaxRetirer",
     "RetryPolicy",

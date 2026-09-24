@@ -7,12 +7,14 @@ chose, run by a Worker (a sub-bee spawned for one task), reported on, and closed
 messages here travel down the tree, Queen to Warden and Warden to Worker. ``TaskAssign`` hands
 the task over with its acceptance criteria, its Tempo (a speed-against-accuracy setting), its
 clearance, its Forage grant (Forage is capacity as data: cores, memory, GPU, model seats and
-spend) and an optional Handoff (the document a bee writes before its context is reset) to
-resume from; ``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders on a task in
-flight. The reports that travel back up (``TaskProgress``, ``TaskResult``) live in
-``waggle.messages.task.reports``, split out by responsibility so each file stays under the
-codingrules 5.1 size limit. ``WorkerRole`` names the six Worker roles a Warden can spawn. Every
-bound is a named constant here; the number, not the name, is normative.
+spend), its Leavings (roadmap step 5.0b: what the plan declared should stay on the Cell once the
+lease is released, a `PlannedLeaving` tuple carried unchanged from the plan) and an optional
+Handoff (the document a bee writes before its context is reset) to resume from; ``TaskCancel``,
+``TaskPause`` and ``TaskResume`` are the orders on a task in flight. The reports that travel back
+up (``TaskProgress``, ``TaskResult``) live in ``waggle.messages.task.reports``, split out by
+responsibility so each file stays under the codingrules 5.1 size limit. ``WorkerRole`` names the
+six Worker roles a Warden can spawn. Every bound is a named constant here; the number, not the
+name, is normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -50,19 +52,22 @@ from waggle.messages.base import (
     TaskIdField,
     WaggleMessage,
 )
-from waggle.messages.labels import HandoffRef, HoneyClearance, Postcondition, Tempo
+from waggle.messages.labels import HandoffRef, HoneyClearance, PlannedLeaving, Postcondition, Tempo
 
 MIN_OBJECTIVE_CHARS = 1  # A task with no objective asks for nothing.
 MAX_OBJECTIVE_CHARS = 8_000  # A planner's brief: a page or two; anything longer belongs in Honey.
 MIN_ACCEPTANCE_ITEMS = 1  # Nothing reaches SUCCEEDED unchecked; a JUDGE_RUBRIC stands in at worst.
 MAX_ACCEPTANCE_ITEMS = 32  # More criteria than one task should carry; split the task instead.
 MAX_ACCEPTANCE_CHARS = 65_536  # 64 KiB across every criterion, so an assign always fits one frame.
+MAX_LEAVES_ITEMS = 16  # roadmap 5.0b: a task that leaves more than a handful of paths behind is
+# really declaring a whole directory, not enumerating files one by one.
 MIN_ATTEMPT = 1  # The first try is attempt 1, so 0 can never pass for a real attempt.
 MIN_GRACE_S = 0.0  # A grace period is never negative; exactly 0 kills at once (Sting Cut).
 
 __all__ = [
     "MAX_ACCEPTANCE_CHARS",
     "MAX_ACCEPTANCE_ITEMS",
+    "MAX_LEAVES_ITEMS",
     "MAX_OBJECTIVE_CHARS",
     "MIN_ACCEPTANCE_ITEMS",
     "MIN_ATTEMPT",
@@ -127,6 +132,13 @@ class TaskAssign(WaggleMessage):
         description="The criteria the Warden checks before the task may reach SUCCEEDED; a "
         "JUDGE_RUBRIC entry stands in where nothing is machine-checkable. Bounded in total "
         "characters across all criteria.",
+    )
+    leaves: tuple[PlannedLeaving, ...] = Field(
+        default=(),
+        max_length=MAX_LEAVES_ITEMS,
+        description="What the plan declared should stay on this Cell once the lease is "
+        "released, carried unchanged from the plan; empty by default so an older peer's "
+        "task.assign still validates. A Drone cannot widen this set, only raise a Question.",
     )
     tempo: Tempo = Field(description="The task's latency budget and accuracy bar.")
     clearance: HoneyClearance = Field(

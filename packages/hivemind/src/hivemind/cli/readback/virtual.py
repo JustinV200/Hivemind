@@ -66,11 +66,13 @@ from typing import Annotated
 import typer
 
 from hivemind.cell import CellIdentity, SnapshotId, SnapshotUnsupportedError
+from hivemind.cell.leavings import InMemoryLeavingsStore, LeavingsStore
 from hivemind.cli.compose.deps import build_hive_stand_source, build_ledger
 from hivemind.cli.compose.virtual_cells import build_virtual_cells
 from hivemind.cli.readback.virtual_abscond import AbscondDeps, AbscondSummary, run_abscond
 from hivemind.cli.readback.virtual_offline import (
     LeaseOrphan,
+    OfflineCellDeps,
     build_snapshotter,
     build_undertaker,
     open_real_leases,
@@ -83,6 +85,7 @@ from hivemind.cli.stores import (
     ManifestOption,
     load_manifest_or_exit,
     open_cluster_orders,
+    open_leavings,
     open_trail,
 )
 from hivemind.hive import BackendRegistry, CellBackend, VirtualCellRecord
@@ -120,7 +123,9 @@ async def _inspect(manifest: HiveManifest, trail: PheromoneTrail, cell_id: str) 
         if found is not None:
             _print_virtual_inspect(*found)
             return
-    source = build_hive_stand_source(manifest, trail, clock)
+    # `inspect` never leases, so nothing can ever write a Leaving through this source: a
+    # throwaway ledger is what `build_hive_stand_source`'s own docstring asks for here.
+    source = build_hive_stand_source(manifest, trail, clock, InMemoryLeavingsStore(trail))
     real_cell = next((c for c in await source.cells() if c.id == cell_id), None)
     if real_cell is None:
         typer.echo(
@@ -164,17 +169,22 @@ def destroy_command(
 ) -> None:
     """Destroy CELL_ID (Virtual only); an unknown id is a clean no-op, a Real id is refused."""
     loaded = load_manifest_or_exit(manifest)
-    trail = open_trail(loaded.resolve_path(loaded.hive.db))
+    db_path = loaded.resolve_path(loaded.hive.db)
+    trail = open_trail(db_path)
     ledger = build_ledger(loaded, loaded.forage.reserve)
-    asyncio.run(_destroy(loaded, trail, ledger, cell_id))
+    asyncio.run(_destroy(loaded, trail, ledger, open_leavings(db_path), cell_id))
 
 
 async def _destroy(
-    manifest: HiveManifest, trail: PheromoneTrail, ledger: ForageLedger, cell_id: str
+    manifest: HiveManifest,
+    trail: PheromoneTrail,
+    ledger: ForageLedger,
+    leavings: LeavingsStore,
+    cell_id: str,
 ) -> None:
     """Refuse a Real id; otherwise destroy through the Undertaker and print the trail event id."""
     clock = SystemClock()
-    source = build_hive_stand_source(manifest, trail, clock)
+    source = build_hive_stand_source(manifest, trail, clock, leavings)
     if any(cell.id == cell_id for cell in await source.cells()):
         typer.echo(
             f"{cell_id!r} is the Hive Stand's own Real Cell; `hive cells destroy` only destroys "
@@ -190,7 +200,10 @@ async def _destroy(
         return  # A clean no-op: there is no backend this id could ever be found on.
     identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
     _backend_name, backend = await _resolve_backend(virtual_cells.registry, manifest, cell_id)
-    undertaker = build_undertaker(backend, trail, clock, identity, ledger)
+    # The real Leavings ledger (roadmap step 5.0a): a destroyed Virtual Cell's own ledgered paths
+    # died with it, so the Undertaker marks every active row removed as part of the destroy.
+    offline = OfflineCellDeps(trail=trail, clock=clock, identity=identity, leavings=leavings)
+    undertaker = build_undertaker(backend, offline, ledger)
     event_id = await undertaker.destroy_virtual(CellId(cell_id))
     typer.echo(event_id)
 
@@ -351,12 +364,16 @@ def abscond_command(manifest: ManifestOption = DEFAULT_MANIFEST, yes: _YesOption
     trail = open_trail(db_path)
     ledger = build_ledger(loaded, loaded.forage.reserve)
     orders = open_cluster_orders(db_path)
-    summary = asyncio.run(_abscond(loaded, trail, ledger, orders))
+    summary = asyncio.run(_abscond(loaded, trail, ledger, orders, open_leavings(db_path)))
     _print_abscond_summary(summary)
 
 
 async def _abscond(
-    manifest: HiveManifest, trail: PheromoneTrail, ledger: ForageLedger, orders: OrderStore
+    manifest: HiveManifest,
+    trail: PheromoneTrail,
+    ledger: ForageLedger,
+    orders: OrderStore,
+    leavings: LeavingsStore,
 ) -> AbscondSummary:
     """Build `virtual_cells` (or None) and run the whole abscond pass through it."""
     clock = SystemClock()
@@ -368,6 +385,7 @@ async def _abscond(
         orders=orders,
         clock=clock,
         virtual_cells=virtual_cells,
+        leavings=leavings,
     )
     return await run_abscond(deps)
 

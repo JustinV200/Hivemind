@@ -66,7 +66,7 @@ Public API:
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
       audit_completed: the after-the-fact sampled audit (audit).
     - CappingError, UnknownProposalError, InvalidProposalTransitionError, DiffApplyError,
-      JudgeUnavailableError: this package's error tree (errors).
+      JudgeUnavailableError, JudgeAnswerError: this package's error tree (errors).
 """
 
 from hivemind.supervision.capping.apply import ApplyResult, TouchedPath, apply_action
@@ -103,6 +103,7 @@ from hivemind.supervision.capping.errors import (
     CappingError,
     DiffApplyError,
     InvalidProposalTransitionError,
+    JudgeAnswerError,
     JudgeUnavailableError,
     UnknownProposalError,
 )
@@ -154,6 +155,7 @@ __all__ = [
     "GateOutcome",
     "InMemoryFindingsSink",
     "InvalidProposalTransitionError",
+    "JudgeAnswerError",
     "JudgeCheck",
     "JudgeOutcome",
     "JudgeRequest",

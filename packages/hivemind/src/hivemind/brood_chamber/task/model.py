@@ -55,7 +55,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from hivemind.brood_chamber.task.graph import is_acyclic_edges
 from hivemind.brood_chamber.task.state import TERMINAL_STATUSES, TaskStatus
 from hivemind.cell import HoneyClearance, RequestOrigin, TaskNeeds
-from waggle.messages import Postcondition
+from waggle.messages import PlannedLeaving, Postcondition
 from waggle.messages.base import (
     CellIdField,
     MessageIdField,
@@ -69,6 +69,7 @@ MAX_OBJECTIVE_CHARS = 8_000  # A few pages: enough to brief a Worker fully, neve
 MIN_ACCEPTANCE_ITEMS = 1  # A task with no acceptance criteria could never be verified.
 MAX_ACCEPTANCE_ITEMS = 32  # More than this is really several tasks stapled together.
 MAX_DEPENDENCIES = 64  # A wide fan-in is a planning smell before it is a performance problem.
+MAX_LEAVES_ITEMS = 16  # roadmap 5.0b: matches waggle.messages.task.assignment's own bound.
 MAX_SUMMARY_CHARS = 2_000  # A paragraph or two: enough to explain an outcome, never a transcript.
 MAX_ARTIFACTS = 64  # Paths or urls an outcome points to; more belongs in the objects it names.
 MAX_ARTIFACT_CHARS = 4_096  # PATH_MAX-scale, matching waggle.messages.base.MAX_PATH_CHARS's order.
@@ -89,6 +90,7 @@ __all__ = [
     "MAX_ARTIFACT_CHARS",
     "MAX_DEPENDENCIES",
     "MAX_GRAPH_TASKS",
+    "MAX_LEAVES_ITEMS",
     "MAX_OBJECTIVE_CHARS",
     "MAX_SUMMARY_CHARS",
     "MAX_TITLE_CHARS",
@@ -136,6 +138,13 @@ class TaskSpec(BaseModel):
         default=(),
         max_length=MAX_DEPENDENCIES,
         description="Ids of tasks that must SUCCEED before this one may start.",
+    )
+    leaves: tuple[PlannedLeaving, ...] = Field(
+        default=(),
+        max_length=MAX_LEAVES_ITEMS,
+        description="What the plan declared should stay on this task's Cell once its lease is "
+        "released (roadmap step 5.0b); empty unless the goal itself asks for something to "
+        "remain. Carried unchanged into the task.assign this task's Warden sends.",
     )
 
     @field_validator("depends_on")
@@ -277,6 +286,13 @@ class TaskDraft(BaseModel):
         default=(),
         max_length=MAX_DEPENDENCIES,
         description="Keys of other drafts in the same TaskGraphDraft that must SUCCEED first.",
+    )
+    leaves: tuple[PlannedLeaving, ...] = Field(
+        default=(),
+        max_length=MAX_LEAVES_ITEMS,
+        description="What the plan declared should stay on this task's Cell once its lease is "
+        "released (roadmap step 5.0b); empty unless the goal itself asks for something to "
+        "remain.",
     )
 
 

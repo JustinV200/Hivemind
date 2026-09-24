@@ -151,10 +151,11 @@ persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU
    Cell before `CellReady` and carry the result on `CellReady` (a waggle field), or a session
    relay. Also `_build_docker`/`_build_qemu` build one `QueenEndpoint` per backend, so
    `socks_proxy_url` is not yet set per Night Veil Cell.
-4. **`RealCellLease` cannot retry a failed release**: `release()` moves to `RELEASING` before
-   calling the releaser and `lease_state.py` has no edge back, so the Undertaker calls it once
-   (`TODO(merge)` in `undertaker/role.py`). Add `RELEASING → LEASED` or a `RELEASE_FAILED` state
-   on `cell/lease_state.py` after the merge (that file is the Leavings branch's).
+4. ~~**`RealCellLease` cannot retry a failed release**~~ **Closed by the merge (2026-09-23)**: the
+   Leavings branch added `RELEASING → ORPHANED` to `cell/lease_state.py`, so a releaser that
+   raises leaves the lease ORPHANED and `ORPHANED → RELEASING` lets it be tried again.
+   `Undertaker.release_real` now retries `lease.release()` with backoff like every other step it
+   owns (`test_release_real_retries_a_failed_releaser_then_succeeds`).
 5. **Queen signing key is minted per process** in `cli/compose/virtual_cells.py`; a Cell that
    outlives a Queen restart cannot verify the new Queen. Needs a manifest field or key file.
 6. **`max_sub_bees` for Virtual specs is hardcoded to 4** in `cli/compose/virtual_cells.py`.

@@ -39,7 +39,7 @@ Fits into the Hive:
     (ForageCapacity, HostCapacity), `hivemind.queen.attach` (detach_warden), `hivemind.queen.deps`
     (WardenLink), `hivemind.queen.queen` (Queen), `hivemind.queen.cell_gate.gate`
     (QueenReadinessGate), `hivemind.queen.cell_gate.snapshot` (CellSnapshotHandler),
-    `hivemind.queen.trail_sync` (TrailSegmentReceiver), waggle (codec, envelope, errors, ids,
+    `hivemind.queen.trail.sync` (TrailSegmentReceiver), waggle (codec, envelope, errors, ids,
     signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
 
 Key invariants:
@@ -80,7 +80,7 @@ from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.queen import Queen
-from hivemind.queen.trail_sync import TrailSegmentReceiver
+from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap

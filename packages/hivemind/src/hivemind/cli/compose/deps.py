@@ -14,10 +14,10 @@ before a `HiveParts` naming their own return values could exist.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.brood_chamber`,
-    `hivemind.cell.local`, `hivemind.cli.stores`, `hivemind.forage`, `hivemind.llm`,
-    `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen`
-    (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`, `hivemind.wardens`,
-    `hivemind.workers` and waggle only.
+    `hivemind.cell.leavings` (roadmap step 5.0a), `hivemind.cell.local`, `hivemind.cli.stores`,
+    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`,
+    `hivemind.queen` (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`,
+    `hivemind.wardens`, `hivemind.workers` and waggle only.
 
 Key invariants:
     - Every identity this module builds (`MemoryIdentity`, `ChamberIdentity`, `CellIdentity`)
@@ -51,6 +51,7 @@ from pydantic import SecretStr
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
+from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
 from hivemind.cli.compose.links import HiveLinks
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
@@ -58,6 +59,7 @@ from hivemind.cli.stores import (
     build_registry,
     open_chamber,
     open_cluster_orders,
+    open_leavings,
     open_ledger,
     open_memory,
     open_trail,
@@ -112,17 +114,20 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class HiveStores:
-    """The three stores every Hive opens against its own `[hive] db` file.
+    """The stores every Hive opens against its own `[hive] db` file.
 
     Attributes:
         trail: The Pheromone Trail every subsystem records to.
         chamber: The Brood Chamber the Queen submits and advances tasks through.
         memory: Where every Pin, Note, Handoff and episode this Hive writes lives.
+        leavings: The Leavings ledger `build_hive_stand_source` hands to every
+            `HiveStandLeaseReleaser` this Hive builds (roadmap step 5.0a).
     """
 
     trail: PheromoneTrail
     chamber: BroodChamber
     memory: MemoryStore
+    leavings: LeavingsStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +143,7 @@ class HiveParts:
         manifest: The loaded HiveManifest every builder converts a slice of.
         registry: The ProviderRegistry every `BoundModel` resolves through.
         fanner: The Fanner every `CallGate` this Hive hands out is a lane of.
-        stores: This Hive's trail, chamber and memory store.
+        stores: This Hive's trail, chamber, memory and leavings stores.
         clock: Injected time source shared by every collaborator this composes.
     """
 
@@ -150,13 +155,13 @@ class HiveParts:
 
 
 def open_default_stores(manifest: HiveManifest) -> HiveStores:
-    """Open the Hive's own `[hive] db` file as its trail, chamber and memory store.
+    """Open the Hive's own `[hive] db` file as its trail, chamber, memory and leavings store.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
 
     Returns:
-        A HiveStores over three separate `sqlite3.Connection`s to the same file (ADR-0006: "two
+        A HiveStores over four separate `sqlite3.Connection`s to the same file (ADR-0006: "two
         stores that write the same file use separate connections; WAL makes that fine").
     """
     db = manifest.resolve_path(manifest.hive.db)
@@ -164,24 +169,30 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
     )
     return HiveStores(
-        trail=open_trail(db), chamber=open_chamber(db, identity), memory=open_memory(db)
+        trail=open_trail(db),
+        chamber=open_chamber(db, identity),
+        memory=open_memory(db),
+        leavings=open_leavings(db),
     )
 
 
 def build_hive_stand_source(
-    manifest: HiveManifest, trail: PheromoneTrail, clock: Clock
+    manifest: HiveManifest, trail: PheromoneTrail, clock: Clock, leavings: LeavingsStore
 ) -> HiveStandSource:
     """Build the Hive Stand's own RealCellSource from `[hive_stand]`.
 
-    Takes `trail`/`clock` directly rather than a `HiveParts` (unlike `build_warden_deps`/
-    `build_queen_deps` below): a `HiveParts` also carries the `Fanner` and `ProviderRegistry` this
-    function has no use for, and `build_hive` needs this source's one Cell (`source.cells()`)
+    Takes `trail`/`clock`/`leavings` directly rather than a `HiveParts` (unlike `build_warden_
+    deps`/`build_queen_deps` below): a `HiveParts` also carries the `Fanner` and `ProviderRegistry`
+    this function has no use for, and `build_hive` needs this source's one Cell (`source.cells()`)
     before either of those exists, to seed `hivemind.cli.compose.links.build_hive_links`.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
         trail: Where `cell.leased`/`cell.released` land.
         clock: Injected time source for every id minted and every timestamp written.
+        leavings: Where a `persist=True` restore record's Leaving row lands on release (roadmap
+            step 5.0a); a caller that never leases (`hivemind.cli.readback.cells`'s own `hive
+            cells list`) may pass a throwaway `InMemoryLeavingsStore()`.
 
     Returns:
         A HiveStandSource whose one Cell is not yet leased (`hivemind.wardens.warden.Warden.start`
@@ -189,7 +200,7 @@ def build_hive_stand_source(
     """
     config = HiveStandConfig.from_section(manifest.hive_stand, _manifest_dir(manifest))
     identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
-    return HiveStandSource(config, identity, trail, clock)
+    return HiveStandSource(config, identity, trail, clock, leavings)
 
 
 def build_provider_registry(
@@ -289,9 +300,8 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     identity = MemoryIdentity(
         hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
     )
-    # Roadmap step 4.10's own one-line registration: a model-backed JudgeReviewer, merged into
-    # the deterministic check registry so CheckKind.JUDGE is available wherever a tier's own
-    # `judge` flag turns it on (hivemind.supervision.defaults.capping-tiers.toml).
+    # Roadmap step 4.10: a model-backed JudgeReviewer, merged into the deterministic check
+    # registry so CheckKind.JUDGE is available wherever a tier's own `judge` flag turns it on.
     judge_rubrics = load_judge_rubrics()
     judge_reviewer = _build_judge_reviewer(parts)
     return WardenDeps(
@@ -315,11 +325,18 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         missed_heartbeats_before_stalled=supervision.heartbeat_miss_limit,
         judge_reviewer=judge_reviewer,
         judge_rubrics=judge_rubrics,
-        # Roadmap step 4.8: one Fanner lane per grant, so every sub-bee's own llm.call carries
-        # its own grant and goal id (hivemind.wardens.deps.WardenDeps.lane_for_grant's own
-        # docstring); `call_gate` above stays this Warden's own unattributed lane.
+        # Roadmap step 4.8: one Fanner lane per grant (WardenDeps.lane_for_grant's own docstring).
         lane_for_grant=_lane_for_grant(parts),
+        # Roadmap step 5.0e: resolved the same way build_queen_deps resolves scratch_root.
+        keep_root=_keep_root(manifest),
+        disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
     )
+
+
+def _keep_root(manifest: HiveManifest) -> Path | None:
+    """Resolve `[hive_stand] keep_root` against the manifest's own directory, or None."""
+    keep_root = manifest.hive_stand.keep_root
+    return manifest.resolve_path(keep_root) if keep_root is not None else None
 
 
 def _build_judge_reviewer(parts: HiveParts) -> ModelJudgeReviewer:
@@ -387,6 +404,7 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         heartbeat_miss_limit=supervision.heartbeat_miss_limit,
         alarm_attempt_limit=supervision.alarm_attempt_limit,
         memory_budget=_awake_memory_budget(manifest),
+        scratch_root=manifest.resolve_path(manifest.hive_stand.scratch_root),  # roadmap 5.0b
         footprints=_footprints(forage.roles),
         reserve=forage.reserve,
         grant_ttl_s=forage.grant_ttl_s,

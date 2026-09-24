@@ -2,7 +2,7 @@
 
 Fits into the Hive:
     Mirrors src/hivemind/wardens/trail_sync.py (codingrules section 3). Drives a real
-    `MemoryTransport` pair (roadmap step 5.3's own sender side); `hivemind.queen.trail_sync`'s
+    `MemoryTransport` pair (roadmap step 5.3's own sender side); `hivemind.queen.trail.sync`'s
     own tests reassemble the chunks this module sends.
 
 Key invariants:
@@ -10,7 +10,7 @@ Key invariants:
 
 See Also:
     - hivemind.wardens.trail_sync for the module under test.
-    - hivemind.queen.trail_sync for TrailSegmentReceiver, the chunks' own reassembler.
+    - hivemind.queen.trail.sync for TrailSegmentReceiver, the chunks' own reassembler.
 """
 
 from __future__ import annotations

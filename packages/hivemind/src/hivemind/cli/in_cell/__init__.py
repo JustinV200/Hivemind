@@ -39,7 +39,7 @@ See Also:
     - images/base-ubuntu/README.md for the image layer that runs `main()`.
     - hivemind.wardens.spawn.in_cell for InCellSpawnSource, the `in_cell` Warden spawn strategy
       this package's own composition root builds and probes.
-    - hivemind.queen.trail_sync for TrailSegmentReceiver, the Queen-side half of the trail sync
+    - hivemind.queen.trail.sync for TrailSegmentReceiver, the Queen-side half of the trail sync
       this package's Warden sends -- not yet wired into any Queen-side listener (this dispatch's
       own report names the gap).
 

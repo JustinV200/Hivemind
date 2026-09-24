@@ -30,7 +30,8 @@ Fits into the Hive:
     reports the one-line merge `cli/compose/deps.py` needs, `{**deterministic_checks(),
     **judge_checks(reviewer, rubrics)}`); run by `hivemind.supervision.capping.gate.CappingGate`
     like any other Check. Calls into `hivemind.supervision.capping.checks.base`, `hivemind.
-    supervision.capping.checks.rubrics`, `hivemind.supervision.capping.tiers` and waggle only.
+    supervision.capping.checks.rubrics`, `hivemind.supervision.capping.errors`, `hivemind.
+    supervision.capping.tiers` and waggle only.
 
 Key invariants:
     - JudgeVerdict and JudgeRequest are frozen and forbid extras, like every boundary value here.
@@ -39,12 +40,19 @@ Key invariants:
     - A tier with no configured rubric fails JudgeCheck closed (FAILED), never silently PASSED --
       the same fail-closed shape CappingGate.run already applies to a missing Check implementation
       (docs/adr/0018-capping-gate-postconditions-and-risk-tiers.md).
+    - A JudgeReviewer that raises JudgeAnswerError (it could not produce a verdict at all, e.g. a
+      model's structured-output ladder exhausted every retry) never propagates out of JudgeCheck.
+      run: it becomes a FAILED CheckResultRecord with judge_error=True, so a judge that cannot
+      answer rejects the proposal instead of crashing the Worker (2026-09-21, the real trail this
+      fixes: nine unparseable llm.call attempts reached worker.failed / WORKER_CRASHED).
 
 See Also:
     - .claude/codingrules.md section 8.12 for the judge-independence rule this module implements.
     - .claude/codingrules.md section 8.1 for the Protocol-at-every-seam rule JudgeReviewer follows.
     - hivemind.supervision.capping.checks.rubrics for JudgeRubric and load_judge_rubrics.
     - hivemind.supervision.capping.checks.fake for FakeJudgeReviewer, a scripted JudgeReviewer.
+    - hivemind.supervision.capping.errors for JudgeAnswerError, which a JudgeReviewer raises
+      instead of answering and this module's run() catches.
     - hivemind.forage.slots for ModelSlot.JUDGE, which a manifest's [llm.slots] pins independently
       of ModelSlot.WORKER so blind spots do not correlate (a manifest edit, not code this package
       touches).
@@ -61,6 +69,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.forage.tempo import Tempo
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
+from hivemind.supervision.capping.errors import JudgeAnswerError
 from hivemind.supervision.capping.tiers import RiskTier
 from waggle.messages.capping import CheckKind, CheckOutcome, ProposedAction
 from waggle.messages.labels import Postcondition
@@ -189,6 +198,8 @@ class JudgeCheck:
 
         Returns:
             FAILED with reason "no rubric configured for tier" when this tier has no rubric;
+            FAILED with `judge_error=True` when the reviewer raised instead of answering (2026-09-
+            21: a judge that cannot produce a verdict is a check outcome, not a bee crash);
             otherwise the reviewer's verdict, mapped onto CheckOutcome.
         """
         rubric = self._rubrics.get(context.proposal.risk_tier)
@@ -207,14 +218,7 @@ class JudgeCheck:
             rubric=rubric,
             tempo=context.proposal.tempo,
         )
-        # Latency class: one model call, typically seconds to tens of seconds; a timeout and
-        # retry policy belong to the model-backed JudgeReviewer implementation, not this rung.
-        verdict = await self._reviewer.review(request)
-        return CheckResultRecord(
-            kind=CheckKind.JUDGE,
-            outcome=_OUTCOME_MAP[verdict.outcome],
-            reason="; ".join(verdict.reasons) if verdict.reasons else verdict.outcome.value,
-        )
+        return await _review_safely(self._reviewer, request)
 
 
 def judge_checks(
@@ -237,6 +241,38 @@ def judge_checks(
         `{CheckKind.JUDGE: JudgeCheck(reviewer, rubrics)}`.
     """
     return {CheckKind.JUDGE: JudgeCheck(reviewer, rubrics)}
+
+
+async def _review_safely(reviewer: JudgeReviewer, request: JudgeRequest) -> CheckResultRecord:
+    """Call `reviewer.review(request)` and translate its outcome, or its JudgeAnswerError, alike.
+
+    Split out of `JudgeCheck.run` (codingrules 5.1: functions stay under 50 lines).
+    """
+    # Latency class: one model call, typically seconds to tens of seconds; a timeout and retry
+    # policy belong to the model-backed JudgeReviewer implementation, not this rung.
+    try:
+        verdict = await reviewer.review(request)
+    except JudgeAnswerError as exc:
+        # The reviewer could not produce a verdict at all (2026-09-21: nine unparseable llm.call
+        # attempts on the judge lane propagated all the way to worker.failed / alarm.raised
+        # WORKER_CRASHED before this existed). Reject the proposal with a readable reason instead
+        # of letting the exception kill the Worker; judge_error=True tells CappingGate to record
+        # this distinctly from an ordinary REJECT verdict on the capping.checked trail event. A
+        # reviewer's ProviderUnavailableError/RateLimitedError (an outage, not an answer failure)
+        # is never caught here -- it is not a JudgeAnswerError, so it propagates to the Warden,
+        # whose Clustering rung pauses and resumes the whole Hive for an outage rather than
+        # rejecting one proposal.
+        return CheckResultRecord(
+            kind=CheckKind.JUDGE,
+            outcome=CheckOutcome.FAILED,
+            reason=f"judge could not produce a verdict: {exc.detail}",
+            judge_error=True,
+        )
+    return CheckResultRecord(
+        kind=CheckKind.JUDGE,
+        outcome=_OUTCOME_MAP[verdict.outcome],
+        reason="; ".join(verdict.reasons) if verdict.reasons else verdict.outcome.value,
+    )
 
 
 # Maps the judge's own three-way verdict onto the check ladder's shared CheckOutcome vocabulary.

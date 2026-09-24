@@ -2,7 +2,8 @@
 
 The tools package holds the tool implementations a Worker can call while it works, each one going
 through its Cell's `CellSession` rather than touching a process or file directly. Roadmap step 3.16
-gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_request` and `ask`.
+gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_request` and `ask`;
+roadmap step 5.0e adds a sixth, `keep`.
 
 ## Modules
 
@@ -11,9 +12,9 @@ gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_
   Protocol a runner implements), `ToolRegistry` (validates a call against its schema, then runs
   it; an unknown tool or a schema violation returns readable text, never raises; a
   `hivemind.workers.tools.errors.ToolError` becomes its message; a control exception such as
-  `HandoffRequestedError` or `WorkerCancelledError` propagates unchanged) and `build_registry` (offers
-  `run_command`/`read_file`/`write_file`/`ask` always, `http_request` only when the Worker holds a
-  `net` capability).
+  `HandoffRequestedError` or `WorkerCancelledError` propagates unchanged) and `build_registry`
+  (offers `run_command`/`read_file`/`write_file`/`ask`/`keep` always, `http_request` only when the
+  Worker holds a `net` capability).
 - `session.py` -- `run_command` (a COMMAND proposal, `SCRATCH_WRITE` or `OUTSIDE_SCRATCH_WRITE`
   depending on the resolved working directory), `read_file` (no proposal; requires an `fs:read`
   capability outside scratch; truncates to `MAX_TOOL_RESULT_CHARS`) and `write_file` (a whole-file
@@ -29,13 +30,23 @@ gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_
 - `ask.py` -- `ask`: raises a blocking `waggle.messages.supervision.Question` through
   `ctx.asker.ask` and returns its `Answer`'s text (plus the chosen option's own wording, when one
   was offered) as the tool result. No proposal: asking has no side effect to check.
+- `keep.py` (roadmap step 5.0e) -- `keep(source, destination)`: moves a scratch file to a path
+  outside it, an ordinary `outside_scratch_write` through the same gate, leave policy and Leavings
+  ledger every other outside-scratch write goes through. `source` must resolve inside scratch
+  (refused otherwise, including a symlink that resolves outside it); `destination` must expand
+  (`~`) to an absolute path outside scratch. Proposes one `ActionKind.COPY` action -- the source's
+  sha256 and size, never its bytes -- with one `FILE_EXISTS` postcondition at the destination; on
+  a verified apply the source is removed from scratch (a move, not a copy). `describe()`'s own
+  leave-decision line tells the model plainly whether the destination will actually remain.
 - `proposals.py` -- `ProposalRequest` (a tool's tier, action, postconditions and reason, bundled
   so `make_proposal` stays under codingrules 5.1's parameter limit), `make_proposal` (build a
   Proposal from one), `cap` (propose, then run, through `ctx.capping`; on a `ROLLED_BACK` outcome
   also notes `ROLLBACK_ALARM_KIND` (`POSTCONDITION_FAILED`) on `ctx.telemetry`, so the runtime
   raises a real Alarm instead of the rollback only ever showing up as tool-result text) and
   `describe` (render a `GateOutcome` as tool-result text: state, reason, every check and
-  postcondition -- never the diff or command text itself).
+  postcondition, and -- roadmap step 5.0e, only when the proposal touched a path outside scratch
+  -- each such path's own leave verdict and whether it will actually remain; never the diff or
+  command text itself).
 - `errors.py` -- `ToolError` (root) and `UnreachablePathError` (a path this Worker's session
   cannot reach at all, distinct from merely lacking a capability for it).
 

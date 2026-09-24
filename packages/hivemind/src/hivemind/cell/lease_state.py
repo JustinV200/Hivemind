@@ -5,9 +5,9 @@ to being released. This module is the state machine codingrules section 9 requir
 machine in the Hive: one `Enum` (`LeaseState`) plus one transition table (`TRANSITIONS`), each
 allowed edge commented with who causes it, tested edge by edge (codingrules Appendix C, the "Lease
 (Real Cell)" row: "`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`
-(sweep)"). Nothing else in the Hive decides whether a lease transition is legal;
-`hivemind.cell.lease.RealCellLease.open` and `.release` are the only callers of
-`assert_transition`.
+(sweep); `RELEASING -> ORPHANED -> RELEASING` (release() failed, retried)"). Nothing else in the
+Hive decides whether a lease transition is legal; `hivemind.cell.lease.RealCellLease.open` and
+`.release` are the only callers of `assert_transition`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read by `hivemind.cell.lease` before
@@ -17,6 +17,9 @@ Key invariants:
     - TRANSITIONS has exactly one entry per LeaseState member, and RELEASED (the only terminal
       state) maps to an empty frozenset.
     - can_transition and assert_transition read TRANSITIONS only; neither hard-codes an edge.
+    - RELEASING has an edge out on failure too (ORPHANED), not only on success (RELEASED): a
+      `release()` whose delegate raises is never stuck, since ORPHANED -> RELEASING is already
+      legal (`hivemind.cell.lease.RealCellLease.release`'s own failure path).
 
 See Also:
     - .claude/codingrules.md section 9 for the state-machine shape this module follows.
@@ -46,7 +49,7 @@ class LeaseState(Enum):
     OPEN = "OPEN"  # Opened: the lease's scratch directory exists and its session may be used.
     RELEASING = "RELEASING"  # release() is tearing down: killing processes, restoring paths.
     RELEASED = "RELEASED"  # Terminal: the device is left as found (or as restored as it gets).
-    ORPHANED = "ORPHANED"  # Was OPEN but its holder is gone; found by a sweep, not by release().
+    ORPHANED = "ORPHANED"  # Holder gone (a sweep found it) or a release() attempt raised.
 
 
 # The single transition table (codingrules section 9): one entry per LeaseState, each edge
@@ -60,9 +63,16 @@ TRANSITIONS: Mapping[LeaseState, frozenset[LeaseState]] = {
             LeaseState.ORPHANED,  # a sweep found the holder gone (no sweep lands this phase)
         }
     ),
-    LeaseState.RELEASING: frozenset({LeaseState.RELEASED}),  # release()'s delegate finished
+    LeaseState.RELEASING: frozenset(
+        {
+            LeaseState.RELEASED,  # release()'s delegate finished
+            LeaseState.ORPHANED,  # release()'s delegate raised; a retry must finish the job
+        }
+    ),
     LeaseState.RELEASED: frozenset(),  # terminal: nothing follows
-    LeaseState.ORPHANED: frozenset({LeaseState.RELEASING}),  # the sweep releases what it found
+    # release() called again: a sweep releasing what it found orphaned, or a retry after a
+    # RELEASING -> ORPHANED failure.
+    LeaseState.ORPHANED: frozenset({LeaseState.RELEASING}),
 }
 
 

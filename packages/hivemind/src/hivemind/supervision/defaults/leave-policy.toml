@@ -1,0 +1,60 @@
+# The Hive's v0 leave policy: whether a declared Leaving (roadmap phase 5 preamble: a file a task
+# is allowed to keep on a Cell past its lease's release) actually persists -- ALLOW, ASK or DENY.
+#
+# Loaded by hivemind.supervision.capping.leave.table.load_leave_policy into a LeavePolicyTable, and
+# read by hivemind.supervision.capping.leave.policy.decide. See hivemind/supervision/capping/leave/
+# README.md ("Path classes") for what each row means and the precedence between them; a path no
+# plan declared is DENY before any row here is even read (roadmap step 5.0b's hard rule), and
+# READ_ONLY/SCRATCH access or a NIGHT_VEIL Cell are DENY before any row here too (roadmap 5.0c).
+
+[general]
+# Above this many bytes, a home-class leaving is decided by classes.home.over_threshold_verdict
+# instead of its own hive_stand_verdict/borrowed_verdict. 10 MiB: generous for a config file, a
+# small project scaffold or a short log a task legitimately wants to keep; large enough that an
+# ordinary "install X" or "set up a project in Y" leaving (roadmap phase 5 preamble's own examples)
+# clears it without a question, small enough that a task quietly leaving a large artifact still
+# asks.
+max_home_bytes = 10485760
+
+[classes.keep_root]
+# Under the manifest's [hive_stand] keep_root (roadmap step 5.0e; None today, so nothing
+# classifies as keep_root yet): the one place a task is meant to leave things. Unconditional ALLOW,
+# even for an executable (hivemind.supervision.capping.leave.policy.decide checks keep_root before
+# the executable row).
+verdict = "ALLOW"
+
+[classes.executable]
+# An executable anywhere outside keep_root, whatever its own path class -- roadmap step 5.0c's own
+# suggested default. A conservative guess (hivemind.supervision.capping.leave.executable) errs
+# toward "yes", so this row only ever costs an extra question, never a silent persist.
+verdict = "ASK"
+
+[classes.startup]
+# A Windows Startup folder, a systemd unit directory, a shell rc file, LaunchAgents/LaunchDaemons,
+# and the like (README.md's own "Path classes"). Reversible enough to ask about on the Hive Stand
+# the operator is sitting at; never touched unasked on a borrowed device.
+hive_stand_verdict = "ASK"
+borrowed_verdict = "DENY"
+
+[classes.system]
+# /etc, /usr, /bin, /opt, C:\Windows, C:\Program Files*, and the like. Same shape as startup: ask
+# on the Hive Stand, never touch a borrowed device unasked.
+hive_stand_verdict = "ASK"
+borrowed_verdict = "DENY"
+
+[classes.other]
+# Neither home, system, startup nor keep_root (README.md's own "Design choices": a second drive, a
+# mount point, a network share). Never more permissive than system: unrecognised is not safer than
+# recognised-and-sensitive.
+hive_stand_verdict = "ASK"
+borrowed_verdict = "DENY"
+
+[classes.home]
+# Under the Cell's own home directory, declared, non-executable, under max_home_bytes: the common
+# case roadmap phase 5's own examples describe ("install X", "set up a project in Y"). Persists
+# without a question on the Hive Stand the operator is sitting at; still asks on a borrowed device.
+hive_stand_verdict = "ALLOW"
+borrowed_verdict = "ASK"
+# Over max_home_bytes: always asks, on either kind of Cell -- size alone is reason enough to check
+# before something large quietly outlives its lease.
+over_threshold_verdict = "ASK"

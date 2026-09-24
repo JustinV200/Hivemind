@@ -22,12 +22,11 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from builders.cells import make_real_cell_lease
+from builders.cells import make_hive_stand_releaser, make_real_cell_lease
 
 from hivemind.cell.errors import ScratchQuotaExceededError
 from hivemind.cell.lease import RealCellLease
 from hivemind.cell.local.quota import DirectorySizer, ScratchQuota, directory_size_bytes
-from hivemind.cell.local.releaser import HiveStandLeaseReleaser
 from hivemind.cell.local.session import LocalProcessSession
 from hivemind.cell.session import ExecSpec, run
 from waggle.clock import SystemClock
@@ -109,7 +108,9 @@ async def _open_lease_and_extract_outer_zip(tmp_path: Path) -> tuple[RealCellLea
     scratch_root = tmp_path / "scratch"
     scratch_root.mkdir()
     clock = SystemClock()  # Real subprocess timing needs real time, not a FakeClock.
-    lease = make_real_cell_lease(scratch_root, clock=clock, releaser=HiveStandLeaseReleaser(clock))
+    lease = make_real_cell_lease(
+        scratch_root, clock=clock, releaser=make_hive_stand_releaser(clock=clock)
+    )
     await lease.open()
     # A plain, unscripted quota: outer.zip -> inner.zip is tiny and near-instant, so it never
     # comes close to the cap and needs nothing special.

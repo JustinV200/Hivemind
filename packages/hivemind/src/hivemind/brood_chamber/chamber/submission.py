@@ -26,13 +26,16 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import datetime
+
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
-from hivemind.brood_chamber.task.model import Task, TaskGraphDraft, TaskSpec
+from hivemind.brood_chamber.task.model import Task, TaskDraft, TaskGraphDraft, TaskSpec
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.pheromone import TaskEvent
-from waggle.ids import new_task_id
+from waggle.ids import TaskId, new_task_id
 
 # Private mixin (leading underscore): nothing in this file is part of any package's public API,
 # so __all__ stays empty rather than listing a name codingrules 5.4 would then call exported.
@@ -65,30 +68,51 @@ class _SubmissionMixin(_ChamberBase):
         tasks: list[Task] = []
         events: list[TaskEvent] = []
         for draft in graph.tasks:
-            depends_on = tuple(minted_ids[key] for key in draft.depends_on)
-            task = Task(
-                id=minted_ids[draft.key],
-                goal_id=goal_id,
-                spec=TaskSpec(
-                    title=draft.title,
-                    objective=draft.objective,
-                    acceptance=draft.acceptance,
-                    needs=draft.needs,
-                    clearance=draft.clearance,
-                    origin=draft.origin,
-                    depends_on=depends_on,
-                ),
-                status=TaskStatus.PENDING,
-                created_at=now,
-                updated_at=now,
-            )
+            task = _mint_task(draft, minted_ids, goal_id, now)
             tasks.append(task)
             payload: dict[str, JsonValue] = {
                 "title": task.spec.title,
                 "goal_id": goal_id,
-                "depends_on": list(depends_on),
+                "depends_on": list(task.spec.depends_on),
             }
             events.append(self._build_event(task.id, "task.submitted", payload, now))
 
         await self._store.insert_tasks(tasks, events)
         return tuple(tasks)
+
+
+def _mint_task(
+    draft: TaskDraft, minted_ids: Mapping[str, TaskId], goal_id: TaskId, now: datetime
+) -> Task:
+    """Build one PENDING Task from `draft`, resolving its draft-key dependencies to real TaskIds.
+
+    A module-level function rather than a method: it touches no chamber state at all, and pulling
+    it out of `submit` is what keeps that method inside the codingrules 5.1 fifty-line budget once
+    `TaskSpec` carries both `origin` (roadmap step 5.7a) and `leaves` (roadmap step 5.0b).
+
+    Args:
+        draft: The already-validated draft to mint.
+        minted_ids: Every draft key in the graph mapped to the TaskId minted for it.
+        goal_id: The graph's own goal id (the first draft's minted id).
+        now: The one `created_at`/`updated_at` reading the whole submission shares.
+
+    Returns:
+        The minted, PENDING Task.
+    """
+    return Task(
+        id=minted_ids[draft.key],
+        goal_id=goal_id,
+        spec=TaskSpec(
+            title=draft.title,
+            objective=draft.objective,
+            acceptance=draft.acceptance,
+            needs=draft.needs,
+            clearance=draft.clearance,
+            origin=draft.origin,
+            depends_on=tuple(minted_ids[key] for key in draft.depends_on),
+            leaves=draft.leaves,
+        ),
+        status=TaskStatus.PENDING,
+        created_at=now,
+        updated_at=now,
+    )

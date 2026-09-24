@@ -30,6 +30,7 @@ from hivemind.llm.ladders.structured import (
     JSON_MODE_RETRIES,
     NATIVE_SCHEMA_RETRIES,
     PROMPTED_JSON_RETRIES,
+    LadderOptions,
     Rung,
     complete_structured,
 )
@@ -220,7 +221,9 @@ async def test_complete_structured_steps_down_a_rung_after_exhausting_native_ret
     bound = make_bound(provider=provider)
     observer = _RecordingObserver()
 
-    result = await complete_structured(bound, make_request(), _Decision, observer=observer)
+    result = await complete_structured(
+        bound, make_request(), _Decision, options=LadderOptions(observer=observer)
+    )
 
     assert result.rung is Rung.JSON_MODE
     assert result.attempts == NATIVE_SCHEMA_RETRIES + 2
@@ -285,7 +288,9 @@ async def test_complete_structured_falls_back_to_the_next_binding_on_provider_un
     bound = make_bound(provider=primary, binding="worker", fallback=fallback_bound)
     observer = _RecordingObserver()
 
-    result = await complete_structured(bound, make_request(), _Decision, observer=observer)
+    result = await complete_structured(
+        bound, make_request(), _Decision, options=LadderOptions(observer=observer)
+    )
 
     assert result.value.choice == "a"
     assert len(observer.notes) == 1
@@ -304,7 +309,9 @@ async def test_complete_structured_falls_back_to_the_next_binding_on_rate_limite
     bound = make_bound(provider=primary, binding="worker", fallback=fallback_bound)
     observer = _RecordingObserver()
 
-    result = await complete_structured(bound, make_request(), _Decision, observer=observer)
+    result = await complete_structured(
+        bound, make_request(), _Decision, options=LadderOptions(observer=observer)
+    )
 
     assert result.value.choice == "a"
     assert observer.notes[0].reason is FallbackReason.RATE_LIMITED  # type: ignore[attr-defined]
@@ -334,7 +341,9 @@ async def test_complete_structured_records_fallback_notes_via_the_trail_observer
     fallback_bound = make_bound(provider=fallback_provider, binding="local_worker")
     bound = make_bound(provider=primary, binding="worker", fallback=fallback_bound)
 
-    await complete_structured(bound, make_request(), _Decision, observer=observer)
+    await complete_structured(
+        bound, make_request(), _Decision, options=LadderOptions(observer=observer)
+    )
 
     events = await trail.query(TrailQuery())
     assert len(events) == 1

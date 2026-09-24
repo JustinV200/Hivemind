@@ -9,14 +9,16 @@ the Queen's tick touches: her task store (`chamber`), her hot-state and durable 
 a `HiveManifest` (`bound_for`, `rebind`, `bindings`, `call_gate`, `map`), her share of Forage
 (`budgets`), her live book of it (`ledger`, roadmap step 4.7), her liveness cadence
 (`heartbeat_interval_s`, `heartbeat_miss_limit`), the slice of `[memory]` an awake episode's
-prompt is budgeted against (`memory_budget`), and, roadmap step 5.7 (ADR-0028), her placement
-inputs: `placement_policy`, the Virtual side's own inventory (`virtual_backends`,
-`dormant_cells`), and the seam that turns a Virtual `Placement` into a `WardenLink`
-(`virtual_provider`, a `VirtualCellProvider`, defined here beside `WardenLink` rather than in
-`hivemind.queen.placement` since it names `WardenLink`/`Task` and that package must never import
-this one back). `WardenLink` is the Queen-side half of one attached Warden's own Waggle link:
-`hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own end of the exact same
-pair.
+prompt is budgeted against (`memory_budget`), the Hive Stand's own resolved scratch root
+(`scratch_root`, roadmap step 5.0b), read only by `hivemind.queen.goal_submission.submit_goal` so
+a declared `PlannedLeaving` inside it is caught while planning, not discovered at release, and,
+roadmap step 5.7 (ADR-0028), her placement inputs: `placement_policy`, the Virtual side's own
+inventory (`virtual_backends`, `dormant_cells`), and the seam that turns a Virtual `Placement`
+into a `WardenLink` (`virtual_provider`, a `VirtualCellProvider`, defined here beside `WardenLink`
+rather than in `hivemind.queen.placement` since it names `WardenLink`/`Task` and that package must
+never import this one back). `WardenLink` is the Queen-side half of one attached Warden's own
+Waggle link: `hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own end of the
+exact same pair.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -54,6 +56,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from hivemind.brood_chamber import BroodChamber, Task, TaskOutcome
@@ -278,6 +281,10 @@ class QueenDeps:
         alarm_attempt_limit: A ceiling on attempts before an Alarm escalates to the human
             regardless of what the escalation policy's own rows would otherwise decide.
         memory_budget: The `[memory]` slice an awake episode's `TokenBudget` is built from.
+        scratch_root: The Hive Stand's own `[hive_stand] scratch_root`, resolved (roadmap step
+            5.0b). Read only by `hivemind.queen.goal_submission.submit_goal`, which passes it to
+            `hivemind.queen.planner.PlanBrief.scratch_root` so a plan that declares a leaving
+            inside scratch is refused while planning.
         footprints: Every `[forage.roles.<role>]` footprint, forage-side, keyed by
             `waggle.messages.task.WorkerRole`; `hivemind.queen.dispatcher` reads
             `footprints[WorkerRole.DRONE]` for every fresh grant it computes (roadmap step 3.21,
@@ -343,6 +350,10 @@ class QueenDeps:
             which itself keys off whether that lifecycle recognises the Cell at all -- this field
             is how a Virtual Cell's own release/overwinter/teardown gets triggered without the
             Queen ever reading `cell.kind` outside placement (codingrules section 8.7).
+        keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
+            None (the default) until the operator sets one. Read only by `hivemind.queen.
+            goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.
+            keep_root` so the planner can be told the keep root and declare a leaving under it.
     """
 
     chamber: BroodChamber
@@ -361,6 +372,7 @@ class QueenDeps:
     heartbeat_miss_limit: int
     alarm_attempt_limit: int
     memory_budget: MemoryBudget
+    scratch_root: Path
     footprints: Mapping[WorkerRole, RoleFootprint] = field(
         default_factory=lambda: {WorkerRole.DRONE: _DEFAULT_DRONE_FOOTPRINT}
     )
@@ -402,3 +414,8 @@ class QueenDeps:
     # provision inside resolve_link, the other call site could otherwise pick the same still-PENDING
     # task and lose the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
     dispatch_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Roadmap step 5.0e: the manifest's own [hive_stand] keep_root, resolved; None until the
+    # operator sets one. Read only by hivemind.queen.goal_submission.submit_goal, which passes it
+    # to hivemind.queen.planner.PlanBrief.keep_root so the planner prompt can be told it (TaskAssign
+    # itself carries no keep_root field -- see PlanBrief.keep_root's own docstring for why).
+    keep_root: Path | None = None

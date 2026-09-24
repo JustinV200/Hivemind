@@ -28,16 +28,30 @@ here; `swarm` for enrolled devices, a later phase).
   `resolve_scratch_path` (the shared relative-path-under-scratch, `..`/symlink-safe resolution
   every concrete session's `put_file`/`get_file` uses).
 - **Lease** (`hivemind.cell.lease_state`, `hivemind.cell.lease`): `LeaseState`
-  (`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`) with
-  `can_transition`/`assert_transition`; `LeaseRequest`, `LeaseFacts`, `LeaseReleaseReport`,
-  `RestoreRecord` (one path written outside scratch, and what `release()` must put back),
-  `LeaseReleaser` (the injected Protocol `release()` delegates to) and `RealCellLease` --
-  `open()` and `release()` each write their own trail event (`cell.leased`, `cell.released`) in
-  the same call that changes `state`; `release()` is idempotent; `note_started_process`,
+  (`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`; `RELEASING ->
+  ORPHANED -> RELEASING`, a release() whose delegate raised, retried) with
+  `can_transition`/`assert_transition`; `LeaseRequest`, `LeaseFacts`, `LeaseReleaseReport` (now
+  also `left_paths`, roadmap step 5.0a), `RestoreRecord` (one path written outside scratch, and
+  what `release()` must put back -- now also `persist`/`approved_by`/`reason`, validated
+  together), `LeaseReleaser` (the injected Protocol `release()` delegates to) and `RealCellLease`
+  -- `open()` and `release()` each write their own trail event (`cell.leased`, `cell.released`) in
+  the same call that changes `state`; `release()` is idempotent on success, and moves a lease to
+  ORPHANED (re-raising) rather than leaving it stuck in RELEASING when its delegate raises, so a
+  later call -- a retry, or the Undertaker's sweep (roadmap 5.8) -- is legal again;
+  `note_started_process`,
   `note_touched_path` (writes `cell.touched_outside_scratch` when the path is outside scratch),
   `note_restore_path`/`restore_records` (sync bookkeeping for what a Capping proposal wrote
-  outside scratch, roadmap step 3.17; a path inside scratch is never recorded) and
-  `is_path_allowed` round out the bookkeeping a Warden and the Undertaker read.
+  outside scratch, roadmap step 3.17; a path inside scratch is never recorded; roadmap step 5.0a
+  grows a `persist`/`approved_by`/`reason` keyword trio so a `persist=True` record can carry what
+  the Leavings ledger row `release()` writes needs) and `is_path_allowed` round out the
+  bookkeeping a Warden and the Undertaker read.
+- **Leavings** (`hivemind.cell.leavings`, roadmap step 5.0a): the ledger of paths a task was
+  allowed to keep on a Cell past its lease's release -- `Leaving`, `ApprovedBy`, `LeavingsStore`
+  (`record_leaving`, `get_leaving`, `list_leavings`, `list_all_leavings` -- every Cell's active
+  Leavings in one call, since every `hive run` mints a fresh Cell id -- `mark_removed`) and its
+  two implementations; see `cell/leavings/README.md` for its own public API. Written by
+  `hivemind.cell.local.HiveStandLeaseReleaser.release`; read and cleared by `hive cells
+  leavings list|remove [CELL] [--path PATH]`.
 - **Source** (`hivemind.cell.source`): `RealCellSource` (`name`, `cells()`, `lease(request)`,
   `open_session(lease)`) and `CellIdentity` (the Hive/node/actor a source stamps on its events).
 - **Snapshot** (`hivemind.cell.snapshot`): `Snapshotter`, `NoopSnapshotter` (every Real Cell
@@ -49,7 +63,9 @@ here; `swarm` for enrolled devices, a later phase).
 - **Errors** (`hivemind.cell.errors`): `CellError` and its tree --
   `LeaseRefusedError`, `SessionClosedError`, `CommandTimeoutError`, `PathNotAllowedError`,
   `SnapshotUnsupportedError`, `InvalidLeaseTransitionError`, `ProbeError`,
-  `ScratchQuotaExceededError` (a lease's scratch directory outgrew its quota mid-command).
+  `ScratchQuotaExceededError` (a lease's scratch directory outgrew its quota mid-command),
+  `LeavingNotFoundError`, `LeavingAlreadyRemovedError` (roadmap step 5.0a: a
+  `hivemind.cell.leavings.LeavingsStore` lookup or a second `remove` found no active row).
 - **Local** (`hivemind.cell.local`): the Hive Stand, the machine the Queen runs on and the first
   Real Cell source (roadmap step 3.11) -- `HiveStandConfig`, `probe_host`/`refresh_live`,
   `LocalProcessSession`, `HiveStandLeaseReleaser`, `HiveStandSource`; see `cell/local/README.md`

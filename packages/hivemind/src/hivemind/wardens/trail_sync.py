@@ -31,14 +31,14 @@ Key invariants:
     - Exactly one chunk carries `final=True` and the `sha256` of the whole export
       (`TrailSegmentSync`'s own validator), and every chunk of one export carries the same
       `first_event_id`/`last_event_id`/`total_bytes`, which is the group key the receiver
-      (`hivemind.queen.trail_sync`) reassembles on.
+      (`hivemind.queen.trail.sync`) reassembles on.
     - A re-sent export is harmless: `PheromoneTrail.merge_segment` is idempotent by event id, so a
       retry after a half-delivered export inserts each event at most once.
 
 See Also:
     - .claude/codingrules.md section 12 for the per-node-segments rule this module implements.
     - docs/waggle/spec.md section 8.10 for TrailSegmentSync's normative fields and bounds.
-    - hivemind.queen.trail_sync for the Queen-side receiver that reassembles and merges these.
+    - hivemind.queen.trail.sync for the Queen-side receiver that reassembles and merges these.
     - hivemind.pheromone.trail.protocol for TrailSegment, the unit this module serialises.
 """
 
@@ -58,7 +58,7 @@ from waggle.messages.swarm import TrailSegmentSync
 from waggle.transport.base import Transport
 
 # The `segment_format_version` every chunk this module sends carries, and the only one
-# `hivemind.queen.trail_sync` accepts: version 1 is `TrailSegment.model_dump_json()`'s own layout
+# `hivemind.queen.trail.sync` accepts: version 1 is `TrailSegment.model_dump_json()`'s own layout
 # (`hivemind.pheromone.trail.protocol.TrailSegment`), UTF-8 encoded. Bump this, on both sides
 # together, if that model's serialised shape ever changes incompatibly.
 SEGMENT_FORMAT_VERSION = 1

@@ -30,7 +30,8 @@ Fits into the Hive:
     undertaker.sweep.sweep_orphans` directly, since a sweep is Queen-side maintenance with no
     per-task assignment) and run at most once per attempt by `hivemind.workers.runtime.
     WorkerRuntime`, mirroring `hivemind.workers.roles.house_bee.HouseBee`. Calls into
-    `hivemind.cell` (CellIdentity, CellKind, HoneyClearance, RealCellLease, LeaseReleaseReport),
+    `hivemind.cell` (CellError, CellIdentity, CellKind, HoneyClearance, RealCellLease,
+    LeaseReleaseReport),
     `hivemind.hive` (CellBackend, HiveError), `hivemind.memory` (Handoff), `hivemind.pheromone`
     (CellEvent, PheromoneTrail), `hivemind.workers.base`, `hivemind.workers.context` and waggle
     only. Never imports `hivemind.llm` (module docstring).
@@ -38,10 +39,10 @@ Fits into the Hive:
 Key invariants:
     - `destroy_virtual` never raises for an unknown Cell id: `CellBackend.destroy` is itself
       idempotent (its own contract), so calling it twice, or after the fact, is always safe.
-    - `release_real` on the same lease twice is safe only when the first call already succeeded
-      (`RealCellLease.release`'s own idempotent happy path); a lease whose first `release()` call
-      failed mid-flight cannot be released again through this or any other caller (see that
-      method's own docstring).
+    - `release_real` on the same lease twice is always safe: a first call that succeeded returns
+      the same report without touching the releaser again, and one that failed mid-flight left the
+      lease ORPHANED, from which `RealCellLease.release` may legally run the releaser again
+      (`hivemind.cell.lease_state.TRANSITIONS`, roadmap step 5.0a).
     - Every retried call gives up after `RetryPolicy.max_attempts` and re-raises the last error;
       nothing is ever retried forever.
     - `run` never marks a task SUCCEEDED (codingrules section 8.7): it always returns
@@ -66,7 +67,14 @@ from typing import Protocol, TypeVar
 
 from pydantic import JsonValue
 
-from hivemind.cell import CellIdentity, CellKind, HoneyClearance, LeaseReleaseReport, RealCellLease
+from hivemind.cell import (
+    CellError,
+    CellIdentity,
+    CellKind,
+    HoneyClearance,
+    LeaseReleaseReport,
+    RealCellLease,
+)
 from hivemind.hive import CellBackend, HiveError
 from hivemind.memory import Handoff
 from hivemind.pheromone import CellEvent, PheromoneTrail
@@ -356,18 +364,13 @@ class Undertaker:
         `lease.release()` already writes its own `cell.released` trail event and is already
         idempotent for the happy path: once it has produced a report, every later call returns
         that same report without touching the releaser again (`RealCellLease.release`'s own
-        docstring). It is deliberately called only once here, not through `_retrying`: `release()`
-        moves `lease.state` to `RELEASING` before it ever awaits the injected `LeaseReleaser`, and
-        that edge has no way back (`hivemind.cell.lease_state.TRANSITIONS`), so a `LeaseReleaser`
-        failure leaves the lease stuck at `RELEASING` -- a second `release()` call would raise
-        `InvalidLeaseTransitionError` (`RELEASING -> RELEASING` is not a legal edge) instead of
-        trying the releaser again. Only the grant revocation that follows is retried.
-
-        TODO(merge): `hivemind.cell.lease_state` belongs to another branch; once it lands, consider
-        a `RELEASING -> LEASED` recovery edge there for a `LeaseReleaser` that failed mid-flight, so
-        this method could retry instead of stranding the lease. Not added here: that state machine
-        is out of scope for this branch, and the recovery semantics (does a retried releaser re-run
-        partial work?) are that branch's call, not this role's.
+        docstring). It is retried here like every other step, which this role could not do until
+        roadmap step 5.0a's own fix landed `RELEASING -> ORPHANED` on
+        `hivemind.cell.lease_state.TRANSITIONS`: a releaser that raises mid-flight now leaves the
+        lease ORPHANED, and `ORPHANED -> RELEASING` is a legal edge, so a second `release()` call
+        runs the releaser again instead of raising `InvalidLeaseTransitionError`. A releaser is
+        expected to be re-runnable for exactly this reason (`HiveStandLeaseReleaser` kills
+        already-dead pids and replays already-replayed restore records harmlessly).
 
         Args:
             lease: The lease to release.
@@ -376,11 +379,15 @@ class Undertaker:
             The same LeaseReleaseReport `lease.release()` produces.
 
         Raises:
-            hivemind.cell.errors.InvalidLeaseTransitionError: A previous `release()` call on this
-                same lease already failed after moving it to `RELEASING` (module docstring); the
-                lease itself cannot be retried, only a fresh lease on the same Cell can.
+            hivemind.hive.errors.HiveError: Every attempt at `release()`, or at the grant
+                revocation that follows it, raised; the caller (a sweep, a CLI command) decides
+                what to do next.
         """
-        report = await lease.release()
+        # (HiveError, CellError), not HiveError alone: a failed release is the cell layer's own
+        # failure (a store write, a path replay), while every other step here fails in the hive
+        # layer. InvalidLeaseTransitionError is a CellError too, but cannot occur here: an
+        # ORPHANED lease's own `release()` is always a legal edge (method docstring).
+        report = await self._retrying(lease.release, (HiveError, CellError))
         await self._retrying(
             lambda: self._deps.grant_revoker.revoke_for_cell(
                 lease.cell_id, "Real Cell lease released."

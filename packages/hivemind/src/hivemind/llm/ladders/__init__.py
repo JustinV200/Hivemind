@@ -36,8 +36,9 @@ See Also:
 
 Public API:
     - Structured output (`hivemind.llm.ladders.structured`): `complete_structured`,
-      `StructuredResult`, `Rung`, `NATIVE_SCHEMA_RETRIES`, `JSON_MODE_RETRIES`,
-      `PROMPTED_JSON_RETRIES`.
+      `StructuredResult`, `LadderOptions` (its `observer` and, since roadmap step 5.0b, the
+      pydantic validation `context` every attempt's `schema.model_validate` sees), `Rung`,
+      `NATIVE_SCHEMA_RETRIES`, `JSON_MODE_RETRIES`, `PROMPTED_JSON_RETRIES`.
     - Tool calls (`hivemind.llm.ladders.tools`): `run_tool_loop`, `ToolExecutor`,
       `ToolLoopOptions`, `ToolLoopResult`, `MAX_TOOL_ROUNDS_DEFAULT`.
     - Argument validation (`hivemind.llm.ladders.extraction`): `validate_arguments`.
@@ -59,6 +60,7 @@ from hivemind.llm.ladders.structured import (
     JSON_MODE_RETRIES,
     NATIVE_SCHEMA_RETRIES,
     PROMPTED_JSON_RETRIES,
+    LadderOptions,
     Rung,
     StructuredResult,
     complete_structured,
@@ -81,6 +83,7 @@ __all__ = [
     "FallbackNote",
     "FallbackReason",
     "LadderObserver",
+    "LadderOptions",
     "NullLadderObserver",
     "Rung",
     "StructuredResult",

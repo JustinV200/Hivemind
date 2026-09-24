@@ -65,8 +65,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 
-from hivemind.cell import Cell, CellSession, RealCellLease, TaskNeeds
+from hivemind.cell import AccessLevel, Cell, CellSession, RealCellLease, TaskNeeds
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
@@ -76,6 +77,7 @@ from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
 from hivemind.supervision.capping import GateDeps
+from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.sub_bee import SubBee
@@ -140,6 +142,20 @@ class _SubBeeGrant:
     call_gate: CallGate
 
 
+@dataclass(frozen=True, slots=True)
+class _SpawnedBeeFacts:
+    """Bundles a sub-bee's own id, model binding and CapabilitySet (codingrules 5.1).
+
+    Keeps `_build_worker_context` within the parameter limit once its own `capping_gate` argument
+    (roadmap step 5.0c: built ahead of time in `spawn_sub_bee`, now that it also needs
+    `assignment.leaves`) is added alongside `ctx` and `sub_bee_grant`.
+    """
+
+    worker_id: WorkerId
+    bound: BoundModel
+    capabilities: CapabilitySet
+
+
 class _NullAsker:
     """A placeholder QuestionChannel; `WorkerRuntime.__init__` always replaces it with its own.
 
@@ -179,13 +195,15 @@ async def spawn_sub_bee(
     """
     deps = ctx.deps
     worker_id = new_worker_id(deps.clock)
-    needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
-    capabilities = worker_capabilities(ctx.ceiling, needs, ctx.lease.scratch_root)
+    capabilities, write_roots = _prepare_capabilities(ctx, assignment)
     binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
     bound = deps.rebind(binding_key)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
+    facts = _SpawnedBeeFacts(worker_id=worker_id, bound=bound, capabilities=capabilities)
 
-    worker_ctx = _build_worker_context(ctx, worker_id, bound, sub_bee_grant, capabilities)
+    _widen_lease_reachability(ctx, write_roots)
+    capping_gate = _build_capping_gate(ctx, assignment)
+    worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
 
     await _record_spawned(deps, worker_id, assignment)
@@ -231,7 +249,59 @@ async def stop_sub_bee(
     await reap(sub_bee.runtime_task)
 
 
-def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
+def _prepare_capabilities(
+    ctx: WardenCellContext, assignment: TaskAssign
+) -> tuple[CapabilitySet, tuple[Path, ...]]:
+    """Compute this sub-bee's own CapabilitySet slice, and the declared write roots it shares.
+
+    Roadmap step 5.0e: `write_roots` feeds both this slice's own `fs:write` candidates and
+    `_widen_lease_reachability`'s own lease widening -- an outside-scratch write needs both to
+    actually land (`hivemind.workers.capabilities.worker_capabilities`'s own module docstring).
+    """
+    needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
+    write_roots = _declared_write_roots(ctx.deps, assignment)
+    capabilities = worker_capabilities(
+        ctx.ceiling, needs, ctx.lease.scratch_root, extra_write_roots=write_roots
+    )
+    return capabilities, write_roots
+
+
+def _declared_write_roots(deps: WardenDeps, assignment: TaskAssign) -> tuple[Path, ...]:
+    """Return the manifest's own `keep_root` plus each of `assignment`'s declared leaving roots.
+
+    Roadmap step 5.0e: the one set of roots both `worker_capabilities` (an outside-scratch
+    `fs:write` candidate per root) and `_widen_lease_reachability` (the same roots, as lease
+    `allowed_paths`) need; computed once per spawn so neither repeats `declared_leaving_root`'s
+    own `~`-expansion and wildcard-stripping work.
+    """
+    roots = [
+        declared_leaving_root(leaving.pattern, deps.leave_home) for leaving in assignment.leaves
+    ]
+    if deps.keep_root is not None:
+        roots.append(deps.keep_root)
+    return tuple(roots)
+
+
+def _widen_lease_reachability(ctx: WardenCellContext, write_roots: tuple[Path, ...]) -> None:
+    """Widen this Warden's lease so `write_roots` are reachable, under FULL access only.
+
+    Roadmap step 5.0e: "make keep_root and the task's declared leaves reachable for a lease only
+    in the way the access level already permits." A lease is opened once, at `Warden.start()`,
+    before any `TaskAssign` exists, so `RealCellLease.allowed_paths` cannot be sized from a task's
+    `leaves` or the manifest's `keep_root` up front; this call (once per spawned sub-bee, on the
+    one lease every sub-bee on this Cell shares) is what closes that gap. Only ever widens under
+    `AccessLevel.FULL`: at READ_ONLY or SCRATCH the leave policy's own hard rule (roadmap step
+    5.0c) always DENYs a leaving regardless, so nothing there would ever need to reach outside
+    scratch for this reason, and widening reachability past what a lower level's own capability
+    ceiling grants would be exactly the escalation codingrules section 15 forbids.
+    """
+    if ctx.lease.access_level is not AccessLevel.FULL:
+        return
+    for root in write_roots:
+        ctx.lease.note_allowed_path(root)
+
+
+def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> AuditingCappingGate:
     """Build this sub-bee's own CappingGate (codingrules section 8.12: nothing lands uncapped).
 
     Roadmap step 4.10: an `AuditingCappingGate`, not a plain `CappingGate`, so a terminal proposal
@@ -239,7 +309,9 @@ def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
     review, using this Warden's own `WardenDeps.judge_reviewer`/`.judge_rubrics`/`.audit_sampler`/
     `.findings_sink`/`.audit_rates`. `snapshotter` is this Warden's own `WardenDeps.snapshotter`
     (roadmap step 5.10's own follow-up gap): `NoopSnapshotter()` by default, or a
-    `hivemind.wardens.snapshot_relay.RelaySnapshotter` for a Virtual Cell's own Warden.
+    `hivemind.wardens.snapshot_relay.RelaySnapshotter` for a Virtual Cell's own Warden. Roadmap
+    step 5.0c: it also carries this Warden's own leave-policy fields, plus `assignment.leaves` --
+    this one sub-bee's own declared Leavings, never widened beyond what its TaskAssign carries.
     """
     deps = ctx.deps
     return AuditingCappingGate(
@@ -256,6 +328,11 @@ def _build_capping_gate(ctx: WardenCellContext) -> AuditingCappingGate:
             ),
             clock=deps.clock,
             checks=deps.checks,
+            leave_policy=deps.leave_policy,
+            declared_leaves=assignment.leaves,
+            keep_root=deps.keep_root,
+            leave_home=deps.leave_home,
+            disk_reserve_mb=deps.disk_reserve_mb,
         ),
         AuditWiring(
             reviewer=deps.judge_reviewer,
@@ -286,28 +363,27 @@ def _build_sub_bee_grant(
 
 def _build_worker_context(
     ctx: WardenCellContext,
-    worker_id: WorkerId,
-    bound: BoundModel,
+    facts: _SpawnedBeeFacts,
     sub_bee_grant: _SubBeeGrant,
-    capabilities: CapabilitySet,
+    capping_gate: AuditingCappingGate,
 ) -> WorkerContext:
     """Assemble the WorkerContext one sub-bee runs its role inside."""
     deps = ctx.deps
     return WorkerContext(
-        worker_id=worker_id,
+        worker_id=facts.worker_id,
         cell=ctx.cell,
         session=ctx.session,
-        bound=bound,
+        bound=facts.bound,
         grant=sub_bee_grant.slice,
-        capabilities=capabilities,
+        capabilities=facts.capabilities,
         memory=deps.memory,
         trail=deps.trail,
         clock=deps.clock,
         asker=_NullAsker(),
         identity=deps.identity,
-        telemetry=TelemetryTracker(context_window=bound.context_window),
+        telemetry=TelemetryTracker(context_window=facts.bound.context_window),
         handoff_threshold=deps.handoff_threshold,
-        capping=_build_capping_gate(ctx),
+        capping=capping_gate,
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
     )

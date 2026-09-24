@@ -210,7 +210,9 @@ Closed (one commit each, tests beside each):
 
 Still open:
 
-1. **A grant of zero sub-bees parks its task silently until the run times out.** Found for real
+1. **Closed 2026-09-22** (`fix(queen)`, on `feat/phase-5-leavings`): a zero grant records `forage.denied`
+   with the figures and fails the task at once; the fixture's map source offers four seats.
+   Original note kept for the reasoning: **A grant of zero sub-bees parks its task silently until the run times out.** Found for real
    on 2026-09-20: a game plus the 17 GB model left 1.4 GB of free RAM, so `forage/allocate.py`
    correctly sized the grant at `max_sub_bees = 0` (free memory after the Royal Reserve, over the
    Drone's 512 MB footprint). The dispatcher issued it anyway (`queen/dispatcher.

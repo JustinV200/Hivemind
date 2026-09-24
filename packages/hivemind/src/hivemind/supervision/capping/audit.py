@@ -31,8 +31,10 @@ Key invariants:
       `random.Random` was injected; the same proposal id always samples the same way for a given
       tier and rate, so tests never need a fixed seed or a retry loop.
     - audit_completed never raises for an ordinary REJECT verdict: that path deposits a finding and
-      raises an Alarm, it does not propagate an exception. It raises CappingError only when the
-      sampled tier has no configured rubric at all.
+      raises an Alarm, it does not propagate an exception; a judge that cannot answer at all
+      (JudgeAnswerError) is recorded as an inconclusive sample, never propagated, since an audit
+      runs after the work landed and a missed sample must not crash the Worker. It raises
+      CappingError only when the sampled tier has no configured rubric at all.
     - The capping.audited trail event's payload carries only the tier, the verdict outcome and the
       rubric id -- never JudgeVerdict.reasons or .notes (codingrules section 12: no event ever
       carries text).
@@ -68,7 +70,7 @@ from hivemind.supervision.capping.checks.judge import (
     JudgeVerdict,
 )
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
-from hivemind.supervision.capping.errors import CappingError
+from hivemind.supervision.capping.errors import CappingError, JudgeAnswerError
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec
 from waggle.clock import Clock
@@ -232,14 +234,24 @@ async def audit_completed(
         rates: Updated with this proposal's sample, so the Guard Bee's read model stays current.
 
     Returns:
-        The judge's verdict if `proposal` was sampled and reviewed; None if it was not sampled.
+        The judge's verdict if `proposal` was sampled and reviewed; None if it was not sampled,
+        or if it was sampled but the judge could not answer (recorded as inconclusive).
 
     Raises:
         CappingError: `proposal.risk_tier` has no configured JudgeRubric.
     """
     if not deps.sampler.should_sample(proposal.id, proposal.risk_tier, tier.audit_rate):
         return None  # Not sampled: nothing to review, deposit or record for this proposal.
-    verdict = await _review(deps, proposal)
+    try:
+        verdict = await _review(deps, proposal)
+    except JudgeAnswerError as exc:
+        # The judge could not produce a verdict (its structured-output ladder ran dry). An audit
+        # is a sample taken after the proposal already landed, so a missed sample changes nothing
+        # about the work; it is recorded as inconclusive and the Worker carries on. Found by a
+        # scratch_write audit (2 % sampling) against a scripted provider with no judge answer:
+        # the error propagated out of the gate and crashed the Drone mid-task (2026-09-22).
+        await _record_inconclusive_event(deps, proposal, exc)
+        return None
     rates.record_sample(proposal.risk_tier, failed=verdict.outcome is JudgeOutcome.REJECT)
     await _record_audited_event(deps, proposal, verdict)
     await deps.sink.deposit(
@@ -293,6 +305,25 @@ async def _record_audited_event(deps: AuditDeps, proposal: Proposal, verdict: Ju
             "outcome": verdict.outcome.value,
             "rubric_id": verdict.rubric_id,
         },
+    )
+    await deps.trail.record(event)
+
+
+async def _record_inconclusive_event(
+    deps: AuditDeps, proposal: Proposal, error: JudgeAnswerError
+) -> None:
+    """Record capping.audited with `judge_error` set: the sample was taken but never judged."""
+    event = CappingEvent(
+        id=new_event_id(deps.clock),
+        hive_id=deps.identity.hive_id,
+        node_id=deps.identity.node_id,
+        at=deps.clock.now(),
+        actor=deps.identity.actor,
+        kind="capping.audited",
+        subject_id=proposal.id,
+        # No outcome and no rubric id: there was no verdict. The error text stays off the trail
+        # (codingrules section 12); the flag alone says which samples the judge never scored.
+        payload={"tier": proposal.risk_tier.value, "outcome": None, "judge_error": True},
     )
     await deps.trail.record(event)
 

@@ -15,9 +15,10 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from datetime import timedelta
 
-from builders.queen import make_queen_deps, plan_responder
+from builders.queen import FORAGE_SOURCE_SEATS, make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import HoneyClearance
@@ -25,8 +26,10 @@ from hivemind.forage import RoleFootprint, RoyalReserve
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail import TrailQuery
+from hivemind.queen.dispatcher import resume_paused
 from hivemind.queen.queen import Queen
-from waggle.ids import new_message_id
+from waggle.ids import TaskId, WardenId, new_event_id, new_message_id
+from waggle.messages.labels import HandoffRef
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Question
 from waggle.messages.task import WorkerRole
@@ -53,6 +56,15 @@ def _single_task_plan(goal: str) -> dict[str, object]:
             }
         ]
     }
+
+
+def _single_task_plan_with_leaves(goal: str) -> dict[str, object]:
+    """`_single_task_plan`, plus one declared leaving, for the roadmap 5.0b carry-through test."""
+    plan = _single_task_plan(goal)
+    plan["tasks"][0]["leaves"] = [  # type: ignore[index]
+        {"pattern": "/opt/project", "reason": "Set up a project in /opt/project."}
+    ]
+    return plan
 
 
 async def _kinds(trail: PheromoneTrail) -> list[str]:
@@ -91,6 +103,24 @@ async def test_submit_goal_dispatches_the_ready_task_grant_then_assignment_in_or
     assert task.status is TaskStatus.RUNNING
     assert task.warden_id == link.warden_id
     assert task.cell_id == link.cell.id
+    await warden_end.close()
+
+
+async def test_submit_goal_carries_a_declared_leaving_all_the_way_to_the_assignment() -> None:
+    """Roadmap step 5.0b, end to end: plan -> TaskDraft -> Task row -> the wire task.assign."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan_with_leaves))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+
+    goal_id = await queen.submit_goal("Set up a project.", clearance=HoneyClearance.C1)
+
+    assignment = await warden_end.wait_for_assignment()
+    assert len(assignment.leaves) == 1
+    assert assignment.leaves[0].pattern == "/opt/project"
+    assert assignment.leaves[0].reason == "Set up a project in /opt/project."
+    task = await deps.chamber.get(goal_id)
+    assert task.spec.leaves == assignment.leaves
     await warden_end.close()
 
 
@@ -133,13 +163,18 @@ async def test_forage_granted_is_recorded_after_queen_assigned_with_the_task_and
     await warden_end.close()
 
 
-async def test_overriding_reserve_unlocks_the_seat_the_default_reserve_exhausts() -> None:
+async def test_overriding_reserve_reaches_the_allocator_and_can_zero_it_out() -> None:
     """QueenDeps' own `reserve` field (added this dispatch) reaches the allocator, not just sits.
 
     It reaches `hivemind.forage.allocate.grant` through `dispatcher._grant_inputs`: `builders.
-    queen.make_queen_deps`' own forage map has one source with one spec seat, which the default
-    `RoyalReserve`'s own seats=1 fully claims, so the default grant's own max_sub_bees is 0;
-    overriding reserve to seats=0 frees that one seat and a positive max_sub_bees results.
+    queen`'s own forage map declares `FORAGE_SOURCE_SEATS` seats, comfortably clearing the default
+    `RoyalReserve`'s own seats=1, so an ordinary test's default grant is positive (see that
+    constant's own comment for the fixture trap this sidesteps -- `.claude/phase-4-handoff.md`
+    section 4.2 item 1). Overriding `reserve.seats` to claim every seat the map offers instead
+    drives the fresh grant's own max_sub_bees to 0, and since this dispatch's own zero-grant fix
+    (module docstring of `hivemind.queen.dispatcher`) a grant that empty is never sent at all: it
+    is denied on the trail and the task fails at once instead of parking RUNNING until the goal's
+    timeout elapses.
     """
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
@@ -148,28 +183,49 @@ async def test_overriding_reserve_unlocks_the_seat_the_default_reserve_exhausts(
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     default_grant = await warden_end.wait_for_grant()
     await warden_end.close()
-    assert default_grant.max_sub_bees == 0
+    assert default_grant.max_sub_bees > 0  # builders.queen's own map/reserve defaults clear.
 
-    unlocked_reserve = RoyalReserve(seats=0, memory_bytes=0, headroom_fraction=0.0)
+    exhausting_reserve = RoyalReserve(
+        seats=FORAGE_SOURCE_SEATS, memory_bytes=0, headroom_fraction=0.0
+    )
     provider2 = FakeLLMProvider(responder=plan_responder(_single_task_plan))
-    deps2, link2, warden_end2 = make_queen_deps(fake_provider=provider2, reserve=unlocked_reserve)
+    deps2, link2, warden_end2 = make_queen_deps(fake_provider=provider2, reserve=exhausting_reserve)
     queen2 = Queen(deps2)
     queen2.attach_warden(link2)
-    await queen2.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
-    overridden_grant = await warden_end2.wait_for_grant()
+    goal_id2 = await queen2.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    task2 = await deps2.chamber.get(goal_id2)
+    assert task2.status is TaskStatus.FAILED
+    assert task2.outcome is not None
+    assert "zero sub-bees" in task2.outcome.summary
     await warden_end2.close()
-    assert overridden_grant.max_sub_bees > 0
 
 
-async def test_overriding_grant_ttl_lands_on_the_wire_grant() -> None:
-    """QueenDeps' own `grant_ttl_s` field reaches the allocator through the same call as `reserve`.
+async def test_overriding_footprints_and_grant_ttl_change_the_computed_grant() -> None:
+    """QueenDeps' own `footprints`/`grant_ttl_s` fields (added this dispatch) reach the allocator.
 
-    A named grant_ttl_s lands exactly on the wire grant's own expires_at.
+    Through the same call as `reserve` above: a larger DRONE memory footprint drives max_sub_bees
+    down (from 4, the fixture's own map with the seat pool unlocked and the default footprint, to
+    2) without zeroing it. A footprint no Cell can bear at all is refused one step earlier, by
+    placement rule 5 (`test_a_footprint_no_cell_can_bear_fails_placement_instead_of_a_zero_bee_
+    grant`, roadmap step 5.7); a reserve that zeroes the grant on a placeable Cell is caught by
+    `test_a_zero_grant_is_denied_and_fails_the_task_instead_of_being_sent`, since a zero grant is
+    never sent to the wire at all. A named grant_ttl_s lands exactly on the wire grant's own
+    expires_at.
     """
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     unlocked_reserve = RoyalReserve(seats=0, memory_bytes=0, headroom_fraction=0.0)
+    larger_footprint = RoleFootprint(
+        cpu_cores=1.0,
+        memory_bytes=3 * 1024**3,
+        seats=1,
+        token_rate_per_minute=1_000.0,
+        exoskeleton_extra_memory_bytes=0,
+    )
     deps, link, warden_end = make_queen_deps(
-        fake_provider=provider, reserve=unlocked_reserve, grant_ttl_s=42.0
+        fake_provider=provider,
+        reserve=unlocked_reserve,
+        footprints={WorkerRole.DRONE: larger_footprint},
+        grant_ttl_s=42.0,
     )
     queen = Queen(deps)
     queen.attach_warden(link)
@@ -177,6 +233,7 @@ async def test_overriding_grant_ttl_lands_on_the_wire_grant() -> None:
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     fresh_grant = await warden_end.wait_for_grant()
 
+    assert fresh_grant.max_sub_bees == 2  # by_memory now binds, below the unconstrained cap of 4.
     assert fresh_grant.expires_at == deps.clock.now() + timedelta(seconds=42.0)
     await warden_end.close()
 
@@ -184,10 +241,15 @@ async def test_overriding_grant_ttl_lands_on_the_wire_grant() -> None:
 async def test_a_footprint_no_cell_can_bear_fails_placement_instead_of_a_zero_bee_grant() -> None:
     """QueenDeps' own `footprints` field reaches placement, and rule 5 refuses an unbearable one.
 
-    Before roadmap step 5.7 a DRONE footprint larger than the host's free memory produced a grant
-    with max_sub_bees == 0 that parked the task until its timeout (the phase 4 handoff's open
-    item). Placement now checks "Forage must cover the grant" (ADR-0028 rule 5) before choosing
-    a Cell, so no grant is sent and the trail says why.
+    The other half of the zero-grant story, and the reason both tests are honest under the merged
+    code: `hivemind.queen.dispatcher.snapshot._has_free_capacity` measures a candidate Cell against
+    the DRONE footprint's own memory alone, never against the `RoyalReserve`. A footprint larger
+    than the host's free memory is therefore refused by placement rule 5 ("Forage must cover the
+    grant", ADR-0028) before any grant is sized -- while a reserve that claims every seat leaves
+    the Cell placeable and is caught one step later, by the zero-grant denial
+    (`test_overriding_reserve_reaches_the_allocator_and_can_zero_it_out`). Before roadmap step 5.7
+    this case produced a max_sub_bees == 0 grant that parked the task until its timeout (the phase
+    4 handoff's own open item); now no grant is sent at all and the trail says why.
     """
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     unlocked_reserve = RoyalReserve(seats=0, memory_bytes=0, headroom_fraction=0.0)
@@ -213,6 +275,115 @@ async def test_a_footprint_no_cell_can_bear_fails_placement_instead_of_a_zero_be
     assert decided, "placement failure must be recorded on the trail"
     assert decided[-1].payload.get("reason") == "placement_failed"
     assert "forage.granted" not in await _kinds(deps.trail)
+    await warden_end.close()
+
+
+async def test_a_zero_grant_is_denied_and_fails_the_task_instead_of_being_sent() -> None:
+    """The defect fix: `.claude/phase-4-handoff.md` section 4.2 item 1, found for real 2026-09-20.
+
+    A grant computing to `max_sub_bees == 0` used to be sent anyway; the Warden raised
+    GRANT_EXCEEDED, the Queen escalated to the human inbox, and the task sat RUNNING for the whole
+    timeout with nothing on screen saying why. `hivemind.queen.dispatcher._send_grant_and_assign`
+    now denies it and fails the task at once instead. `warden_end.wait_for_plan_written()` is safe
+    to await here (unlike a grant or an assignment): `_ensure_warden_provisioned` always sends
+    `CeilingsSet` then `PlanWritten` on a Warden's first dispatch, before the zero-grant check
+    runs, so both are guaranteed to arrive even though the grant and assignment that would
+    normally follow them never do.
+    """
+    exhausting_reserve = RoyalReserve(
+        seats=FORAGE_SOURCE_SEATS, memory_bytes=0, headroom_fraction=0.0
+    )
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider, reserve=exhausting_reserve)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    # Guaranteed to arrive, both of them, in order (see docstring); pumps the transport without
+    # risking a hang on a grant or an assignment that this dispatch never sends.
+    await warden_end.wait_for_plan_written()
+
+    # Nothing beyond ceilings/hosting-plan ever reached the Warden: no GrantIssued, no TaskAssign.
+    assert warden_end.received_kinds == ["ceilings_set", "plan_written"]
+    assert warden_end.grants == []
+    assert warden_end.assignments == []
+
+    task = await deps.chamber.get(goal_id)
+    assert task.status is TaskStatus.FAILED
+    assert task.warden_id is None and task.cell_id is None  # _finish clears placement fields.
+    assert task.outcome is not None
+    assert "zero sub-bees" in task.outcome.summary
+
+    await _assert_forage_denied_with_figures(deps.trail, goal_id, link.warden_id)
+    await warden_end.close()
+
+
+async def _assert_forage_denied_with_figures(
+    trail: PheromoneTrail, task_id: TaskId, warden_id: WardenId
+) -> None:
+    """Assert one `forage.denied` (and `task.failed`) event exists, with the required figures.
+
+    The allocator's own `reason` plus the free-memory/seat figures that produced zero: the
+    required behaviour this dispatch was asked to implement (module docstring of
+    `hivemind.queen.dispatcher`'s own zero-grant fix).
+    """
+    kinds = await _kinds(trail)
+    assert "forage.denied" in kinds
+    assert "task.failed" in kinds
+    denied = next(
+        event for event in await trail.query(TrailQuery()) if event.kind == "forage.denied"
+    )
+    assert denied.payload["task_id"] == task_id
+    assert denied.payload["warden_id"] == warden_id
+    assert denied.payload["max_sub_bees"] == 0
+    assert denied.payload["reserve_seats"] == FORAGE_SOURCE_SEATS
+    free_memory_bytes = denied.payload["free_memory_bytes"]
+    assert isinstance(free_memory_bytes, int) and free_memory_bytes > 0
+    reason = denied.payload["reason"]
+    assert isinstance(reason, str) and reason
+
+
+async def test_resuming_a_paused_task_with_a_zero_grant_fails_it_the_same_way() -> None:
+    """`resume_paused` (a `resume_from` resume) hits the same choke point and fails the same way.
+
+    Requirement: "A resumed task (resume_from) with a zero grant fails the same way." Starts from
+    a normal dispatch (a positive default grant, module docstring), pauses it, then resumes it
+    through `dispatcher.resume_paused` directly -- the one dispatcher-path entry point Clustering's
+    own resume uses -- over a `QueenDeps` swapped to an exhausting reserve, with a real
+    `HandoffRef` so the resume_from-carrying path is exercised, not just the fresh-attempt one.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()  # The normal, positive-grant dispatch.
+
+    await deps.chamber.pause(goal_id, "test: pausing before a zero-grant resume")
+    resume_from = HandoffRef(
+        event_id=new_event_id(deps.clock),
+        written_at=deps.clock.now(),
+        clearance=WireHoneyClearance.C1,
+    )
+    exhausting_reserve = RoyalReserve(
+        seats=FORAGE_SOURCE_SEATS, memory_bytes=0, headroom_fraction=0.0
+    )
+    # QueenDeps is frozen (codingrules 8.5): swap in a reserve that exhausts the fixture's own
+    # forage map, sharing every other collaborator (ledger, chamber, trail) with the real deps.
+    zero_deps = dataclasses.replace(deps, reserve=exhausting_reserve)
+
+    await resume_paused(zero_deps, [link], goal_id, resume_from, "test resume")
+
+    task = await deps.chamber.get(goal_id)
+    assert task.status is TaskStatus.FAILED
+    assert task.outcome is not None
+    assert "zero sub-bees" in task.outcome.summary
+    # _send_grant_and_assign's own zero-grant branch returns before either wire send (dispatcher
+    # module docstring), so nothing beyond the original dispatch's own envelopes ever exists here
+    # to pump; polling `warden_end` further would hang rather than prove anything (the transport's
+    # own module docstring: "no timeout is needed because only the peer ... or cancellation can
+    # end it").
+    await _assert_forage_denied_with_figures(deps.trail, goal_id, link.warden_id)
     await warden_end.close()
 
 

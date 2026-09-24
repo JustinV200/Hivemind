@@ -56,6 +56,7 @@ from hivemind.supervision.capping import (
     audit_completed,
 )
 from hivemind.supervision.capping.lease_view import LeaseView
+from hivemind.supervision.capping.leave import Asker
 from waggle.ids import MessageId
 
 # The two terminal outcomes audit_completed's own module docstring calls "already-terminal
@@ -105,13 +106,17 @@ class AuditingCappingGate(CappingGate):
         self._rates = wiring.rates
 
     async def run(
-        self, proposal_id: MessageId, capabilities: CapabilitySet, lease: LeaseView
+        self,
+        proposal_id: MessageId,
+        capabilities: CapabilitySet,
+        lease: LeaseView,
+        asker: Asker | None = None,
     ) -> GateOutcome:
         """Walk `proposal_id` through `CappingGate.run`, then sample it for audit if terminal.
 
         Args and Returns mirror `CappingGate.run` exactly; see its own docstring.
         """
-        outcome = await super().run(proposal_id, capabilities, lease)
+        outcome = await super().run(proposal_id, capabilities, lease, asker)
         if outcome.state not in _AUDITABLE_OUTCOMES:
             return outcome  # REJECTED: nothing completed to sample (module docstring).
         tier = self._deps.tiers.tiers.get(self.get(proposal_id).risk_tier)

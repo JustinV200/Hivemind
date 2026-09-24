@@ -34,7 +34,7 @@ from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
-from hivemind.queen.trail_sync import TrailSegmentReceiver
+from hivemind.queen.trail import TrailSegmentReceiver
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from waggle.clock import FakeClock
 from waggle.codec import Codec

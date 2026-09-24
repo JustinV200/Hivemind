@@ -887,7 +887,7 @@ What stays is declared by the plan, decided by policy, and asked of the human on
 says so; a bee never decides it alone. Leavings are files left in place on a Cell; bytes the Hive
 keeps in its own store are the Basket (9.2a), a separate thing.
 
-- [ ] **5.0a Persist flag and the Leavings ledger.** `RealCellLease.note_restore_path` and
+- [x] **5.0a Persist flag and the Leavings ledger.** `RealCellLease.note_restore_path` and
   `supervision/capping/lease_view.py` grow a `persist` argument (default `False`), so the
   `RestoreRecord.persist` the releaser already honours (3.17) can finally be set.
   `cell/leavings/`, a package: `Leaving` (Cell id, path, sha256, size, task, lease, `approved_by`
@@ -899,7 +899,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   row and writes `cell.leaving_removed`. The left-as-found test is extended: after release the
   temporary home equals its snapshot plus exactly the ledger's paths, and after `remove` it
   equals the snapshot.
-- [ ] **5.0b The plan declares what stays.** `PlannedTask` gains `leaves`: a bounded tuple of
+- [x] **5.0b The plan declares what stays.** `PlannedTask` gains `leaves`: a bounded tuple of
   `PlannedLeaving` (an absolute or `~`-rooted path pattern, a one-line reason), empty by default,
   carried through `TaskDraft`, the Task row and the Assignment (a waggle minor bump) and rendered
   into the Drone's brief by `brief_for()` beside the acceptance criteria. The validator refuses a
@@ -908,7 +908,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   the goal itself asks to remain ("install X", "set up a project in Y"), never working files;
   snapshot test. A Drone cannot widen `leaves`; it can only raise a `Question`. A path no plan
   declared is never persisted, whatever a tool result or a bee says.
-- [ ] **5.0c Leave policy.** `supervision/capping/leave/`: pure autopilot
+- [x] **5.0c Leave policy.** `supervision/capping/leave/`: pure autopilot
   `decide(request, cell, declared) -> ALLOW | ASK | DENY`, its table as data in
   `leave-policy.toml` beside `capping-tiers.toml`. Inputs, all already known: the Cell's
   `AccessLevel` (`READ_ONLY` and `SCRATCH` always `DENY`) and `CombShieldLevel` (`NIGHT_VEIL`
@@ -920,7 +920,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   `ALLOW` sets `persist=True` with `approved_by = POLICY`; `ASK` goes to 5.0d. The judge rubric
   for `outside_scratch_write` gains one criterion, "does leaving this match the task's stated
   objective", so an over-declaring plan is caught by a different model.
-- [ ] **5.0d The HUMAN rung, for Leavings first.** `supervision/capping/checks/human.py`:
+- [x] **5.0d The HUMAN rung, for Leavings first.** `supervision/capping/checks/human.py`:
   `HumanCheck` raises a `Question` up the existing chain (3.19 to 3.21) with closed options, *keep*,
   *keep for this whole goal*, *discard*, and the task blocks until it is answered. Only an
   `Answer` with `source = HUMAN` approves; a Queen or Warden answer is refused. *Keep for this
@@ -928,7 +928,7 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   file. An unanswered question past its timeout means *discard*, never a failed task. No tempo
   removes this rung. Phase 10 moves the same question onto push and step-up; nothing here
   changes then.
-- [ ] **5.0e The `keep` tool and `keep_root`.** `workers/tools/keep.py`: `keep(source,
+- [x] **5.0e The `keep` tool and `keep_root`.** `workers/tools/keep.py`: `keep(source,
   destination)` proposes moving a scratch file to a path outside it, an ordinary
   `outside_scratch_write` through the same gate, policy and ledger. A diff cannot carry a binary,
   so this adds a `COPY` action kind (a waggle minor bump) capped by a per-tier `max_copy_bytes`.
@@ -1027,6 +1027,24 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   still gone; the same goal without that ask leaves nothing; a goal whose `leaves` path the policy
   marks `ASK` blocks until `hive inbox answer`, *discard* restores the path and the task still succeeds;
   `hive cells leavings remove` returns the host to its left-as-found snapshot.
+  **Met, 2026-09-21**, on the local 27B model with a copy of the operator's manifest plus
+  `access_level = "FULL"`, `keep_root`, and `[llm.slots.judge] max_output_tokens = 6144`: (1) the
+  keep goal succeeded in 456 s, `capping.leave_decided` `KEEP_ROOT ALLOW`, `cell.left`, one
+  ledger row `approved_by = policy`, scratch gone, `is_restored = true`; (2) the plain goal
+  succeeded in 77 s and left nothing; (3) an executable leaving raised the closed Question into
+  `hive inbox`, `hive inbox answer --option 2` unblocked it, `leave_decided` recorded
+  `human_answer = DISCARD`, the file was gone after release and the task succeeded; (4)
+  `hive cells leavings remove <cell>` emptied the directories and marked the rows removed.
+  Found on the way: the model judge had never run for real before (scratch writes skip it), and
+  with its call-site budget of 1024 tokens (`wardens/judge.py`) this model spends every token
+  thinking and returns nothing, nine times, which crashes the Drone; the manifest cap fixes it.
+  The judge also rejected every outside-scratch `DIFF` the Drone proposed without postconditions
+  (three to six rejections per run, about 30 s each) until the Drone reached the path through a
+  command (`write_file` already attached `FILE_EXISTS`; the rubric demanded what no v0 kind can
+  prove). Every `hive run` mints a new Cell id, so `leavings remove` needed the id from `cell.left`.
+  All fixed 2026-09-22: a judge that cannot answer is a FAILED check the Drone reads, the code
+  budget is 4096, the rubric is v3, `leavings list` with no Cell lists everything and `remove` takes
+  `--path`; the phase 4 zero-grant hang and the missing `RELEASING -> ORPHANED` edge went with them.
 - The haiku run completes three ways: `prefer = "real"` uses the Hive Stand and zero containers;
   `prefer = "virtual"` uses three containers, each with its own Warden visible in `hive wardens
   list`; a task with `isolation = "required"` uses a Virtual Cell regardless.

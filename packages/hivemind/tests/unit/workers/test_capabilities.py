@@ -103,6 +103,31 @@ def test_empty_warden_capabilities_yield_an_empty_slice_without_raising() -> Non
     assert len(slice_) == 0
 
 
+def test_extra_write_roots_are_granted_when_the_warden_holds_an_unconfined_fs_write() -> None:
+    """Roadmap step 5.0e: FULL access's own fs:write:** covers a keep_root/leaving root too."""
+    warden_caps = CapabilitySet.parse("fs:write:**", "fs:read:**", "exec:*", "tool:*")
+
+    slice_ = worker_capabilities(
+        warden_caps, _needs(), Path("/scratch"), extra_write_roots=(Path("/keep/artifact.exe"),)
+    )
+
+    assert slice_.issubset(warden_caps)
+    granted = {str(cap) for cap in slice_}
+    assert "fs:write:/keep/artifact.exe" in granted
+    assert "fs:write:/keep/artifact.exe/**" in granted
+
+
+def test_extra_write_roots_are_withheld_when_the_warden_lacks_an_unconfined_fs_write() -> None:
+    """A SCRATCH-level Warden's own ceiling never carries a wider fs:write; nothing is granted."""
+    warden_caps = CapabilitySet.parse("fs:write:/scratch/**", "fs:read:**", "exec:*", "tool:*")
+
+    slice_ = worker_capabilities(
+        warden_caps, _needs(), Path("/scratch"), extra_write_roots=(Path("/keep/artifact.exe"),)
+    )
+
+    assert not any("keep" in str(cap) for cap in slice_)
+
+
 def test_never_raises_capability_widening_error_for_any_ordinary_needs() -> None:
     # Defensive proof (module docstring): with correct filtering, attenuate never rejects.
     warden_caps = CapabilitySet.parse(

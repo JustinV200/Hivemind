@@ -21,6 +21,11 @@ Key invariants:
     - `write_file` builds a whole-file unified diff: a new-file hunk when the path has no prior
       content this session can read, a full-replacement hunk otherwise. It never computes a
       line-level patch.
+    - `write_file` always declares one FILE_EXISTS postcondition on the written path, inside
+      scratch or outside it alike (2026-09-21: an outside-scratch write with no postcondition at
+      all is what the judge's own rubric used to reject on sight; `postconditions.CHECKABLE_KINDS`
+      has no content-hash or size kind yet, so FILE_EXISTS -- existence, not correctness -- is the
+      strongest v0 can cheaply state and verify for a write).
     - `read_file` truncates its result to `MAX_TOOL_RESULT_CHARS`, with a marker, so one huge file
       never crowds out the rest of a Drone's hot state (mirrors codingrules section 8.9's item cap
       for hot-state packing, at the tool-result boundary instead).

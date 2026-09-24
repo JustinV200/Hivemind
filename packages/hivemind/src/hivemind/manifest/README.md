@@ -42,6 +42,19 @@ Only one: every `[forage.map.<source_id>].provider` must name a declared `[llm.p
 entry. A slot's model need not appear anywhere on the Forage map; the map and the slot table are
 two independent ways of naming what a call may use.
 
+### `[hive_stand] keep_root` (roadmap step 5.0e)
+
+An optional directory outside `scratch_root` that outlives every lease: the `keep` tool's own
+destinations, and the one path class the leave policy (`supervision/defaults/leave-policy.toml`)
+`ALLOW`s by default. `None` (the default) means the Hive keeps nothing past a lease's release.
+`HiveStandSection`'s own `@model_validator` refuses it at load time, not at the first real run,
+in two cases: a `keep_root` that is inside, equal to, or contains `scratch_root` (scratch's own
+wholesale removal on release would take it too), and a `keep_root` set while `access_level` is
+`READ_ONLY` or `SCRATCH` (the leave policy's hard rule always `DENY`s a leaving at those levels,
+so nothing kept there could ever actually stay -- the message says to raise `access_level` to
+`"full"`). `hivemind.cell.local.HiveStandConfig.from_section` resolves it the same way it resolves
+`scratch_root`, relative to the manifest's own directory.
+
 ## How to test this
 
 ```bash

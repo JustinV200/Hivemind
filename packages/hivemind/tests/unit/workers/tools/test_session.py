@@ -40,6 +40,20 @@ async def test_write_file_inside_scratch_is_verified_and_creates_the_file() -> N
     assert data.decode("utf-8") == haiku
 
 
+async def test_write_file_inside_scratch_proposal_carries_a_file_exists_postcondition() -> None:
+    """workers.tools.session builds this postcondition unconditionally (module docstring).
+
+    The judge's own outside_scratch_write rubric wording, not a missing postcondition, was the
+    2026-09-21 defect (supervision/defaults/judge-rubrics.toml).
+    """
+    ctx = make_context()
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
+
+    result = await write_file(invocation, {"path": "haiku2.txt", "content": "one line"})
+
+    assert "[0] FILE_EXISTS=held" in result
+
+
 async def test_write_file_overwrites_existing_content_with_a_replacement_hunk() -> None:
     ctx = make_context()
     await ctx.session.put_file(Path("note.txt"), b"first draft")
@@ -82,6 +96,9 @@ async def test_write_file_outside_scratch_with_capability_records_the_restore_pa
 
     assert "state=VERIFIED" in result
     assert lease.restore_records  # the outside-scratch write recorded what to restore on release()
+    # 2026-09-21 defect: an outside-scratch write must carry a checkable postcondition too, not
+    # only an inside-scratch one, and it must actually verify after apply, not just be declared.
+    assert "[0] FILE_EXISTS=held" in result
 
 
 async def test_run_command_is_verified_when_the_scripted_exit_code_is_zero() -> None:

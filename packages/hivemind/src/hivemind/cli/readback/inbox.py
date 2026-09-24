@@ -214,6 +214,11 @@ async def _answer(
         text=text,
         clearance=_HUMAN_ANSWER_CLEARANCE,
         written_at=ctx.clock.now(),
+        # Roadmap step 5.0d: carried so a running `hive run`'s own cross-process forward
+        # (`hivemind.queen.questions._forward_from_note`) can rebuild the wire Answer's own
+        # `chosen_option`, not just its text -- a closed-option Question (HumanCheck's own keep /
+        # keep for this whole goal / discard) is meaningless to resolve from text alone.
+        chosen_option=chosen_option,
     )
     await add_note(note, ctx)
     return task

@@ -82,6 +82,11 @@ class HiveStandConfig(BaseModel):
         default=False,
         description="Development only: release leaves the lease's scratch directory in place.",
     )
+    keep_root: Path | None = Field(
+        default=None,
+        description="Roadmap step 5.0e: an absolute directory outside scratch_root that outlives "
+        "every lease; None means the Hive keeps nothing past a lease's release.",
+    )
 
     @classmethod
     def from_section(cls, section: HiveStandSection, manifest_dir: Path) -> HiveStandConfig:
@@ -90,20 +95,18 @@ class HiveStandConfig(BaseModel):
         Args:
             section: The loaded `[hive_stand]` section.
             manifest_dir: The manifest's own directory, against which a relative `scratch_root`
-                resolves (mirrors `HiveManifest.resolve_path`, without needing the whole manifest).
+                (and `keep_root`) resolves (mirrors `HiveManifest.resolve_path`, without needing
+                the whole manifest).
 
         Returns:
-            A HiveStandConfig with an absolute `scratch_root` and this package's own
-            `AccessLevel` mirror in place of the section's wire enum.
+            A HiveStandConfig with an absolute `scratch_root` (and `keep_root`, if any) and this
+            package's own `AccessLevel` mirror in place of the section's wire enum.
         """
-        scratch_root = section.scratch_root
-        # HiveManifest.resolve_path's own rule: a path already absolute is left alone, otherwise
-        # it is joined onto the manifest's own directory so a whole Hive directory can move.
-        if not scratch_root.is_absolute():
-            scratch_root = manifest_dir / scratch_root
+        scratch_root = _resolve(section.scratch_root, manifest_dir)
+        keep_root = _resolve(section.keep_root, manifest_dir) if section.keep_root else None
         return cls(
             enabled=section.enabled,
-            scratch_root=scratch_root.resolve(strict=False),
+            scratch_root=scratch_root,
             scratch_quota_mb=section.scratch_quota_mb,
             disk_reserve_mb=section.disk_reserve_mb,
             max_sub_bees=section.capacity.max_sub_bees,
@@ -111,4 +114,11 @@ class HiveStandConfig(BaseModel):
             memory_bytes=section.capacity.memory_bytes,
             access_level=AccessLevel.from_wire(section.access_level),
             keep_scratch=section.keep_scratch,
+            keep_root=keep_root,
         )
+
+
+def _resolve(path: Path, manifest_dir: Path) -> Path:
+    """Join `path` onto `manifest_dir` when relative, then resolve it (HiveManifest's own rule)."""
+    joined = path if path.is_absolute() else manifest_dir / path
+    return joined.resolve(strict=False)

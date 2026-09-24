@@ -6,8 +6,10 @@ every field a test does not care about: `make_capabilities` for a terminal-only 
 REAL Cell, FULL for a VIRTUAL one, so `Cell`'s own kind/access validator never needs a caller to
 remember the constraint), `make_identity` for a `CellIdentity`, `make_lease_request` for a
 `LeaseRequest`, `make_hive_stand_config` for a `hivemind.cell.local.HiveStandConfig` pointed at a
-test's own `tmp_path`, and `make_real_cell_lease` for a REQUESTED (not yet opened)
-`RealCellLease` a test can `await .open()` itself.
+test's own `tmp_path`, `make_hive_stand_releaser` for a real `HiveStandLeaseReleaser` (roadmap
+step 5.0a: a fresh `InMemoryLeavingsStore` and `CellIdentity` by default), `make_leaving` for a
+valid `hivemind.cell.leavings.Leaving`, and `make_real_cell_lease` for a REQUESTED (not yet
+opened) `RealCellLease` a test can `await .open()` itself.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -39,7 +41,9 @@ from builders.forage import make_capacity
 
 from hivemind.cell.fake import FakeLeaseReleaser
 from hivemind.cell.lease import LeaseFacts, LeaseReleaser, LeaseRequest, RealCellLease
+from hivemind.cell.leavings import ApprovedBy, InMemoryLeavingsStore, Leaving, LeavingsStore
 from hivemind.cell.local.config import HiveStandConfig
+from hivemind.cell.local.releaser import HiveStandLeaseReleaser
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.needs import OsFamily
 from hivemind.cell.source import CellIdentity
@@ -61,8 +65,10 @@ __all__ = [
     "make_capabilities",
     "make_cell",
     "make_hive_stand_config",
+    "make_hive_stand_releaser",
     "make_identity",
     "make_lease_request",
+    "make_leaving",
     "make_real_cell_lease",
 ]
 
@@ -204,6 +210,40 @@ def make_hive_stand_config(scratch_root: Path, **overrides: object) -> HiveStand
     return HiveStandConfig(**fields)
 
 
+def make_hive_stand_releaser(
+    clock: Clock | None = None,
+    *,
+    leavings: LeavingsStore | None = None,
+    identity: CellIdentity | None = None,
+    keep_scratch: bool = False,
+) -> HiveStandLeaseReleaser:
+    """Build a real HiveStandLeaseReleaser with sensible defaults for a left-as-found test.
+
+    Args:
+        clock: Source of the SIGTERM-then-SIGKILL grace period and every minted timestamp; a
+            fresh FakeClock when omitted.
+        leavings: Where a `persist=True` restore record's Leaving lands; a fresh, empty
+            `InMemoryLeavingsStore` when omitted.
+        identity: The Hive, node and actor stamped on every `cell.left` event; a fresh one
+            (`make_identity`) when omitted.
+        keep_scratch: Passed straight through to `HiveStandLeaseReleaser` (dev-only: leave
+            scratch in place instead of removing it).
+
+    Returns:
+        A HiveStandLeaseReleaser ready to pass as `make_real_cell_lease`'s own `releaser=`.
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    active_leavings = (
+        leavings
+        if leavings is not None
+        else InMemoryLeavingsStore(MemoryPheromoneTrail(active_clock))
+    )
+    active_identity = identity if identity is not None else make_identity(clock=active_clock)
+    return HiveStandLeaseReleaser(
+        active_clock, active_leavings, active_identity, keep_scratch=keep_scratch
+    )
+
+
 def make_real_cell_lease(
     scratch_root: Path,
     clock: Clock | None = None,
@@ -248,3 +288,31 @@ def make_real_cell_lease(
         identity=make_identity(clock=active_clock),
         releaser=releaser if releaser is not None else FakeLeaseReleaser(),
     )
+
+
+def make_leaving(clock: Clock | None = None, **overrides: object) -> Leaving:
+    """Build a valid Leaving (roadmap step 5.0a): a POLICY-approved row with no prior content.
+
+    Args:
+        clock: Source of every minted id and `left_at`; a fresh FakeClock when omitted.
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated Leaving.
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "cell_id": new_cell_id(active_clock),
+        "path": Path("/outside/report.txt"),
+        "sha256": "0" * 64,
+        "size": 4,
+        "task_id": None,
+        "lease_id": new_lease_id(active_clock),
+        "approved_by": ApprovedBy.POLICY,
+        "reason": "test reason",
+        "prior": None,
+        "left_at": active_clock.now(),
+        "removed_at": None,
+    }
+    fields.update(overrides)
+    return Leaving(**fields)

@@ -29,7 +29,7 @@ from unit.workers.roles.undertaker.fakes import (
     RecordingWaxRetirer,
 )
 
-from hivemind.cell import CellKind, InvalidLeaseTransitionError, SessionClosedError
+from hivemind.cell import CellKind, LeaseState, SessionClosedError
 from hivemind.cell.fake import FakeLeaseReleaser
 from hivemind.hive import CellBackend, CellDestroyError
 from hivemind.hive.backends.fake import FakeCellBackend
@@ -218,23 +218,52 @@ async def test_release_real_is_idempotent(tmp_path: Path) -> None:
     assert len(rig.grant_revoker.calls) == 2
 
 
-async def test_release_real_does_not_retry_a_failed_releaser(tmp_path: Path) -> None:
+async def test_release_real_retries_a_failed_releaser_then_succeeds(tmp_path: Path) -> None:
+    """Roadmap step 5.0a's `RELEASING -> ORPHANED` edge is what makes this retry legal at all.
+
+    Before it, `release()` moved the lease to RELEASING and left it there when the releaser raised,
+    so a second call raised `InvalidLeaseTransitionError` instead of trying the releaser again and
+    `release_real` deliberately called it once (the `TODO(merge)` this replaces). Now a failed
+    release orphans the lease, `ORPHANED -> RELEASING` is a legal edge, and the Undertaker retries
+    it with backoff exactly like every other step it owns.
+    """
     clock = FakeClock()
-    releaser = FlakyLeaseReleaser(fail_times=10)  # Always fails within this test's own bound.
-    rig = _make_rig(clock)
+    releaser = FlakyLeaseReleaser(fail_times=2)  # Two failures, then a clean release.
+    retry = RetryPolicy(
+        max_attempts=5, initial_backoff_s=1.0, backoff_factor=2.0, max_backoff_s=30.0
+    )
+    rig = _make_rig(clock, retry=retry)
     lease = make_real_cell_lease(tmp_path, clock=clock, releaser=releaser)
     await lease.open()
 
-    # RealCellLease.release() moves state to RELEASING before it ever awaits the releaser, and
-    # that edge has no way back; retrying the exact same lease after a failure would hit
-    # InvalidLeaseTransitionError, not the releaser again, so release_real calls it once and lets
-    # the releaser's own failure propagate (role.py's own docstring on release_real).
-    with pytest.raises(SessionClosedError):
-        await rig.undertaker.release_real(lease)
+    task = asyncio.create_task(rig.undertaker.release_real(lease))
+    await _drive_retries(task, clock, delays=[1.0, 2.0])
 
-    assert releaser.release_attempts == 1
-    with pytest.raises(InvalidLeaseTransitionError):
-        await rig.undertaker.release_real(lease)
+    report = await task
+    assert report.is_restored
+    assert releaser.release_attempts == 3
+    assert lease.state is LeaseState.RELEASED
+
+
+async def test_release_real_gives_up_on_a_releaser_that_never_succeeds(tmp_path: Path) -> None:
+    """Out of retries, the releaser's own error propagates and the lease is left ORPHANED."""
+    clock = FakeClock()
+    releaser = FlakyLeaseReleaser(fail_times=10)  # Always fails within this test's own bound.
+    retry = RetryPolicy(
+        max_attempts=3, initial_backoff_s=1.0, backoff_factor=2.0, max_backoff_s=30.0
+    )
+    rig = _make_rig(clock, retry=retry)
+    lease = make_real_cell_lease(tmp_path, clock=clock, releaser=releaser)
+    await lease.open()
+
+    task = asyncio.create_task(rig.undertaker.release_real(lease))
+    await _drive_retries(task, clock, delays=[1.0, 2.0])
+
+    with pytest.raises(SessionClosedError):
+        await task
+    assert releaser.release_attempts == 3
+    # ORPHANED, not stuck at RELEASING: a later sweep (or a later Undertaker) may try again.
+    assert lease.state is LeaseState.ORPHANED
 
 
 # ──────────────────────────────────────────────────────────────────────────────

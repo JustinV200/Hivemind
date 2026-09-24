@@ -7,7 +7,9 @@ reserve) that `assemble` needs, then hands off to it -- never a conversation, pe
 section 8.8: "Awake episodes are stateless." `build_request` turns the resulting `Prompt` into the
 `LLMRequest` `hivemind.llm.run_tool_loop` actually calls: the system prompt is
 `hivemind.llm.prompts.drone_system.md` rendered with the assembled sections plus the triggering
-event, and the one user turn is the task's own objective.
+event, and the one user turn is the task's own objective. `brief_for` also renders
+`TaskAssign.leaves` (roadmap step 5.0b) beside the acceptance criteria, unchanged from what the
+plan declared -- a Drone reads what must stay but cannot widen the set, only raise a Question.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.drone`. Called by
@@ -66,7 +68,7 @@ from hivemind.memory import (
     deposit_dropped_items,
 )
 from hivemind.workers.context import WorkerContext
-from waggle.messages import Postcondition, PostconditionKind
+from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind
 from waggle.messages.task import TaskAssign
 
 DRONE_ROLE = "drone"  # Principal.role for every Drone episode; matches the manifest key ("drone").
@@ -180,7 +182,7 @@ def brief_for(assignment: TaskAssign, cell: Cell) -> str:
     platform facts stop a bee on Windows proposing `python3` or a shell built-in.
 
     Args:
-        assignment: The task being worked; its objective and acceptance criteria.
+        assignment: The task being worked; its objective, acceptance criteria and leaves.
         cell: The Cell this attempt runs on; its capabilities name the OS, shell and Python.
 
     Returns:
@@ -191,6 +193,7 @@ def brief_for(assignment: TaskAssign, cell: Cell) -> str:
     header = "Your Warden accepts this task only when every one of these holds:"
     lines = [assignment.objective, "", header]
     lines.extend(f"- {_describe_criterion(pc)}" for pc in assignment.acceptance)
+    lines.extend(_leaves_lines(assignment.leaves))
     caps = cell.capabilities
     python = f"python {caps.python_version}" if caps.python_version else "no python"
     lines += [
@@ -201,6 +204,19 @@ def brief_for(assignment: TaskAssign, cell: Cell) -> str:
         "checks look.",
     ]
     return "\n".join(lines)
+
+
+def _leaves_lines(leaves: tuple[PlannedLeaving, ...]) -> list[str]:
+    """Render the plan's own declared leaves (roadmap step 5.0b), or nothing when there are none.
+
+    A Drone cannot widen this set: every path outside scratch that is not listed here is removed
+    on release regardless of anything the task does, so nothing else needs saying to enforce it.
+    """
+    if not leaves:
+        return []
+    lines = ["", "The plan asks these paths to remain once your task ends, and nothing else:"]
+    lines.extend(f"- {leaving.pattern} ({leaving.reason})" for leaving in leaves)
+    return lines
 
 
 def _describe_criterion(pc: Postcondition) -> str:

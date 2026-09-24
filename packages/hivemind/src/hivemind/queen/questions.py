@@ -117,6 +117,7 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -124,6 +125,7 @@ from typing import TYPE_CHECKING
 from hivemind.brood_chamber import Answer, AnswerSource, Question, Task, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.memory import MemoryStore, Note
+from hivemind.queen import leave_memory
 from hivemind.queen.deps import QueenDeps, WardenLink
 from waggle.envelope import wrap
 from waggle.ids import MessageId, TaskId, WardenId
@@ -147,6 +149,7 @@ __all__ = [
     "AnswerInput",
     "answer_note_author",
     "answer_question",
+    "answer_question_in_process",
     "handle_question",
     "sync_answers_from_chamber",
 ]
@@ -170,6 +173,9 @@ class AnswerInput:
             forward_question`'s own `_question_envelope_ids`), so `wrap` rejects sending it with
             none set. None only when the caller never learned one (nothing is sent in that case;
             see `answer_question`'s own body).
+        chosen_option: Index into the original Question's own `options`, when one was picked
+            (roadmap step 5.0d: `hivemind.supervision.capping.checks.human.HumanCheck` offers
+            three closed options); None for free-text answers.
     """
 
     question_id: MessageId
@@ -178,6 +184,7 @@ class AnswerInput:
     clearance: HoneyClearance = HoneyClearance.C1
     wire_question_id: MessageId | None = None
     correlation_id: MessageId | None = None
+    chosen_option: int | None = None
 
 
 async def handle_question(deps: QueenDeps, question: WireQuestion) -> Question:
@@ -220,7 +227,7 @@ async def answer_question(
     """
     answer = Answer(
         text=answer_input.text,
-        chosen_option=None,
+        chosen_option=answer_input.chosen_option,
         source=answer_input.source,
         clearance=answer_input.clearance,
         answered_at=deps.clock.now(),
@@ -238,6 +245,29 @@ async def answer_question(
         )
         await link.transport.send(envelope)
     return task
+
+
+async def answer_question_in_process(queen: Queen, answer_input: AnswerInput) -> Task:
+    """The free-function body of `Queen.answer_question` (codingrules 5.1: thin methods).
+
+    Lives here, not in `hivemind.queen.queen`, only to keep that file within its own size limit
+    (this module already reaches into `Queen`'s private tracking dicts everywhere else, e.g.
+    `sync_answers_from_chamber`). Roadmap step 5.0d: `answer_input.chosen_option` rides through to
+    `answer_question` unchanged, so this in-process path (a test harness's own direct answer,
+    unlike the real `hive inbox answer` -> `sync_answers_from_chamber` route `_forward_from_note`
+    remembers from) still resolves a closed-option leave Answer correctly; nothing here writes
+    `queen._leave_memory` itself.
+    """
+    wire_question_id = queen._question_wire_ids.pop(answer_input.question_id, None)
+    correlation_id = queen._question_envelope_ids.pop(answer_input.question_id, None)
+    # Fix 3: drop _open_questions here too, or sync_answers_from_chamber's own cross-process
+    # sweep later mistakes it for "not yet forwarded" and looks for a Note that never comes.
+    if wire_question_id is not None:
+        queen._open_questions.pop(wire_question_id, None)
+    filled = dataclasses.replace(
+        answer_input, wire_question_id=wire_question_id, correlation_id=correlation_id
+    )
+    return await answer_question(queen._deps, queen.wardens, filled)
 
 
 def answer_note_author(question_id: MessageId) -> str:
@@ -321,7 +351,7 @@ async def _forward_from_note(
         return False
     answer = Answer(
         text=note.text,
-        chosen_option=None,
+        chosen_option=note.chosen_option,
         source=AnswerSource.HUMAN,
         clearance=note.clearance,
         answered_at=queen._deps.clock.now(),
@@ -329,6 +359,10 @@ async def _forward_from_note(
     wire = _to_wire_answer(wire_question_id, task.id, answer)
     envelope = wrap(wire, link.hop, clock=queen._deps.clock, correlation_id=correlation_id)
     await link.transport.send(envelope)
+    # Roadmap step 5.0d: this is the one place a HUMAN answer to a real hive-inbox-answer leaves
+    # the process, so it is the one place "keep for this whole goal" can be remembered from it.
+    if note.chosen_option == leave_memory.KEEP_FOR_GOAL_INDEX:
+        leave_memory.remember_if_keep_for_goal(queen, task, wire_question_id, note.text)
     return True
 
 

@@ -12,27 +12,30 @@ through `hivemind.supervision.capping.apply`, and verifying every postcondition 
 `hivemind.supervision.capping.postconditions`. Every transition writes a `capping.*` trail event
 with `subject_id` set to the proposal id and a payload of ids, tier and outcome enums or counts
 only -- never the human-readable reason, which stays in the returned `GateOutcome` (codingrules
-section 12: the trail never carries text). The step-by-step work (`_run_checks`,
-`_apply_and_verify`, `_roll_back`, `_restore`, `_reject`, `_record_event`) is written as
-module-level functions taking `GateDeps` explicitly rather than `CappingGate` methods, so the
-class itself (codingrules section 5.1: class bodies stay under 200 lines) stays a thin shell
-around the one thing it actually owns: the in-memory proposal table and its transitions.
+section 12: the trail never carries text). The step-by-step work is written as module-level
+functions taking `GateDeps` explicitly rather than `CappingGate` methods, so the class itself
+(codingrules section 5.1: class bodies stay under 200 lines) stays a thin shell around the one
+thing it actually owns: the in-memory proposal table and its transitions. `GateDeps` and
+`GateOutcome` live in the sibling `.model` module, split out for the same file-size reason.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Built
     by a Warden (roadmap step 3.19) from a `GateDeps`; called by Worker tools
     (`hivemind.workers.tools`, roadmap step 3.16) through `propose`, and by the Warden through
     `run` once it holds the proposing bee's `CapabilitySet` and its own lease. Calls into
-    `hivemind.cell` (Cell, CellSession, Snapshotter, SnapshotUnsupportedError),
-    `hivemind.pheromone` (CappingEvent, PheromoneTrail), `hivemind.supervision.capping.apply`,
-    `.checks`, `.errors`, `.lease_view`, `.postconditions`, `.proposal`, `.state`, `.tiers` and
-    waggle only.
+    `hivemind.cell` (SnapshotId, SnapshotUnsupportedError), `hivemind.pheromone` (CappingEvent),
+    `hivemind.supervision.capping.apply`, `.checks`, `.errors`, `.lease_view`, `.leave`,
+    `.postconditions`, `.proposal`, `.state`, `.tiers`, this package's own `.model` and waggle only.
 
 Key invariants:
     - Every proposal state change goes through `hivemind.supervision.capping.state.
       assert_transition`; nothing in this module compares ProposalState values directly.
     - A `capping.*` event's payload never carries the human-readable `reason` a GateOutcome
-      returns; only ids, enum values (`.value`) and counts (codingrules section 12).
+      returns; only ids, enum values (`.value`) and counts (codingrules section 12). One
+      exception is a bool, never text: a JUDGE check's `capping.checked` event carries
+      `judge_error: true` when the reviewer itself could not produce a verdict (`CheckResultRecord.
+      judge_error`), distinct from an ordinary JUDGE rejection, so a trail reader can tell the two
+      apart without parsing the free-text reason on `capping.rejected`.
     - `run` never raises for an ordinary proposal failure (a check failing, a postcondition not
       holding): those are `GateOutcome`s with `state` REJECTED or ROLLED_BACK, not exceptions.
     - Every module-level helper below is private (leading underscore, not in `__all__`); a caller
@@ -45,6 +48,7 @@ See Also:
       cheapest-first, why an unavailable check fails closed, and REVERSE_DIFF vs snapshot rollback.
     - hivemind.supervision.capping.apply for apply_action, called once a proposal is CAPPED.
     - hivemind.supervision.capping.postconditions for check_postcondition, called after applying.
+    - hivemind.supervision.capping.gate.model for GateDeps and GateOutcome.
 """
 
 from __future__ import annotations
@@ -52,81 +56,36 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import JsonValue
 
-from hivemind.cell import (
-    Cell,
-    CellIdentity,
-    CellSession,
-    SnapshotId,
-    Snapshotter,
-    SnapshotUnsupportedError,
-)
+from hivemind.cell import SnapshotId, SnapshotUnsupportedError
 from hivemind.guard import CapabilitySet
-from hivemind.pheromone import CappingEvent, PheromoneTrail
-from hivemind.supervision.capping.apply import ApplyResult, apply_action
-from hivemind.supervision.capping.checks import Check, CheckContext, CheckResultRecord
+from hivemind.pheromone import CappingEvent
+from hivemind.supervision.capping.apply import ApplyExtras, ApplyResult, apply_action
+from hivemind.supervision.capping.checks import CheckContext, CheckResultRecord
 from hivemind.supervision.capping.errors import UnknownProposalError
+from hivemind.supervision.capping.gate.model import GateDeps, GateOutcome
 from hivemind.supervision.capping.lease_view import LeaseView
+from hivemind.supervision.capping.leave import (
+    Asker,
+    LeaveApplyContext,
+    build_leave_context,
+    leave_decided_payload,
+    with_asker,
+)
 from hivemind.supervision.capping.postconditions import PostconditionOutcome, check_postcondition
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.state import ProposalState, assert_transition, is_terminal
-from hivemind.supervision.capping.tiers import TierTable, checks_for
-from waggle.clock import Clock
+from hivemind.supervision.capping.tiers import checks_for
 from waggle.ids import MessageId, new_event_id
 from waggle.messages.capping import CheckKind, CheckOutcome, RollbackMethod
 
-__all__ = ["CappingGate", "GateDeps", "GateOutcome"]
+__all__ = ["CappingGate"]
 
-# Terminal outcomes CappingGate.run may return; PROPOSED/CHECKING/CAPPED/APPLIED are only ever
-# in-flight states, never what run() hands back.
-_TERMINAL_OUTCOMES = frozenset(
-    {ProposalState.VERIFIED, ProposalState.REJECTED, ProposalState.ROLLED_BACK}
-)
 # A bound CappingGate._transition, threaded through the free functions below so they can advance
 # a proposal's state without themselves being methods (and so without counting toward the class's
 # own line budget, codingrules section 5.1).
 _Transition = Callable[[Proposal, ProposalState], Proposal]
-
-
-@dataclass(frozen=True, slots=True)
-class GateDeps:
-    """Everything one CappingGate needs, wired by its composition root (a Warden, step 3.19)."""
-
-    session: CellSession  # The Cell session proposals apply and verify against.
-    snapshotter: Snapshotter  # NoopSnapshotter on a Real Cell; a real one on a Virtual Cell.
-    cell: Cell  # The Cell this gate's proposals run on, passed to the snapshotter.
-    tiers: TierTable  # supervision/defaults/capping-tiers.toml, loaded once at start-up.
-    trail: PheromoneTrail  # Where every capping.* event lands.
-    identity: CellIdentity  # hive_id/node_id/actor stamped on every event this gate records.
-    clock: Clock  # Source of every minted event id and timestamp.
-    checks: Mapping[CheckKind, Check]  # deterministic_checks() in v0; a later phase adds rungs.
-
-
-class GateOutcome(BaseModel):
-    """CappingGate.run's result: the proposal's terminal state, every check and postcondition."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    proposal_id: MessageId = Field(description="The proposal this outcome belongs to.")
-    state: ProposalState = Field(
-        description="The terminal state reached: VERIFIED, REJECTED or ROLLED_BACK."
-    )
-    checks: tuple[CheckResultRecord, ...] = Field(description="Every check that actually ran.")
-    postconditions: tuple[PostconditionOutcome, ...] = Field(
-        description="Every postcondition checked after applying; empty for REJECTED."
-    )
-    reason: str = Field(description="Why, in one line; human-readable, never written to the trail.")
-
-    @model_validator(mode="after")
-    def _state_is_terminal(self) -> GateOutcome:
-        """Require `state` to be one of the three terminal outcomes run() may reach."""
-        if self.state not in _TERMINAL_OUTCOMES:
-            raise ValueError(
-                "GateOutcome.state must be VERIFIED, REJECTED or ROLLED_BACK, got "
-                f"{self.state.name}."
-            )
-        return self
 
 
 class CappingGate:
@@ -197,7 +156,11 @@ class CappingGate:
         return tuple(p for p in self._proposals.values() if not is_terminal(p.state))
 
     async def run(
-        self, proposal_id: MessageId, capabilities: CapabilitySet, lease: LeaseView
+        self,
+        proposal_id: MessageId,
+        capabilities: CapabilitySet,
+        lease: LeaseView,
+        asker: Asker | None = None,
     ) -> GateOutcome:
         """Walk `proposal_id` through checking, capping, applying and verifying.
 
@@ -207,6 +170,10 @@ class CappingGate:
                 checks.
             lease: The lease this Cell's session runs under, for path reachability and restore
                 bookkeeping.
+            asker: The proposing bee's own `ctx.asker` (roadmap step 5.0d), so an outside-scratch
+                write whose leave verdict is ASK can raise a Question through it; None (the
+                default) leaves ASK unreachable, resolving to discard exactly as before this rung
+                existed (`hivemind.supervision.capping.checks.human.HumanCheck.resolve`).
 
         Returns:
             The terminal outcome: VERIFIED, REJECTED or ROLLED_BACK.
@@ -214,7 +181,7 @@ class CappingGate:
         Raises:
             UnknownProposalError: `proposal_id` was never `propose`d.
         """
-        ops = _Ops(self._deps, self._transition)
+        ops = _Ops(self._deps, self._transition, asker)
         proposal = self._transition(self.get(proposal_id), ProposalState.CHECKING)
         capped = await _check_and_cap(ops, proposal, capabilities, lease)
         if isinstance(capped, GateOutcome):
@@ -237,15 +204,17 @@ class CappingGate:
 
 @dataclass(frozen=True, slots=True)
 class _Ops:
-    """Bundles `GateDeps` and the bound `CappingGate._transition`, as one parameter.
+    """Bundles `GateDeps`, the bound `CappingGate._transition` and this call's own asker.
 
-    Every free function below takes this instead of `(deps, transition)` separately, which is
-    what keeps each of them within the five-parameter limit (codingrules section 5.1) once its
-    own domain arguments are added.
+    Every free function below takes this instead of the three separately, which is what keeps
+    each of them within the five-parameter limit (codingrules section 5.1) once its own domain
+    arguments are added. `asker` (roadmap step 5.0d) is per-call, not per-gate, unlike the other
+    two: it comes from `CappingGate.run`'s own argument, never from `GateDeps`.
     """
 
     deps: GateDeps
     transition: _Transition
+    asker: Asker | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +247,15 @@ async def _record_event(
     await deps.trail.record(event)
 
 
+def _leave_context(ops: _Ops) -> LeaveApplyContext:
+    """Build this apply's own LeaveApplyContext, carrying this call's own asker (roadmap 5.0d)."""
+    deps = ops.deps
+    base = build_leave_context(
+        deps.cell, deps.leave_policy, deps.declared_leaves, deps.keep_root, deps.leave_home
+    )
+    return with_asker(base, ops.asker, deps.human_timeout_s, deps.clock)
+
+
 async def _run_checks(
     deps: GateDeps, context: CheckContext
 ) -> tuple[tuple[CheckResultRecord, ...], CheckKind | None, str | None]:
@@ -300,12 +278,14 @@ async def _run_checks(
             return tuple(results), kind, "check unavailable"
         result = await check.run(context)
         results.append(result)
-        await _record_event(
-            deps,
-            context.proposal.id,
-            "capping.checked",
-            {"check": kind.value, "outcome": result.outcome.value},
-        )
+        payload: dict[str, JsonValue] = {"check": kind.value, "outcome": result.outcome.value}
+        if result.judge_error:
+            # Distinct from an ordinary JUDGE rejection (codingrules section 12: ids, enums and
+            # counts only -- this is a bool, never the reason text): the reviewer itself could not
+            # answer, so a reader of the trail can tell "the judge disagreed" apart from "the judge
+            # never got to disagree" without parsing capping.rejected's own free-text reason.
+            payload["judge_error"] = True
+        await _record_event(deps, context.proposal.id, "capping.checked", payload)
         if result.outcome is not CheckOutcome.PASSED:
             return tuple(results), kind, result.reason
     return tuple(results), None, None
@@ -362,36 +342,63 @@ async def _apply_and_verify(
 ) -> GateOutcome:
     """Apply the CAPPED proposal, then verify its postconditions or roll back."""
     deps = ops.deps
-    apply_result = await apply_action(deps.session, lease, proposal, deps.session.scratch_dir)
+    apply_result = await apply_action(
+        deps.session,
+        lease,
+        proposal,
+        deps.session.scratch_dir,
+        ApplyExtras(leave=_leave_context(ops), disk_reserve_mb=deps.disk_reserve_mb),
+    )
     proposal = ops.transition(proposal, ProposalState.APPLIED)
     await _record_event(
         deps, proposal.id, "capping.applied", {"action_kind": proposal.action.kind.value}
     )
+    await _record_leave_decisions(deps, proposal.id, apply_result)
     outcome = _ApplyOutcome(checks=checks, apply_result=apply_result, snapshot_id=snapshot_id)
     if not apply_result.succeeded:
-        # A COMMAND's own non-zero exit is itself the failure; nothing was written that needs
-        # undoing (apply_action never touches files for a COMMAND action).
-        reason = f"command exited {apply_result.exit_code}"
+        # A COMMAND's own non-zero exit is itself the failure; a COPY's own hash/size mismatch or
+        # disk-reserve refusal (roadmap step 5.0e) carries its own failure_reason instead -- either
+        # way nothing was written that needs undoing (apply_action verifies before it writes).
+        reason = apply_result.failure_reason or f"command exited {apply_result.exit_code}"
         return await _roll_back(ops, proposal, outcome, (), reason=reason)
+    return await _verify_postconditions(ops, proposal, checks, outcome)
+
+
+async def _record_leave_decisions(
+    deps: GateDeps, proposal_id: MessageId, apply_result: ApplyResult
+) -> None:
+    """Record one capping.leave_decided per outside-scratch path decided (roadmap 5.0c)."""
+    for decision in apply_result.leave_decisions:
+        await _record_event(
+            deps, proposal_id, "capping.leave_decided", leave_decided_payload(decision)
+        )
+
+
+async def _verify_postconditions(
+    ops: _Ops, proposal: Proposal, checks: tuple[CheckResultRecord, ...], outcome: _ApplyOutcome
+) -> GateOutcome:
+    """Check every postcondition, transition to VERIFIED, or roll back if any failed."""
+    deps = ops.deps
     outcomes = tuple(
         [
             await check_postcondition(deps.session, i, pc)
             for i, pc in enumerate(proposal.postconditions)
         ]
     )
-    if all(pc.has_held for pc in outcomes):
-        proposal = ops.transition(proposal, ProposalState.VERIFIED)
-        await _record_event(
-            deps, proposal.id, "capping.verified", {"postconditions_held": len(outcomes)}
-        )
-        return GateOutcome(
-            proposal_id=proposal.id,
-            state=ProposalState.VERIFIED,
-            checks=checks,
-            postconditions=outcomes,
-            reason="every postcondition held",
-        )
-    return await _roll_back(ops, proposal, outcome, outcomes, reason="a postcondition failed")
+    if not all(pc.has_held for pc in outcomes):
+        return await _roll_back(ops, proposal, outcome, outcomes, reason="a postcondition failed")
+    proposal = ops.transition(proposal, ProposalState.VERIFIED)
+    await _record_event(
+        deps, proposal.id, "capping.verified", {"postconditions_held": len(outcomes)}
+    )
+    return GateOutcome(
+        proposal_id=proposal.id,
+        state=ProposalState.VERIFIED,
+        checks=checks,
+        postconditions=outcomes,
+        reason="every postcondition held",
+        leave_decisions=outcome.apply_result.leave_decisions,
+    )
 
 
 async def _roll_back(
@@ -411,6 +418,7 @@ async def _roll_back(
     await _record_event(ops.deps, proposal.id, "capping.rolled_back", payload)
     return GateOutcome(
         proposal_id=proposal.id,
+        leave_decisions=outcome.apply_result.leave_decisions,
         state=ProposalState.ROLLED_BACK,
         checks=outcome.checks,
         postconditions=postconditions,

@@ -10,11 +10,15 @@ is_acyclic_edges`) already run at construction, so a cyclic or malformed plan ra
 `pydantic.ValidationError` there without this module re-implementing the same check
 (`is_acyclic_edges` is `TaskGraphDraft`'s own validator's tool, not a second gate this module calls
 again); this module wraps that (and a malformed `PlannedPostcondition`'s own conversion failure)
-into one typed `PlannerError` so a caller catches a single name either way.
+into one typed `PlannerError` so a caller catches a single name either way. `PlanBrief.scratch_root`
+(roadmap step 5.0b), when given, is threaded to `complete_structured` as a pydantic validation
+`context`, the one way `hivemind.queen.planner.schema.PlannedTask`'s own leaves-vs-scratch rule can
+see the Hive Stand's own scratch root without this module (or the ladder) knowing what a "lease
+directory" is.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's planner
-    sub-package (which MAY import `hivemind.llm`). Called by `hivemind.queen.queen.Queen.
+    sub-package (which MAY import `hivemind.llm`). Called by `hivemind.queen.goal_submission.
     submit_goal`. Calls into `hivemind.brood_chamber` (TaskDraft, TaskGraphDraft), `hivemind.cell`
     (HoneyClearance), `hivemind.llm` (CallGate, LLMRequest, LadderObserver, Message, PromptName,
     Role, SectionLabel, complete_structured, render), `hivemind.queen.planner.schema` and
@@ -25,11 +29,13 @@ Key invariants:
       whose graph cycles: both fail inside `TaskGraphDraft`'s own construction, propagated here as
       `PlannerError`.
     - Every `PlannedTask.key` becomes its `TaskDraft.key` unchanged, so `depends_on` references
-      the model wrote resolve without this module renaming anything.
+      the model wrote resolve without this module renaming anything; every `PlannedTask.leaves`
+      entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason.
 
 See Also:
     - .claude/roadmap.md step 3.18 for "the planner emits acceptance for every subtask".
     - .claude/roadmap.md step 3.20 for this module's own roadmap bullet.
+    - .claude/roadmap.md step 5.0b for "the plan declares what stays".
     - hivemind.queen.planner.schema for PlanSchema, PlannedTask and PlannedPostcondition, the
       model-facing shapes this module converts.
     - hivemind.brood_chamber.task.model for TaskDraft and TaskGraphDraft, the shapes this module
@@ -40,7 +46,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import ClassVar
+from pathlib import Path
+from typing import Any, ClassVar
 
 from pydantic import ValidationError
 
@@ -50,6 +57,7 @@ from hivemind.common.errors import ConfigurationError
 from hivemind.llm import (
     CallGate,
     LadderObserver,
+    LadderOptions,
     LLMRequest,
     Message,
     PromptName,
@@ -82,10 +90,11 @@ class PlannerError(ConfigurationError):
 class PlanBrief:
     """What `plan_goal` is asked to plan: the goal, its clearance ceiling and the fleet it has.
 
-    One value rather than four parameters (codingrules 5.1's parameter limit), and the natural
+    One value rather than a parameter list (codingrules 5.1's parameter limit), and the natural
     unit to hand a planner: the text as the human stated it, the data-sensitivity ceiling every
-    subtask inherits, the Cells placement will match the plan's needs against, and who asked for
-    the goal in the first place.
+    subtask inherits, the Cells placement will match the plan's needs against, who asked for the
+    goal in the first place, the Hive Stand's own scratch root (roadmap step 5.0b) so a declared
+    leaving inside it is caught here, and (roadmap step 5.0e) its own keep root.
     """
 
     goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
@@ -95,6 +104,18 @@ class PlanBrief:
     # Night Veil sub-task planned from a human goal still reads as human-originated at placement;
     # defaults HUMAN, matching every goal submitted through `hive run`/`hive tasks submit` today.
     origin: RequestOrigin = RequestOrigin.HUMAN
+    # `hivemind.manifest`'s own `[hive_stand] scratch_root`, resolved; None when the caller has
+    # none in hand (most unit tests), which simply skips PlannedTask's own scratch check.
+    scratch_root: Path | None = None
+    # `hivemind.manifest`'s own `[hive_stand] keep_root`, resolved; None when the operator has not
+    # set one (or the caller has none in hand). `TaskAssign` carries no `keep_root` field of its
+    # own -- adding one would be a wire change this step does not otherwise need (roadmap step
+    # 5.0e: "the planner prompt instead tells the planner the keep root... via PlanBrief") -- so
+    # this is the one place a Drone learns about it at all: `_build_request` folds it into hot
+    # state, and the planner is expected to declare a `leaves` entry at (or under) this path when
+    # the goal's own artefact belongs there, which then rides to the Drone unchanged on
+    # `TaskAssign.leaves` (roadmap step 5.0b), exactly like any other declared leaving.
+    keep_root: Path | None = None
 
 
 async def plan_goal(
@@ -107,10 +128,11 @@ async def plan_goal(
     """Decompose `brief.goal` into a validated TaskGraphDraft, through `bound`.
 
     Args:
-        brief: The goal, its clearance ceiling and, when known, the Cells the Hive can place
-            work on; the last is rendered by `describe_fleet` into the prompt's hot-state
-            section so the plan's needs fit a Cell that exists (None omits the section; an
-            empty sequence says so to the model).
+        brief: The goal, its clearance ceiling, the Cells the Hive can place work on (rendered
+            by `describe_fleet` into hot state; None omits the section), the `RequestOrigin`
+            every planned sub-task inherits, and its `scratch_root`, passed on as a validation
+            context so `PlannedTask`'s own leaves-vs-scratch rule can fire inside the ladder
+            below.
         bound: The model binding to plan with; typically `deps.bound_for(ModelSlot.QUEEN)`.
         gate: The seat meter the call passes through.
         observer: Who to tell about a ladder step-down; `NullLadderObserver()` when omitted.
@@ -124,25 +146,42 @@ async def plan_goal(
         hivemind.llm.errors.MalformedOutputError: Every rung of the structured-output ladder was
             exhausted without a schema-valid reply.
     """
+    request = _build_request(brief, bound)
+    context: dict[str, Any] = {"scratch_root": brief.scratch_root}
+    options = LadderOptions(observer=observer, context=context)
+    # External await: one model call, latency class seconds to tens of seconds for a whole plan;
+    # the ladder itself retries and steps down rungs on a malformed reply.
+    result = await complete_structured(bound, request, PlanSchema, gate=gate, options=options)
+    try:
+        return _to_graph_draft(result.value, brief.clearance, brief.origin)
+    except ValidationError as exc:
+        raise PlannerError(f"The planned graph for {brief.goal[:80]!r} is invalid: {exc}") from exc
+
+
+def _build_request(brief: PlanBrief, bound: BoundModel) -> LLMRequest:
+    """Render `decompose_goal.md` and build the one request `plan_goal` sends to `bound`."""
     sections: dict[SectionLabel, str] = {SectionLabel.USER: brief.goal}
+    hot_state_lines: list[str] = []
     if brief.cells is not None:
         # decompose_goal.md promises "a rough summary of the fleet's capacity" under hot state;
         # without it a model guesses (a Linux-only plan on a Windows Hive Stand never places).
-        sections[SectionLabel.HOT_STATE] = describe_fleet(brief.cells)
+        hot_state_lines.append(describe_fleet(brief.cells))
+    if brief.keep_root is not None:
+        # Roadmap step 5.0e: TaskAssign carries no keep_root field of its own (PlanBrief.keep_root's
+        # own docstring), so this is the one place a plan ever learns it exists at all.
+        hot_state_lines.append(
+            f"Keep root: {brief.keep_root} -- declare a leaving at this path, or a location "
+            "under it, for anything the goal itself needs to remain there."
+        )
+    if hot_state_lines:
+        sections[SectionLabel.HOT_STATE] = "\n\n".join(hot_state_lines)
     system = render(PromptName.DECOMPOSE_GOAL, sections=sections)
-    request = LLMRequest(
+    return LLMRequest(
         slot=bound.slot,
         system=system,
         messages=(Message.text(Role.USER, _PLANNER_USER_TURN),),
         max_output_tokens=PLANNER_MAX_OUTPUT_TOKENS,
     )
-    # External await: one model call, latency class seconds to tens of seconds for a whole plan;
-    # the ladder itself retries and steps down rungs on a malformed reply.
-    result = await complete_structured(bound, request, PlanSchema, gate=gate, observer=observer)
-    try:
-        return _to_graph_draft(result.value, brief.clearance, brief.origin)
-    except ValidationError as exc:
-        raise PlannerError(f"The planned graph for {brief.goal[:80]!r} is invalid: {exc}") from exc
 
 
 def describe_fleet(cells: Sequence[Cell]) -> str:
@@ -202,6 +241,7 @@ def _to_task_draft(
         clearance=min(task.clearance, clearance, key=lambda label: label.rank),
         origin=origin,
         depends_on=task.depends_on,
+        leaves=task.leaves,
     )
 
 

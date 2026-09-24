@@ -46,8 +46,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivemind.cell import CellIdentity
+from hivemind.cell.leavings import LeavingsStore
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.readback.virtual_offline import (
+    OfflineCellDeps,
     build_undertaker,
     list_all_virtual,
     open_real_leases,
@@ -81,6 +83,9 @@ class AbscondDeps:
         virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
             value; `None` when `[virtual_cells] backend` is unset, in which case this pass never
             touches a Virtual Cell at all.
+        leavings: The live Leavings ledger (roadmap step 5.0a): a destroyed Virtual Cell's own
+            rows are marked removed through it, and a reconstructed lease's releaser writes any
+            `persist=True` restore record into it rather than into a throwaway store.
     """
 
     manifest: HiveManifest
@@ -89,6 +94,7 @@ class AbscondDeps:
     orders: OrderStore
     clock: Clock
     virtual_cells: VirtualCellsParts | None
+    leavings: LeavingsStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +151,13 @@ async def run_abscond(deps: AbscondDeps) -> AbscondSummary:
     )
 
 
+def _offline(deps: AbscondDeps, identity: CellIdentity) -> OfflineCellDeps:
+    """Bundle the four collaborators every offline Cell effect in this pass needs."""
+    return OfflineCellDeps(
+        trail=deps.trail, clock=deps.clock, identity=identity, leavings=deps.leavings
+    )
+
+
 async def _destroy_every_virtual(deps: AbscondDeps, identity: CellIdentity) -> int:
     """Destroy every Virtual Cell every registered backend lists for this Hive; return how many."""
     if deps.virtual_cells is None:
@@ -152,7 +165,7 @@ async def _destroy_every_virtual(deps: AbscondDeps, identity: CellIdentity) -> i
     rows = await _virtual_rows(deps)
     for backend_name, record in rows:
         backend = deps.virtual_cells.registry.get(backend_name)
-        undertaker = build_undertaker(backend, deps.trail, deps.clock, identity, deps.ledger)
+        undertaker = build_undertaker(backend, _offline(deps, identity), deps.ledger)
         await undertaker.destroy_virtual(record.cell_id)
     return len(rows)
 
@@ -185,16 +198,15 @@ async def _release_every_lease(deps: AbscondDeps, identity: CellIdentity) -> tup
     scratch_base = deps.manifest.resolve_path(deps.manifest.hive_stand.scratch_root)
     # Unused by release_real (module docstring's own AbscondDeps note); only satisfies
     # UndertakerDeps.backend's own required shape.
-    undertaker = build_undertaker(
-        FakeCellBackend(deps.clock), deps.trail, deps.clock, identity, deps.ledger
-    )
+    offline = _offline(deps, identity)
+    undertaker = build_undertaker(FakeCellBackend(deps.clock), offline, deps.ledger)
     released = untouched = 0
     for orphan in orphans:
         scratch_root = scratch_base / orphan.lease_id
         if not scratch_root.exists():
             untouched += 1
             continue
-        lease = reconstruct_lease(orphan, scratch_root, deps.trail, deps.clock, identity)
+        lease = reconstruct_lease(orphan, scratch_root, offline)
         await undertaker.release_real(lease)
         released += 1
     return released, 0, untouched

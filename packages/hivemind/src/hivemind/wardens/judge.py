@@ -21,9 +21,9 @@ Fits into the Hive:
     `CheckKind.JUDGE` entry) through `hivemind.supervision.capping.judge_checks` and onto
     `WardenDeps.judge_reviewer` for
     `hivemind.wardens.spawn.audited_gate.AuditingCappingGate`'s own after-the-fact sampling. Calls
-    into `hivemind.llm` (BoundModel, CallGate, LLMRequest, Message, PromptName, Role, SectionLabel,
-    complete_structured, render), `hivemind.supervision.capping` (JudgeOutcome, JudgeRequest,
-    JudgeReviewer, JudgeVerdict) and waggle only.
+    into `hivemind.llm` (BoundModel, CallGate, LLMRequest, MalformedOutputError, Message,
+    PromptName, Role, SectionLabel, complete_structured, render), `hivemind.supervision.capping`
+    (JudgeAnswerError, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict) and waggle only.
 
 Key invariants:
     - `review`'s prompt carries only `request`'s own fields (risk tier, action, acceptance criteria,
@@ -35,12 +35,19 @@ Key invariants:
     - `review` never accumulates a transcript across calls (codingrules section 4): every call
       builds its `LLMRequest` fresh from `request` alone, matching every other awake-episode-style
       call in the Hive (codingrules section 8.8).
+    - `review` translates `hivemind.llm.errors.MalformedOutputError` into `JudgeAnswerError`
+      (this layer's own error) rather than letting it propagate; `ProviderUnavailableError` and
+      `RateLimitedError` are never caught here, because those are outages Clustering handles, not
+      an answer failure. See `hivemind.supervision.capping.checks.judge.JudgeCheck.run`, the
+      catcher that turns `JudgeAnswerError` into a FAILED check outcome instead of a Worker crash.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "the judge is independent" and "no shared context".
     - .claude/roadmap.md step 4.10 for this module's own deliverable, verbatim.
     - hivemind.supervision.capping.checks.judge for JudgeReviewer, JudgeRequest, JudgeVerdict and
-      JudgeOutcome, the seam and shapes this module implements against.
+      JudgeOutcome, the seam and shapes this module implements against, and JudgeCheck.run, which
+      catches the JudgeAnswerError this module raises.
+    - hivemind.supervision.capping.errors for JudgeAnswerError itself.
     - hivemind.memory.compact.run for compact, the sibling ModelSlot.RIPENER call this module's
       shape (render a prompt fresh, call complete_structured, translate the result) mirrors.
     - hivemind.llm.prompts.judge_review for the prompt body this module renders.
@@ -57,6 +64,7 @@ from hivemind.llm import (
     BoundModel,
     CallGate,
     LLMRequest,
+    MalformedOutputError,
     Message,
     PromptName,
     Role,
@@ -64,18 +72,24 @@ from hivemind.llm import (
     complete_structured,
     render,
 )
-from hivemind.supervision.capping import JudgeOutcome, JudgeRequest, JudgeVerdict
+from hivemind.supervision.capping import JudgeAnswerError, JudgeOutcome, JudgeRequest, JudgeVerdict
 from waggle.messages.capping import ActionKind, ProposedAction
 
-# The output budget for the one structured call this module makes; generous enough for
-# _JudgeModelOutput's own fields plus the ladder's own PROMPTED-rung JSON preamble.
-JUDGE_OUTPUT_TOKENS = 1_024
+# The output budget for the one structured call this module makes. A verdict is short, but a
+# reasoning model's thinking counts against this too: at 1024 the local 27B model spent every
+# token thinking and returned nothing, nine times in a row (2026-09-21, the judge's first real
+# run), so this leaves room to think. The manifest's per-slot max_output_tokens overrides it.
+JUDGE_OUTPUT_TOKENS = 4_096
 _ONE_LINE_INSTRUCTION = (
     "Score the action shown above against the rubric and postconditions, and return your verdict."
 )
 _MAX_REASON_CHARS = 500  # Mirrors JudgeVerdict's own per-reason bound.
 _MAX_REASONS = 8  # Mirrors JudgeVerdict's own reasons-list bound.
 _MAX_NOTES_CHARS = 2_000  # Mirrors JudgeVerdict's own notes bound.
+# JudgeAnswerError's own detail is bounded here, not by MalformedOutputError (whose message can
+# carry a large chunk of raw model output): a check's rejection reason is a tool-result string a
+# Drone reads, never a full transcript (codingrules section 8.9-shaped budget, applied here).
+_MAX_JUDGE_ERROR_DETAIL_CHARS = 500
 
 __all__ = ["JUDGE_OUTPUT_TOKENS", "ModelJudgeReviewer"]
 
@@ -121,14 +135,29 @@ class ModelJudgeReviewer:
 
         Returns:
             The judge's verdict: approve, request changes or reject, with reasons.
+
+        Raises:
+            JudgeAnswerError: `complete_structured` exhausted every rung and fallback binding
+                without ever producing parseable output (2026-09-21: nine attempts, empty reply,
+                every time). Translated from `hivemind.llm.errors.MalformedOutputError` here,
+                since `hivemind.supervision.capping.checks.judge.JudgeCheck.run` (the only
+                catcher) never imports `hivemind.llm` (codingrules section 4).
         """
         llm_request = _build_request(self._bound, request)
         # Latency class: one model call, typically seconds to tens of seconds; the ladder's own
         # rung retries and fallback chain (hivemind.llm.complete_structured) cover a timeout or a
-        # malformed reply, so no further retry logic lives here.
-        result = await complete_structured(
-            self._bound, llm_request, _JudgeModelOutput, gate=self._lane_for(request.tempo)
-        )
+        # malformed reply, so no further retry logic lives here. ProviderUnavailableError and
+        # RateLimitedError are deliberately NOT caught: those mean the bound provider (and every
+        # fallback) is down, an outage hivemind.queen.cluster's Clustering rung pauses and resumes
+        # the whole Hive for, never a single proposal's rejection -- they propagate unchanged.
+        try:
+            result = await complete_structured(
+                self._bound, llm_request, _JudgeModelOutput, gate=self._lane_for(request.tempo)
+            )
+        except MalformedOutputError as exc:
+            # The judge itself failed to answer, not a verdict on the proposal: JudgeCheck.run
+            # turns this into a FAILED check outcome instead of letting it crash the Worker.
+            raise JudgeAnswerError(str(exc)[:_MAX_JUDGE_ERROR_DETAIL_CHARS]) from exc
         output = result.value
         return JudgeVerdict(
             outcome=output.outcome,

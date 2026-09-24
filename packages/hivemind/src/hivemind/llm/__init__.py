@@ -61,7 +61,8 @@ Public API:
 
 Public API (roadmap step 3.5):
     - Structured output (`hivemind.llm.ladders.structured`): complete_structured,
-      StructuredResult, Rung, NATIVE_SCHEMA_RETRIES, JSON_MODE_RETRIES, PROMPTED_JSON_RETRIES.
+      StructuredResult, LadderOptions, Rung, NATIVE_SCHEMA_RETRIES, JSON_MODE_RETRIES,
+      PROMPTED_JSON_RETRIES.
     - Tool calls (`hivemind.llm.ladders.tools`): run_tool_loop, ToolExecutor, ToolLoopOptions,
       ToolLoopResult, MAX_TOOL_ROUNDS_DEFAULT.
     - Argument validation (`hivemind.llm.ladders.extraction`): validate_arguments.
@@ -133,6 +134,7 @@ from hivemind.llm.ladders import (
     FallbackNote,
     FallbackReason,
     LadderObserver,
+    LadderOptions,
     NullLadderObserver,
     Rung,
     StructuredResult,
@@ -224,6 +226,7 @@ __all__ = [
     "LLMRequest",
     "LLMResponse",
     "LadderObserver",
+    "LadderOptions",
     "LlmEventRecorder",
     "MalformedOutputError",
     "Message",

@@ -16,7 +16,7 @@ from builders.llm import make_bound
 from builders.workers import make_assignment, make_context
 
 from hivemind.workers.roles.drone.prompt import brief_for
-from waggle.messages import Postcondition, PostconditionKind
+from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind
 
 
 def test_brief_leads_with_the_objective_then_every_criterion_in_plain_words() -> None:
@@ -57,3 +57,24 @@ def test_brief_names_the_cell_os_shell_and_command_rules() -> None:
     assert caps.os.value in text
     assert caps.shell in text
     assert "without a shell" in text
+
+
+def test_brief_renders_the_plans_own_declared_leaves_beside_acceptance() -> None:
+    ctx = make_context(bound=make_bound())
+    leaving = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
+    assignment = make_assignment(objective="Install the project.", leaves=(leaving,))
+
+    text = brief_for(assignment, ctx.cell)
+
+    assert "/opt/project" in text
+    assert "Set up a project in /opt/project." in text
+    assert "to remain once your task ends" in text
+
+
+def test_brief_omits_the_leaves_section_when_the_plan_declared_none() -> None:
+    ctx = make_context(bound=make_bound())
+    assignment = make_assignment(objective="Do the thing.")
+
+    text = brief_for(assignment, ctx.cell)
+
+    assert "to remain once your task ends" not in text

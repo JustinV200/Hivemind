@@ -45,6 +45,13 @@ exist to catch problems that only show up when every layer runs at once.
   Scripted through `tests.e2e.kernel_helpers.HaikuScript` over one `hivemind.llm.fake.
   FakeLLMProvider`, against a real Hive Stand lease and real SQLite (never `pump_until_done`'s own
   `FakeClock`, unlike `tests.unit.cli.test_compose`'s in-process counterpart of scenario (a)).
+- `test_zero_grant.py` (`@pytest.mark.e2e`) -- `.claude/phase-4-handoff.md` section 4.2 item 1: a
+  manifest whose `[forage.reserve]` claims every seat `[forage.map]` offers (patched onto a
+  `builders.cli.fake_manifest` manifest through `tests.e2e.kernel_helpers.
+  set_forage_reserve_seats`, since that builder exposes no reserve knob of its own) makes the
+  Queen's first grant compute to `max_sub_bees = 0`; asserts `run_goal` returns FAILED with a
+  readable reason well inside its own timeout, never a timeout itself, and that `forage.denied`
+  and `task.failed` both land on the trail.
 
 ## Budget
 

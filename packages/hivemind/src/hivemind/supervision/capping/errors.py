@@ -47,6 +47,7 @@ __all__ = [
     "CappingError",
     "DiffApplyError",
     "InvalidProposalTransitionError",
+    "JudgeAnswerError",
     "JudgeUnavailableError",
     "UnknownProposalError",
 ]
@@ -131,6 +132,32 @@ class DiffApplyError(CappingError):
         super().__init__(f"Could not apply diff to {path!r}: {reason}.")
         self.path = path
         self.reason = reason
+
+
+class JudgeAnswerError(CappingError):
+    """Raise when a real JudgeReviewer could not produce a verdict for a proposal at all.
+
+    Raised by a model-backed `JudgeReviewer` implementation (`hivemind.wardens.judge.
+    ModelJudgeReviewer`, which translates `hivemind.llm.errors.MalformedOutputError` into this
+    layer's own error, since this package never imports `hivemind.llm`, codingrules section 4);
+    caught by `hivemind.supervision.capping.checks.judge.JudgeCheck.run`, which turns it into a
+    FAILED check outcome instead of letting it propagate and crash the Worker (2026-09-21: nine
+    unparseable `llm.call` attempts on the judge lane reached `worker.failed` /
+    `alarm.raised WORKER_CRASHED` before this existed -- a judge that cannot answer is a check
+    outcome, not a bee crash, codingrules section 8.12).
+    """
+
+    code: ClassVar[str] = "hivemind.supervision.capping.judge_answer_failed"
+
+    def __init__(self, detail: str) -> None:
+        """Build the error for a judge reviewer that raised instead of answering.
+
+        Args:
+            detail: Why the reviewer could not answer, already bounded by the caller (a raw model
+                reply can be arbitrarily long; this module does not re-bound it).
+        """
+        super().__init__(f"The judge could not produce a verdict: {detail}")
+        self.detail = detail
 
 
 class JudgeUnavailableError(CappingError):

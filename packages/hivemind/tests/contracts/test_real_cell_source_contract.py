@@ -35,6 +35,7 @@ from builders.cells import make_cell, make_hive_stand_config, make_identity, mak
 from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.fake import FakeCellSource
 from hivemind.cell.lease_state import LeaseState
+from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local.source import HiveStandSource
 from hivemind.cell.source import RealCellSource
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -80,7 +81,8 @@ class _LocalHarness:
     def build(self, clock: Clock, tmp_path: Path) -> SourceRig:
         trail = MemoryPheromoneTrail(clock)
         config = make_hive_stand_config(tmp_path)
-        source = HiveStandSource(config, make_identity(clock=clock), trail, clock)
+        leavings = InMemoryLeavingsStore(trail)
+        source = HiveStandSource(config, make_identity(clock=clock), trail, clock, leavings)
         return SourceRig(source=source, trail=trail)
 
 

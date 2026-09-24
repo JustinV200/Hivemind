@@ -185,7 +185,7 @@ def build_hive(
     ledger = build_ledger(manifest, manifest.forage.reserve)
     registry = build_provider_registry(manifest, environ, clock, forage_map, responders)
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
-    source = build_hive_stand_source(manifest, hive_stores.trail, clock)
+    source = build_hive_stand_source(manifest, hive_stores.trail, clock, hive_stores.leavings)
     links = _build_links(manifest, source, clock)
     # Roadmap step 5.6: None when `[virtual_cells] backend` is unset, touching nothing else below
     # (hivemind.cli.compose.virtual_cells's own module docstring).

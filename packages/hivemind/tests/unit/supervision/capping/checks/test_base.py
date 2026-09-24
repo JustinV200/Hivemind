@@ -24,3 +24,10 @@ def test_check_result_record_is_frozen_and_forbids_extras() -> None:
         record.outcome = CheckOutcome.FAILED  # type: ignore[misc]  # The assignment is the test.
     with pytest.raises(ValidationError):
         CheckResultRecord.model_validate({**record.model_dump(), "extra": "nope"})
+
+
+def test_check_result_record_judge_error_defaults_false() -> None:
+    """Every check but JUDGE's own answer-failure path leaves judge_error at its default."""
+    record = CheckResultRecord(kind=CheckKind.SCHEMA, outcome=CheckOutcome.PASSED, reason="ok")
+
+    assert record.judge_error is False
