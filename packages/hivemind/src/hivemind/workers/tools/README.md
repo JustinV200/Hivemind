@@ -3,18 +3,24 @@
 The tools package holds the tool implementations a Worker can call while it works, each one going
 through its Cell's `CellSession` rather than touching a process or file directly. Roadmap step 3.16
 gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_request` and `ask`;
-roadmap step 5.0e adds a sixth, `keep`.
+roadmap step 5.0e adds a sixth, `keep`; roadmap step 6.5 adds the Exoskeleton's tools (the
+`exoskeleton/` sub-package), offered only when a task has a display, a browser or audio attached.
 
 ## Modules
 
 - `registry.py` -- `ToolSpec` (a tool's schema plus how to run it), `ToolInvocation` (the
   WorkerContext plus the current TaskAssign every tool runner receives), `ToolRunner` (the
-  Protocol a runner implements), `ToolRegistry` (validates a call against its schema, then runs
-  it; an unknown tool or a schema violation returns readable text, never raises; a
+  Protocol a runner implements: it returns text, or a `ToolOutput`), `ToolOutput` (roadmap step
+  6.5: the text, any media beside it -- a screenshot as `hivemind.llm.ImagePart`, a recording as
+  `hivemind.llm.AudioPart` -- and an explicit `is_error` for a failure the text alone does not
+  show), `ToolRegistry` (validates a call against its schema, then runs it and always returns a
+  `ToolOutput`; an unknown tool or a schema violation returns readable text, never raises; a
   `hivemind.workers.tools.errors.ToolError` becomes its message; a control exception such as
   `HandoffRequestedError` or `WorkerCancelledError` propagates unchanged) and `build_registry`
   (offers `run_command`/`read_file`/`write_file`/`ask`/`keep` always, `http_request` only when the
-  Worker holds a `net` capability).
+  Worker holds a `net` capability, and each Exoskeleton tool only when its peripheral is attached
+  and the bound model can take what it returns). The Drone's executor passes a `ToolOutput`'s
+  media through as `hivemind.llm.ToolResultPart.media` and records the text alone.
 - `session.py` -- `run_command` (a COMMAND proposal, `SCRATCH_WRITE` or `OUTSIDE_SCRATCH_WRITE`
   depending on the resolved working directory), `read_file` (no proposal; requires an `fs:read`
   capability outside scratch; truncates to `MAX_TOOL_RESULT_CHARS`) and `write_file` (a whole-file
@@ -41,14 +47,26 @@ roadmap step 5.0e adds a sixth, `keep`.
 - `proposals.py` -- `ProposalRequest` (a tool's tier, action, postconditions and reason, bundled
   so `make_proposal` stays under codingrules 5.1's parameter limit), `make_proposal` (build a
   Proposal from one), `cap` (propose, then run, through `ctx.capping`; on a `ROLLED_BACK` outcome
-  also notes `ROLLBACK_ALARM_KIND` (`POSTCONDITION_FAILED`) on `ctx.telemetry`, so the runtime
-  raises a real Alarm instead of the rollback only ever showing up as tool-result text) and
-  `describe` (render a `GateOutcome` as tool-result text: state, reason, every check and
-  postcondition, and -- roadmap step 5.0e, only when the proposal touched a path outside scratch
-  -- each such path's own leave verdict and whether it will actually remain; never the diff or
-  command text itself).
+  notes `ROLLBACK_ALARM_KIND` (`POSTCONDITION_FAILED`) on `ctx.telemetry` -- at once for a GUI
+  action (ADR-0032: every later step would act on a misread screen), and toward the count of
+  three for any other -- so the runtime raises a real Alarm instead of the rollback only ever
+  showing up as tool-result text), `describe` (render a `GateOutcome` as tool-result text: state,
+  reason, every check and postcondition, and -- roadmap step 5.0e, only when the proposal touched
+  a path outside scratch -- each such path's own leave verdict and whether it will actually
+  remain; never the diff, command or typed text itself) and `tool_output` (roadmap step 6.5:
+  `describe`'s text as a `ToolOutput`, an error unless it VERIFIED; a judge's REJECT of an applied
+  irreversible GUI action leads the text with the verdict and its reasons and is an error too,
+  with no second Alarm, since the gate raised one when the judge ruled; APPROVE and
+  REQUEST_CHANGES add one line of verdict).
 - `errors.py` -- `ToolError` (root) and `UnreachablePathError` (a path this Worker's session
   cannot reach at all, distinct from merely lacking a capability for it).
+- `exoskeleton/` (roadmap step 6.5) -- the Worker's hands, eyes and ears on the Exoskeleton: the
+  desktop input tools (`click`, `move`, `type`, `press`, `scroll`), the browser tools
+  (`browser_navigate`, `browser_click`, `browser_fill`, `browser_press`), the read-only sight
+  tools (`see`, `browser_screenshot`, `browser_snapshot`, `browser_read`) and the audio tools
+  (`listen`, `say`). Every action is one typed GUI proposal at the tier its reach implies, with
+  the call's optional `expect` as its postcondition; reads propose nothing. See that package's
+  own README for the tool-by-tool table.
 
 ## Public API (roadmap 3.16)
 
@@ -60,6 +78,11 @@ each name's home module.
 ```
 uv run --frozen pytest packages/hivemind/tests/unit/workers/tools
 ```
+
+`builders.workers.make_gui_context` builds the same context with an Exoskeleton attached: the
+fake peripherals a test passes, and a real gate whose GUI surface is a real
+`hivemind.exoskeleton.surface.ExoskeletonSurface` over them; `run_tool` runs one call as the Drone
+would, and `proposals_of` reads back what the gate was asked to cap.
 
 `tests/unit/workers/tools/` mirrors this package module for module. `tests/builders/workers.py`'s
 `make_context` (`hivemind.workers.context.WorkerContext`) now builds a real

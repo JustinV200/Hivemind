@@ -5,17 +5,22 @@ Proposal` and a `hivemind.supervision.capping.GateOutcome` turns back into tool-
 (codingrules section 8.12: "Propose, then commit... The CappingGate runs the checks the tier
 requires, applies the proposal, verifies the postconditions, and rolls back on failure"). Every
 other tool in `hivemind.workers.tools` that has a side effect (`write_file`, `run_command`,
-`http_request`) builds its own `waggle.messages.capping.ProposedAction` and postconditions, then
-calls `make_proposal` and `cap` here rather than talking to `ctx.capping` directly, so the id
-minting, the Proposal's fixed fields (task id, Cell id, proposer, tempo, clearance, spend estimate)
-and the human-readable outcome text are written once.
+`http_request`, and the Exoskeleton's action tools) builds its own `waggle.messages.capping.
+ProposedAction` and postconditions, then calls `make_proposal` and `cap` here rather than talking
+to `ctx.capping` directly, so the id minting, the Proposal's fixed fields (task id, Cell id,
+proposer, tempo, clearance, spend estimate), what a rollback raises and the human-readable outcome
+text are written once. A rolled-back GUI action (roadmap step 6.5, ADR-0032) raises its Alarm at
+once rather than after three: the screen no longer matches what the bee believes, so every later
+step would act on a misread. An applied irreversible GUI action also comes back with the judge's
+review (`GateOutcome.review`); `tool_output` turns a REJECT into a failed result, since the gate
+has already raised that Alarm itself.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Called by
-    `hivemind.workers.tools.session` and `hivemind.workers.tools.http`. Calls into `hivemind.cell`,
-    `hivemind.forage.tempo`, `hivemind.supervision.capping`, `hivemind.workers.context`,
-    `hivemind.workers.telemetry` (through `ctx.telemetry.note_alarm`, this dispatch's own fix 2)
-    and waggle only.
+    `hivemind.workers.tools.session`, `.http`, `.keep` and the `.exoskeleton` action tools. Calls
+    into `hivemind.cell`, `hivemind.forage.tempo`, `hivemind.supervision.capping`,
+    `hivemind.workers.context`, `hivemind.workers.telemetry` (through `ctx.telemetry.note_alarm`
+    and `note_rollback`), `hivemind.workers.tools.registry` (ToolOutput) and waggle only.
 
 Key invariants:
     - `make_proposal` never reads `ctx.capabilities` or `ctx.lease`: those are checked by
@@ -28,9 +33,12 @@ Key invariants:
       path's own leave verdict -- a resolved path and a one-line reason, never file contents
       (codingrules section 12's "never the diff text back" carried over from the trail's own
       payload rule, even though this is tool-result text rather than a trail event).
-    - `cap` notes exactly one Alarm per ROLLED_BACK outcome, never more: a Proposal only ever
+    - `cap` notes every ROLLED_BACK outcome exactly once, never more: a Proposal only ever
       reaches ROLLED_BACK once (`hivemind.supervision.capping.state`'s own transition table has no
-      edge back out of it).
+      edge back out of it). A GUI action's rollback is an Alarm at once; any other kind's counts
+      toward `hivemind.workers.telemetry.ROLLBACKS_BEFORE_ALARM`.
+    - Nothing here notes an Alarm for a judge's REJECT: the gate raised it when the judge ruled,
+      and a second one would count one failure twice.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit `ProposalRequest` exists
@@ -38,7 +46,9 @@ See Also:
       signature would be six parameters, one over the hard limit).
     - .claude/codingrules.md section 8.12 for "Propose, then commit."
     - hivemind.supervision.capping for Proposal, CappingGate.propose/run and GateOutcome.
-    - hivemind.workers.tools.session and .http for this module's two callers.
+    - hivemind.workers.tools.session, .http, .keep and .exoskeleton for this module's callers.
+    - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md for the
+      immediate GUI Alarm and the judged irreversible GUI action.
 """
 
 from __future__ import annotations
@@ -47,11 +57,19 @@ from dataclasses import dataclass
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.tempo import Tempo
-from hivemind.supervision.capping import GateOutcome, Proposal, ProposalState, RiskTier
+from hivemind.supervision.capping import (
+    GateOutcome,
+    JudgeOutcome,
+    JudgeVerdict,
+    Proposal,
+    ProposalState,
+    RiskTier,
+)
 from hivemind.supervision.capping.leave import LeaveDecisionRecord
 from hivemind.workers.context import WorkerContext
+from hivemind.workers.tools.registry import ToolOutput
 from waggle.ids import new_message_id
-from waggle.messages.capping import ProposedAction
+from waggle.messages.capping import ActionKind, ProposedAction
 from waggle.messages.labels import Postcondition
 from waggle.messages.supervision import AlarmKind
 from waggle.messages.task import TaskAssign
@@ -61,8 +79,17 @@ MIN_SPEND_ESTIMATE_USD = 0.0  # v0: no built-in tool proposes a real spend (modu
 # hold after applying" (hivemind.supervision.alarm.AlarmKind's own docstring) is ROLLED_BACK's own
 # definition (hivemind.supervision.capping.gate's module docstring); no new AlarmKind is needed.
 ROLLBACK_ALARM_KIND = AlarmKind.POSTCONDITION_FAILED
+MAX_REVIEW_CHARS = 600  # A judge's reasons as the model reads them: a few sentences, never notes.
 
-__all__ = ["ROLLBACK_ALARM_KIND", "ProposalRequest", "cap", "describe", "make_proposal"]
+__all__ = [
+    "MAX_REVIEW_CHARS",
+    "ROLLBACK_ALARM_KIND",
+    "ProposalRequest",
+    "cap",
+    "describe",
+    "make_proposal",
+    "tool_output",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,8 +157,27 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     await ctx.capping.propose(proposal)
     outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease, ctx.asker)
     if outcome.state is ProposalState.ROLLED_BACK:
-        ctx.telemetry.note_rollback(ROLLBACK_ALARM_KIND, outcome.reason)
+        _note_rolled_back(ctx, proposal, outcome)
     return outcome
+
+
+def tool_output(outcome: GateOutcome) -> ToolOutput:
+    """Render a GateOutcome as a whole tool result: its text, and whether the action failed.
+
+    Args:
+        outcome: What `cap` returned.
+
+    Returns:
+        `describe`'s text, flagged as an error unless the proposal VERIFIED and no judge rejected
+        it; a judge's REJECT leads the text with the rejection and its reasons, so the model reads
+        first that the action it believes succeeded was refused on review (the gate has already
+        raised that Alarm).
+    """
+    text = describe(outcome)
+    review = outcome.review
+    if review is not None and review.outcome is JudgeOutcome.REJECT:
+        return ToolOutput(text=f"judge=REJECT ({_reasons(review)}); {text}", is_error=True)
+    return ToolOutput(text=text, is_error=outcome.state is not ProposalState.VERIFIED)
 
 
 def describe(outcome: GateOutcome) -> str:
@@ -142,9 +188,11 @@ def describe(outcome: GateOutcome) -> str:
 
     Returns:
         One line naming the terminal state, the reason, each check kind and postcondition index
-        with its own pass/fail, and (only when the proposal touched a path outside scratch,
-        roadmap step 5.0e) each such path's own leave verdict and whether it will actually remain
-        -- never the proposal's diff or command text (module docstring).
+        with its own pass/fail, (only when the proposal touched a path outside scratch, roadmap
+        step 5.0e) each such path's own leave verdict and whether it will actually remain, and
+        (only for a judged irreversible GUI action the judge did not reject, roadmap step 6.5)
+        the judge's verdict and reasons -- never the proposal's diff, command or typed text
+        (module docstring). A REJECT is `tool_output`'s to lead with, not this line's.
     """
     checks = "; ".join(f"{check.kind.value}={check.outcome.value}" for check in outcome.checks)
     postconditions = "; ".join(
@@ -157,7 +205,40 @@ def describe(outcome: GateOutcome) -> str:
     )
     if outcome.leave_decisions:
         text += f"; leaves=({_describe_leaves(outcome.leave_decisions)})"
+    if outcome.review is not None and outcome.review.outcome is not JudgeOutcome.REJECT:
+        # APPROVE or REQUEST_CHANGES on an applied irreversible GUI action: one line of verdict.
+        text += f"; judge={outcome.review.outcome.value} ({_reasons(outcome.review)})"
     return text
+
+
+def _note_rolled_back(ctx: WorkerContext, proposal: Proposal, outcome: GateOutcome) -> None:
+    """Note one rollback: an Alarm at once for a GUI action, else one more toward the count."""
+    if proposal.action.kind is ActionKind.GUI:
+        # ADR-0032: a GUI action whose declared postcondition failed raises an Alarm at once, not
+        # after three, since every later step would act on a screen the bee has misread; a step
+        # that failed outright leaves the screen just as unknown, so it alarms the same way.
+        ctx.telemetry.note_alarm(ROLLBACK_ALARM_KIND, _gui_alarm_detail(proposal, outcome))
+        return
+    ctx.telemetry.note_rollback(ROLLBACK_ALARM_KIND, outcome.reason)
+
+
+def _gui_alarm_detail(proposal: Proposal, outcome: GateOutcome) -> str:
+    """Name the rolled-back GUI proposal, the gate's reason and each postcondition that failed.
+
+    The proposal id is what the flight recorder keys the action's recording by, so the Alarm
+    points at the evidence without carrying any of it: never a frame, never typed text.
+    """
+    failed = ", ".join(
+        f"[{pc.index}] {pc.kind.value}" for pc in outcome.postconditions if not pc.has_held
+    )
+    detail = f"GUI proposal {proposal.id} rolled back: {outcome.reason}"
+    return f"{detail} (failed: {failed})" if failed else detail
+
+
+def _reasons(review: JudgeVerdict) -> str:
+    """Join a judge's reasons into one bounded line; "no reason given" when it gave none."""
+    joined = "; ".join(review.reasons) or "no reason given"
+    return joined if len(joined) <= MAX_REVIEW_CHARS else f"{joined[:MAX_REVIEW_CHARS]}..."
 
 
 def _describe_leaves(decisions: tuple[LeaveDecisionRecord, ...]) -> str:

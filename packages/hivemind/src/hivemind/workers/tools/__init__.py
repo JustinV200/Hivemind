@@ -9,13 +9,17 @@ always refused by v0's Capping gate (`waggle.messages.capping.ActionKind` has no
 yet); `ask` raises a blocking `Question` up the chain; `keep` (roadmap step 5.0e) moves a scratch
 file to a path outside it, via a `COPY` action; `proposals` is the one place a tool's side effect
 turns into a Capping `Proposal` and a `GateOutcome` turns back into tool-result text; and `errors`
-is this package's own error tree, rooted at `hivemind.workers.errors.WorkerError`.
+is this package's own error tree, rooted at `hivemind.workers.errors.WorkerError`. Roadmap step 6.5
+adds the `exoskeleton` sub-package: the Worker's tools for the display, pointer and keyboard,
+browser and audio attached to its Cell, whose reads may hand the model a screenshot or a recording
+as media beside the text (`ToolOutput`) and whose actions are typed GUI proposals.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside the workers package. Called by
     `hivemind.workers.roles.drone.Drone` (roadmap step 3.16); calls into `hivemind.cell`,
-    `hivemind.guard`, `hivemind.llm`, `hivemind.supervision.capping`, `hivemind.workers.context`,
-    `hivemind.workers.errors`, waggle and, inside `http._send` only, `httpx`.
+    `hivemind.exoskeleton` (the `exoskeleton` sub-package only), `hivemind.guard`, `hivemind.llm`,
+    `hivemind.supervision.capping`, `hivemind.workers.context`, `hivemind.workers.errors`, waggle
+    and, inside `http._send` only, `httpx`.
 
 Key invariants:
     - Every tool call, whichever rung of a degradation ladder produced it, is validated against
@@ -23,9 +27,11 @@ Key invariants:
     - Nothing outside `http.py`'s `_send` opens a socket, and v0's Capping gate never reaches the
       state that would call it (`hivemind.supervision.capping.checks.deterministic.SchemaCheck`
       rejects every `ACTION_SEQUENCE` action).
-    - Every tool with a side effect (`run_command`, `write_file`, `http_request`, `keep`) proposes
-      through `hivemind.workers.tools.proposals.cap` before anything runs or lands; `read_file` and
-      `ask` have none and go straight to their collaborator.
+    - Every tool with a side effect (`run_command`, `write_file`, `http_request`, `keep`, and every
+      Exoskeleton action) proposes through `hivemind.workers.tools.proposals.cap` before anything
+      runs or lands; `read_file`, `ask` and the Exoskeleton's reads have none and go straight to
+      their collaborator.
+    - A screenshot or a recording travels only as a `ToolOutput`'s media, never in its text.
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under workers.
@@ -33,12 +39,13 @@ See Also:
       side-effecting tool here follows.
     - .claude/codingrules.md section 15 for the schema-and-capability validation every tool call
       passes through.
-    - .claude/roadmap.md phase 3 step 3.16 for the work that populates this package.
+    - .claude/roadmap.md phase 3 step 3.16 for the work that populates this package, and phase 6
+      step 6.5 for the Exoskeleton tools.
     - hivemind.workers.tools.README for the module-by-module map of this package.
 
 Public API (roadmap 3.16):
-    - ToolInvocation, ToolRegistry, ToolRunner, ToolSpec, build_registry: the registry seam
-      (hivemind.workers.tools.registry).
+    - ToolInvocation, ToolOutput, ToolRegistry, ToolRunner, ToolSpec, build_registry: the registry
+      seam (hivemind.workers.tools.registry); ToolOutput is roadmap step 6.5's text-plus-media.
     - run_command, read_file, write_file, RUN_COMMAND_DEFINITION, READ_FILE_DEFINITION,
       WRITE_FILE_DEFINITION, RUN_COMMAND_SPEC, READ_FILE_SPEC, WRITE_FILE_SPEC,
       MAX_TOOL_RESULT_CHARS: the session/filesystem tools (hivemind.workers.tools.session).
@@ -47,19 +54,30 @@ Public API (roadmap 3.16):
     - ask, ASK_DEFINITION, ASK_SPEC: the blocking-question tool (hivemind.workers.tools.ask).
     - keep, KEEP_DEFINITION, KEEP_SPEC: move a scratch file outside it, via a COPY action
       (hivemind.workers.tools.keep, roadmap step 5.0e).
-    - ProposalRequest, make_proposal, cap, describe: a Proposal in, a GateOutcome out
-      (hivemind.workers.tools.proposals).
+    - ProposalRequest, make_proposal, cap, describe, tool_output: a Proposal in, a GateOutcome
+      out, rendered as text or (tool_output, roadmap step 6.5) as a whole ToolOutput that also
+      says whether the action failed (hivemind.workers.tools.proposals).
     - ToolError, UnreachablePathError: this package's own error tree
       (hivemind.workers.tools.errors).
+    - exoskeleton_specs: the Exoskeleton tools one Worker is offered (roadmap step 6.5,
+      hivemind.workers.tools.exoskeleton, whose own face lists every tool).
 """
 
 from hivemind.workers.tools.ask import ASK_DEFINITION, ASK_SPEC, ask
 from hivemind.workers.tools.errors import ToolError, UnreachablePathError
+from hivemind.workers.tools.exoskeleton import exoskeleton_specs
 from hivemind.workers.tools.http import HTTP_DEFINITION, HTTP_METHODS, HTTP_SPEC, http_request
 from hivemind.workers.tools.keep import KEEP_DEFINITION, KEEP_SPEC, keep
-from hivemind.workers.tools.proposals import ProposalRequest, cap, describe, make_proposal
+from hivemind.workers.tools.proposals import (
+    ProposalRequest,
+    cap,
+    describe,
+    make_proposal,
+    tool_output,
+)
 from hivemind.workers.tools.registry import (
     ToolInvocation,
+    ToolOutput,
     ToolRegistry,
     ToolRunner,
     ToolSpec,
@@ -96,6 +114,7 @@ __all__ = [
     "ProposalRequest",
     "ToolError",
     "ToolInvocation",
+    "ToolOutput",
     "ToolRegistry",
     "ToolRunner",
     "ToolSpec",
@@ -104,10 +123,12 @@ __all__ = [
     "build_registry",
     "cap",
     "describe",
+    "exoskeleton_specs",
     "http_request",
     "keep",
     "make_proposal",
     "read_file",
     "run_command",
+    "tool_output",
     "write_file",
 ]

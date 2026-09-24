@@ -43,7 +43,10 @@ ladders or for deliberately pinning a binding to plain-text behaviour; `mapping.
 such reduction by omitting the wire field the withheld capability would have populated (`tools`/
 `tool_choice` behind `native_tool_calls`, `thinking` and `output_config.effort` behind
 `reasoning_control`, `output_config.format` behind `schema_output`, an `image` content block
-behind `vision`, refusing rather than silently dropping it when absent).
+behind `vision`, refusing rather than silently dropping it when absent). A tool result's images
+(`ToolResultPart.media`, roadmap step 6.5) ride inside its own `tool_result` block, text first,
+behind the same `vision` check; an `AudioPart` anywhere is always refused, since the Messages
+API has no audio block.
 
 ## Prompt caching, thinking and structured output
 

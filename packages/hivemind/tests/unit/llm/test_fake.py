@@ -19,7 +19,16 @@ from builders.llm import make_request, text_response, tool_call_response
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities
 from hivemind.llm.errors import ProviderUnavailableError
 from hivemind.llm.fake import CHARS_PER_TOKEN_ESTIMATE, FAKE_MODEL_ID, FakeLLMProvider
-from hivemind.llm.models import LLMRequest, LLMResponse, Message, Role, StopReason, ToolCall
+from hivemind.llm.models import (
+    ImagePart,
+    LLMRequest,
+    LLMResponse,
+    Message,
+    Role,
+    StopReason,
+    ToolCall,
+    ToolResultPart,
+)
 from waggle.clock import FakeClock
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -239,3 +248,21 @@ async def test_count_tokens_is_none_without_the_capability() -> None:
     estimate = await provider.count_tokens(make_request())
 
     assert estimate is None
+
+
+async def test_fake_provider_accepts_and_records_a_tool_results_media() -> None:
+    provider = FakeLLMProvider()
+    provider.script(text_response("I see a login page."))
+    result = ToolResultPart(
+        call_id="c1",
+        content="captured",
+        media=(ImagePart(media_type="image/png", data_base64="AA"),),
+    )
+    request = make_request(messages=(Message(role=Role.USER, parts=(result,)),))
+
+    await provider.complete(request)
+
+    (recorded,) = provider.calls
+    (part,) = recorded.messages[0].parts
+    assert isinstance(part, ToolResultPart)
+    assert part.media == result.media

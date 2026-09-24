@@ -10,18 +10,22 @@ response headers; `StreamState` accumulates a streamed reply's chunks (OpenAI-co
 split a tool call's arguments across many SSE events, all sharing one integer `index`, so nothing
 about a streamed tool call is complete until the event that also carries `finish_reason` arrives).
 Every function here is pure: no I/O, no httpx, so `hivemind.llm.providers.openai_compat.client`
-and `.provider` are the only callers.
+and `.provider` are the only callers. The image and audio content parts, and the one user message
+that carries a turn's tool-result media (roadmap step 6.5: a `role: "tool"` message is a plain
+string on this wire), live in the sibling `media.py`, split out by codingrules 5.1's size limit.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.providers.
     openai_compat`. Called by `OpenAICompatProvider` (`provider.py`) for every `complete` and
     `stream` call. Calls into `hivemind.llm.models`, `hivemind.llm.capabilities`,
-    `hivemind.llm.errors` and `hivemind.forage.slots.Effort` only.
+    `hivemind.llm.errors`, `hivemind.forage.slots.Effort` and its sibling `media` only.
 
 Key invariants:
     - A request is refused, never silently degraded: an `ImagePart` reaching a provider whose
-      `capabilities.vision` is False raises `ProviderRequestError` rather than being dropped and
-      sent anyway (a caller that ignores the missing content is worse than one that finds out).
+      `capabilities.vision` is False, or an `AudioPart` one whose `capabilities.audio` is False,
+      raises `ProviderRequestError` rather than being dropped and sent anyway (a caller that
+      ignores the missing content is worse than one that finds out); a tool result's media is
+      held to the same rule.
     - `response_from_json`/`StreamState` raise `MalformedOutputError`, never a bare
       `json.JSONDecodeError` or `KeyError`, when a tool call's `arguments` string does not parse:
       the ladders (`hivemind.llm.ladders`) catch `LLMError`, not stdlib exceptions.
@@ -33,6 +37,7 @@ See Also:
     - docs/adr/0008-llm-provider-independence-and-model-slots.md for the decision this implements.
     - hivemind.llm.providers.openai_compat.provider for OpenAICompatProvider, this module's caller.
     - hivemind.llm.providers.openai_compat.client for the HTTP layer that carries these bodies.
+    - hivemind.llm.providers.openai_compat.media for the image and audio content parts.
 """
 
 from __future__ import annotations
@@ -44,8 +49,9 @@ from pydantic import JsonValue
 
 from hivemind.forage.slots import Effort
 from hivemind.llm.capabilities import ProviderCapabilities
-from hivemind.llm.errors import MalformedOutputError, ProviderRequestError
+from hivemind.llm.errors import MalformedOutputError
 from hivemind.llm.models import (
+    AudioPart,
     ContentPart,
     ImagePart,
     JsonObject,
@@ -62,6 +68,7 @@ from hivemind.llm.models import (
     ToolResultPart,
     Usage,
 )
+from hivemind.llm.providers.openai_compat.media import media_to_wire, media_turn
 
 # Effort.MEDIUM/LOW/HIGH -> the wire's own three-level `reasoning_effort` strings.
 _REASONING_EFFORT_WIRE: dict[Effort, str] = {
@@ -120,7 +127,8 @@ def request_to_json(
         A JSON-serialisable body ready for `client.post_json`/`client.stream_sse`.
 
     Raises:
-        ProviderRequestError: `request` carries an `ImagePart` but `capabilities.vision` is False.
+        ProviderRequestError: `request` carries an image (a part, or a tool result's media) but
+            `capabilities.vision` is False, or audio but `capabilities.audio` is False.
     """
     body: dict[str, JsonValue] = {
         "model": model,
@@ -177,23 +185,19 @@ def _message_to_wire(
     """Map one internal `Message` to one or more wire messages.
 
     A `ToolResultPart` becomes its own `role: "tool"` wire message: OpenAI's wire has no concept
-    of a tool result living inside another turn's content array. Text, images and the model's own
-    tool calls all stay on one wire message for this turn.
+    of a tool result living inside another turn's content array. Text, images, audio and the
+    model's own tool calls all stay on one wire message for this turn. Media a tool result carries
+    cannot ride in its string-only tool message, so one user message after the tool messages
+    carries it (`media.media_turn`), keeping every tool message directly after the call it answers.
     """
-    content_parts: list[JsonValue] = []
-    tool_calls: list[JsonValue] = []
-    tool_results: list[JsonValue] = []
-    if text_prefix:
-        content_parts.append({"type": "text", "text": text_prefix})
-    for part in message.parts:
-        if isinstance(part, TextPart):
-            content_parts.append({"type": "text", "text": part.text})
-        elif isinstance(part, ImagePart):
-            content_parts.append(_image_part_to_wire(part, capabilities, provider))
-        elif isinstance(part, ToolCallPart):
-            tool_calls.append(_tool_call_to_wire(part.call))
-        elif isinstance(part, ToolResultPart):
-            tool_results.append(_tool_result_to_wire(part))
+    content_parts: list[JsonValue] = [{"type": "text", "text": text_prefix}] if text_prefix else []
+    content_parts.extend(
+        _content_to_wire(part, capabilities, provider)
+        for part in message.parts
+        if isinstance(part, TextPart | ImagePart | AudioPart)
+    )
+    tool_calls = [_tool_call_to_wire(p.call) for p in message.parts if isinstance(p, ToolCallPart)]
+    results = [part for part in message.parts if isinstance(part, ToolResultPart)]
     wire: list[JsonValue] = []
     if content_parts or tool_calls:
         turn: dict[str, JsonValue] = {"role": message.role.value}
@@ -202,29 +206,20 @@ def _message_to_wire(
         if tool_calls:
             turn["tool_calls"] = tool_calls
         wire.append(turn)
-    wire.extend(tool_results)
+    wire.extend(_tool_result_to_wire(result) for result in results)
+    media = media_turn(results, capabilities, provider)
+    if media is not None:
+        wire.append(media)
     return wire
 
 
-def _image_part_to_wire(
-    part: ImagePart, capabilities: ProviderCapabilities, provider: str
+def _content_to_wire(
+    part: TextPart | ImagePart | AudioPart, capabilities: ProviderCapabilities, provider: str
 ) -> JsonValue:
-    """Map an `ImagePart` to an `image_url` data-URL content part.
-
-    Raises:
-        ProviderRequestError: `capabilities.vision` is False -- refuse rather than silently drop
-            the image and send a request the caller believes still carries it.
-    """
-    if not capabilities.vision:
-        raise ProviderRequestError(
-            provider,
-            status_code=400,
-            error_type="unsupported_content",
-            detail="this provider's capabilities declare vision=False; an ImagePart was in the "
-            "request and cannot be sent",
-        )
-    data_url = f"data:{part.media_type};base64,{part.data_base64}"
-    return {"type": "image_url", "image_url": {"url": data_url}}
+    """Map one text, image or audio part to its content part; media goes through `media.py`."""
+    if isinstance(part, TextPart):
+        return {"type": "text", "text": part.text}
+    return media_to_wire(part, capabilities, provider)
 
 
 def _tool_call_to_wire(call: ToolCall) -> JsonValue:

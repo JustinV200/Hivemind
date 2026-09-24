@@ -53,6 +53,16 @@ feeds the Fanner's own `ForageMap.throttle` instead: that source's headroom read
 Forage map until the window passes, recorded as one `llm.throttled` trail event, with no code in
 this package aware that happens -- see `hivemind.llm.fanner.lane.FannerLane`.
 
+## Images and audio (roadmap step 6.5)
+
+`media.py`, a sibling of `mapping.py` split out by size, maps an `ImagePart` to an `image_url`
+part (a data URL) behind `capabilities.vision` and an `AudioPart` to an `input_audio` part (wav or
+mp3) behind `capabilities.audio`, refusing either with a `ProviderRequestError` when the binding
+does not declare it. A tool result's media (`ToolResultPart.media`: a screenshot from `see`, a
+recording from `listen`) cannot ride in a `role: "tool"` message, which is a plain string on this
+wire, so one `role: "user"` message follows a turn's tool messages and carries all of it, each
+run labelled with the call id that returned it.
+
 ## Error mapping
 
 `client.py` maps every `httpx` failure to a typed `hivemind.llm.errors.LLMError`: a connection

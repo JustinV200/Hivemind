@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from hivemind.forage.slots import Effort, ModelSlot
 from hivemind.llm.models import (
+    AudioPart,
     ContentPart,
     ImagePart,
     LLMChunk,
@@ -98,7 +99,56 @@ def test_tool_result_part_defaults_is_error_false() -> None:
 
 def test_content_part_rejects_an_unknown_kind() -> None:
     with pytest.raises(ValidationError):
-        Message(role=Role.USER, parts=({"kind": "audio", "data": "x"},))
+        Message(role=Role.USER, parts=({"kind": "video", "data": "x"},))
+
+
+def test_audio_part_round_trips_through_json() -> None:
+    part = AudioPart(media_type="audio/wav", data_base64="UklGRg==")
+
+    restored = AudioPart.model_validate_json(part.model_dump_json())
+
+    assert restored == part
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        ImagePart(media_type="image/png", data_base64="c2VjcmV0LXNjcmVlbg=="),
+        AudioPart(media_type="audio/wav", data_base64="c2VjcmV0LXNjcmVlbg=="),
+    ],
+)
+def test_a_media_parts_bytes_never_appear_in_its_repr(part: ImagePart | AudioPart) -> None:
+    assert "c2VjcmV0LXNjcmVlbg==" not in repr(part)
+
+
+def test_tool_result_part_defaults_to_no_media() -> None:
+    assert ToolResultPart(call_id="call_1", content="42").media == ()
+
+
+def test_a_tool_results_media_round_trips_each_subtype_in_order() -> None:
+    part = ToolResultPart(
+        call_id="call_1",
+        content="captured",
+        media=(
+            ImagePart(media_type="image/png", data_base64="AAAA"),
+            AudioPart(media_type="audio/wav", data_base64="BBBB"),
+        ),
+    )
+    message = Message(role=Role.USER, parts=(part,))
+
+    restored = Message.model_validate_json(message.model_dump_json())
+
+    assert restored == message
+    result = restored.parts[0]
+    assert isinstance(result, ToolResultPart)
+    assert [type(item) for item in result.media] == [ImagePart, AudioPart]
+
+
+def test_a_tool_results_media_refuses_anything_but_images_and_audio() -> None:
+    with pytest.raises(ValidationError):
+        ToolResultPart.model_validate(
+            {"call_id": "c", "content": "x", "media": [{"kind": "text", "text": "not media"}]}
+        )
 
 
 @pytest.mark.parametrize(
@@ -106,6 +156,7 @@ def test_content_part_rejects_an_unknown_kind() -> None:
     [
         (TextPart(text="hi"), TextPart),
         (ImagePart(media_type="image/png", data_base64="AA"), ImagePart),
+        (AudioPart(media_type="audio/wav", data_base64="AA"), AudioPart),
         (ToolCallPart(call=ToolCall(id="c", name="t", arguments={})), ToolCallPart),
         (ToolResultPart(call_id="c", content="ok"), ToolResultPart),
     ],

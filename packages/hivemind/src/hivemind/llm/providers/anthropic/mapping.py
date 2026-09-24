@@ -22,6 +22,10 @@ Key invariants:
     - A request is refused, never silently degraded: an `ImagePart` reaching a provider whose
       `capabilities.vision` is False raises `ProviderRequestError` instead of being dropped and
       sent anyway (a caller that ignores the missing content is worse than one that finds out).
+      The same holds for an image a tool result carries (`ToolResultPart.media`, roadmap step
+      6.5), which rides inside that `tool_result` block's own content list, and for every
+      `AudioPart`: the Messages wire has no audio block at all, so audio is always refused here
+      (the provider never declares `audio`; a caller transcribes on `ModelSlot.TRANSCRIBER`).
     - A tool's JSON schema always leaves this module with `additionalProperties: false` and a
       `required` list, because `strict: True` (roadmap step 3.6) requires both and a caller's own
       `ToolDefinition.parameters` is not expected to carry them already.
@@ -51,6 +55,7 @@ from hivemind.forage.slots import Effort
 from hivemind.llm.capabilities import ProviderCapabilities
 from hivemind.llm.errors import ProviderRequestError
 from hivemind.llm.models import (
+    AudioPart,
     ContentPart,
     ImagePart,
     JsonObject,
@@ -89,7 +94,7 @@ _STOP_REASON_WIRE: dict[str, StopReason] = {
 # Synthesized status for a request this module refuses before any HTTP call is made: no real
 # response backs either of these, so there is no genuine status code to report.
 MISSING_MODEL_STATUS_CODE = 400  # request.model was None; the call gate must stamp one first.
-UNSUPPORTED_CONTENT_STATUS_CODE = 400  # An ImagePart reached a provider with vision=False.
+UNSUPPORTED_CONTENT_STATUS_CODE = 400  # An image without vision, or any audio, reached the wire.
 
 # The Anthropic API's own rate-limit response headers (roadmap step 4.7a), verified against the
 # installed 1.4.0 SDK: the SDK itself never parses these into typed fields (only the separate
@@ -122,8 +127,8 @@ def to_create_params(
         A JSON-serialisable body ready for `AnthropicClient.create`/`.stream`.
 
     Raises:
-        ProviderRequestError: `request.model` is None, or `request` carries an `ImagePart` while
-            `capabilities.vision` is False.
+        ProviderRequestError: `request.model` is None, `request` carries an image (a part or a
+            tool result's media) while `capabilities.vision` is False, or it carries any audio.
     """
     model = _require_model(request, provider)
     body: JsonObject = {
@@ -328,12 +333,13 @@ def _content_part_to_block(
     """Map one `ContentPart` to one wire content block.
 
     Raises:
-        ProviderRequestError: `part` is an `ImagePart` and `capabilities.vision` is False.
+        ProviderRequestError: `part` is an image while `capabilities.vision` is False, or is
+            audio (or a tool result carrying either).
     """
     if isinstance(part, TextPart):
         return {"type": "text", "text": part.text}
-    if isinstance(part, ImagePart):
-        return _image_part_to_block(part, capabilities, provider)
+    if isinstance(part, ImagePart | AudioPart):
+        return _media_to_block(part, capabilities, provider)
     if isinstance(part, ToolCallPart):
         return {
             "type": "tool_use",
@@ -341,24 +347,27 @@ def _content_part_to_block(
             "name": part.call.name,
             "input": part.call.arguments,
         }
-    return _tool_result_to_block(part)
+    return _tool_result_to_block(part, capabilities, provider)
 
 
-def _image_part_to_block(
-    part: ImagePart, capabilities: ProviderCapabilities, provider: str
+def _media_to_block(
+    part: ImagePart | AudioPart, capabilities: ProviderCapabilities, provider: str
 ) -> JsonValue:
-    """Map an `ImagePart` to a base64 `image` content block.
+    """Map an `ImagePart` to a base64 `image` content block; refuse every `AudioPart`.
 
     Raises:
-        ProviderRequestError: `capabilities.vision` is False -- refuse rather than silently drop
-            the image and send a request the caller believes still carries it.
+        ProviderRequestError: `part` is audio, which this wire cannot carry at all, or an image
+            while `capabilities.vision` is False -- refuse rather than silently drop it and send a
+            request the caller believes still carries it.
     """
+    if isinstance(part, AudioPart):
+        raise _unsupported(
+            provider, "the Anthropic Messages wire carries no audio content; transcribe it first"
+        )
     if not capabilities.vision:
-        raise ProviderRequestError(
+        raise _unsupported(
             provider,
-            UNSUPPORTED_CONTENT_STATUS_CODE,
-            error_type="unsupported_content",
-            detail="this provider's capabilities declare vision=False; an ImagePart was in the "
+            "this provider's capabilities declare vision=False; an ImagePart was in the "
             "request and cannot be sent",
         )
     return {
@@ -367,14 +376,38 @@ def _image_part_to_block(
     }
 
 
-def _tool_result_to_block(part: ToolResultPart) -> JsonValue:
-    """Map a `ToolResultPart` to a `tool_result` content block."""
+def _tool_result_to_block(
+    part: ToolResultPart, capabilities: ProviderCapabilities, provider: str
+) -> JsonValue:
+    """Map a `ToolResultPart` to a `tool_result` content block, its media inside it.
+
+    A text-only result keeps its content a plain string, exactly as before media existed. A
+    result with media turns its content into a list of blocks, the text first and then each
+    image, because the wire lets a `tool_result` carry images itself: the model sees the
+    screenshot as the answer to the call that asked for it, not as a separate turn.
+
+    Raises:
+        ProviderRequestError: A media part this wire or this binding cannot take.
+    """
+    content: JsonValue = part.content
+    if part.media:
+        # An empty text block is refused by the wire, so a result with no text sends images alone.
+        text: list[JsonValue] = [{"type": "text", "text": part.content}] if part.content else []
+        media = [_media_to_block(item, capabilities, provider) for item in part.media]
+        content = [*text, *media]
     return {
         "type": "tool_result",
         "tool_use_id": part.call_id,
-        "content": part.content,
+        "content": content,
         "is_error": part.is_error,
     }
+
+
+def _unsupported(provider: str, detail: str) -> ProviderRequestError:
+    """Build the refusal for content this request cannot carry, before any HTTP call is made."""
+    return ProviderRequestError(
+        provider, UNSUPPORTED_CONTENT_STATUS_CODE, error_type="unsupported_content", detail=detail
+    )
 
 
 def _tool_definition_to_wire(tool: ToolDefinition) -> JsonValue:

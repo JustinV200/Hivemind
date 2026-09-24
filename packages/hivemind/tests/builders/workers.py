@@ -14,7 +14,10 @@ in-process policy every phase-3 bee link uses): `send` wraps and sends an order
 also wires a real `hivemind.supervision.capping.CappingGate` (over the same `FakeSession`, a
 `NoopSnapshotter`, the shared trail and `supervision/defaults/capping-tiers.toml`), a
 `builders.capping.FakeLeaseView` and a bare `hivemind.llm.DirectCallGate`, so a Worker or a tool
-test exercises the real gate rather than a stub.
+test exercises the real gate rather than a stub. `make_gui_context` (roadmap step 6.5) builds the
+same context with an Exoskeleton attached: the peripherals a test passes, and a real gate whose
+`GateDeps.gui` is a real `hivemind.exoskeleton.surface.ExoskeletonSurface` over them, so an
+Exoskeleton tool's proposal is applied, verified and rolled back exactly as a Warden's gate does.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -45,22 +48,28 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 from builders.capping import FakeLeaseView, RepeatingJudgeReviewer
 from builders.cells import make_cell
-from builders.llm import make_bound
+from builders.llm import make_bound, make_tool_call
 
 from hivemind.cell import Cell, CellIdentity, CellKind, HoneyClearance, NoopSnapshotter
 from hivemind.cell.fake import FakeSession
+from hivemind.exoskeleton import AttachPlan, DisplaySource, ExoskeletonHandle, Peripherals
+from hivemind.exoskeleton.attach import ExoskeletonTrail
+from hivemind.exoskeleton.surface import ExoskeletonSurface
 from hivemind.guard import CapabilitySet
-from hivemind.llm import DirectCallGate
+from hivemind.llm import DirectCallGate, JsonObject
 from hivemind.memory import Handoff, InMemoryMemoryStore, MemoryIdentity
+from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.supervision.capping import (
     CappingGate,
     GateDeps,
+    Proposal,
     deterministic_checks,
     judge_checks,
     load_judge_rubrics,
@@ -69,6 +78,7 @@ from hivemind.supervision.capping import (
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import GrantSlice, WorkerContext
 from hivemind.workers.telemetry import TelemetryTracker
+from hivemind.workers.tools.registry import ToolInvocation, ToolOutput, build_registry
 from waggle.clock import Clock, FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
@@ -91,12 +101,21 @@ from waggle.messages.task import TaskAssign, TaskProgress, TaskResult, TaskStage
 from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging forever.
+# What a Worker driving an Exoskeleton holds in make_gui_context: every exoskeleton scope, and the
+# network host the fake login site's default origin names, so navigation there can be capped.
+GUI_GRANTS = (
+    "exoskeleton:display",
+    "exoskeleton:browser",
+    "exoskeleton:audio",
+    "net:fixture.test",
+)
 _SCRATCH_DIR = Path("scratch")  # A FakeSession never touches a real filesystem; any path works.
 # packages/hivemind/tests/builders/workers.py -> parents[4] is the repo root (matches the same
 # climb tests/unit/supervision/capping/test_tiers.py uses, one directory shallower here).
 
 __all__ = [
     "DEFAULT_PUMP_LIMIT",
+    "GUI_GRANTS",
     "FakeAsker",
     "RunScript",
     "ScriptedWorker",
@@ -105,8 +124,11 @@ __all__ = [
     "make_assignment",
     "make_context",
     "make_grant_slice",
+    "make_gui_context",
     "make_outcome",
     "pause_aware",
+    "proposals_of",
+    "run_tool",
     "yield_then",
 ]
 
@@ -249,6 +271,122 @@ def make_context(clock: Clock | None = None, **overrides: object) -> WorkerConte
     return WorkerContext(**fields)  # type: ignore[arg-type]  # a plain dataclass; see builders/llm.py
 
 
+def make_gui_context(
+    peripherals: Peripherals,
+    clock: Clock | None = None,
+    *,
+    display: DisplaySource = DisplaySource.LEASE,
+    gate: Callable[[GateDeps], CappingGate] = CappingGate,
+    **overrides: object,
+) -> WorkerContext:
+    """Build a WorkerContext with an Exoskeleton attached, over a real gate with a real surface.
+
+    Args:
+        peripherals: What the test attached (fakes); the plan and the surface are built over it.
+        clock: Shared by every collaborator; a fresh FakeClock when omitted.
+        display: Where the display came from, which decides desktop input's tier.
+        gate: Builds the gate from its deps; a CappingGate subclass scripts an outcome the real
+            gate cannot reach alone (a judge's review).
+        **overrides: WorkerContext fields, as for `make_context`; a given `session`, `cell` or
+            `trail` is shared with the gate and the handle.
+
+    Returns:
+        A WorkerContext holding GUI_GRANTS whose gate applies GUI steps through the surface
+        (settle time 0: a fake reacts at once).
+    """
+    active_clock = clock if clock is not None else FakeClock()
+    trail = _pick(overrides, "trail", lambda: MemoryPheromoneTrail(active_clock))
+    cell = _pick(overrides, "cell", lambda: make_cell(kind=CellKind.REAL, clock=active_clock))
+    session = _pick(
+        overrides, "session", lambda: FakeSession(scratch_dir=_SCRATCH_DIR, clock=active_clock)
+    )
+    identity = CellIdentity(
+        hive_id=new_hive_id(active_clock), node_id=new_node_id(active_clock), actor="system"
+    )
+    surface = ExoskeletonSurface(peripherals, active_clock, settle_s=0.0)
+    deps = replace(_gate_deps(cell, session, trail, active_clock, identity), gui=surface)
+    exoskeleton_trail = ExoskeletonTrail(trail, identity, active_clock, cell.id)
+    fields: dict[str, object] = {
+        "trail": trail,
+        "cell": cell,
+        "session": session,
+        "capping": gate(deps),
+        "exoskeleton": _gui_handle(peripherals, display, session, exoskeleton_trail),
+        "capabilities": CapabilitySet.parse(*GUI_GRANTS),
+    }
+    fields.update(overrides)
+    return make_context(active_clock, **fields)
+
+
+async def run_tool(ctx: WorkerContext, name: str, arguments: JsonObject) -> ToolOutput:
+    """Run one tool call through the registry `build_registry(ctx)` offers, as a Drone would.
+
+    Args:
+        ctx: The context whose offered tools, gate and peripherals the call runs against.
+        name: The tool's name, as a model would call it.
+        arguments: The call's arguments, as a model would write them.
+
+    Returns:
+        What `ToolRegistry.execute` returned.
+    """
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(ctx.clock))
+    call = make_tool_call(name=name, arguments=arguments)
+    return await build_registry(ctx).execute(invocation, call)
+
+
+async def proposals_of(ctx: WorkerContext) -> list[Proposal]:
+    """Return every proposal `ctx`'s gate has seen, in order, found through its trail events."""
+    events = await ctx.trail.query(TrailQuery())
+    return [
+        ctx.capping.get(MessageId(event.subject_id))
+        for event in events
+        if event.kind == "capping.proposed"
+    ]
+
+
+def _gui_handle(
+    peripherals: Peripherals,
+    display: DisplaySource,
+    session: FakeSession,
+    trail: ExoskeletonTrail,
+) -> ExoskeletonHandle:
+    """Build the handle attach would return for `peripherals`, having started nothing itself."""
+    plan = AttachPlan(
+        display=display, audio=peripherals.buzz is not None, browser=peripherals.browser is not None
+    )
+    return ExoskeletonHandle(
+        plan=plan,
+        peripherals=peripherals,
+        environment={},
+        _session=session,
+        _processes=(),
+        _trail=trail,
+    )
+
+
+def _gate_deps(
+    cell: Cell,
+    session: FakeSession,
+    trail: MemoryPheromoneTrail,
+    clock: Clock,
+    identity: CellIdentity,
+) -> GateDeps:
+    """Build the GateDeps `_make_capping_gate` wires, and `make_gui_context` adds a surface to."""
+    return GateDeps(
+        session=session,
+        snapshotter=NoopSnapshotter(),
+        cell=cell,
+        tiers=load_tiers(),
+        trail=trail,
+        identity=identity,
+        clock=clock,
+        checks={
+            **deterministic_checks(),
+            **judge_checks(RepeatingJudgeReviewer(), load_judge_rubrics()),
+        },
+    )
+
+
 def _pick[T](overrides: dict[str, object], key: str, default: Callable[[], T]) -> T:
     """Return `overrides[key]` when a test supplied it, else build the usual default.
 
@@ -278,21 +416,7 @@ def _make_capping_gate(
     unconditionally-approving RepeatingJudgeReviewer (never exhausted, unlike FakeJudgeReviewer's
     own FIFO queue) keeps every pre-4.10 test's own behaviour unchanged.
     """
-    return CappingGate(
-        GateDeps(
-            session=session,
-            snapshotter=NoopSnapshotter(),
-            cell=cell,
-            tiers=load_tiers(),
-            trail=trail,
-            identity=identity,
-            clock=clock,
-            checks={
-                **deterministic_checks(),
-                **judge_checks(RepeatingJudgeReviewer(), load_judge_rubrics()),
-            },
-        )
-    )
+    return CappingGate(_gate_deps(cell, session, trail, clock, identity))
 
 
 # ──────────────────────────────────────────────────────────────────────────────

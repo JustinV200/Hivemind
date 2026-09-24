@@ -6,10 +6,11 @@ Ollama, vLLM and LM Studio are the ones this package's README names as tested ag
 sub-package is the adapter roadmap step 3.7 asks for: `OpenAICompatConfig` (the manifest's
 `[llm.providers.<name>]` section, of `kind = "openai_compat"`, turned into a validated value) and
 `OpenAICompatProvider` (the `hivemind.llm.provider.LLMProvider` implementation built from it).
-`mapping.py`, `client.py` and `rate_limit.py` (roadmap step 4.7a's own header-parsing sibling to
-`mapping.py`), this package's other three modules, are private: neither an OpenAI wire field name
-nor an `httpx` type is meant to be seen from outside this package. Roadmap step 6.5a adds the
-`transcription` sub-package: the same servers' `/audio/transcriptions` wire, as a
+`mapping.py`, `media.py` (roadmap step 6.5's image and audio content parts, split out of
+`mapping.py` by size), `client.py` and `rate_limit.py` (roadmap step 4.7a's own header-parsing
+sibling to `mapping.py`), this package's other four modules, are private: neither an OpenAI wire
+field name nor an `httpx` type is meant to be seen from outside this package. Roadmap step 6.5a
+adds the `transcription` sub-package: the same servers' `/audio/transcriptions` wire, as a
 `hivemind.llm.transcription.TranscriptionProvider` for `ModelSlot.TRANSCRIBER` (the model slot
 that hears), re-exported here as `OpenAICompatTranscription`/`OpenAICompatTranscriptionConfig`.
 
@@ -24,8 +25,8 @@ Fits into the Hive:
 Key invariants:
     - No name beyond the two configs and the two providers (`OpenAICompatConfig`/
       `OpenAICompatProvider` for chat, `OpenAICompatTranscriptionConfig`/
-      `OpenAICompatTranscription` for transcription) is exported here; every `mapping`, `client`
-      and `rate_limit` module is this package's own implementation detail.
+      `OpenAICompatTranscription` for transcription) is exported here; every `mapping`, `media`,
+      `client` and `rate_limit` module is this package's own implementation detail.
     - Importing this module has no side effect: constructing a provider (`OpenAICompatProvider.
       create`) is the composition root's job, not import time (codingrules section 5.5).
 

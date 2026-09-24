@@ -1,0 +1,27 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": [
+        {"type": "tool_use", "id": "toolu_see_1", "name": "see", "input": {}}
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_see_1",
+          "content": [
+            {"type": "text", "text": "Captured the whole screen as a 4x4 image, attached."},
+            {
+              "type": "image",
+              "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}
+            }
+          ],
+          "is_error": false
+        }
+      ]
+    }
+  ]
+}

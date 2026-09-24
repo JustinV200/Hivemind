@@ -41,9 +41,11 @@ See Also:
       re-exports.
 
 Public API:
-    - Message shapes (`hivemind.llm.models`): Role, TextPart, ImagePart, ToolCallPart,
-      ToolResultPart, ContentPart, Message, JsonObject, ToolDefinition, ToolCall, StopReason,
-      Usage, LLMRequest, LLMResponse, LLMChunk, RateLimitSnapshot, TOOL_NAME_PATTERN.
+    - Message shapes (`hivemind.llm.models`): Role, TextPart, ImagePart, AudioPart, MediaPart,
+      ToolCallPart, ToolResultPart, ContentPart, Message, JsonObject, ToolDefinition, ToolCall,
+      StopReason, Usage, LLMRequest, LLMResponse, LLMChunk, RateLimitSnapshot, TOOL_NAME_PATTERN.
+      `AudioPart` and `ToolResultPart.media` are roadmap step 6.5's: a tool result may carry a
+      screenshot or a recording, sent only to a model that declares `vision` or `audio`.
     - Capabilities and health (`hivemind.llm.capabilities`): ProviderCapabilities, HealthState,
       ProviderHealth, FULL_CONTEXT_WINDOW_DEFAULT, NONE_CONTEXT_WINDOW_DEFAULT.
     - The one door (`hivemind.llm.provider`): LLMProvider.
@@ -164,12 +166,14 @@ from hivemind.llm.ladders import (
 )
 from hivemind.llm.models import (
     TOOL_NAME_PATTERN,
+    AudioPart,
     ContentPart,
     ImagePart,
     JsonObject,
     LLMChunk,
     LLMRequest,
     LLMResponse,
+    MediaPart,
     Message,
     RateLimitSnapshot,
     Role,
@@ -263,6 +267,7 @@ __all__ = [
     "AudioChunk",
     "AudioClip",
     "AudioMediaType",
+    "AudioPart",
     "BoundModel",
     "BoundTranscriber",
     "CallGate",
@@ -293,6 +298,7 @@ __all__ = [
     "LadderOptions",
     "LlmEventRecorder",
     "MalformedOutputError",
+    "MediaPart",
     "Message",
     "MissingDefaultModelError",
     "NullLadderObserver",

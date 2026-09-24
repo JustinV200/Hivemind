@@ -10,7 +10,8 @@ place a Drone's turn loop cooperates with pausing and cancellation
 every call and its result as a bounded `hivemind.workers.roles.drone.outcome.records.
 ToolCallRecord` list, since `hivemind.llm.ToolLoopResult` itself keeps only the calls, not what
 each one returned. `collect_artifacts` reads that record back to find every `write_file` call
-whose target still exists in scratch.
+whose target still exists in scratch. A tool's media (roadmap step 6.5: a screenshot, a recording)
+passes straight through to the model as `ToolResultPart.media` and is never recorded.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.drone.outcome`. Used by
@@ -30,6 +31,8 @@ Key invariants:
     - `collect_artifacts` only ever reports a path whose resolved location is under
       `ctx.session.scratch_dir`: an outside-scratch write, whatever the gate decided, is never
       reported as one of this attempt's artifacts (roadmap step 3.16's own artifact bullet).
+    - A record keeps a call's text only: media never enters `records`, so a Handoff built from
+      them can never carry a frame or a recording (codingrules section 12).
 
 See Also:
     - .claude/codingrules.md section 8.9 for the checkpoint-and-reset rule `HandoffRequestedError`
@@ -117,7 +120,8 @@ class _RecordingExecutor:
             call: The already-schema-validated call `hivemind.llm.run_tool_loop` wants run.
 
         Returns:
-            A ToolResultPart carrying the registry's own result text.
+            A ToolResultPart carrying the registry's own result text and any media beside it;
+            an error when the text reads as one or the tool flagged it (`ToolOutput.is_error`).
 
         Raises:
             hivemind.workers.errors.WorkerCancelledError: Cancellation was noticed while paused.
@@ -134,10 +138,13 @@ class _RecordingExecutor:
             # open_threads can name what was in progress when it checkpointed.
             self.pending_call = call
             raise HandoffRequestedError()
-        content = await self._registry.execute(self._invocation, call)
-        is_error = classify_error(call.name, content)
-        self._remember(ToolCallRecord(call=call, result_text=content, is_error=is_error))
-        return ToolResultPart(call_id=call.id, content=content, is_error=is_error)
+        output = await self._registry.execute(self._invocation, call)
+        is_error = output.is_error or classify_error(call.name, output.text)
+        # The record keeps the text alone; media goes to the model and nowhere else.
+        self._remember(ToolCallRecord(call=call, result_text=output.text, is_error=is_error))
+        return ToolResultPart(
+            call_id=call.id, content=output.text, is_error=is_error, media=output.media
+        )
 
     def _remember(self, record: ToolCallRecord) -> None:
         """Append `record`, dropping the oldest once past `MAX_RECORDED_CALLS` (class docstring)."""

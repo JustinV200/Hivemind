@@ -5,12 +5,15 @@ to a provider (an LLM the way a Hive bee reaches a model, whether hosted or run 
 ``LLMResponse`` (or a stream of ``LLMChunk``) comes back. None of these types are a vendor SDK
 type; codingrules section 8.6 ("our types at the boundary") requires that a provider adapter
 translate to and from these shapes in its own ``mapping.py``, so nothing above ``hivemind.llm``
-ever imports a vendor SDK. ``Message`` carries a tuple of ``ContentPart`` (text, an image, a tool
-call, or a tool result), tagged by a pydantic discriminated union on ``kind`` so a JSON payload
-round-trips through the exact subtype it was built from. ``JsonObject`` is the one alias for "a
-field that holds arbitrary JSON": a tool's JSON-schema
-parameters, a tool call's arguments, and a requested response schema are all ``JsonObject``, never
-``dict[str, Any]`` (codingrules section 9).
+ever imports a vendor SDK. ``Message`` carries a tuple of ``ContentPart`` (text, an image, an audio
+clip, a tool call, or a tool result), tagged by a pydantic discriminated union on ``kind`` so a
+JSON payload round-trips through the exact subtype it was built from. A tool result may carry
+``MediaPart``s beside its text (roadmap step 6.5: the Exoskeleton's ``see`` returns a screenshot,
+``listen`` a recording for a model that hears), each adapter maps them only where the bound model
+declares the matching capability and refuses them otherwise. ``JsonObject`` is the one alias for
+"a field that holds arbitrary JSON": a tool's JSON-schema parameters, a tool call's arguments, and
+a requested response schema are all ``JsonObject``, never ``dict[str, Any]`` (codingrules
+section 9).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Read and built by every layer above that is
@@ -24,6 +27,8 @@ Key invariants:
       change produces a new value, never a mutation.
     - ``ContentPart`` is a discriminated union on ``kind``; a JSON payload with an unrecognised
       ``kind`` is rejected rather than silently coerced into the wrong part type.
+    - An image's or an audio clip's bytes never appear in a ``repr`` (codingrules section 12:
+      never log screenshots), so a request logged by accident leaks only its shape.
     - ``Usage.__add__`` is cost-aware: the sum's ``cost_usd`` is ``None`` whenever either addend's
       is ``None``, since an unpriced call can never be folded into a priced total.
     - ``LLMRequest.messages`` is one outgoing request's turns, never a growing transcript
@@ -59,12 +64,14 @@ TOOL_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"  # A tool name a prompted protocol
 
 __all__ = [
     "TOOL_NAME_PATTERN",
+    "AudioPart",
     "ContentPart",
     "ImagePart",
     "JsonObject",
     "LLMChunk",
     "LLMRequest",
     "LLMResponse",
+    "MediaPart",
     "Message",
     "RateLimitSnapshot",
     "Role",
@@ -140,13 +147,37 @@ class TextPart(BaseModel):
 
 
 class ImagePart(BaseModel):
-    """An inline image content part of a Message."""
+    """An inline image content part of a Message, or an image a tool result carries."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["image"] = Field(default="image", description="Discriminator for ContentPart.")
     media_type: str = Field(description="The image's MIME type, e.g. 'image/png'.")
-    data_base64: str = Field(description="The image's bytes, base64-encoded.")
+    data_base64: str = Field(
+        repr=False, description="The image's bytes, base64-encoded; never logged."
+    )
+
+
+class AudioPart(BaseModel):
+    """An inline audio clip content part, for a model whose provider declares `audio`.
+
+    Crosses the boundary outward only: a provider that does not declare `audio` refuses it rather
+    than dropping it, and a caller holding audio for such a model transcribes it on
+    `ModelSlot.TRANSCRIBER` instead (`hivemind.llm.transcription`).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["audio"] = Field(default="audio", description="Discriminator for ContentPart.")
+    media_type: str = Field(description="The clip's MIME type, e.g. 'audio/wav'.")
+    data_base64: str = Field(
+        repr=False, description="The clip's bytes, base64-encoded; never logged."
+    )
+
+
+# What a tool result may carry beside its text: an image or an audio clip, dispatched on `kind`
+# exactly as ContentPart is, so a stored tool result rebuilds the same subtype it was built from.
+MediaPart = Annotated[ImagePart | AudioPart, Field(discriminator="kind")]
 
 
 class ToolCallPart(BaseModel):
@@ -173,12 +204,18 @@ class ToolResultPart(BaseModel):
     is_error: bool = Field(
         default=False, description="Whether the tool call failed; content then holds the error."
     )
+    media: tuple[MediaPart, ...] = Field(
+        default=(),
+        description="Images or audio the tool returned beside its text (a screenshot, a "
+        "recording), in order; empty for a text-only result. An adapter sends each only when the "
+        "bound model declares the matching capability and refuses the request otherwise.",
+    )
 
 
 # A discriminated union: pydantic dispatches on `kind` alone, so a stored or replayed Message
 # always rebuilds the exact part subtype it was built from, never a generic fallback.
 ContentPart = Annotated[
-    TextPart | ImagePart | ToolCallPart | ToolResultPart, Field(discriminator="kind")
+    TextPart | ImagePart | AudioPart | ToolCallPart | ToolResultPart, Field(discriminator="kind")
 ]
 
 
