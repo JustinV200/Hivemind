@@ -90,6 +90,8 @@ context_window = 200000
 system_role = true
 parallel_tool_calls = true
 token_counting = true
+# The Messages API takes no audio content, so the adapter's own default is false (roadmap 6.5a).
+audio = false
 
 [llm.providers.local]
 # The second adapter kind: any OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studio).
@@ -114,6 +116,21 @@ context_window = 8192
 system_role = true
 parallel_tool_calls = false
 token_counting = false
+# Whether the chat model takes audio parts directly; false (the adapter's own default) means a
+# bee holding audio transcribes it on the transcriber slot first.
+audio = false
+
+# The third adapter kind, transcription only (roadmap step 6.5a, ADR-0033): Whisper inside the
+# Hive's own process through faster-whisper, the optional hivemind[whisper] extra; the GPU at
+# float16 when CUDA is present, the CPU at int8 otherwise. It takes no base_url (it reaches no
+# server, so offline = true accepts it as it is, and it then never downloads weights), and one
+# loaded model hears one clip at a time, so it gets one seat. Shown commented out because this
+# example's transcriber below uses the OpenAI-compatible server instead; uncomment it and set
+# [llm.slots.transcriber] provider = "whisper" to hear in process.
+# [llm.providers.whisper]
+# kind = "whisper_local"
+# timeout_s = 120.0
+# seats = 1
 
 # Every ModelSlot must resolve directly (LlmSection's own validator); "local_worker" below is an
 # extra named binding, used only as [llm.slots.worker]'s fallback target.
@@ -172,6 +189,10 @@ model = "nomic-embed-text"
 effort = "LOW"
 
 [llm.slots.transcriber]
+# The slot that hears: audio in, text out, for a Worker's ears and the human's voice (ADR-0033).
+# Here the OpenAI-compatible server's /audio/transcriptions; with the whisper provider above,
+# provider = "whisper" runs it in process instead. Until the eval harness measures them, prefer
+# "large-v3-turbo" with a GPU and "small" on a CPU. A fallback works as for every other slot.
 provider = "local"
 model = "whisper-large-v3"
 effort = "LOW"
@@ -267,6 +288,8 @@ context_window = 8192
 seats = 2
 
 [forage.map.local_whisper]
+# The transcriber is a source like any other: graded on its own, and metered by the Fanner (one
+# seat per transcription; its latency and free seats are measured on every call).
 provider = "local"
 model = "whisper-large-v3"
 grade = 2

@@ -46,6 +46,7 @@ def test_full_enables_every_capability_at_the_default_window() -> None:
             "system_role",
             "parallel_tool_calls",
             "token_counting",
+            "audio",
         )
     )
 
@@ -66,8 +67,16 @@ def test_none_disables_every_capability_at_the_default_window() -> None:
             "system_role",
             "parallel_tool_calls",
             "token_counting",
+            "audio",
         )
     )
+
+
+def test_audio_defaults_to_false_when_a_caller_builds_capabilities_field_by_field() -> None:
+    # Every field but audio, named explicitly, as callers wrote them before roadmap step 6.5a.
+    fields = ProviderCapabilities.full().model_dump(exclude={"audio"})
+
+    assert ProviderCapabilities(**fields).audio is False
 
 
 def test_full_and_none_accept_a_context_window_override() -> None:

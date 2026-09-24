@@ -17,7 +17,13 @@ import pytest
 from pydantic import ValidationError
 
 from hivemind.forage import Effort, ModelSlot
-from hivemind.manifest.schema.llm import CapabilityOverrides, LlmSection, ProviderSpec, SlotBinding
+from hivemind.manifest.schema.llm import (
+    IN_PROCESS_KINDS,
+    CapabilityOverrides,
+    LlmSection,
+    ProviderSpec,
+    SlotBinding,
+)
 
 # Every ModelSlot bound to one provider, the minimum LlmSection.slots that passes the
 # completeness validator; individual tests mutate a copy of this.
@@ -42,6 +48,10 @@ def test_capability_overrides_as_overrides_returns_only_set_fields() -> None:
     overrides = CapabilityOverrides(native_tool_calls=False, context_window=8192)
 
     assert overrides.as_overrides() == {"native_tool_calls": False, "context_window": 8192}
+
+
+def test_capability_overrides_carry_an_audio_override_when_set() -> None:
+    assert CapabilityOverrides(audio=True).as_overrides() == {"audio": True}
 
 
 def test_provider_spec_defaults_to_hosted_with_no_key_override() -> None:
@@ -155,6 +165,31 @@ def test_llm_section_offline_rejects_a_non_loopback_provider() -> None:
 
     with pytest.raises(ValidationError, match="not provably local"):
         LlmSection(offline=True, providers=providers, slots=slots)
+
+
+def test_provider_spec_accepts_whisper_local_with_no_base_url() -> None:
+    spec = ProviderSpec(kind="whisper_local")
+
+    assert spec.kind in IN_PROCESS_KINDS
+    assert spec.base_url == ""
+
+
+def test_provider_spec_refuses_a_base_url_on_an_in_process_kind() -> None:
+    with pytest.raises(ValidationError, match="runs in process"):
+        ProviderSpec(kind="whisper_local", base_url="http://127.0.0.1:9000/v1")
+
+
+def test_llm_section_offline_accepts_an_in_process_transcriber_with_no_base_url() -> None:
+    slots = {slot.manifest_key: {"provider": "local", "model": "test-model"} for slot in ModelSlot}
+    slots["transcriber"] = {"provider": "whisper", "model": "test-speech-model"}
+    providers = {
+        "local": {"kind": "openai_compat", "base_url": "http://127.0.0.1:11434/v1"},
+        "whisper": {"kind": "whisper_local"},
+    }
+
+    section = LlmSection(offline=True, providers=providers, slots=slots)
+
+    assert section.providers["whisper"].kind == "whisper_local"
 
 
 def test_llm_section_is_frozen_and_forbids_extras() -> None:

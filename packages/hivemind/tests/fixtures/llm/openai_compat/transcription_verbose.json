@@ -1,0 +1,32 @@
+{
+  "task": "transcribe",
+  "language": "english",
+  "duration": 1.0,
+  "text": " Hello from the hive.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0.0,
+      "end": 0.48,
+      "text": " Hello from",
+      "tokens": [50364, 2425, 490, 50388],
+      "temperature": 0.0,
+      "avg_logprob": -0.21,
+      "compression_ratio": 0.83,
+      "no_speech_prob": 0.02
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 0.48,
+      "end": 0.96,
+      "text": " the hive.",
+      "tokens": [50388, 264, 25108, 13, 50412],
+      "temperature": 0.0,
+      "avg_logprob": -0.35,
+      "compression_ratio": 0.83,
+      "no_speech_prob": 0.02
+    }
+  ]
+}

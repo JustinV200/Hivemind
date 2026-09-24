@@ -14,7 +14,7 @@ appears (codingrules section 8.6).
   SDK silently picking up an ambient credential), `base_url` (`None` uses the SDK's own default
   endpoint -- never written as a literal here, see "Why no endpoint literal" below), `timeout_s`
   (default 120.0) and `capabilities` (a `ProviderCapabilities`, defaulting to `.full()` at a
-  200,000-token context window).
+  200,000-token context window, with `audio` off).
 - **`AnthropicProvider`**: the `LLMProvider` implementation. `AnthropicProvider.from_config(name,
   config, clock)` builds the `anthropic.AsyncAnthropic` client (api key, base url, timeout,
   `max_retries=0`) and returns the provider; the plain constructor takes an already-built SDK
@@ -34,7 +34,9 @@ never needs to know or write down what that default is.
 Unlike the OpenAI-compatible adapter, Anthropic's own API always has every capability this
 adapter can declare (native tool calls, JSON-schema-enforced structured output, JSON mode via the
 same, vision, streaming, a reasoning-effort knob, a dedicated system-prompt channel, parallel
-tool calls, API-backed token counting) -- `AnthropicConfig.capabilities` defaults to `.full()`.
+tool calls, API-backed token counting) -- `AnthropicConfig.capabilities` defaults to `.full()`
+with one exception: `audio` is `False` (roadmap step 6.5a), because the Messages API takes no audio
+content, so a caller holding audio transcribes it on `ModelSlot.TRANSCRIBER` first.
 A manifest override (`[llm.providers.<name>.capabilities]`, applied by the registry before
 construction, roadmap step 3.4) can still declare a *reduced* set for testing the degradation
 ladders or for deliberately pinning a binding to plain-text behaviour; `mapping.py` honours every

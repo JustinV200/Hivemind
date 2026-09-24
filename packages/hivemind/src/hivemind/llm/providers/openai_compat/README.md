@@ -62,6 +62,33 @@ length becomes `ContextTooLongError`; every other 4xx becomes `ProviderRequestEr
 talks to `httpx` directly (bypassing that mapping) so it can tell a 5xx (`DEGRADED`) apart from a
 connection failure or a 401 (`DOWN`).
 
+## Transcription: `/audio/transcriptions` (roadmap step 6.5a)
+
+The `transcription/` sub-package is the same kind's transcriber for `ModelSlot.TRANSCRIBER`
+(ADR-0033): hosted Whisper APIs and local speech servers (faster-whisper-server, whisper.cpp's
+server, vLLM serving a Whisper model) all accept the same multipart `POST /audio/transcriptions`,
+relative to the same `/v1`-terminated `base_url` the chat side uses.
+
+- **`OpenAICompatTranscriptionConfig`**: `base_url`, `model` (the transcriber binding's own model
+  id: the registry builds one transcriber per (provider, model) pair, never from `default_model`,
+  which names a chat model), `api_key` (`SecretStr | None`), `timeout_s`, and `capabilities`
+  (`hivemind.llm.transcription.TranscriptionCapabilities`: no native streaming, phrase-level
+  segments and ten-minute clips unless overridden).
+- **`OpenAICompatTranscription`**: the `TranscriptionProvider`, with `.create(name, config,
+  clock)`. `transcribe` uploads the clip as `file` with `model`, the optional `language` and
+  `response_format=verbose_json`; `stream` buffers the chunks and uploads once; `health()` GETs
+  `/models` (a speech server without that route reads `DEGRADED`, not `DOWN`).
+
+`transcription/mapping.py` is the only file where these wire names appear. It accepts a
+`verbose_json` reply (time-stamped `segments`, each `avg_logprob` turned into a 0-to-1 confidence)
+and a plain `json` reply (text only, mapped to one segment spanning the clip). A caller's language
+hint wins; a reply's `language` is kept only when it is an ISO 639 code, since hosted APIs report
+an English name (`"english"`) instead. `transcription/client.py` maps failures exactly as the chat
+client does: a transport failure or 5xx is `ProviderUnavailableError`, a 429 is
+`RateLimitedError` with its `Retry-After`, any other 4xx is `ProviderRequestError`; a 2xx body
+that is not one JSON object is refused. A reply with no `text` raises `MalformedOutputError`
+whose `raw` names only the reply's fields, never its words.
+
 ## Running a live test later
 
 No live test exists yet (roadmap step 3.7 says not to write one). When one is added, it belongs
@@ -82,7 +109,10 @@ server they started themselves.
 uv run --frozen pytest packages/hivemind/tests/unit/llm/providers/openai_compat
 ```
 
-Recorded fixtures (a completion, a tool-call completion, a streamed SSE transcript, an error body)
-live under `packages/hivemind/tests/fixtures/llm/openai_compat/` and are loaded by
-`Path(__file__)`-relative reads; no network is used. `httpx.MockTransport` stands in for the wire
-in every test.
+Recorded fixtures (a completion, a tool-call completion, a streamed SSE transcript, an error body,
+and roadmap step 6.5a's `transcription_verbose.json`/`transcription_text.json` replies) live under
+`packages/hivemind/tests/fixtures/llm/openai_compat/` and are loaded by `Path(__file__)`-relative
+reads; no network is used. `httpx.MockTransport` stands in for the wire in every test. The
+transcriber's tests live in `packages/hivemind/tests/unit/llm/providers/openai_compat/
+transcription/` and, with the other two transcribers, in
+`packages/hivemind/tests/contracts/test_transcription_provider_contract.py`.

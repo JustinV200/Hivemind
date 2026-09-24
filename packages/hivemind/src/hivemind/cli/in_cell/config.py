@@ -81,10 +81,10 @@ DEFAULT_SCRATCH_ROOT = Path("/var/lib/hivemind/scratch")
 # until a future step threads one through CellReady/an explicit env var if that proves too coarse.
 DEFAULT_HEARTBEAT_INTERVAL_S = 15.0
 
-# Mirrors hivemind.llm.registry.ProviderKind's own three members; a HIVEMIND_PROVIDERS row naming
+# Mirrors hivemind.llm.registry.ProviderKind's own members; a HIVEMIND_PROVIDERS row naming
 # anything else is malformed input from outside this process (the Queen's own backend), never a
 # bare KeyError/ValueError (this module's own "ConfigurationError naming the variable" rule).
-_VALID_PROVIDER_KINDS = frozenset(("anthropic", "openai_compat", "fake"))
+_VALID_PROVIDER_KINDS = frozenset(("anthropic", "openai_compat", "fake", "whisper_local"))
 
 __all__ = [
     "DEFAULT_HEARTBEAT_INTERVAL_S",

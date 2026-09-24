@@ -59,6 +59,7 @@ from hivemind.cli.stores import (
 from hivemind.forage import ModelSlot
 from hivemind.llm import (
     BoundModel,
+    BoundTranscriber,
     DirectCallGate,
     LLMError,
     LLMRequest,
@@ -66,6 +67,8 @@ from hivemind.llm import (
     OfflineViolationError,
     ProviderRegistry,
     Role,
+    TranscriptionUnsupportedError,
+    UnknownProviderError,
     Usage,
 )
 from hivemind.manifest import HiveManifest, provider_api_key
@@ -122,8 +125,11 @@ class _SlotRow(BaseModel):
     binding: str = Field(description="The [llm.slots] key this binding actually resolved.")
     provider: str = Field(description="The provider name serving this binding.")
     model: str = Field(description="The provider's own model id.")
-    effort: str = Field(description="How hard this binding asks the model to think.")
-    context_window: int = Field(description="This binding's context window, in tokens.")
+    effort: str = Field(description="How hard this binding asks the model to think; '-' for ears.")
+    context_window: int | None = Field(
+        description="This binding's context window, in tokens; None for the transcriber, whose "
+        "input is audio, not tokens."
+    )
     price: str = Field(description="Per-million-token price, or '-' when the Forage map has none.")
     fallback_chain: str = Field(description="Every binding key in the chain, as 'a -> b -> c'.")
 
@@ -156,7 +162,14 @@ def slots_command(manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOpti
     """List every ModelSlot resolved to its current binding, price and fallback chain."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
-    rows = tuple(_slot_row(registry.bound(slot)) for slot in ModelSlot)
+    # The transcriber resolves through its own chain: its providers may be transcription-only
+    # (whisper_local), which the chat registry cannot construct at all (ADR-0033).
+    rows = tuple(
+        _transcriber_row(registry)
+        if slot is ModelSlot.TRANSCRIBER
+        else _slot_row(registry.bound(slot))
+        for slot in ModelSlot
+    )
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return
@@ -227,8 +240,25 @@ async def _probe_health(registry: ProviderRegistry, name: str) -> str:
         # [llm] offline=true refuses a non-loopback provider at construction (codingrules 8.6);
         # show that refusal instead of letting it fail the whole command.
         return "refused: offline"
+    except UnknownProviderError:
+        # A configured name the chat registry cannot build is a transcription-only kind
+        # (whisper_local): probe it through the transcriber chain instead.
+        return await _probe_transcriber_health(registry, name)
     reading = await provider.health()
     return f"{reading.state.value.lower()}: {reading.detail}"
+
+
+async def _probe_transcriber_health(registry: ProviderRegistry, name: str) -> str:
+    """Probe the transcribers the transcriber slot's chain builds on `name`."""
+    try:
+        registry.bound_transcriber()  # Builds every link, so each can be probed below.
+    except TranscriptionUnsupportedError as exc:
+        return f"not probed: {exc}"
+    readings = await registry.transcription_health()
+    mine = [reading for (provider, _model), reading in readings.items() if provider == name]
+    if not mine:
+        return "not probed: no slot binds it"
+    return "; ".join(f"{reading.state.value.lower()}: {reading.detail}" for reading in mine)
 
 
 def _print_provider_table(rows: tuple[_ProviderRow, ...]) -> None:
@@ -256,6 +286,46 @@ def _slot_row(bound: BoundModel) -> _SlotRow:
     )
 
 
+def _transcriber_row(registry: ProviderRegistry) -> _SlotRow:
+    """Build the transcriber's row from its own chain: no effort, token window or token price."""
+    slot = ModelSlot.TRANSCRIBER.manifest_key
+    try:
+        bound = registry.bound_transcriber()
+    except TranscriptionUnsupportedError as exc:
+        # A manifest may bind the slot to a chat-only kind until something needs to hear
+        # (minimal.toml does); list that plainly rather than failing every other row.
+        return _SlotRow(
+            slot=slot,
+            binding=slot,
+            provider=exc.provider,
+            model="-",
+            effort="-",
+            context_window=None,
+            price="-",
+            fallback_chain=f"cannot transcribe ({exc.kind})",
+        )
+    return _SlotRow(
+        slot=slot,
+        binding=bound.binding,
+        provider=bound.provider.name,
+        model=bound.model,
+        effort="-",
+        context_window=None,
+        price="-",
+        fallback_chain=_transcriber_chain(bound),
+    )
+
+
+def _transcriber_chain(bound: BoundTranscriber) -> str:
+    """Walk a transcriber chain's `.fallback` links and join their binding keys."""
+    keys = []
+    current: BoundTranscriber | None = bound
+    while current is not None:
+        keys.append(current.binding)
+        current = current.fallback
+    return " -> ".join(keys)
+
+
 def _format_price(bound: BoundModel) -> str:
     """Format a binding's per-million-token price, or '-' when the Forage map has none."""
     if bound.cost_per_million_input_usd is None or bound.cost_per_million_output_usd is None:
@@ -280,9 +350,10 @@ def _print_slot_table(rows: tuple[_SlotRow, ...]) -> None:
         f"{'WINDOW':>8}  {'PRICE':<20}  FALLBACK"
     )
     for row in rows:
+        window = "-" if row.context_window is None else str(row.context_window)
         typer.echo(
             f"{row.slot:<12}  {row.binding:<14}  {row.provider:<12}  {row.model:<20}  "
-            f"{row.effort:<7}  {row.context_window:>8}  {row.price:<20}  {row.fallback_chain}"
+            f"{row.effort:<7}  {window:>8}  {row.price:<20}  {row.fallback_chain}"
         )
 
 

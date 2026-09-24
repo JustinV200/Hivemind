@@ -88,8 +88,13 @@ class AnthropicConfig(BaseModel):
         description="The SDK client's per-request timeout, in seconds (codingrules section 11: "
         "every external await has a timeout).",
     )
+    # Every capability except audio: the Messages API takes text, images and documents but no
+    # audio content, so a caller holding audio transcribes it on ModelSlot.TRANSCRIBER first
+    # (roadmap step 6.5a); a manifest override can still flip it if the API ever grows one.
     capabilities: ProviderCapabilities = Field(
-        default_factory=lambda: ProviderCapabilities.full(context_window=DEFAULT_CONTEXT_WINDOW),
+        default_factory=lambda: ProviderCapabilities.full(
+            context_window=DEFAULT_CONTEXT_WINDOW
+        ).model_copy(update={"audio": False}),
         description="This binding's declared capabilities. The registry applies any manifest "
         "[llm.providers.<name>.capabilities] override before constructing this config, so this "
         "is always the final, effective set by the time AnthropicProvider reads it.",

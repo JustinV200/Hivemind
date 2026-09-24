@@ -28,12 +28,14 @@ from builders.llm import (
 from pydantic import SecretStr
 
 from hivemind.forage.slots import ModelSlot
+from hivemind.hive.backends.provider_table import CellProviderKind
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities
 from hivemind.llm.errors import OfflineViolationError, UnknownProviderError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.providers.anthropic import AnthropicProvider
 from hivemind.llm.registry import (
+    IN_PROCESS_KINDS,
     PENDING_KINDS,
     MissingDefaultModelError,
     ProviderConfig,
@@ -41,9 +43,11 @@ from hivemind.llm.registry import (
     ProviderRegistry,
     apply_overrides,
     default_factories,
+    default_transcription_factories,
 )
 from hivemind.manifest import ProviderKind as ManifestProviderKind
 from hivemind.manifest import load_manifest
+from hivemind.manifest.schema.llm import IN_PROCESS_KINDS as MANIFEST_IN_PROCESS_KINDS
 from waggle.clock import Clock, FakeClock
 
 # Same depth as tests/unit/manifest/test_loader.py's own _REPO_ROOT: five parents up from
@@ -68,14 +72,22 @@ def test_provider_kind_mirrors_the_manifest_provider_kind() -> None:
     assert set(get_args(ProviderKind)) == set(get_args(ManifestProviderKind))
 
 
-def test_default_factories_covers_every_kind_except_pending() -> None:
-    factories = default_factories()
+def test_the_virtual_cell_provider_table_kind_mirrors_provider_kind() -> None:
+    # hive.backends.provider_table may not import hivemind.llm, so it keeps its own copy; this
+    # is the test its docstring promises, added after the copy missed whisper_local.
+    assert set(get_args(CellProviderKind)) == set(get_args(ProviderKind))
+
+
+def test_in_process_kinds_mirror_the_manifests_own_set() -> None:
+    assert set(IN_PROCESS_KINDS) == set(MANIFEST_IN_PROCESS_KINDS)
+
+
+def test_every_kind_has_a_chat_or_a_transcription_factory_except_pending() -> None:
+    chat, transcription = default_factories(), default_transcription_factories()
 
     for kind in get_args(ProviderKind):
-        if kind in PENDING_KINDS:
-            assert kind not in factories
-        else:
-            assert kind in factories
+        covered = kind in chat or kind in transcription
+        assert covered is (kind not in PENDING_KINDS)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -261,6 +273,21 @@ def test_default_openai_compat_factory_applies_capability_overrides() -> None:
     assert provider.name == "local"
     assert provider.capabilities.native_tool_calls is False
     assert provider.capabilities.context_window == 8192
+    assert provider.capabilities.audio is False  # Off by default for an OpenAI-compatible server.
+
+
+def test_default_openai_compat_factory_lets_an_override_turn_audio_on() -> None:
+    providers = {
+        "local": make_provider_config(
+            kind="openai_compat",
+            base_url="http://127.0.0.1:8080/v1",
+            default_model="local-small",
+            capability_overrides={"audio": True},
+        )
+    }
+    registry = ProviderRegistry(providers, [], offline=False, deps=make_registry_deps())
+
+    assert registry.provider("local").capabilities.audio is True
 
 
 def test_default_openai_compat_factory_raises_without_a_default_model() -> None:

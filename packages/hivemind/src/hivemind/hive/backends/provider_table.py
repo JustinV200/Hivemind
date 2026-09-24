@@ -50,7 +50,7 @@ from typing import Literal
 # hivemind.llm (module docstring: deliberately dependency-light), so this is its own copy, the
 # same "kept in sync by a dedicated test" arrangement hivemind.llm.registry.ProviderKind already
 # documents for its own mirror of hivemind.manifest.schema.llm.ProviderKind.
-CellProviderKind = Literal["anthropic", "openai_compat", "fake"]
+CellProviderKind = Literal["anthropic", "openai_compat", "fake", "whisper_local"]
 
 __all__ = [
     "CellProviderKind",

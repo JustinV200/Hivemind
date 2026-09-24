@@ -14,7 +14,9 @@ import both) a plain dict of only the fields actually set, to merge onto whateve
 layer already has in hand. ``LlmSection``'s own validators are what keep the slot table honest:
 every key lowercase, every ``ModelSlot`` bound to something, every binding's provider declared,
 every fallback reachable and acyclic, and ``offline = true`` refusing any provider that is not
-provably local.
+provably local. A provider of an in-process kind (``IN_PROCESS_KINDS``: ``whisper_local``,
+roadmap step 6.5a) runs its model inside the Hive's own process, so it is local by construction:
+it names no ``base_url`` at all, and offline mode accepts it without one.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -36,6 +38,8 @@ Key invariants:
       behind it.
     - A fallback chain that revisits a key it has already visited is rejected before it ever
       reaches ``hivemind.forage.map.ForageMap.for_slot``, which would otherwise loop forever.
+    - A provider whose kind is in ``IN_PROCESS_KINDS`` has an empty ``base_url``: there is no
+      server to reach, so a URL there would only ever be a typo for another kind.
 
 See Also:
     - .claude/codingrules.md section 8.6 for "model slots, not model names" and the capabilities
@@ -77,15 +81,20 @@ DEFAULT_PROVIDER_SEATS = (
     4  # A modest concurrency default; the manifest raises it for a busier Hive.
 )
 
-# The three adapters codingrules section 8.1 lists today; a fourth needs a codingrules update
-# before it needs a manifest change, so this stays a closed Literal rather than a bare str.
-ProviderKind = Literal["anthropic", "openai_compat", "fake"]
+# The adapters codingrules section 8.1 lists: three chat kinds, plus "whisper_local" (roadmap step
+# 6.5a, ADR-0033), a transcription-only kind; a new one needs a codingrules update before it needs
+# a manifest change, so this stays a closed Literal rather than a bare str.
+ProviderKind = Literal["anthropic", "openai_compat", "fake", "whisper_local"]
+# Kinds whose model runs inside the Hive's own process (faster-whisper for "whisper_local"): local
+# by construction, so offline mode needs no base_url to prove it, and a base_url is refused.
+IN_PROCESS_KINDS: frozenset[ProviderKind] = frozenset({"whisper_local"})
 
 __all__ = [
     "API_KEY_ENV_PATTERN",
     "DEFAULT_PROVIDER_SEATS",
     "DEFAULT_PROVIDER_TIMEOUT_S",
     "DEFAULT_REQUEST_TIMEOUT_S",
+    "IN_PROCESS_KINDS",
     "MANIFEST_KEY_PATTERN",
     "MAX_MANIFEST_KEY_CHARS",
     "CapabilityOverrides",
@@ -146,6 +155,10 @@ class CapabilityOverrides(BaseModel):
         default=None,
         description="Override whether the provider can estimate tokens before sending.",
     )
+    audio: bool | None = Field(
+        default=None,
+        description="Override whether the provider accepts audio content parts directly.",
+    )
 
     def as_overrides(self) -> dict[str, bool | int]:
         """Return only the fields this manifest entry actually set.
@@ -168,7 +181,8 @@ class ProviderSpec(BaseModel):
     base_url: str = Field(
         default="",
         description="The provider's base URL; empty means a hosted API with a vendor-fixed "
-        "endpoint (e.g. Anthropic). Non-empty for a local server (Ollama, vLLM, llama.cpp).",
+        "endpoint (e.g. Anthropic). Non-empty for a local server (Ollama, vLLM, llama.cpp). "
+        "Always empty for an in-process kind (IN_PROCESS_KINDS), which reaches no server.",
     )
     api_key_env: Annotated[str, Field(pattern=API_KEY_ENV_PATTERN)] | None = Field(
         default=None,
@@ -195,6 +209,18 @@ class ProviderSpec(BaseModel):
         description="Corrections to the adapter's own declared capabilities; every field left "
         "unset means 'trust the adapter'.",
     )
+
+    @model_validator(mode="after")
+    def _in_process_kinds_name_no_base_url(self) -> ProviderSpec:
+        """Reject a base_url on a provider whose model runs inside the Hive's own process."""
+        # An in-process adapter never opens a connection, so a URL here is not a setting it
+        # would honour but a sign the author meant another kind (openai_compat, most likely).
+        if self.kind in IN_PROCESS_KINDS and self.base_url:
+            raise ValueError(
+                f"kind={self.kind!r} runs in process and takes no base_url "
+                f"(got {self.base_url!r}); use kind='openai_compat' for a server."
+            )
+        return self
 
 
 class SlotBinding(BaseModel):
@@ -235,7 +261,8 @@ class LlmSection(BaseModel):
 
     offline: bool = Field(
         default=False,
-        description="True refuses any provider whose base_url is empty (hosted) or not loopback.",
+        description="True refuses any provider whose base_url is empty (hosted) or not loopback, "
+        "except an in-process kind (IN_PROCESS_KINDS), which is local by construction.",
     )
     default_max_output_tokens: int | None = Field(
         default=None,
@@ -299,6 +326,8 @@ class LlmSection(BaseModel):
         if not self.offline:
             return self
         for name, spec in self.providers.items():
+            if spec.kind in IN_PROCESS_KINDS:
+                continue  # Its model runs in this process: local by construction, no URL to check.
             if not _is_provably_local(spec.base_url):
                 raise ValueError(
                     f"[llm] offline = true but [llm.providers.{name}] is not provably local "

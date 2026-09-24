@@ -2,10 +2,11 @@
 
 These are the only modules in the whole workspace allowed to import a vendor LLM SDK or an HTTP
 client aimed at a model server, so that swapping a provider never touches code above llm/. Each
-sub-package (`anthropic/`, `openai_compat/`) owns exactly one `kind` string from
-`[llm.providers.<name>]`'s manifest schema, and exposes only its `LLMProvider` implementation and
-that implementation's config type -- a sub-package's own `mapping.py`/`client.py` (vendor wire
-details) stay private to it, never re-exported here or further.
+sub-package (`anthropic/`, `openai_compat/`, `whisper/`) owns exactly one `kind` string from
+`[llm.providers.<name>]`'s manifest schema, and exposes only its implementations (an `LLMProvider`,
+a `TranscriptionProvider`, or both) and their config types -- a sub-package's own
+`mapping.py`/`client.py` (vendor wire details) stay private to it, never re-exported here or
+further.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside the llm package. Handles the only
@@ -18,10 +19,9 @@ Fits into the Hive:
     the registry's own dispatch.
 
 Key invariants:
-    - Only an adapter's `LLMProvider` implementation and its config type are re-exported here
-      (`AnthropicConfig`/`AnthropicProvider`, `OpenAICompatConfig`/`OpenAICompatProvider` today);
-      a sub-package's wire-mapping and HTTP modules are never imported from outside that
-      sub-package.
+    - Only an adapter's provider implementations and their config types are re-exported here; a
+      sub-package's wire-mapping, HTTP and model-loading modules are never imported from outside
+      that sub-package.
     - Importing this module has no side effect (codingrules section 5.5): no provider is
       constructed, no network touched, at import time.
 
@@ -32,18 +32,31 @@ See Also:
     - .claude/roadmap.md phase 3 for the work that first populated it (steps 3.6 and 3.7).
     - hivemind.llm.providers.anthropic for the hosted-Claude adapter.
     - hivemind.llm.providers.openai_compat for the OpenAI-compatible local-server adapter.
+    - hivemind.llm.providers.whisper for in-process transcription (roadmap step 6.5a).
 
 Public API:
     - AnthropicConfig, AnthropicProvider (hivemind.llm.providers.anthropic).
-    - OpenAICompatConfig, OpenAICompatProvider (hivemind.llm.providers.openai_compat).
+    - OpenAICompatConfig, OpenAICompatProvider, OpenAICompatTranscriptionConfig,
+      OpenAICompatTranscription (hivemind.llm.providers.openai_compat).
+    - WhisperConfig, WhisperLocalTranscription (hivemind.llm.providers.whisper).
 """
 
 from hivemind.llm.providers.anthropic import AnthropicConfig, AnthropicProvider
-from hivemind.llm.providers.openai_compat import OpenAICompatConfig, OpenAICompatProvider
+from hivemind.llm.providers.openai_compat import (
+    OpenAICompatConfig,
+    OpenAICompatProvider,
+    OpenAICompatTranscription,
+    OpenAICompatTranscriptionConfig,
+)
+from hivemind.llm.providers.whisper import WhisperConfig, WhisperLocalTranscription
 
 __all__ = [
     "AnthropicConfig",
     "AnthropicProvider",
     "OpenAICompatConfig",
     "OpenAICompatProvider",
+    "OpenAICompatTranscription",
+    "OpenAICompatTranscriptionConfig",
+    "WhisperConfig",
+    "WhisperLocalTranscription",
 ]

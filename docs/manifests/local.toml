@@ -66,6 +66,9 @@ provider = "local"
 model = "llama3.1:8b"
 
 [llm.slots.transcriber]
+# Transcribed on the same server's /audio/transcriptions, which needs a speech model loaded there;
+# an offline Hive can instead hear in process with a [llm.providers.<name>] kind = "whisper_local"
+# provider, which needs no base_url at all (see full.toml).
 provider = "local"
 model = "llama3.1:8b"
 

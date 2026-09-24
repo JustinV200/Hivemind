@@ -1115,7 +1115,7 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   declares `vision`; `listen` returns a `Transcript` through 6.5a unless the bound model declares
   `audio`. Every action tool takes an optional declared postcondition (expected URL, element text,
   or a region that should change) that the Capping gate verifies afterwards.
-- [ ] **6.5a Ears: the transcription provider.** `llm/transcription.py` (`TranscriptionProvider`:
+- [x] **6.5a Ears: the transcription provider.** `llm/transcription.py` (`TranscriptionProvider`:
   `transcribe(audio, language) -> Transcript` with segments and timestamps, `stream(chunks)` for
   push-to-talk, `capabilities`, `health`; `Transcript` and `TranscriptSegment` are HiveMind's own
   models, no library type leaves an adapter), `llm/providers/whisper/` (faster-whisper in

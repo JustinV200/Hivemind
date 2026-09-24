@@ -62,7 +62,7 @@ class ModelSlot(Enum):
     SCAFFOLDER = "SCAFFOLDER"  # Royal Jelly Lab tool authoring: code generation.
     EMBEDDER = "EMBEDDER"  # Non-chat: text in, vector out (llm.embedding, phase 7).
     JUDGE = "JUDGE"  # Capping's independent reviewer; may be pinned to another provider.
-    TRANSCRIBER = "TRANSCRIBER"  # Non-chat: audio in, text out (llm.transcription, phase 10).
+    TRANSCRIBER = "TRANSCRIBER"  # Non-chat: audio in, text out (llm.transcription, step 6.5a).
 
     @property
     def manifest_key(self) -> str:

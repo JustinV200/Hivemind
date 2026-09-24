@@ -8,7 +8,10 @@ sub-package is the adapter roadmap step 3.7 asks for: `OpenAICompatConfig` (the 
 `OpenAICompatProvider` (the `hivemind.llm.provider.LLMProvider` implementation built from it).
 `mapping.py`, `client.py` and `rate_limit.py` (roadmap step 4.7a's own header-parsing sibling to
 `mapping.py`), this package's other three modules, are private: neither an OpenAI wire field name
-nor an `httpx` type is meant to be seen from outside this package.
+nor an `httpx` type is meant to be seen from outside this package. Roadmap step 6.5a adds the
+`transcription` sub-package: the same servers' `/audio/transcriptions` wire, as a
+`hivemind.llm.transcription.TranscriptionProvider` for `ModelSlot.TRANSCRIBER` (the model slot
+that hears), re-exported here as `OpenAICompatTranscription`/`OpenAICompatTranscriptionConfig`.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.providers`. Imported
@@ -19,8 +22,10 @@ Fits into the Hive:
     section 8.6).
 
 Key invariants:
-    - No name beyond `OpenAICompatConfig`/`OpenAICompatProvider` is exported here; `mapping`'s,
-      `client`'s and `rate_limit`'s contents are this package's own implementation detail.
+    - No name beyond the two configs and the two providers (`OpenAICompatConfig`/
+      `OpenAICompatProvider` for chat, `OpenAICompatTranscriptionConfig`/
+      `OpenAICompatTranscription` for transcription) is exported here; every `mapping`, `client`
+      and `rate_limit` module is this package's own implementation detail.
     - Importing this module has no side effect: constructing a provider (`OpenAICompatProvider.
       create`) is the composition root's job, not import time (codingrules section 5.5).
 
@@ -35,8 +40,19 @@ See Also:
 Public API:
     - OpenAICompatConfig: this provider's validated configuration.
     - OpenAICompatProvider: the LLMProvider implementation, with `.create(name, config, clock)`.
+    - OpenAICompatTranscriptionConfig, OpenAICompatTranscription: the transcriber over
+      `/audio/transcriptions` (roadmap step 6.5a), with `.create(name, config, clock)`.
 """
 
 from hivemind.llm.providers.openai_compat.provider import OpenAICompatConfig, OpenAICompatProvider
+from hivemind.llm.providers.openai_compat.transcription import (
+    OpenAICompatTranscription,
+    OpenAICompatTranscriptionConfig,
+)
 
-__all__ = ["OpenAICompatConfig", "OpenAICompatProvider"]
+__all__ = [
+    "OpenAICompatConfig",
+    "OpenAICompatProvider",
+    "OpenAICompatTranscription",
+    "OpenAICompatTranscriptionConfig",
+]

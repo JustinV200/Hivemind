@@ -69,9 +69,9 @@ build. No vendor SDK is imported here or anywhere else outside `llm/providers/<n
   `ProviderConfig` is this package's own, decoupled mirror of one `[llm.providers.<name>]` row
   (`ProviderKind` mirrors the manifest's own `Literal`); `apply_overrides(base, overrides)`
   replaces every field named in a `hivemind.manifest.schema.llm.CapabilityOverrides.
-  as_overrides()`-shaped mapping. `default_factories()` covers `"fake"` and `"openai_compat"`;
-  `PENDING_KINDS` (`frozenset({"anthropic"})`) names what it does not yet cover until roadmap step
-  3.6's adapter lands.
+  as_overrides()`-shaped mapping. `default_factories()` covers every chat kind (`"fake"`,
+  `"openai_compat"`, `"anthropic"`); `PENDING_KINDS` names any kind neither factory table covers
+  (none today; see roadmap step 6.5a below for the transcription table).
 
 ## Public API (roadmap step 3.5)
 
@@ -162,11 +162,55 @@ fan their wings to regulate the hive's airflow.
   4.7a's own **`DEFAULT_THROTTLE_S`** (`60.0`): how long `FannerLane` throttles a source for when
   a `RateLimitedError` carries no `retry_after_s` hint.
 
+## Public API (roadmap step 6.5a)
+
+The slot that hears, `ModelSlot.TRANSCRIBER`
+(`docs/adr/0033-transcription-provider-whisper-first.md`): audio in, text out, with its own
+protocol rather than a chat call. Everything below is re-exported from `hivemind.llm`.
+
+- **The boundary** (`hivemind.llm.transcription`, a package): HiveMind's own values --
+  `AudioClip` (a whole WAV file plus the sample rate, channels and duration its own header states,
+  checked against that header, its bytes never in a `repr`; `from_wav`/`from_pcm` build one),
+  `AudioChunk` (raw 16-bit PCM for push-to-talk), `Transcript` and `TranscriptSegment` (time-ordered
+  phrases with a 0-to-1 `confidence`) -- `TranscriptionCapabilities` (`streaming`,
+  `word_timestamps`, `max_clip_s`, `languages`) with `check_request`, the guard every adapter runs
+  before any work, and the `TranscriptionProvider` protocol (`name`, `capabilities`,
+  `transcribe(clip, language=None)`, `stream(chunks, language=None)`, `health()`). An adapter
+  without native streaming takes `stream_by_buffering`: buffer while the human talks, transcribe
+  once. `FakeTranscription` answers scripted transcripts in order, then silence (or a given
+  default); it refuses what a real adapter refuses and reports the clip's duration and the
+  caller's hint as a real adapter does.
+- **The slot**: `BoundTranscriber` (slot, binding, provider, model, fallback) and
+  `resolve_transcriber(bindings, lookup, key=None)`, which walks the same `[llm.slots]` rows and
+  chain rules as `resolve`. `ProviderRegistry.transcriber(name, model)` builds a transcriber
+  lazily from `RegistryDeps.transcription_factories` (`default_transcription_factories()`:
+  `fake`, `openai_compat`, and the transcription-only `whisper_local`), one instance per
+  (provider, model) pair; `bound_transcriber()` resolves the slot through it. A chat-only kind
+  (`anthropic`) raises `TranscriptionUnsupportedError` naming the kind. `IN_PROCESS_KINDS`
+  (`whisper_local`) are local by construction: offline mode checks no `base_url` for them and
+  turns their downloads off instead.
+- **The seam** (`TranscriptionGate`): `DirectTranscriptionGate` (unmetered) and the Fanner's
+  `FannerTranscriptionGate(fanner, tempo, grant_id=, goal_id=)`, which takes a seat from the same
+  per-provider `SeatMeter` chat calls use, spills by the lane's rules, throttles a rate-limited
+  source, and records one `llm.call` per transcription (slot `TRANSCRIBER`, provider, model, zero
+  tokens, `audio_seconds`, `latency_s`; never audio, never text). Both gates move along the
+  fallback chain on `ProviderUnavailableError`/`RateLimitedError`, since no ladder sits above a
+  transcription.
+- **Adapters**: `hivemind.llm.providers.whisper` (faster-whisper in process) and
+  `hivemind.llm.providers.openai_compat.transcription` (`/audio/transcriptions`); see their READMEs.
+- **`ProviderCapabilities.audio`**: whether a chat provider takes audio parts directly (`full()`
+  True, `none()` False, False when unset); the Anthropic and OpenAI-compatible chat adapters
+  declare it False, so a caller holding audio transcribes it first.
+
 ## How to test this
 
 ```bash
 uv run --frozen pytest packages/hivemind/tests/unit/llm
+uv run --frozen pytest packages/hivemind/tests/contracts/test_transcription_provider_contract.py
 ```
+
+Transcription tests hear generated clips (`builders.audio`: a second of silence, a second of a
+tone), never a recording of anyone.
 
 Coverage floor is 95% (codingrules section 14.1, "pure cores"):
 

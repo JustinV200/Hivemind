@@ -28,7 +28,10 @@ Key invariants:
     - ``none()`` sets every boolean False: no native tool calls, no schema-enforced output, no
       JSON mode, no vision, no streaming (the provider's ``stream()`` still works, by yielding
       one chunk; see hivemind.llm.fake), no reasoning control, no system role, no parallel tool
-      calls, no token counting.
+      calls, no token counting, no audio.
+    - ``audio`` is the one field with a default (False): a chat model that hears is rare, and a
+      caller constructing a ProviderCapabilities field by field has never had to name it, so its
+      absence means "sends audio through ModelSlot.TRANSCRIBER instead" (roadmap step 6.5a).
 
 See Also:
     - .claude/codingrules.md section 8.6 for "capabilities are declared, not assumed".
@@ -98,6 +101,12 @@ class ProviderCapabilities(BaseModel):
     token_counting: bool = Field(
         description="Whether the provider can estimate a request's token count before sending it."
     )
+    audio: bool = Field(
+        default=False,
+        description="Whether the provider accepts audio content parts directly; False means a "
+        "caller holding audio sends it through ModelSlot.TRANSCRIBER "
+        "(hivemind.llm.transcription) and hands the model the transcript instead.",
+    )
 
     @classmethod
     def full(cls, *, context_window: int = FULL_CONTEXT_WINDOW_DEFAULT) -> ProviderCapabilities:
@@ -120,6 +129,7 @@ class ProviderCapabilities(BaseModel):
             system_role=True,
             parallel_tool_calls=True,
             token_counting=True,
+            audio=True,
         )
 
     @classmethod
@@ -146,6 +156,7 @@ class ProviderCapabilities(BaseModel):
             system_role=False,
             parallel_tool_calls=False,
             token_counting=False,
+            audio=False,
         )
 
 

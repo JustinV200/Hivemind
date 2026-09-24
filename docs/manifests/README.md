@@ -32,6 +32,21 @@ repo-root-relative default.
   Kept honest by a test that round-trips it through `model_dump`/`model_validate`. `[entrance]` is
   not shown: it is added in phase 10.
 
+## The transcriber and `kind = "whisper_local"` (roadmap step 6.5a)
+
+`[llm.slots.transcriber]` binds `ModelSlot.TRANSCRIBER`, the slot that hears (audio in, text out,
+`docs/adr/0033-transcription-provider-whisper-first.md`), like every other slot. Two provider
+kinds can serve it: `openai_compat` (any hosted Whisper API or local speech server speaking
+`/audio/transcriptions`) and `whisper_local`, Whisper in the Hive's own process through the
+optional `hivemind[whisper]` extra. A `whisper_local` provider takes no `base_url` (the schema
+refuses one: it reaches no server), is accepted by `offline = true` as it is, never downloads
+weights while offline, and hears one clip at a time, so give it `seats = 1`. An `anthropic`
+provider cannot transcribe: binding the slot to one loads, but the registry refuses it at first
+use. `full.toml` shows a commented-out `whisper_local` provider; the model sizes the examples
+recommend (`large-v3-turbo` with a GPU, `small` on a CPU) stand until the eval harness measures
+them. `[llm.providers.<name>.capabilities] audio` says whether a chat provider takes audio parts
+directly; every shipped chat adapter but the fake leaves it off.
+
 ## `[placement]` and `[virtual_cells]` (roadmap step 5.7)
 
 `[placement]` (`prefer`, `allow_hive_stand`, `[placement.roles.<role>]` overrides) and

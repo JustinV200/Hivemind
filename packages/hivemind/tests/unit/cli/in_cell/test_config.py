@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -30,6 +31,7 @@ from hivemind.cli.in_cell.config import (
 )
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage.slots import Effort
+from hivemind.llm.registry import ProviderKind
 from hivemind.manifest.env import read_in_cell_env
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_hive_id, new_node_id
@@ -212,6 +214,18 @@ def test_build_runtime_config_rejects_malformed_providers_json() -> None:
 
     with pytest.raises(ConfigurationError, match="HIVEMIND_PROVIDERS"):
         build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+
+@pytest.mark.parametrize("kind", get_args(ProviderKind))
+def test_build_runtime_config_accepts_every_provider_kind_the_registry_knows(kind: str) -> None:
+    # Regression: this module keeps its own copy of the kind list, which once lacked
+    # whisper_local, so a manifest declaring one made every Virtual Cell refuse its whole table.
+    row = json.dumps([{"name": "p", "kind": kind, "base_url": ""}])
+    environ = _full_environ(HIVEMIND_PROVIDERS=row)
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.providers["p"].kind == kind
 
 
 def test_build_runtime_config_rejects_a_providers_row_with_an_unknown_kind() -> None:

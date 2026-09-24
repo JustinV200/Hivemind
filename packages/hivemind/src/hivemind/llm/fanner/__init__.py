@@ -13,7 +13,10 @@ when the current one's grade is below the calling tempo's floor, the model is no
 seat-queueing has eaten too much of the latency budget, or the source is currently throttled after
 a `RateLimitedError` (`hivemind.llm.fanner.spill`). Every completed call, every spill and every
 throttle is recorded on the Pheromone Trail through an injected `LlmEventRecorder`
-(`hivemind.llm.fanner.recorder`), never written by hand.
+(`hivemind.llm.fanner.recorder`), never written by hand. Roadmap step 6.5a meters the slot that
+hears the same way: `hivemind.llm.fanner.transcription.FannerTranscriptionGate` takes a seat from
+the same per-provider meter for every transcription and records one `llm.call` carrying the
+clip's audio seconds (ADR-0033).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm`. `FannerLane`
@@ -48,6 +51,8 @@ Public API:
     - Trail recording (`hivemind.llm.fanner.recorder`): `LlmEventRecorder`, `NullLlmEventRecorder`,
       `TrailLlmEventRecorder`, `CompositeLlmEventRecorder` (roadmap step 4.8's own wiring step:
       fans one occurrence out to several recorders, e.g. a ledger recorder alongside the trail).
+    - Transcription (`hivemind.llm.fanner.transcription`, roadmap step 6.5a):
+      `FannerTranscriptionGate`, the Fanner's `hivemind.llm.transcription.TranscriptionGate`.
 """
 
 from hivemind.llm.fanner.lane import (
@@ -68,6 +73,7 @@ from hivemind.llm.fanner.recorder import (
     TrailLlmEventRecorder,
 )
 from hivemind.llm.fanner.spill import SPILL_WAIT_FRACTION, SpillReason
+from hivemind.llm.fanner.transcription import FannerTranscriptionGate
 
 __all__ = [
     "DEFAULT_SEATS",
@@ -80,6 +86,7 @@ __all__ = [
     "Fanner",
     "FannerDeps",
     "FannerLane",
+    "FannerTranscriptionGate",
     "LlmEventRecorder",
     "NullLlmEventRecorder",
     "RateLimit",

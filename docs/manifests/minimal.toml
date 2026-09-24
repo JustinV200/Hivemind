@@ -52,6 +52,9 @@ provider = "anthropic"
 model = "claude-sonnet-5"
 
 [llm.slots.transcriber]
+# Every slot must be bound, but Anthropic's API takes no audio: resolving this slot for a
+# transcription raises TranscriptionUnsupportedError at first use. Before anything needs to hear,
+# bind it to a kind = "whisper_local" or "openai_compat" provider (see full.toml).
 provider = "anthropic"
 model = "claude-sonnet-5"
 

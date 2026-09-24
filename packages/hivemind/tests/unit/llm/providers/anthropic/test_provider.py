@@ -109,7 +109,9 @@ def test_base_url_defaults_to_none() -> None:
 def test_capabilities_default_to_full_at_the_declared_context_window() -> None:
     config = _make_config()
 
-    assert config.capabilities == ProviderCapabilities.full(context_window=200_000)
+    # Everything but audio: the Messages API takes no audio content (roadmap step 6.5a).
+    expected = ProviderCapabilities.full(context_window=200_000).model_copy(update={"audio": False})
+    assert config.capabilities == expected
 
 
 # ──────────────────────────────────────────────────────────────────────────────

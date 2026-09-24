@@ -91,13 +91,33 @@ token_rate_per_minute = 20000
 """
 
 
-def _write_fake_manifest(tmp_path: Path) -> Path:
-    """Render `_FAKE_MANIFEST_TEMPLATE` with fresh ids, write it to `tmp_path`, return its path."""
+def _write_fake_manifest(tmp_path: Path, transcriber_provider: str = "fake") -> Path:
+    """Render `_FAKE_MANIFEST_TEMPLATE` with fresh ids, write it to `tmp_path`, return its path.
+
+    `transcriber_provider` other than "fake" rebinds the transcriber slot: "whisper" to an
+    in-process `whisper_local` provider (transcription only), "chat_only" to an anthropic one
+    (which cannot transcribe at all).
+    """
     clock = FakeClock()
     text = _FAKE_MANIFEST_TEMPLATE.format(hive_id=new_hive_id(clock), node_id=new_node_id(clock))
+    if transcriber_provider != "fake":
+        text = text.replace(
+            '[llm.slots.transcriber]\nprovider = "fake"\nmodel = "test-model"',
+            f'[llm.slots.transcriber]\nprovider = "{transcriber_provider}"\nmodel = "small"',
+        )
+        text += _EXTRA_PROVIDERS[transcriber_provider]
     path = tmp_path / "hive.toml"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+# The provider rows `_write_fake_manifest` appends when it rebinds the transcriber slot. Neither
+# is ever called: whisper_local only loads a model on first use, and the anthropic row is only
+# ever refused by kind.
+_EXTRA_PROVIDERS = {
+    "whisper": '\n[llm.providers.whisper]\nkind = "whisper_local"\nseats = 1\n',
+    "chat_only": '\n[llm.providers.chat_only]\nkind = "anthropic"\n',
+}
 
 
 def _scripted_registry(*responses: LLMResponse | LLMError) -> ProviderRegistry:
@@ -210,6 +230,50 @@ def test_slots_json_shows_no_fallback_and_no_price(tmp_path: Path) -> None:
     assert rows["worker"]["binding"] == "worker"
     assert rows["worker"]["fallback_chain"] == "worker"  # No fallback: chain is just itself.
     assert rows["worker"]["price"] == "-"  # No [forage.map] entry for this manifest.
+
+
+def test_slots_lists_a_transcriber_bound_to_an_in_process_whisper_provider(
+    tmp_path: Path,
+) -> None:
+    # Regression: the chat registry cannot build a transcription-only kind, so the transcriber
+    # row once raised UnknownProviderError and took the whole listing down with it.
+    manifest = _write_fake_manifest(tmp_path, transcriber_provider="whisper")
+
+    result = runner.invoke(app, ["llm", "slots", "--manifest", str(manifest), "--json"])
+
+    assert result.exit_code == 0, result.output
+    rows = {row["slot"]: row for row in json.loads(result.output)}
+    assert rows["transcriber"]["provider"] == "whisper"
+    assert rows["transcriber"]["model"] == "small"
+    assert rows["transcriber"]["context_window"] is None  # Audio in, so no token window.
+    assert rows["worker"]["provider"] == "fake"
+
+
+def test_slots_table_marks_a_transcriber_bound_to_a_chat_only_provider(tmp_path: Path) -> None:
+    manifest = _write_fake_manifest(tmp_path, transcriber_provider="chat_only")
+
+    result = runner.invoke(app, ["llm", "slots", "--manifest", str(manifest)])
+
+    assert result.exit_code == 0, result.output
+    transcriber = next(line for line in result.output.splitlines() if line.startswith("transcr"))
+    assert "chat_only" in transcriber
+    assert "cannot transcribe (anthropic)" in transcriber
+
+
+def test_providers_probes_a_transcription_only_provider_through_its_transcriber(
+    tmp_path: Path,
+) -> None:
+    manifest = _write_fake_manifest(tmp_path, transcriber_provider="whisper")
+
+    result = runner.invoke(app, ["llm", "providers", "--manifest", str(manifest), "--json"])
+
+    assert result.exit_code == 0, result.output
+    rows = {row["name"]: row for row in json.loads(result.output)}
+    # Health is whatever the in-process provider reports without a model on disk; the point is
+    # that the row exists and was probed rather than crashing the command.
+    assert rows["whisper"]["kind"] == "whisper_local"
+    assert rows["whisper"]["health"]
+    assert not rows["whisper"]["health"].startswith("not probed")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
