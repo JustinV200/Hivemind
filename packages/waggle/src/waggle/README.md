@@ -62,7 +62,8 @@ The protocol (roadmap phase 1):
   reconnection, signing at send time, acking each after a successful send and stopping at the
   first transport error so the tail stays pending.
 - **URIs** (`waggle.uris`): `check_waggle_uri`, the one rule for a dialable endpoint (`wss://`, or
-  `ws://` only on a loopback host).
+  `ws://` only on a loopback host or a Tor v3 onion service, whose link Tor encrypts and
+  authenticates end to end; `is_onion_service_host` verifies the address's version and checksum).
 
 `scripts/waggle_echo.py` is the phase's demo: a WebSocket server in one process and a client in
 another exchange `Ping`/`Pong` and a signed `TaskAssign`, reject a tampered envelope, and replay

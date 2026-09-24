@@ -1,4 +1,4 @@
-"""Check a WebSocket URI Waggle may dial: wss:// anywhere, ws:// on a loopback host only.
+"""Check a WebSocket URI Waggle may dial: wss:// anywhere, ws:// on loopback or an onion service.
 
 Waggle (the Hive's bee-to-bee wire protocol, named after the honeybee waggle dance) provides
 authenticity and integrity through signatures, never confidentiality: the link does that (spec
@@ -21,7 +21,8 @@ Key invariants:
     - check_waggle_uri returns its input unchanged or raises ValueError with a full sentence;
       it never performs a name lookup or any other I/O.
     - Every URI it accepts matches WAGGLE_URI_PATTERN, and every ws:// URI it accepts has a
-      loopback host, unless allow_virtual_cell_gateway_host widens that (see below).
+      loopback host or a v3 onion service host, unless allow_virtual_cell_gateway_host widens
+      that (see below).
 
 Roadmap step 5.6 (this branch): a Virtual Cell's control link is the one deliberate exception to
 "ws:// only on loopback". A container reaches the Hive Stand through a host-gateway alias
@@ -36,6 +37,16 @@ not. ``check_waggle_uri``'s new ``allow_virtual_cell_gateway_host`` keyword, def
 is that widened rule -- opt-in, per call site, never the default -- and ``queen.cell_gate`` and
 the Docker/QEMU backends are its only intended callers.
 
+Roadmap step 10.3a: a Tor v3 onion service is the other place a plaintext ``ws://`` link keeps
+Waggle's promise, always and with no opt-in. A Night Veil Cell reaches the Hive Stand only at the
+Hive Stand's onion service (ADR-0030), and an onion address is the service's own public key: Tor
+encrypts the connection end to end and authenticates the service by that key, so no one between
+the Cell and the Hive Stand can read the link or answer in the service's place, which is exactly
+what TLS on ``wss://`` would add. ``is_onion_service_host`` accepts only a well-formed v3 address
+(56 base32 characters encoding the key, a checksum and version 3, then ``.onion``), so a typo or a
+look-alike name is refused rather than dialled; an onion service is reachable only through Tor's
+SOCKS proxy, which ``waggle.transport.websocket_client`` requires for one and never bypasses.
+
 See Also:
     - docs/waggle/spec.md section 6 ("Confidentiality is the link's") for the rule.
     - waggle.messages.control.hive for QueenMoved, the message that carries an address.
@@ -45,13 +56,23 @@ See Also:
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import ipaddress
 import re
 from urllib.parse import urlsplit
 
-WAGGLE_URI_PATTERN = r"^wss?://\S+$"  # A WebSocket URI; ws:// is further restricted to loopback.
+WAGGLE_URI_PATTERN = r"^wss?://\S+$"  # A WebSocket URI; ws:// is further restricted by host.
 LOOPBACK_HOST_NAME = "localhost"  # The one loopback host that is a name rather than an address.
-_PLAINTEXT_SCHEME = "ws"  # No TLS on the link; the scheme that needs the loopback rule.
+ONION_SUFFIX = ".onion"  # Tor's reserved top-level name (RFC 7686): reachable only through Tor.
+ONION_V3_ID_CHARS = 56  # base32 of a 32-byte key, a 2-byte checksum and a version byte.
+_PLAINTEXT_SCHEME = "ws"  # No TLS on the link; the scheme that needs the host rule.
+_ONION_V3_VERSION = 3  # The address version this module accepts (rend-spec-v3).
+_ONION_KEY_BYTES = 32  # The service's ed25519 public key, first in the decoded address.
+_ONION_CHECKSUM_BYTES = 2  # The truncated SHA3-256 checksum that follows it.
+_ONION_CHECKSUM_TAG = b".onion checksum"  # rend-spec-v3's constant prefix for the checksum.
+_BASE32_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz234567")  # RFC 4648, lowercase.
 
 # The documented host-gateway alias names a Virtual Cell backend resolves to reach the Hive Stand
 # from inside a container: Docker Desktop's own DNS entry for the host, and the fixed IP the same
@@ -63,10 +84,13 @@ VIRTUAL_CELL_GATEWAY_HOST_NAMES = frozenset({"host.docker.internal"})
 
 __all__ = [
     "LOOPBACK_HOST_NAME",
+    "ONION_SUFFIX",
+    "ONION_V3_ID_CHARS",
     "VIRTUAL_CELL_GATEWAY_HOST_NAMES",
     "WAGGLE_URI_PATTERN",
     "check_waggle_uri",
     "is_loopback_host",
+    "is_onion_service_host",
     "is_virtual_cell_gateway_host",
 ]
 
@@ -76,7 +100,8 @@ _URI_RE = re.compile(WAGGLE_URI_PATTERN)  # Compiled once; every check matches a
 def check_waggle_uri(uri: str, *, allow_virtual_cell_gateway_host: bool = False) -> str:
     """Return ``uri`` when Waggle may dial it: a wss:// URI, or an allowed ws:// URI.
 
-    A ws:// URI's host must be loopback, unless ``allow_virtual_cell_gateway_host`` is set, in
+    A ws:// URI's host must be loopback or a v3 onion service (module docstring: Tor encrypts and
+    authenticates that link end to end), unless ``allow_virtual_cell_gateway_host`` is set, in
     which case a documented gateway alias or a private (RFC 1918/link-local) address is accepted
     too (module docstring: the roadmap step 5.6 Virtual Cell control-link exception). Signatures
     remain mandatory on every frame regardless; this only widens which *unencrypted* transport
@@ -110,9 +135,10 @@ def check_waggle_uri(uri: str, *, allow_virtual_cell_gateway_host: bool = False)
         host, allow_virtual_cell_gateway_host
     ):
         allowed = (
-            "loopback, a documented Virtual Cell gateway alias, or a private/link-local address"
+            "loopback, a v3 onion service, a documented Virtual Cell gateway alias, or a "
+            "private/link-local address"
             if allow_virtual_cell_gateway_host
-            else "a loopback host"
+            else "a loopback host or a v3 onion service"
         )
         raise ValueError(
             f"URI {uri!r} uses ws:// with host {host!r}; a plaintext endpoint is allowed only on "
@@ -138,6 +164,40 @@ def is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def is_onion_service_host(host: str) -> bool:
+    """Return True for a well-formed Tor v3 onion service address, judged by its spelling alone.
+
+    The address is the service's identity: 56 base32 characters encoding its 32-byte ed25519
+    public key, a 2-byte checksum and the version byte 3, then ``.onion`` (rend-spec-v3). The
+    checksum (SHA3-256 over a fixed tag, the key and the version) is verified, so a mistyped
+    address is refused rather than dialled. A subdomain of an onion address is not accepted.
+
+    Args:
+        host: A host as urlsplit reports it, in any case.
+
+    Returns:
+        True only for a v3 onion address whose version and checksum hold; never a lookup.
+    """
+    lowered = host.lower()
+    if not lowered.endswith(ONION_SUFFIX):
+        return False
+    service_id = lowered.removesuffix(ONION_SUFFIX)
+    # The shape first: exactly one label of the right length, in the base32 alphabet.
+    if len(service_id) != ONION_V3_ID_CHARS or not set(service_id) <= _BASE32_ALPHABET:
+        return False
+    try:
+        decoded = base64.b32decode(service_id.upper())
+    except binascii.Error:
+        return False  # Unreachable for 56 alphabet characters; kept so a decode never raises.
+    key = decoded[:_ONION_KEY_BYTES]
+    checksum = decoded[_ONION_KEY_BYTES : _ONION_KEY_BYTES + _ONION_CHECKSUM_BYTES]
+    version = decoded[-1]
+    if version != _ONION_V3_VERSION:
+        return False
+    digest = hashlib.sha3_256(_ONION_CHECKSUM_TAG + key + bytes((version,))).digest()
+    return checksum == digest[:_ONION_CHECKSUM_BYTES]
 
 
 def is_virtual_cell_gateway_host(host: str) -> bool:
@@ -172,6 +232,8 @@ def _plaintext_host_allowed(host: str | None, allow_virtual_cell_gateway_host: b
     """Return whether a ws:// URI's host clears the rule this call applies."""
     if host is None:
         return False
-    if is_loopback_host(host):
+    # Loopback stays on one machine; an onion service's link is Tor's, encrypted and
+    # authenticated end to end (module docstring). Either keeps a plaintext frame private.
+    if is_loopback_host(host) or is_onion_service_host(host):
         return True
     return allow_virtual_cell_gateway_host and is_virtual_cell_gateway_host(host)

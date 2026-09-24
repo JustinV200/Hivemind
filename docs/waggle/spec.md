@@ -278,7 +278,13 @@ validates every message a newer one sends it, as long as the sender honours the 
   guard lands (phase 10); that is an additive change to `Ed25519Verifier`.
 - **Confidentiality is the link's.** Waggle provides authenticity and integrity, never
   confidentiality: the link does (TLS on `wss://`, the tier's VPN, or Tor for a `NIGHT_VEIL`
-  link). A `ws://` endpoint is valid only on a loopback host.
+  link). A `ws://` endpoint is valid only on a loopback host, or on a Tor v3 onion service
+  (`<56 base32 characters>.onion`, its version and checksum verified): an onion address is the
+  service's own public key, and Tor encrypts the connection end to end and authenticates the
+  service by that key, which is what TLS would otherwise add. An onion service is dialled only
+  through a SOCKS proxy on the dialler's own loopback that resolves the name itself (`socks5h`
+  or `socks4a`, section 9); its name is never looked up locally. (A Virtual Cell may also dial a
+  documented host-gateway alias or a private address, an opt-in carve-out, `waggle.uris`.)
 
 ## 7. Error message shape and the stable code table
 
@@ -316,6 +322,7 @@ class in `waggle/errors.py`.
 | `waggle.transport.closed` | `TransportClosedError` | `send` after `close` |
 | `waggle.transport.connection_lost` | `ConnectionLostError` | The link dropped mid-transfer |
 | `waggle.transport.connect_failed` | `ConnectFailedError` | Gave up after `max_attempts` dials |
+| `waggle.transport.proxy_failed` | `ProxyFailedError` | The SOCKS proxy could not be reached, refused, closed early or did not answer in time |
 | `waggle.outbox.error` | `OutboxError` | Root; never raised directly |
 | `waggle.outbox.corrupt` | `OutboxCorruptError` | An unreadable non-trailing outbox record |
 
@@ -2035,6 +2042,15 @@ connection, client or server side, binary frames only; a text frame is `waggle.c
 - Where a Cell's tier routes its link through a VPN or Tor (a `NIGHT_VEIL` Cell reaches the Hive
   Stand through a hidden-service endpoint), only the URI and the network path differ; the
   transport and the protocol are unchanged.
+- `DialOptions.socks_proxy_url` names a SOCKS proxy on the dialler's loopback (`socks5h://` or
+  `socks4a://`, never a scheme that resolves locally, never credentials). Every attempt then
+  opens its TCP connection through the proxy, the destination named to it (RFC 1928 CONNECT with
+  a domain-name address, no authentication; or SOCKS4a), bounded by `PROXY_CONNECT_TIMEOUT_S`
+  (10 s) to reach the proxy and `PROXY_REPLY_TIMEOUT_S` (120 s, Tor's own SOCKS timeout) for its
+  answer, and the WebSocket handshake runs over that socket. A refusal, an early close or a
+  timeout is `waggle.transport.proxy_failed`, retried with the same backoff through the same
+  proxy; a proxied transport never falls back to a direct connection. A `ws://` onion URI with no
+  proxy is refused at construction.
 
 ## 10. Outbox and offline replay
 

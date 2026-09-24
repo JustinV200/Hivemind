@@ -23,10 +23,19 @@ through `waggle.outbox`.
 - **`WebSocketTransport`** (`websocket.py`): one open `websockets` connection, client or server
   side, binary frames only; keepalive is the WebSocket ping (`PING_INTERVAL_S`, `PING_TIMEOUT_S`).
 - **`WebSocketClientTransport`** (`websocket_client.py`): dials a `wss://` URI (or `ws://` on a
-  loopback host) with capped exponential backoff through the injected `Clock`
-  (`RECONNECT_INITIAL_S`, `RECONNECT_FACTOR`, `RECONNECT_MAX_S`) and raises `ConnectFailedError`
-  after `max_attempts`. There is no automatic reconnect inside `receive()`: after a drop the
-  caller calls `connect()` again and replays its outbox, so every retry is explicit.
+  loopback host or a v3 onion service) with capped exponential backoff through the injected
+  `Clock` (`RECONNECT_INITIAL_S`, `RECONNECT_FACTOR`, `RECONNECT_MAX_S`) and raises
+  `ConnectFailedError` after `max_attempts`. There is no automatic reconnect inside `receive()`:
+  after a drop the caller calls `connect()` again and replays its outbox, so every retry is
+  explicit. With `DialOptions.socks_proxy_url` (roadmap step 10.3a, a Night Veil Cell's Tor
+  SOCKS port) every attempt goes through that proxy and never directly; an onion URI with no
+  proxy is refused at construction.
+- **SOCKS** (`socks/`, a package): `open_socks_connection(proxy, host, port, timeouts)` runs
+  RFC 1928 SOCKS5 (no authentication, the destination named, `socks5h`) or SOCKS4a against a
+  loopback proxy (`SocksProxy.parse`), bounded by `SocksTimeouts`, and returns the connected
+  socket the WebSocket handshake runs over; every failure is `ProxyFailedError`.
+  `FakeSocksProxy` (`socks/fake.py`) plays Tor's SOCKS port on loopback for tests, relaying each
+  named destination to a route, and misbehaves on request (`FakeSocksBehaviour`).
 - **`WebSocketServer`** (`websocket_server.py`): the loopback-by-default listener; `start()`,
   `port`, `uri`, `connections()` (an async generator of accepted `WebSocketTransport`s) and
   `close()`. Every Cell and device dials out to the Hive Stand; the server is the only listener.

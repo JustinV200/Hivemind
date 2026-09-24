@@ -31,6 +31,7 @@ from waggle.errors import (
     MissingSignatureError,
     OutboxCorruptError,
     OutboxError,
+    ProxyFailedError,
     SignatureError,
     TransportClosedError,
     TransportError,
@@ -59,6 +60,7 @@ _TREE: list[tuple[type[WaggleError], type[WaggleError]]] = [
     (TransportClosedError, TransportError),
     (ConnectionLostError, TransportError),
     (ConnectFailedError, TransportError),
+    (ProxyFailedError, TransportError),
     (OutboxError, WaggleError),
     (OutboxCorruptError, OutboxError),
 ]
@@ -82,6 +84,7 @@ _CODES: list[tuple[type[WaggleError], str]] = [
     (TransportClosedError, "waggle.transport.closed"),
     (ConnectionLostError, "waggle.transport.connection_lost"),
     (ConnectFailedError, "waggle.transport.connect_failed"),
+    (ProxyFailedError, "waggle.transport.proxy_failed"),
     (OutboxError, "waggle.outbox.error"),
     (OutboxCorruptError, "waggle.outbox.corrupt"),
 ]
