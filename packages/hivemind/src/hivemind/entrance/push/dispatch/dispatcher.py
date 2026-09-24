@@ -40,7 +40,7 @@ from hivemind.entrance.enrol import EnrolledDevice
 from hivemind.entrance.push.audience import Audience
 from hivemind.entrance.push.dispatch.courier import Courier, PushChannels, PushReport
 from hivemind.entrance.push.dispatch.refs import LiveRecipients, RefLocks
-from hivemind.entrance.push.errors import PushRegistrationRefusedError
+from hivemind.entrance.push.errors import PushRegistrationRefusedError, SubscriptionNotFoundError
 from hivemind.entrance.push.models import (
     ChannelKind,
     NoticeKind,
@@ -178,6 +178,24 @@ class PushDispatcher:
             live_devices=len(report.live_devices),
         )
         return report
+
+    async def unregister(self, device_id: DeviceId, subscription_id: SubscriptionId) -> None:
+        """Delete one of a device's own subscriptions (the device asked to stop hearing there).
+
+        Args:
+            device_id: The device asking.
+            subscription_id: Its subscription.
+
+        Raises:
+            SubscriptionNotFoundError: The device holds no such subscription (another device's
+                reads as missing, so ids learn nothing).
+        """
+        # Latency: one local read and, when it is the device's, one local delete.
+        held = await self._store.list_for_device(device_id)
+        if all(subscription.id != subscription_id for subscription in held):
+            raise SubscriptionNotFoundError(subscription_id, device_id)
+        await self._store.delete(subscription_id)
+        log.info("push.unsubscribed", subscription_id=subscription_id, device_id=device_id)
 
     async def forget_device(self, device_id: DeviceId) -> tuple[SubscriptionId, ...]:
         """Delete every subscription of a device and drop its live sockets (offboarding).

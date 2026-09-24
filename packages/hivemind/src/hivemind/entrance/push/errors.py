@@ -31,7 +31,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import ClassVar
 
-from hivemind.common.errors import ConflictError, PermissionDeniedError
+from hivemind.common.errors import ConflictError, NotFoundError, PermissionDeniedError
 from hivemind.entrance.errors import EntranceError
 
 __all__ = [
@@ -41,6 +41,7 @@ __all__ = [
     "PushError",
     "PushRegistrationRefusedError",
     "SubscriptionExistsError",
+    "SubscriptionNotFoundError",
 ]
 
 
@@ -111,6 +112,23 @@ class SubscriptionExistsError(PushError, ConflictError):
             f"Push subscription {subscription_id} for device {device_id} duplicates a stored "
             "one (the same id, or the same channel and endpoint for that device)."
         )
+        self.subscription_id = subscription_id
+        self.device_id = device_id
+
+
+class SubscriptionNotFoundError(PushError, NotFoundError):
+    """Raise when a device names a push subscription it does not hold."""
+
+    code: ClassVar[str] = "hivemind.entrance.push_subscription_not_found"
+
+    def __init__(self, subscription_id: str, device_id: str) -> None:
+        """Build the error; another device's subscription reads as missing, never as foreign.
+
+        Args:
+            subscription_id: The id the device named.
+            device_id: The device that named it.
+        """
+        super().__init__(f"Device {device_id} holds no push subscription {subscription_id}.")
         self.subscription_id = subscription_id
         self.device_id = device_id
 

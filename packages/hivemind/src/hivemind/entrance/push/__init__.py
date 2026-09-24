@@ -65,6 +65,7 @@ from hivemind.entrance.push.errors import (
     PushError,
     PushRegistrationRefusedError,
     SubscriptionExistsError,
+    SubscriptionNotFoundError,
 )
 from hivemind.entrance.push.fake import FakePush
 from hivemind.entrance.push.models import (
@@ -125,6 +126,7 @@ __all__ = [
     "Subscription",
     "SubscriptionExistsError",
     "SubscriptionId",
+    "SubscriptionNotFoundError",
     "SubscriptionStore",
     "VapidKey",
     "VapidSigner",

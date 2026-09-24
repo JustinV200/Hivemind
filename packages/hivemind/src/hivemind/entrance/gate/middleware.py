@@ -1,6 +1,6 @@
-"""Wrap each listener's application: security headers, the loopback check, per-address limits.
+"""Wrap each listener's application: security headers, the loopback check, rate and body limits.
 
-Three checks run on every request before any route sees it, as plain ASGI wrappers around the
+Four checks run on every request before any route sees it, as plain ASGI wrappers around the
 FastAPI application so no response, a server error included, escapes them (ADR-0033):
 ``SecurityHeaders`` adds ``Content-Security-Policy: default-src 'self'; object-src 'none';
 frame-ancestors 'none'`` (and ``nosniff``, ``no-referrer``) to every response, so nothing can run
@@ -8,7 +8,10 @@ foreign script in the Entrance's origin or frame it; ``LoopbackGate`` (loopback 
 answers a bare 403 to any request whose ``Host`` is not a loopback name on this listener's port or
 that carries a forwarding header, so no proxy or DNS-rebinding page can front the routes that
 approve devices; ``AddressLimit`` holds every peer address to ``rate_limit_per_address``,
-unauthenticated routes and WebSocket handshakes included, and answers 429 past it.
+unauthenticated routes and WebSocket handshakes included, and answers 429 past it; ``BodyLimit``
+reads a request body in full, within ``BODY_READ_TIMEOUT_S`` and ``MAX_BODY_BYTES`` (413 or 408
+past them), so no client can hold a connection open or fill memory with an endless body, and the
+route's signature check hashes exactly the bytes that were read.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Wrapped around
@@ -28,6 +31,8 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from hivemind.entrance.auth.limits import RateLimiter
@@ -42,11 +47,18 @@ _SECURITY_HEADERS = (
 _GATED_SCOPES = frozenset({"http", "websocket"})  # Lifespan and anything else pass untouched.
 _FORBIDDEN = 403  # The loopback check's bare refusal.
 _TOO_MANY = 429  # The address limit's refusal.
+_TOO_LARGE = 413  # The body limit's refusal.
+_TOO_SLOW = 408  # A body that did not arrive in time.
+MAX_BODY_BYTES = 262_144  # 256 KiB: every Landing Board body is small JSON (a held one is 64 KiB).
+BODY_READ_TIMEOUT_S = 30.0  # A small body arrives in well under a second; this is a stalled one.
 _POLICY_VIOLATION = 1008  # RFC 6455: a WebSocket refused for policy (sent before accepting).
 
 __all__ = [
+    "BODY_READ_TIMEOUT_S",
     "CONTENT_SECURITY_POLICY",
+    "MAX_BODY_BYTES",
     "AddressLimit",
+    "BodyLimit",
     "LoopbackGate",
     "SecurityHeaders",
 ]
@@ -127,6 +139,67 @@ class AddressLimit:
             await self._app(scope, receive, send)
             return
         await _refuse(scope, send, _TOO_MANY)
+
+
+class BodyLimit:
+    """Read every HTTP body in full, bounded in size and time, before the route sees it."""
+
+    def __init__(self, app: ASGIApp, limit: int = MAX_BODY_BYTES) -> None:
+        """Wrap ``app``.
+
+        Args:
+            app: The application (or the next wrapper).
+            limit: The most bytes a body may have; > 0.
+        """
+        self._app = app
+        self._limit = limit
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Buffer the body within its bounds, then replay it to the application."""
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        try:
+            # External wait: the client sending its body, bounded so a stalled one lets go.
+            async with asyncio.timeout(BODY_READ_TIMEOUT_S):
+                body = await _read_body(receive, self._limit)
+        except TimeoutError:
+            await _refuse(scope, send, _TOO_SLOW)
+            return
+        if body is None:
+            await _refuse(scope, send, _TOO_LARGE)
+            return
+        await self._app(scope, _replay(body, receive), send)
+
+
+async def _read_body(receive: Receive, limit: int) -> bytes | None:
+    """Read the whole body; None as soon as it grows past ``limit``."""
+    body = bytearray()
+    while True:
+        message = await receive()
+        # A client that left mid-body: hand the app an empty body; its answer goes nowhere.
+        if message["type"] != "http.request":
+            return bytes(body)
+        body += message.get("body", b"")
+        if len(body) > limit:
+            return None
+        if not message.get("more_body", False):
+            return bytes(body)
+
+
+def _replay(body: bytes, receive: Receive) -> Receive:
+    """Return a receive that yields ``body`` once, then defers to the real one (disconnects)."""
+    replayed = False
+
+    async def replay() -> Message:
+        """Yield the buffered body first; afterwards, whatever the server sends next."""
+        nonlocal replayed
+        if replayed:
+            return await receive()
+        replayed = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return replay
 
 
 def _header_names_and_host(scope: Scope) -> tuple[list[str], str | None]:

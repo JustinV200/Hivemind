@@ -4,8 +4,9 @@ A Landing Board route is thin (ADR-0032): it validates, authorises, calls a subs
 and shapes the reply. What it calls is here, built once by the composition root: ``QueenDoor``
 (the Queen's methods the Entrance writes through), ``HiveReads`` (the stores it reads directly,
 since reading never changes state), ``PushServices``, ``GateGuards`` (the Guard's enforcer, the
-denial-burst lock, the rate limiter), ``EntranceRules`` (the thresholds routes decide with) and the
-Entrance's own reducer, streams and sockets, in one ``EntranceServices``. ``ListenerDeps`` is what
+denial-burst lock, the rate limiter), ``EntranceRules`` (the thresholds routes decide with),
+``DoorControl`` (the running listeners, as routes see them) and the Entrance's own reducer, streams
+and sockets, in one ``EntranceServices``. ``ListenerDeps`` is what
 differs per listener: the login and enrolment dependencies carrying that listener's WebAuthn
 relying party (``localhost`` on loopback, the exposure plan's name on the remote listener).
 FastAPI hands them to routes through two dependencies, ``get_services`` and ``get_listener``, which
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
     from hivemind.entrance.streams.registry import SocketRegistry
 
 __all__ = [
+    "DoorControl",
     "EntranceRules",
     "EntranceServices",
     "GateGuards",
@@ -118,6 +120,28 @@ class QueenDoor(Protocol):
 
     async def cancel_goal(self, goal_id: TaskId, reason: str) -> bool:
         """Cancel what of a goal has not started; see ``Queen.cancel_goal``."""
+        ...
+
+
+class DoorControl(Protocol):
+    """The running listeners as routes see them; the Entrance runtime implements it."""
+
+    @property
+    def exposed(self) -> bool:
+        """Whether the manifest asks for a remote listener at all."""
+        ...
+
+    @property
+    def remote_listening(self) -> bool:
+        """Whether the remote listener is serving right now."""
+        ...
+
+    async def device_revoked(self, device_id: DeviceId) -> None:
+        """Rebuild the remote listener's mutual-TLS revocation list after a revocation.
+
+        Args:
+            device_id: The device just revoked.
+        """
         ...
 
 
@@ -228,6 +252,7 @@ class EntranceServices:
         reducer: The Entrance Reducer.
         streams: The stream hub and the socket registry.
         rules: The thresholds routes decide with.
+        door: The running listeners.
         clock: The Entrance's clock.
     """
 
@@ -239,6 +264,7 @@ class EntranceServices:
     reducer: EntranceReducer
     streams: StreamServices
     rules: EntranceRules
+    door: DoorControl
     clock: Clock
 
     @property

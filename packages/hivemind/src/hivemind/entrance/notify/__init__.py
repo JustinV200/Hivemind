@@ -6,7 +6,9 @@ Alarm, a goal's outcome), and the Entrance's own flows, through enrolment's ``Se
 seam (a device asking to join, a lock, a held request, a reduction). Both only queue: ``outbox``
 holds the ``PushOutbox`` the Entrance runs in the background, delivering through the
 ``PushDispatcher`` with per-ref ordering so a withdrawal never overtakes its notice; ``human`` is
-``PushHumanChannel`` and ``security`` is ``PushSecurityNotifier``.
+``PushHumanChannel`` and ``security`` is ``PushSecurityNotifier``. ``relay`` is the
+``HumanChannelRelay`` the Queen is built with before the Entrance exists, bound to the
+``PushHumanChannel`` once it does.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Built by the
@@ -25,6 +27,7 @@ Public API:
     - PushOutbox, DeviceSource, OUTBOX_CAPACITY, MAX_DELIVERIES_IN_FLIGHT: the queue (outbox).
     - PushHumanChannel: the Queen's HumanChannel over push (human).
     - PushSecurityNotifier: enrolment's SecurityNotifier over push (security).
+    - HumanChannelRelay: the Queen's channel before and after the Entrance is built (relay).
 """
 
 from hivemind.entrance.notify.human import PushHumanChannel
@@ -34,12 +37,14 @@ from hivemind.entrance.notify.outbox import (
     DeviceSource,
     PushOutbox,
 )
+from hivemind.entrance.notify.relay import HumanChannelRelay
 from hivemind.entrance.notify.security import PushSecurityNotifier
 
 __all__ = [
     "MAX_DELIVERIES_IN_FLIGHT",
     "OUTBOX_CAPACITY",
     "DeviceSource",
+    "HumanChannelRelay",
     "PushHumanChannel",
     "PushOutbox",
     "PushSecurityNotifier",
