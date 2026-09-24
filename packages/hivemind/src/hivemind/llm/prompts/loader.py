@@ -2,7 +2,8 @@
 
 A **prompt asset** is one of the plain-markdown files shipped beside this module
 (``queen_system.md``, ``decompose_goal.md``, ``warden_system.md``, ``drone_system.md``,
-``attendant_triage.md``, ``compact_records.md``, ``judge_review.md``): the system text a bee's
+``attendant_triage.md``, ``compact_records.md``, ``judge_review.md``, ``forager_system.md``,
+``scout_system.md``): the system text a bee's
 awake episode (a bounded, stateless turn where a bee is allowed to think with a model) opens with.
 :func:`load_prompt` reads one such file through ``importlib.resources`` rather than a filesystem
 path built from ``__file__``, so it works the same way from an installed wheel as from a checkout.
@@ -73,6 +74,8 @@ class PromptName(Enum):
     ATTENDANT_TRIAGE = "attendant_triage"  # queen|wardens/inbox: the model tie-breaker (3.13).
     COMPACT_RECORDS = "compact_records"  # memory.compact: one summary from source records (4.3).
     JUDGE_REVIEW = "judge_review"  # wardens.judge: an independent review, no shared context (4.10).
+    FORAGER_SYSTEM = "forager_system"  # workers/roles/forager: see/act over the Exoskeleton (6.9).
+    SCOUT_SYSTEM = "scout_system"  # workers/roles/scout: strictly budgeted, read-only recon (6.10).
 
 
 class SectionLabel(Enum):

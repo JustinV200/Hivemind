@@ -33,7 +33,7 @@ from waggle.ids import GrantId, new_cell_id, new_grant_id, new_warden_id
 from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
 from waggle.messages.forage.values import Effort as WireEffort
 from waggle.messages.labels import Postcondition, PostconditionKind
-from waggle.messages.task import TaskAssign, WorkerRole
+from waggle.messages.task import ScoutReport, TaskAssign, WorkerRole
 
 
 def _grant(active_clock: Clock, grant_id: GrantId, *, max_sub_bees: int = 1) -> GrantIssued:
@@ -72,6 +72,24 @@ def _file_writing_worker_factory(
         await asyncio.sleep(0)
         await ctx.session.put_file(Path(path), content)
         return make_outcome()
+
+    def factory(role: WorkerRole) -> ScriptedWorker:
+        return ScriptedWorker(script, role=role)
+
+    return factory
+
+
+def _scout_report_worker_factory(
+    report: ScoutReport, path: str
+) -> Callable[[WorkerRole], ScriptedWorker]:
+    """A worker that writes `path` (for the acceptance check) and claims with `report` attached."""
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: object
+    ) -> WorkerOutcome:
+        await asyncio.sleep(0)
+        await ctx.session.put_file(Path(path), b"done")
+        return make_outcome(scout_report=report)
 
     def factory(role: WorkerRole) -> ScriptedWorker:
         return ScriptedWorker(script, role=role)
@@ -157,6 +175,73 @@ async def test_acceptance_failure_raises_an_alarm_and_reports_failed() -> None:
     assert result.checked_by == warden_id
     assert alarm.kind.value == "ACCEPTANCE_FAILED"
     assert "FILE_EXISTS" in alarm.detail
+
+
+async def test_a_claimed_scout_report_rides_onto_the_succeeded_result() -> None:
+    # Roadmap step 6.10: WorkerOutcome.scout_report survives the Worker -> Warden -> Queen hop.
+    report = ScoutReport(feasible=True, summary="The login form has a username and password.")
+    deps, queen_end, warden_id = make_warden_deps(
+        worker_factory=_scout_report_worker_factory(report, "output.txt")
+    )
+    assignment = make_assignment(
+        clock=deps.clock,
+        role=WorkerRole.SCOUT,
+        acceptance=(
+            Postcondition(
+                kind=PostconditionKind.FILE_EXISTS, subject="output.txt", argv=(), expected=None
+            ),
+        ),
+    )
+    grant = _grant(deps.clock, assignment.grant_id)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+
+    await queen_end.send(assignment)
+    await queen_end.send(grant)
+    result = await queen_end.wait_for_result()
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert result.outcome.value == "SUCCEEDED"
+    assert result.scout_report == report
+
+
+async def test_a_claimed_scout_report_rides_onto_the_acceptance_failed_result() -> None:
+    # Same hop, on the other branch: a Scout's own task can fail acceptance too (its scratch
+    # write landed somewhere the plan did not name), and the report must still reach the Queen.
+    report = ScoutReport(feasible=False, summary="Could not reach the site at all.")
+    deps, queen_end, warden_id = make_warden_deps(
+        worker_factory=_scout_report_worker_factory(report, "wrong-file.txt")
+    )
+    assignment = make_assignment(
+        clock=deps.clock,
+        role=WorkerRole.SCOUT,
+        acceptance=(
+            Postcondition(
+                kind=PostconditionKind.FILE_EXISTS,
+                subject="never-written.txt",
+                argv=(),
+                expected=None,
+            ),
+        ),
+    )
+    grant = _grant(deps.clock, assignment.grant_id)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+
+    await queen_end.send(assignment)
+    await queen_end.send(grant)
+    result = await queen_end.wait_for_result()
+    await queen_end.wait_for_alarm()
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert result.outcome.value == "FAILED"
+    assert result.scout_report == report
 
 
 async def test_a_zero_bee_grant_raises_grant_exceeded_instead_of_parking_silently() -> None:

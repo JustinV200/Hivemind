@@ -241,6 +241,7 @@ class AttemptManager:
                 reason="The role completed its work.",
                 artifacts=outcome.artifacts,
                 spend=outcome.spend_usd,
+                scout_report=outcome.scout_report,  # roadmap 6.10: rides onto the TaskResult.
             )
         )
 

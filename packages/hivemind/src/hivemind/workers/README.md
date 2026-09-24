@@ -10,6 +10,8 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
 - `base.py` -- `Worker`, the one Protocol every role implements, and `WorkerOutcome`, what its
   `run` returns: a claim of completion (`claimed=True`) or a request to hand off
   (`handoff` set) -- never both, never neither. A Worker never marks itself `SUCCEEDED`.
+  `scout_report` (roadmap step 6.10) carries a claimed Scout's `waggle.messages.task.ScoutReport`
+  onto the CLAIMED `TaskResult`; `None` for every other role.
 - `state.py` -- `WorkerState` and its one transition table (codingrules Appendix C's "Worker"
   row): `SPAWNED -> RUNNING -> DONE/FAILED/KILLED`, `RUNNING <-> HANDING_OFF`,
   `RUNNING <-> PAUSED`. Mirrors `waggle.messages.supervision.WorkerState` member for member.
@@ -47,7 +49,13 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   interpreting one role attempt, including the pre-terminal-transition flush); `__init__.py` is
   the package's own face.
 - `roles/` -- one module (or package) per Worker role; `hivemind.workers.roles.drone.Drone` is the
-  first, added by roadmap step 3.16. See `hivemind.workers.roles`'s own README.
+  first, added by roadmap step 3.16, followed by `house_bee.HouseBee` (4.3), `undertaker.
+  Undertaker` (5.8), `forager.Forager` (6.9, a bounded see/act role over a Cell's Exoskeleton that
+  deposits every page it reads as Nectar) and `scout.Scout` (6.10, a strictly budgeted, read-only
+  recon role). The Forager and Scout are built on `roles.bounded_loop`, the tool-loop machinery
+  6.9 factored out of the Drone; `roles.worker_for(role)` is the one place a `TaskAssign.role`
+  becomes a fresh instance of whichever role implements it. See `hivemind.workers.roles`'s own
+  README.
 - `tools/` -- the tool implementations a Worker calls while it works, each one going through its
   Cell's `CellSession`. Roadmap step 3.16 adds the Drone's first five: `run_command`, `read_file`,
   `write_file`, `http_request` and `ask`. See `hivemind.workers.tools`'s own README.
@@ -58,13 +66,14 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
 See the `Public API:` section of `__init__.py` for the full, current list; the summary above names
 each name's home module.
 
-## Public API (roadmap 3.16)
+## Public API (roadmap 3.16, extended by 6.9)
 
 `WorkerContext`'s three new fields (`capping`, `lease`, `call_gate`), and the `roles`/`tools`
-sub-packages, are not re-exported at this package's own top level: a Warden (roadmap step 3.19)
-imports `hivemind.workers.roles.Drone` and `hivemind.workers.tools.build_registry` directly, the
-same way it already imports `hivemind.workers.context.WorkerContext`. See `hivemind.workers.roles`
-and `hivemind.workers.tools`'s own `Public API:` sections for their full, current lists.
+sub-packages, are not re-exported at this package's own top level: a Warden's composition root
+(roadmap steps 3.19, 6.9) imports `hivemind.workers.roles.worker_for` and `hivemind.workers.tools.
+build_registry` directly, the same way it already imports `hivemind.workers.context.
+WorkerContext`. See `hivemind.workers.roles` and `hivemind.workers.tools`'s own `Public API:`
+sections for their full, current lists.
 
 ## How to test this
 
@@ -79,4 +88,6 @@ follows a scripted plan: return an outcome, raise, hand off after N ticks, block
 observe a pause) and `WardenEnd` (wraps the Warden side of a `waggle.transport.memory.
 MemoryTransport` pair to send `TaskAssign`/`TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` and
 collect `Heartbeat`/`TaskProgress`/`TaskResult`/`AlarmRaised`/`Question`). Every `WorkerRuntime`
-test drives time with `waggle.clock.FakeClock`; no real sleeps.
+test drives time with `waggle.clock.FakeClock`; no real sleeps. `make_gui_context` (roadmap step
+6.5, extended by 6.9) builds the same context with an Exoskeleton attached over fakes, for the
+Forager and Scout tests under `roles/forager/` and `roles/scout/`.

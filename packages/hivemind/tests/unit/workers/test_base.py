@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from hivemind.cell import HoneyClearance
 from hivemind.workers.base import WorkerOutcome
+from waggle.messages.task import ScoutReport
 
 
 def test_make_outcome_default_is_claimed_with_no_handoff() -> None:
@@ -54,6 +55,20 @@ def test_outcome_carries_its_clearance_and_artifacts() -> None:
 
     assert outcome.clearance is HoneyClearance.C2
     assert outcome.artifacts == ()
+
+
+def test_scout_report_defaults_to_none() -> None:
+    outcome = make_outcome()
+
+    assert outcome.scout_report is None
+
+
+def test_outcome_may_carry_a_scout_report() -> None:
+    report = ScoutReport(feasible=True, summary="Looked around; the site loads fine.")
+
+    outcome = make_outcome(scout_report=report)
+
+    assert outcome.scout_report == report
 
 
 def test_worker_outcome_forbids_unknown_fields() -> None:

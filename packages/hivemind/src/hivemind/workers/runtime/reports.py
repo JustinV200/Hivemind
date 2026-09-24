@@ -9,7 +9,9 @@ independently varying fields than codingrules 5.1's parameter limit allows on on
 signature; grouping them is that section's own named remedy ("introduce a frozen dataclass for
 the argument group"). `checked_by` on a built `TaskResult` is always `None`: a Worker's own hop
 may only claim (`waggle.messages.task.reports.TaskResult`'s own docstring), never report a
-Warden-verified outcome.
+Warden-verified outcome. `ResultDetails.scout_report` (roadmap step 6.10) carries a claimed
+Scout's `WorkerOutcome.scout_report` straight onto the CLAIMED `TaskResult`; `None` for every
+other role, since only a Scout ever sets it.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Called only by `hivemind.workers.runtime.loop.WorkerRuntime`
@@ -46,6 +48,7 @@ from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised, He
 from waggle.messages.supervision.alarms import MAX_DETAIL_CHARS
 from waggle.messages.task import (
     ArtifactRef,
+    ScoutReport,
     TaskAssign,
     TaskOutcome,
     TaskProgress,
@@ -74,6 +77,7 @@ class ResultDetails:
     artifacts: tuple[ArtifactRef, ...] = ()  # Outputs produced, if any.
     handoff: HandoffRef | None = None  # The last Handoff written, for a retry to resume from.
     spend: float = 0.0  # Total spend charged to this attempt.
+    scout_report: ScoutReport | None = None  # What a Scout found (roadmap 6.10); None otherwise.
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +169,7 @@ def build_result(assignment: TaskAssign, details: ResultDetails) -> TaskResult:
         handoff=details.handoff,
         spend=details.spend,
         reason=details.reason[:MAX_REASON_CHARS],
+        scout_report=details.scout_report,
     )
 
 

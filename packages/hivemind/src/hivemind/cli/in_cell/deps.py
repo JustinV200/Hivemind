@@ -22,12 +22,12 @@ Fits into the Hive:
     load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
     (RelaySnapshotter), `hivemind.wardens.spawn` (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
-    (Drone), `hivemind.cli.in_cell.providers`, `hivemind.cli.compose.exoskeleton`
+    (worker_for), `hivemind.cli.in_cell.providers`, `hivemind.cli.compose.exoskeleton`
     (in_cell_exoskeleton) and waggle only.
 
 Key invariants:
-    - `worker_factory` always returns a fresh `Drone`, the same "v0's only Worker role" choice
-      `hivemind.cli.compose.deps.build_warden_deps` makes for the Hive Stand.
+    - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
+      `hivemind.cli.compose.deps.build_warden_deps` wires for the Hive Stand.
     - `call_gate`/`lane_for_grant` are both unmetered (`DirectCallGate`): a single Virtual Cell has
       no Fanner of its own to share a seat meter across bees the way the Hive Stand's shared pool
       does (roadmap step 5.5 scope; a per-Cell Fanner is a later step, flagged in this dispatch's
@@ -56,11 +56,9 @@ from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
-from hivemind.workers import Worker
-from hivemind.workers.roles import Drone
+from hivemind.workers.roles import worker_for
 from waggle.clock import Clock
 from waggle.envelope import Hop
-from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
 # This Warden's own Heartbeat cadence toward the Queen, and each sub-bee's own toward it: no
@@ -124,7 +122,7 @@ def build_in_cell_warden_deps(
         checks=deterministic_checks(),  # No JudgeReviewer wired yet; see this dispatch's report.
         bound=registry.bound(ModelSlot.WARDEN),
         call_gate=DirectCallGate(),  # No per-Cell Fanner yet (module docstring's own note).
-        worker_factory=_build_drone,
+        worker_factory=worker_for,
         rebind=lambda key: registry.bound_for_key(key, ModelSlot.WORKER),
         handoff_threshold=DEFAULT_HANDOFF_THRESHOLD,
         heartbeat_interval_s=config.heartbeat_interval_s,
@@ -167,11 +165,3 @@ def _build_trail_sync(
             clock=clock,
         )
     )
-
-
-def _build_drone(role: WorkerRole) -> Worker:
-    """Return a fresh Drone for every `TaskAssign.role`.
-
-    v0's only Worker role (module docstring).
-    """
-    return Drone()

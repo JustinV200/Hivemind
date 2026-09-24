@@ -27,6 +27,9 @@ Key invariants:
       acceptance, so a URL_MATCHES or ELEMENT_TEXT criterion still has the task's browser to read.
     - `_send_acceptance_failed` records `alarm.raised` for the ACCEPTANCE_FAILED Alarm it raises,
       before sending it to the Queen (this dispatch's own fix 1).
+    - Both `_send_succeeded` and `_send_acceptance_failed` copy `claim.scout_report` onto the
+      TaskResult they send unchanged (roadmap step 6.10): a Scout's report reaches the Queen
+      whether its own task's acceptance (FILE_EXISTS on `SCOUT_REPORT_FILE`) passed or failed.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "the proposer never verifies its own work".
@@ -104,6 +107,7 @@ async def _send_succeeded(warden: Warden, sub_bee: SubBee, claim: TaskResult) ->
         handoff=claim.handoff,
         spend=claim.spend,
         reason="Every acceptance criterion held.",
+        scout_report=claim.scout_report,
     )
     # The Queen may pause or destroy this Cell the moment the result lands: ship the task's own
     # trail rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
@@ -156,6 +160,7 @@ async def _send_acceptance_failed(
         handoff=claim.handoff,
         spend=claim.spend,
         reason="acceptance",
+        scout_report=claim.scout_report,
     )
     await ship_trail_before_result(warden)  # Same reason as _send_succeeded: teardown follows.
     await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))

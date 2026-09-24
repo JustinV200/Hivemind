@@ -1,9 +1,9 @@
 # hivemind.llm.prompts
 
 Plain-markdown prompt assets and the loader that reads and assembles them: the templates the
-Queen, a Warden, a Drone and the Attendant's tie-break step turn into an awake episode's `system`
-text, before `hivemind.memory.assemble` (a separate roadmap step) appends pins, hot state and the
-triggering event as labelled, delimited sections.
+Queen, a Warden, a Drone, a Forager, a Scout and the Attendant's tie-break step turn into an awake
+episode's `system` text, before `hivemind.memory.assemble` (a separate roadmap step) appends pins,
+hot state and the triggering event as labelled, delimited sections.
 
 ## Portability rules (codingrules 8.6, "Prompts are portable")
 
@@ -36,7 +36,9 @@ text can always tell durable state and retrieved content apart from an instructi
   `COMPACT_RECORDS` -- roadmap step 4.3, `hivemind.memory.compact`'s one structured call;
   `JUDGE_REVIEW` -- roadmap step 4.10, `hivemind.wardens.judge.ModelJudgeReviewer`'s one
   structured call, built from a tier's rubric and the `JudgeRequest` alone, no proposer transcript
-  or hot state).
+  or hot state; `FORAGER_SYSTEM` -- roadmap step 6.9, `hivemind.workers.roles.forager.Forager`'s
+  bounded see/act loop; `SCOUT_SYSTEM` -- roadmap step 6.10, `hivemind.workers.roles.scout.Scout`'s
+  strictly budgeted recon loop).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works

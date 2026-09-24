@@ -8,7 +8,11 @@ returns: `WorkerOutcome`, either a claim that the work is done (`claimed=True`, 
 request to hand off and be resumed (`claimed=False`, `handoff` set) -- never both, and never
 neither. A Worker never marks itself `SUCCEEDED`: `claimed` only says the role believes the work
 is done, and its Warden (roadmap step 3.19) runs acceptance checks before a task ever reaches that
-terminal state (codingrules section 8.7's counterpart for tasks; roadmap step 3.18).
+terminal state (codingrules section 8.7's counterpart for tasks; roadmap step 3.18). Roadmap step
+6.10 adds `scout_report`: a claimed Scout attempt carries its `ScoutReport` here, and `hivemind.
+workers.runtime.reports.build_result` copies it onto the CLAIMED `TaskResult`, so it survives the
+Worker-to-Warden-to-Queen hop unchanged (`waggle.messages.task.reports.TaskResult.scout_report`'s
+own docstring).
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Implemented by every role under `hivemind.workers.roles`
@@ -24,6 +28,8 @@ Key invariants:
       validator): `claimed=True` means the work is done and acceptance has not yet run;
       `handoff` set means the role stopped early to checkpoint and be resumed, not done yet.
     - `spend_usd` is never negative.
+    - `scout_report` is set only by `hivemind.workers.roles.scout.Scout`; every other role leaves
+      it at its default `None`.
 
 See Also:
     - .claude/codingrules.md section 8.1 for the Protocol-at-every-seam rule this module follows.
@@ -43,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from hivemind.cell import HoneyClearance
 from hivemind.memory import Handoff
 from hivemind.workers.context import WorkerContext
-from waggle.messages.task import ArtifactRef, TaskAssign, WorkerRole
+from waggle.messages.task import ArtifactRef, ScoutReport, TaskAssign, WorkerRole
 
 MIN_SPEND_USD = 0.0  # Spend is never negative; the Hive meters cost, never refunds.
 
@@ -78,6 +84,11 @@ class WorkerOutcome(BaseModel):
         "`claimed` is True.",
     )
     spend_usd: float = Field(ge=MIN_SPEND_USD, description="What this attempt has spent so far.")
+    scout_report: ScoutReport | None = Field(
+        default=None,
+        description="What a Scout found (roadmap step 6.10), carried unchanged onto the CLAIMED "
+        "TaskResult; None for every other role and for a Scout's own handoff outcome.",
+    )
 
     @model_validator(mode="after")
     def _claimed_xor_handoff(self) -> WorkerOutcome:

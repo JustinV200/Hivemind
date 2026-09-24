@@ -5,6 +5,12 @@ through its Cell's `CellSession` rather than touching a process or file directly
 gives the Drone its first five: `run_command`, `read_file`, `write_file`, `http_request` and `ask`;
 roadmap step 5.0e adds a sixth, `keep`; roadmap step 6.5 adds the Exoskeleton's tools (the
 `exoskeleton/` sub-package), offered only when a task has a display, a browser or audio attached.
+The Forager (roadmap step 6.9) reuses this same `build_registry(ctx)` unchanged, so it gets every
+one of these tools too. The Scout (6.10) does not: none but `read_file` belongs on a strictly
+read-only role, so its own, much narrower registry lives beside that role instead
+(`hivemind.workers.roles.scout.tools.scout_build_registry`), built the same way but offering
+`read_file`, a GET-only `http_request` and its own `report_findings`, plus the Exoskeleton's
+reads (never an action) when a browser or display is attached.
 
 ## Modules
 

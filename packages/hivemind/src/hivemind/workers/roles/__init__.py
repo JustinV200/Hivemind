@@ -7,29 +7,44 @@ disposable role that works one task through a bounded tool loop. Roadmap step 4.
 compact) over hot state and Bee Bread. Roadmap step 5.8 adds the third,
 `hivemind.workers.roles.undertaker.Undertaker`, the cleanup role that destroys Virtual Cells and
 releases Real Cell leases, idempotently, with retries, and the Queen-startup sweep that finds
-orphans of both kinds.
+orphans of both kinds. Roadmap step 6.9 adds the fourth, `hivemind.workers.roles.forager.Forager`,
+a bounded see/act role over a Cell's Exoskeleton, and step 6.10 the fifth, `hivemind.workers.
+roles.scout.Scout`, a strictly budgeted, read-only recon role -- both built on `hivemind.workers.
+roles.bounded_loop`, the tool-loop machinery step 6.9 factored out of the Drone so neither new
+role copies it. `worker_for` (`selection.py`) is the one place a `waggle.messages.task.WorkerRole`
+becomes a fresh Worker instance, for both composition roots' `WardenDeps.worker_factory` to share.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside the workers package. Handles one module (or package)
     per Worker role implementing the shared Worker protocol. Called by
     `hivemind.workers.runtime.WorkerRuntime` on behalf of whatever spawned it (a Warden, roadmap
-    step 3.19); calls into `hivemind.workers.context`, `hivemind.workers.tools` and sibling
-    packages at Layer 4 or below, never back up into `hivemind.workers`'s other sub-packages
-    directly.
+    step 3.19, through `worker_for`); calls into `hivemind.workers.context`, `hivemind.workers.
+    tools` and sibling packages at Layer 4 or below, never back up into `hivemind.workers`'s other
+    sub-packages directly.
 
 Key invariants:
     - Every role's `run` never marks a task SUCCEEDED (codingrules section 8.7): `WorkerOutcome.
       claimed` only says the role believes the work is done.
+    - `worker_for` returns a fresh instance every call and raises `UnsupportedWorkerRoleError` for
+      any role it does not name (`selection.py`'s own docstring).
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under workers.
     - .claude/roadmap.md phase 3 step 3.16 for the work that first populated it; step 4.3 for the
-      second role; step 5.8 for the third.
+      second role; step 5.8 for the third; step 6.9 for the fourth; step 6.10 for the fifth.
     - hivemind.workers.roles.drone for Drone, this package's first role.
     - hivemind.workers.roles.house_bee for HouseBee, this package's second role.
     - hivemind.workers.roles.undertaker for Undertaker, this package's third role.
+    - hivemind.workers.roles.forager for Forager, this package's fourth role.
+    - hivemind.workers.roles.scout for Scout, this package's fifth role.
+    - hivemind.workers.roles.bounded_loop for the machinery Forager and Scout share with Drone.
 
-Public API (roadmap 3.16, extended by 4.3 and 5.8):
+Public API (roadmap 3.16, extended by 4.3, 5.8, 6.9 and 6.10):
+    - worker_for, UnsupportedWorkerRoleError: build a fresh Worker for a TaskAssign.role
+      (hivemind.workers.roles.selection).
+    - Forager, FORAGER_MAX_ROUNDS, ForagerRequiresExoskeletonError: the Forager role
+      (hivemind.workers.roles.forager).
+    - Scout, SCOUT_MAX_ROUNDS: the Scout role (hivemind.workers.roles.scout).
     - Drone, DRONE_MAX_ROUNDS, HandoffRequestedError: the Drone role (hivemind.workers.roles.drone).
     - HouseBee, HOUSE_BEE_HOT_WINDOW_S, run_sweep, SweepDeps, SweepWindow, SweepOutcome,
       SweepSchedule, SWEEP_NOTE_LIMIT, SWEEP_DECISION_LIMIT: the HouseBee role
@@ -44,6 +59,11 @@ Public API (roadmap 3.16, extended by 4.3 and 5.8):
 """
 
 from hivemind.workers.roles.drone import DRONE_MAX_ROUNDS, Drone, HandoffRequestedError
+from hivemind.workers.roles.forager import (
+    FORAGER_MAX_ROUNDS,
+    Forager,
+    ForagerRequiresExoskeletonError,
+)
 from hivemind.workers.roles.house_bee import (
     HOUSE_BEE_HOT_WINDOW_S,
     SWEEP_DECISION_LIMIT,
@@ -55,6 +75,8 @@ from hivemind.workers.roles.house_bee import (
     SweepWindow,
     run_sweep,
 )
+from hivemind.workers.roles.scout import SCOUT_MAX_ROUNDS, Scout
+from hivemind.workers.roles.selection import UnsupportedWorkerRoleError, worker_for
 from hivemind.workers.roles.undertaker import (
     DEFAULT_BACKOFF_FACTOR,
     DEFAULT_INITIAL_BACKOFF_S,
@@ -87,10 +109,14 @@ __all__ = [
     "DEFAULT_MAX_BACKOFF_S",
     "DEFAULT_UNDERTAKER_SWEEP_INTERVAL_S",
     "DRONE_MAX_ROUNDS",
+    "FORAGER_MAX_ROUNDS",
     "HOUSE_BEE_HOT_WINDOW_S",
+    "SCOUT_MAX_ROUNDS",
     "SWEEP_DECISION_LIMIT",
     "SWEEP_NOTE_LIMIT",
     "Drone",
+    "Forager",
+    "ForagerRequiresExoskeletonError",
     "GrantRevoker",
     "HandoffRequestedError",
     "HouseBee",
@@ -98,6 +124,7 @@ __all__ = [
     "LeavingsStoreRemover",
     "NullLeavingsRemover",
     "RetryPolicy",
+    "Scout",
     "SweepDeps",
     "SweepOutcome",
     "SweepSchedule",
@@ -110,9 +137,11 @@ __all__ = [
     "UndertakerSweepDeps",
     "UndertakerSweepReport",
     "UndertakerSweepSchedule",
+    "UnsupportedWorkerRoleError",
     "WaxRetirer",
     "orphan_real_leases",
     "orphan_virtual_cells",
     "run_sweep",
     "sweep_orphans",
+    "worker_for",
 ]

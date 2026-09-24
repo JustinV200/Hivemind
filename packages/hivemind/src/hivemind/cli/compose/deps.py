@@ -28,8 +28,9 @@ Key invariants:
     - `build_provider_registry`'s `"fake"` factory substitution is selected by `ProviderConfig.
       kind`, never by branching on a provider's own name or kind elsewhere (codingrules section 4;
       `scripts/check_no_kind_branches.py`); see that function's own docstring.
-    - `build_warden_deps`'s `worker_factory` always returns a fresh `hivemind.workers.roles.Drone`:
-      v0's only Worker role (`hivemind.manifest.schema.forage.REQUIRED_ROLE`).
+    - `build_warden_deps`'s `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step
+      6.9): a fresh Drone, Forager or Scout per `TaskAssign.role`, the same mapping `hivemind.cli.
+      in_cell.deps.build_in_cell_warden_deps` wires for a Virtual Cell.
 
 See Also:
     - .claude/codingrules.md section 13 for "the composition root is the only place a HiveManifest
@@ -98,8 +99,7 @@ from hivemind.supervision import load_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer, WardenDeps
-from hivemind.workers import Worker
-from hivemind.workers.roles import Drone
+from hivemind.workers.roles import worker_for
 from waggle.clock import Clock, SystemClock
 from waggle.messages.task import WorkerRole
 
@@ -328,7 +328,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         checks={**deterministic_checks(), **judge_checks(judge_reviewer, judge_rubrics)},
         bound=parts.registry.bound(ModelSlot.WARDEN),
         call_gate=parts.fanner.lane(Tempo()),
-        worker_factory=_build_drone,
+        worker_factory=worker_for,
         rebind=lambda key: parts.registry.bound_for_key(key, ModelSlot.WORKER),
         handoff_threshold=manifest.memory.handoff_threshold,
         heartbeat_interval_s=supervision.heartbeat_interval_s,
@@ -525,11 +525,6 @@ def _manifest_dir(manifest: HiveManifest) -> Path:
 def _footprints(roles: Mapping[str, RoleFootprint]) -> dict[WorkerRole, RoleFootprint]:
     """Convert `[forage.roles]`'s lowercase manifest keys into `WorkerRole` members."""
     return {WorkerRole[key.upper()]: footprint for key, footprint in roles.items()}
-
-
-def _build_drone(role: WorkerRole) -> Worker:
-    """Return a fresh Drone for every `TaskAssign.role`; v0's only Worker role (see module docs)."""
-    return Drone()
 
 
 def _responder_installing_fake_factory(responders: Mapping[str, Responder]) -> ProviderFactory:
