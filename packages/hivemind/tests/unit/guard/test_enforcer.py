@@ -164,3 +164,24 @@ async def test_refuse_records_the_points_own_refusal_under_a_scope_rule() -> Non
     assert event.kind == DENIED_KIND
     assert event.payload["rule"] == "guard.scope.grant_holder"
     assert "grant g is held by another Warden" in str(event.payload["reason"])
+
+
+async def test_check_floors_records_and_returns_a_floor_refusal() -> None:
+    # Roadmap step 10.3a: a point whose held set another rule checks still meets the floors.
+    enforcer, trail, _identity = _enforcer()
+
+    decision = await enforcer.check_floors(_worker_request("exec:/opt/venv/bin/hive", "exec:*"))
+
+    assert decision is not None
+    assert decision.allowed is False
+    assert decision.rule == "guard.state_floor.entry_points"
+    (event,) = await _events(trail)
+    assert event.payload["rule"] == "guard.state_floor.entry_points"
+    assert event.payload["capability"] == "exec:/opt/venv/bin/hive"
+
+
+async def test_check_floors_is_silent_when_no_floor_applies_held_or_not() -> None:
+    enforcer, trail, _identity = _enforcer()
+
+    assert await enforcer.check_floors(_worker_request("exec:git")) is None
+    assert await _events(trail) == ()

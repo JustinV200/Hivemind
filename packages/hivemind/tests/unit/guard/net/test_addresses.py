@@ -89,7 +89,7 @@ def test_a_name_that_only_looks_local_is_not_a_loopback_name(host: str) -> None:
         ("127.255.0.9", "a loopback address"),
         ("::1", "a loopback address"),
         ("::ffff:127.0.0.1", "a loopback address"),
-        ("0.0.0.0", "an unspecified address"),
+        ("0.0.0.0", "an unspecified address"),  # noqa: S104  # SAFETY: judged, never bound.
         ("0.1.2.3", "an unspecified address"),
         ("::", "an unspecified address"),
         ("169.254.169.254", "a link-local address"),
