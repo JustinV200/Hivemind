@@ -1470,7 +1470,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   slot binding and rebinding, question routing to the human, Nuc promotion, device commands,
   tactic invocation, and Comb Shield egress policy activation. A test enumerates them and fails if a new state-changing action
   lacks one.
-- [ ] **10.3a Night Veil guardrails.** Enforce at policy level that `cell:comb_shield:night_veil`
+- [x] **10.3a Night Veil guardrails.** Enforce at policy level that `cell:comb_shield:night_veil`
   implies `cell:virtual` and forbids `cell:real:*`; enforce that Night Veil model slot bindings are
   local-only; enforce that a Night Veil Cell's Waggle transport may reach the Hive Stand only
   through the Tor SOCKS proxy to its hidden-service address, never the VPN interface or the default

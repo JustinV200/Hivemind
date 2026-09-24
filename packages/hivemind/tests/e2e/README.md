@@ -67,6 +67,14 @@ exist to catch problems that only show up when every layer runs at once.
   (`guard.tier_floor.night_veil_initiation`) before any Cell is provisioned; a Night Veil goal
   whose plan needs the cloud metadata endpoint is refused before anything is persisted
   (`guard.tier_floor.night_veil_location`).
+- `test_night_veil_link.py` (`@pytest.mark.e2e`) -- roadmap step 10.3a's exit bullet through a
+  whole Hive (`build_hive`/`run_hive`): a human's Night Veil request is provisioned on the phase 5
+  suite's container-spawning fake backend, whose real in-Cell Warden reads its tier, the onion
+  Queen URL and the Tor proxy from its minted bootstrap and dials the real `CellListener` only
+  through a `FakeSocksProxy` playing Tor (asked for the onion name, never resolved locally). The
+  Cell announces NIGHT_VEIL, the task is bound to NIGHT_VEIL (a Cell announcing MEADOW, as every
+  one did before, fails it) and the Drone's work succeeds. The attestation probe is the all-green
+  fake: production's is fail-closed until a Queen-side CellSession exists.
 
 ## Budget
 

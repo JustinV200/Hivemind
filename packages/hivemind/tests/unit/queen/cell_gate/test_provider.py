@@ -66,7 +66,11 @@ class _GatedFakeCellBackend(FakeCellBackend):
     """
 
     def __init__(
-        self, clock: FakeClock, gate: QueenReadinessGate, wardens: list[WardenLink]
+        self,
+        clock: FakeClock,
+        gate: QueenReadinessGate,
+        wardens: list[WardenLink],
+        announce: CombShieldLevel | None = None,
     ) -> None:
         super().__init__(
             clock,
@@ -74,13 +78,19 @@ class _GatedFakeCellBackend(FakeCellBackend):
         )
         self._queen_gate = gate
         self._wardens = wardens
+        self._announce = announce  # The tier each Cell's link claims; its own tier when None.
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         cell = await super().provision(spec)
         await self._queen_gate.expect(cell.id, "deadbeef")
+        announced = (
+            cell
+            if self._announce is None
+            else cell.model_copy(update={"comb_shield": self._announce})
+        )
         link = WardenLink(
             warden_id=new_warden_id(self._clock),
-            cell=cell,
+            cell=announced,
             transport=MemoryTransport.pair(Codec(), Codec())[0],
             hop=Hop(sender="hive_x", recipient="warden_x", node_id=new_node_id(self._clock)),
         )
@@ -153,6 +163,7 @@ def _build(
     gated: bool = True,
     with_pool: bool = False,
     probe_factory: NightVeilProbeFactory | None = None,
+    announce: CombShieldLevel | None = None,
 ) -> tuple[
     LifecycleVirtualCellProvider,
     CellLifecycle,
@@ -166,7 +177,7 @@ def _build(
     gate = QueenReadinessGate()
     wardens: list[WardenLink] = []
     if gated:
-        backend: FakeCellBackend = _GatedFakeCellBackend(clock, gate, wardens)
+        backend: FakeCellBackend = _GatedFakeCellBackend(clock, gate, wardens, announce)
     else:
         backend = FakeCellBackend(
             clock,
@@ -334,3 +345,25 @@ async def test_acquire_night_veil_records_the_attested_event_even_on_a_red_check
     assert len(events) == 1
     assert events[0].payload["passed"] is False
     assert events[0].payload["tor_healthy"] == {"status": "FAIL", "detail": "tor.service is down."}
+
+
+@pytest.mark.parametrize(
+    ("spec", "announced"),
+    [
+        (_night_veil_spec(), CombShieldLevel.MEADOW),  # What every Night Veil Cell used to say.
+        (_spec(), CombShieldLevel.NIGHT_VEIL),
+    ],
+)
+async def test_acquire_refuses_a_cell_announcing_a_tier_it_was_not_provisioned_at(
+    spec: VirtualCellSpec, announced: CombShieldLevel
+) -> None:
+    provider, lifecycle, _wardens, _gate, trail = _build(announce=announced)
+    placement = ProvisionVirtual(spec=spec, backend="fake", reason="test")
+
+    with pytest.raises(CellProvisionError, match=f"announced Comb Shield tier {announced.value}"):
+        await provider.acquire(placement, _fake_task())
+
+    # Torn down before any task could be bound to the announced tier, and before attestation.
+    tracked = lifecycle.live_cells()
+    assert [cell.status for cell in tracked] in ([], [VirtualCellStatus.DESTROYED])
+    assert not await trail.query(TrailQuery(kind="cell.attested"))

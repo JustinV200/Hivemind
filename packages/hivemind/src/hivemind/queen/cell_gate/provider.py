@@ -57,6 +57,14 @@ a clear error, because `WardenLink` (`hivemind.queen.deps`) carries a Waggle `Tr
 `hivemind.cell.CellSession` `SessionNightVeilProbe` needs -- no session-opening seam exists yet
 from the Queen to a Virtual Cell (this module's own report names the gap).
 
+**The announced tier (roadmap step 10.3a):** the link `CellListener` attaches carries the Comb
+Shield tier the Cell announced in its own `CellReady`, and the dispatcher binds the task to that
+tier (`hivemind.queen.dispatcher.ready`). So before anything else is checked, a freshly provisioned
+Cell whose link names a tier other than the one it was provisioned at is torn down and refused:
+a Cell that is misconfigured, or lying, never gets a task bound to the wrong tier. (Until the
+in-Cell Warden read its tier from its bootstrap, every Night Veil Cell announced MEADOW and its
+tasks were bound to MEADOW.)
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`: this
     provider names `WardenLink`/`Task`/`Queen`, all Layer-6 concepts `hive` (Layer 3) may never
@@ -77,6 +85,8 @@ Key invariants:
       this returns.
     - Every failure past a successful `provision`/`resume` tears the Cell down before raising, so
       a failed acquire never leaves an orphaned Cell for the Undertaker's own sweep to find later.
+    - A freshly provisioned Cell never reaches `mark_ready` unless its link carries the tier it
+      was provisioned at.
     - A NIGHT_VEIL Cell never reaches `mark_ready` without a passed `attest_cell` call first
       (ADR-0030): a red check, or the probe raising, tears the Cell down the same way any other
       post-provision failure does.
@@ -201,6 +211,8 @@ class LifecycleVirtualCellProvider:
             raise CellProvisionError(
                 placement.backend, placement.spec.image, f"never became reachable: {exc}"
             ) from exc
+        # The task is bound to the tier its link carries, which the Cell announced itself.
+        await self._require_provisioned_tier(cell, link, placement)
         if cell.comb_shield is CombShieldLevel.NIGHT_VEIL:
             # ADR-0030: "readiness is attestation of an image, never configuration of a Cell."
             # Runs after the link is found (attest_cell needs nothing from it) but strictly
@@ -208,6 +220,26 @@ class LifecycleVirtualCellProvider:
             await self._attest_or_teardown(cell, placement)
         await self._lifecycle.mark_ready(cell.id, link.warden_id)
         return link
+
+    async def _require_provisioned_tier(
+        self, cell: Cell, link: WardenLink, placement: ProvisionVirtual
+    ) -> None:
+        """Tear `cell` down unless its link carries the tier it was provisioned at.
+
+        Raises:
+            CellProvisionError: The Cell announced another tier; it is already torn down.
+        """
+        announced = link.cell.comb_shield
+        if announced is cell.comb_shield:
+            return
+        # Refused, never corrected: the Cell's own view of its tier is what its Warden enforces.
+        await self._teardown_best_effort(cell.id)
+        raise CellProvisionError(
+            placement.backend,
+            placement.spec.image,
+            f"announced Comb Shield tier {announced.value}, but was provisioned at "
+            f"{cell.comb_shield.value}",
+        )
 
     async def _attest_or_teardown(self, cell: Cell, placement: ProvisionVirtual) -> None:
         """Attest `cell` (NIGHT_VEIL only); a red check or a probe failure tears it down.
