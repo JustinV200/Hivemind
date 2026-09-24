@@ -118,7 +118,9 @@ async def test_unassign_then_assign_again_bumps_attempt() -> None:
 
 
 async def test_assign_binds_the_task_to_its_cells_tier_and_records_it() -> None:
-    # Roadmap step 10.3b: a task inherits the Comb Shield tier of the Cell where it executes.
+    # Roadmap step 10.3b: a task inherits the Comb Shield tier of the Cell where it executes. A
+    # Night Veil binding is stored the same way but never recorded: its event carries nothing
+    # beyond the task id (codingrules 12; test_base.py covers that cut).
     clock = FakeClock()
     chamber, store, trail = _make_chamber(clock)
     task = await _seed(store, clock, status=TaskStatus.PENDING)
@@ -128,13 +130,13 @@ async def test_assign_binds_the_task_to_its_cells_tier_and_records_it() -> None:
         new_warden_id(clock),
         new_cell_id(clock),
         "placement",
-        bound_tier=CombShieldLevel.NIGHT_VEIL,
+        bound_tier=CombShieldLevel.PROPOLIS,
     )
 
-    assert assigned.bound_tier is CombShieldLevel.NIGHT_VEIL
-    assert (await store.get_task(task.id)).bound_tier is CombShieldLevel.NIGHT_VEIL
+    assert assigned.bound_tier is CombShieldLevel.PROPOLIS
+    assert (await store.get_task(task.id)).bound_tier is CombShieldLevel.PROPOLIS
     [assigned_event] = [e for e in await _events_for(trail, task.id) if e.kind == "task.assigned"]
-    assert assigned_event.payload["bound_tier"] == "NIGHT_VEIL"
+    assert assigned_event.payload["bound_tier"] == "PROPOLIS"
 
 
 async def test_a_task_moved_to_a_cell_of_another_tier_is_rebound_before_it_runs() -> None:

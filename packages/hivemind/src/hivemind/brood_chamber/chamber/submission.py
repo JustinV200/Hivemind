@@ -75,7 +75,8 @@ class _SubmissionMixin(_ChamberBase):
                 "goal_id": goal_id,
                 "depends_on": list(task.spec.depends_on),
             }
-            events.append(self._build_event(task.id, "task.submitted", payload, now))
+            # A Night Veil task's title is the human's goal (C2): _build_event cuts it away.
+            events.append(self._build_event(task, "task.submitted", payload, now))
 
         await self._store.insert_tasks(tasks, events)
         return tuple(tasks)
