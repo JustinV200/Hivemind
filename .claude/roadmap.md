@@ -1529,7 +1529,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   security event. Payloads say only that something is waiting, never the content. A question
   answered on any device is withdrawn from every other; a test asks from the CLI, answers by
   webhook, and asserts the web-push copy is withdrawn.
-- [ ] **10.5c Landing Board contract and client guide.** `docs/entrance/landing-board.md`: the
+- [x] **10.5c Landing Board contract and client guide.** `docs/entrance/landing-board.md`: the
   three calls a client needs (submit a goal, subscribe, answer) with `curl` examples, the
   enrolment flow from the device's side, the push contract, and the versioning rule (additive
   within `/v1/`, breaking means `/v2/` with `/v1/` kept for one Brood). A conformance test drives

@@ -17,6 +17,8 @@ Fits into the Hive:
 Key invariants:
     - The chat view needs ``entrance:submit`` and ``honey:clearance:c2``, like reading the chat.
     - A push frame is a ``PushNotice``: it never carries content.
+    - A notice sent to a socket whose client already left detaches that socket; nothing the send
+      raises escapes into the push outbox.
 
 See Also:
     - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
@@ -28,12 +30,12 @@ import asyncio
 from typing import Annotated
 
 from fastapi import Query
-from starlette.websockets import WebSocket
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
 from hivemind.entrance.models import ChatFrame, SecurityFrame, chat_line, security_frame
-from hivemind.entrance.push import LiveSocketClosedError, PushNotice
+from hivemind.entrance.push import LiveSender, LiveSocketClosedError, PushNotice
 from hivemind.entrance.streams.errors import CloseReason, StreamClosedError
 from hivemind.entrance.streams.socket import StreamContext, send_frame, serve_socket
 from hivemind.pheromone import PheromoneEvent
@@ -44,13 +46,22 @@ CHAT_RESYNC_S = 2.0  # The chat log is re-read at least this often, whatever the
 _CHAT_FAMILIES = frozenset({"queen", "task", "alarm"})  # Trail families a chat line comes with.
 _DOOR_KINDS = frozenset({"guard.reduced", "guard.reopened", "guard.reduce_ordered"})
 _ENTRANCE_PREFIX = "guard.entrance_"  # Every enrolled-device and session security event.
-_GONE = (OSError, RuntimeError)  # What a send on a socket the client already left raises.
+# What a send on a socket the client already left raises: Starlette's disconnect (a client that
+# closed while a notice was in flight), or a reset connection, or a send after the close.
+_GONE = (WebSocketDisconnect, OSError, RuntimeError)
 
 _CHAT_ACCESS = session_with("entrance:submit", c2=True)
 _PUSH_ACCESS = session_with("entrance:push")
 _SECURITY_ACCESS = session_with("observe")
 
-__all__ = ["CHAT_RESYNC_S", "VIEWS", "chat_stream", "push_stream", "security_stream"]
+__all__ = [
+    "CHAT_RESYNC_S",
+    "VIEWS",
+    "chat_stream",
+    "live_sender",
+    "push_stream",
+    "security_stream",
+]
 
 
 async def chat_stream(
@@ -97,6 +108,33 @@ async def security_stream(websocket: WebSocket, services: Services, here: Here) 
     await serve_socket(websocket, _SECURITY_ACCESS, _follow_security, services, here)
 
 
+def live_sender(websocket: WebSocket, gone: asyncio.Event) -> LiveSender:
+    """Build the live push channel's sender for one admitted socket.
+
+    A notice can be in flight while its device closes the socket; whatever the send then raises
+    must detach this sender, never escape into the push outbox, which shares a task group with
+    the Queen.
+
+    Args:
+        websocket: The admitted socket notices are written to.
+        gone: Set when a send finds the client gone, which ends the view.
+
+    Returns:
+        What ``LivePush.attach`` takes: it writes one frame, and turns a lost socket into
+        ``LiveSocketClosedError``, which the hub answers by detaching it.
+    """
+
+    async def send(frame: str) -> None:
+        """Write one notice frame; a lost socket detaches this sender."""
+        try:
+            await websocket.send_text(frame)
+        except _GONE as error:
+            gone.set()
+            raise LiveSocketClosedError(str(error)) from None
+
+    return send
+
+
 async def _follow_chat(context: StreamContext, after: int | None) -> CloseReason:
     """Send chat lines after the cursor until the socket or the subscription closes."""
     chat = context.services.hive.chat
@@ -134,17 +172,8 @@ async def _newest_seq(context: StreamContext) -> int:
 async def _live_push(context: StreamContext) -> CloseReason:
     """Attach to the live push hub and wait until the socket goes."""
     gone = asyncio.Event()
-
-    async def send(frame: str) -> None:
-        """Write one notice frame; a lost socket detaches this sender."""
-        try:
-            await context.websocket.send_text(frame)
-        except _GONE as error:
-            gone.set()
-            raise LiveSocketClosedError(str(error)) from None
-
     live = context.services.push.live
-    attachment = live.attach(context.caller.device.id, send)
+    attachment = live.attach(context.caller.device.id, live_sender(context.websocket, gone))
     try:
         await gone.wait()
         return CloseReason.UNSUBSCRIBED

@@ -2,7 +2,9 @@
 
 Over a real listener and a real Queen: the chat stream sends a line the moment it is written, the
 live push channel carries a content-free notice to an attached device, and the security stream
-carries every Entrance security event from the trail.
+carries every Entrance security event from the trail. A notice sent to a socket whose client has
+just left detaches it quietly (roadmap step 10.5c's guide test found it raising out of the push
+outbox and stopping `hive serve`).
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/streams/views.py (codingrules section 3).
@@ -15,11 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, cast
 
 from builders.entrance.landing import LandingClient, LandingSession
 from builders.entrance.serving import ProgramGrant, ServingRig, serving
+from starlette.websockets import WebSocket, WebSocketDisconnect
 from websockets.asyncio.client import ClientConnection, connect
+
+from hivemind.entrance.push import DeliveryOutcome, LivePush, NoticeKind, PushNotice
+from hivemind.entrance.streams.views import live_sender
+from waggle.clock import SystemClock
+from waggle.ids import new_device_id
 
 _WAIT_S = 3.0  # Generous: every frame here follows a local write.
 _EVERYTHING = ProgramGrant(
@@ -93,3 +101,23 @@ async def test_the_security_stream_carries_entrance_events_from_the_trail() -> N
             await socket.close()
 
     assert "guard.entrance_invited" in kinds
+
+
+class _LeftSocket:
+    """A socket whose client already left: a send raises what Starlette raises for it then."""
+
+    async def send_text(self, data: str) -> None:
+        """Refuse the frame the way a socket whose client disconnected does."""
+        raise WebSocketDisconnect(code=1006)
+
+
+async def test_a_notice_to_a_socket_whose_client_left_detaches_it_and_raises_nothing() -> None:
+    clock, gone, hub = SystemClock(), asyncio.Event(), LivePush()
+    device_id = new_device_id(clock)
+    hub.attach(device_id, live_sender(cast(WebSocket, _LeftSocket()), gone))
+    notice = PushNotice.mint(NoticeKind.WITHDRAWN, "question_x", clock)
+
+    outcome = await hub.deliver(notice, device_id)
+
+    assert outcome is DeliveryOutcome.GONE
+    assert gone.is_set() and device_id not in hub.live_devices()
