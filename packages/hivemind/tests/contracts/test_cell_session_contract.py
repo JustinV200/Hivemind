@@ -37,6 +37,7 @@ from typing import Protocol
 import pytest
 from builders.cells import make_hive_stand_releaser, make_real_cell_lease
 
+from hivemind.cell import RealCellLease
 from hivemind.cell.errors import CommandTimeoutError, PathNotAllowedError, SessionClosedError
 from hivemind.cell.fake import FakeSession
 from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
@@ -64,6 +65,10 @@ class SessionHarness(Protocol):
 
     def command_for(self, case: str) -> tuple[str, ...]:
         """Return the ExecSpec argv this implementation answers `case` with."""
+        ...
+
+    def widen(self, session: CellSession, path: Path) -> None:
+        """Make `path` reachable for an already-built `session`, the way a lease is widened."""
         ...
 
 
@@ -97,6 +102,10 @@ class _FakeHarness:
     def command_for(self, case: str) -> tuple[str, ...]:
         return (case,)
 
+    def widen(self, session: CellSession, path: Path) -> None:
+        assert isinstance(session, FakeSession)
+        session.allow_path(path)
+
 
 # One small `python -c` script per case, producing the exact same fixed outcome _FakeHarness's
 # responder maps a case to -- so a test body cannot tell which harness ran it. `sys.stdout.buffer`/
@@ -116,6 +125,9 @@ _LOCAL_SCRIPTS = {
 class _LocalHarness:
     """Builds a LocalProcessSession over a real, unopened RealCellLease and a real subprocess."""
 
+    def __init__(self) -> None:
+        self._leases: dict[int, RealCellLease] = {}
+
     def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
         # A real SystemClock: this harness spawns real child processes, whose exit and timeout
         # timing cannot be driven by a FakeClock. note_started_process/note_touched_path never
@@ -127,7 +139,12 @@ class _LocalHarness:
             releaser=make_hive_stand_releaser(clock=clock),
             allowed_paths=allowed_paths,
         )
-        return LocalProcessSession(lease, ScratchQuota(quota_bytes=_LOCAL_QUOTA_BYTES), clock)
+        session = LocalProcessSession(lease, ScratchQuota(quota_bytes=_LOCAL_QUOTA_BYTES), clock)
+        self._leases[id(session)] = lease
+        return session
+
+    def widen(self, session: CellSession, path: Path) -> None:
+        self._leases[id(session)].note_allowed_path(path)
 
     def command_for(self, case: str) -> tuple[str, ...]:
         if case == "missing":
@@ -143,6 +160,9 @@ class _InCellHarness:
     `python -c` script -- which is the point of one contract suite covering both.
     """
 
+    def __init__(self) -> None:
+        self._leases: dict[int, RealCellLease] = {}
+
     def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
         # A real SystemClock, matching _LocalHarness's own reasoning: real child processes, real
         # exit and timeout timing.
@@ -153,7 +173,12 @@ class _InCellHarness:
             releaser=InCellLeaseReleaser(clock),
             allowed_paths=allowed_paths,
         )
-        return InCellSession(lease, clock)
+        session = InCellSession(lease, clock)
+        self._leases[id(session)] = lease
+        return session
+
+    def widen(self, session: CellSession, path: Path) -> None:
+        self._leases[id(session)].note_allowed_path(path)
 
     def command_for(self, case: str) -> tuple[str, ...]:
         if case == "missing":
@@ -266,6 +291,24 @@ async def test_path_outside_scratch_raises_unless_allowed(
     with pytest.raises(PathNotAllowedError):
         await refusing.put_file(outside_root / "data.bin", b"payload")
     await allowing.put_file(outside_root / "data.bin", b"payload")  # Does not raise.
+
+
+async def test_a_path_allowed_after_construction_is_reachable(
+    harness: SessionHarness, tmp_path: Path
+) -> None:
+    """A lease widened after the session exists (keep_root, a declared Leaving) is honoured.
+
+    `hivemind.wardens.spawn` widens the lease per sub-bee once the session already exists, so a
+    session must read its allowed paths live, never snapshot them at construction (the merge
+    review found `InCellSession` doing exactly that).
+    """
+    outside_root = tmp_path.parent / "outside-widened"
+    session = harness.make_session(tmp_path)
+    with pytest.raises(PathNotAllowedError):
+        await session.put_file(outside_root / "data.bin", b"payload")
+
+    harness.widen(session, outside_root)
+    await session.put_file(outside_root / "data.bin", b"payload")  # Does not raise.
 
 
 async def test_timeout_raises_command_timeout(harness: SessionHarness, tmp_path: Path) -> None:

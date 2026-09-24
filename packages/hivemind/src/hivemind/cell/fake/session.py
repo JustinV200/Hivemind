@@ -90,6 +90,16 @@ class FakeSession:
         self._files: dict[Path, bytes] = {}
         self._open = True
 
+    def allow_path(self, path: Path) -> None:
+        """Widen this session's reachable paths to `path`, as a lease widened after construction.
+
+        The real sessions read their lease's `allowed_paths` live on every call, because
+        `hivemind.wardens.spawn` widens the lease per sub-bee (roadmap step 5.0e's `keep_root`
+        and declared Leavings) after the session exists; this is the fake's equivalent, so the
+        CellSession contract can pin that behaviour across every implementation.
+        """
+        self._allowed_paths = (*self._allowed_paths, path.resolve(strict=False))
+
     @property
     def scratch_dir(self) -> Path:
         """This session's scratch directory."""

@@ -80,7 +80,6 @@ class InCellSession:
         """
         self._lease = lease
         self._scratch_dir = lease.scratch_root
-        self._allowed_paths = lease.allowed_paths
         self._clock = clock
         self._open = True
 
@@ -134,7 +133,7 @@ class InCellSession:
         """
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
-        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._lease.allowed_paths)
         if _is_outside_scratch(self._scratch_dir, resolved):
             # codingrules section 12: a write outside scratch is always audited on the lease, even
             # though (module docstring) nothing here will ever be individually restored.
@@ -157,7 +156,7 @@ class InCellSession:
         """
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
-        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._lease.allowed_paths)
         if not resolved.exists():
             raise FileNotFoundError(f"No file at {resolved}.")
         return await asyncio.to_thread(resolved.read_bytes)
@@ -175,7 +174,7 @@ class InCellSession:
         """
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
-        resolved = resolve_scratch_path(self._scratch_dir, path, self._allowed_paths)
+        resolved = resolve_scratch_path(self._scratch_dir, path, self._lease.allowed_paths)
         if _is_outside_scratch(self._scratch_dir, resolved):
             await self._lease.note_touched_path(resolved)
         if not resolved.exists():
