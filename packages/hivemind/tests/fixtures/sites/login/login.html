@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  The fixture site's login page: the browser fast path's contract suite and the phase 6 exit
+  scenario log in here. Every accessible name below is mirrored by
+  hivemind.exoskeleton.browser.fake.login.login_site(); change both together.
+  No external resources: it works opened as a file:// URL and served over http alike.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Log in - HiveMind fixture</title>
+</head>
+<body>
+  <main>
+    <h1>Log in</h1>
+    <form id="login-form" novalidate>
+      <p>
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="off">
+      </p>
+      <p>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="off">
+      </p>
+      <p><button id="submit" type="submit">Log in</button></p>
+    </form>
+    <p><a id="help-link" href="#help">Forgot your password?</a></p>
+    <p id="help" hidden>Ask the beekeeper for a new one.</p>
+    <div id="alert-slot"></div>
+  </main>
+  <script>
+    "use strict";
+    // The one account this fixture knows. Never a real credential: it is printed in the README.
+    const USERNAME = "alice";
+    const PASSWORD = "honeycomb";
+
+    // Submitting the form (the button, or Enter in either field) checks the credentials here,
+    // in the page, so the site needs no server and behaves the same over file:// and http.
+    document.getElementById("login-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+      if (username === USERNAME && password === PASSWORD) {
+        // The session lives in localStorage because Chromium gives file:// pages no cookies;
+        // the cookie is set too, so a run served over http also has one to checkpoint.
+        localStorage.setItem("session", username);
+        document.cookie = "session=" + username + "; path=/; SameSite=Lax";
+        location.assign("welcome.html");
+        return;
+      }
+      // One alert at a time: a second failure replaces the first rather than stacking.
+      const alert = document.createElement("p");
+      alert.setAttribute("role", "alert");
+      alert.textContent = "Wrong username or password";
+      document.getElementById("alert-slot").replaceChildren(alert);
+    });
+
+    // The help text is in the page from the start but hidden, so it is not there for anyone
+    // (a person or a locator) until the link reveals it.
+    document.getElementById("help-link").addEventListener("click", (event) => {
+      event.preventDefault();
+      document.getElementById("help").hidden = false;
+    });
+  </script>
+</body>
+</html>

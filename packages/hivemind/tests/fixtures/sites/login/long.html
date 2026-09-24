@@ -1,0 +1,23 @@
+<!doctype html>
+<!--
+  A page far longer than any read the browser fast path returns whole: its text and its
+  accessibility snapshot must both come back cut to their caps. The text is generated in the
+  page so this file stays small. Mirrored by hivemind.exoskeleton.browser.fake.login.login_site().
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Long page - HiveMind fixture</title>
+</head>
+<body>
+  <main>
+    <h1>A long page</h1>
+    <p id="long"></p>
+  </main>
+  <script>
+    "use strict";
+    // 4,000 repetitions of a 21-character line: 84,000 characters, several times every cap.
+    document.getElementById("long").textContent = "The hive hums along. ".repeat(4000);
+  </script>
+</body>
+</html>

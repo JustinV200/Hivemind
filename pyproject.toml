@@ -431,6 +431,20 @@ forbidden_modules = ["docker"]
 ignore_imports = ["hivemind.hive.backends.docker.sdk_client -> docker"]
 
 [[tool.importlinter.contracts]]
+# ADR-0031 and roadmap step 6.11, the Docker SDK's confinement pattern above applied to Playwright:
+# the Exoskeleton's browser fast path drives Chromium with Playwright over CDP, an optional
+# dependency (the `hivemind[browser]` extra) imported only inside the
+# hivemind.exoskeleton.browser.playwright package (calls, connect, page, storage), which
+# hivemind.exoskeleton.browser.launch imports lazily, at launch. So the rest of the workspace, extra
+# installed or not, never needs Playwright to import cleanly. The package's own __init__ imports
+# only its modules, which is why the carve-out names its descendants.
+name = "Playwright only inside exoskeleton/browser/playwright"
+type = "forbidden"
+source_modules = ["hivemind", "waggle", "pollen"]
+forbidden_modules = ["playwright"]
+ignore_imports = ["hivemind.exoskeleton.browser.playwright.** -> playwright"]
+
+[[tool.importlinter.contracts]]
 # codingrules section 4: "subprocess... importable only from `hivemind.cell.*`...
 # `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`, `pollen.*`
 # and `scripts/`." pollen is deliberately not a source module of this contract -- it has no Cell
