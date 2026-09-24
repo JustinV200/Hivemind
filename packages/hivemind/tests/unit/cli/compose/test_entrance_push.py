@@ -1,4 +1,4 @@
-"""Test `hive serve`'s push client: deliveries go over the network unless a test injects a transport.
+"""Test `hive serve` push client: over the network, unless a test injects a transport.
 
 Push deliveries (every webhook and Web Push request) leave through httpx's own network transport,
 TLS verified for the pinned name and with no environment proxy, unless a test injects a transport

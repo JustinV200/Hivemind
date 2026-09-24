@@ -28,7 +28,7 @@ import ssl
 import sys
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import httpx
@@ -47,7 +47,8 @@ from hivemind.cli.landing import ClientCertificate, certificate_request, present
 from hivemind.common.secrets import FileSecretStore
 from hivemind.entrance.app import OPENAPI_PATH
 from hivemind.entrance.enrol import DeviceCertifier
-from hivemind.entrance.expose import load_or_create_authority
+from hivemind.entrance.expose import ExposurePlan, ListenerPlan, load_or_create_authority
+from hivemind.manifest import EntranceExposure
 from waggle.ids import DeviceId, IdKind, new_id
 from waggle.signing import Ed25519Signer
 
@@ -92,6 +93,34 @@ def test_loopback_serves_the_contract(tmp_path: Path) -> None:
     status = asyncio.run(_enter(served))
 
     assert status == 200
+
+
+async def _both(served: ServedHive) -> tuple[int, int]:
+    """Enter serve_hive and fetch the contract from both listeners, plain HTTP."""
+    async with serve_hive(served) as entrance, httpx.AsyncClient(trust_env=False) as http:
+        listeners = entrance.listeners
+        statuses = []
+        for port in (listeners.loopback_port, listeners.remote_port):
+            statuses.append((await http.get(f"http://127.0.0.1:{port}{OPENAPI_PATH}")).status_code)
+        return statuses[0], statuses[1]
+
+
+def test_an_injected_plan_is_served_as_given(tmp_path: Path) -> None:
+    # A test's own plan (ServedHive.plan) opens a remote listener no manifest could ask for here.
+    listener = ListenerPlan("127.0.0.1", 0, None)
+    plan = ExposurePlan(
+        mode=EntranceExposure.VPN,
+        loopback=listener,
+        remote=listener,
+        public_origin="https://hive.example.ts.net",
+        rp_id="hive.example.ts.net",
+        tunnel_argv=(),
+    )
+    served = served_exposed(tmp_path, 'bind = "127.0.0.1:0"\n', _LOOPBACK_ONLY)
+
+    statuses = asyncio.run(_both(replace(served, plan=plan)))
+
+    assert statuses == (200, 200)
 
 
 def test_a_loopback_listener_that_cannot_bind_refuses_to_start(tmp_path: Path) -> None:

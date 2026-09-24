@@ -127,6 +127,9 @@ class ServedHive:
         push_transport: Carries every push delivery; None (production) is httpx's own transport
             over the network, TLS verified. A test injects a recording one so nothing leaves the
             process; the destination guard still vets and pins every delivery either way.
+        plan: The listeners to serve; None (production) plans them from `[entrance]` against
+            this host, refusing what it cannot honour. A test injects one only to open a remote
+            listener where the host has no overlay address; no manifest can set it.
     """
 
     hive: Hive
@@ -134,6 +137,7 @@ class ServedHive:
     interfaces: LocalInterfaces = field(default_factory=SystemInterfaces)
     resolver: Resolver = system_resolver
     push_transport: httpx.AsyncBaseTransport | None = field(default=None, repr=False)
+    plan: ExposurePlan | None = None
 
 
 def build_served_hive(
@@ -252,6 +256,8 @@ async def _running(entrance: HiveEntrance) -> AsyncIterator[HiveEntrance]:
 
 async def _plan(served: ServedHive) -> ExposurePlan:
     """Check `[entrance]` against this host and plan the listeners, or refuse."""
+    if served.plan is not None:
+        return served.plan  # A test's own plan (see ServedHive); production never sets one.
     manifest = served.hive.manifest
     facts = await gather_facts(
         manifest.entrance, served.interfaces, served.hive.clock, manifest.resolve_path
