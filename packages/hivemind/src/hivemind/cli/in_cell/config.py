@@ -89,9 +89,10 @@ from waggle.uris import check_waggle_uri, is_loopback_host, is_onion_service_hos
 # user's data directory the base-ubuntu image creates (images/base-ubuntu/Dockerfile/README).
 DEFAULT_SCRATCH_ROOT = Path("/var/lib/hivemind/scratch")
 
-# How often this Cell sends CellHeartbeat; no manifest exists inside a Virtual Cell image to read
-# a configured cadence from (this module's own docstring), so a fixed, generous constant stands in
-# until a future step threads one through CellReady/an explicit env var if that proves too coarse.
+# How often this Cell sends CellHeartbeat and its Warden its Heartbeat; no manifest exists inside a
+# Virtual Cell image to read a configured cadence from (this module's own docstring), so a fixed,
+# generous constant stands in. Every Heartbeat declares it (`Heartbeat.interval_s`) and the Queen
+# judges this Warden by it (hivemind.queen.ticks.liveness), not by the manifest's own cadence.
 DEFAULT_HEARTBEAT_INTERVAL_S = 15.0
 
 # Mirrors hivemind.llm.registry.ProviderKind's own three members; a HIVEMIND_PROVIDERS row naming

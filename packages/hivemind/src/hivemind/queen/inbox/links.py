@@ -9,11 +9,14 @@ the Warden against it, and raised a fresh `CELL_UNREACHABLE` Alarm about a Warde
 heartbeating the whole time (a real run of 2026-09-24: five false Alarms). `LinkReaders` is the
 fix's first half: every attached link gets its own reader task, started on attach and reaped on
 detach and on stop, which reads its transport as frames arrive into that link's own bounded queue
-and notes the newest Heartbeat it has heard. The tick `wait`s until anything is queued (or her
-stop flag or wake signal is set), `drain`s everything queued on every link into `InboxItem`s for
-her Attendant, and judges liveness against `heard()` as well as what she has handled, so a stall
-of her own tick is never mistaken for a silent Warden. The second half, never letting a stale
-Heartbeat bring a Warden back online, is `hivemind.queen.ticks.liveness.record_heartbeat`.
+and notes the newest Heartbeat it has heard as a `Pulse`: when it was sent, and the interval the
+Warden declared on it (`Heartbeat.interval_s`), since every Warden heartbeats at its own cadence
+(a Virtual Cell's in-Cell Warden every 15 s, a Swarm device at whatever its battery allows). The
+tick `wait`s until anything is queued (or her stop flag or wake signal is set), `drain`s
+everything queued on every link into `InboxItem`s for her Attendant, and judges liveness against
+`heard()` as well as what she has handled, so a stall of her own tick is never mistaken for a
+silent Warden. The second half, never letting a stale Heartbeat bring a Warden back online, is
+`hivemind.queen.ticks.liveness.record_heartbeat`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's inbox
@@ -36,7 +39,8 @@ Key invariants:
       fresh `receive()` (the Transport contract: that pair stays open). A clean end, a lost link,
       any other decode failure or a signature failure ends the link with one `None` marker, which
       `drain` consumes without producing an item (the end-of-link handling the tick always had).
-    - `heard()` never moves backwards for a link: it is the newest Heartbeat `sent_at` read.
+    - `heard()` never moves backwards for a link: it is the Pulse of the newest Heartbeat read,
+      by `sent_at`, and carries that same Heartbeat's declared interval.
 
 See Also:
     - .claude/codingrules.md section 11 for the structured-concurrency rules the readers follow.
@@ -67,7 +71,21 @@ from waggle.transport.base import Transport
 # 1 MiB frame cap it still bounds what one Warden can make the Queen hold.
 LINK_QUEUE_SIZE = 256
 
-__all__ = ["LINK_QUEUE_SIZE", "LinkReaders"]
+__all__ = ["LINK_QUEUE_SIZE", "LinkReaders", "Pulse"]
+
+
+@dataclass(frozen=True, slots=True)
+class Pulse:
+    """One Heartbeat as proof of life: when its Warden sent it, and the cadence it declared.
+
+    Attributes:
+        sent_at: The Heartbeat envelope's own `sent_at`: proof of life as of then, not of now.
+        interval_s: The sender's own heartbeat interval (`Heartbeat.interval_s`), so the Queen
+            judges each Warden against the cadence it actually keeps.
+    """
+
+    sent_at: datetime
+    interval_s: float
 
 
 @dataclass(slots=True)
@@ -75,18 +93,18 @@ class _Link:
     """One attached link's own reader state: its bounded queue, its task, the newest Heartbeat.
 
     Owns its own mutable state in place (codingrules section 8.5): `task` is set right after the
-    reader it names is started (the reader needs this object first), and `heard_at` advances as
+    reader it names is started (the reader needs this object first), and `pulse` advances as
     that reader hears newer Heartbeats.
     """
 
     queue: asyncio.Queue[Envelope | None]
     task: asyncio.Task[None] | None = None
-    heard_at: datetime | None = None  # The newest Heartbeat `sent_at` read; None before any.
+    pulse: Pulse | None = None  # The newest Heartbeat read, by `sent_at`; None before any.
 
-    def hear(self, sent_at: datetime) -> None:
-        """Advance `heard_at` to `sent_at`, never backwards."""
-        if self.heard_at is None or sent_at > self.heard_at:
-            self.heard_at = sent_at
+    def hear(self, pulse: Pulse) -> None:
+        """Advance to `pulse` if it was sent after the newest one heard, never backwards."""
+        if self.pulse is None or pulse.sent_at > self.pulse.sent_at:
+            self.pulse = pulse
 
 
 class LinkReaders:
@@ -185,14 +203,14 @@ class LinkReaders:
         self._ready.clear()
         return items
 
-    def heard(self) -> Mapping[WardenId, datetime]:
-        """Return each link's newest Heartbeat `sent_at` read so far, whether handled or not.
+    def heard(self) -> Mapping[WardenId, Pulse]:
+        """Return the Pulse of each link's newest Heartbeat read so far, handled or not.
 
         Returns:
             A read-only snapshot, one entry per attached link that has delivered a Heartbeat.
         """
         return MappingProxyType(
-            {wid: link.heard_at for wid, link in self._links.items() if link.heard_at is not None}
+            {wid: link.pulse for wid, link in self._links.items() if link.pulse is not None}
         )
 
     def queued(self, warden_id: WardenId) -> int:
@@ -222,7 +240,9 @@ class LinkReaders:
             # link is the transport's own keepalive to detect, and it ends this stream when it does.
             async for envelope in stream:
                 if isinstance(envelope.payload, Heartbeat):
-                    link.hear(envelope.sent_at)
+                    link.hear(
+                        Pulse(sent_at=envelope.sent_at, interval_s=envelope.payload.interval_s)
+                    )
                 # Waits while the queue is full, leaving the rest with the transport (backpressure).
                 await link.queue.put(envelope)
                 self._ready.set()

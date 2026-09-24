@@ -103,6 +103,16 @@ Drone's grant without a free core.
   credentials, with a stolen token signed by another key and replayed are refused, as is the laptop
   while pending, locked by five wrong passwords (unlocked on loopback) and revoked. The follower is
   a child process because `CliRunner` swaps the process's standard streams while a command runs.
+- `test_slow_provision.py` (`@pytest.mark.e2e`) -- a Virtual Cell provision slowed far past the
+  manifest's liveness window (the container-spawning fake backend's `set_provision_delay`): the
+  Hive Stand's Warden, heartbeating the whole time the Queen's tick is stalled, is never reported
+  unreachable, and the Drone's model calls inside the Cell go through the Cell's own Fanner, so
+  its `llm.call` rows reach the Queen's trail with the Cell's shipped segment.
+- `test_cell_heartbeat_cadence.py` (`@pytest.mark.e2e`) -- a Virtual Cell whose in-Cell Warden
+  heartbeats every 15 s (its own default, declared on every Heartbeat) outlives its task through
+  Overwintering; the Queen goes on judging it for ten of the manifest's 0.3 s windows past its
+  first Heartbeat and raises no `CELL_UNREACHABLE` about it: each Warden is judged by the cadence
+  it declares, never below the manifest's. About twenty seconds, most of it that first 15 s.
 
 ## Budget
 

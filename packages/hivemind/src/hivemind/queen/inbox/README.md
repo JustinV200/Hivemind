@@ -13,9 +13,10 @@ Unlike `hivemind.wardens.inbox`, this package MAY import `hivemind.llm`: only an
   rest wait with the transport). The Queen's tick waits until anything is queued (or her stop flag
   or wake signal), then `drain`s everything queued on every link -- never more than one queue's
   worth from a single link, so a flooding Warden cannot starve the rest -- before her Attendant
-  orders it. `heard()` is the newest Heartbeat each link delivered, handled or not: the liveness
-  sweep judges by it, so a stall of the Queen's own tick (a Virtual Cell provision awaited inline,
-  a long awake episode) is never mistaken for a silent Warden.
+  orders it. `heard()` is the newest Heartbeat each link delivered, handled or not, as a `Pulse`
+  (when it was sent, and the interval its Warden declared): the liveness sweep judges by it, at
+  that Warden's own cadence, so a stall of the Queen's own tick (a Virtual Cell provision awaited
+  inline, a long awake episode) is never mistaken for a silent Warden.
 - `queen_attendant`, `to_inbox_item` (`weights.py`): build the Queen's own
   `hivemind.supervision.attendant.Attendant` over `WeightTable.queen_default()`, and classify one
   received envelope into the `InboxItem` shape it scores. A `CellWaxProposed` (roadmap step 4.2a)

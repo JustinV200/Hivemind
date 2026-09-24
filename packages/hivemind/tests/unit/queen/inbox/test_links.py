@@ -26,7 +26,7 @@ from datetime import timedelta
 import pytest
 from builders.supervision import make_telemetry
 
-from hivemind.queen.inbox.links import LinkReaders
+from hivemind.queen.inbox.links import LinkReaders, Pulse
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
@@ -55,8 +55,8 @@ def _link(clock: FakeClock) -> _Link:
     return _Link(warden_id=warden_id, queen_end=queen_end, warden_end=warden_end, hop=hop)
 
 
-def _heartbeat() -> Heartbeat:
-    """A routine Heartbeat from an active Warden."""
+def _heartbeat(interval_s: float = 5.0) -> Heartbeat:
+    """A routine Heartbeat from an active Warden, declaring `interval_s` as its cadence."""
     return Heartbeat(
         telemetry=make_telemetry(),
         task_id=None,
@@ -65,7 +65,7 @@ def _heartbeat() -> Heartbeat:
         children=(),
         grant_id=None,
         grant_spend=None,
-        interval_s=5.0,
+        interval_s=interval_s,
     )
 
 
@@ -161,9 +161,9 @@ async def test_heard_is_the_newest_heartbeat_each_link_delivered_handled_or_not(
     await _until(lambda: readers.queued(link.warden_id) == 3)
 
     # Heard before any drain: the newest Heartbeat counts even while it still waits in the queue.
-    assert readers.heard() == {link.warden_id: clock.now()}
+    assert readers.heard() == {link.warden_id: Pulse(sent_at=clock.now(), interval_s=5.0)}
     readers.drain()
-    assert readers.heard() == {link.warden_id: clock.now()}
+    assert readers.heard() == {link.warden_id: Pulse(sent_at=clock.now(), interval_s=5.0)}
     await readers.aclose()
 
 
@@ -174,12 +174,28 @@ async def test_heard_never_moves_backwards_for_an_older_heartbeat_heard_later() 
     await readers.add(link.warden_id, link.queen_end)
     await _send_heartbeats(link, clock, 1)
     newest = clock.now()
-    # A Heartbeat stamped earlier than the one already heard, delivered after it.
+    # A Heartbeat stamped earlier than the one already heard, delivered after it, declaring a
+    # cadence of its own: neither its time nor its interval replaces the newest one's.
     late = FakeClock(start=newest - timedelta(seconds=30))
-    await link.warden_end.send(wrap(_heartbeat(), link.hop, clock=late))
+    await link.warden_end.send(wrap(_heartbeat(interval_s=60.0), link.hop, clock=late))
     await _until(lambda: readers.queued(link.warden_id) == 2)
 
-    assert readers.heard() == {link.warden_id: newest}
+    assert readers.heard() == {link.warden_id: Pulse(sent_at=newest, interval_s=5.0)}
+    await readers.aclose()
+
+
+async def test_heard_carries_the_interval_the_newest_heartbeat_declared() -> None:
+    clock = FakeClock()
+    readers = LinkReaders()
+    link = _link(clock)
+    await readers.add(link.warden_id, link.queen_end)
+    await link.warden_end.send(wrap(_heartbeat(interval_s=15.0), link.hop, clock=clock))
+    clock.advance(15.0)
+    await link.warden_end.send(wrap(_heartbeat(interval_s=30.0), link.hop, clock=clock))
+    await _until(lambda: readers.queued(link.warden_id) == 2)
+
+    # A Warden that slows its own cadence is judged by the one it declared last.
+    assert readers.heard() == {link.warden_id: Pulse(sent_at=clock.now(), interval_s=30.0)}
     await readers.aclose()
 
 

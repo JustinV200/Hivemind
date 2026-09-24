@@ -16,10 +16,11 @@ every assignment goes to a Warden, over Waggle.
   `NEEDS_JUDGEMENT`), checks every attached Warden's liveness and places whatever the Brood
   Chamber now says is ready -- both unconditionally, every tick, never gated behind an inbox item.
   Liveness is the Warden's, not her attention's: it is judged against the newest Heartbeat each
-  link delivered, handled or not, and a Heartbeat already older than the miss limit never brings
-  a Warden back online (`queen.ticks.liveness`), so a stall of her own tick (a Virtual Cell
-  provision, a long awake episode) raises no false `CELL_UNREACHABLE` and a stale backlog at most
-  the one Alarm of one outage. Also implements
+  link delivered, handled or not, at the cadence that Heartbeat declared (never below the
+  manifest's), and a Heartbeat already older than the miss limit never brings a Warden back
+  online (`queen.ticks.liveness`), so a stall of her own tick (a Virtual Cell provision, a long
+  awake episode) or a Warden slower than the manifest (a Virtual Cell's, every 15 s) raises no
+  false `CELL_UNREACHABLE`, and a stale backlog at most the one Alarm of one outage. Also implements
   `hivemind.supervision.Supervisor` over her attached Wardens. `_recoverable_errors` names
   `InvalidTransitionError`: a chamber transition failing on a stale status backs a tick off and
   records it (`queen.decided`), rather than ending `run()` and taking the whole Hive down.

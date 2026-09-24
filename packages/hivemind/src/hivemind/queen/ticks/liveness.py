@@ -5,10 +5,17 @@ reset); a Warden missing `heartbeat_miss_limit` heartbeats -> MARK_WARDEN_OFFLIN
 re-dispatched when it returns or failed after the alarm limit; v0: record and raise an Alarm at the
 human)." `record_heartbeat` is the reset half, called from `hivemind.queen.queen.Queen`'s tick for
 every received `Heartbeat`; `check_liveness` is the sweep: for every attached Warden with at least
-one heartbeat on record, it recomputes how many whole `heartbeat_interval_s` intervals have elapsed
-since the last one (never an incremental per-tick counter, so calling it more often than once per
-interval never over-counts), and raises one Alarm at the human the moment a Warden first crosses
-`heartbeat_miss_limit`. A Heartbeat is proof of life only as of when it was sent (its envelope's
+one heartbeat on record, it recomputes how many whole heartbeat intervals have elapsed since the
+last one (never an incremental per-tick counter, so calling it more often than once per interval
+never over-counts), and raises one Alarm at the human the moment a Warden first crosses
+`heartbeat_miss_limit`. Each Warden is judged against its own interval: the one its newest
+Heartbeat declared (`Heartbeat.interval_s`), never less than the manifest's `heartbeat_interval_s`.
+Wardens do not share one cadence -- a Virtual Cell's in-Cell Warden beats every 15 s while the Hive
+Stand's keeps the manifest's, and a Swarm device, enrolled rather than provisioned, keeps whatever
+its own configuration and battery allow -- and the Queen sets none of them, so judging all of them
+by the manifest raised a false `CELL_UNREACHABLE` for every Warden slower than it; the manifest's
+interval stays the floor, the least grace any Warden gets. A Heartbeat is proof of life only as of
+when it was sent (its envelope's
 own `sent_at`), and a real run (2026-09-24) showed why that matters: a tick stalled on a Virtual
 Cell provision left a backlog of Heartbeats that the old reset, heard one per tick, turned into
 one "back online" per stale Heartbeat and so one fresh Alarm each, about a Warden heartbeating the
@@ -46,8 +53,10 @@ Fits into the Hive:
 
 Key invariants:
     - `check_liveness` re-derives `missed_heartbeats` from elapsed wall-clock time on every call,
-      never by incrementing a counter per call: calling it more often than
-      `deps.heartbeat_interval_s` never inflates the miss count.
+      never by incrementing a counter per call: calling it more often than a Warden's interval
+      never inflates the miss count.
+    - A Warden's interval is the one its newest Heartbeat declared, floored at the manifest's
+      `heartbeat_interval_s`: no Warden is ever judged more strictly than the manifest says.
     - A newly-offline transition raises exactly one Alarm: the `offline and not current.is_offline`
       guard fires only the tick a Warden first crosses the limit, never on every later check while
       it stays offline.
@@ -84,6 +93,7 @@ from hivemind.queen.chat import post_alarm
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.inbox import Pulse
 from hivemind.queen.ticks import context as context_tick
 from hivemind.queen.ticks import forage as forage_tick
 from hivemind.queen.ticks import wax as wax_tick
@@ -111,6 +121,7 @@ class WardenLiveness:
     last_heartbeat_at: datetime | None  # None before the first Heartbeat ever arrives.
     missed_heartbeats: int
     is_offline: bool
+    interval_s: float | None = None  # What its newest Heartbeat declared; None before the first.
 
 
 # What a Warden with no liveness row yet looks like to `record_heartbeat` (attach adds one first).
@@ -121,34 +132,43 @@ def record_heartbeat(
     deps: QueenDeps,
     liveness: MutableMapping[WardenId, WardenLiveness],
     warden_id: WardenId,
-    at: datetime,
+    pulse: Pulse,
 ) -> None:
-    """Advance `warden_id`'s own liveness to a Heartbeat sent at `at`, never backwards.
+    """Advance `warden_id`'s own liveness to a Heartbeat's `pulse`, never backwards.
 
     A Heartbeat still inside the miss limit now proves the Warden alive: it is back online. One
     already older than the miss limit (a backlog heard late) proves nothing about now: it may move
     `last_heartbeat_at` forward but leaves `is_offline` exactly as it was, so only
-    `check_liveness` ever marks a Warden offline, once per outage (module docstring).
+    `check_liveness` ever marks a Warden offline, once per outage (module docstring). The newest
+    Heartbeat's declared interval is the one the Warden is judged by from then on.
 
     Args:
-        deps: The Queen's collaborators; `clock`, `heartbeat_interval_s` and
-            `heartbeat_miss_limit` decide whether `at` is still inside the miss limit.
+        deps: The Queen's collaborators; `clock`, `heartbeat_interval_s` (the floor) and
+            `heartbeat_miss_limit` decide whether the pulse is still inside the miss limit.
         liveness: The Queen's own warden_id -> WardenLiveness table; mutated in place.
         warden_id: The Warden whose Heartbeat was heard.
-        at: When it was sent (the envelope's own `sent_at`).
+        pulse: When it was sent (the envelope's own `sent_at`) and the interval it declared.
     """
     current = liveness.get(warden_id, _NEVER_HEARD)
     previous = current.last_heartbeat_at
-    newest = at if previous is None or at > previous else previous
+    interval_s: float | None
+    if previous is None or pulse.sent_at > previous:
+        newest, interval_s = pulse.sent_at, pulse.interval_s  # Its own cadence now rules.
+    else:
+        newest, interval_s = previous, current.interval_s  # An older one changes neither.
     now = deps.clock.now()
-    if _missed_since(deps, now, at) >= deps.heartbeat_miss_limit:
-        # Stale on arrival: never back online on it, never backwards either.
-        liveness[warden_id] = dataclasses.replace(current, last_heartbeat_at=newest)
+    missed_by_pulse = _missed_since(_judged_interval_s(deps, pulse.interval_s), now, pulse.sent_at)
+    if missed_by_pulse >= deps.heartbeat_miss_limit:
+        # Stale on arrival, by its own cadence: never back online on it, never backwards either.
+        liveness[warden_id] = dataclasses.replace(
+            current, last_heartbeat_at=newest, interval_s=interval_s
+        )
         return
     liveness[warden_id] = WardenLiveness(
         last_heartbeat_at=newest,
-        missed_heartbeats=_missed_since(deps, now, newest),
+        missed_heartbeats=_missed_since(_judged_interval_s(deps, interval_s), now, newest),
         is_offline=False,
+        interval_s=interval_s,
     )
 
 
@@ -228,7 +248,8 @@ async def handle_heartbeat_item(
     warden_id = WardenId(item.principal)
     heartbeat = cast(Heartbeat, item.payload)
     last_heartbeat[warden_id] = heartbeat
-    record_heartbeat(deps, liveness, warden_id, item.received_at)
+    # The item's received_at is the envelope's own sent_at (hivemind.queen.inbox.to_inbox_item).
+    record_heartbeat(deps, liveness, warden_id, Pulse(item.received_at, heartbeat.interval_s))
     # A Heartbeat never reaches the trail, so the Hive Entrance's telemetry view hears of it
     # here, once she has recorded it; the hook only hands the sample on (QueenDeps.on_heartbeat).
     if deps.on_heartbeat is not None:
@@ -277,7 +298,7 @@ async def check_liveness(
     wardens: Sequence[WardenLink],
     liveness: MutableMapping[WardenId, WardenLiveness],
     human_inbox: HumanInbox,
-    heard: Mapping[WardenId, datetime] | None = None,
+    heard: Mapping[WardenId, Pulse] | None = None,
 ) -> None:
     """Mark any attached Warden offline whose Heartbeat has not renewed within the miss limit.
 
@@ -286,15 +307,15 @@ async def check_liveness(
         wardens: Every Warden currently attached.
         liveness: The Queen's own warden_id -> WardenLiveness table; mutated in place.
         human_inbox: Where a newly-offline Warden's Alarm is escalated (v0: record and raise).
-        heard: The newest Heartbeat `sent_at` each link has delivered, handled by the tick or
-            not (`hivemind.queen.inbox.links.LinkReaders.heard`); None judges by `liveness` alone.
+        heard: The newest Heartbeat's Pulse each link has delivered, handled by the tick or not
+            (`hivemind.queen.inbox.links.LinkReaders.heard`); None judges by `liveness` alone.
     """
     now = deps.clock.now()
     for link in wardens:
         # A Heartbeat heard while the tick was busy is still the Warden's own proof of life.
-        heard_at = heard.get(link.warden_id) if heard is not None else None
-        if heard_at is not None:
-            record_heartbeat(deps, liveness, link.warden_id, heard_at)
+        pulse = heard.get(link.warden_id) if heard is not None else None
+        if pulse is not None:
+            record_heartbeat(deps, liveness, link.warden_id, pulse)
         if _crossed_miss_limit(deps, liveness, link.warden_id, now):
             # The transition only: one Alarm per Warden per outage, not one per later check;
             # it reaches the human in the chat too (roadmap step 10.5, ADR-0032).
@@ -318,7 +339,8 @@ def _crossed_miss_limit(
     current = liveness.get(warden_id)
     if current is None or current.last_heartbeat_at is None:
         return False  # No Heartbeat received yet; nothing to judge staleness against.
-    missed = _missed_since(deps, now, current.last_heartbeat_at)
+    interval_s = _judged_interval_s(deps, current.interval_s)
+    missed = _missed_since(interval_s, now, current.last_heartbeat_at)
     offline = missed >= deps.heartbeat_miss_limit
     if missed == current.missed_heartbeats and offline == current.is_offline:
         return False  # Nothing changed since the last check.
@@ -326,11 +348,20 @@ def _crossed_miss_limit(
     return offline and not current.is_offline
 
 
-def _missed_since(deps: QueenDeps, now: datetime, at: datetime) -> int:
-    """Count the whole Heartbeat intervals elapsed from `at` to `now` (never a per-tick counter)."""
+def _judged_interval_s(deps: QueenDeps, declared_s: float | None) -> float:
+    """Return the interval a Warden is judged by: the one it declared, floored at the manifest's."""
+    # The floor keeps the manifest's grace for every Warden: one declaring a faster cadence than
+    # the Hive's gets no stricter judgement than the operator configured (module docstring).
+    if declared_s is None:
+        return deps.heartbeat_interval_s
+    return max(declared_s, deps.heartbeat_interval_s)
+
+
+def _missed_since(interval_s: float, now: datetime, at: datetime) -> int:
+    """Count the whole intervals elapsed from `at` to `now` (never a per-tick counter)."""
     # Never below zero: a Heartbeat stamped ahead of the Queen's clock (a Cell's own clock running
     # a little fast) counts as just sent, never as negative misses.
-    return max(0, int((now - at).total_seconds() // deps.heartbeat_interval_s))
+    return max(0, int((now - at).total_seconds() // interval_s))
 
 
 def _offline_alarm(deps: QueenDeps, link: WardenLink) -> Alarm:
