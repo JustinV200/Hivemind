@@ -3,8 +3,8 @@
 Runs a real `CellLifecycle` over a `FakeCellBackend`, recording through the boundary's own
 `VeiledTrail`, the way the composition root wires it: a NIGHT_VEIL Cell's records wait in its
 segment while it lives and only its skeleton reaches the trail; its teardown purges it; a Queen
-restart holds again one that outlived it and purges one gone unpurged. A MEADOW Cell's records
-reach the trail exactly as before.
+restart holds again one that outlived it and purges one gone unpurged; a provision its backend
+failed leaves no record at all. A MEADOW Cell's records reach the trail exactly as before.
 
 Fits into the Hive:
     Mirrors src/hivemind/hive/night_veil/boundary.py (codingrules section 3).
@@ -18,11 +18,13 @@ See Also:
 
 from __future__ import annotations
 
+import pytest
 from builders.cells import make_identity
 from builders.forage import make_capacity
 from builders.night_veil import make_night_veil
 
 from hivemind.cell import CellIdentity, CombShieldLevel
+from hivemind.hive import CellProvisionError
 from hivemind.hive.backends.fake import FakeCellBackend
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
@@ -141,6 +143,24 @@ async def test_a_failed_provisions_teardown_purges_the_cell_it_had_created() -> 
 
     assert [e.kind for e in await hive.durable_about(cell.id)] == _SKELETON_OF_A_TORN_DOWN_CELL
     assert hive.night_veil.segments.held_cells() == ()
+
+
+async def test_a_night_veil_provision_its_backend_failed_leaves_no_record() -> None:
+    hive = _Hive()
+    hive.backend.set_provision_failure("never dialled back through tor")
+
+    for tier in (CombShieldLevel.NIGHT_VEIL, CombShieldLevel.MEADOW):
+        with pytest.raises(CellProvisionError):
+            await hive.lifecycle.provision(_spec(tier, hive.identity.hive_id), "fake")
+
+    # No Cell id was ever known, so no segment could hold it: the Night Veil failure is withheld
+    # whole, its reason with it, while the MEADOW one is recorded exactly as before.
+    [failed] = await hive.durable.query(TrailQuery(kind="cell.provision_failed"))
+    assert failed.payload == {
+        "backend": "fake",
+        "image": "base-ubuntu",
+        "reason": "never dialled back through tor",
+    }
 
 
 async def test_a_meadow_cells_records_reach_the_trail_exactly_as_before() -> None:

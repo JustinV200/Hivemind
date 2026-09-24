@@ -4,7 +4,9 @@ Codingrules section 12 keeps a Night Veil Cell's execution records in an ephemer
 to the Cell and purges them at teardown (`hivemind.pheromone.retention`). This module is where the
 Virtual Cell lifecycle meets that boundary, so every path a Night Veil Cell ends runs the purge:
 `provisioned_facts` opens the Cell's segment the moment `hivemind.hive.lifecycle.CellLifecycle`
-provisions one, before the Queen records a word about it; `end_night_veil` runs
+provisions one, before the Queen records a word about it (and `failure_facts` withholds the
+`cell.provision_failed` of one whose backend failed before the Queen ever knew its id: no segment
+could hold it, and the skeleton has no such kind); `end_night_veil` runs
 `NightVeilTeardownPurge` the moment the lifecycle destroys one (a finished task, a failed
 provision after the Cell existed, a Hive shutdown), and `hivemind.cli.readback.virtual_abscond`
 calls it for each Night Veil Cell an Absconding destroys (`adopt_night_veil` says which);
@@ -21,8 +23,8 @@ Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.night_veil`. Built by the composition root
     (`hivemind.cli.compose.night_veil.build_night_veil`); called by `hivemind.hive.lifecycle` and
     `hivemind.cli.readback.virtual_abscond`. Calls into `hivemind.cell` (CombShieldLevel),
-    `hivemind.hive.models` (VirtualCellSpec), `hivemind.pheromone` (the retention boundary,
-    CellEvent, TrailQuery) and waggle only.
+    `hivemind.common.logging`, `hivemind.hive.models` (VirtualCellSpec), `hivemind.pheromone` (the
+    retention boundary, CellEvent, TrailQuery) and waggle only.
 
 Key invariants:
     - A Night Veil Cell's segment is open before the lifecycle records its first event.
@@ -46,6 +48,7 @@ from dataclasses import dataclass
 from pydantic import JsonValue
 
 from hivemind.cell import CombShieldLevel
+from hivemind.common.logging import get_logger
 from hivemind.hive.models import VirtualCellSpec
 from hivemind.pheromone import (
     MAX_QUERY_LIMIT,
@@ -65,11 +68,14 @@ _DOCKER_TIER_LABEL = "hivemind.comb_shield"
 _NIGHT_VEIL = CombShieldLevel.NIGHT_VEIL
 _ACTOR = "system"  # Every end this module drives is the Hive's own housekeeping, not a person's.
 
+log = get_logger(__name__)
+
 __all__ = [
     "TIER_LABEL",
     "NightVeilBoundary",
     "adopt_night_veil",
     "end_night_veil",
+    "failure_facts",
     "night_veil_cells",
     "provisioned_facts",
     "sweep_night_veil",
@@ -127,6 +133,24 @@ def provisioned_facts(
     if boundary is not None and spec.comb_shield is _NIGHT_VEIL:
         boundary.segments.open(cell_id)
     return {"backend": backend, "image": spec.image, "comb_shield": spec.comb_shield.value}
+
+
+def failure_facts(
+    boundary: NightVeilBoundary | None, spec: VirtualCellSpec, backend: str, reason: str
+) -> dict[str, JsonValue] | None:
+    """Return the payload `cell.provision_failed` carries, or None to withhold it for Night Veil.
+
+    A Night Veil provision its backend failed left no Cell id the Queen knows, so no segment can
+    hold the record, and the skeleton names no such kind: it is withheld whole, its reason (free
+    text from the Cell's own boot) with it. Only the backend's name reaches the Queen's log.
+
+    Returns:
+        The backend, image and reason for any other tier; None for a Night Veil spec.
+    """
+    if boundary is not None and spec.comb_shield is _NIGHT_VEIL:
+        log.info("night_veil.provision_failed", backend=backend)
+        return None
+    return {"backend": backend, "image": spec.image, "reason": reason}
 
 
 async def end_night_veil(

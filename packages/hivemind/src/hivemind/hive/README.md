@@ -53,12 +53,15 @@ pool that keeps a dormant Cell around for fast reuse.
   a report item: it sits in `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider.
   acquire`, outside this dispatch's file list.
 - `NightVeilBoundary` / `TIER_LABEL` / `with_tier_label` / `tier_from_labels` /
-  `provisioned_facts` / `end_night_veil` / `adopt_night_veil` / `night_veil_cells` /
-  `sweep_night_veil` (`night_veil/boundary.py`, codingrules section 12): where the Virtual Cell
-  lifecycle meets the Night Veil retention boundary (`hivemind.pheromone.retention`).
-  `CellLifecycle.attach_night_veil` hands the lifecycle the boundary the composition root built;
-  from then on a Night Veil Cell's ephemeral segment opens as it is provisioned, before the
-  lifecycle records a word about it, and `NightVeilTeardownPurge` runs every time one ends: in
+  `provisioned_facts` / `failure_facts` / `end_night_veil` / `adopt_night_veil` /
+  `night_veil_cells` / `sweep_night_veil` (`night_veil/boundary.py`, codingrules section 12):
+  where the Virtual Cell lifecycle meets the Night Veil retention boundary
+  (`hivemind.pheromone.retention`). `CellLifecycle.attach_night_veil` hands the lifecycle the
+  boundary the composition root built; from then on a Night Veil Cell's ephemeral segment opens
+  as it is provisioned, before the lifecycle records a word about it (a provision its backend
+  fails before the Queen knows the Cell's id records nothing at all: no segment could hold its
+  `cell.provision_failed`, and the skeleton has no such kind), and `NightVeilTeardownPurge` runs
+  every time one ends: in
   `teardown` (a finished task, a provision that failed after the Cell existed, a Hive shutdown),
   in `hive cells abscond` (`adopt_night_veil` says which Cells), and in `reconcile`, whose
   `sweep_night_veil` holds again the segment of a Night Veil Cell that outlived a Queen restart

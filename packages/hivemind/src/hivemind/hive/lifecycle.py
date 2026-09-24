@@ -444,7 +444,7 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
         hivemind.hive.UnknownBackendError: `backend_name` names no registered backend.
         CellProvisionError: The backend could not create the Cell, or it never became reachable;
             nothing is added to `lifecycle`'s table, and `cell.provision_failed` is recorded
-            before this re-raises.
+            before this re-raises (withheld for a Night Veil spec: `boundary.failure_facts`).
     """
     backend = lifecycle._registry.get(backend_name)
     # The tier rides on the Cell's own labels, so a restarted Queen's reconcile can read it back.
@@ -458,13 +458,9 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
         # backend's own reason rides along: without it, a Cell whose Warden never dialled back
         # (a real Docker run, 2026-09-23) was only diagnosable from the container's own logs.
         assert_transition(VirtualCellStatus.PROVISIONING, VirtualCellStatus.FAILED)
-        await lifecycle._record(
-            lifecycle._identity.hive_id,
-            "cell.provision_failed",
-            backend=backend_name,
-            image=spec.image,
-            reason=exc.reason,
-        )
+        failed = boundary.failure_facts(lifecycle._night_veil, spec, backend_name, exc.reason)
+        if failed is not None:  # None: a Night Veil spec's failure is withheld (codingrules 12).
+            await lifecycle._record(lifecycle._identity.hive_id, "cell.provision_failed", **failed)
         raise
     lifecycle._cells[cell.id] = LiveVirtualCell(
         cell_id=cell.id,

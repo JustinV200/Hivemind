@@ -41,9 +41,9 @@ Public API:
       (session_commands, session_probe).
     - run_checks: call every check on a probe, collecting results by name (runner).
     - attest_cell: the effectful edge -- run, judge, record one cell.attested event (trail).
-    - NightVeilBoundary, provisioned_facts, end_night_veil, adopt_night_veil, sweep_night_veil,
-      night_veil_cells, with_tier_label, tier_from_labels, TIER_LABEL: the retention boundary's
-      open, purge and restart sweep (boundary).
+    - NightVeilBoundary, provisioned_facts, failure_facts, end_night_veil, adopt_night_veil,
+      sweep_night_veil, night_veil_cells, with_tier_label, tier_from_labels, TIER_LABEL: the
+      retention boundary's open, purge and restart sweep (boundary).
 """
 
 from hivemind.hive.night_veil.boundary import (
@@ -51,6 +51,7 @@ from hivemind.hive.night_veil.boundary import (
     NightVeilBoundary,
     adopt_night_veil,
     end_night_veil,
+    failure_facts,
     night_veil_cells,
     provisioned_facts,
     sweep_night_veil,
@@ -86,6 +87,7 @@ __all__ = [
     "attest",
     "attest_cell",
     "end_night_veil",
+    "failure_facts",
     "night_veil_cells",
     "provisioned_facts",
     "run_checks",
