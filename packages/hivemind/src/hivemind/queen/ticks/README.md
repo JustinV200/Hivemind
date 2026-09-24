@@ -32,6 +32,11 @@ class stay within codingrules 5.1's size limits.
   `cells_in_play = {the Cell in question}` and applies its `WRITE_WAX`/`REJECT_WAX` decision
   (anything else, including `CLEAR_WAX`, falls back to a rejection). Sends a `CellWaxWritten` back
   to the proposing Warden's own link once written, when it is still attached.
+- `guard_bee.run_guard_bee` (roadmap step 10.6): one Guard Bee round on the Queen's tick, called
+  by `housekeeping.run_housekeeping` beside the House Bee's sweep, when `QueenDeps.guard_bee` is
+  set (the Guard Bee decides whether its interval is due). A failed round is one `GuardBeeError`,
+  logged, and the tick carries on. A package of one module, because this directory already holds
+  the ten modules codingrules 5.6 allows.
 
 ## How to test this
 

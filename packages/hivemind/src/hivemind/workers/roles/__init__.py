@@ -7,7 +7,11 @@ disposable role that works one task through a bounded tool loop. Roadmap step 4.
 compact) over hot state and Bee Bread. Roadmap step 5.8 adds the third,
 `hivemind.workers.roles.undertaker.Undertaker`, the cleanup role that destroys Virtual Cells and
 releases Real Cell leases, idempotently, with retries, and the Queen-startup sweep that finds
-orphans of both kinds.
+orphans of both kinds. Roadmap step 10.6 adds the fourth, `hivemind.workers.roles.guard_bee.
+GuardBee`, the security watcher: it runs in the Queen's process on her tick rather than on a Cell,
+reads the central trail against rules shipped as data, and reports or requests (ADR-0035). It is
+not a `Worker`-protocol implementation, because a Worker is handed a Cell and a session, exactly
+what the Guard Bee must never hold.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside the workers package. Handles one module (or package)
@@ -28,8 +32,9 @@ See Also:
     - hivemind.workers.roles.drone for Drone, this package's first role.
     - hivemind.workers.roles.house_bee for HouseBee, this package's second role.
     - hivemind.workers.roles.undertaker for Undertaker, this package's third role.
+    - hivemind.workers.roles.guard_bee for GuardBee, this package's fourth role (step 10.6).
 
-Public API (roadmap 3.16, extended by 4.3 and 5.8):
+Public API (roadmap 3.16, extended by 4.3, 5.8 and 10.6):
     - Drone, DRONE_MAX_ROUNDS, HandoffRequestedError: the Drone role (hivemind.workers.roles.drone).
     - HouseBee, HOUSE_BEE_HOT_WINDOW_S, run_sweep, SweepDeps, SweepWindow, SweepOutcome,
       SweepSchedule, SWEEP_NOTE_LIMIT, SWEEP_DECISION_LIMIT: the HouseBee role
@@ -41,9 +46,12 @@ Public API (roadmap 3.16, extended by 4.3 and 5.8):
       for `SweepDeps`/`SweepReport` (`UndertakerSweepDeps`/`UndertakerSweepReport`), since HouseBee
       already owns the bare `SweepDeps` name at this package's own face; import from
       `hivemind.workers.roles.undertaker` directly for the unprefixed names.
+    - GuardBee, GuardBeeInputs, build_guard_bee: the Guard Bee and how a composition root builds
+      it (hivemind.workers.roles.guard_bee; the rest of its API is imported from there).
 """
 
 from hivemind.workers.roles.drone import DRONE_MAX_ROUNDS, Drone, HandoffRequestedError
+from hivemind.workers.roles.guard_bee import GuardBee, GuardBeeInputs, build_guard_bee
 from hivemind.workers.roles.house_bee import (
     HOUSE_BEE_HOT_WINDOW_S,
     SWEEP_DECISION_LIMIT,
@@ -92,6 +100,8 @@ __all__ = [
     "SWEEP_NOTE_LIMIT",
     "Drone",
     "GrantRevoker",
+    "GuardBee",
+    "GuardBeeInputs",
     "HandoffRequestedError",
     "HouseBee",
     "LeavingsRemover",
@@ -111,6 +121,7 @@ __all__ = [
     "UndertakerSweepReport",
     "UndertakerSweepSchedule",
     "WaxRetirer",
+    "build_guard_bee",
     "orphan_real_leases",
     "orphan_virtual_cells",
     "run_sweep",
