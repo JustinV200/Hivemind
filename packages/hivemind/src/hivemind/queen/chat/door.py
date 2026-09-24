@@ -4,13 +4,15 @@ Docs/adr/0032: every write the Entrance makes goes to the Queen (codingrules 8.1
 is the human's way to request tasks, ask and answer (README, "Chat"). `ChatDoor` is that door, a
 mixin `hivemind.queen.queen.Queen` inherits so her own class stays within codingrules 5.1's size
 limits (the same composition `hivemind.brood_chamber.BroodChamber` uses): `request_goal` commits a
-durable goal request and wakes her, `confirm_goal_request`/`decline_goal_request` settle one held
-for the human's yes, `post_human_message` appends the human's words to the chat and wakes her,
-`acknowledge_alarm` resolves an Alarm that reached the human, `escalate_to_human` puts an Alarm the
-Hive itself raised (a listener of the Entrance failing) in front of the human, and a revocation's
-two: `refuse_device_requests` refuses every request a revoked device submitted that is not planned
-yet, and `cancel_goal` stops a goal (placed work is stopped on its Warden first). Each one is a
-thin delegate to `hivemind.queen.intake.writes`, `hivemind.queen.chat.post` or
+durable goal request and wakes her, `request_echoed_goal` commits one that waits for the human's
+yes and echoes it back before returning (a spoken goal, roadmap step 10.5f),
+`confirm_goal_request`/`decline_goal_request` settle one held for the human's yes,
+`post_human_message` appends the human's words to the chat and wakes her, `acknowledge_alarm`
+resolves an Alarm that reached the human, `escalate_to_human` puts an Alarm the Hive itself raised
+(a listener of the Entrance failing) in front of the human, and a revocation's two:
+`refuse_device_requests` refuses every request a revoked device submitted that is not planned yet,
+and `cancel_goal` stops a goal (placed work is stopped on its Warden first). Each one is a thin
+delegate to `hivemind.queen.intake.writes`, `hivemind.queen.chat.post` or
 `hivemind.queen.chat.withdraw`; waking her is the in-process signal she awaits beside her Warden
 links (`QueenDeps.wake`), so a request or a message is acted on at once rather than at the next
 Heartbeat.
@@ -40,7 +42,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.queen.chat.model import ChatEntryId
-from hivemind.queen.chat.post import escalate_alarm, post_message, resolve_alarm
+from hivemind.queen.chat.post import echo_goal, escalate_alarm, post_message, resolve_alarm
 from hivemind.queen.chat.withdraw import refuse_unplanned, stop_goal
 from hivemind.queen.intake import GoalRequest, GoalRequestId, confirm, decline, receive
 from hivemind.supervision import Alarm
@@ -82,6 +84,33 @@ class ChatDoor:
         await receive(self._deps, request)
         self._deps.wake.set()
         return request.id
+
+    async def request_echoed_goal(self, request: GoalRequest) -> GoalRequest:
+        """Commit a goal request that waits for the human's yes, echoed back before returning.
+
+        A spoken goal is echoed in the chat and held AWAITING_CONFIRMATION here, at once, so the
+        device that spoke it may confirm it as soon as the Hive Entrance answers. Nothing wakes
+        her: there is nothing to plan until the human says yes. Her intake drain holds any
+        RECEIVED request that must be confirmed the same way, which settles one a crash left
+        between the two writes.
+
+        Args:
+            request: A fresh RECEIVED request whose `needs_confirmation` is set.
+
+        Returns:
+            The request as stored: AWAITING_CONFIRMATION, or the state it moved to meanwhile.
+
+        Raises:
+            ValueError: `request` does not need confirming (commit it with `request_goal`).
+            InvalidGoalRequestTransitionError: `request` is not a fresh RECEIVED request.
+            GoalRequestExistsError: Its id is already taken; nothing was written.
+        """
+        if not request.needs_confirmation:
+            raise ValueError(f"Goal request {request.id} needs no confirmation: request_goal it.")
+        await receive(self._deps, request)
+        held = await echo_goal(self._deps, request)
+        # None: the stored row moved on first (her drain held it, or a revocation refused it).
+        return held if held is not None else await self._deps.goal_requests.get(request.id)
 
     async def confirm_goal_request(self, request_id: str) -> GoalRequest:
         """Confirm a goal request held for the human's yes, then wake the Queen to plan it.

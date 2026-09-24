@@ -20,7 +20,7 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen`'s own tick (`drain_goal_requests`) and stop
     (`stop_planning`). Calls into `hivemind.brood_chamber`, `hivemind.common.tasks`,
-    `hivemind.llm.errors`, `hivemind.queen.chat` (post_notice), `hivemind.queen.cluster`
+    `hivemind.llm.errors`, `hivemind.queen.chat` (echo_goal, post_notice), `hivemind.queen.cluster`
     (awake_available), `hivemind.queen.deps`, `hivemind.queen.goal_submission`,
     `hivemind.queen.intake`, `hivemind.queen.planner` (PlannerError, NightVeilLocationError)
     and waggle only.
@@ -49,7 +49,7 @@ from collections.abc import Awaitable, Sequence
 from hivemind.brood_chamber import TaskFilter, is_terminal
 from hivemind.common.tasks import reap
 from hivemind.llm.errors import LLMError
-from hivemind.queen.chat import post_notice, stop_goal
+from hivemind.queen.chat import echo_goal, post_notice, stop_goal
 from hivemind.queen.cluster import awake_available
 from hivemind.queen.deps import PlanningLane, QueenDeps, WardenLink
 from hivemind.queen.goal_submission import GoalTerms, plan_goal_graph
@@ -59,7 +59,6 @@ from hivemind.queen.intake import (
     GoalRequestState,
     InvalidGoalRequestTransitionError,
     Refusal,
-    hold,
     mark_finished,
     mark_planned,
     refuse,
@@ -152,7 +151,9 @@ async def _hold_or_plan(deps: QueenDeps, wardens: Sequence[WardenLink], *, think
     )
     for request in received:
         if request.needs_confirmation and request.confirmed_at is None:
-            await _hold(deps, request)
+            # Echoed and held (and its device told) in one shared step; a request its door
+            # already held, or a revocation refused, is left as it stands.
+            await echo_goal(deps, request)
         elif thinking and deps.planning.task is None:
             # PLANNING is committed before the planner is ever called, so a crash from here on
             # is settled by _settle_leftovers on the next start, never planned from scratch.
@@ -160,18 +161,6 @@ async def _hold_or_plan(deps: QueenDeps, wardens: Sequence[WardenLink], *, think
             # None: refused meanwhile (its device was revoked), so it is never planned.
             if planning is not None:
                 _start_plan(deps, wardens, planning)
-
-
-async def _hold(deps: QueenDeps, request: GoalRequest) -> None:
-    """Hold `request` for the human's yes, echoing its words back in the chat first."""
-    # Echo, then hold: a crash between the two echoes it again on the next start (twice is
-    # harmless), where the other order could leave a spoken goal held with no echo at all.
-    echo = f"Before I plan it, please confirm this goal: {request.text}"
-    await post_notice(deps, echo, ref=request.id, task_id=None)
-    held = await _moved(hold(deps, request))
-    # None: refused meanwhile (its device was revoked); there is nothing left to hold.
-    if held is not None:
-        await deps.human_channel.goal_request_held(held)
 
 
 def _start_plan(deps: QueenDeps, wardens: Sequence[WardenLink], request: GoalRequest) -> None:

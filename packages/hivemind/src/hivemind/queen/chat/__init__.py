@@ -39,8 +39,7 @@ Public API (roadmap step 10.5):
       MIGRATIONS_PACKAGE (sqlite): its two implementations.
     - HumanChannel, NullHumanChannel: the seam to the human's devices and its no-op (channel).
     - post_message, post_reply, post_notice, post_question, post_alarm, escalate_alarm,
-      resolve_alarm: every
-      write (post).
+      resolve_alarm, echo_goal, ECHO_PREFIX: every write (post).
     - ChatDoor: the Queen's human-facing methods (door).
     - refuse_unplanned, stop_goal, REVOKED_CODE, CANCEL_GRACE_S, CANCEL_SEND_TIMEOUT_S: what a
       revocation withdraws, and how a goal is stopped (withdraw).
@@ -61,6 +60,8 @@ from hivemind.queen.chat.model import (
     new_chat_entry_id,
 )
 from hivemind.queen.chat.post import (
+    ECHO_PREFIX,
+    echo_goal,
     escalate_alarm,
     post_alarm,
     post_message,
@@ -97,6 +98,7 @@ __all__ = [
     "CHAT_ENTRY_ID_PATTERN",
     "CHAT_ENTRY_ID_PREFIX",
     "DEFAULT_CHAT_PAGE",
+    "ECHO_PREFIX",
     "MAX_CHAT_PAGE",
     "MAX_CHAT_TEXT_CHARS",
     "MAX_REF_CHARS",
@@ -117,6 +119,7 @@ __all__ = [
     "SqliteChatLog",
     "apply_chat_migrations",
     "check_chat_append",
+    "echo_goal",
     "escalate_alarm",
     "new_chat_entry_id",
     "post_alarm",

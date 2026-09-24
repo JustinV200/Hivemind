@@ -8,18 +8,22 @@ call so a device that is not looking is told: `post_reply` (an awake REPLY decis
 its `queen.replied` event), `post_question` (a question routed to the human; its own
 `task.blocked` event already records it), `post_alarm` (an Alarm that reached the human; its own
 `alarm.escalated` event already records it) and `post_notice` (words no decision produced, such
-as a spoken goal echoed back). `resolve_alarm` is the human's acknowledgement of an Alarm line:
-it resolves the Alarm (`alarm.resolved`), drops it from the human inbox and tells every device.
+as a spoken goal echoed back). `echo_goal` is that echo and what follows it: a goal request that
+must be confirmed is echoed in the chat and held AWAITING_CONFIRMATION, and its device told, by
+the Queen's intake drain and, for a spoken goal (roadmap step 10.5f), by her door the moment it
+is committed. `resolve_alarm` is the human's acknowledgement of an Alarm line: it resolves the
+Alarm (`alarm.resolved`), drops it from the human inbox and tells every device.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's chat
     sub-package. Called by `hivemind.queen.chat.door` (the Queen's human-facing methods),
     `hivemind.queen.questions` (a question for the human), `hivemind.queen.ticks.alarms` and
     `.liveness` (an Alarm for the human), `hivemind.queen.ticks.chat` (a reply) and
-    `hivemind.queen.ticks.intake` (a notice). Calls into `hivemind.brood_chamber` (Question),
-    `hivemind.cell` (CellIdentity), `hivemind.queen.human_inbox`, `hivemind.queen.trail`,
-    `hivemind.supervision` (Alarm, record_alarm_event), the chat package's own model and waggle
-    only; `QueenDeps` only for its type.
+    `hivemind.queen.ticks.intake` (a notice, a goal echoed back). Calls into
+    `hivemind.brood_chamber` (Question), `hivemind.cell` (CellIdentity), `hivemind.queen.
+    human_inbox`, `hivemind.queen.intake` (hold), `hivemind.queen.trail`, `hivemind.supervision`
+    (Alarm, record_alarm_event), the chat package's own model and waggle only; `QueenDeps` only
+    for its type.
 
 Key invariants:
     - Every line is appended through `deps.chat`; a human message and a reply carry their trail
@@ -45,6 +49,7 @@ from hivemind.queen.chat.model import (
     new_chat_entry_id,
 )
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.intake import GoalRequest, InvalidGoalRequestTransitionError, hold
 from hivemind.queen.trail import queen_event
 from hivemind.supervision import Alarm, record_alarm_event
 from waggle.ids import DeviceId, TaskId
@@ -56,8 +61,11 @@ if TYPE_CHECKING:
 
 _MESSAGE_KIND = "queen.human_message_received"  # A human's message entered the Queen's inbox.
 _REPLIED_KIND = "queen.replied"  # The Queen answered in the chat.
+ECHO_PREFIX = "Before I plan it, please confirm this goal: "  # A goal echoed back, its words after.
 
 __all__ = [
+    "ECHO_PREFIX",
+    "echo_goal",
     "escalate_alarm",
     "post_alarm",
     "post_message",
@@ -138,6 +146,30 @@ async def post_notice(
         The stored line.
     """
     return await deps.chat.append(_queen_line(deps, ChatKind.NOTICE, text, ref, task_id))
+
+
+async def echo_goal(deps: QueenDeps, request: GoalRequest) -> GoalRequest | None:
+    """Echo a goal request's words in the chat, hold it for the human's yes, and tell the device.
+
+    Echo, then hold: a crash between the two echoes it again on the next start (twice is
+    harmless), where the other order could leave a goal held with no echo at all.
+
+    Args:
+        deps: The Queen's collaborators.
+        request: A RECEIVED request that must be confirmed before it is planned.
+
+    Returns:
+        The request, AWAITING_CONFIRMATION; None when the stored row had already moved on (held by
+        another caller first, or refused by its device's revocation), whose state then stands.
+    """
+    echo = f"{ECHO_PREFIX}{request.text}"
+    await post_notice(deps, echo, ref=request.id, task_id=None)
+    try:
+        held = await hold(deps, request)
+    except InvalidGoalRequestTransitionError:
+        return None  # Held or refused meanwhile: the newer state stands, nothing more to tell.
+    await deps.human_channel.goal_request_held(held)
+    return held
 
 
 async def post_question(deps: QueenDeps, question: Question) -> ChatEntry:
