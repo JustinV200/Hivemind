@@ -94,9 +94,11 @@ itself; a Warden reads `hive`, its own Cell and itself.
 
 **Night Veil.** Intake accepts `RIPENED_HONEY` at `C0`/`C1` from a Night Veil Cell as ordinary
 Nectar (labelled `origin_tier = NIGHT_VEIL`, the one intentional export). Every other deposit from
-such a Cell is stored `EPHEMERAL` against the Cell, is never ripened or returned, has its trail
-events written to the Cell's own ephemeral segment, and is deleted by the store's
-`SideChannelPurger` during the Cell's teardown purge.
+such a Cell is stored `EPHEMERAL` against the Cell, is never ripened or returned, and is deleted by
+the store's `SideChannelPurger` during the Cell's teardown purge. Neither an ephemeral deposit nor
+a query from a Night Veil reader writes a trail event at all: the Queen's inbox does not carry the
+sending node's id, so such an event could only land on the Queen's own node and would outlive the
+teardown, and the lifecycle skeleton of codingrules section 12 lists no `honey.*` kind.
 
 **Who writes.** Every write reaches the store through the Queen's process: Nectar intake runs in
 the Queen's tick for Waggle deposits and in-process for her own (a verified task's outcome, the

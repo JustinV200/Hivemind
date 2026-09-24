@@ -112,9 +112,9 @@ Vocabulary (family -> kind -> when it is recorded):
         query was answered, with hit, withheld and token counts, never the query or hit text);
         note_proposed (the human proposed a note from a Honey folder, queued for the Queen,
         roadmap step 7.10). Every honey.* kind is recorded on the Queen's own node and survives a
-        Night Veil teardown carrying ids and counts only, except those about a Night Veil Cell's
-        ephemeral Nectar or a Night Veil reader's query, which are written to that Cell's own
-        ephemeral segment and purged with it (ADR-0031).
+        Night Veil teardown carrying ids and counts only; a Night Veil Cell's ephemeral Nectar and
+        a Night Veil reader's query are never recorded at all, so nothing about either can outlive
+        the teardown (ADR-0031).
     worker: spawned (a Warden started a sub-bee, roadmap step 3.19); started (SPAWNED -> RUNNING,
         its first TaskAssign arrived); handing_off (RUNNING/PAUSED -> HANDING_OFF, writing a
         Handoff before a reset, rebind, takeover or stop); paused (RUNNING -> PAUSED, TaskPause);
