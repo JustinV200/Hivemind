@@ -18,7 +18,8 @@ Fits into the Hive:
     isolation sub-package. Called by `hivemind.wardens.warden.Warden`'s tick for every
     `TaskAssign`, after the quarantine gate and before `hivemind.wardens.ticks.assign.
     handle_assign`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.guard`,
-    `hivemind.memory` (read_handoff and its errors) and waggle only.
+    `hivemind.memory` (read_handoff and its errors), `hivemind.wardens.ticks.trail_ship` and
+    waggle only.
 
 Key invariants:
     - A resume from a TAINTED Handoff never spawns; every other assignment is admitted unchanged.
@@ -43,6 +44,7 @@ from hivemind.guard import (
     role_set,
 )
 from hivemind.memory import ClearanceError, HandoffNotFoundError, TaintedMemoryError, read_handoff
+from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
 from waggle.messages.task import TaskAssign, TaskProgress, TaskStage
 from waggle.messages.task.reports import MAX_SUMMARY_CHARS
@@ -102,6 +104,8 @@ async def _refuse(warden: Warden, assignment: TaskAssign, why: str) -> None:
     if grant is not None and grant.task_id == assignment.task_id:
         del warden._grants[assignment.grant_id]
     warden._pending.pop(assignment.task_id, None)
+    # The Queen acts on the report at once: her trail gets this Cell's refusal row first.
+    await ship_trail_before_result(warden)
     progress = TaskProgress(
         task_id=assignment.task_id,
         attempt=assignment.attempt,

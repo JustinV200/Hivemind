@@ -148,6 +148,8 @@ class Scenario:
         extra_tasks: More plan entries, appended after the root task (e.g. a dependant).
         writes: The files the Drone actually writes; None writes every one of `files`, and an
             empty tuple writes nothing, so the root task's acceptance check fails.
+        command: When set, the Drone runs this argv on every round and never finishes: a Cell
+            kept busy for as long as a scenario needs it (the Docker egress proof, 10.6a).
     """
 
     files: tuple[str, ...] = ("done.txt",)
@@ -157,6 +159,7 @@ class Scenario:
     extra_tasks: tuple[Mapping[str, object], ...] = field(default=())
     writes: tuple[str, ...] | None = None
     heard: tuple[tuple[bytes, str], ...] = ()
+    command: tuple[str, ...] | None = None
 
     def words_for(self, upload: bytes) -> str:
         """What the transcriber hears in an upload: the first marker's words, or `transcript`."""
@@ -239,15 +242,17 @@ async def serve(scenario: Scenario, port: int | None = None) -> AsyncIterator[st
 
 
 @contextmanager
-def serve_in_thread(scenario: Scenario) -> Iterator[str]:
-    """Run the scripted server on its own thread and loop; yield its `/v1` base URL.
+def serve_in_thread(scenario: Scenario, host: str = "127.0.0.1") -> Iterator[str]:
+    """Run the scripted server on its own thread and loop; yield its loopback `/v1` base URL.
 
     For a test that drives the Hive through `asyncio.run` itself (`build_hive` probes the host
-    with its own event loop, so the server cannot share the test's).
+    with its own event loop, so the server cannot share the test's). `host` is where it binds:
+    loopback by default; every interface for a real container to reach (a Docker Cell dials the
+    host gateway), while the URL yielded stays loopback, which the Hive rewrites for its Cells.
     """
     port = free_port()
     config = uvicorn.Config(
-        build_app(scenario), host="127.0.0.1", port=port, log_level="warning", lifespan="off"
+        build_app(scenario), host=host, port=port, log_level="warning", lifespan="off"
     )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, name="scripted-openai", daemon=True)
@@ -332,7 +337,9 @@ def _worker(
     """Run the Drone's rounds: ask first when scripted to, then write every file, then stop."""
     results = [message for message in messages if message.get("role") == "tool"]
     calls: list[tuple[str, dict[str, object]]] = []
-    if scenario.question is not None and not results:
+    if scenario.command is not None:
+        calls = [("run_command", {"argv": list(scenario.command)})]  # Busy, round after round.
+    elif scenario.question is not None and not results:
         calls = [("ask", {"text": scenario.question})]
     elif len(results) == (1 if scenario.question is not None else 0):
         written = scenario.files if scenario.writes is None else scenario.writes
@@ -425,7 +432,7 @@ def _main() -> None:
     if args.scenario:
         with open(args.scenario, encoding="utf-8") as handle:
             fields = json.load(handle)
-    for key in ("files", "extra_tasks", "writes"):
+    for key in ("files", "extra_tasks", "writes", "command"):
         value = fields.get(key)
         if isinstance(value, list):
             fields[key] = tuple(value)
