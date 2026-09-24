@@ -46,6 +46,9 @@ Key invariants:
       must never delay noticing a dead Warden or placing a newly-ready task (this dispatch's own
       report explains why `QueenAction.DISPATCH`/`MARK_WARDEN_OFFLINE` exist in the vocabulary but
       are not reached through this module's own live wiring).
+    - A tick runs at least once per heartbeat interval even when nothing arrives
+      (`LinkReaders.wait`'s own timer on her clock), so every Warden falling silent at once is
+      still noticed, each with its one Alarm, and an idle Queen wakes only that often.
     - `_recoverable_errors` names `InvalidTransitionError` (this dispatch's own fix 4): a chamber
       transition that still fails on a stale status even after fix 4a's own reordering (`hivemind.
       queen.dispatcher._dispatch_one`) is a recoverable tick failure, not one that ends `run()` and
@@ -352,11 +355,15 @@ async def _send_intervene(queen: Queen, child: str, intervention: Intervention) 
 
 
 async def _run_tick(queen: Queen) -> None:
-    """Wait for a queued envelope or the wake signal, act on what arrived, then the fixed sweeps."""
-    wake = queen._deps.wake
+    """Wait for an envelope, the wake signal or a quiet interval, act, then the fixed sweeps."""
+    wake, deps = queen._deps.wake, queen._deps
     # stop() ends this wait early, and so does the wake signal a goal request, a human message or
-    # a finished plan sets (ADR-0032: she awaits it beside her Warden links).
-    if not await queen._links.wait(queen._stop, wake):
+    # a finished plan sets (ADR-0032: she awaits it beside her Warden links). A heartbeat interval
+    # with nothing at all ends it too: with every Warden silent, only that timer still runs the
+    # liveness sweep below, and one sleep per wait is no busy loop.
+    if not await queen._links.wait(
+        queen._stop, wake, clock=deps.clock, idle_s=deps.heartbeat_interval_s
+    ):
         return
     # Cleared before anything is drained, so a wake set while this tick runs starts the next one.
     wake.clear()

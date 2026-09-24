@@ -1,11 +1,13 @@
-"""Tests for the Queen's liveness at each Warden's own cadence.
+"""Tests for the Queen's liveness at each Warden's own cadence, and on her own quiet timer.
 
 Wardens do not share one heartbeat interval: a Virtual Cell's in-Cell Warden beats every 15 s, the
 Hive Stand's keeps the manifest's, and a Swarm device keeps whatever it declares. The Queen used to
 judge every one of them against the manifest's interval, so any Warden slower than it drew a false
 `CELL_UNREACHABLE`; she now judges each against the interval its newest Heartbeat declared, never
-less than the manifest's. Every test runs on a FakeClock (builders' defaults: a 5 s manifest
-interval and a miss limit of 3, so a 15 s window) and waits on state, never on a timer.
+less than the manifest's. And her tick used to wake only on an envelope or her wake signal, so with
+every Warden silent at once nothing ever judged them; a quiet heartbeat interval now wakes it too.
+Every test runs on a FakeClock (builders' defaults: a 5 s manifest interval and a miss limit of 3,
+so a 15 s window) and waits on state, never on a timer.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/ticks/liveness.py and queen.py (codingrules section 3); split by
@@ -44,6 +46,9 @@ from waggle.transport.memory import MemoryTransport
 
 _IN_CELL_S = 15.0  # hivemind.cli.in_cell.config's own default: three times the manifest's here.
 _POLL_LIMIT = 4_000  # Loop turns a state wait may take before the test fails instead of hanging.
+_STEP_S = 1.0  # One clock advance while every Warden is silent: a fifth of her quiet interval.
+_ADVANCE_LIMIT = 200  # Advances a silent-Hive wait may take before the test fails instead.
+_SETTLE_TURNS = 50  # Loop turns after each advance for a tick it woke to run.
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,3 +198,41 @@ async def _beat_and_wait(queen: Queen, pair: _WardenPair, clock: Clock, interval
     await pair.beat(clock, interval_s)
     sent_at = clock.now()
     await _wait_until(lambda: _heard_at(queen, pair.link.warden_id, sent_at))
+
+
+async def test_every_warden_falling_silent_at_once_raises_exactly_one_alarm_each() -> None:
+    # Arrange: two Wardens beat once each; then nothing reaches the Queen at all, no envelope and
+    # no wake signal, so only her own quiet-interval timer can still run a tick.
+    clock = FakeClock()
+    deps, _link, _end = make_queen_deps(clock)
+    first, second = _pair(deps), _pair(deps)
+    queen = Queen(deps)
+    await queen.attach_warden(first.link)
+    await queen.attach_warden(second.link)
+    run_task = asyncio.ensure_future(queen.run())
+    for pair in (first, second):
+        await _beat_and_wait(queen, pair, clock, deps.heartbeat_interval_s)
+    silent = (first.link.warden_id, second.link.warden_id)
+
+    await _advance_until(clock, lambda: len(_unreachable(queen.human_inbox)) >= len(silent))
+    # Three more whole windows of silence, each judged again: still that one Alarm each.
+    judged = 4 * deps.heartbeat_miss_limit
+    await _advance_until(
+        clock, lambda: all(queen.liveness[w].missed_heartbeats >= judged for w in silent)
+    )
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert sorted(_unreachable(queen.human_inbox)) == sorted(silent)
+    assert all(queen.liveness[w].is_offline for w in silent)
+
+
+async def _advance_until(clock: FakeClock, condition: Callable[[], bool]) -> None:
+    """Advance `clock` a step at a time, letting the loop run after each, until `condition()`."""
+    for _ in range(_ADVANCE_LIMIT):
+        clock.advance(_STEP_S)
+        for _ in range(_SETTLE_TURNS):
+            if condition():
+                return
+            await asyncio.sleep(0)
+    raise AssertionError("Condition never became true however far the clock advanced.")

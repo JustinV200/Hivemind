@@ -35,6 +35,7 @@ from waggle.messages.supervision import Heartbeat, WardenState
 from waggle.transport.memory import MemoryTransport
 
 _POLL_LIMIT = 500  # Loop turns a state wait may take before the test fails instead of hanging.
+_IDLE_S = 5.0  # The quiet interval a wait gives up after: builders.queen's heartbeat interval.
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,16 +267,42 @@ async def test_wait_returns_on_a_queued_envelope_on_wake_and_reports_stop() -> N
     before = asyncio.all_tasks()
 
     await _send_heartbeats(link, clock, 1)
-    assert await asyncio.wait_for(readers.wait(stop, wake), timeout=5.0)
+    assert await asyncio.wait_for(_wait(readers, stop, wake, clock), timeout=5.0)
     readers.drain()
     wake.set()
-    assert await asyncio.wait_for(readers.wait(stop, wake), timeout=5.0)
+    assert await asyncio.wait_for(_wait(readers, stop, wake, clock), timeout=5.0)
     stop.set()
-    assert not await asyncio.wait_for(readers.wait(stop, wake), timeout=5.0)
+    assert not await asyncio.wait_for(_wait(readers, stop, wake, clock), timeout=5.0)
 
     # Every throwaway waiter a wait started is reaped before it returns.
     assert asyncio.all_tasks() == before
     await readers.aclose()
+
+
+async def test_wait_returns_after_a_quiet_interval_with_nothing_arriving() -> None:
+    # Every Warden silent, no wake: only the interval on her own clock ends the wait.
+    clock = FakeClock()
+    readers = LinkReaders()
+    link = _link(clock)
+    await readers.add(link.warden_id, link.queen_end)
+    stop, wake = asyncio.Event(), asyncio.Event()
+    waiting = asyncio.ensure_future(_wait(readers, stop, wake, clock))
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert not waiting.done()  # Short of the interval, nothing ends it.
+
+    clock.advance(_IDLE_S)
+
+    assert await asyncio.wait_for(waiting, timeout=5.0)
+    assert readers.drain() == []
+    await readers.aclose()
+
+
+async def _wait(
+    readers: LinkReaders, stop: asyncio.Event, wake: asyncio.Event, clock: FakeClock
+) -> bool:
+    """`readers.wait` on `clock` with the quiet interval every test here uses."""
+    return await readers.wait(stop, wake, clock=clock, idle_s=_IDLE_S)
 
 
 def test_a_queue_size_below_one_is_refused() -> None:

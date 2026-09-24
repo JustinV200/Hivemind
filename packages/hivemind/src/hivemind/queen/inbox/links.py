@@ -12,10 +12,12 @@ detach and on stop, which reads its transport as frames arrive into that link's 
 and notes the newest Heartbeat it has heard as a `Pulse`: when it was sent, and the interval the
 Warden declared on it (`Heartbeat.interval_s`), since every Warden heartbeats at its own cadence
 (a Virtual Cell's in-Cell Warden every 15 s, a Swarm device at whatever its battery allows). The
-tick `wait`s until anything is queued (or her stop flag or wake signal is set), `drain`s
-everything queued on every link into `InboxItem`s for her Attendant, and judges liveness against
-`heard()` as well as what she has handled, so a stall of her own tick is never mistaken for a
-silent Warden. The second half, never letting a stale Heartbeat bring a Warden back online, is
+tick `wait`s until anything is queued (or her stop flag or wake signal is set, or a quiet
+heartbeat interval passes, so a tick still runs, and judges liveness, when every Warden has gone
+silent and nothing else would wake her), `drain`s everything queued on every link into
+`InboxItem`s for her Attendant, and judges liveness against `heard()` as well as what she has
+handled, so a stall of her own tick is never mistaken for a silent Warden. The second half, never
+letting a stale Heartbeat bring a Warden back online, is
 `hivemind.queen.ticks.liveness.record_heartbeat`.
 
 Fits into the Hive:
@@ -35,6 +37,8 @@ Key invariants:
       tick: no Warden is starved by another.
     - A reader task exists exactly while its link is attached: `add` starts it, `remove` and
       `aclose` cancel and reap it (codingrules section 11). None is ever left pending.
+    - `wait` returns within `idle_s` on the caller's clock, whatever the links do: never a busy
+      loop (one sleep per wait, and a wait per tick), never a tick starved of its timer.
     - A frame the codec refuses with `InvalidPayloadError` is skipped and reading resumes on a
       fresh `receive()` (the Transport contract: that pair stays open). A clean end, a lost link,
       any other decode failure or a signature failure ends the link with one `None` marker, which
@@ -56,10 +60,12 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
+from typing import Any
 
-from hivemind.common.tasks import reap, reap_all, reaping
+from hivemind.common.tasks import reap, reap_all
 from hivemind.queen.inbox.weights import to_inbox_item
 from hivemind.supervision.attendant import InboxItem
+from waggle.clock import Clock
 from waggle.envelope import Envelope
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import WardenId
@@ -162,25 +168,33 @@ class LinkReaders:
         self._links.clear()
         await reap_all(link.task for link in links if link.task is not None)
 
-    async def wait(self, stop: asyncio.Event, wake: asyncio.Event) -> bool:
-        """Wait until any link has something queued, `wake` is set, or `stop` is set.
+    async def wait(
+        self, stop: asyncio.Event, wake: asyncio.Event, *, clock: Clock, idle_s: float
+    ) -> bool:
+        """Wait until any link has something queued, `wake` or `stop` is set, or `idle_s` passes.
 
         Args:
             stop: The Queen's own stop flag; once set, the tick has nothing left to do.
             wake: The Queen's wake signal (a goal request, a human message, a finished plan).
+            clock: The Queen's own clock, so a test drives the quiet interval with a FakeClock.
+            idle_s: The longest a wait lasts with nothing arriving: the heartbeat interval, so
+                liveness is judged at least once per interval even when every Warden is silent.
 
         Returns:
             False once `stop` is set, so the caller's tick returns at once; True otherwise.
         """
         # Throwaway waiters, reaped on the way out even when the tick itself is cancelled mid-wait
-        # (hivemind.common.tasks.reaping). In-process events only: no external await, no timeout.
-        stop_task = asyncio.ensure_future(stop.wait())
-        wake_task = asyncio.ensure_future(wake.wait())
-        ready_task = asyncio.ensure_future(self._ready.wait())
-        async with reaping(stop_task), reaping(wake_task), reaping(ready_task):
-            await asyncio.wait(
-                {stop_task, wake_task, ready_task}, return_when=asyncio.FIRST_COMPLETED
-            )
+        # (the finally below). In-process events and the Queen's own clock only: nothing external.
+        waiters: tuple[asyncio.Future[Any], ...] = (
+            asyncio.ensure_future(stop.wait()),
+            asyncio.ensure_future(wake.wait()),
+            asyncio.ensure_future(self._ready.wait()),
+            asyncio.ensure_future(clock.sleep(idle_s)),
+        )
+        try:
+            await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            await reap_all(waiters)
         return not stop.is_set()
 
     def drain(self) -> list[InboxItem]:

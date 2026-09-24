@@ -129,7 +129,9 @@ class SupervisionSection(BaseModel):
     heartbeat_interval_s: float = Field(
         default=DEFAULT_HEARTBEAT_INTERVAL_S,
         gt=0,
-        description="Seconds between a supervised child's heartbeat reports.",
+        description="Seconds between a supervised child's heartbeat reports. The Queen judges each "
+        "Warden by the interval its own Heartbeat declares, never less than this, and her tick "
+        "waits no longer than this with nothing arriving.",
     )
     heartbeat_miss_limit: int = Field(
         default=DEFAULT_HEARTBEAT_MISS_LIMIT,

@@ -11,7 +11,8 @@ Unlike `hivemind.wardens.inbox`, this package MAY import `hivemind.llm`: only an
   by `hivemind.queen.attach.attach_warden` and reaped on detach and on `Queen.stop`, each feeding
   its own bounded queue (at most `LINK_QUEUE_SIZE` envelopes; a full queue parks the reader, so the
   rest wait with the transport). The Queen's tick waits until anything is queued (or her stop flag
-  or wake signal), then `drain`s everything queued on every link -- never more than one queue's
+  or wake signal, or one quiet heartbeat interval on her clock, so liveness is judged even with
+  every Warden silent), then `drain`s everything queued on every link -- never more than one queue's
   worth from a single link, so a flooding Warden cannot starve the rest -- before her Attendant
   orders it. `heard()` is the newest Heartbeat each link delivered, handled or not, as a `Pulse`
   (when it was sent, and the interval its Warden declared): the liveness sweep judges by it, at

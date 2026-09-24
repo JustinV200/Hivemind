@@ -6,8 +6,8 @@ Fits into the Hive:
     test_queen_questions.py, test_queen_supervisor.py and test_queen_invariants.py. The first test
     drives a real Heartbeat through the Queen's own tick loop; `check_liveness` itself is exercised
     directly (as `hivemind.queen.autopilot.table` is in test_table.py), since going offline is a
-    pure function of elapsed wall-clock time that a live tick loop only ever wakes on a new
-    envelope (module docstring of hivemind.queen.queen: "never gated behind an inbox item").
+    pure function of elapsed wall-clock time; test_queen_liveness_cadence.py drives the same sweep
+    through a live tick loop woken only by her own quiet-interval timer.
 
 Key invariants:
     - None: this module holds tests only.

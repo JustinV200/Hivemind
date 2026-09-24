@@ -14,7 +14,9 @@ every assignment goes to a Warden, over Waggle.
   them with her own Attendant (`queen.inbox`, human messages heavy but not absolute), dispatches
   each through `queen.autopilot.decide` (falling back to `queen.awake.decide_awake` for
   `NEEDS_JUDGEMENT`), checks every attached Warden's liveness and places whatever the Brood
-  Chamber now says is ready -- both unconditionally, every tick, never gated behind an inbox item.
+  Chamber now says is ready -- both unconditionally, every tick, never gated behind an inbox item;
+  a tick runs at least once per heartbeat interval even when nothing arrives (her own quiet-interval
+  timer), so every Warden falling silent at once still draws its one Alarm each.
   Liveness is the Warden's, not her attention's: it is judged against the newest Heartbeat each
   link delivered, handled or not, at the cadence that Heartbeat declared (never below the
   manifest's), and a Heartbeat already older than the miss limit never brings a Warden back
