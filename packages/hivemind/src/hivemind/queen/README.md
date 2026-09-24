@@ -9,15 +9,21 @@ every assignment goes to a Warden, over Waggle.
 
 - `Queen` (`queen.py`): the `waggle.loop.TickLoop` face. `attach_warden(link)` records an
   already-built `WardenLink` before `run()`; the Queen never creates Wardens or Cells herself. One
-  tick drains every attached Warden's own link into `InboxItem`s, orders them with her own
-  Attendant (`queen.inbox`, human messages heavy but not absolute), dispatches each through
-  `queen.autopilot.decide` (falling back to `queen.awake.decide_awake` for `NEEDS_JUDGEMENT`),
-  checks every attached Warden's liveness and places whatever the Brood Chamber now says is ready
-  -- both unconditionally, every tick, never gated behind an inbox item. Also implements
+  tick drains everything queued on every attached Warden's own link (one reader task per link,
+  `queen.inbox.LinkReaders`, at most one bounded queue's worth per link) into `InboxItem`s, orders
+  them with her own Attendant (`queen.inbox`, human messages heavy but not absolute), dispatches
+  each through `queen.autopilot.decide` (falling back to `queen.awake.decide_awake` for
+  `NEEDS_JUDGEMENT`), checks every attached Warden's liveness and places whatever the Brood
+  Chamber now says is ready -- both unconditionally, every tick, never gated behind an inbox item.
+  Liveness is the Warden's, not her attention's: it is judged against the newest Heartbeat each
+  link delivered, handled or not, and a Heartbeat already older than the miss limit never brings
+  a Warden back online (`queen.ticks.liveness`), so a stall of her own tick (a Virtual Cell
+  provision, a long awake episode) raises no false `CELL_UNREACHABLE` and a stale backlog at most
+  the one Alarm of one outage. Also implements
   `hivemind.supervision.Supervisor` over her attached Wardens. `_recoverable_errors` names
   `InvalidTransitionError`: a chamber transition failing on a stale status backs a tick off and
   records it (`queen.decided`), rather than ending `run()` and taking the whole Hive down.
-  `stop()` sets the stop flag first, then reaps every attached Warden's own receive task, so none
+  `stop()` sets the stop flag first, then reaps every attached Warden's own reader task, so none
   is ever left pending once `run()` ends (codingrules section 11).
 - `QueenDeps`, `WardenLink`, `MemoryBudget`, `Housekeeping` (`deps.py`): every collaborator one
   Queen is built with, and one attached Warden's own address and link; manifest *slices* only,

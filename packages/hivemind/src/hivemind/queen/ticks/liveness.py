@@ -8,7 +8,15 @@ every received `Heartbeat`; `check_liveness` is the sweep: for every attached Wa
 one heartbeat on record, it recomputes how many whole `heartbeat_interval_s` intervals have elapsed
 since the last one (never an incremental per-tick counter, so calling it more often than once per
 interval never over-counts), and raises one Alarm at the human the moment a Warden first crosses
-`heartbeat_miss_limit`. Roadmap step 4.7 adds two more moves that ride the exact same cadence:
+`heartbeat_miss_limit`. A Heartbeat is proof of life only as of when it was sent (its envelope's
+own `sent_at`), and a real run (2026-09-24) showed why that matters: a tick stalled on a Virtual
+Cell provision left a backlog of Heartbeats that the old reset, heard one per tick, turned into
+one "back online" per stale Heartbeat and so one fresh Alarm each, about a Warden heartbeating the
+whole time. So `record_heartbeat` now advances `last_heartbeat_at` (never backwards) but brings a
+Warden back online only on a Heartbeat still inside the miss limit when it is recorded, and
+`check_liveness` first folds in the newest Heartbeat each link has delivered but the tick has not
+handled yet (`hivemind.queen.inbox.links.LinkReaders.heard`): liveness is the Warden's, never the
+Queen's own attention. Roadmap step 4.7 adds two more moves that ride the exact same cadence:
 `renew_grants_on_heartbeat` extends every live grant a Heartbeat's own Warden holds (a grant is a
 lease, roadmap step 4.7: "renewed on the Warden's heartbeat"), and `check_liveness`'s own sweep now
 also calls `hivemind.queen.forage.grants.sweep_expired`, so a grant whose lease lapses -- whether
@@ -28,8 +36,9 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick, once per Heartbeat received
     (`record_heartbeat`, `renew_grants_on_heartbeat`) and unconditionally once per tick
-    (`check_liveness`). Calls into `hivemind.cell` (HoneyClearance), `hivemind.queen.chat`
-    (post_alarm: an offline Warden's Alarm reaches the chat, roadmap step 10.5),
+    (`check_liveness`, with the newest Heartbeat each link has delivered). Calls into
+    `hivemind.cell` (HoneyClearance), `hivemind.queen.chat` (post_alarm: an offline Warden's
+    Alarm reaches the chat, roadmap step 10.5),
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants`
     (renew_grants_for_warden, sweep_expired), `hivemind.queen.human_inbox` (HumanInbox),
     `hivemind.queen.ticks.wax` (handle_wax_item), `hivemind.supervision` (Alarm, AlarmKind,
@@ -42,6 +51,13 @@ Key invariants:
     - A newly-offline transition raises exactly one Alarm: the `offline and not current.is_offline`
       guard fires only the tick a Warden first crosses the limit, never on every later check while
       it stays offline.
+    - One Alarm per outage, in every ordering of records and checks: only `check_liveness` ever
+      marks a Warden offline (raising that outage's one Alarm), and only a Heartbeat still inside
+      the miss limit when `record_heartbeat` sees it brings one back online. A backlog of stale
+      Heartbeats, however it is heard or interleaved, can therefore never end an outage and so
+      never start another; it only moves `last_heartbeat_at` forward.
+    - `last_heartbeat_at` never moves backwards: an older Heartbeat heard after a newer one adds
+      nothing.
     - `check_liveness`'s own expiry sweep runs every call, regardless of whether any Warden's own
       liveness changed this tick: a grant's `expires_at` is a wall-clock deadline independent of
       the Warden-by-Warden loop above it.
@@ -50,6 +66,7 @@ See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the Heartbeat/liveness rule this module
       implements; step 4.7 for the grant-lease renewal and expiry it now also drives.
     - hivemind.queen.human_inbox for HumanInbox, where an offline Warden's Alarm lands.
+    - hivemind.queen.inbox.links for LinkReaders, whose `heard()` check_liveness folds in.
     - hivemind.queen.forage.grants for renew_grants_for_warden and sweep_expired themselves.
 """
 
@@ -96,18 +113,42 @@ class WardenLiveness:
     is_offline: bool
 
 
+# What a Warden with no liveness row yet looks like to `record_heartbeat` (attach adds one first).
+_NEVER_HEARD = WardenLiveness(last_heartbeat_at=None, missed_heartbeats=0, is_offline=False)
+
+
 def record_heartbeat(
-    liveness: MutableMapping[WardenId, WardenLiveness], warden_id: WardenId, at: datetime
+    deps: QueenDeps,
+    liveness: MutableMapping[WardenId, WardenLiveness],
+    warden_id: WardenId,
+    at: datetime,
 ) -> None:
-    """Reset `warden_id`'s own liveness to freshly seen, at `at`.
+    """Advance `warden_id`'s own liveness to a Heartbeat sent at `at`, never backwards.
+
+    A Heartbeat still inside the miss limit now proves the Warden alive: it is back online. One
+    already older than the miss limit (a backlog heard late) proves nothing about now: it may move
+    `last_heartbeat_at` forward but leaves `is_offline` exactly as it was, so only
+    `check_liveness` ever marks a Warden offline, once per outage (module docstring).
 
     Args:
+        deps: The Queen's collaborators; `clock`, `heartbeat_interval_s` and
+            `heartbeat_miss_limit` decide whether `at` is still inside the miss limit.
         liveness: The Queen's own warden_id -> WardenLiveness table; mutated in place.
-        warden_id: The Warden whose Heartbeat just arrived.
+        warden_id: The Warden whose Heartbeat was heard.
         at: When it was sent (the envelope's own `sent_at`).
     """
+    current = liveness.get(warden_id, _NEVER_HEARD)
+    previous = current.last_heartbeat_at
+    newest = at if previous is None or at > previous else previous
+    now = deps.clock.now()
+    if _missed_since(deps, now, at) >= deps.heartbeat_miss_limit:
+        # Stale on arrival: never back online on it, never backwards either.
+        liveness[warden_id] = dataclasses.replace(current, last_heartbeat_at=newest)
+        return
     liveness[warden_id] = WardenLiveness(
-        last_heartbeat_at=at, missed_heartbeats=0, is_offline=False
+        last_heartbeat_at=newest,
+        missed_heartbeats=_missed_since(deps, now, newest),
+        is_offline=False,
     )
 
 
@@ -171,7 +212,7 @@ async def handle_heartbeat_item(
     """Record one Heartbeat InboxItem, renew its own Warden's live grants, and watch its context.
 
     `hivemind.queen.queen.Queen`'s own tick calls this directly for a received Heartbeat, so the
-    five things a Heartbeat causes (mirror it, reset liveness, hand it to `deps.on_heartbeat`,
+    five things a Heartbeat causes (mirror it, record liveness, hand it to `deps.on_heartbeat`,
     renew grants, watch context) live in one place instead of split across that call site and
     this module.
 
@@ -187,7 +228,7 @@ async def handle_heartbeat_item(
     warden_id = WardenId(item.principal)
     heartbeat = cast(Heartbeat, item.payload)
     last_heartbeat[warden_id] = heartbeat
-    record_heartbeat(liveness, warden_id, item.received_at)
+    record_heartbeat(deps, liveness, warden_id, item.received_at)
     # A Heartbeat never reaches the trail, so the Hive Entrance's telemetry view hears of it
     # here, once she has recorded it; the hook only hands the sample on (QueenDeps.on_heartbeat).
     if deps.on_heartbeat is not None:
@@ -236,6 +277,7 @@ async def check_liveness(
     wardens: Sequence[WardenLink],
     liveness: MutableMapping[WardenId, WardenLiveness],
     human_inbox: HumanInbox,
+    heard: Mapping[WardenId, datetime] | None = None,
 ) -> None:
     """Mark any attached Warden offline whose Heartbeat has not renewed within the miss limit.
 
@@ -244,21 +286,16 @@ async def check_liveness(
         wardens: Every Warden currently attached.
         liveness: The Queen's own warden_id -> WardenLiveness table; mutated in place.
         human_inbox: Where a newly-offline Warden's Alarm is escalated (v0: record and raise).
+        heard: The newest Heartbeat `sent_at` each link has delivered, handled by the tick or
+            not (`hivemind.queen.inbox.links.LinkReaders.heard`); None judges by `liveness` alone.
     """
     now = deps.clock.now()
     for link in wardens:
-        current = liveness.get(link.warden_id)
-        if current is None or current.last_heartbeat_at is None:
-            continue  # No Heartbeat received yet; nothing to judge staleness against.
-        elapsed_s = (now - current.last_heartbeat_at).total_seconds()
-        missed = int(elapsed_s // deps.heartbeat_interval_s)
-        offline = missed >= deps.heartbeat_miss_limit
-        if missed == current.missed_heartbeats and offline == current.is_offline:
-            continue  # Nothing changed since the last check.
-        liveness[link.warden_id] = dataclasses.replace(
-            current, missed_heartbeats=missed, is_offline=offline
-        )
-        if offline and not current.is_offline:
+        # A Heartbeat heard while the tick was busy is still the Warden's own proof of life.
+        heard_at = heard.get(link.warden_id) if heard is not None else None
+        if heard_at is not None:
+            record_heartbeat(deps, liveness, link.warden_id, heard_at)
+        if _crossed_miss_limit(deps, liveness, link.warden_id, now):
             # The transition only: one Alarm per Warden per outage, not one per later check;
             # it reaches the human in the chat too (roadmap step 10.5, ADR-0032).
             alarm = _offline_alarm(deps, link)
@@ -269,6 +306,31 @@ async def check_liveness(
     # wall-clock deadline independent of any one Warden's liveness state, so this runs every tick
     # regardless of whether any Warden just went offline this time.
     await forage_grants.sweep_expired(deps.ledger, deps)
+
+
+def _crossed_miss_limit(
+    deps: QueenDeps,
+    liveness: MutableMapping[WardenId, WardenLiveness],
+    warden_id: WardenId,
+    now: datetime,
+) -> bool:
+    """Re-derive `warden_id`'s misses at `now`; True only the check it first crosses the limit."""
+    current = liveness.get(warden_id)
+    if current is None or current.last_heartbeat_at is None:
+        return False  # No Heartbeat received yet; nothing to judge staleness against.
+    missed = _missed_since(deps, now, current.last_heartbeat_at)
+    offline = missed >= deps.heartbeat_miss_limit
+    if missed == current.missed_heartbeats and offline == current.is_offline:
+        return False  # Nothing changed since the last check.
+    liveness[warden_id] = dataclasses.replace(current, missed_heartbeats=missed, is_offline=offline)
+    return offline and not current.is_offline
+
+
+def _missed_since(deps: QueenDeps, now: datetime, at: datetime) -> int:
+    """Count the whole Heartbeat intervals elapsed from `at` to `now` (never a per-tick counter)."""
+    # Never below zero: a Heartbeat stamped ahead of the Queen's clock (a Cell's own clock running
+    # a little fast) counts as just sent, never as negative misses.
+    return max(0, int((now - at).total_seconds() // deps.heartbeat_interval_s))
 
 
 def _offline_alarm(deps: QueenDeps, link: WardenLink) -> Alarm:

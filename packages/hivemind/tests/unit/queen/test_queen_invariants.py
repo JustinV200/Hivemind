@@ -128,17 +128,19 @@ def _flatten(value: object) -> tuple[object, ...]:
 async def test_stop_leaves_no_pending_tasks_behind_a_concurrently_running_run_loop() -> None:
     """This dispatch's own shutdown-hygiene proof: `stop()` reaps every task it owns.
 
-    Before this fix, `Queen.stop()` never reaped `_receive_tasks`: the attached Warden's own
-    receive task (`hivemind.queen.queen._next_or_none`) was simply abandoned, pending, once
-    `run()` returned -- exactly the `asyncio` "Task was destroyed but it is pending!" warning the
-    e2e suite's own live log showed for this class before the fix.
+    `Queen.stop()` once never reaped the attached Warden's own receive task, which was simply
+    abandoned, pending, once `run()` returned -- exactly the `asyncio` "Task was destroyed but it
+    is pending!" warning the e2e suite's own live log showed for this class before the fix. Each
+    link now has a reader task from attach onward (`hivemind.queen.inbox.links.LinkReaders`),
+    which `stop()` reaps with every other task it owns.
     """
     deps, link, warden_end = make_queen_deps()
     queen = Queen(deps)
-    await queen.attach_warden(link)
+    # Taken before attach: the link's reader task is one of the tasks stop() must leave behind.
     before = asyncio.all_tasks() - {asyncio.current_task()}
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
-    await asyncio.sleep(0)  # Let the first tick start its own receive task on the attached link.
+    await asyncio.sleep(0)  # Let the first tick start and park in its own wait.
 
     await queen.stop()
     await asyncio.wait_for(run_task, timeout=5.0)

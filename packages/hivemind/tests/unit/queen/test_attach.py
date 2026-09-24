@@ -70,18 +70,17 @@ async def test_detach_warden_removes_an_attached_link() -> None:
     assert link.warden_id not in {w.warden_id for w in queen.wardens}
 
 
-async def test_detach_warden_reaps_the_in_flight_receive_task() -> None:
+async def test_detach_warden_reaps_the_links_reader_task() -> None:
     deps, link, _end = make_queen_deps()
     queen = Queen(deps)
+    before = asyncio.all_tasks()
+    # Attaching starts the link's own reader task (hivemind.queen.inbox.links.LinkReaders).
     await queen.attach_warden(link)
-    # Force a receive task to exist, the same way a real tick would (queen._receive_tasks is
-    # populated lazily by _run_tick; this test creates one directly so detach has something real
-    # to reap, matching this function's own key invariant).
-    queen._receive_tasks[link.warden_id] = asyncio.ensure_future(anext(link.transport.receive()))
+    assert len(asyncio.all_tasks() - before) == 1
 
     await detach_warden(queen, link.warden_id)
 
-    assert link.warden_id not in queen._receive_tasks
+    assert asyncio.all_tasks() == before
 
 
 async def test_detach_warden_is_a_no_op_for_an_unattached_id() -> None:

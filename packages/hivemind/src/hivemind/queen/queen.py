@@ -4,8 +4,10 @@ The Queen is the Hive's single always-on orchestrator, built like an operating-s
 (codingrules section 8.8, docs/adr/0019): a thin loop with a prioritised inbox. She holds no
 session and no Comb Registry -- her only levers are the seven `hivemind.supervision.Intervention`
 values, sent to a Warden, never carried out herself. One tick (`_tick`, driven by `waggle.loop.
-TickLoop.run`) drains whatever is ready on every attached Warden's own link into `hivemind.
-supervision.attendant.InboxItem`s, orders them with her own Attendant (`hivemind.queen.inbox`,
+TickLoop.run`) drains everything queued on every attached Warden's own link (one reader task per
+link, `hivemind.queen.inbox.links`, so a stall of her own tick is never mistaken for a silent
+Warden) into `hivemind.supervision.attendant.InboxItem`s, orders them with her own Attendant
+(`hivemind.queen.inbox`,
 optionally with a model-backed `TieBreaker` for an exact tie), and dispatches each through
 `hivemind.queen.autopilot.table.decide` to one `hivemind.queen.autopilot.QueenAction` --
 `NEEDS_JUDGEMENT` runs one stateless `hivemind.queen.awake.episode.decide_awake` episode instead --
@@ -47,12 +49,13 @@ Key invariants:
       queen.dispatcher._dispatch_one`) is a recoverable tick failure, not one that ends `run()` and
       takes the whole Hive down with it -- `waggle.loop.TickLoop.run` backs off and retries the
       next tick, and `_on_tick_failed` records it as `queen.decided`.
-    - `stop()` sets the stop flag before reaping `_receive_tasks` (this dispatch's own shutdown-
-      hygiene fix), the opposite order from `hivemind.wardens.warden.Warden.stop`: a tick still in
-      flight when `stop()` runs sees its own throwaway `stop_task` win the very same race and
-      returns before `_drain_items` ever runs, so nothing here races that tick over a task `stop()`
-      is concurrently reaping. `_run_tick`'s own `stop_task` is reaped via `hivemind.common.tasks.
-      reaping`, never left pending when a tick is cancelled from outside.
+    - `stop()` sets the stop flag before reaping every link's reader task (`LinkReaders.aclose`),
+      the opposite order from `hivemind.wardens.warden.Warden.stop`: a tick still waiting when
+      `stop()` runs sees the flag and returns before it drains anything. A reader task exists
+      exactly while its link is attached (`hivemind.queen.attach`), and `LinkReaders.wait` reaps
+      its own throwaway waiters even when a tick is cancelled from outside.
+    - Liveness is judged after everything already queued has been drained and against the newest
+      Heartbeat each link delivered (`LinkReaders.heard`), never one envelope per Warden per tick.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the kernel/Attendant/autopilot/awake shape this class
@@ -66,14 +69,12 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
 import types
-from collections.abc import AsyncIterator, Mapping
-from typing import Any, ClassVar
+from collections.abc import Mapping
+from typing import ClassVar
 
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
-from hivemind.common.tasks import reap_all, reaping
 from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import attach, goal_submission, leave_memory, quarantine, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide
@@ -82,7 +83,7 @@ from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
 from hivemind.queen.human_inbox import HumanInbox
-from hivemind.queen.inbox import queen_attendant, to_inbox_item
+from hivemind.queen.inbox import LinkReaders, queen_attendant
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
@@ -95,8 +96,7 @@ from hivemind.supervision import (
     to_intervene,
 )
 from hivemind.supervision.attendant import InboxItem, TieBreaker
-from waggle.envelope import Envelope, wrap
-from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
+from waggle.envelope import wrap
 from waggle.ids import CellId, MessageId, TaskId, WardenId
 from waggle.loop import TickLoop
 from waggle.messages.control import HumanMessage
@@ -139,8 +139,7 @@ class Queen(ChatDoor, TickLoop):
         super().__init__(deps.clock)
         self._deps = deps
         self._wardens: dict[WardenId, WardenLink] = {}
-        self._link_iters: dict[WardenId, AsyncIterator[Envelope]] = {}
-        self._receive_tasks: dict[WardenId, asyncio.Task[Envelope | None]] = {}
+        self._links = LinkReaders()  # One reader task per attached link (hivemind.queen.attach).
         self._liveness: dict[WardenId, WardenLiveness] = {}
         self._last_heartbeat: dict[WardenId, Heartbeat] = {}
         self._open_questions: dict[MessageId, TaskId] = {}
@@ -252,7 +251,7 @@ class Queen(ChatDoor, TickLoop):
         return await questions.answer_question_in_process(self, answer_input)
 
     async def stop(self) -> None:  # type: ignore[override]
-        """End the loop, then reap every attached Warden's own receive task (rules 1-3)."""
+        """End the loop, then reap every attached Warden's own reader task (rules 1-3)."""
         await _stop_queen(self)
 
     async def _tick(self) -> None:
@@ -319,18 +318,15 @@ class Queen(ChatDoor, TickLoop):
 
 
 async def _stop_queen(queen: Queen) -> None:
-    """End `queen`'s loop, then reap every attached Warden's own receive task (`Queen.stop`'s body).
+    """End `queen`'s loop, then reap every attached Warden's own reader task (`Queen.stop`'s body).
 
     SAFETY: widens `waggle.loop.TickLoop.stop`'s synchronous signature to async, matching
     `hivemind.wardens.warden.Warden.stop` -- the reap below needs to await. The stop flag is set
-    first (unlike `Warden.stop`, which has sub-bees and a lease to release before it): the
-    currently in-flight tick's own `_run_tick`, if any, sees its throwaway `stop_task` win the
-    very same race and returns before ever touching `_receive_tasks`, so nothing here ever races
-    that tick's own `_drain_items` (this dispatch's own shutdown-hygiene fix).
+    first (unlike `Warden.stop`, which has sub-bees and a lease to release before it): a tick
+    still waiting sees it and returns before it drains anything, so nothing here races that tick.
     """
     TickLoop.stop(queen)  # Same as super().stop() would from inside Queen.stop's own body.
-    await reap_all(queen._receive_tasks.values())
-    queen._receive_tasks.clear()
+    await queen._links.aclose()
     # Roadmap step 10.5: a plan still in flight is reaped too; its request stays PLANNING, which
     # the next start settles (hivemind.queen.ticks.intake), so nothing is lost or planned twice.
     await ticks.intake.stop_planning(queen._deps.planning)
@@ -351,23 +347,17 @@ async def _send_intervene(queen: Queen, child: str, intervention: Intervention) 
 
 
 async def _run_tick(queen: Queen) -> None:
-    """Wait for a Warden link or the wake signal, act on what arrived, then the fixed sweeps."""
-    receive_tasks = _receive_tasks_snapshot(queen)
+    """Wait for a queued envelope or the wake signal, act on what arrived, then the fixed sweeps."""
     wake = queen._deps.wake
-    # Throwaways: stop() ends this wait early, and so does the wake signal a goal request, a human
-    # message or a finished plan sets (ADR-0032: she awaits it beside her Warden links).
-    stop_task: asyncio.Task[bool] = asyncio.ensure_future(queen._stop.wait())
-    wake_task: asyncio.Task[bool] = asyncio.ensure_future(wake.wait())
-    waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), stop_task, wake_task}
-    # reaping (not a bare reap after this line) so neither waiter is ever left pending even when
-    # this tick is cancelled from outside (this dispatch's own rule 1).
-    async with reaping(stop_task), reaping(wake_task):
-        done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-    if stop_task in done:
+    # stop() ends this wait early, and so does the wake signal a goal request, a human message or
+    # a finished plan sets (ADR-0032: she awaits it beside her Warden links).
+    if not await queen._links.wait(queen._stop, wake):
         return
     # Cleared before anything is drained, so a wake set while this tick runs starts the next one.
     wake.clear()
-    items = [*_drain_items(queen, receive_tasks, done), *await ticks.chat.human_items(queen._deps)]
+    # Everything already queued on every link, bounded per link (hivemind.queen.inbox.links), so
+    # a backlog left by a stalled tick is heard whole, never one envelope per Warden per tick.
+    items = [*queen._links.drain(), *await ticks.chat.human_items(queen._deps)]
     if items:
         ordered = await queen._attendant.order(tuple(items))
         for item in ordered:
@@ -375,8 +365,11 @@ async def _run_tick(queen: Queen) -> None:
     # Roadmap step 10.5: settle, hold or start planning goal requests before dispatch below places
     # whatever a just-finished plan made ready.
     await ticks.intake.drain_goal_requests(queen._deps, queen.wardens)
+    # Judged against every Heartbeat a link has delivered, handled or not: a stall of this very
+    # tick (an awake episode, a provision behind the dispatch lock) is hers, not the Warden's.
+    heard = queen._links.heard()
     await ticks.liveness.check_liveness(
-        queen._deps, queen.wardens, queen._liveness, queen._human_inbox
+        queen._deps, queen.wardens, queen._liveness, queen._human_inbox, heard
     )
     # Roadmap step 4.9: drain hive cluster/wake orders and probe clustered providers, on the same
     # cadence as liveness and dispatch (docs/adr/0024); also runs the House Bee sweep (4.3).
@@ -407,46 +400,6 @@ async def _record_recovered_tick_error(queen: Queen, error: Exception) -> None:
         action="RECOVERED_TICK_ERROR",
         error=type(error).__name__,
     )
-
-
-def _receive_tasks_snapshot(queen: Queen) -> dict[WardenId, asyncio.Task[Envelope | None]]:
-    """Return this tick's cached receive tasks, starting one for any link that lacks one."""
-    for warden_id in queen._wardens:
-        if warden_id not in queen._receive_tasks:
-            iterator = queen._link_iters[warden_id]
-            queen._receive_tasks[warden_id] = asyncio.ensure_future(_next_or_none(iterator))
-    return dict(queen._receive_tasks)
-
-
-async def _next_or_none(iterator: AsyncIterator[Envelope]) -> Envelope | None:
-    """Return the next decoded Envelope, or None once nothing more will ever arrive."""
-    try:
-        return await anext(iterator)
-    except InvalidPayloadError:
-        # The pair stays open per the Transport contract; ask for the next frame instead.
-        return await _next_or_none(iterator)
-    except (StopAsyncIteration, ConnectionLostError, CodecError, SignatureError):
-        return None
-
-
-def _drain_items(
-    queen: Queen,
-    receive_tasks: dict[WardenId, asyncio.Task[Envelope | None]],
-    done: set[asyncio.Future[Any]],
-) -> list[InboxItem]:
-    """Consume every finished receive task in `done`, returning the InboxItems they carried."""
-    items: list[InboxItem] = []
-    for warden_id, task in receive_tasks.items():
-        # A task done() only because stop() reaped it out from under this same tick (this
-        # dispatch's rule 2) reads as cancelled, never as a real result to drain here.
-        if task not in done or task.cancelled():
-            continue
-        queen._receive_tasks.pop(warden_id, None)
-        envelope = task.result()
-        if envelope is None:
-            continue  # The link ended; a later phase adds OFFLINE bookkeeping for this.
-        items.append(to_inbox_item(envelope, warden_id))
-    return items
 
 
 async def _handle_item(queen: Queen, item: InboxItem) -> None:

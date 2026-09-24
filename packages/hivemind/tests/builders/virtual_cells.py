@@ -82,7 +82,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest
+from builders.cli import ManifestTuning, fake_manifest
 
 import hivemind.cli.compose.hive as _hive_compose
 from hivemind.brood_chamber import Task
@@ -196,6 +196,9 @@ class VirtualCellsTuning:
             dormant Cell, so a second Cell overwintering in the very same run would otherwise trip
             `hivemind.hive.overwinter.policy._requires_disk_budget` every time. Set to ten Cells'
             worth here so this suite's own three-container haiku run always has headroom.
+        heartbeat_interval_s: `[queen]`/`[supervision] heartbeat_interval_s`, forwarded to
+            `builders.cli.ManifestTuning`; None keeps `fake_manifest`'s own short default. A
+            liveness scenario widens it so its window is well clear of scheduling jitter.
     """
 
     prefer: str = "virtual"
@@ -205,6 +208,7 @@ class VirtualCellsTuning:
     overwinter_max_cells: int = 8
     overwinter_max_per_image: int = 8
     overwinter_disk_budget_mb: int = 81920
+    heartbeat_interval_s: float | None = None
 
 
 def virtual_cells_manifest(
@@ -222,7 +226,8 @@ def virtual_cells_manifest(
         The written manifest's own path, ready for `hivemind.manifest.load_manifest`.
     """
     active = tuning if tuning is not None else VirtualCellsTuning()
-    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    heartbeat = ManifestTuning(heartbeat_interval_s=active.heartbeat_interval_s)
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities, tuning=heartbeat)
     section = (
         f'\n[placement]\nprefer = "{active.prefer}"\n'
         f"allow_hive_stand = {_toml_bool(active.allow_hive_stand)}\n\n"
