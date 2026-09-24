@@ -32,7 +32,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -148,15 +148,15 @@ async def serve_hive(served: ServedHive) -> AsyncIterator[HiveEntrance]:
     manifest, clock = hive.manifest, hive.clock
     plan = await _plan(served)
     loopback = bind_listener(plan.loopback.host, plan.loopback.port)
-    try:
+    async with AsyncExitStack() as stack:
+        # Closed on every way out, a failed build included; closing it twice is harmless.
+        stack.callback(loopback.close)
         tables = await _open_tables(manifest, hive, clock)
         keys = await _load_keys(manifest, read_env(served.environ), plan, clock)
-    except BaseException:
-        # Nothing else holds the socket yet: close it on the way out.
-        loopback.close()
-        raise
-    # No environment proxy: the destination guard's pinned address is where a push connects.
-    async with httpx.AsyncClient(trust_env=False, timeout=PUSH_HTTP_TIMEOUT_S) as http:
+        # No environment proxy: the destination guard's pinned address is where a push connects.
+        http = await stack.enter_async_context(
+            httpx.AsyncClient(trust_env=False, timeout=PUSH_HTTP_TIMEOUT_S)
+        )
         parts = EntranceParts(
             settings=_settings(served, plan),
             tables=tables,
