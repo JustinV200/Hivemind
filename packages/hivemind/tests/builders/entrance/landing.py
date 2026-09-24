@@ -205,24 +205,6 @@ class LandingClient:
             headers["Content-Type"] = "application/json"
         return await self.http.request(method, target, content=content, headers=headers)
 
-    async def speak(
-        self, session: LandingSession, target: str, clip: bytes, media_type: str = "audio/wav"
-    ) -> httpx.Response:
-        """Send a clip as a raw body with its media type, signed exactly as sent.
-
-        Args:
-            session: The session to use.
-            target: The path and query, e.g. ``/v1/chat/audio?intent=goal``.
-            clip: The encoded audio.
-            media_type: Its ``Content-Type``.
-
-        Returns:
-            The response, whatever its status.
-        """
-        headers = self.signed_headers(session, "POST", target, clip)
-        headers["Content-Type"] = media_type
-        return await self.http.request("POST", target, content=clip, headers=headers)
-
     def signed_headers(
         self, session: LandingSession, method: str, target: str, content: bytes
     ) -> dict[str, str]:

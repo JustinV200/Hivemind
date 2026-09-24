@@ -38,6 +38,7 @@ import pytest
 import structlog
 from builders.audio import marked_wav
 from builders.entrance.landing import LandingClient, LandingSession
+from builders.entrance.voice import speak
 from e2e.entrance_stand import Stand, standing
 from e2e.scripted_openai import Scenario, serve_in_thread, write_manifest
 from websockets.asyncio.client import ClientConnection
@@ -122,7 +123,7 @@ async def _speak_confirm_and_answer(manifest: HiveManifest, served: ServedHive) 
         async with httpx.AsyncClient(base_url=base, timeout=10.0, trust_env=False) as http:
             phone = LandingClient(http, manifest.hive.id, served.hive.clock)
             session = await _enrolled_phone(stand, phone)
-            spoken = await phone.speak(session, "/v1/chat/audio?intent=goal", marked_wav(GOAL_MARK))
+            spoken = await speak(phone, session, marked_wav(GOAL_MARK), "goal")
             request_id = spoken.json()["goal"]["id"]
             held_state, tasks_before, echo = await _held(stand, phone, session, request_id)
             path = f"/v1/goals/{request_id}/confirm"

@@ -98,7 +98,7 @@ async def speak(
     intent: str,
     **query: object,
 ) -> httpx.Response:
-    """Send ``clip`` to ``POST /v1/chat/audio`` as ``intent``, with a WAV label unless told.
+    """Send ``clip`` to ``POST /v1/chat/audio`` as ``intent``, as a raw body signed as sent.
 
     Args:
         client: The device's client.
@@ -106,14 +106,17 @@ async def speak(
         clip: The audio.
         intent: goal, chat or answer:<question id>.
         **query: More query parameters (``duration_s``, ``language``), and ``media_type`` for
-            the body's label.
+            the body's label (WAV unless told).
 
     Returns:
         The response, whatever its status.
     """
     media_type = str(query.pop("media_type", "audio/wav"))
     target = f"{AUDIO}?{urlencode({'intent': intent, **query})}"
-    return await client.speak(session, target, clip, media_type)
+    # The clip is the body: the signature covers its SHA-256, exactly as a device's does.
+    headers = client.signed_headers(session, "POST", target, clip)
+    headers["Content-Type"] = media_type
+    return await client.http.request("POST", target, content=clip, headers=headers)
 
 
 async def talk(
