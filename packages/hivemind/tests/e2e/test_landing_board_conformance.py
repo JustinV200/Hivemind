@@ -40,7 +40,17 @@ import httpx
 import pytest
 from builders.entrance import PASSWORD
 from builders.entrance.serving import RigOptions, ServingRig, serving
-from e2e.entrance_stand import ANSWER, CHAT, GOAL, QUESTION, REPLY, Stand, build_served, standing
+from e2e.entrance_stand import (
+    ANSWER,
+    CHAT,
+    GOAL,
+    QUESTION,
+    REPLY,
+    WAIT_S,
+    Stand,
+    build_served,
+    standing,
+)
 from e2e.landing_client import (
     EVENT_ID_HEADER,
     DeviceKey,
@@ -347,7 +357,7 @@ async def test_a_webhook_notice_verifies_under_the_hive_key_and_carries_its_even
         console, console_session = await rig.console_session()
         invite = await console.call(console_session, "POST", "/v1/entrance/invites", {"label": "x"})
         await rig.client().enrol(str(invite.json()["code"]))
-        await rig.until(lambda: any(_to_hook(rig)))
+        await rig.until(lambda: any(_to_hook(rig)), timeout_s=WAIT_S)
         delivery = _to_hook(rig)[0]
 
     notice = json.loads(delivery.content)
