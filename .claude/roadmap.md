@@ -1477,12 +1477,12 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   route; and enforce that Night Veil capability
   sets allow `honey:clearance:c0` and `honey:clearance:c1` while denying any attempt to read or
   write `c2` Honey.
-- [ ] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
+- [x] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
   `CombShieldLevel`; no runtime path may weaken controls after placement. A task moved between
   Cells is re-evaluated and re-bound to the new Cell's tier before resume.
-- [ ] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
+- [x] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
   initiated by explicit human request through the inbox or API, never by autonomous escalation.
-- [ ] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
+- [x] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
   capabilities on Night Veil Cells (`geo:*`, Wi-Fi scan, host metadata access), and reject task
   tool plans that request them.
 - [x] **10.4 Principals, the operator and device keys.** Principals: the human operator, Queen,

@@ -43,6 +43,9 @@ Public API:
     - EnforcementPoint, PrincipalKind, PrincipalRef, PolicyContext, PolicyRequest,
       EscalationAction, PolicyDecision, GuardPolicy, load_guard_policy, evaluate, role_set,
       warden_set, proposed_set, worker_role_name: the policy engine (policy).
+    - floor_decision, TIER_FLOOR_RULE, STATE_FLOOR_RULE, HiveState, comparable_path, ControlLink,
+      GoalRequestFacts: the floors every decision runs first, the Hive's own state they protect
+      and the facts they read (policy, roadmap steps 10.3a-d).
     - queen_principal, warden_principal, worker_principal, QUEEN_ROLE, WARDEN_ROLE: who each bee
       acts as at a point, and the two roots' role names (policy).
     - AUTHORISED_AT, NOT_ACTIONS, PENDING_POINTS, classify: every trail kind's classification
@@ -56,8 +59,8 @@ Public API:
       thresholds_for, INJECTION_SUSPECTED_KIND, SCANNER_KEY_NAME, HASH_PREFIX: the deterministic
       untrusted-content scanner every outside text passes before a model reads it (scanner,
       roadmap step 10.6b); its full API is on `hivemind.guard.scanner`.
-    - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError: this
-      package's error tree (errors).
+    - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError,
+      UnresolvableHostError: this package's error tree (errors).
 """
 
 from hivemind.guard.access import (
@@ -82,23 +85,31 @@ from hivemind.guard.errors import (
     GuardError,
     GuardPolicyError,
     InvalidCapabilityError,
+    UnresolvableHostError,
 )
 from hivemind.guard.policy import (
     AUTHORISED_AT,
     NOT_ACTIONS,
     PENDING_POINTS,
     QUEEN_ROLE,
+    STATE_FLOOR_RULE,
+    TIER_FLOOR_RULE,
     WARDEN_ROLE,
+    ControlLink,
     EnforcementPoint,
     EscalationAction,
+    GoalRequestFacts,
     GuardPolicy,
+    HiveState,
     PolicyContext,
     PolicyDecision,
     PolicyRequest,
     PrincipalKind,
     PrincipalRef,
     classify,
+    comparable_path,
     evaluate,
+    floor_decision,
     load_guard_policy,
     proposed_set,
     queen_principal,
@@ -137,6 +148,8 @@ __all__ = [
     "QUEEN_ROLE",
     "SCANNER_KEY_NAME",
     "SCRATCH_PLACEHOLDER",
+    "STATE_FLOOR_RULE",
+    "TIER_FLOOR_RULE",
     "WARDEN_ROLE",
     "WATCH_OBSERVATIONS",
     "Capability",
@@ -145,12 +158,15 @@ __all__ = [
     "CapabilityWideningError",
     "ContentHasher",
     "ContentScanner",
+    "ControlLink",
     "EnforcementPoint",
     "Enforcer",
     "EscalationAction",
+    "GoalRequestFacts",
     "GuardError",
     "GuardPolicy",
     "GuardPolicyError",
+    "HiveState",
     "InvalidCapabilityError",
     "PolicyContext",
     "PolicyDecision",
@@ -163,15 +179,18 @@ __all__ = [
     "ScanSource",
     "ScanVerdict",
     "ScopeKind",
+    "UnresolvableHostError",
     "WatchObservation",
     "admits",
     "cap_to_access",
     "ceiling_for",
     "classify",
+    "comparable_path",
     "decide",
     "default_content_scanner",
     "evaluate",
     "fill_scratch",
+    "floor_decision",
     "glob_literal",
     "governs",
     "load_guard_policy",

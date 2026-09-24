@@ -10,7 +10,7 @@ live in `cell/tiers.py`; the Guard interprets them.
 Everything here is pure except `enforcer.py`, the one effectful module: it records each refusal
 on the Pheromone Trail. The policy loader reads its TOML once, when a composition root builds it.
 
-## Public API (roadmap steps 10.1, 10.2, 10.3, 10.3a-d and the data half of 10.7)
+## Public API (roadmap steps 10.1, 10.2, 10.3, 10.3a-d, 10.6b and 10.7)
 
 - **Capabilities** (`hivemind.guard.capabilities`, a package since 10.1): `CapabilityFamily`
   (every family in ADR-0031's table; phase 3's seven keep their values), `ScopeKind` (`FLAG`,
@@ -23,14 +23,30 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   (`llm`, `cell:comb_shield`, `tactic`, or `*`), ordered (`honey:clearance:c0 < c1 < c2`) and
   amount (`spend`, `*` unlimited). `CapabilitySet` with `parse`, `empty`, `allows`, `attenuate`
   (raises `CapabilityWideningError` rather than widening), `issubset` and `as_strings`; there is
-  no union.
+  no union. `glob_literal` escapes a path before it is embedded in a glob scope (a scratch or
+  keep root holding `*`, `?` or `[` would otherwise widen the grant to every sibling it matches),
+  and a held glob scope always covers an identical needed one.
 - **Access** (`hivemind.guard.access`): `CELL_EFFECT_FAMILIES` (the families that act on the
   machine: `fs:*`, `exec`, `net`, `device`, `cell:outside_scratch`, `exoskeleton*`, `geo`,
   `wifi:scan`, `host:metadata`), `governs`, `ceiling_for(level, scratch_root)`, `admits(level,
   family)` and `cap_to_access(requested, level, scratch_root)`, which keeps every ungoverned
   capability and each governed one the level's ceiling allows. Roadmap 10.1/10.7 changed phase
   3's ceilings: `tool` and `spend` are in none of them any more, because neither is an effect on
-  the Cell. Watch mode's bound (what `READ_ONLY` lets it observe) is documented in the module.
+  the Cell.
+- **Watch** (`hivemind.guard.watch`, roadmap 10.7): `WatchObservation`, `WATCH_OBSERVATIONS` and
+  `watch_permits(level, observation)`: watch mode observes the process list, resource use, and
+  logs and file-change events under the roots it may read, at every level exactly what
+  `READ_ONLY` allows, and never the screen or the input (a separate, explicit grant).
+- **Scanner** (`hivemind.guard.scanner`, roadmap 10.6b, ADR-0035, `docs/guard/untrusted-content.md`):
+  the deterministic, model-free untrusted-content scanner. `load_scan_patterns` reads
+  `defaults/untrusted-content.toml` (six weighted families; every repetition bounded; each
+  family's `examples` must fire it); `score_text` is pure (input bounded to `max_scan_chars`,
+  NFKC-normalised, zero-width characters removed); `decide`/`thresholds_for` map a score to
+  PASS, LABEL or DROP per Comb Shield tier; `ContentScanner.scan(text, ScanSite)` is the one
+  effectful edge, recording a flag as `guard.injection_suspected` (source, consuming bee, tier,
+  score, families and an HMAC-SHA256 digest under `SCANNER_KEY_NAME` in the secret store, never
+  the text) before returning its `ScanVerdict`. A flag never stops a bee; `hivemind.memory.
+  render_untrusted` applies the verdict.
 - **Policy** (`hivemind.guard.policy`): `GuardPolicy` (each role's default set with `{scratch}`
   left to fill, the hive-wide deny list, the escalation table), `load_guard_policy(path,
   section)` (the shipped `defaults/policy.toml` or an operator's file, with the manifest's
