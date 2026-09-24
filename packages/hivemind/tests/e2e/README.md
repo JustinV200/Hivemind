@@ -58,6 +58,15 @@ exist to catch problems that only show up when every layer runs at once.
   the answer from the model, `guard.injection_suspected` lands on the real trail with the keyed
   hash (never the words), the steered outside-scratch write is capped and rejected, the goal still
   finishes, and the scanner's key is minted in the manifest's secrets dir on that first flag.
+- `test_night_veil_floors.py` (`@pytest.mark.e2e`) -- roadmap steps 10.3a-d through a running
+  Queen: a human's goal request naming NIGHT_VEIL is planned on her own tick, placed on a fresh
+  Virtual Cell (the real `CellLifecycle`/`QueenReadinessGate`/`LifecycleVirtualCellProvider` path
+  over a fake backend and a fake attestation probe) whose minted bootstrap dials the hidden service
+  through the Tor SOCKS proxy, and assigned bound to NIGHT_VEIL with `queen.placed` citing the
+  request; a tier the planner set on its own is refused at placement
+  (`guard.tier_floor.night_veil_initiation`) before any Cell is provisioned; a Night Veil goal
+  whose plan needs the cloud metadata endpoint is refused before anything is persisted
+  (`guard.tier_floor.night_veil_location`).
 
 ## Budget
 
