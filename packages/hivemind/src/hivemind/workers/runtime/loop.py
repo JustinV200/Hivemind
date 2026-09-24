@@ -93,7 +93,7 @@ from hivemind.workers.runtime.reporter import Reporter
 from hivemind.workers.runtime.reports import AlarmDetails
 from hivemind.workers.state import WorkerState, can_transition, is_terminal
 from waggle.envelope import Envelope
-from waggle.errors import TransportClosedError
+from waggle.errors import ConnectionLostError, TransportClosedError
 from waggle.loop import TickLoop
 from waggle.messages.honey import HoneyResponse
 from waggle.messages.supervision import Answer, Intervene
@@ -348,13 +348,15 @@ async def _send_pending_alarms(runtime: WorkerRuntime) -> None:
                     reason="A Capping proposal was rolled back after applying.",
                 )
             )
-        except TransportClosedError:
+        except (TransportClosedError, ConnectionLostError):
             # Recoverable (this dispatch's own fix 2): Reporter.send_alarm already recorded
             # alarm.raised on the trail before attempting the wire send (fix 1), so the audit
             # record survives even when the link to this Worker's Warden is already gone -- most
             # often because this very flush is running from _on_transport_closed. Logged, not
             # raised, so a flush at a terminal transition or right before run() returns can never
-            # crash this Worker's own tick loop.
+            # crash this Worker's own tick loop. A dropped link (ConnectionLostError) counts the
+            # same as a closed one: it used to escape here and end the loop, the gap the Warden's
+            # heartbeat send had too (phase 7 handoff, open item 8).
             log.warning(
                 "workers.runtime.alarm_send_skipped",
                 worker_id=runtime._ctx.worker_id,
