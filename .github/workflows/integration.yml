@@ -43,11 +43,12 @@ jobs:
       - run: uv sync --frozen --all-groups --all-packages --all-extras
       # roadmap phase 6: the Exoskeleton's X11 backends run on the Hive Stand itself (a Linux
       # Real Cell with a lease-started display), so the runner needs the same toolchain
-      # images/desktop-ubuntu carries, plus Playwright's Chromium for the browser fast path.
+      # images/desktop-ubuntu carries, plus Playwright's Chromium for the browser fast path. No
+      # xauth: attach writes the display's authority file itself, as the image does.
       - name: Install the Exoskeleton toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb openbox xdotool xauth x11-utils imagemagick pulseaudio pulseaudio-utils
+          sudo apt-get install -y --no-install-recommends xvfb openbox xdotool x11-utils imagemagick pulseaudio pulseaudio-utils
           uv run --frozen playwright install --with-deps chromium
       # Docker Cell backends (codingrules section 4: hive/backends/) need a live daemon; fail
       # fast with a clear message instead of letting the first integration test's own error stand
