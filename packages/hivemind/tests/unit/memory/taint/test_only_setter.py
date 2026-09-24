@@ -7,14 +7,15 @@ anywhere but the two functions allowed to: a `write_taint(...)` call or a `Taint
 outside `memory/taint/set.py` and `memory/taint/clear.py`; a `"tainted"` key set outside the stores
 that persist the label; a `tainted=` argument that is not a label read off another item; or a call
 to `taint_memory` from a module that is not one of the three setters. Each setter's module is in
-`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: the isolation package in `queen/`, and
-its in-Cell half in `wardens/isolation/`; 10.6c: the quarantine path in `wardens/`). Both have
-landed, so each is also pinned as real and single: exactly one module in the whole tree calls
-`taint_memory` with `TaintSource.QUARANTINE`, the one quarantine path, and exactly two with
-`TaintSource.ISOLATION`: the isolation path's taint step on the Hive's tables, and the in-Cell
-setter call a Warden makes on its own store at the Queen's order (`wardens/isolation/taint.py`,
-roadmap step 10.6a: a Virtual Cell's store lives inside the Cell, where her label cannot reach).
-Nothing else in `wardens/` or in either isolation package calls the setter at all.
+`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: the isolation package in `queen/`, and its
+in-Cell setter call, the one module `wardens/isolation/taint.py`; 10.6c: the quarantine path in
+`wardens/`). Both have landed, so each is also pinned as real and single: exactly one module in the
+whole tree calls `taint_memory` with `TaintSource.QUARANTINE`, the one quarantine path, and exactly
+two with `TaintSource.ISOLATION`: the isolation path's taint step on the Hive's tables, and the
+in-Cell setter call a Warden makes on its own store at the Queen's order
+(`wardens/isolation/taint.py`, roadmap step 10.6a: a Virtual Cell's store lives inside the Cell,
+where her label cannot reach). Nothing else in `wardens/` or in either isolation package calls the
+setter at all.
 
 Fits into the Hive:
     Mirrors src/hivemind/memory/taint/set.py's key invariant (codingrules section 3).
@@ -39,18 +40,18 @@ import hivemind
 _SRC = Path(hivemind.__file__).resolve().parent.parent  # packages/hivemind/src
 _WRITERS = ("hivemind/memory/taint/set.py", "hivemind/memory/taint/clear.py")
 _LABEL_STORES = ("hivemind/memory/store/",)  # The stores that persist a label they were handed.
+# Roadmap 10.6a's in-Cell half: the Warden runs the setter on its own store at the Queen's order.
+_IN_CELL_ISOLATION_TAINT = "hivemind/wardens/isolation/taint.py"
 # The three setters (ADR-0035), by module, each with the only TaintSource it may pass. 10.6c's is
 # built; 10.6a lands the first, and the Queen's Guard-report path lands with phase 7.
 _SETTER_CALLERS: dict[str, str] = {
     "hivemind/queen/isolation/": "ISOLATION",
-    "hivemind/wardens/isolation/": "ISOLATION",
+    _IN_CELL_ISOLATION_TAINT: "ISOLATION",  # That one module, not its package.
     "hivemind/wardens/quarantine": "QUARANTINE",
     "hivemind/queen/guard_reports": "GUARD_REPORT",
 }
 _QUARANTINE_PATH = "hivemind/wardens/quarantine/path.py"  # Roadmap 10.6c's one code path.
 _ISOLATION_TAINT = "hivemind/queen/isolation/taint.py"  # Roadmap 10.6a's one taint step.
-# Roadmap 10.6a's in-Cell half: the Warden runs the setter on its own store at the Queen's order.
-_IN_CELL_ISOLATION_TAINT = "hivemind/wardens/isolation/taint.py"
 
 
 @functools.cache
