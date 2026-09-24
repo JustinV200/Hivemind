@@ -1493,7 +1493,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   Capacitor build) or an Ed25519 key in secure storage for programs. Every Waggle-side principal
   keeps its Ed25519 keypair as before. Secrets are hashed or in the secret store; nothing in the
   manifest.
-- [ ] **10.5 Hive Entrance.** `entrance/app.py` (composition root) running **two listeners**:
+- [x] **10.5 Hive Entrance.** `entrance/app.py` (composition root) running **two listeners**:
   loopback on `[entrance] bind`, always on, and a remote listener on `remote_bind` only when
   exposed (10.5a). `entrance/routes/` with one file per resource under `/v1/` (`goals`, `tasks`,
   `cells`, `wardens`, `forage`, `inbox`, `chat`, `episodes`, `tools`, `honey`, `trail`, `swarm`,
