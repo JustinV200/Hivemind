@@ -264,7 +264,7 @@ def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_p
     # falling back to QueenDeps's own defaults (roadmap step 3.21's own report requirement).
     deps = hive.queen._deps
     assert deps.footprints[WorkerRole.DRONE] == RoleFootprint(
-        cpu_cores=0.5,
+        cpu_cores=0.0,
         memory_bytes=268_435_456,
         seats=1,
         token_rate_per_minute=20_000.0,

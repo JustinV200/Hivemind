@@ -282,11 +282,16 @@ def _forage_section() -> str:
     than it looks: `hivemind.forage.allocate.grant`'s own `reachable_seats` subtracts
     `RoyalReserve.seats` (default 1) from every source's free seats, so a map entry left at the
     default would always compute `max_sub_bees = 0` and no Drone would ever spawn.
+
+    `cpu_cores = 0.0` on the Drone matters the same way: the Hive Stand's probe counts free cores
+    from the machine's one-minute load average, so any footprint above zero let whatever else the
+    machine was running (another test suite, a build) refuse every sub-bee, and a goal failed in
+    milliseconds with `forage.denied`. A test's goal must not depend on the machine's load.
     """
     return (
         f'[forage.map.{_SOURCE_ID}]\nprovider = "fake"\nmodel = "{_MODEL_ID}"\ngrade = 3\n'
         "context_window = 8192\nseats = 4\n\n"
-        "[forage.roles.drone]\ncpu_cores = 0.5\nmemory_bytes = 268435456\n"
+        "[forage.roles.drone]\ncpu_cores = 0.0\nmemory_bytes = 268435456\n"
         "token_rate_per_minute = 20000\n"
     )
 
