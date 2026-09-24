@@ -1569,7 +1569,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   anything. Tests: a stolen session token without the device key is refused; an approve request
   on the remote listener is a 404; the Reducer closes a live WebSocket subscription within a
   second.
-- [ ] **10.5f Voice in at the Landing Board.** `entrance/voice/`: `POST /v1/chat/audio` for
+- [x] **10.5f Voice in at the Landing Board.** `entrance/voice/`: `POST /v1/chat/audio` for
   clips and an audio frame type on the chat WebSocket for push-to-talk, both from enrolled devices
   only; transcription on `ModelSlot.TRANSCRIBER` through 6.5a, so the Hive Stand's own Whisper
   serves it by default; the transcript becomes a `HumanMessage` in the Queen's inbox. A spoken
