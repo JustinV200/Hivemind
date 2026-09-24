@@ -182,14 +182,17 @@ async def _socket(stand: Stand, hello: str, device_id: str) -> AsyncIterator[Cli
         yield socket
 
 
-async def _notice(socket: ClientConnection) -> str:
-    """Receive one push frame, check it against the document, and return its kind."""
+async def _notice(socket: ClientConnection, kind: str = "question_waiting") -> str:
+    """Receive push frames, each checked against the document, until one of ``kind`` arrives."""
     board = LandingBoard.load(DOCUMENT)
+    schema = board.stream("/v1/push/stream").frame_schema
     # External wait: the notice follows the Drone's question, seconds after the goal is taken.
     async with asyncio.timeout(FRAME_TIMEOUT_S):
-        frame = json.loads(await socket.recv())
-    board.check(frame, board.stream("/v1/push/stream").frame_schema, "a push frame")
-    return str(frame["kind"])
+        while True:
+            frame = json.loads(await socket.recv())
+            board.check(frame, schema, "a push frame")
+            if frame["kind"] == kind:
+                return str(frame["kind"])
 
 
 def test_every_curl_example_in_the_guide_is_a_phase_this_test_runs() -> None:

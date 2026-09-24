@@ -155,8 +155,10 @@ async def _conformance(manifest: HiveManifest, served: ServedHive) -> None:
         device = await _enrol(client, await stand.invite(), stand.approve)
         session = await _login(client, device, stand.password)
         me = await client.call(Request("GET", "/v1/devices/me"), session)
-        request_id = await _submit_subscribe_answer(client, stand, session)
-        await _chat(client, stand, session)
+        # One subscription for the whole run: a closed socket's attachment may linger briefly.
+        async with _subscribed(client, stand, session) as push:
+            request_id = await _submit_and_answer(client, push, session)
+            await _chat(client, push, session)
         goal = await client.call(
             Request("GET", "/v1/goals/{request_id}", params={"request_id": request_id}), session
         )
@@ -180,24 +182,23 @@ async def _subscribed(
         yield push
 
 
-async def _submit_subscribe_answer(client: GenericClient, stand: Stand, session: Session) -> str:
-    """Subscribe to push, submit the goal, answer its question; return the goal request id."""
-    async with _subscribed(client, stand, session) as push:
-        accepted = await client.call(Request("POST", "/v1/goals", body={"text": GOAL}), session)
-        asked = await push.until("question_waiting")
-        inbox = await client.call(Request("GET", "/v1/inbox"), session)
-        questions = inbox.data["questions"]
-        assert isinstance(questions, list) and len(questions) == 1
-        question = questions[0]
-        assert isinstance(question, dict) and question["id"] == asked["ref"]
-        path = {"question_id": str(question["id"])}
-        answer = Request(
-            "POST", "/v1/inbox/questions/{question_id}/answer", path, body={"text": ANSWER}
-        )
-        answered = await client.call(answer, session)
-        twice = await client.call(answer, session)
-        withdrawn = await push.until("withdrawn", str(asked["ref"]))
-        completed = await push.until("goal_completed", str(accepted.data["id"]))
+async def _submit_and_answer(client: GenericClient, push: StreamFeed, session: Session) -> str:
+    """Submit the goal, answer its question as push announces it; return the goal request id."""
+    accepted = await client.call(Request("POST", "/v1/goals", body={"text": GOAL}), session)
+    asked = await push.until("question_waiting")
+    inbox = await client.call(Request("GET", "/v1/inbox"), session)
+    questions = inbox.data["questions"]
+    assert isinstance(questions, list) and len(questions) == 1
+    question = questions[0]
+    assert isinstance(question, dict) and question["id"] == asked["ref"]
+    path = {"question_id": str(question["id"])}
+    answer = Request(
+        "POST", "/v1/inbox/questions/{question_id}/answer", path, body={"text": ANSWER}
+    )
+    answered = await client.call(answer, session)
+    twice = await client.call(answer, session)
+    withdrawn = await push.until("withdrawn", str(asked["ref"]))
+    completed = await push.until("goal_completed", str(accepted.data["id"]))
 
     assert accepted.status == 202 and accepted.data["state"] == "RECEIVED"
     assert (question["text"], question["options"]) == (QUESTION, [])
@@ -207,11 +208,10 @@ async def _submit_subscribe_answer(client: GenericClient, stand: Stand, session:
     return str(accepted.data["id"])
 
 
-async def _chat(client: GenericClient, stand: Stand, session: Session) -> None:
+async def _chat(client: GenericClient, push: StreamFeed, session: Session) -> None:
     """Say something to the Queen, hear by push that she replied, read the chat and its stream."""
-    async with _subscribed(client, stand, session) as push:
-        posted = await client.call(Request("POST", "/v1/chat", body={"text": CHAT}), session)
-        replied = await push.until("reply_waiting")
+    posted = await client.call(Request("POST", "/v1/chat", body={"text": CHAT}), session)
+    replied = await push.until("reply_waiting")
     page = await client.call(Request("GET", "/v1/chat", query={"limit": 50}), session)
     lines = page.data["entries"]
     assert isinstance(lines, list)
