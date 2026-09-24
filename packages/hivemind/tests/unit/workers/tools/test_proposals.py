@@ -26,6 +26,7 @@ from hivemind.supervision.capping.leave import Asker
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.tools.proposals import (
     MAX_REVIEW_CHARS,
+    REVIEW_REJECTED_REASON,
     ProposalRequest,
     cap,
     describe,
@@ -34,19 +35,22 @@ from hivemind.workers.tools.proposals import (
 )
 from waggle.clock import FakeClock
 from waggle.ids import MessageId
+from waggle.messages import AlarmSeverity
 from waggle.messages.labels import PostconditionKind
 from waggle.messages.supervision import AlarmKind
 
 _SIZE = ScreenSize(100, 100)
 
 
-def _desk(gate: Callable[[GateDeps], CappingGate] = CappingGate) -> WorkerContext:
+def _desk(
+    gate: Callable[[GateDeps], CappingGate] = CappingGate, recording_id: str | None = None
+) -> WorkerContext:
     """A display nothing ever changes on, driven through `gate`."""
     clock = FakeClock()
     peripherals = Peripherals(
         compound_eye=FakeCompoundEye(FakeScreen(_SIZE), clock), antennae=FakeAntennae(_SIZE)
     )
-    return make_gui_context(peripherals, clock, gate=gate)
+    return make_gui_context(peripherals, clock, gate=gate, recording_id=recording_id)
 
 
 def _reviewed(verdict: JudgeVerdict) -> Callable[[GateDeps], CappingGate]:
@@ -143,6 +147,15 @@ async def test_cap_alarms_at_once_when_a_gui_action_is_rolled_back() -> None:
     assert alarm.detail.startswith("GUI proposal msg_") and "[0] REGION_CHANGED" in alarm.detail
 
 
+async def test_a_gui_alarm_names_the_recording_that_holds_its_evidence() -> None:
+    ctx = _desk(recording_id="rec_42")
+
+    await run_tool(ctx, "click", {"x": 5, "y": 5, "expect": {"region": "0,0,10,10"}})
+
+    (alarm,) = ctx.telemetry.take_pending_alarms()
+    assert " in recording rec_42 rolled back" in alarm.detail
+
+
 async def test_cap_counts_any_other_rollback_toward_the_alarm_threshold() -> None:
     ctx = make_context()
     request = ProposalRequest(
@@ -158,9 +171,9 @@ async def test_cap_counts_any_other_rollback_toward_the_alarm_threshold() -> Non
     assert ctx.telemetry.take_pending_alarms() == ()  # One of three, not an Alarm yet.
 
 
-async def test_a_judges_reject_is_a_failed_result_naming_its_reasons_and_no_second_alarm() -> None:
+async def test_a_judges_reject_is_a_failed_result_and_one_critical_alarm() -> None:
     verdict = _verdict(JudgeOutcome.REJECT, "it deleted the account", "nothing asked for that")
-    ctx = _desk(_reviewed(verdict))
+    ctx = _desk(_reviewed(verdict), recording_id="rec_7")
 
     result = await run_tool(ctx, "click", {"x": 5, "y": 5, "irreversible": True})
 
@@ -168,7 +181,16 @@ async def test_a_judges_reject_is_a_failed_result_naming_its_reasons_and_no_seco
     assert result.text.startswith(
         "judge=REJECT (it deleted the account; nothing asked for that); state=VERIFIED"
     )
-    assert ctx.telemetry.take_pending_alarms() == ()  # The gate raised it when the judge ruled.
+    # The one Alarm for it (the gate only recorded the verdict), on the path that ends the attempt.
+    (alarm,) = ctx.telemetry.take_pending_alarms()
+    assert (alarm.kind, alarm.severity, alarm.reason) == (
+        AlarmKind.AUDIT_FAILED,
+        AlarmSeverity.CRITICAL,
+        REVIEW_REJECTED_REASON,
+    )
+    assert alarm.detail.endswith(
+        "in recording rec_7 was rejected on review: it deleted the account; nothing asked for that"
+    )
 
 
 @pytest.mark.parametrize("outcome", [JudgeOutcome.APPROVE, JudgeOutcome.REQUEST_CHANGES])

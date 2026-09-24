@@ -156,6 +156,7 @@ class _SpawnedBeeFacts:
     worker_id: WorkerId
     bound: BoundModel
     capabilities: CapabilitySet
+    recording_id: str | None = None  # Where its GUI actions are recorded, named in its Alarms.
 
 
 class _NullAsker:
@@ -203,12 +204,12 @@ async def spawn_sub_bee(
     binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
     bound = deps.rebind(binding_key)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
-    facts = _SpawnedBeeFacts(worker_id=worker_id, bound=bound, capabilities=capabilities)
     _widen_lease_reachability(ctx, write_roots)
     exoskeleton = await equip(ctx, assignment, capabilities)  # Before the role's first tool call.
-    capping_gate = _build_capping_gate(
-        ctx, assignment, await gui_surface(ctx, assignment, exoskeleton)
-    )
+    surface = await gui_surface(ctx, assignment, exoskeleton)
+    capping_gate = _build_capping_gate(ctx, assignment, surface)
+    recording_id = surface.recording_id if surface is not None else None
+    facts = _SpawnedBeeFacts(worker_id, bound, capabilities, recording_id)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
     await _record_spawned(deps, worker_id, assignment)
@@ -421,6 +422,7 @@ def _build_worker_context(
         call_gate=sub_bee_grant.call_gate,
         exoskeleton=exoskeleton,
         ears=deps.ears,
+        recording_id=facts.recording_id,
     )
 
 

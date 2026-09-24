@@ -34,6 +34,7 @@ from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.envelope import Hop
 from waggle.ids import new_message_id, new_node_id, new_warden_id, new_worker_id
+from waggle.messages import AlarmSeverity
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmKind, Intervene, InterventionAction, Question
 from waggle.messages.task import (
@@ -262,7 +263,11 @@ async def test_an_alarm_noted_on_the_last_tool_call_still_reaches_the_warden_whe
     async def script(
         ctx: WorkerContext, assignment: TaskAssign, resume_from: Handoff | None
     ) -> WorkerOutcome:
-        ctx.telemetry.note_alarm(AlarmKind.POSTCONDITION_FAILED, "rolled back after applying")
+        # With its own reason and severity, which the flush must carry over (a judge's REJECT).
+        reason, severity = "the step's screen was misread", AlarmSeverity.CRITICAL
+        ctx.telemetry.note_alarm(
+            AlarmKind.POSTCONDITION_FAILED, "rolled back", reason=reason, severity=severity
+        )
         return make_outcome(claimed=True, summary="done despite the rollback")
 
     runtime, warden_end, _worker, ctx = _build(clock, script)
@@ -273,6 +278,10 @@ async def test_an_alarm_noted_on_the_last_tool_call_still_reaches_the_warden_whe
     result = await warden_end.wait_for_result()
 
     assert alarm.kind is AlarmKind.POSTCONDITION_FAILED
+    assert (alarm.reason, alarm.severity) == (
+        "the step's screen was misread",
+        AlarmSeverity.CRITICAL,
+    )
     assert result.outcome is TaskOutcome.CLAIMED
     assert result.summary == "done despite the rollback"
     assert runtime.state is WorkerState.DONE

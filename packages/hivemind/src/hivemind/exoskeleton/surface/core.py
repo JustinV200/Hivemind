@@ -108,6 +108,11 @@ class ExoskeletonSurface:
         self._pending: dict[str, _Pending] = {}
         self._recorded: dict[str, RecordedAction] = {}  # The last few, for a judge's review.
 
+    @property
+    def recording_id(self) -> str | None:
+        """The recording every proposal on this surface is recorded into; None without one."""
+        return self._recorder.recording_id if self._recorder is not None else None
+
     async def before(self, proposal: Proposal) -> None:
         """Take the undo point, the region digests and the before-evidence; see GuiSurface."""
         pending = self._pending.setdefault(str(proposal.id), _Pending())

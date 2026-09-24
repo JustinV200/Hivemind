@@ -327,7 +327,8 @@ async def _send_pending_alarms(runtime: WorkerRuntime) -> None:
                 AlarmDetails(
                     kind=pending.kind,
                     detail=pending.detail,
-                    reason="A Capping proposal was rolled back after applying.",
+                    reason=pending.reason,
+                    severity=pending.severity,
                 )
             )
         except TransportClosedError:

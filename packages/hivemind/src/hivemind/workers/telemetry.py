@@ -53,6 +53,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from hivemind.workers.errors import WorkerCancelledError
+from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import AlarmKind
 from waggle.messages.supervision.alarms import MAX_DETAIL_CHARS
 from waggle.messages.supervision.telemetry import (
@@ -68,8 +69,10 @@ from waggle.messages.supervision.telemetry import (
 # also an Alarm (see TelemetryTracker.note_rollback). Three: one failed command is normal work,
 # two may be a correction that also missed, three in a row is a bee going round in circles.
 ROLLBACKS_BEFORE_ALARM = 3
+# Why a Worker escalates a rolled-back proposal: the reason most noted Alarms carry.
+ROLLBACK_REASON = "A Capping proposal was rolled back after applying."
 
-__all__ = ["ROLLBACKS_BEFORE_ALARM", "PendingAlarm", "TelemetryTracker"]
+__all__ = ["ROLLBACKS_BEFORE_ALARM", "ROLLBACK_REASON", "PendingAlarm", "TelemetryTracker"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +87,8 @@ class PendingAlarm:
 
     kind: AlarmKind
     detail: str
+    reason: str = ROLLBACK_REASON  # Why the Worker escalates rather than handling it.
+    severity: AlarmSeverity = AlarmSeverity.WARNING  # How bad; the escalation policy reads kind.
 
 
 class TelemetryTracker:
@@ -247,7 +252,14 @@ class TelemetryTracker:
         self.note_alarm(kind, detail)
         return True
 
-    def note_alarm(self, kind: AlarmKind, detail: str) -> None:
+    def note_alarm(
+        self,
+        kind: AlarmKind,
+        detail: str,
+        *,
+        reason: str = ROLLBACK_REASON,
+        severity: AlarmSeverity = AlarmSeverity.WARNING,
+    ) -> None:
         """Queue an Alarm a tool-level failure raised, for the runtime to send on its next tick.
 
         A tool's own side effect (`hivemind.workers.tools.proposals.cap`) runs deep inside a
@@ -260,8 +272,13 @@ class TelemetryTracker:
             kind: What went wrong, as the escalation policy keys it.
             detail: The failing assertion or observation; truncated to MAX_DETAIL_CHARS so this
                 can never fail to build the eventual AlarmRaised.
+            reason: Why the Worker escalates it; a rollback's by default.
+            severity: How bad it is; WARNING by default.
         """
-        self._pending_alarms.append(PendingAlarm(kind=kind, detail=detail[:MAX_DETAIL_CHARS]))
+        pending = PendingAlarm(
+            kind=kind, detail=detail[:MAX_DETAIL_CHARS], reason=reason, severity=severity
+        )
+        self._pending_alarms.append(pending)
 
     def take_pending_alarms(self) -> tuple[PendingAlarm, ...]:
         """Drain and return every Alarm noted since the last drain, oldest first.

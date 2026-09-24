@@ -12,8 +12,8 @@ proposer, tempo, clearance, spend estimate), what a rollback raises and the huma
 text are written once. A rolled-back GUI action (roadmap step 6.5, ADR-0032) raises its Alarm at
 once rather than after three: the screen no longer matches what the bee believes, so every later
 step would act on a misread. An applied irreversible GUI action also comes back with the judge's
-review (`GateOutcome.review`); `tool_output` turns a REJECT into a failed result, since the gate
-has already raised that Alarm itself.
+review (`GateOutcome.review`): a REJECT becomes a failed result (`tool_output`) and a CRITICAL
+AUDIT_FAILED Alarm, whose escalation ends the attempt (ADR-0032).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Called by
@@ -37,8 +37,8 @@ Key invariants:
       reaches ROLLED_BACK once (`hivemind.supervision.capping.state`'s own transition table has no
       edge back out of it). A GUI action's rollback is an Alarm at once; any other kind's counts
       toward `hivemind.workers.telemetry.ROLLBACKS_BEFORE_ALARM`.
-    - Nothing here notes an Alarm for a judge's REJECT: the gate raised it when the judge ruled,
-      and a second one would count one failure twice.
+    - A judge's REJECT is noted as exactly one CRITICAL AUDIT_FAILED Alarm, here: the gate only
+      records the verdict, so the Warden's policy (escalation to a person) ends the attempt.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit `ProposalRequest` exists
@@ -69,6 +69,7 @@ from hivemind.supervision.capping.leave import LeaveDecisionRecord
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.tools.registry import ToolOutput
 from waggle.ids import new_message_id
+from waggle.messages import AlarmSeverity
 from waggle.messages.capping import ActionKind, ProposedAction
 from waggle.messages.labels import Postcondition
 from waggle.messages.supervision import AlarmKind
@@ -80,9 +81,12 @@ MIN_SPEND_ESTIMATE_USD = 0.0  # v0: no built-in tool proposes a real spend (modu
 # definition (hivemind.supervision.capping.gate's module docstring); no new AlarmKind is needed.
 ROLLBACK_ALARM_KIND = AlarmKind.POSTCONDITION_FAILED
 MAX_REVIEW_CHARS = 600  # A judge's reasons as the model reads them: a few sentences, never notes.
+# Why a Worker escalates a judged irreversible GUI action: it already happened and cannot be undone.
+REVIEW_REJECTED_REASON = "A judge rejected an irreversible GUI action after it was applied."
 
 __all__ = [
     "MAX_REVIEW_CHARS",
+    "REVIEW_REJECTED_REASON",
     "ROLLBACK_ALARM_KIND",
     "ProposalRequest",
     "cap",
@@ -158,6 +162,17 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease, ctx.asker)
     if outcome.state is ProposalState.ROLLED_BACK:
         _note_rolled_back(ctx, proposal, outcome)
+    elif outcome.review is not None and outcome.review.outcome is JudgeOutcome.REJECT:
+        # ADR-0032: a rejection raises an Alarm and ends the attempt. Through the Warden, whose
+        # policy acts on it (AUDIT_FAILED escalates to a person); the gate only recorded the
+        # verdict, so this is the one Alarm for it.
+        detail = f"{_gui_subject(ctx, proposal)} was rejected on review: {_reasons(outcome.review)}"
+        ctx.telemetry.note_alarm(
+            AlarmKind.AUDIT_FAILED,
+            detail,
+            reason=REVIEW_REJECTED_REASON,
+            severity=AlarmSeverity.CRITICAL,
+        )
     return outcome
 
 
@@ -217,22 +232,28 @@ def _note_rolled_back(ctx: WorkerContext, proposal: Proposal, outcome: GateOutco
         # ADR-0032: a GUI action whose declared postcondition failed raises an Alarm at once, not
         # after three, since every later step would act on a screen the bee has misread; a step
         # that failed outright leaves the screen just as unknown, so it alarms the same way.
-        ctx.telemetry.note_alarm(ROLLBACK_ALARM_KIND, _gui_alarm_detail(proposal, outcome))
+        ctx.telemetry.note_alarm(ROLLBACK_ALARM_KIND, _gui_alarm_detail(ctx, proposal, outcome))
         return
     ctx.telemetry.note_rollback(ROLLBACK_ALARM_KIND, outcome.reason)
 
 
-def _gui_alarm_detail(proposal: Proposal, outcome: GateOutcome) -> str:
-    """Name the rolled-back GUI proposal, the gate's reason and each postcondition that failed.
-
-    The proposal id is what the flight recorder keys the action's recording by, so the Alarm
-    points at the evidence without carrying any of it: never a frame, never typed text.
-    """
+def _gui_alarm_detail(ctx: WorkerContext, proposal: Proposal, outcome: GateOutcome) -> str:
+    """Name the rolled-back GUI proposal, the gate's reason and each postcondition that failed."""
     failed = ", ".join(
         f"[{pc.index}] {pc.kind.value}" for pc in outcome.postconditions if not pc.has_held
     )
-    detail = f"GUI proposal {proposal.id} rolled back: {outcome.reason}"
+    detail = f"{_gui_subject(ctx, proposal)} rolled back: {outcome.reason}"
     return f"{detail} (failed: {failed})" if failed else detail
+
+
+def _gui_subject(ctx: WorkerContext, proposal: Proposal) -> str:
+    """Name a GUI proposal and the recording that holds its evidence, for an Alarm's detail.
+
+    ADR-0032: the Alarm names the recording, never a frame; the recording keys the action by the
+    proposal id, so the two together point at the evidence without carrying any of it.
+    """
+    recording = f" in recording {ctx.recording_id}" if ctx.recording_id is not None else ""
+    return f"GUI proposal {proposal.id}{recording}"
 
 
 def _reasons(review: JudgeVerdict) -> str:

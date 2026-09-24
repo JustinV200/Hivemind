@@ -12,8 +12,9 @@ capping_gate` already uses everywhere else in this package (a fresh `CappingGate
 One kind of proposal is not sampled but always judged, right after it is applied (ADR-0032,
 "Judges read recordings"): a VERIFIED `irreversible` GUI proposal, reviewed with the evidence its
 GUI surface recorded, before the tool returns, so the bee's next step waits on the verdict. The
-verdict rides back on `GateOutcome.review`; a REJECT has already raised an Alarm by then. Every
-other GUI proposal that is sampled is audited with the same evidence.
+verdict rides back on `GateOutcome.review`, and the Worker's tool raises the one Alarm a REJECT
+calls for, on the escalation path that ends the attempt. Every other GUI proposal that is sampled
+is audited with the same evidence.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's spawn

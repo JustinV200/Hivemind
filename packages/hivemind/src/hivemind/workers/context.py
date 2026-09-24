@@ -156,6 +156,8 @@ class WorkerContext:
         ears: How this Worker hears (roadmap steps 6.5 and 6.5a): the transcriber slot's resolved
             chain behind the Fanner's gate; None where no transcriber is bound, and then the
             `listen` tool is not offered.
+        recording_id: The flight recording this Worker's GUI actions go into (roadmap step 6.6),
+            so an Alarm about one can name where its evidence is; None when nothing records.
     """
 
     worker_id: WorkerId
@@ -176,3 +178,4 @@ class WorkerContext:
     call_gate: CallGate
     exoskeleton: ExoskeletonHandle | None = None
     ears: Ears | None = None
+    recording_id: str | None = None

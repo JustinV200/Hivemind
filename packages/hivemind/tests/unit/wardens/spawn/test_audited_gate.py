@@ -230,7 +230,9 @@ async def test_an_applied_irreversible_gui_action_is_judged_with_its_evidence(
     assert surface.calls[-2:] == ["finish VERIFIED None", "evidence"]  # Recorded, then judged.
 
 
-async def test_a_rejected_irreversible_gui_action_raises_a_critical_alarm(tmp_path: Path) -> None:
+async def test_a_rejected_irreversible_gui_action_comes_back_with_its_verdict(
+    tmp_path: Path,
+) -> None:
     verdict = make_judge_verdict(JudgeOutcome.REJECT, reasons=("Paid the wrong invoice.",))
     reviewer = RepeatingJudgeReviewer(verdict)
 
@@ -238,13 +240,13 @@ async def test_a_rejected_irreversible_gui_action_raises_a_critical_alarm(tmp_pa
         tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), ScriptedSurface(), reviewer=reviewer
     )
 
-    # The state stays VERIFIED (nothing can undo it); the verdict tells the tool to stop.
+    # The state stays VERIFIED (nothing can undo it); the verdict tells the tool to stop, and the
+    # tool raises the Alarm (test_proposals), so the gate raises none of its own.
     assert outcome.state is ProposalState.VERIFIED
     assert outcome.review == verdict
-    alarms = [event for event in await trail.query(TrailQuery()) if isinstance(event, AlarmEvent)]
-    assert [(a.payload["kind"], a.payload["severity"]) for a in alarms] == [
-        (AlarmKind.AUDIT_FAILED.value, "CRITICAL")
-    ]
+    events = await trail.query(TrailQuery())
+    assert not [event for event in events if isinstance(event, AlarmEvent)]
+    assert "capping.audited" in [event.kind for event in events]
 
 
 async def test_a_rolled_back_irreversible_gui_action_is_not_judged_after_apply(

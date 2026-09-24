@@ -300,18 +300,20 @@ async def test_review_applied_judges_without_sampling_and_records_the_verdict() 
     assert "alarm.raised" not in kinds
 
 
-async def test_review_applied_raises_a_critical_alarm_on_reject() -> None:
+async def test_review_applied_records_a_reject_and_leaves_the_alarm_to_the_proposer() -> None:
     reviewer = FakeJudgeReviewer(
         make_judge_verdict(JudgeOutcome.REJECT, reasons=("Paid the wrong invoice.",))
     )
     deps, trail = _review_deps(reviewer)
+    proposal = make_proposal(risk_tier=RiskTier.IRREVERSIBLE)
 
-    verdict = await review_applied(deps, make_proposal(risk_tier=RiskTier.IRREVERSIBLE), None)
+    verdict = await review_applied(deps, proposal, None)
 
     assert verdict.outcome is JudgeOutcome.REJECT
-    (alarm,) = await trail.query(TrailQuery(family="alarm"))
-    assert alarm.payload["kind"] == "AUDIT_FAILED"
-    assert alarm.payload["severity"] == "CRITICAL"  # Nothing can undo it: a person must look.
+    (audited,) = await trail.query(TrailQuery(subject_id=proposal.id))
+    assert audited.payload["outcome"] == "REJECT"
+    # The Worker's tool raises the one Alarm, on the path whose escalation ends the attempt.
+    assert await trail.query(TrailQuery(family="alarm")) == ()
 
 
 async def test_review_applied_fails_closed_when_the_judge_cannot_answer() -> None:
@@ -323,5 +325,4 @@ async def test_review_applied_fails_closed_when_the_judge_cannot_answer() -> Non
     assert verdict.outcome is JudgeOutcome.REJECT
     assert verdict.reasons[0].startswith("the judge could not answer")
     assert verdict.rubric_id == "irreversible-test"
-    (alarm,) = await trail.query(TrailQuery(family="alarm"))
-    assert alarm.payload["severity"] == "CRITICAL"
+    assert [event.payload["outcome"] for event in await trail.query(TrailQuery())] == ["REJECT"]
