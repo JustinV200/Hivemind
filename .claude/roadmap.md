@@ -1679,7 +1679,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   (`memory.taint.taint_memory`) and the one clearer (a judge verdict through `TAINT_CLEAR`); the
   Honey and Nectar halves and the House Bee's re-ripening are declared seams (`TaintLedger`,
   `TaintedNectarRipener`) that phase 7's stores implement.*
-- [ ] **10.7 Access levels.** `guard/access.py` (3.13a) grows the full permission data for
+- [x] **10.7 Access levels.** `guard/access.py` (3.13a) grows the full permission data for
   `AccessLevel` (2.3a) on every Real Cell (`read_only`, `scratch`, `full`), stored with the node
   and the lease and shown in the UI. Virtual Cells are
   always `full`. The Pollen Packet requests `full` at enrolment by default; the operator may grant
@@ -1687,8 +1687,14 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   bound what watch mode (11.10) may observe: `read_only` allows process list, resource use, logs
   in allowed roots and file-change events in allowed roots; screen or input capture is never part
   of watch mode and needs an explicit, separately granted capability.
-  *Data half landed with 10.1 (`guard/access.py`: the Cell-effect families and each level's
-  ceiling); storage with the node and the lease, the UI and the Pollen Packet's request remain.*
+  *Landed for the one Real Cell phase 10 has: the level is stored with the Hive Stand's node
+  (`[hive_stand] access_level`, and no lease above it) and with every lease (`cell.leased`
+  carries it), shown by `GET /v1/cells`, the Cell stream and `hive cells list`, and it caps the
+  Warden's set (`guard.policy.roles.warden_set`), every Worker's (a subset of its Warden's) and
+  every check (`evaluate`). Swarm nodes store theirs with the registry (11.2) and take the
+  operator's grant through `hive swarm access` (11.12); the Pollen Packet's `requested_access`
+  is on the wire (`waggle.messages.swarm.enrolment`) for 11.1 and 11.3 to send and honour; the
+  web screens are 12.4 and 12.6.*
 - [ ] **10.8 CLI.** `hive entrance invite|pending|approve|deny|devices|revoke|steward|
   reduce|open|status|expose|operator add`; `hive keys create|revoke|list` for Waggle-side
   principals; `hive run --remote`, `hive inbox --remote` (the CLI on a laptop is an enrolled
