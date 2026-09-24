@@ -10,7 +10,10 @@ grant's allowed_bindings" search), its last `HandoffRef` (for a RETRY's `resume_
 question-routing and rebinding checks read. `missed_heartbeats` is the Warden's own watchdog
 counter, incremented once per heartbeat interval that passes with nothing heard, reset the moment
 a fresh `Heartbeat` arrives; crossing `WardenDeps.missed_heartbeats_before_stalled` is what turns
-into a synthesised `AlarmKind.WORKER_STALLED`.
+into a synthesised `AlarmKind.WORKER_STALLED`. `has_ended` is how the Warden knows a row is done
+with: a bee that reports KILLED, or DONE without a claim, has nothing more to send (no TaskResult,
+no Alarm), and neither has a FAILED one once a cancel has reached it (`cancelled`); its Warden
+retires it the moment it hears so, freeing its slot for the next assignment.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
@@ -26,6 +29,8 @@ Key invariants:
       Worker's own runtime holds the other end. Closed exactly once, when the sub-bee reaches a
       terminal state (or is killed) and the Warden is done with it, after `runtime_task` is
       stopped and reaped (`hivemind.wardens.spawn.spawn.stop_sub_bee`), never before.
+    - `has_ended` never counts a FAILED row the Queen may still act on: a crash's Alarm names
+      the action that ends it (a respawn, a rebind, an escalation), unless a cancel came first.
 
 See Also:
     - .claude/codingrules.md section 8.5 for the mutable-state-documented-here rule this class
@@ -44,7 +49,7 @@ from dataclasses import dataclass, field
 
 from hivemind.guard import CapabilitySet
 from hivemind.workers.runtime import WorkerRuntime
-from hivemind.workers.state import WorkerState
+from hivemind.workers.state import WorkerState, is_terminal
 from waggle.ids import EventId, TaskId, WorkerId
 from waggle.messages import HandoffRef
 from waggle.messages.supervision import ContextTelemetry
@@ -52,6 +57,11 @@ from waggle.messages.task import TaskAssign
 from waggle.transport.memory import MemoryTransport
 
 __all__ = ["SubBee"]
+
+# Ends a bee with nothing left to send: KILLED (a TaskCancel, a Cancel lever, a lost link) carries
+# no TaskResult or Alarm, and neither does DONE after a stop-handoff (a claimed DONE's TaskResult
+# travels ahead of any later Heartbeat on the same ordered link, so acceptance retires it first).
+_ENDED_QUIETLY = frozenset({WorkerState.KILLED, WorkerState.DONE})
 
 
 @dataclass(slots=True)
@@ -87,6 +97,8 @@ class SubBee:
             step 10.6c): where a quarantine by this Warden's own policy row takes the bee's
             memory to be suspect from when the Alarm names no event of its own. None for a row
             built outside `spawn_sub_bee`.
+        cancelled: True once a cancel has been sent to this bee (`hivemind.wardens.ticks.
+            control.forward_control`): whatever terminal state it reports next ends it.
     """
 
     worker_id: WorkerId
@@ -103,3 +115,10 @@ class SubBee:
     missed_heartbeats: int = field(default=0)
     capabilities: CapabilitySet = field(default_factory=CapabilitySet.empty)
     spawned_event_id: EventId | None = field(default=None)
+    cancelled: bool = field(default=False)
+
+    @property
+    def has_ended(self) -> bool:
+        """Whether this bee has finished with nothing more to send its Warden (module docstring)."""
+        # A cancel is the Queen's last word on a FAILED row an escalation had left waiting on her.
+        return self.state in _ENDED_QUIETLY or (self.cancelled and is_terminal(self.state))

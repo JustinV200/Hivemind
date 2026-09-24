@@ -17,8 +17,9 @@ Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Owned
     by one `hivemind.wardens.warden.Warden` instance, sized from its current grant's
     `max_sub_bees`; consulted by `hivemind.wardens.ticks.assign` before every spawn and released by
-    `hivemind.wardens.ticks.results`/`.alarms` once a sub-bee reaches a terminal state. Calls into
-    nothing beyond the standard library.
+    `hivemind.wardens.ticks.alarms.retire_sub_bee`, the one path every ending of a sub-bee takes
+    (accepted, cancelled, killed, quarantined, stopped). Calls into nothing beyond the standard
+    library.
 
 Key invariants:
     - `acquire()` never lets `in_use` exceed `capacity`: it returns False instead, and the caller

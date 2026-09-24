@@ -79,6 +79,24 @@ class _BlockingProvider:
 
 
 @dataclass(slots=True)
+class _StuckStartRecorder:
+    """An LlmEventRecorder whose `call_started` never returns: a slow ledger write, say."""
+
+    finished: list[str] = field(default_factory=list)
+    entered: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def record(self, kind: str, subject_id: str, payload: JsonObject) -> None:
+        return None
+
+    async def call_started(self, source_id: str | None, provider: str) -> None:
+        self.entered.set()
+        await asyncio.Event().wait()  # Held until the calling sub-bee is killed.
+
+    async def call_finished(self, source_id: str | None, provider: str) -> None:
+        self.finished.append(provider)
+
+
+@dataclass(slots=True)
 class _SpyRecorder:
     """An LlmEventRecorder that records every call it receives, for asserting call order/args."""
 
@@ -205,3 +223,21 @@ async def test_fanner_lane_omits_grant_id_and_goal_id_when_the_lane_carries_none
     (event,) = await trail.query(TrailQuery())
     assert "grant_id" not in event.payload
     assert "goal_id" not in event.payload
+
+
+async def test_a_call_cancelled_before_it_reaches_the_provider_gives_its_seat_back() -> None:
+    # A sub-bee killed while its call's seat is held but the provider not yet called.
+    recorder = _StuckStartRecorder()
+    fanner, _ = _build_fanner(seats={"fake": 1}, recorder=recorder)
+    provider = FakeLLMProvider(name="fake")
+    bound = make_bound(binding="worker", provider=provider, model="test-model")
+    lane = fanner.lane(_tempo(AccuracyBar.NORMAL))
+    killed = asyncio.ensure_future(lane.complete(bound, make_request()))
+    await asyncio.wait_for(recorder.entered.wait(), timeout=5.0)
+    assert fanner.in_flight("fake") == 1
+
+    killed.cancel()
+    await asyncio.gather(killed, return_exceptions=True)
+
+    assert fanner.in_flight("fake") == 0
+    assert recorder.finished == []  # Nothing finished that never started.

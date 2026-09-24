@@ -9,9 +9,13 @@ Warden never provisions Cells itself.
 
 - `Warden` (`warden.py`): the `waggle.loop.TickLoop` face. `start()` leases the Warden's Cell (or
   moves to `WATCH` on a refusal); `stop()` sets the stop flag first, then reaps its own heartbeat
-  deadline, stops every sub-bee (cooperatively, via `wardens.spawn.stop_sub_bee`, falling back to
-  a bounded cancel), reaps every receive task it owns and releases the lease -- never returning
-  with a task it started still pending (codingrules section 11). One tick drains the queen link
+  deadline, retires every sub-bee (`wardens.ticks.alarms.retire_sub_bee`: stopped cooperatively,
+  falling back to a bounded cancel, its slot freed), reaps every receive task it owns and releases
+  the lease -- never returning with a task it started still pending (codingrules section 11).
+  Every way a sub-bee ends takes that same `retire_sub_bee` path, so its slot always comes back:
+  a claim accepted, an Alarm's RETRY/REBIND/CANCEL_TASK, a quarantine, the lease taken back, and a
+  Heartbeat saying the bee has ended with nothing more to send (`SubBee.has_ended`: KILLED by a
+  cancel or kill, DONE after a stop-handoff, or FAILED once a cancel has reached it). One tick drains the queen link
   and every sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
   through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the

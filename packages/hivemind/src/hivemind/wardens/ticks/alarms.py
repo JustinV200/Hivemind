@@ -368,7 +368,12 @@ async def send_alarm_to_queen(
 
 
 async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
-    """Stop `sub_bee`, reap what waited on its link, close the link, drop it from the tables.
+    """Stop `sub_bee`, reap what waited on its link, close the link, drop it, free its slot.
+
+    The one way a sub-bee leaves its Warden, whatever ended it: a claim accepted (`results`), an
+    Alarm's action (here), a quarantine (`hivemind.wardens.quarantine`), a Heartbeat saying it has
+    ended (`heartbeat.record_heartbeat`), a cancel of an ended bee or the lease taken back
+    (`control`), and `Warden.stop`; so its slot always comes back for the next assignment.
 
     The order is the whole point (codingrules section 11). A bare `runtime_task.cancel()` with no
     await leaves that task destroyed while still pending, and closing the link while this Warden's

@@ -16,14 +16,19 @@ primitive a sub-bee's own locally-decided REBIND uses once it has picked a targe
 (roadmap step 5.3 / ADR-0027) is the fourth control lever, and the only one that is not a relay:
 a Queen-sent `Shutdown` or `CellTeardownRequest` maps to `WardenAction.STOP` and ends this Warden
 through its own `stop()`, rather than falling through to an awake episode as both used to.
+A cancel (`TaskCancel`, or an `Intervene(CANCEL)` lever) also marks the bee's row `cancelled`, so
+whatever terminal state it reports next ends the row (`SubBee.has_ended`), and a row that has
+already ended (a FAILED bee an escalation left waiting on the Queen) is retired at once, as every
+sub-bee is when the Queen takes the lease back: through `hivemind.wardens.ticks.alarms.
+retire_sub_bee`, the one path that frees a bee's slot for the next assignment.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
     assign`'s own module docstring for why). Calls into `hivemind.wardens.ticks.alarms`
-    (rebind_sub_bee), `hivemind.wardens.state` (clustering_update), `hivemind.wardens.spawn`
-    (stop_sub_bee), `hivemind.wardens.snapshot_relay` (RelaySnapshotter), `hivemind.supervision.
-    attendant` (InboxItem) and waggle only.
+    (rebind_sub_bee, retire_sub_bee), `hivemind.wardens.state` (clustering_update),
+    `hivemind.wardens.snapshot_relay` (RelaySnapshotter), `hivemind.supervision` (Cancel,
+    Intervention), `hivemind.supervision.attendant` (InboxItem) and waggle only.
 
 Key invariants:
     - `forward_control` relays nothing, but still runs its own Clustering bookkeeping, when
@@ -37,6 +42,8 @@ Key invariants:
       always fills it before sending REBIND (`hivemind.queen.ticks.alarms._rebind` only sends the
       message once it has resolved a fallback key), so an unset field only ever means a peer that
       skipped that step, not something this Warden should guess at.
+    - No sub-bee leaves this module still holding its slot: `handle_release_lease` and a cancel
+      of an ended bee both retire through `retire_sub_bee`.
 
 See Also:
     - .claude/roadmap.md step 3.19's own dispatch map for the FORWARD_CONTROL rule.
@@ -54,15 +61,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.common.logging import get_logger
-from hivemind.common.tasks import reap
 from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
-from hivemind.supervision import Intervention, to_wire
+from hivemind.supervision import Cancel, Intervention, to_wire
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
-from hivemind.wardens.spawn import stop_sub_bee
 from hivemind.wardens.state import clustering_update
-from hivemind.wardens.ticks.alarms import rebind_sub_bee
+from hivemind.wardens.ticks.alarms import rebind_sub_bee, retire_sub_bee
 from waggle.envelope import Hop, wrap
 from waggle.ids import WorkerId
 from waggle.messages.cell import LeaseReleased, ReleaseCause
@@ -136,10 +141,25 @@ async def forward_control(
     if isinstance(payload, Intervene) and payload.action is InterventionAction.REBIND:
         await _handle_queen_rebind(warden, sub_bee, payload)
         return
+    if _is_cancel(payload):
+        # From here on, any terminal state the bee reports ends its row (SubBee.has_ended).
+        sub_bee.cancelled = True
+        if sub_bee.has_ended:
+            # Already over (an escalated FAILED bee waiting on the Queen): nothing left to relay
+            # the cancel to, so the row goes now and its slot with it.
+            await retire_sub_bee(warden, sub_bee)
+            return
     hop = Hop(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
     )
     await sub_bee.link.send(wrap(payload, hop, clock=warden._deps.clock))
+
+
+def _is_cancel(payload: _Control) -> bool:
+    """True for a TaskCancel or an Intervene(CANCEL): an order that ends the bee for good."""
+    if isinstance(payload, Intervene):
+        return payload.action is InterventionAction.CANCEL
+    return isinstance(payload, TaskCancel)
 
 
 async def _handle_queen_rebind(warden: Warden, sub_bee: SubBee, intervene: Intervene) -> None:
@@ -184,6 +204,8 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
     sub_bee = warden._sub_bees.get(WorkerId(child))
     if sub_bee is None:
         raise UnknownSubBeeError(child)
+    if isinstance(intervention, Cancel):
+        sub_bee.cancelled = True  # It ends for good: any terminal state it reports ends its row.
     action, slot = to_wire(intervention)
     message = Intervene(
         action=action,
@@ -227,24 +249,20 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
     this Warden's own Cell is not being destroyed here -- only its lease. `settle_after_tick`
     (called right after every `_act`, `hivemind.wardens.ticks.assign`'s own module docstring)
     settles this Warden back to WATCH on its own once `_sub_bees` is empty, so this handler never
-    touches `warden._state` itself. Idempotent: `RealCellLease.release()` is idempotent, and a
-    Warden already lease-less (WATCH since `start()` was refused) simply has nothing to release
-    or report.
+    touches `warden._state` itself. Every sub-bee is retired (`retire_sub_bee`), its slot freed
+    with it: this Warden lives on, and a lease the Queen grants it later starts from an empty
+    pool. Idempotent: `RealCellLease.release()` is idempotent, and a Warden already lease-less
+    (WATCH since `start()` was refused) simply has nothing to release or report.
 
     Args:
         warden: The owning Warden (read and written directly; see the module docstring).
         payload: The Queen's own Intervene(RELEASE_LEASE); only `.reason` is read.
     """
     for sub_bee in tuple(warden._sub_bees.values()):
-        # Cooperative first, cancel-and-reap only as stop_sub_bee's own bounded fallback: never
-        # left cancelled-but-unawaited (codingrules section 11), mirroring Warden.stop's own loop.
-        await stop_sub_bee(sub_bee, warden._deps.clock)
-        receive_task = warden._receive_tasks.pop(sub_bee.worker_id, None)
-        if receive_task is not None:
-            await reap(receive_task)
-        await sub_bee.link.close()
-    warden._sub_bees.clear()
-    warden._sub_bee_iters.clear()
+        # The one path every ending takes, as Warden.stop's own loop does: stopped cooperatively
+        # (cancel-and-reap only as a bounded fallback), its receive task reaped before its link
+        # closes (codingrules section 11), its row dropped and its slot freed.
+        await retire_sub_bee(warden, sub_bee)
     lease = warden._lease
     if lease is None:
         return  # Nothing held (already released, or never leased one): idempotent, nothing to

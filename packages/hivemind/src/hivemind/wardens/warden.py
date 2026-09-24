@@ -36,12 +36,12 @@ Key invariants:
       link the composition root closes right after `stop()` returns
       (`hivemind.wardens.ticks.heartbeat.send_heartbeat`), so `stop()` itself never raises for
       that reason.
-    - `stop()` never returns with a task it owns still pending: every sub-bee's own runtime is
-      stopped cooperatively, falling back to a bounded cancel
-      (`hivemind.wardens.spawn.spawn.stop_sub_bee`), and every receive task this Warden started
-      is reaped (`hivemind.common.tasks.reap_all`) before the method returns -- a shutdown-hygiene
-      fix so no `asyncio.Task` is ever destroyed pending once the composition root's event loop
-      closes (codingrules section 11).
+    - `stop()` never returns with a task it owns still pending: every sub-bee is retired the one
+      way every sub-bee ends (`hivemind.wardens.ticks.alarms.retire_sub_bee`: its runtime stopped
+      cooperatively, falling back to a bounded cancel, and its slot freed), and every receive task
+      this Warden started is reaped (`hivemind.common.tasks.reap_all`) before the method returns
+      -- a shutdown-hygiene fix so no `asyncio.Task` is ever destroyed pending once the
+      composition root's event loop closes (codingrules section 11).
     - `_run_tick`'s own throwaway `stop_task` is reaped in a `finally`, so a tick cancelled from
       outside (a sub-bee's `runtime_task`, `run_hive`'s `TaskGroup`, a test) never abandons it.
     - The Hive Stand's Warden exists whenever the Queen runs: a `LeaseRefusedError` on `start()`
@@ -87,7 +87,7 @@ from hivemind.wardens.quarantine import (
     carry_out,
     quarantine_child,
 )
-from hivemind.wardens.spawn import SubBee, stop_sub_bee
+from hivemind.wardens.spawn import SubBee
 from hivemind.wardens.state import WardenState
 from waggle.envelope import Envelope
 from waggle.errors import (
@@ -218,24 +218,15 @@ class Warden(TickLoop):
             await reap(self._heartbeat_task)
         self._heartbeat_task = None
         for sub_bee in tuple(self._sub_bees.values()):
-            # Cooperative first, cancel-and-reap only as stop_sub_bee's own bounded fallback:
-            # never left cancelled-but-unawaited (codingrules section 11; this dispatch's rule 2).
-            await stop_sub_bee(sub_bee, self._deps.clock)
-            # This link's own receive task is reaped BEFORE the link closes: closing a link while
-            # a task is still suspended inside its receive() generator closes that generator while
-            # it is running (codingrules section 11). The reap_all below then covers the queen
-            # link's own receive task, and any entry a respawn left behind.
-            receive_task = self._receive_tasks.pop(sub_bee.worker_id, None)
-            if receive_task is not None:
-                await reap(receive_task)
-            await sub_bee.link.close()
+            # The one path every ending takes (ticks.alarms.retire_sub_bee): stopped cooperatively,
+            # cancel-and-reap only as a bounded fallback, its receive task reaped BEFORE its link
+            # closes (codingrules section 11; this dispatch's rule 2), and its slot freed.
+            await ticks.alarms.retire_sub_bee(self, sub_bee)
         # Every receive task this Warden still owns (the queen link's own, and any sub-bee's
         # whose respawn or a slow stop_sub_bee left one outstanding): reaped before stop()
         # returns, so none is ever destroyed pending once the event loop closes (rules 1-3).
         await reap_all(self._receive_tasks.values())
         self._receive_tasks.clear()
-        self._sub_bees.clear()
-        self._sub_bee_iters.clear()
         if self._lease is not None:
             await self._lease.release()
         self._state = WardenState.STOPPED
@@ -484,7 +475,7 @@ async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> N
     elif isinstance(payload, GrantRevoked):
         await ticks.assign.handle_revoke(warden, payload)
     elif isinstance(payload, Heartbeat):
-        ticks.heartbeat.record_heartbeat(warden, item.principal, payload)
+        await ticks.heartbeat.record_heartbeat(warden, item.principal, payload)
     elif isinstance(payload, TaskProgress):
         await ticks.heartbeat.record_progress(warden, item.principal, payload)
     elif isinstance(payload, CeilingsSet):

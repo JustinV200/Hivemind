@@ -4,7 +4,10 @@ Roadmap step 3.19: "send a Heartbeat to the Queen when the interval has elapsed 
 ContextTelemetry + a ChildTelemetry row per sub-bee, grant id and spend)." `send_heartbeat` builds
 that; `record_heartbeat` and `record_progress` are how a sub-bee's own `Heartbeat`/`TaskProgress`
 update this Warden's mirrored view of it (codingrules section 8.8's "observe a sub-bee's terminal
-state from its Heartbeat.worker_state and TaskProgress stages, not from a TaskResult");
+state from its Heartbeat.worker_state and TaskProgress stages, not from a TaskResult"), and a
+Heartbeat saying the bee has ended with nothing more to send (`SubBee.has_ended`: cancelled,
+killed, or stopped after a handoff) retires it through `hivemind.wardens.ticks.alarms.
+retire_sub_bee`, the one path every ending takes, so its slot goes to the next assignment;
 `raise_stalled_alarms` is the Warden's own watchdog: a sub-bee whose heartbeat has not renewed
 within `missed_heartbeats_before_stalled` cycles of this Warden's own heartbeat cadence gets a
 synthesised `AlarmKind.WORKER_STALLED`, handed back as an `InboxItem` to the Warden's own tick
@@ -31,8 +34,9 @@ Fits into the Hive:
     CellIdentity), `hivemind.memory` (the flat hot-state summary models), `hivemind.pheromone`
     (WardenEvent, for `send_heartbeat`'s own `warden.offline` -- this dispatch's own fix 4),
     `hivemind.supervision` (Alarm, record_alarm_event -- a prior dispatch's own
-    alarm-reaches-the-trail fix), `hivemind.supervision.attendant` (InboxItem) and
-    `hivemind.workers.state` (WorkerState) and waggle only.
+    alarm-reaches-the-trail fix), `hivemind.supervision.attendant` (InboxItem),
+    `hivemind.wardens.ticks.alarms` (retire_sub_bee) and `hivemind.workers.state` (WorkerState)
+    and waggle only.
 
 Key invariants:
     - Sub-bee staleness is checked on this Warden's own heartbeat cadence (module docstring's
@@ -47,6 +51,8 @@ Key invariants:
     - `send_heartbeat` never raises `TransportClosedError`: the one wire send it makes is wrapped,
       so a heartbeat racing `Warden.stop()`'s own teardown can never crash this Warden's tick loop
       (this dispatch's own fix 4).
+    - A sub-bee row never outlives the Heartbeat that says it has ended: `record_heartbeat`
+      retires it in the same call that mirrors the state.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "observe a sub-bee's terminal state from its
@@ -81,6 +87,7 @@ from hivemind.memory.thresholds import (
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
+from hivemind.wardens.ticks.alarms import retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from hivemind.workers.state import WorkerState
 from waggle.envelope import Hop, wrap
@@ -219,14 +226,24 @@ async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: Interve
     await sub_bee.link.send(wrap(message, hop, clock=warden._deps.clock))
 
 
-def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat) -> None:
-    """Mirror a sub-bee's own reported state and telemetry, and clear its missed-beat count."""
+async def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat) -> None:
+    """Mirror a sub-bee's own reported state and telemetry; retire it once it has ended.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+        worker_id: The sub-bee the Heartbeat came from (its link's own principal).
+        heartbeat: What it reported.
+    """
     sub_bee = warden._sub_bees.get(WorkerId(worker_id))
     if sub_bee is None or heartbeat.worker_state is None:
         return
     sub_bee.last_telemetry = heartbeat.telemetry
     sub_bee.missed_heartbeats = 0
     sub_bee.state = WorkerState.from_wire(heartbeat.worker_state)
+    if sub_bee.has_ended:
+        # Nothing else would ever end this row (no TaskResult or Alarm follows), so it goes now:
+        # stopped, its link closed and its slot freed for a parked assignment (module docstring).
+        await retire_sub_bee(warden, sub_bee)
 
 
 async def record_progress(warden: Warden, worker_id: str, progress: TaskProgress) -> None:
