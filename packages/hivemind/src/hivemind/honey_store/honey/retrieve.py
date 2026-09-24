@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from hivemind.cell import HoneyClearance
 from hivemind.guard import CapabilitySet
@@ -167,12 +167,24 @@ class HoneyRetriever:
         """
         self._deps = deps
 
+    def with_identity(self, identity: HoneyIdentity) -> HoneyRetriever:
+        """Return this same retriever recording under `identity` (e.g. the operator's own).
+
+        Args:
+            identity: The Hive, node and actor its `honey.queried` events are stamped with.
+
+        Returns:
+            A retriever with the same store, policy and embedder; this one is unchanged.
+        """
+        return HoneyRetriever(replace(self._deps, identity=identity))
+
     async def search(self, search: HoneySearch) -> HoneyResponse:
         """Answer one query with the best hits the reader may see, within its budget.
 
         `filtered_count` counts the top full-text matches (`max_hits * candidate_multiplier` of
-        them) the reader's scope and clearance filter excluded; the vector side has no such
-        count, because nearest neighbours of an unreadable row say nothing about the query.
+        them) the reader's scope and clearance policy excluded -- never a row merely outside the
+        scopes the asker narrowed to itself; the vector side has no such count, because nearest
+        neighbours of an unreadable row say nothing about the query.
 
         Args:
             search: The words, the reader, and the scopes, hits and budget asked for.
@@ -229,8 +241,11 @@ class HoneyRetriever:
         # Each side ranks a multiple of the hits asked for, so the floor and the per-Nectar cap
         # can discard candidates and still leave a full page.
         limit = search.max_hits * self._deps.retrieval.candidate_multiplier
-        # Local SQLite on the store's own thread (milliseconds), like every store read in the Hive.
-        withheld = await self._deps.store.count_withheld(match, filter_, limit)
+        # Withheld means policy: rows the reader may not see. A row outside the scopes the asker
+        # itself narrowed to is not withheld from it, only not asked for, so the count ignores
+        # `requested`. Local SQLite on the store's own thread (milliseconds).
+        policy = ReadFilter(readable=filter_.readable, max_clearance=filter_.max_clearance)
+        withheld = await self._deps.store.count_withheld(match, policy, limit)
         if not filter_.readable:
             # Fail closed, and skip the embedding call: nothing could be found anyway.
             return _empty(NO_READABLE_SCOPE_REASON, withheld=withheld)

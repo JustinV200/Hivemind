@@ -32,6 +32,7 @@ import typer
 from hivemind.cli.honey.context import (
     EXIT_BAD_INPUT,
     cli_context,
+    human_identity,
     open_access,
     reader_for,
     run_or_exit,
@@ -82,7 +83,9 @@ def query_command(
     )
     # At most one model call (the query's own embedding), bounded by embed_timeout_s; on a
     # timeout or an outage the search runs on full text alone and its reason says so.
-    response = run_or_exit(access.retriever.search(search))
+    # The operator is asking, so the query's trail event names the human, not the Hive.
+    retriever = access.retriever.with_identity(human_identity(cli_ctx.manifest))
+    response = run_or_exit(retriever.search(search))
     # --json prints the wire response unchanged, for a script to read.
     if as_json:
         typer.echo(response.model_dump_json(indent=2))

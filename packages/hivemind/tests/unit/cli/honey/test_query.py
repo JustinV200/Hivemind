@@ -56,6 +56,7 @@ def test_query_prints_ranked_hits_and_records_one_queried_event(tmp_path: Path) 
     assert "embedder: test-model" in result.stdout
     (event,) = trail_events(manifest, "honey.queried")
     assert event.payload["hits"] == 3
+    assert event.actor == "human"  # The operator asked; the trail names the human, not the Hive.
 
 
 def test_query_json_is_the_retrievers_response(tmp_path: Path) -> None:

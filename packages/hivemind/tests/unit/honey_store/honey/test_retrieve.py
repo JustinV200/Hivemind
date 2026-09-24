@@ -464,3 +464,38 @@ async def test_a_young_store_finds_its_only_deposit_by_full_text_alone(hive: _Hi
 
     assert {hit.honey_ref for hit in response.hits} == {summary.path, chunk.path}
     assert "Full-text search only" in response.reason
+
+
+async def test_a_narrowed_search_never_counts_rows_it_did_not_ask_for_as_withheld(
+    hive: _Hive,
+) -> None:
+    # Found for real by the Queen's pre-check: its Cell-only search counted a readable hive row
+    # as withheld, which the audit trail then reported as a policy refusal.
+    await _ripen(hive, "Staging config", _TARGET_BODY)
+    await _ripen_filler(hive)
+    reader = _reader(hive)
+    search = HoneySearch(
+        text="staging configuration widget",
+        reader=reader,
+        requested_scopes=(task_scope(new_task_id(hive.clock)),),
+        max_hits=5,
+        max_tokens=4_000,
+    )
+
+    response = await hive.retriever(embedded=False).search(search)
+
+    assert response.hits == ()  # Nothing in the narrowed scope...
+    assert response.filtered_count == 0  # ...and nothing the policy withheld either.
+
+
+async def test_with_identity_records_the_query_under_the_new_actor(hive: _Hive) -> None:
+    # The operator's `hive honey query` searches as itself: the trail names the human.
+    await _ripen(hive, "Staging config", _TARGET_BODY)
+    human = HoneyIdentity(
+        hive_id=hive.identity.hive_id, node_id=hive.identity.node_id, actor="human"
+    )
+
+    await hive.retriever(embedded=False).with_identity(human).search(_search(hive, "staging"))
+
+    (event,) = await _queried_events(hive)
+    assert event.actor == "human"
