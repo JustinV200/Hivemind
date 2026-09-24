@@ -242,7 +242,8 @@ NEVER import from a higher layer. This is enforced by `import-linter` contracts 
 `pyproject.toml`; a violating import fails CI.
 
 ```text
-Layer 7  entrance, observation, cli                                  (edges: HTTP, terminal, dashboard)
+Layer 7  cli                                                          (the terminal; the hive run and hive serve roots)
+         entrance, observation                                        (edges: HTTP, dashboard)
 Layer 6  queen                                                        (the kernel; the only global view; divides Forage)
 Layer 5  wardens                                                      (per-Cell supervisors; spawn and supervise Workers)
 Layer 4  workers                                                      (roles that do the work)
@@ -272,6 +273,10 @@ Layer 0  common                                                       (primitive
 - Autopilot never awaits a model. Any module under a directory named `autopilot/` may not import
   `hivemind.llm`, directly or transitively; `lint-imports` enforces it. This is what keeps the
   Hive alive when every provider is down (section 8.8).
+- `cli` is the outermost edge: `hive serve` builds the Hive Entrance over the Hive that `hive run`
+  builds, and `hive entrance ...` administers it through the Entrance's public API, so `cli` may
+  import `entrance` and `observation`. Neither of those ever imports `cli`; the Entrance is
+  handed the Hive it serves by the composition root, never reaches for it.
 - `wardens` imports `workers` (to spawn them) and `queen` imports `wardens` (to assign to them).
   A Worker never imports its Warden and a Warden never imports the Queen; they talk over Waggle
   through the `Supervisor` protocol in `supervision/`.

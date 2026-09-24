@@ -326,9 +326,12 @@ name = "hivemind layer table (codingrules section 4)"
 type = "layers"
 containers = ["hivemind"]
 layers = [
-    # Layer 7: edges (HTTP, dashboard, terminal). Independent siblings -- none of the three needs
-    # to import another, and codingrules doesn't document a dependency between them.
-    "entrance | observation | cli",
+    # Layer 7, outer half: the terminal. `hive serve` composes the Hive Entrance over the Hive
+    # `hive run` builds, and `hive entrance ...` administers it, so cli may import entrance and
+    # observation (codingrules section 4); neither ever imports cli.
+    "cli",
+    # Layer 7, inner half: the HTTP and dashboard edges. Independent siblings.
+    "entrance | observation",
     "queen",  # Layer 6: the kernel; the only global view; divides Forage.
     "wardens",  # Layer 5: per-Cell supervisors; spawn and supervise Workers.
     "workers",  # Layer 4: roles that do the work.
