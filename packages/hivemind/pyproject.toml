@@ -10,6 +10,10 @@ dependencies = [
     "typer",            # The `hive` CLI's command layer.
     "httpx",            # The OpenAI-compatible adapter's client and, later, the Entrance and the http tool (codingrules 8.6).
     "anthropic",        # The Anthropic adapter's SDK; imported only under llm/providers/anthropic/ (codingrules 8.6).
+    "fastapi>=0.141,<1",  # The Hive Entrance: OpenAPI generated from the pydantic route models (ADR-0032).
+    "uvicorn>=0.53,<1",   # Serves the Entrance's two listeners inside the Hive's own event loop (ADR-0032).
+    "webauthn>=3,<4",     # Passkey registration and assertion verification for enrolled browsers (ADR-0033).
+    "segno>=1.6,<2",      # The enrolment invite's QR code; pure Python, no dependencies (roadmap 10.5d).
 ]
 
 [project.optional-dependencies]
