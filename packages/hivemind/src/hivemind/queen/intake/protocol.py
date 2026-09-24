@@ -37,7 +37,7 @@ from hivemind.common.errors import InvariantViolationError
 from hivemind.pheromone import QueenEvent
 from hivemind.queen.intake.model import GoalRequest
 from hivemind.queen.intake.state import GoalRequestState
-from waggle.messages.base import DeviceIdField
+from waggle.messages.base import DeviceIdField, UtcDatetime
 
 DEFAULT_REQUEST_PAGE = 100  # Generous for a drain or a device's own goals view; still bounded.
 MAX_REQUEST_PAGE = 1_000  # Matches the order of TaskFilter's own ceiling; never unbounded.
@@ -65,6 +65,11 @@ class GoalRequestQuery(BaseModel):
     unfinished: bool = Field(
         default=False,
         description="Only requests whose goal has not yet been seen finished (no finished_at).",
+    )
+    received_since: UtcDatetime | None = Field(
+        default=None,
+        description="Only requests first committed at or after this time: the Hive Entrance "
+        "reads a device's goals of the last day to weigh its daily spend cap.",
     )
     limit: int = Field(
         default=DEFAULT_REQUEST_PAGE,

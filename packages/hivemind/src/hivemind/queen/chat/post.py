@@ -58,6 +58,7 @@ _MESSAGE_KIND = "queen.human_message_received"  # A human's message entered the 
 _REPLIED_KIND = "queen.replied"  # The Queen answered in the chat.
 
 __all__ = [
+    "escalate_alarm",
     "post_alarm",
     "post_message",
     "post_notice",
@@ -174,6 +175,29 @@ async def post_alarm(deps: QueenDeps, alarm: Alarm) -> ChatEntry:
     stored = await deps.chat.append(entry)
     await deps.human_channel.alarm_raised(stored)
     return stored
+
+
+async def escalate_alarm(deps: QueenDeps, human_inbox: HumanInbox, alarm: Alarm) -> ChatEntry:
+    """Put an Alarm raised outside the bee tree in front of the human: inbox, trail, chat.
+
+    The Hive Entrance's own trouble (its remote listener failing, ADR-0033) has no Warden above
+    it, so it lands at the chain's last hop directly, exactly as an escalated Alarm does.
+
+    Args:
+        deps: The Queen's collaborators.
+        human_inbox: The Queen's own inbox of Alarms waiting on the human.
+        alarm: The Alarm, HANDLING, raised by the Hive itself.
+
+    Returns:
+        The chat line the human reads it in; its `ref` is the Alarm id they acknowledge.
+    """
+    human_inbox.add_alarm(alarm)
+    identity = CellIdentity(
+        hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor=deps.identity.actor
+    )
+    # The same `alarm.escalated` row an Alarm climbing the chain records at its last hop.
+    await record_alarm_event(deps.trail, identity, deps.clock, alarm, "alarm.escalated")
+    return await post_alarm(deps, alarm)
 
 
 async def resolve_alarm(deps: QueenDeps, human_inbox: HumanInbox, alarm_id: str) -> bool:

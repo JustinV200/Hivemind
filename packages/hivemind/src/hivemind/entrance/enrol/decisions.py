@@ -52,15 +52,16 @@ from hivemind.entrance.enrol.record import (
     Transition,
     apply_transition,
     iso,
+    notify,
     reason_text,
 )
-from hivemind.entrance.enrol.state import DeviceStatus
-from hivemind.entrance.errors import InvalidApprovalError
+from hivemind.entrance.enrol.state import APPROVED_TRAIL_KIND, DeviceStatus
+from hivemind.entrance.errors import ConsoleProtectedError, InvalidApprovalError
 from waggle.errors import InvalidIdError
 from waggle.ids import DeviceId, IdKind, parse_id
 from waggle.messages.base import UtcDatetime
 
-__all__ = ["ApprovalRequest", "approve", "deny"]
+__all__ = ["ApprovalRequest", "GrantChange", "approve", "deny", "regrant"]
 
 
 class ApprovalRequest(BaseModel):
@@ -105,12 +106,7 @@ class ApprovalRequest(BaseModel):
     @classmethod
     def _actor_is_a_person_or_device(cls, value: str) -> str:
         """Accept ``"human"`` or a device id: an approval is never the system's own decision."""
-        if value == OPERATOR_ACTOR:
-            return value
-        try:
-            return parse_id(value, IdKind.DEVICE)
-        except InvalidIdError as exc:
-            raise ValueError("An approval's actor is 'human' or a device id.") from exc
+        return _person_or_device(value)
 
 
 async def approve(
@@ -192,3 +188,90 @@ def _check_expiry(device_id: DeviceId, request: ApprovalRequest, now: datetime) 
             f"An approval of device {device_id} cannot expire at {request.expires_at.isoformat()}, "
             "which is not in the future."
         )
+
+
+class GrantChange(BaseModel):
+    """What the operator re-grants an approved device: its whole new set, and maybe a new cap.
+
+    Built by the loopback capability route (after step-up) from what the operator chose; a
+    re-grant is recorded as a fresh ``guard.entrance_approved`` of the new set.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    capabilities: tuple[CapabilityText, ...] = Field(
+        max_length=MAX_CAPABILITIES,
+        description="The device's whole new capability set, inside the device ceiling.",
+    )
+    spend_cap_usd_per_day: float | None = Field(
+        default=None,
+        ge=0,
+        allow_inf_nan=False,
+        description="A new daily spend cap in USD; None keeps the current one.",
+    )
+    actor: str = Field(description="Who re-grants: the approving device's id, or 'human'.")
+
+    @field_validator("actor")
+    @classmethod
+    def _actor_is_a_person_or_device(cls, value: str) -> str:
+        """Accept ``"human"`` or a device id, as an approval does."""
+        return _person_or_device(value)
+
+
+async def regrant(deps: EnrolmentDeps, device_id: DeviceId, change: GrantChange) -> EnrolledDevice:
+    """Replace an approved device's capability set (and cap), within the device ceiling.
+
+    Args:
+        deps: The enrolment dependencies.
+        device_id: The APPROVED device.
+        change: The new set, the new cap, and who decided.
+
+    Returns:
+        The device as stored, with its new grant.
+
+    Raises:
+        DeviceNotFoundError: No such device.
+        ConsoleProtectedError: The device is the Hive Stand console, whose set is fixed.
+        InvalidCapabilityError: A named string is not a capability.
+        CapabilityCeilingError: A named capability is beyond the device ceiling.
+        DeviceStatusConflictError: The device is not APPROVED.
+    """
+    records = deps.records
+    # Latency: one local primary-key read, for the console check and the event's fingerprint.
+    device = await records.store.get_device(device_id)
+    # The console's set is what administers the Hive Stand: narrowing it could lock the operator
+    # out, and it is loopback-bound anyway.
+    if device.loopback_bound:
+        raise ConsoleProtectedError(device_id, "re-granted")
+    granted = approval_grant(deps.rules.policy, change.capabilities)
+    cap = change.spend_cap_usd_per_day
+    payload: dict[str, JsonValue] = {
+        "regrant": True,
+        "fingerprint": device.fingerprint,
+        "capability_count": len(granted),
+        "spend_cap_usd_per_day": cap if cap is not None else device.spend_cap_usd_per_day,
+    }
+    event = records.identity.event(
+        records.clock, APPROVED_TRAIL_KIND, device_id, payload, change.actor
+    )
+    # Latency: one local transaction writing the new grant and its event together.
+    if cap is None:
+        updated = await records.store.update_device_grant(
+            device_id, event, capabilities=granted.as_strings()
+        )
+    else:
+        updated = await records.store.update_device_grant(
+            device_id, event, capabilities=granted.as_strings(), spend_cap_usd_per_day=cap
+        )
+    await notify(deps, device_id, event)
+    return updated
+
+
+def _person_or_device(value: str) -> str:
+    """Accept ``"human"`` or a device id as a decision's actor; refuse anything else."""
+    if value == OPERATOR_ACTOR:
+        return value
+    try:
+        return parse_id(value, IdKind.DEVICE)
+    except InvalidIdError as exc:
+        raise ValueError("A decision's actor is 'human' or a device id.") from exc

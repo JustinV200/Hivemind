@@ -37,7 +37,8 @@ Public API (roadmap step 10.5):
     - InMemoryChatLog (memory), SqliteChatLog, apply_chat_migrations, SUBSYSTEM,
       MIGRATIONS_PACKAGE (sqlite): its two implementations.
     - HumanChannel, NullHumanChannel: the seam to the human's devices and its no-op (channel).
-    - post_message, post_reply, post_notice, post_question, post_alarm, resolve_alarm: every
+    - post_message, post_reply, post_notice, post_question, post_alarm, escalate_alarm,
+      resolve_alarm: every
       write (post).
     - ChatDoor: the Queen's human-facing methods (door).
 """
@@ -57,6 +58,7 @@ from hivemind.queen.chat.model import (
     new_chat_entry_id,
 )
 from hivemind.queen.chat.post import (
+    escalate_alarm,
     post_alarm,
     post_message,
     post_notice,
@@ -102,6 +104,7 @@ __all__ = [
     "SqliteChatLog",
     "apply_chat_migrations",
     "check_chat_append",
+    "escalate_alarm",
     "new_chat_entry_id",
     "post_alarm",
     "post_message",

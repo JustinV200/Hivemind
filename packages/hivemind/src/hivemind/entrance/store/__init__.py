@@ -35,9 +35,11 @@ See Also:
     - packages/hivemind/tests/contracts/test_entrance_store_contract.py for the shared contract.
 
 Public API:
-    - EntranceStore, DeviceChanges: the protocol and a status change's field updates.
-    - check_new_device, check_status_change, check_device_event, transition_device, use_invite,
-      apply_login: the rules every implementation applies.
+    - EntranceStore, DeviceChanges, GrantChanges: the protocol, a status change's field updates
+      and a re-grant's.
+    - check_new_device, check_status_change, check_device_event, check_grant_change,
+      transition_device, regrant_device, use_invite, apply_login: the rules every implementation
+      applies.
     - SqliteEntranceStore, apply_entrance_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE: the durable
       store and its migration series.
     - MemoryEntranceStore: the in-process store for tests and demos.
@@ -58,10 +60,13 @@ from hivemind.entrance.store.pending import MemoryPendingTable, PendingTable, Sq
 from hivemind.entrance.store.protocol import (
     DeviceChanges,
     EntranceStore,
+    GrantChanges,
     apply_login,
     check_device_event,
+    check_grant_change,
     check_new_device,
     check_status_change,
+    regrant_device,
     transition_device,
     use_invite,
 )
@@ -85,6 +90,7 @@ __all__ = [
     "AuthTables",
     "DeviceChanges",
     "EntranceStore",
+    "GrantChanges",
     "LoginTable",
     "MemoryEntranceStore",
     "MemoryLoginTable",
@@ -104,8 +110,10 @@ __all__ = [
     "apply_entrance_migrations",
     "apply_login",
     "check_device_event",
+    "check_grant_change",
     "check_new_device",
     "check_status_change",
+    "regrant_device",
     "transition_device",
     "use_invite",
 ]

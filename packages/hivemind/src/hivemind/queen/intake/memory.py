@@ -93,4 +93,6 @@ def _matches(request: GoalRequest, query: GoalRequestQuery) -> bool:
         return False
     if query.device_id is not None and request.device_id != query.device_id:
         return False
+    if query.received_since is not None and request.received_at < query.received_since:
+        return False
     return not (query.unfinished and request.finished_at is not None)

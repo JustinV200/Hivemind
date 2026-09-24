@@ -51,9 +51,12 @@ from hivemind.entrance.store.mode.memory import MemoryModeTable
 from hivemind.entrance.store.pending.memory import MemoryPendingTable
 from hivemind.entrance.store.protocol import (
     DeviceChanges,
+    GrantChanges,
     apply_login,
+    check_grant_change,
     check_new_device,
     check_status_change,
+    regrant_device,
     transition_device,
     use_invite,
 )
@@ -156,6 +159,18 @@ class MemoryEntranceStore:
         check_status_change(device_id, expected, new, event)
         async with self._lock:
             updated = transition_device(self._require_device(device_id), expected, new, changes)
+            # Validated above, recorded here, applied last: see the module's key invariants.
+            await self._trail.record(event)
+            self._devices[device_id] = updated
+            return updated
+
+    async def update_device_grant(
+        self, device_id: DeviceId, event: GuardEvent, **changes: Unpack[GrantChanges]
+    ) -> EnrolledDevice:
+        """Re-grant an approved device; see EntranceStore.update_device_grant."""
+        check_grant_change(device_id, event)
+        async with self._lock:
+            updated = regrant_device(self._require_device(device_id), changes)
             # Validated above, recorded here, applied last: see the module's key invariants.
             await self._trail.record(event)
             self._devices[device_id] = updated

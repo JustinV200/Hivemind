@@ -39,7 +39,9 @@ from __future__ import annotations
 import asyncio
 import importlib.resources
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime
+from functools import partial
 from typing import Unpack
 
 from hivemind.common.errors import MigrationError
@@ -60,9 +62,12 @@ from hivemind.entrance.store.mode.sqlite import SqliteModeTable
 from hivemind.entrance.store.pending.sqlite import SqlitePendingTable
 from hivemind.entrance.store.protocol import (
     DeviceChanges,
+    GrantChanges,
     apply_login,
+    check_grant_change,
     check_new_device,
     check_status_change,
+    regrant_device,
     transition_device,
     use_invite,
 )
@@ -255,6 +260,16 @@ class SqliteEntranceStore:
                 _transition, self._connection, device_id, (expected, new), changes, event
             )
 
+    async def update_device_grant(
+        self, device_id: DeviceId, event: GuardEvent, **changes: Unpack[GrantChanges]
+    ) -> EnrolledDevice:
+        """Re-grant an approved device; see EntranceStore.update_device_grant."""
+        check_grant_change(device_id, event)
+        apply = partial(regrant_device, changes=dict(changes))
+        async with self._lock:
+            # Blocking: one read, one write and one event insert in one transaction.
+            return await self._thread.run(_rewrite, self._connection, device_id, apply, event)
+
     async def put_invite(self, invite: DeviceInvite) -> None:
         """Record an invite for an INVITED device; see EntranceStore.put_invite."""
         async with self._lock:
@@ -365,12 +380,26 @@ def _transition(
 ) -> EnrolledDevice:
     """Re-read the device, apply the one transition rule, write the result and its event."""
     expected, new = edge
+
+    def apply(current: EnrolledDevice) -> EnrolledDevice:
+        """The transition rule, applied to the row as it is inside the transaction."""
+        return transition_device(current, expected, new, changes)
+
+    return _rewrite(connection, device_id, apply, event)
+
+
+def _rewrite(
+    connection: sqlite3.Connection,
+    device_id: DeviceId,
+    apply: Callable[[EnrolledDevice], EnrolledDevice],
+    event: GuardEvent,
+) -> EnrolledDevice:
+    """Re-read a device, apply one rule to it, and write the result and its event together."""
     with transaction(connection):
         row = connection.execute(_SELECT_DEVICE_SQL, (device_id,)).fetchone()
         if row is None:
             raise DeviceNotFoundError(device_id)
-        current = EnrolledDevice.model_validate_json(row["body"])
-        updated = transition_device(current, expected, new, changes)
+        updated = apply(EnrolledDevice.model_validate_json(row["body"]))
         connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), device_id))
         insert_event(connection, event)
         return updated

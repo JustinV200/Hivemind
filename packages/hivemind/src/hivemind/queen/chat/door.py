@@ -6,10 +6,12 @@ mixin `hivemind.queen.queen.Queen` inherits so her own class stays within coding
 limits (the same composition `hivemind.brood_chamber.BroodChamber` uses): `request_goal` commits a
 durable goal request and wakes her, `confirm_goal_request`/`decline_goal_request` settle one held
 for the human's yes, `post_human_message` appends the human's words to the chat and wakes her,
-and `acknowledge_alarm` resolves an Alarm that reached the human. Each one is a thin delegate to
-`hivemind.queen.intake.writes` or `hivemind.queen.chat.post`; waking her is the in-process signal
-she awaits beside her Warden links (`QueenDeps.wake`), so a request or a message is acted on at
-once rather than at the next Heartbeat.
+`acknowledge_alarm` resolves an Alarm that reached the human, `escalate_to_human` puts an Alarm the
+Hive itself raised (the Entrance's remote listener failing) in front of the human, and
+`cancel_goal` cancels what of a goal has not started yet (a revoked device's goals). Each one is a
+thin delegate to `hivemind.queen.intake.writes` or `hivemind.queen.chat.post`, or one chamber edge;
+waking her is the in-process signal she awaits beside her Warden links (`QueenDeps.wake`), so a
+request or a message is acted on at once rather than at the next Heartbeat.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's chat
@@ -19,6 +21,8 @@ Fits into the Hive:
 
 Key invariants:
     - `request_goal` returns only once the row is committed: the Entrance answers `202` after it.
+    - `cancel_goal` cancels only PENDING tasks (never dispatched), through the chamber's own
+      cancel edge; work already on a Warden runs to its end, and the goal is reported running.
     - Nothing here plans a goal or runs a model: the Queen's own tick does, so reducing the
       Entrance (or a request handler failing) can never kill planning.
 
@@ -31,9 +35,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.brood_chamber import InvalidTransitionError, TaskFilter, TaskStatus, is_terminal
 from hivemind.queen.chat.model import ChatEntryId
-from hivemind.queen.chat.post import post_message, resolve_alarm
+from hivemind.queen.chat.post import escalate_alarm, post_message, resolve_alarm
 from hivemind.queen.intake import GoalRequest, GoalRequestId, confirm, decline, receive
+from hivemind.supervision import Alarm
 from waggle.ids import DeviceId, TaskId
 
 if TYPE_CHECKING:
@@ -140,3 +146,37 @@ class ChatDoor:
             True when it was waiting on the human and is now resolved; False when nothing was.
         """
         return await resolve_alarm(self._deps, self._human_inbox, alarm_id)
+
+    async def escalate_to_human(self, alarm: Alarm) -> None:
+        """Put an Alarm the Hive itself raised in front of the human, as the chain's last hop.
+
+        Args:
+            alarm: The Alarm, HANDLING; e.g. the Hive Entrance's remote listener failed and the
+                Entrance was reduced to loopback only (ADR-0033).
+        """
+        await escalate_alarm(self._deps, self._human_inbox, alarm)
+
+    async def cancel_goal(self, goal_id: TaskId, reason: str) -> bool:
+        """Cancel every task of a goal that has not started yet, and wake the Queen.
+
+        Args:
+            goal_id: The goal (its first task's id), e.g. one a revoked device submitted.
+            reason: A short phrase each `task.cancelled` event records.
+
+        Returns:
+            True when no task of the goal is left unfinished; False while some are still on a
+            Warden (they run to their end: no Warden-side cancel exists yet).
+        """
+        # Latency: one local chamber read, then one local transaction per task cancelled.
+        tasks = await self._deps.chamber.list(TaskFilter(goal_id=goal_id))
+        for task in tasks:
+            if task.status is not TaskStatus.PENDING:
+                continue
+            try:
+                await self._deps.chamber.cancel(task.id, reason)
+            except InvalidTransitionError:
+                # Dispatched between the read and the cancel: it runs to its end.
+                continue
+        self._deps.wake.set()
+        remaining = await self._deps.chamber.list(TaskFilter(goal_id=goal_id))
+        return all(is_terminal(task.status) for task in remaining)

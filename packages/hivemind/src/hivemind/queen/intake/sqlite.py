@@ -213,6 +213,10 @@ def _select_many(connection: sqlite3.Connection, query: GoalRequestQuery) -> lis
         params.append(query.device_id)
     if query.unfinished:
         clauses.append("finished_at IS NULL")
+    if query.received_since is not None:
+        # Stored as UTC isoformat text, the same form ORDER BY received_at already sorts by.
+        clauses.append("received_at >= ?")
+        params.append(query.received_since.isoformat())
     sql = _SELECT_MANY_SQL
     if clauses:
         # clauses holds only the fixed literals above; every value is bound through "?".

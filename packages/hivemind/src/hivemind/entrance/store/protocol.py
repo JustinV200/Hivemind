@@ -55,6 +55,7 @@ from hivemind.entrance.enrol.models import (
     OperatorCredential,
 )
 from hivemind.entrance.enrol.state import (
+    APPROVED_TRAIL_KIND,
     ENTRY_TRAIL_KINDS,
     DeviceStatus,
     assert_transition,
@@ -74,10 +75,13 @@ from waggle.ids import DeviceId
 __all__ = [
     "DeviceChanges",
     "EntranceStore",
+    "GrantChanges",
     "apply_login",
     "check_device_event",
+    "check_grant_change",
     "check_new_device",
     "check_status_change",
+    "regrant_device",
     "transition_device",
     "use_invite",
 ]
@@ -108,8 +112,16 @@ class DeviceChanges(TypedDict, total=False):
     approved_at: datetime
 
 
-# Read once from the TypedDict itself, so the runtime guard and the static type never drift.
+class GrantChanges(TypedDict, total=False):
+    """What re-granting an APPROVED device may change: what it may do and spend, nothing else."""
+
+    capabilities: tuple[str, ...]
+    spend_cap_usd_per_day: float | None
+
+
+# Read once from the TypedDicts themselves, so the runtime guards and the static types never drift.
 _CHANGEABLE_FIELDS = frozenset(DeviceChanges.__annotations__)
+_GRANT_FIELDS = frozenset(GrantChanges.__annotations__)
 
 
 class EntranceStore(AuthTables, Protocol):
@@ -209,6 +221,29 @@ class EntranceStore(AuthTables, Protocol):
             DuplicateEventError: ``event``'s id is already on the trail.
             pydantic.ValidationError: The changed record breaks a model rule (an approval
                 without ``approved_at``, a redemption without a key).
+        """
+        ...
+
+    async def update_device_grant(
+        self, device_id: DeviceId, event: GuardEvent, **changes: Unpack[GrantChanges]
+    ) -> EnrolledDevice:
+        """Re-grant an APPROVED device's capabilities and cap, recording ``event`` atomically.
+
+        Args:
+            device_id: The device, APPROVED.
+            event: Its ``guard.entrance_approved`` event (a re-grant is an approval of the new
+                set), about ``device_id``.
+            **changes: The new set and cap (``GrantChanges``).
+
+        Returns:
+            The record as stored after the change.
+
+        Raises:
+            DeviceNotFoundError: No such device.
+            DeviceStatusConflictError: The device is not APPROVED.
+            InvariantViolationError: ``event`` is not an approval about this device.
+            DuplicateEventError: ``event``'s id is already on the trail.
+            pydantic.ValidationError: The changed record breaks a model rule.
         """
         ...
 
@@ -386,6 +421,46 @@ def transition_device(
     fields: dict[str, object] = dict(current)
     fields.update(changes)
     fields["status"] = new
+    return EnrolledDevice.model_validate(fields)
+
+
+def check_grant_change(device_id: DeviceId, event: GuardEvent) -> None:
+    """Require a re-grant's event to be an approval about the device.
+
+    Args:
+        device_id: The device being re-granted.
+        event: The event about to be written with it.
+
+    Raises:
+        InvariantViolationError: ``event`` is of another kind or about another device.
+    """
+    check_device_event(device_id, APPROVED_TRAIL_KIND, event)
+
+
+def regrant_device(current: EnrolledDevice, changes: Mapping[str, object]) -> EnrolledDevice:
+    """Apply one re-grant to ``current``: the single place an approved device's set changes.
+
+    Args:
+        current: The record as stored right now.
+        changes: The ``GrantChanges`` given.
+
+    Returns:
+        A new, fully re-validated record.
+
+    Raises:
+        DeviceStatusConflictError: ``current`` is not APPROVED.
+        TypeError: ``changes`` names a field a re-grant may not set.
+        pydantic.ValidationError: The result breaks a model rule.
+    """
+    # Only an approved device's grant changes; a locked one is unlocked first, on loopback.
+    if current.status is not DeviceStatus.APPROVED:
+        raise DeviceStatusConflictError(current.id, DeviceStatus.APPROVED, current.status)
+    forbidden = set(changes) - _GRANT_FIELDS
+    if forbidden:
+        raise TypeError(f"A re-grant cannot set {sorted(forbidden)}.")
+    # model_validate (not model_copy) so every field and cross-field rule runs on the result.
+    fields: dict[str, object] = dict(current)
+    fields.update(changes)
     return EnrolledDevice.model_validate(fields)
 
 

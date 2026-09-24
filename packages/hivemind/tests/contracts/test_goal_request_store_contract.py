@@ -191,6 +191,20 @@ async def test_list_requests_filters_by_device_and_respects_the_limit(fx: _Fixtu
     assert all(request.device_id == device for request in page)
 
 
+async def test_list_requests_received_since_leaves_out_older_requests(fx: _Fixture) -> None:
+    device = new_device_id(fx.clock)
+    old = make_goal_request(fx.clock, device_id=device)
+    fx.clock.advance(3_600)
+    cutoff = fx.clock.now()
+    fresh = [make_goal_request(fx.clock, device_id=device) for _ in range(2)]
+    for request in (old, *fresh):
+        await fx.store.insert(request, _received(fx, request))
+
+    page = await fx.store.list_requests(GoalRequestQuery(device_id=device, received_since=cutoff))
+
+    assert {request.id for request in page} == {request.id for request in fresh}
+
+
 async def test_list_requests_unfinished_leaves_out_a_finished_goal(fx: _Fixture) -> None:
     open_goal = _planned(make_goal_request(fx.clock), fx.clock)
     done_goal = _planned(make_goal_request(fx.clock), fx.clock)

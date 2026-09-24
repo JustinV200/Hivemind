@@ -47,7 +47,8 @@ Public API:
       canonical_invite_code, invite_code_hash, invite_url, INVITE_PATH: invites.
     - Ed25519Proof, Redemption, RedeemFailure, RedeemStep, passkey_options, redeem_ed25519,
       redeem_passkey, ENROLMENT_CHALLENGE_TTL, REDEEM_FAILED_KIND: redemption.
-    - ApprovalRequest, approve, deny: decisions on a pending request.
+    - ApprovalRequest, approve, deny, GrantChange, regrant: decisions on a pending request, and
+      re-granting an approved device.
     - LockReason, Revocation, revoke, lock, unlock, expire_due: an admitted device's standing.
     - approval_grant, device_ceiling, steward_grant: what an approval may grant.
     - OPERATOR_ACTOR: the trail's actor for the operator at the Hive Stand.
@@ -62,7 +63,7 @@ from hivemind.entrance.enrol.console import (
     change_operator_password,
     unlock_console_key,
 )
-from hivemind.entrance.enrol.decisions import ApprovalRequest, approve, deny
+from hivemind.entrance.enrol.decisions import ApprovalRequest, GrantChange, approve, deny, regrant
 from hivemind.entrance.enrol.deps import (
     DeviceOffboarder,
     EnrolmentCeremony,
@@ -161,6 +162,7 @@ __all__ = [
     "EntranceIdentity",
     "FakeGoalLedger",
     "GoalLedger",
+    "GrantChange",
     "InviteQr",
     "LockReason",
     "MintedInvite",
@@ -196,6 +198,7 @@ __all__ = [
     "passkey_options",
     "redeem_ed25519",
     "redeem_passkey",
+    "regrant",
     "revoke",
     "steward_grant",
     "trail_kind",
