@@ -1,10 +1,11 @@
 """Build a whole enrolment rig over real stores, and drive devices through the real flows.
 
 ``Enrolment`` is ``EnrolmentDeps`` over real stores (in memory, or SQLite with
-``sqlite_enrolment``) with recording fakes for the seams; ``mint``, ``redeem_program``,
+``sqlite_enrolment``) with recording fakes for the seams, and the certifier a test hands in (none
+by default: a loopback-only Hive issues no certificates); ``mint``, ``redeem_program``,
 ``redeem_browser`` and ``admitted`` drive a device through the real flows, and
 ``admitted_program`` and ``admitted_browser`` also hand back the key the device holds, so a test
-can log it in.
+can log it in. ``program_request`` is the certificate signing request a program sends for its key.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used through the
@@ -21,7 +22,7 @@ See Also:
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from builders.entrance.records import (
@@ -33,12 +34,17 @@ from builders.entrance.records import (
     make_description,
     make_identity,
 )
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.x509.oid import NameOID
 
 from hivemind.common.sqlite import connect
 from hivemind.entrance.auth import ChallengeBook, SoftPasskey, b64url_encode, enrol_string
 from hivemind.entrance.enrol import (
     ENROLMENT_CHALLENGE_TTL,
     ApprovalRequest,
+    DeviceCertifier,
     DeviceStatus,
     Ed25519Proof,
     EnrolledDevice,
@@ -116,10 +122,18 @@ class Enrolment:
 
 
 def enrolment_over(
-    store: EntranceStore, trail: PheromoneTrail, clock: FakeClock, goals: FakeGoalLedger
+    store: EntranceStore,
+    trail: PheromoneTrail,
+    clock: FakeClock,
+    goals: FakeGoalLedger,
+    certifier: DeviceCertifier | None = None,
 ) -> Enrolment:
-    """Build an Enrolment rig over ``store`` and ``trail`` (which the store records on)."""
+    """Build an Enrolment rig over ``store`` and ``trail`` (which the store records on).
+
+    ``certifier`` issues devices' client certificates; one without an authority when omitted.
+    """
     fakes = Fakes(RecordingSecurityNotifier(), RecordingDeviceOffboarder(), goals)
+    active = certifier if certifier is not None else DeviceCertifier()
     deps = EnrolmentDeps(
         records=EnrolmentRecords(store, trail, clock, make_identity(clock)),
         rules=EnrolmentRules(load_guard_policy(), INVITE_TTL, PENDING_TTL, ORIGIN),
@@ -128,16 +142,19 @@ def enrolment_over(
             RELYING_PARTY,
             ChallengeBook(clock, ENROLMENT_CHALLENGE_TTL),
         ),
-        seams=EnrolmentSeams(fakes.notifier, fakes.offboarder, fakes.goals),
+        seams=EnrolmentSeams(fakes.notifier, fakes.offboarder, fakes.goals, certifier=active),
     )
     return Enrolment(deps, trail, clock, fakes)
 
 
-def memory_enrolment(goals: FakeGoalLedger | None = None) -> Enrolment:
-    """Build an Enrolment rig over in-memory tables and trail."""
+def memory_enrolment(
+    goals: FakeGoalLedger | None = None, certifier: DeviceCertifier | None = None
+) -> Enrolment:
+    """Build an Enrolment rig over in-memory tables and trail (and ``certifier``, if given)."""
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
-    return enrolment_over(MemoryEntranceStore(trail), trail, clock, goals or FakeGoalLedger())
+    store = MemoryEntranceStore(trail)
+    return enrolment_over(store, trail, clock, goals or FakeGoalLedger(), certifier)
 
 
 async def sqlite_enrolment(path: Path, goals: FakeGoalLedger | None = None) -> Enrolment:
@@ -164,12 +181,26 @@ async def mint(rig: Enrolment, label: str = "phone") -> MintedInvite:
     return await mint_invite(rig.deps, label)
 
 
+def program_request(signer: Ed25519Signer) -> str:
+    """The PEM certificate signing request a program sends for its own Ed25519 key."""
+    key = Ed25519PrivateKey.from_private_bytes(signer.private_key_bytes)
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "garden-bot")])
+    # Ed25519 signs whole messages: the library takes no separate hash for it.
+    request = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, None)
+    return request.public_bytes(serialization.Encoding.PEM).decode("ascii")
+
+
 async def redeem_program(
-    rig: Enrolment, minted: MintedInvite, signer: Ed25519Signer | None = None
+    rig: Enrolment,
+    minted: MintedInvite,
+    signer: Ed25519Signer | None = None,
+    certificate_request: str | None = None,
 ) -> Redemption:
-    """Redeem ``minted`` as a program with an Ed25519 key."""
+    """Redeem ``minted`` as a program with an Ed25519 key (and a certificate request, if given)."""
     key = signer if signer is not None else Ed25519Signer.generate()
     proof = ed25519_proof(rig, minted.code, key)
+    if certificate_request is not None:
+        proof = replace(proof, certificate_request=certificate_request)
     return await redeem_ed25519(rig.deps, minted.code, proof, make_description(), ADDRESS)
 
 
@@ -198,10 +229,17 @@ async def admitted(rig: Enrolment, status: DeviceStatus = DeviceStatus.APPROVED)
     return await approve(rig.deps, redemption.device_id, approval())
 
 
-async def admitted_program(rig: Enrolment) -> tuple[EnrolledDevice, Ed25519Signer]:
-    """Enrol and approve a program through the real flows; return it and the key it holds."""
+async def admitted_program(
+    rig: Enrolment, *, requesting: bool = False
+) -> tuple[EnrolledDevice, Ed25519Signer]:
+    """Enrol and approve a program through the real flows; return it and the key it holds.
+
+    With ``requesting`` it also sends a certificate request for its key, so a rig whose certifier
+    has an authority issues it a certificate at approval.
+    """
     signer = Ed25519Signer.generate()
-    redemption = await redeem_program(rig, await mint(rig, "program"), signer)
+    request = program_request(signer) if requesting else None
+    redemption = await redeem_program(rig, await mint(rig, "program"), signer, request)
     device = await approve(rig.deps, redemption.device_id, approval(name="program"))
     return device, signer
 

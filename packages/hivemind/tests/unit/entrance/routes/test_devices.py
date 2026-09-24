@@ -1,4 +1,4 @@
-"""Test hivemind.entrance.routes.devices: revoking a device settles all of its work in one step.
+"""Test hivemind.entrance.routes.devices: revocation settles a device's work; its certificate.
 
 Over real listeners and a real Queen, through the loopback-only revoke route: a program has one
 goal planned and placed on the Queen's Warden and a second one waiting, not yet planned. Revoking
@@ -6,10 +6,13 @@ it with ``cancel_goals`` refuses the waiting request (its device can no longer b
 it asked for is coming), stops the placed work on its Warden (a ``TaskCancel`` reaches the Warden
 before the task is recorded CANCELLED) and names both in the answer and in the revocation's own
 trail event. Without ``cancel_goals`` the placed goal is named as left running, the waiting
-request refused all the same.
+request refused all the same. A device reads its own mutual-TLS certificate once approval issued
+one (the Hive running its authority, the program having sent a request for its key), and is told
+plainly when none was.
 
 Fits into the Hive:
-    Mirrors src/hivemind/entrance/routes/devices.py (codingrules section 3); the revoke row.
+    Mirrors src/hivemind/entrance/routes/devices.py (codingrules section 3); the revoke and
+    own-certificate rows.
 
 Key invariants:
     - None: this module holds tests only.
@@ -23,12 +26,15 @@ from dataclasses import dataclass
 from builders.entrance.serving import ProgramGrant, RigOptions, ServingRig, serving
 from builders.human import single_task_plan
 from builders.queen import plan_responder
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
 from hivemind.brood_chamber import TaskStatus
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
 from hivemind.queen import GoalRequestState
-from waggle.ids import TaskId
+from waggle.ids import DeviceId, TaskId
+from waggle.signing import Ed25519Signer
 
 _WAIT_S = 5.0  # Generous: planning here is one scripted model call.
 # A device's set is its goals' ceiling: running one on the Hive Stand needs its Cell, a tier and
@@ -114,3 +120,33 @@ async def test_revoking_without_cancel_goals_names_the_goal_left_running() -> No
     assert waiting.state is GoalRequestState.REFUSED
     assert task.status is not TaskStatus.CANCELLED
     assert event.payload["goals_left_running"] == [work.goal_id]
+
+
+async def test_a_device_reads_its_own_certificate_once_approval_issued_it() -> None:
+    async with serving(RigOptions(authority=True)) as rig:
+        client, session = await rig.program(ProgramGrant(requesting=True))
+
+        issued = await client.call(session, "GET", "/v1/devices/me/certificate")
+        stored = await rig.store.get_device(DeviceId(session.key.device_id))
+
+    assert issued.status_code == 200, issued.text
+    body, record = issued.json(), stored.certificate
+    assert record is not None
+    assert (body["serial"], body["fingerprint"]) == (record.serial, record.fingerprint)
+    leaf = x509.load_pem_x509_certificate(body["certificate_pem"].encode("ascii"))
+    certified = leaf.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    assert isinstance(session.key.signer, Ed25519Signer)
+    assert certified == session.key.signer.public_key_bytes
+
+
+async def test_a_device_without_a_certificate_is_told_none_was_issued() -> None:
+    # A loopback-only Hive runs no authority: the request was kept, nothing was signed.
+    async with serving() as rig:
+        client, session = await rig.program(ProgramGrant(requesting=True))
+
+        missing = await client.call(session, "GET", "/v1/devices/me/certificate")
+
+    assert missing.status_code == 404
+    assert missing.json()["error"] == "hivemind.entrance.certificate_not_issued"

@@ -17,7 +17,7 @@ from datetime import timedelta
 
 import pytest
 from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed448, ed25519, rsa
 from cryptography.hazmat.primitives.asymmetric.types import CertificatePublicKeyTypes
 from cryptography.hazmat.primitives.serialization import pkcs12
@@ -37,6 +37,7 @@ from hivemind.entrance.expose.tls import (
     MAX_CSR_BYTES,
     NOT_BEFORE_SKEW,
     HiveAuthority,
+    check_certificate_request,
     issue_client_certificate,
     issue_pkcs12,
     load_or_create_authority,
@@ -149,6 +150,27 @@ def test_malformed_requests_are_refused_without_echoing_them(
         issue_client_certificate(authority, request_bytes, DEVICE_ID, START)
 
     assert request_bytes.decode() not in str(caught.value)
+
+
+def test_checking_a_request_signs_nothing_and_refuses_what_issuing_would() -> None:
+    # A device's own key passes before the Hive has an authority; a request to name wins nothing.
+    check_certificate_request(make_csr(ed25519.Ed25519PrivateKey.generate()), "field laptop")
+
+    with pytest.raises(CertificateRequestError, match="not a PEM certificate request") as caught:
+        check_certificate_request(b"not a request", "field laptop")
+    with pytest.raises(CertificateRequestError, match="key must be"):
+        check_certificate_request(make_csr(ed448.Ed448PrivateKey.generate()), "field laptop")
+
+    assert "field laptop" in str(caught.value)
+
+
+def test_an_issued_certificate_is_fingerprinted_over_its_der(authority: HiveAuthority) -> None:
+    key = ed25519.Ed25519PrivateKey.generate()
+
+    issued = issue_client_certificate(authority, make_csr(key), DEVICE_ID, START)
+
+    assert issued.fingerprint == _leaf(issued.pem).fingerprint(hashes.SHA256()).hex()
+    assert len(issued.fingerprint) == 64
 
 
 def test_a_malformed_device_id_is_refused(authority: HiveAuthority) -> None:

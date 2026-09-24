@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import httpx
 from builders.entrance.auth import PASSWORD, BrowserKey, sign_b64url
+from builders.entrance.enrolment import program_request
 from builders.entrance.records import make_description
 
 from hivemind.entrance.auth import (
@@ -73,12 +74,15 @@ class LandingClient:
         self._hive_id = hive_id
         self._clock = clock
 
-    async def enrol(self, code: str, name: str = "garden-bot") -> DeviceKey:
+    async def enrol(
+        self, code: str, name: str = "garden-bot", *, requesting: bool = False
+    ) -> DeviceKey:
         """Redeem ``code`` with a fresh Ed25519 key; the device is PENDING afterwards.
 
         Args:
             code: The invite code.
             name: What the device calls itself.
+            requesting: Also send a certificate request for the key, as the CLI does.
 
         Returns:
             The device's id and key.
@@ -86,12 +90,15 @@ class LandingClient:
         signer = Ed25519Signer.generate()
         public_key_hex = signer.public_key_bytes.hex()
         message = enrol_string(self._hive_id, invite_code_hash(code), public_key_hex)
-        body = {
+        body: dict[str, object] = {
             "code": code,
             "public_key_hex": public_key_hex,
             "signature": sign_b64url(signer, message),
             "description": {"name": name, "platform": "Linux", "user_agent": "garden-bot/1.0"},
         }
+        # The request is optional on the wire: a program that sends none gets no certificate.
+        if requesting:
+            body["certificate_request"] = program_request(signer)
         response = await self.http.post("/v1/enrol/ed25519", json=body)
         response.raise_for_status()
         return DeviceKey(response.json()["device_id"], signer)

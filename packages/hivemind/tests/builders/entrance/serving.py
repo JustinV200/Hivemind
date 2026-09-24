@@ -42,7 +42,7 @@ from hivemind.common.secrets import MemorySecretStore
 from hivemind.entrance.auth import SoftPasskey
 from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import CONSOLE_CAPABILITIES, DeviceStatus, EntranceIdentity
-from hivemind.entrance.expose import ExposurePlan, ListenerPlan
+from hivemind.entrance.expose import ExposurePlan, ListenerPlan, load_or_create_authority
 from hivemind.entrance.gate import HiveReads, LlmReads
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.push import (
@@ -69,6 +69,7 @@ from hivemind.manifest import EntranceExposure, EntranceSection
 from hivemind.queen import Queen
 from hivemind.queen.deps import QueenDeps
 from waggle.clock import SystemClock
+from waggle.ids import HiveId
 from waggle.signing import Ed25519Signer
 
 LOOPBACK_HOST = "127.0.0.1"  # Where both test listeners bind.
@@ -110,6 +111,8 @@ class RigOptions:
         seed: Run once the console is recorded and before the Entrance starts.
         transcriber: What hears voice clips; None serves no voice (the route unmounted).
         web_root: The Observation Hive's build to serve as static files; None serves none.
+        authority: Run the Hive's certificate authority, so approval issues client certificates
+            from requests (no rig listener demands one: none of them speaks TLS).
     """
 
     remote: bool = False
@@ -122,6 +125,7 @@ class RigOptions:
     seed: Seed | None = None
     transcriber: TranscriptionProvider | None = None
     web_root: Path | None = None
+    authority: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,12 +137,14 @@ class ProgramGrant:
         spend_cap_usd_per_day: Its daily spend cap.
         interactive: Whether a person types the password at it (it may confirm and step up).
         remote: Enrol and log in on the remote listener (a remote rig only).
+        requesting: Send a certificate request for its key when it enrols.
     """
 
     capabilities: tuple[str, ...] = ("observe", "entrance:submit", "entrance:answer")
     spend_cap_usd_per_day: float = 5.0
     interactive: bool = False
     remote: bool = False
+    requesting: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,7 +253,7 @@ class ServingRig:
         invite = await console.call(session, "POST", "/v1/entrance/invites", {"label": "bot"})
         assert invite.status_code == 201, invite.text
         client = self.client(remote=active.remote)
-        key = await client.enrol(invite.json()["code"])
+        key = await client.enrol(invite.json()["code"], requesting=active.requesting)
         body = {
             "name": "garden-bot",
             "capabilities": list(active.capabilities),
@@ -286,7 +292,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             settings=_settings(deps, active),
             tables=EntranceTables(store=store, push=push_store, trail=deps.trail),
             hive=_hive(queen, deps, telemetry),
-            keys=await _keys(clock),
+            keys=await _keys(clock, deps.identity.hive_id if active.authority else None),
             clock=clock,
             http=push_http,
             own_addresses=frozenset({ipaddress.ip_address(OWN_ADDRESS)}),
@@ -417,14 +423,18 @@ def _settings(deps: QueenDeps, options: RigOptions) -> EntranceSettings:
     )
 
 
-async def _keys(clock: SystemClock) -> EntranceKeys:
-    """Mint the Hive's key and the Web Push keys in a throwaway secret store."""
+async def _keys(clock: SystemClock, authority_for: HiveId | None) -> EntranceKeys:
+    """Mint the Hive's key, the Web Push keys and, for ``authority_for``, its authority."""
     secrets = MemorySecretStore()
     vapid = VapidSigner(await load_or_mint_vapid_key(secrets), VAPID_SUBJECT, clock)
+    authority = None
+    if authority_for is not None:
+        authority = await load_or_create_authority(secrets, authority_for, clock.now())
     return EntranceKeys(
         hive_signer=Ed25519Signer.generate(),
         vapid=vapid,
         topic_key=await load_or_mint_topic_key(secrets),
+        authority=authority,
     )
 
 
