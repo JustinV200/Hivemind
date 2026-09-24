@@ -57,7 +57,9 @@ with no vector for the current model is pending: every House Bee ripening pass e
 `[honey.ripening] max_embed_per_pass` pending rows. Changing the embedder slot therefore
 re-embeds the store progressively with no command at all; `hive honey reembed` runs the whole
 backlog now. Rows not yet re-embedded are still found by full-text search, and `hive honey stats`
-shows coverage per model. Old vectors are replaced row by row, never dropped in bulk.
+shows coverage per model. A new model's vector is stored beside the old model's (one row per
+Honey row per model), so switching back needs no second re-embed and nothing is ever dropped in
+bulk; a query only ever compares its own model's vectors.
 
 **Degrade, never fail closed.** No embedder, an unsupported kind, a provider that is down or a
 batch that fails leaves rows pending and retrieval full-text only, with the reason on the
