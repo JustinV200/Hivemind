@@ -56,6 +56,8 @@ passes an `environ` mapping; nothing reads `os.environ` implicitly.
 | `HIVEMIND_HIVE_STAND_SCRATCH_ROOT` | `[hive_stand] scratch_root` | A path. |
 | `HIVEMIND_LOG_LEVEL` | Nothing in the manifest | Read by the process's own logging setup, not folded into `HiveManifest`; there is no `[logging]` section (yet). |
 | `HIVEMIND_ENV` | `[hive] env` | Must be `dev` or `prod`. |
+| `HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY` | Nothing in the manifest | The Entrance's Web Push VAPID private key: base64url of the raw 32-byte P-256 scalar (what `web-push generate-vapid-keys` prints as the private key). Used instead of the `entrance.vapid` key minted into the secret store; set it to keep browser subscriptions working across a reinstall. A secret: read into a `SecretStr`, never logged (ADR-0034). |
+| `HIVEMIND_ENTRANCE_VAPID_SUBJECT` | Nothing in the manifest | The VAPID contact a push service may use: a `mailto:` or `https:` URI (RFC 8292). |
 
 ## Secrets
 
@@ -74,10 +76,17 @@ file, flushed, then renamed over the old one):
 
 - `hive.ed25519`: the Hive's own Ed25519 identity key, minted on the first `hive run` with a
   Virtual side configured. The Queen signs every Virtual Cell frame with it, so a Cell that
-  outlives a Queen restart still verifies the next Queen.
+  outlives a Queen restart still verifies the next Queen. The Entrance signs every webhook it
+  delivers with the same key (ADR-0034).
 - `console.ed25519`: the Hive Stand console's device key, never stored in the clear: it is sealed
   with AES-256-GCM under a key derived from the operator password (Argon2id, its own salt), so a
   bee that reads the directory holds nothing usable (ADR-0033).
+- `entrance.vapid`: the Entrance's Web Push VAPID private key (the raw 32-byte P-256 scalar),
+  minted on first use unless `HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY` supplies one. Every browser
+  subscription is bound to its public half, so losing it silently ends Web Push to every device
+  (ADR-0034).
+- `entrance.push_topic`: 32 random bytes keying the Web Push `Topic` header, so a push service
+  cannot compute or correlate it (ADR-0034); minted on first use.
 
 On Linux and macOS the directory is `0700` and every file `0600` from the moment it is created;
 on Windows those modes cannot be expressed, and the user profile's ACL is what protects it. Back

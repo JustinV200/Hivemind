@@ -593,7 +593,7 @@ Mandatory protocols (each gets its own ADR when first implemented):
 | `DeviceExecutor` | `pollen/executors/base.py` | shell, files, per-OS |
 | `PheromoneTrail` | `hivemind/pheromone/trail/protocol.py` | SQLite, in-memory (tests) |
 | `Snapshotter` | `hivemind/cell/snapshot.py` | `DockerSnapshotter`, `QemuSnapshotter` (in `hive/snapshot.py`), `NoopSnapshotter` (Real Cells, warns) |
-| `PushChannel` | `hivemind/entrance/push/base.py` | `WebSocketPush`, `WebhookPush`, `WebPush`, `FakePush` |
+| `PushChannel` | `hivemind/entrance/push/base.py` | `WebhookPush`, `WebPush`, `FakePush`; live clients are served per device by `LivePush` beside them |
 
 ### 8.2 Dependency injection, no globals
 

@@ -8,7 +8,9 @@ field per recognised variable; nothing outside this function ever calls ``enviro
 ``HiveManifest``, replacing only the fields an operator actually set. ``provider_api_key`` is the
 one place a provider's secret is read: never from the manifest file itself (codingrules section 13
 forbids an `api_key` field entirely), always from an environment variable, held in a
-``pydantic.SecretStr`` whose `repr` never shows the value. ``read_in_cell_env`` is the same rule
+``pydantic.SecretStr`` whose `repr` never shows the value; the Entrance's Web Push VAPID key
+(``HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY``, ADR-0034) is read the same way, by ``read_env``, beside
+its contact (``HIVEMIND_ENTRANCE_VAPID_SUBJECT``). ``read_in_cell_env`` is the same rule
 for a different composition root (roadmap step 5.5): the in-Cell Warden entry point
 (``hivemind.cli.in_cell``) has no Hive Manifest to load inside its Virtual Cell image, so every
 value it needs -- the Queen's Waggle URL, this Cell's own id and signing key, the Queen's verify
@@ -111,6 +113,18 @@ class EnvOverrides(BaseModel):
     env: Literal["dev", "prod"] | None = Field(
         default=None, description="HIVEMIND_ENV: overrides [hive] env."
     )
+    entrance_vapid_private_key: SecretStr | None = Field(
+        default=None,
+        description="HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY: the Entrance's Web Push VAPID private "
+        "key, base64url of the raw 32-byte P-256 scalar; used instead of the one minted into the "
+        "secret store (entrance.vapid). A secret, so SecretStr; no manifest field corresponds to "
+        "it, so apply_env does not touch the manifest for this one.",
+    )
+    entrance_vapid_subject: str | None = Field(
+        default=None,
+        description="HIVEMIND_ENTRANCE_VAPID_SUBJECT: the VAPID contact push services may use, a "
+        "mailto: or https: URI; no manifest field corresponds to it either.",
+    )
 
 
 def read_env(environ: Mapping[str, str]) -> EnvOverrides:
@@ -130,12 +144,16 @@ def read_env(environ: Mapping[str, str]) -> EnvOverrides:
     """
     db = environ.get("HIVEMIND_DB")
     scratch_root = environ.get("HIVEMIND_HIVE_STAND_SCRATCH_ROOT")
+    # Held in a SecretStr from the moment it is read, so no repr of the overrides can show it.
+    vapid_key = environ.get("HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY")
     return EnvOverrides(
         db=Path(db) if db is not None else None,
         llm_offline=_read_offline_flag(environ),
         hive_stand_scratch_root=Path(scratch_root) if scratch_root is not None else None,
         log_level=environ.get("HIVEMIND_LOG_LEVEL"),
         env=_read_env_literal(environ),
+        entrance_vapid_private_key=SecretStr(vapid_key) if vapid_key is not None else None,
+        entrance_vapid_subject=environ.get("HIVEMIND_ENTRANCE_VAPID_SUBJECT"),
     )
 
 
@@ -308,7 +326,8 @@ def _section_updates(manifest: HiveManifest, overrides: EnvOverrides) -> dict[st
         updates["hive_stand"] = manifest.hive_stand.model_copy(
             update={"scratch_root": overrides.hive_stand_scratch_root}
         )
-    # log_level has no manifest field (see EnvOverrides' own docstring): nothing to fold in here.
+    # log_level and the two entrance_vapid_* values have no manifest field (see EnvOverrides'
+    # field descriptions): the Entrance's composition root reads them off the overrides instead.
     return updates
 
 
