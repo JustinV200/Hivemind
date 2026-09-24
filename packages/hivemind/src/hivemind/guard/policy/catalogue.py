@@ -92,6 +92,12 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("guard.entrance_denied", P.ENTRANCE_ROUTE),
     ("guard.entrance_unlocked", P.ENTRANCE_ROUTE),
     ("guard.entrance_revoked", P.ENTRANCE_ROUTE),
+    ("guard.entrance_login", P.ENTRANCE_ROUTE),  # The login route opened a session.
+    ("guard.entrance_confirmed", P.ENTRANCE_ROUTE),  # A held request carried out after step-up.
+    ("cell.isolated", P.ISOLATION),
+    ("cell.isolation_lifted", P.ENTRANCE_ROUTE),  # Only the human lifts it, with step-up.
+    ("warden.intervened", P.QUARANTINE),  # The one intervention that records it (step 10.6c).
+    ("memory.taint_cleared", P.TAINT_CLEAR),
 )
 
 # Every kind that records no action of its own, and why not.
@@ -201,6 +207,10 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("guard.entrance_travel_lock", _NARROWING),
     ("guard.entrance_redeem_failed", _REFUSAL),
     ("guard.reduce_ordered", _NARROWING),
+    ("guard.entrance_session_ended", _NARROWING),
+    ("guard.entrance_held", _PROPOSAL),  # Nothing happens until an interactive device confirms.
+    ("guard.entrance_hold_ended", _LIFECYCLE),
+    ("memory.tainted", _NARROWING),  # A tainted item only ever leaves prompts.
 )
 
 # Points whose subsystem is not built yet, with the roadmap step or phase that wires each one.

@@ -24,7 +24,11 @@ Vocabulary (family -> kind -> when it is recorded):
         runtime); bee_bread_deposited (a BeeBreadEntry was written to the warm tier: an index over
         Brood Chamber/the trail, a Handoff reference, a deposited transcript, or an oversized tool
         result, roadmap step 4.2); overflow (one ContextTooLong overflow was recovered by
-        shrinking the budget, roadmap step 4.4).
+        shrinking the budget, roadmap step 4.4); tainted (a checkpoint, Handoff, episode record,
+        Nectar or Honey item was labelled tainted by an isolation, a quarantine or the Queen on a
+        Guard report, and is refused by assembly and retrieval from then on; carries the item, the
+        reason and the event that set it, roadmap step 10.6d, ADR-0035); taint_cleared (a judge
+        verdict on the taint rubric cleared a tainted item, 10.6d).
     tool: requested (a Worker asked for a tool the Comb Registry does not yet have); scaffolded
         (Royal Jelly generated a draft implementation); quarantined (a QuarantineReport was
         produced, pass or fail); promoted (CombRegistry.promote admitted it); rejected (promotion
@@ -119,6 +123,8 @@ class MemoryEvent(PheromoneEvent):
             "memory.bee_bread_deposited",
             # roadmap step 4.4: one ContextTooLong overflow recovered by shrinking the budget.
             "memory.overflow",
+            "memory.tainted",  # Roadmap step 10.6d: one label, three setters (ADR-0035).
+            "memory.taint_cleared",  # Roadmap step 10.6d: only a judge verdict clears it.
         }
     )
 

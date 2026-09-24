@@ -14,7 +14,7 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.pheromone.events.families import AlarmEvent, TaskEvent, WorkerEvent
+from hivemind.pheromone.events.families import AlarmEvent, CellEvent, TaskEvent, WorkerEvent
 
 
 def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
@@ -41,3 +41,8 @@ def test_alarm_event_kinds_are_the_four_steps_of_the_chain() -> None:
 
 def test_task_event_kinds_hold_a_blocked_and_answered_pair_for_questions() -> None:
     assert {"task.blocked", "task.answered", "task.question_withdrawn"} <= TaskEvent.KINDS
+
+
+def test_cell_event_kinds_record_an_isolation_and_its_lifting() -> None:
+    # Roadmap step 10.6a (ADR-0035): only the Queen isolates, and only the human lifts it.
+    assert {"cell.isolated", "cell.isolation_lifted"} <= CellEvent.KINDS

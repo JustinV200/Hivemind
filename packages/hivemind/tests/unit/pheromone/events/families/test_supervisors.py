@@ -95,6 +95,11 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "step_up",
         "travel_lock",
         "redeem_failed",
+        "login",
+        "session_ended",
+        "held",
+        "confirmed",
+        "hold_ended",
     }
     assert {
         "guard.denied",
@@ -105,3 +110,8 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "guard.reopened",
         "guard.reduce_ordered",
     } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
+
+
+def test_warden_event_kinds_include_the_quarantine_record() -> None:
+    # Roadmap step 10.6c (ADR-0035): a quarantine is the one intervention a Warden records itself.
+    assert "warden.intervened" in WardenEvent.KINDS

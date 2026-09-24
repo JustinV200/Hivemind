@@ -37,7 +37,10 @@ Vocabulary (family -> kind -> when it is recorded):
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
         clustered (every sub-bee was paused by Clustering, roadmap step 4.9); offline (its
         connection to the Queen was lost); reconnected (its connection came back); migrated (it
-        moved to another host, a Supersedure or promotion step); stopped (it is shutting down).
+        moved to another host, a Supersedure or promotion step); stopped (it is shutting down);
+        intervened (it quarantined one of its bees: checkpointed, cancelled, killed, its slice of
+        the grant revoked and its memory from the suspect episode on tainted; carries the task, the
+        bee, the action and that episode id, roadmap step 10.6c, ADR-0035).
     capping: proposed (a Proposal entered CHECKING); checked (one tier check ran, pass or fail);
         capped (every required check passed, CAPPED); applied (the proposal's side effect ran);
         verified (postconditions held after applying); rejected (a check failed, before applying);
@@ -66,7 +69,14 @@ Vocabulary (family -> kind -> when it is recorded):
         invite redemption was refused: an unknown, expired or used code, or a bad key proof; the
         address and the reason, never the code, 10.5d; the Guard Bee's invite-abuse signal);
         reduce_ordered (a Guard Bee rule ordered the Entrance Reducer, which the Entrance carries
-        out by following the trail, ADR-0035). The design documents'
+        out by following the trail, ADR-0035); entrance_login (a login passed both factors and
+        opened a session: the device and the listener, never the token); entrance_session_ended
+        (a session ended: logout, expiry, idling out, or its device leaving APPROVED; carries the
+        reason); entrance_held (a non-interactive device's request that needs step-up was held as
+        a pending confirmation: its id, the device and the action, never the request's content);
+        entrance_confirmed (an interactive device confirmed a held request after step-up);
+        entrance_hold_ended (a held request expired or was cancelled, with which). The design
+        documents'
         `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
         (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
 
@@ -145,6 +155,7 @@ class WardenEvent(PheromoneEvent):
             "warden.reconnected",
             "warden.migrated",
             "warden.stopped",
+            "warden.intervened",  # Roadmap step 10.6c: a bee quarantined (ADR-0035).
         }
     )
 
@@ -194,5 +205,10 @@ class GuardEvent(PheromoneEvent):
             "guard.entrance_travel_lock",
             "guard.entrance_redeem_failed",
             "guard.reduce_ordered",
+            "guard.entrance_login",  # Roadmap step 10.5e: a session opened by both factors.
+            "guard.entrance_session_ended",
+            "guard.entrance_held",  # A pending confirmation waiting on a human's step-up.
+            "guard.entrance_confirmed",
+            "guard.entrance_hold_ended",
         }
     )

@@ -92,3 +92,8 @@ def test_memory_event_kinds_include_the_phase_4_2_addition() -> None:
 def test_memory_event_kinds_include_the_phase_4_4_addition() -> None:
     # roadmap step 4.4 (overflow recovery): memory.overflow records one ContextTooLong shrink.
     assert {"memory.overflow"} <= MemoryEvent.KINDS
+
+
+def test_memory_event_kinds_include_the_taint_label() -> None:
+    # Roadmap step 10.6d (ADR-0035): one label, set by three paths and cleared only by a judge.
+    assert {"memory.tainted", "memory.taint_cleared"} <= MemoryEvent.KINDS
