@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 
 from builders.queen import make_queen_deps
 
@@ -26,6 +27,7 @@ from hivemind.llm.fake import text_response
 from hivemind.llm.models import LLMRequest, LLMResponse
 from hivemind.memory import MemoryContext
 from hivemind.memory.cell_wax import WaxState
+from hivemind.pheromone import EphemeralSegments, VeiledTrail
 from hivemind.pheromone.trail import TrailQuery
 from hivemind.queen.ticks.wax import handle_wax_proposed
 from waggle.ids import WardenId, new_worker_id
@@ -138,3 +140,25 @@ async def test_a_proposal_about_another_cells_warden_reaches_awake_and_may_be_re
         link.cell.id, frozenset({WaxState.REJECTED}), HoneyClearance.C1
     )
     assert len(rejected) == 1
+
+
+async def test_a_proposal_about_a_night_veil_cell_is_refused_and_leaves_nothing_behind() -> None:
+    provider = FakeLLMProvider(capabilities=ProviderCapabilities.full())
+    deps, link, _warden_end = make_queen_deps(fake_provider=provider)
+    durable, segments = deps.trail, EphemeralSegments(deps.clock)
+    segments.open(link.cell.id)  # The Warden's own Cell is a Night Veil one.
+    deps = replace(deps, trail=VeiledTrail(durable, segments))
+    proposed = _proposal(link.cell.id, WireWaxSeverity.CAUTION, link.warden_id, WaxOrigin.BEE)
+
+    await handle_wax_proposed(deps, {link.warden_id: link}, link.warden_id, proposed)
+
+    # Not even PROPOSED: no row, and none of its words on the durable trail.
+    assert provider.calls == []
+    assert await deps.memory.list_wax(link.cell.id, frozenset(WaxState), HoneyClearance.C2) == ()
+    assert await durable.query(TrailQuery()) == ()
+    # The refusal is the Queen's own record about the Cell, veiled with the rest of it.
+    [refused] = await segments.query(link.cell.id, TrailQuery())
+    assert (refused.kind, refused.payload) == (
+        "queen.decided",
+        {"reason": "night_veil_wax_refused"},
+    )

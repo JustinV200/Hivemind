@@ -9,15 +9,19 @@ operator override that calls `clear_wax` directly and records `memory.wax_cleare
 `WaxOrigin.HUMAN` in its own reason text -- this command's own `--help` says so. CELL, `--manifest`
 and `--db` are captured once by this group's own callback (codingrules section 5.1's parameter
 cap: a `propose` command with its own five flags has no room left for three more shared ones), and
-read back through `ctx.obj` by every subcommand.
+read back through `ctx.obj` by every subcommand. `propose` refuses a Night Veil Cell (known by the
+trail's skeleton, `hivemind.hive.night_veil.is_night_veil_cell`), as the Queen does: Cell Wax
+outlives the Cell it is about, and nothing of a Night Veil Cell may (codingrules section 12).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Mounted by `hivemind.cli.memory.app` as `wax`.
-    Calls into `hivemind.memory` and `hivemind.cli.stores`/`.context` only.
+    Calls into `hivemind.hive.night_veil` (is_night_veil_cell), `hivemind.memory` and
+    `hivemind.cli.stores`/`.context` only.
 
 Key invariants:
     - `propose` never writes a WRITTEN row itself; it always calls `propose_wax`, leaving the note
       PROPOSED for a running Queen's next tick to judge (roadmap step 4.11's own wording).
+    - `propose` records nothing about a Night Veil Cell: it exits 1 before any write.
 
 See Also:
     - .claude/roadmap.md step 4.11 for this command's own deliverable, verbatim.
@@ -42,7 +46,9 @@ from hivemind.cli.stores import (
     ManifestOption,
     load_manifest_or_exit,
     open_memory,
+    open_trail,
 )
+from hivemind.hive.night_veil import is_night_veil_cell
 from hivemind.manifest import HiveManifest
 from hivemind.memory import WaxSeverity, WaxState, clear_wax, propose_wax
 from hivemind.memory.cell_wax import WaxProposalInput
@@ -105,6 +111,13 @@ def propose_command(
 ) -> None:
     """Propose a PROPOSED Cell Wax note; a running Queen's next tick judges it (never WRITTEN)."""
     cli_ctx: _WaxCliContext = ctx.obj
+    if asyncio.run(is_night_veil_cell(open_trail(cli_ctx.db), cli_ctx.cell)):
+        typer.echo(
+            f"{cli_ctx.cell} is a Night Veil Cell: Cell Wax would outlive it (codingrules 12), "
+            "so none is proposed.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     memory_ctx = memory_context(cli_ctx.manifest, open_memory(cli_ctx.db), "human")
     expires_at = (
         memory_ctx.clock.now() + timedelta(seconds=expires_in) if expires_in is not None else None

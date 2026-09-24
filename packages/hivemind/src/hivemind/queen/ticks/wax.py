@@ -22,21 +22,29 @@ fresh proposal -- falls back to a rejection, never a silent write). Either way, 
 goes back to the proposing Warden's own link when the note is written, so it holds the note even
 when offline (`waggle.messages.cell.wax.CellWaxWritten`'s own docstring).
 
+A proposal about a Night Veil Cell is refused before anything is recorded (codingrules section
+12): the Cell is torn down once its task ends, and every record of it goes with it, while Cell Wax
+is built to outlive the Cell it is about (and its `memory.wax_proposed` would carry the proposal's
+own words onto the durable trail). The refusal itself is a `queen.decided` about the Cell, which
+the Night Veil boundary keeps in the Cell's own segment and purges with it.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.ticks.liveness.handle_infrastructure_item` for every
     received `CellWaxProposed`, and directly by a future chat-facing caller for a human proposal.
-    Calls into `hivemind.cell` (HoneyClearance), `hivemind.forage.slots` (Effort), `hivemind.memory`
+    Calls into `hivemind.cell` (HoneyClearance), `hivemind.common.logging`, `hivemind.forage.slots`
+    (Effort), `hivemind.hive.night_veil` (is_night_veil_cell), `hivemind.memory`
     (MemoryContext, TriggerEvent), `hivemind.memory.cell_wax` (CellWax, WaxProposalInput,
     WaxSeverity, WaxState, propose_wax, reject_wax, write_wax), `hivemind.queen.autopilot.wax`
     (WaxAutopilotOutcome, WaxProposalSignal, decide_wax_proposal), `hivemind.queen.awake`
     (QueenSources, decide_awake), `hivemind.queen.awake.decision` (QueenAction), `hivemind.queen.
-    deps` (QueenDeps, WardenLink), `hivemind.queen.human_inbox` (HumanInbox), `waggle.envelope`,
+    deps` (QueenDeps, WardenLink), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.queen.
+    trail` (record_event), `waggle.envelope`,
     `waggle.ids` and `waggle.messages.cell` (CellWaxProposed, CellWaxWritten) only.
 
 Key invariants:
     - Every branch either writes or rejects the proposal exactly once; nothing here ever leaves a
-      note PROPOSED past this function returning.
+      note PROPOSED past this function returning. A Night Veil Cell's proposal is never recorded.
     - `write_wax`/`reject_wax` (through `hivemind.memory.cell_wax`) already commit their own
       `memory.wax_*` event in the same store call as the row (codingrules section 12); this module
       adds no second event for the same edge.
@@ -64,7 +72,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from hivemind.cell import HoneyClearance
+from hivemind.common.logging import get_logger
 from hivemind.forage.slots import Effort
+from hivemind.hive.night_veil import is_night_veil_cell
 from hivemind.memory import MemoryContext, TriggerEvent
 from hivemind.memory.cell_wax import (
     MAX_WAX_TEXT_CHARS,
@@ -82,6 +92,7 @@ from hivemind.queen.awake import QueenSources, decide_awake
 from hivemind.queen.awake.episode import WAX_CAP_PER_CELL, EpisodeExtras
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.trail import record_event
 from hivemind.supervision.attendant import InboxItem
 from waggle.envelope import wrap
 from waggle.ids import WardenId
@@ -96,6 +107,9 @@ _JUDGEMENT_EFFORT = Effort.MEDIUM  # A Cell Wax judgement is rarer and weightier
 # CellWaxProposed is not its own InboxKind (hivemind.queen.inbox.weights).
 _AUTOPILOT_REASON = "A Warden's own NOTE or CAUTION about its own Cell, within the per-Cell cap."
 _FALLBACK_REJECT_REASON = "The awake episode did not resolve to a write; rejected, not left open."
+_NIGHT_VEIL_REFUSED = "night_veil_wax_refused"  # queen.decided's reason: wax outlives its Cell.
+
+log = get_logger(__name__)
 
 __all__ = ["handle_wax_item", "handle_wax_proposed"]
 
@@ -148,6 +162,11 @@ async def handle_wax_proposed(
             the caller passes the Cell's own Warden so the "own Cell" check still resolves.
         proposed: The proposal itself.
     """
+    if await is_night_veil_cell(deps.trail, proposed.cell_id):
+        # Before propose_wax: its own record would carry the words past the Cell (module doc).
+        await record_event(deps, "queen.decided", proposed.cell_id, reason=_NIGHT_VEIL_REFUSED)
+        log.info("queen.wax_refused", reason=_NIGHT_VEIL_REFUSED)  # No id: logs outlive it too.
+        return
     ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
     wax = await propose_wax(_to_input(proposed), MAX_WAX_TEXT_CHARS, ctx)
 

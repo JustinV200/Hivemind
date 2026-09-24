@@ -20,6 +20,8 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from builders.forage import make_grant
 from builders.isolation import (
@@ -39,7 +41,7 @@ from hivemind.forage.grant_state import GrantState
 from hivemind.hive import EgressOutcome
 from hivemind.memory import MemoryContext, TaintedMemoryError, read_handoff, write_checkpoint
 from hivemind.memory.cell_wax import WaxSeverity, WaxState
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import EphemeralSegments, TrailQuery, VeiledTrail
 from hivemind.queen.errors import UnknownCellError
 from hivemind.queen.guard_requests import GuardDeps
 from hivemind.queen.isolation import (
@@ -81,6 +83,21 @@ async def test_the_queen_isolates_a_virtual_cell_through_every_step() -> None:
     assert warden_end.received_kinds[:3] == ["grant_revoked", "intervene", "task_pause"]
     assert warden_end.intervenes[0].action is InterventionAction.HANDOFF
     assert warden_end.task_pauses[0].task_id == task.id
+    await warden_end.close()
+
+
+async def test_isolating_a_night_veil_cell_writes_no_wax_to_outlive_it() -> None:
+    clock = FakeClock()
+    egress, _backend, cell = await tracked_virtual_cell(clock)
+    deps, link, warden_end = make_queen_deps(clock, cell=cell, guard=GuardDeps(egress=egress))
+    segments = EphemeralSegments(clock)
+    segments.open(cell.id)
+    deps = replace(deps, trail=VeiledTrail(deps.trail, segments))
+
+    outcome = await isolate_cell(isolation_site(deps, link), queen_order(cell.id))
+
+    assert outcome.isolated and outcome.wax_id is None
+    assert await deps.memory.list_wax(cell.id, frozenset(WaxState), HoneyClearance.C2) == ()
     await warden_end.close()
 
 

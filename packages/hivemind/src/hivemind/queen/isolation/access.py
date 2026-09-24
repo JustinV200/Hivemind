@@ -10,12 +10,15 @@ on the Cell, the placement rule that excludes a Cell outright (rule 3a), so noth
 there while it stays isolated; `unblock_cell` clears it again for the human's lift. The wax is
 written by the isolation rule whoever decided the isolation (her rule, her awake episode, or the
 human's order), which is why it is AUTOPILOT: the note records the isolation, it does not judge.
+A Night Veil Cell gets no note (codingrules 12): Cell Wax outlives the Cell it is about, and a
+Night Veil Cell is never placed on again anyway.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
     isolation sub-package. Called by `hivemind.queen.isolation.path` and `.lift`. Calls into
-    `hivemind.cell` (HoneyClearance), `hivemind.forage`, `hivemind.memory` (the Cell Wax writes),
-    `hivemind.queen.forage.grants` (activate, revoke), `hivemind.supervision.attendant`
+    `hivemind.cell` (HoneyClearance), `hivemind.forage`, `hivemind.hive.night_veil`
+    (is_night_veil_cell), `hivemind.memory` (the Cell Wax writes), `hivemind.queen.forage.grants`
+    (activate, revoke), `hivemind.supervision.attendant`
     (GUARD_PRINCIPAL) and waggle only; `QueenDeps` only for its type.
 
 Key invariants:
@@ -35,6 +38,7 @@ from typing import TYPE_CHECKING
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ForageGrant
 from hivemind.forage.grant_state import GrantState
+from hivemind.hive.night_veil import is_night_veil_cell
 from hivemind.memory import MemoryContext
 from hivemind.memory.cell_wax import (
     MAX_WAX_TEXT_CHARS,
@@ -89,16 +93,22 @@ async def revoke_cell_grants(deps: QueenDeps, link: WardenLink, reason: str) -> 
     return tuple(revoked)
 
 
-async def block_cell(deps: QueenDeps, order: IsolationOrder) -> str:
+async def block_cell(deps: QueenDeps, order: IsolationOrder) -> str | None:
     """Write a BLOCK Cell Wax note on `order`'s Cell, so placement excludes it outright.
+
+    Not for a Night Veil Cell (codingrules 12): a note would outlive the Cell, which is never
+    placed on again anyway (a Night Veil task gets a fresh Cell, torn down once it ends).
 
     Args:
         deps: The Queen's collaborators.
         order: The isolation; its report and orderer are named in the note.
 
     Returns:
-        The written note's id, which `cell.isolated` names so the lift clears exactly this one.
+        The written note's id, which `cell.isolated` names so the lift clears exactly this one;
+        None for a Night Veil Cell, which gets none.
     """
+    if await is_night_veil_cell(deps.trail, order.cell_id):
+        return None
     ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
     by = "the human" if order.ordered_by is Isolator.HUMAN else "the Queen"
     answering = f" (Guard report {order.report_id})" if order.report_id else ""

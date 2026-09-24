@@ -17,7 +17,9 @@ A Cell's tier outlives the Queen that provisioned it in two places this module r
 backend label every provisioned Cell now carries (`with_tier_label`; Docker also keeps its own
 `hivemind.comb_shield`), and the skeleton itself, whose `cell.provisioned` names the tier and
 whose `cell.attested` exists only for a Night Veil Cell (so a Cell provisioned before the tier was
-recorded is still found).
+recorded is still found). `is_night_veil_cell` asks both, with the boundary behind a trail, for a
+writer about to record something that would outlive the Cell (a Cell Wax note: the Queen refuses
+it for a Night Veil Cell).
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.night_veil`. Built by the composition root
@@ -55,10 +57,12 @@ from hivemind.pheromone import (
     CellEvent,
     EphemeralSegments,
     NightVeilTeardownPurge,
+    PheromoneTrail,
     PurgeReport,
     TrailQuery,
     TrailRecorder,
     VeiledTrail,
+    segments_of,
 )
 from waggle.ids import CellId, new_event_id
 
@@ -76,6 +80,7 @@ __all__ = [
     "adopt_night_veil",
     "end_night_veil",
     "failure_facts",
+    "is_night_veil_cell",
     "night_veil_cells",
     "provisioned_facts",
     "sweep_night_veil",
@@ -188,6 +193,30 @@ async def adopt_night_veil(
     if known:
         boundary.segments.open(cell_id)
     return known
+
+
+async def is_night_veil_cell(trail: PheromoneTrail, cell_id: CellId) -> bool:
+    """Return whether `cell_id` is or was a Night Veil Cell, by its boundary or the skeleton.
+
+    The boundary behind `trail` (`segments_of`) owns every Night Veil Cell this Queen held or
+    took; the skeleton names one she never held (a Cell provisioned before a restart).
+
+    Args:
+        trail: The trail the caller records through: a `VeiledTrail`, or a plain one (an offline
+            command), whose reads reach the durable trail either way.
+        cell_id: The Cell about to be written about.
+
+    Returns:
+        True for a Night Veil Cell; False for any other, or one this Hive never knew.
+    """
+    segments = segments_of(trail)
+    if segments is not None and segments.owns(cell_id):
+        return True
+    provisioned = await trail.query(TrailQuery(kind="cell.provisioned", subject_id=cell_id))
+    if any(e.payload.get(TIER_LABEL) == _NIGHT_VEIL.value for e in provisioned):
+        return True
+    # Attestation runs for a Night Veil Cell alone (`night_veil_cells`).
+    return bool(await trail.query(TrailQuery(kind="cell.attested", subject_id=cell_id, limit=1)))
 
 
 async def night_veil_cells(recorder: TrailRecorder) -> frozenset[CellId]:

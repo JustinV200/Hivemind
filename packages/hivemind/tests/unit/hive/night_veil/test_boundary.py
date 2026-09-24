@@ -33,6 +33,7 @@ from hivemind.hive.night_veil import (
     NightVeilBoundary,
     adopt_night_veil,
     end_night_veil,
+    is_night_veil_cell,
     night_veil_cells,
     sweep_night_veil,
     tier_from_labels,
@@ -244,6 +245,37 @@ async def test_adopt_knows_a_night_veil_cell_by_its_labels_or_its_skeleton() -> 
     assert not await adopt_night_veil(hive.night_veil, meadow, {TIER_LABEL: "MEADOW"})
     assert set(hive.night_veil.segments.held_cells()) == {labelled, attested}
     assert await night_veil_cells(hive.night_veil.recorder) == frozenset({attested})
+
+
+async def test_a_night_veil_cell_is_known_by_its_boundary_or_its_skeleton() -> None:
+    hive = _Hive()
+    held, attested, provisioned, meadow = (new_cell_id(hive.clock) for _ in range(4))
+    hive.night_veil.segments.open(held)
+    await hive.durable.record(_attested(hive, attested))
+    for cell_id, tier in ((provisioned, "NIGHT_VEIL"), (meadow, "MEADOW")):
+        await hive.durable.record(_provisioned(hive, cell_id, tier))
+
+    # Through the veiled trail a Queen records through, and the plain one an offline command has.
+    for trail in (hive.night_veil.veiled, hive.durable):
+        assert await is_night_veil_cell(trail, attested)
+        assert await is_night_veil_cell(trail, provisioned)
+        assert not await is_night_veil_cell(trail, meadow)
+        assert not await is_night_veil_cell(trail, new_cell_id(hive.clock))
+    assert await is_night_veil_cell(hive.night_veil.veiled, held)
+
+
+def _provisioned(hive: _Hive, cell_id: CellId, tier: str) -> CellEvent:
+    """A skeleton `cell.provisioned` naming `tier`, as the lifecycle records it."""
+    return CellEvent(
+        id=new_event_id(hive.clock),
+        hive_id=hive.identity.hive_id,
+        node_id=hive.identity.node_id,
+        at=hive.clock.now(),
+        actor="system",
+        kind="cell.provisioned",
+        subject_id=cell_id,
+        payload={"backend": "fake", "image": "base-ubuntu", "comb_shield": tier},
+    )
 
 
 def _attested(hive: _Hive, cell_id: CellId) -> CellEvent:
