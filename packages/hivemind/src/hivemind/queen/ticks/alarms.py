@@ -1,4 +1,4 @@
-"""Define handle_alarm: what REBIND, QUARANTINE_BEE, ESCALATE_TO_HUMAN, RETRY_TASK and FAIL_TASK do.
+"""Define handle_alarm: what REBIND, QUARANTINE_BEE, ISOLATE_CELL, RETRY_TASK and the rest do.
 
 Roadmap step 3.20's own dispatch map: "escalated AlarmRaised -> policy + attempts: RETRY_TASK
 (re-dispatch, attempt+1), REBIND (Intervene(REBIND, task_id, slot=<the fallback binding key from
@@ -17,7 +17,10 @@ own report flags the gap this works around, since neither `wardens/**` nor `wagg
 dispatch's to touch). `QUARANTINE_BEE` (roadmap step 10.6c, a `PolicyAction.QUARANTINE` row) reads
 the lever off the Alarm (its task, its bee and its trail event) and sends the Warden that holds the
 task `Intervene(QUARANTINE)` through `hivemind.queen.quarantine`; an Alarm that cannot scope one
-reaches the human instead.
+reaches the human instead. `ISOLATE_CELL` (roadmap step 10.6a, a `PolicyAction.ISOLATE` row, the
+Queen's alone) records her decision and isolates the Alarm's Cell through the one isolation path
+(`hivemind.queen.isolation`); an Alarm naming no Cell she can reach, or the Hive Stand, reaches the
+human.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -27,7 +30,8 @@ Fits into the Hive:
     `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.queen.autopilot`
     (QueenAction), `hivemind.queen.chat` (post_alarm, roadmap step 10.5: an escalated Alarm is
     appended to the chat), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
-    human_inbox` (HumanInbox), `hivemind.queen.quarantine` (lever_from_alarm, order_quarantine),
+    human_inbox` (HumanInbox), `hivemind.queen.isolation` (isolate_cell, roadmap step 10.6a),
+    `hivemind.queen.quarantine` (lever_from_alarm, order_quarantine),
     `hivemind.queen.ticks.results` (fail_task, retry_task),
     `hivemind.queen.trail` (record_event), `hivemind.supervision` (Alarm, record_alarm_event,
     intervention.Rebind, to_wire) and waggle only.
@@ -67,7 +71,9 @@ from hivemind.queen.autopilot import QueenAction
 from hivemind.queen.chat import post_alarm
 from hivemind.queen.cluster.triggers import cluster_if_down
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.errors import UnknownCellError
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.isolation import IsolationOrder, IsolationSite, Isolator, isolate_cell
 from hivemind.queen.quarantine import lever_from_alarm, order_quarantine
 from hivemind.queen.ticks.results import fail_task, retry_task
 from hivemind.queen.trail import record_event
@@ -147,6 +153,8 @@ async def handle_alarm(
         await _rebind(deps, wardens, handling)
     elif action is QueenAction.QUARANTINE_BEE:
         await _quarantine(deps, wardens, handling)
+    elif action is QueenAction.ISOLATE_CELL:
+        await _isolate(deps, wardens, handling)
     else:
         # ESCALATE_TO_HUMAN, or RETRY_TASK/FAIL_TASK for an Alarm naming no task: escalate rather
         # than silently dropping an Alarm this table decided needs a human.
@@ -202,6 +210,42 @@ async def _quarantine(
     alarm = Alarm.from_wire(payload)
     await record_alarm_event(
         deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="QUARANTINE_BEE"
+    )
+
+
+async def _isolate(deps: QueenDeps, wardens: Sequence[WardenLink], handling: AlarmHandling) -> None:
+    """Isolate the Alarm's Cell through the one isolation path, or put the Alarm to the human.
+
+    Roadmap step 10.6a: an ISOLATE row of the Queen's own policy (a Warden's never loads one).
+    Her decision is on the trail first; an Alarm naming no Cell, a Cell with no attached Warden,
+    or the Hive Stand (isolated only by the human) reaches the human instead, like any decision
+    this table cannot carry out.
+    """
+    payload = handling.payload
+    cell_id = payload.context.cell_id
+    if cell_id is None:
+        await _escalate(deps, handling.human_inbox, payload)
+        return
+    await record_event(
+        deps, "queen.decided", cell_id, action="ISOLATE_CELL", alarm_id=payload.alarm_id
+    )
+    order = IsolationOrder(
+        cell_id=cell_id,
+        ordered_by=Isolator.QUEEN,
+        reason=f"Alarm {payload.alarm_id} ({payload.kind.value}) under an ISOLATE policy row.",
+        evidence=(payload.context.event_id,) if payload.context.event_id else (),
+    )
+    site = IsolationSite(deps=deps, wardens=wardens, human_inbox=handling.human_inbox)
+    try:
+        outcome = await isolate_cell(site, order)
+    except UnknownCellError:
+        outcome = None  # Its Warden is gone: nothing here can reach the Cell.
+    if outcome is None or outcome.refusal is not None:
+        await _escalate(deps, handling.human_inbox, payload)
+        return
+    alarm = Alarm.from_wire(payload)
+    await record_alarm_event(
+        deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="ISOLATE_CELL"
     )
 
 

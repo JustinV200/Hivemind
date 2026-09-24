@@ -100,7 +100,7 @@ from waggle.errors import (
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
-from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
+from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
 from waggle.messages.supervision import (
     AlarmRaised,
     Answer,
@@ -478,13 +478,15 @@ async def _act_on_order(
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
-    """Handle a RECORD-only item: a grant, a heartbeat, routine progress, ceilings or a plan."""
+    """Handle a RECORD-only item: a grant or its revocation, a heartbeat, progress, ceilings..."""
     if isinstance(payload, GrantIssued):
         await ticks.assign.handle_grant(warden, payload)
+    elif isinstance(payload, GrantRevoked):
+        await ticks.assign.handle_revoke(warden, payload)
     elif isinstance(payload, Heartbeat):
         ticks.heartbeat.record_heartbeat(warden, item.principal, payload)
     elif isinstance(payload, TaskProgress):
-        ticks.heartbeat.record_progress(warden, item.principal, payload)
+        await ticks.heartbeat.record_progress(warden, item.principal, payload)
     elif isinstance(payload, CeilingsSet):
         # Roadmap step 4.8's own wiring step: the Queen's own ceilings never record a fresh trail
         # event here (module docstring of hivemind.queen.forage.ceilings: she already recorded

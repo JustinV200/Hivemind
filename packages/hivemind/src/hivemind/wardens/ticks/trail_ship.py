@@ -15,9 +15,11 @@ the one that records `warden.offline` for it; nothing here adds a second record.
 
 Fits into the Hive:
     Layer 5 (Wardens). Called by `hivemind.wardens.ticks.results` and `hivemind.wardens.ticks.
-    alarms` immediately before each `TaskResult` they send the Queen. Reads `WardenDeps.trail_sync`
-    only; a Warden without one (the Hive Stand's own, whose trail already is the Queen's) is a
-    no-op.
+    alarms` immediately before each `TaskResult` they send the Queen, and by `hivemind.wardens.
+    ticks.heartbeat.record_progress` when a bee reports it paused (roadmap step 10.6a: the Queen
+    isolating this Cell waits a bounded time for that `worker.paused`). Reads
+    `WardenDeps.trail_sync` only; a Warden without one (the Hive Stand's own, whose trail already
+    is the Queen's) is a no-op.
 
 Key invariants:
     - Never raises for a closed or lost link: the send that follows reports that itself.

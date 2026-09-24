@@ -106,6 +106,10 @@ _FAKE_CORES = 2  # A modest default host: enough for provision()'s own defaults,
 _FAKE_MEMORY_BYTES = 2 * 1024**3
 _FAKE_DISK_BYTES = 10 * 1024**3
 _FAKE_MAX_SUB_BEES = 4
+# What a fake declares when a test names nothing: a Cell pauses and (step 10.6a) cuts its egress.
+_DEFAULT_CAPABILITIES = BackendCapabilities(
+    can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True
+)
 
 __all__ = ["FakeCellBackend", "FakeReadinessGate", "ReadinessGateExpect"]
 
@@ -138,7 +142,52 @@ class _TrackedCell:
     egress_cut: bool = False  # Roadmap step 10.6a: only the control link is reachable while set.
 
 
-class FakeCellBackend:
+class _FakeEgress:
+    """The fake's `EgressCutter` half (roadmap step 10.6a), a base of `FakeCellBackend`.
+
+    Split out only to keep `FakeCellBackend` inside codingrules 5.1's class limit; it reads the
+    backend's own Cell table and declared capabilities, which `FakeCellBackend.__init__` sets.
+    """
+
+    _cells: dict[CellId, _TrackedCell]
+    _capabilities: BackendCapabilities
+    egress_calls: list[tuple[str, CellId]]  # ("cut" | "restore", cell) in order.
+
+    async def cut_egress(self, cell_id: CellId) -> None:
+        """Mark `cell_id`'s egress cut to its control link alone; see `EgressCutter.cut_egress`."""
+        self.egress_calls.append(("cut", cell_id))
+        self._require_egress_capability(cell_id)
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.egress_cut = True
+
+    async def restore_egress(self, cell_id: CellId) -> None:
+        """Give `cell_id` its own policy's egress back; see `EgressCutter.restore_egress`."""
+        self.egress_calls.append(("restore", cell_id))
+        self._require_egress_capability(cell_id)
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.egress_cut = False
+
+    def egress_is_cut(self, cell_id: CellId) -> bool:
+        """Return whether `cell_id`'s egress is cut right now; False for a Cell never tracked.
+
+        Args:
+            cell_id: The Cell to look up.
+
+        Returns:
+            True while only the Cell's control link is reachable (roadmap step 10.6a).
+        """
+        tracked = self._cells.get(cell_id)
+        return tracked is not None and tracked.egress_cut
+
+    def _require_egress_capability(self, cell_id: CellId) -> None:
+        """Raise BackendCapabilityError unless this fake declares can_cut_egress."""
+        if not self._capabilities.can_cut_egress:
+            raise BackendCapabilityError(_FAKE_BACKEND_NAME, "egress cut", cell_id=cell_id)
+
+
+class FakeCellBackend(_FakeEgress):
     """An in-memory CellBackend: provisions, destroys, pauses and lists Cells with no real infra."""
 
     def __init__(
@@ -180,13 +229,7 @@ class FakeCellBackend:
                 unused whenever `endpoint` resolves to `None` (no bootstrap is ever minted then).
         """
         self._clock = clock
-        self._capabilities = (
-            capabilities
-            if capabilities is not None
-            else BackendCapabilities(
-                can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True
-            )
-        )
+        self._capabilities = capabilities if capabilities is not None else _DEFAULT_CAPABILITIES
         self._endpoint = endpoint
         self._gate = gate
         self._cells: dict[CellId, _TrackedCell] = {}
@@ -201,7 +244,7 @@ class FakeCellBackend:
         self.destroy_calls: list[CellId] = []
         self.pause_calls: list[CellId] = []
         self.resume_calls: list[CellId] = []
-        self.egress_calls: list[tuple[str, CellId]] = []  # ("cut" | "restore", cell) in order.
+        self.egress_calls = []
         self.bootstraps: dict[CellId, CellBootstrap] = {}
 
     @property
@@ -337,39 +380,6 @@ class FakeCellBackend:
         tracked = self._cells.get(cell_id)
         if tracked is not None:
             tracked.status = VirtualCellStatus.READY
-
-    async def cut_egress(self, cell_id: CellId) -> None:
-        """Mark `cell_id`'s egress cut to its control link alone; see `EgressCutter.cut_egress`."""
-        self.egress_calls.append(("cut", cell_id))
-        self._require_egress_capability(cell_id)
-        tracked = self._cells.get(cell_id)
-        if tracked is not None:
-            tracked.egress_cut = True
-
-    async def restore_egress(self, cell_id: CellId) -> None:
-        """Give `cell_id` its own policy's egress back; see `EgressCutter.restore_egress`."""
-        self.egress_calls.append(("restore", cell_id))
-        self._require_egress_capability(cell_id)
-        tracked = self._cells.get(cell_id)
-        if tracked is not None:
-            tracked.egress_cut = False
-
-    def egress_is_cut(self, cell_id: CellId) -> bool:
-        """Return whether `cell_id`'s egress is cut right now; False for a Cell never tracked.
-
-        Args:
-            cell_id: The Cell to look up.
-
-        Returns:
-            True while only the Cell's control link is reachable (roadmap step 10.6a).
-        """
-        tracked = self._cells.get(cell_id)
-        return tracked is not None and tracked.egress_cut
-
-    def _require_egress_capability(self, cell_id: CellId) -> None:
-        """Raise BackendCapabilityError unless this fake declares can_cut_egress."""
-        if not self._capabilities.can_cut_egress:
-            raise BackendCapabilityError(self.name, "egress cut", cell_id=cell_id)
 
     def _require_pause_capability(self, cell_id: CellId) -> None:
         """Raise BackendCapabilityError unless this fake declares can_pause."""

@@ -221,7 +221,6 @@ PENDING_POINTS: Mapping[P, str] = MappingProxyType(
         P.NUC_PROMOTION: "phase 11 (the Swarm and Nucs)",
         P.DEVICE_COMMAND: "phase 11 (the Swarm and Nucs)",
         P.TACTIC_INVOCATION: "phase 6 (the Pheromone Mask tactics)",
-        P.ISOLATION: "step 10.6a (Cell isolation)",
         P.STING_CUT: "phase 13 (Sting Cut)",
         P.SUPERSEDURE: "phase 13 (Supersedure)",
         P.ABSCONDING: "phase 13 (Absconding)",

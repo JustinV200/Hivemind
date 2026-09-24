@@ -22,6 +22,8 @@ human's waiting chat messages into the same Attendant (`hivemind.queen.ticks.cha
 awake episode through `hivemind.queen.ticks.awake` (a `REPLY` decision's words go to the chat), and
 plans durable goal requests (`hivemind.queen.ticks.intake`); her human-facing methods
 (`request_goal`, `post_human_message`, ...) are the `hivemind.queen.chat.ChatDoor` mixin.
+Roadmap step 10.6a (ADR-0035): she is the Guard Bee's `GuardRequestDoor` (`GuardDoor`) and the
+human's isolate and lift levers (`hivemind.queen.isolation.IsolationDoor`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Constructed by whichever
@@ -82,9 +84,11 @@ from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
-from hivemind.queen.guard_requests import GuardDoor
+from hivemind.queen.guard_requests import GuardDoor, guard_items
+from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import LinkReaders, queen_attendant
+from hivemind.queen.isolation import IsolationDoor
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.trail import record_event
@@ -96,7 +100,7 @@ from hivemind.supervision import (
     record_alarm_event,
     to_intervene,
 )
-from hivemind.supervision.attendant import InboxItem, TieBreaker
+from hivemind.supervision.attendant import InboxItem, InboxKind, TieBreaker
 from waggle.envelope import wrap
 from waggle.ids import CellId, MessageId, TaskId, WardenId
 from waggle.loop import TickLoop
@@ -114,7 +118,7 @@ from waggle.messages.task import TaskProgress, TaskResult
 __all__ = ["Queen"]
 
 
-class Queen(ChatDoor, GuardDoor, TickLoop):
+class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
     """The Hive's single orchestrator: her own inbox, autopilot, awake mode, and Supervisor face.
 
     Owns her own mutable state in place (codingrules section 8.5), documented here: `_wardens`,
@@ -359,6 +363,7 @@ async def _run_tick(queen: Queen) -> None:
     # Everything already queued on every link, bounded per link (hivemind.queen.inbox.links), so
     # a backlog left by a stalled tick is heard whole, never one envelope per Warden per tick.
     items = [*queen._links.drain(), *await ticks.chat.human_items(queen._deps)]
+    items.extend(await guard_items(queen._deps))  # Roadmap step 10.6a: every undecided request.
     if items:
         ordered = await queen._attendant.order(tuple(items))
         for item in ordered:
@@ -405,6 +410,10 @@ async def _record_recovered_tick_error(queen: Queen, error: Exception) -> None:
 
 async def _handle_item(queen: Queen, item: InboxItem) -> None:
     """Decide and act on one ordered InboxItem, waking a model only for NEEDS_JUDGEMENT."""
+    if item.kind is InboxKind.GUARD_REQUEST:
+        # Roadmap step 10.6a: a Guard request has its own rule, episode and fallback (ADR-0035).
+        await decide_guard_item(queen._isolation_site(), item)
+        return
     # A Heartbeat or a ForageRequest is handled directly (hivemind.queen.ticks.liveness.
     # handle_infrastructure_item's own docstring explains why the two share this one dispatch).
     handled = await ticks.liveness.handle_infrastructure_item(

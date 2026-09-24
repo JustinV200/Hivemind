@@ -7,10 +7,11 @@ anywhere but the two functions allowed to: a `write_taint(...)` call or a `Taint
 outside `memory/taint/set.py` and `memory/taint/clear.py`; a `"tainted"` key set outside the stores
 that persist the label; a `tainted=` argument that is not a label read off another item; or a call
 to `taint_memory` from a module that is not one of the three setters. Each setter's module is in
-`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: `queen/isolation.py`; 10.6c: the
-quarantine path in `wardens/`). The quarantine setter has landed, so it is also pinned as real and
+`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: the isolation package in `queen/`;
+10.6c: the quarantine path in `wardens/`). Both have landed, so each is also pinned as real and
 single: exactly one module in the whole tree calls `taint_memory` with `TaintSource.QUARANTINE`,
-the one quarantine path, and nothing else in `wardens/` calls the setter at all.
+the one quarantine path, and exactly one with `TaintSource.ISOLATION`, the isolation path's taint
+step; nothing else in `wardens/` or in the isolation package calls the setter at all.
 
 Fits into the Hive:
     Mirrors src/hivemind/memory/taint/set.py's key invariant (codingrules section 3).
@@ -38,11 +39,12 @@ _LABEL_STORES = ("hivemind/memory/store/",)  # The stores that persist a label t
 # The three setters (ADR-0035), by module, each with the only TaintSource it may pass. 10.6c's is
 # built; 10.6a lands the first, and the Queen's Guard-report path lands with phase 7.
 _SETTER_CALLERS: dict[str, str] = {
-    "hivemind/queen/isolation.py": "ISOLATION",
+    "hivemind/queen/isolation/": "ISOLATION",
     "hivemind/wardens/quarantine": "QUARANTINE",
     "hivemind/queen/guard_reports": "GUARD_REPORT",
 }
 _QUARANTINE_PATH = "hivemind/wardens/quarantine/path.py"  # Roadmap 10.6c's one code path.
+_ISOLATION_TAINT = "hivemind/queen/isolation/taint.py"  # Roadmap 10.6a's one taint step.
 
 
 @functools.cache
@@ -145,3 +147,13 @@ def test_the_one_quarantine_path_is_the_only_quarantine_setter() -> None:
     # Real, not vacuous: the path calls the setter, and names the source, and nothing else does.
     assert quarantining == [_QUARANTINE_PATH]
     assert [path for path in callers if path.startswith("hivemind/wardens/")] == [_QUARANTINE_PATH]
+
+
+def test_the_one_isolation_taint_step_is_the_only_isolation_setter() -> None:
+    callers = [path for path, tree in _modules() if _calls(tree, "taint_memory")]
+    isolating = [path for path, tree in _modules() if _names_source(tree, "ISOLATION")]
+    # Real, not vacuous: the step calls the setter and names the source, and nothing else does.
+    assert isolating == [_ISOLATION_TAINT]
+    assert [path for path in callers if path.startswith("hivemind/queen/isolation/")] == [
+        _ISOLATION_TAINT
+    ]

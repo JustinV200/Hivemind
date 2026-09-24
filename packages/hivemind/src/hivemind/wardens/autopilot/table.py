@@ -60,7 +60,7 @@ from hivemind.wardens.autopilot.actions import WardenAction
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.control.protocol import Shutdown
-from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
+from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
 from waggle.messages.supervision import (
     AlarmRaised,
     Answer,
@@ -147,7 +147,8 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
     payload = item.payload
     if isinstance(payload, TaskAssign):
         return WardenAction.SPAWN
-    if isinstance(payload, GrantIssued):
+    if isinstance(payload, GrantIssued | GrantRevoked):
+        # A revocation (roadmap step 10.6a: the Queen isolating this Cell) is bookkeeping too.
         return WardenAction.RECORD
     if isinstance(payload, TaskResult):
         return _decide_task_result(payload)

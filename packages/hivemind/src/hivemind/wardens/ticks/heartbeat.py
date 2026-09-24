@@ -81,6 +81,7 @@ from hivemind.memory.thresholds import (
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
+from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from hivemind.workers.state import WorkerState
 from waggle.envelope import Hop, wrap
 from waggle.errors import TransportClosedError
@@ -228,13 +229,20 @@ def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat) -> No
     sub_bee.state = WorkerState.from_wire(heartbeat.worker_state)
 
 
-def record_progress(warden: Warden, worker_id: str, progress: TaskProgress) -> None:
-    """Remember a checkpointed sub-bee's own last Handoff reference."""
+async def record_progress(warden: Warden, worker_id: str, progress: TaskProgress) -> None:
+    """Remember a checkpointed sub-bee's last Handoff; ship the trail when one reports it paused.
+
+    Roadmap step 10.6a: the Queen isolating this Cell waits a bounded time for each bee's
+    `worker.paused`, which only reaches her trail when this Cell's segment ships, so a pause is
+    shipped at once rather than on the next heartbeat.
+    """
     sub_bee = warden._sub_bees.get(WorkerId(worker_id))
     if sub_bee is None:
         return
     if progress.stage is TaskStage.CHECKPOINTED and progress.handoff is not None:
         sub_bee.last_handoff = progress.handoff
+    elif progress.stage is TaskStage.PAUSED:
+        await ship_trail_before_result(warden)
 
 
 async def raise_stalled_alarms(warden: Warden) -> tuple[InboxItem, ...]:
