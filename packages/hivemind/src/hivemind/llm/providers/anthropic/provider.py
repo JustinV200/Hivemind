@@ -202,3 +202,12 @@ class AnthropicProvider:
     async def health(self) -> ProviderHealth:
         """Return this provider's current health; see `LLMProvider.health`."""
         return await self._client.probe_health(self._clock)
+
+    async def aclose(self) -> None:
+        """Close the SDK client this provider owns, and every keep-alive connection it pooled.
+
+        Not part of `LLMProvider`: only an adapter that owns a connection pool has anything to
+        close, and `hivemind.llm.registry.ProviderRegistry.aclose` finds this method structurally
+        when its Hive shuts down.
+        """
+        await self._client.aclose()

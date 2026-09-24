@@ -1,5 +1,8 @@
 """Tests for hivemind.llm.registry: ProviderRegistry, RegistryDeps, ProviderConfig.
 
+The EMBEDDER slot's own resolution (`ProviderRegistry.embedder`) is tested by feature in
+`test_registry_embedder.py` (codingrules 14.2/5.1).
+
 Fits into the Hive:
     Mirrors src/hivemind/llm/registry.py (codingrules section 3: tests/unit mirrors src/
     one-to-one).
@@ -29,9 +32,7 @@ from pydantic import SecretStr
 
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities
-from hivemind.llm.embedding import EmbeddingProvider, EmbeddingRequest, FakeEmbedding
 from hivemind.llm.errors import (
-    EmbeddingUnsupportedError,
     OfflineViolationError,
     UnknownProviderError,
 )
@@ -143,6 +144,43 @@ def test_provider_constructs_once_and_caches_the_instance() -> None:
 
     assert first is second
     assert calls == ["hosted"]
+
+
+async def test_aclose_closes_every_built_provider_that_owns_a_pool_then_forgets_it() -> None:
+    """ProviderRegistry.aclose closes only what it built, structurally, and builds afresh after."""
+    closed: list[str] = []
+
+    class _PooledFake(FakeLLMProvider):
+        """A fake that owns a pool, the way an HTTP adapter does."""
+
+        async def aclose(self) -> None:
+            closed.append(self.name)
+
+    def _pooled_factory(
+        name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
+    ) -> LLMProvider:
+        return _PooledFake(name=name)
+
+    deps = make_registry_deps(factories={"fake": _pooled_factory})
+    providers = {"used": make_provider_config(kind="fake"), "never": make_provider_config()}
+    registry = ProviderRegistry(providers, [], offline=False, deps=deps)
+    first = registry.provider("used")
+
+    await registry.aclose()
+
+    assert closed == ["used"]  # "never" was never built, so there was nothing to close.
+    assert registry.provider("used") is not first
+
+
+async def test_aclose_forgets_a_provider_with_nothing_to_close() -> None:
+    registry = ProviderRegistry(
+        {"plain": make_provider_config()}, [], offline=False, deps=make_registry_deps()
+    )
+    first = registry.provider("plain")
+
+    await registry.aclose()
+
+    assert registry.provider("plain") is not first
 
 
 def test_provider_raises_unknown_provider_error_for_an_unconfigured_name() -> None:
@@ -470,155 +508,3 @@ def test_registry_built_from_full_manifest_constructs_the_fallback_providers_own
     assert bound.provider.name == "anthropic"
     assert bound.fallback is not None
     assert bound.fallback.provider.name == "local"
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# embedder(): resolution per kind, EmbeddingUnsupportedError, same/different-model
-# fallback, offline acceptance of an in-process kind, caching per (name, model)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_embedder_resolves_the_fake_kind() -> None:
-    bindings = [make_binding(key="embedder", provider="hosted", model="test-embed")]
-    providers = {"hosted": make_provider_config(kind="fake")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.slot is ModelSlot.EMBEDDER
-    assert bound.binding == "embedder"
-    assert bound.model == "test-embed"
-    assert isinstance(bound.provider, FakeEmbedding)
-
-
-async def test_embedder_fake_reports_the_bindings_own_model_id() -> None:
-    # The Honey Store tags and filters vectors by one model id (ADR-0032); a fake reporting its own
-    # constant instead would make every stored vector look stale to a re-embed forever.
-    bindings = [make_binding(key="embedder", provider="hosted", model="test-embed")]
-    providers = {"hosted": make_provider_config(kind="fake")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-    bound = registry.embedder()
-
-    response = await bound.provider.embed(EmbeddingRequest(texts=("hello",)))
-
-    assert response.model == bound.model == "test-embed"
-
-
-def test_embedder_resolves_the_openai_compat_kind() -> None:
-    bindings = [make_binding(key="embedder", provider="hosted", model="test-embed")]
-    providers = {
-        "hosted": make_provider_config(kind="openai_compat", base_url="http://127.0.0.1:9/v1")
-    }
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.provider.name == "hosted"
-
-
-def test_embedder_resolves_the_sentence_transformers_kind() -> None:
-    bindings = [make_binding(key="embedder", provider="local", model="test-embed")]
-    providers = {"local": make_provider_config(kind="sentence_transformers", base_url="")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.provider.name == "local"
-    assert bound.model == "test-embed"
-
-
-def test_embedder_raises_embedding_unsupported_for_anthropic() -> None:
-    bindings = [make_binding(key="embedder", provider="claude", model="test-embed")]
-    providers = {"claude": make_provider_config(kind="anthropic", base_url="")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    with pytest.raises(EmbeddingUnsupportedError):
-        registry.embedder()
-
-
-def test_embedder_keeps_a_same_model_fallback() -> None:
-    bindings = [
-        make_binding(key="embedder", provider="a", model="shared-model", fallback="local_embedder"),
-        make_binding(key="local_embedder", provider="b", model="shared-model"),
-    ]
-    providers = {"a": make_provider_config(kind="fake"), "b": make_provider_config(kind="fake")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.fallback is not None
-    assert bound.fallback.binding == "local_embedder"
-    assert bound.fallback.model == "shared-model"
-
-
-def test_embedder_cuts_a_different_model_fallback() -> None:
-    bindings = [
-        make_binding(key="embedder", provider="a", model="model-a", fallback="local_embedder"),
-        make_binding(key="local_embedder", provider="b", model="model-b"),
-    ]
-    providers = {"a": make_provider_config(kind="fake"), "b": make_provider_config(kind="fake")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.fallback is None  # ADR-0032: a different model id is never comparable.
-
-
-def test_embedder_cuts_a_fallback_with_no_embedding_factory() -> None:
-    bindings = [
-        make_binding(key="embedder", provider="a", model="shared-model", fallback="local_embedder"),
-        make_binding(key="local_embedder", provider="claude", model="shared-model"),
-    ]
-    providers = {
-        "a": make_provider_config(kind="fake"),
-        "claude": make_provider_config(kind="anthropic", base_url=""),
-    }
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.fallback is None  # Unlike the primary, a bad fallback link is cut, not raised.
-
-
-def test_embedder_accepts_the_in_process_kind_while_offline() -> None:
-    bindings = [make_binding(key="embedder", provider="local", model="test-embed")]
-    providers = {"local": make_provider_config(kind="sentence_transformers", base_url="")}
-    registry = ProviderRegistry(providers, bindings, offline=True, deps=make_registry_deps())
-
-    bound = registry.embedder()
-
-    assert bound.provider.name == "local"
-
-
-def test_embedder_still_refuses_a_remote_kind_while_offline() -> None:
-    bindings = [make_binding(key="embedder", provider="hosted", model="test-embed")]
-    providers = {
-        "hosted": make_provider_config(kind="openai_compat", base_url="http://example.com/v1")
-    }
-    registry = ProviderRegistry(providers, bindings, offline=True, deps=make_registry_deps())
-
-    with pytest.raises(OfflineViolationError):
-        registry.embedder()
-
-
-def test_embedder_caches_per_provider_name_and_model() -> None:
-    calls: list[tuple[str, str]] = []
-
-    def _counting_factory(
-        name: str, config: ProviderConfig, model: str, api_key: SecretStr | None, clock: Clock
-    ) -> EmbeddingProvider:
-        calls.append((name, model))
-        return FakeEmbedding(name=name, clock=clock)
-
-    deps = make_registry_deps(
-        embedding_factories={**default_embedding_factories(), "fake": _counting_factory}
-    )
-    bindings = [make_binding(key="embedder", provider="hosted", model="test-embed")]
-    providers = {"hosted": make_provider_config(kind="fake")}
-    registry = ProviderRegistry(providers, bindings, offline=False, deps=deps)
-
-    first = registry.embedder()
-    second = registry.embedder()
-
-    assert first.provider is second.provider
-    assert calls == [("hosted", "test-embed")]  # Built once, not once per embedder() call.

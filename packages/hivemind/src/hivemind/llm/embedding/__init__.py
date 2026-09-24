@@ -42,10 +42,12 @@ Public API:
     - The fake (`hivemind.llm.embedding.fake`): FakeEmbedding, FAKE_EMBED_MODEL_ID.
     - The resolved binding (`hivemind.llm.embedding.bound`): BoundEmbedder.
     - The call seam (`hivemind.llm.embedding.gate`): EmbedGate, DirectEmbedGate.
+    - The slot's chain (`hivemind.llm.embedding.chain`): walk_embedder_chain, embedder_cost.
 """
 
 from hivemind.llm.embedding.bound import BoundEmbedder
 from hivemind.llm.embedding.capabilities import EmbeddingCapabilities
+from hivemind.llm.embedding.chain import embedder_cost, walk_embedder_chain
 from hivemind.llm.embedding.fake import FAKE_EMBED_MODEL_ID, FakeEmbedding
 from hivemind.llm.embedding.gate import DirectEmbedGate, EmbedGate
 from hivemind.llm.embedding.models import MAX_EMBED_TEXTS, EmbeddingRequest, EmbeddingResponse
@@ -62,4 +64,6 @@ __all__ = [
     "EmbeddingRequest",
     "EmbeddingResponse",
     "FakeEmbedding",
+    "embedder_cost",
+    "walk_embedder_chain",
 ]

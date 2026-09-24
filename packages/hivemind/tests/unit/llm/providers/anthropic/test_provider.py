@@ -380,3 +380,18 @@ async def test_api_key_never_appears_in_an_exception_message_end_to_end() -> Non
     with pytest.raises(ProviderRequestError) as excinfo:
         await provider.complete(_request())
     assert "supersecret-key" not in str(excinfo.value)
+
+
+async def test_aclose_closes_the_sdk_client_the_provider_owns() -> None:
+    sdk = anthropic.AsyncAnthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=anthropic.DefaultAsyncHttpxClient(
+            transport=httpx2.MockTransport(lambda request: httpx2.Response(200))
+        ),
+    )
+    provider = AnthropicProvider("p", _make_config(), sdk, FakeClock())
+
+    await provider.aclose()
+
+    assert sdk.is_closed()

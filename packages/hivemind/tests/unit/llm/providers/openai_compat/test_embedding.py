@@ -199,3 +199,14 @@ async def test_health_reports_healthy_on_200() -> None:
     health = await provider.health()
 
     assert health.detail == "ok"
+
+
+async def test_aclose_closes_the_http_client_the_adapter_owns() -> None:
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200)), base_url=BASE_URL
+    )
+    provider = OpenAICompatEmbedding("p", _make_config(), http, FakeClock())
+
+    await provider.aclose()
+
+    assert http.is_closed

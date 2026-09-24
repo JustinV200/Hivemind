@@ -86,7 +86,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Literal, Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr
@@ -95,7 +95,13 @@ from hivemind.common.errors import InvariantViolationError
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import ProviderCapabilities, ProviderHealth
-from hivemind.llm.embedding import BoundEmbedder, EmbeddingProvider, FakeEmbedding
+from hivemind.llm.embedding import (
+    BoundEmbedder,
+    EmbeddingProvider,
+    FakeEmbedding,
+    embedder_cost,
+    walk_embedder_chain,
+)
 from hivemind.llm.errors import (
     EmbeddingUnsupportedError,
     OfflineViolationError,
@@ -114,7 +120,7 @@ from hivemind.llm.providers.sentence_transformers import (
     SentenceTransformersConfig,
     SentenceTransformersEmbedding,
 )
-from hivemind.llm.slots import BoundModel, UnresolvableSlotError, resolve, resolve_key
+from hivemind.llm.slots import BoundModel, resolve, resolve_key
 from waggle.clock import Clock
 from waggle.uris import is_loopback_host, is_virtual_cell_gateway_host
 
@@ -200,6 +206,15 @@ class ProviderConfig:
     embedding_batch_size: int | None = None  # None lets an embedding factory's own default decide.
     embedding_device: str | None = None  # None lets the in-process library choose a device.
     embedding_local_files_only: bool = False  # Never reach a model hub to load an embedder.
+
+
+@runtime_checkable
+class _Closable(Protocol):
+    """A provider that owns a connection pool it must close when its Hive shuts down."""
+
+    async def aclose(self) -> None:
+        """Close the pool; see `ProviderRegistry.aclose`."""
+        ...
 
 
 class ProviderFactory(Protocol):
@@ -360,7 +375,7 @@ class ProviderRegistry:
                 not provably local.
         """
         by_key = {binding.key: binding for binding in self._bindings}
-        chain = _walk_embedder_chain(slot.manifest_key, by_key)
+        chain = walk_embedder_chain(slot.manifest_key, by_key)
         primary_config = self._providers.get(chain[0].provider)
         if primary_config is None:
             raise UnknownProviderError(chain[0].provider)
@@ -375,6 +390,24 @@ class ProviderRegistry:
         health of what is actually in play, not every name the manifest happens to list.
         """
         return {name: await instance.health() for name, instance in self._cache.items()}
+
+    async def aclose(self) -> None:
+        """Close every provider this registry built that owns a connection pool, then forget them.
+
+        Called once by each composition root as its Hive or command ends. An HTTP adapter keeps
+        connections alive to its server between calls, so a registry dropped without this leaves
+        open sockets behind (found 2026-09-24, the phase 7 `local_llm` eval's first run on a real
+        local server). Closing is found structurally (`_Closable`), not by provider kind: a fake
+        or an in-process model has nothing to close and is simply forgotten. A provider asked for
+        after this call is built afresh.
+        """
+        built: list[object] = [*self._cache.values(), *self._embedding_cache.values()]
+        self._cache.clear()
+        self._embedding_cache.clear()
+        # Each adapter that pooled connections closes them; everything else has nothing to close.
+        for instance in built:
+            if isinstance(instance, _Closable):
+                await instance.aclose()
 
     def _bind_embedder(
         self, slot: ModelSlot, chain: list[SlotBinding], index: int
@@ -392,7 +425,7 @@ class ProviderRegistry:
             binding=binding.key,
             provider=self._embedding_provider(binding.provider, binding.model, config),
             model=binding.model,
-            cost_per_million_input_usd=_embedder_cost(binding, self._deps.map),
+            cost_per_million_input_usd=embedder_cost(binding, self._deps.map),
             fallback=self._next_embedder_link(slot, chain, index),
         )
 
@@ -480,47 +513,6 @@ def default_embedding_factories() -> Mapping[ProviderKind, EmbeddingFactory]:
         "openai_compat": _build_openai_compat_embedding,
         "sentence_transformers": _build_sentence_transformers_embedding,
     }
-
-
-def _walk_embedder_chain(start: str, by_key: Mapping[str, SlotBinding]) -> list[SlotBinding]:
-    """Follow `.fallback` from `start`, guarding against a cycle.
-
-    Mirrors `hivemind.llm.slots._walk_chain`, kept as its own small copy here (rather than
-    imported) since that helper is private to `slots.py` and this walk's result feeds a different
-    builder, `_bind_embedder`, not `hivemind.llm.slots._bind_chain`.
-
-    Raises:
-        UnresolvableSlotError: `start` names no row in `by_key`, or the walk revisits a key.
-    """
-    if start not in by_key:
-        raise UnresolvableSlotError(start)
-    chain: list[SlotBinding] = []
-    seen: set[str] = set()
-    current: str | None = start
-    while current is not None:
-        if current in seen:
-            raise UnresolvableSlotError(current, cycle=True)
-        seen.add(current)
-        binding = by_key.get(current)
-        if binding is None:
-            break  # A missing fallback target ends the chain, same rule as the chat-side walk.
-        chain.append(binding)
-        current = binding.fallback
-    return chain
-
-
-def _embedder_cost(binding: SlotBinding, map: ForageMap | None) -> float | None:
-    """Return the Forage map's input price for `binding`'s (provider, model), or None.
-
-    Mirrors `hivemind.llm.slots._cost_from_map`, narrowed to the one price an embedding call
-    actually meters (input tokens only; there is no generated output to price).
-    """
-    if map is None:
-        return None
-    for source in map.sources():
-        if source.spec.provider == binding.provider and source.spec.model == binding.model:
-            return source.spec.cost.cost_per_million_input_usd
-    return None
 
 
 def _check_offline(name: str, config: ProviderConfig, offline: bool) -> None:

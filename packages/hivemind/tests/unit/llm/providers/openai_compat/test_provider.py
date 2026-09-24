@@ -445,3 +445,14 @@ async def test_probe_refuses_a_request_model_the_server_does_not_list() -> None:
 
     with pytest.raises(ProviderRequestError, match="other-small"):
         await provider.complete(make_request(model="other-small"))
+
+
+async def test_aclose_closes_the_http_client_the_provider_owns() -> None:
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200)), base_url=BASE_URL
+    )
+    provider = OpenAICompatProvider("p", _make_config(), http, FakeClock())
+
+    await provider.aclose()
+
+    assert http.is_closed

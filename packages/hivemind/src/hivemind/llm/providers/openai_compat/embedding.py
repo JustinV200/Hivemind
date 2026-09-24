@@ -205,6 +205,11 @@ class OpenAICompatEmbedding:
         state, detail = _health_from_status(response.status_code)
         return ProviderHealth(state=state, detail=detail, checked_at=self._clock.now())
 
+    async def aclose(self) -> None:
+        """Close this adapter's HTTP client; see `OpenAICompatProvider.aclose` for why."""
+        # Local, milliseconds: closes idle pooled sockets; no request is in flight at shutdown.
+        await self._http.aclose()
+
     async def _embed_batch(self, texts: list[str]) -> tuple[list[tuple[float, ...]], int]:
         """POST one batch to /embeddings and return its vectors (index order) and prompt tokens.
 
