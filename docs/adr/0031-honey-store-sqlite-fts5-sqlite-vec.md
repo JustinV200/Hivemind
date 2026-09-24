@@ -47,7 +47,9 @@ file, opened on its own connection and `ConnectionThread`. Two tables of record:
 
 **Full-text search** is an external-content FTS5 table over `honey(title, summary, body)` with the
 `porter unicode61` tokenizer, kept in sync by triggers. A query string never reaches `MATCH`: it is
-reduced to at most 32 word tokens, each quoted, joined with `OR`, and ranked by `bm25`.
+reduced to at most 32 distinct word tokens, each quoted, joined with `OR`, and ranked by `bm25`.
+English function words ("the", "is", "how") are left out whenever the query has another word:
+FTS5 indexes them, so they would otherwise match nearly every row.
 
 **Vectors** live in an ordinary table, `honey_vectors(honey rowid, model, dims, float32 blob)`,
 one row per Honey row for the model that embedded it. Nearest-neighbour search is exact: SQL
@@ -65,8 +67,15 @@ and a Hive outgrows exact search (around a million rows).
 **Hybrid ranking** fuses normalised scores with manifest weights: `s_text = x / (1 + x)` for
 `x = -bm25`, `s_vec = max(0, 1 - cosine distance)`, and `score = (w_text * s_text + w_vec *
 s_vec) / (w_text + w_vec)` (`[honey.retrieval] fts_weight`, `vector_weight`); a row found by one
-side scores zero on the other. With no usable vector side the vector weight drops to zero and the
-response's `reason` says why. Hits under `min_score` are dropped, at most
+side scores zero on the other. `s_text` has a floor relative to the query's best match: at least
+`0.5 * x / x_best`. bm25 gives a word found in half the rows or more a weight of about 1e-6, so on
+a young store (one ripened Nectar is a summary row and a chunk row that share its text) every
+match scores near zero however exact, and without the floor a Hive with no embedder would find
+nothing until it had grown; on an established store the absolute score is the larger for any good
+match. With no usable vector side the vector weight drops to zero and the response's `reason`
+says why. Hits under `min_score` (default 0.15: measured with a real local embedder, unrelated text
+fuses below about 0.11 and related text above 0.2; it is calibrated per embedder) are dropped, at
+most
 `max_hits_per_nectar` hits come from one Nectar, and the rest are packed by score into the
 caller's token budget (`HoneyQuery.max_tokens`, which the caller scales from its own model's
 context window); `is_truncated` and `filtered_count` report what the budget and the policy

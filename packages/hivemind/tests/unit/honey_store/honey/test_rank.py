@@ -15,18 +15,27 @@ from __future__ import annotations
 
 import hashlib
 from datetime import timedelta
+from itertools import pairwise
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
-from hivemind.honey_store.honey.rank import fuse, select, text_score, vector_score
+from hivemind.honey_store.honey.rank import (
+    RELATIVE_TEXT_FLOOR,
+    fuse,
+    select,
+    text_score,
+    text_scores,
+    vector_score,
+)
 from hivemind.honey_store.models import Honey, HoneyPart, NectarOrigin
 from waggle.clock import FakeClock
 from waggle.ids import HoneyId, NectarId, new_cell_id, new_honey_id, new_nectar_id
 from waggle.messages.honey import NectarKind
 
+_CLOCK = FakeClock()  # Mints ids for the text_scores tests; never advanced.
 _UNIT = st.floats(min_value=0.0, max_value=1.0, allow_nan=False)
 _WEIGHT = st.floats(min_value=0.0, max_value=10.0, allow_nan=False)
 _BM25 = st.floats(min_value=-1_000.0, max_value=1_000.0, allow_nan=False)
@@ -73,6 +82,42 @@ def test_text_score_maps_bm25_through_x_over_one_plus_x() -> None:
 def test_text_score_is_zero_for_a_non_negative_bm25() -> None:
     assert text_score(0.0) == 0.0
     assert text_score(2.5) == 0.0
+
+
+def test_text_scores_keep_the_best_match_findable_when_bm25_is_near_zero() -> None:
+    # A young store: every word is in half the rows or more, so bm25 is about -1e-6 for all.
+    first, second = new_honey_id(_CLOCK), new_honey_id(_CLOCK)
+
+    scores = text_scores({first: -3e-6, second: -1.5e-6})
+
+    assert scores[first] == pytest.approx(RELATIVE_TEXT_FLOOR)
+    assert scores[second] == pytest.approx(RELATIVE_TEXT_FLOOR / 2)
+
+
+def test_text_scores_keep_the_absolute_score_when_it_is_higher() -> None:
+    strong, weak = new_honey_id(_CLOCK), new_honey_id(_CLOCK)
+
+    scores = text_scores({strong: -9.0, weak: -0.01})
+
+    assert scores[strong] == pytest.approx(text_score(-9.0))  # 0.9, above the relative floor.
+    assert scores[weak] < 0.01  # A near-worthless match next to a strong one stays near zero.
+
+
+def test_text_scores_of_nothing_is_nothing() -> None:
+    assert text_scores({}) == {}
+
+
+@given(st.lists(st.floats(min_value=-50.0, max_value=5.0), min_size=1, max_size=20))
+def test_text_scores_are_in_range_and_never_reward_a_worse_bm25(values: list[float]) -> None:
+    ids = [new_honey_id(_CLOCK) for _ in values]
+
+    scores = text_scores(dict(zip(ids, values, strict=True)))
+
+    assert all(0.0 <= score < 1.0 for score in scores.values())
+    ranked = sorted(zip(values, ids, strict=True))  # Most negative (best) bm25 first.
+    for (better_bm25, better), (worse_bm25, worse) in pairwise(ranked):
+        if better_bm25 < worse_bm25:
+            assert scores[better] >= scores[worse]
 
 
 def test_vector_score_is_one_minus_distance_clamped_to_the_unit_interval() -> None:

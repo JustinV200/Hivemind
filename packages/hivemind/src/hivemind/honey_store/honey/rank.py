@@ -4,13 +4,19 @@ Honey is the Hive's ripened, labelled knowledge; a query searches it two ways at
 "Hybrid ranking"): full-text search ranks rows by SQLite FTS5's `bm25` (negative, lower is a
 better match) and vector search ranks them by cosine distance between embeddings (0 is identical).
 The two raw numbers live on different scales, so each is first normalised into [0, 1]
-(`text_score`, `vector_score`), then `fuse` takes their weighted mean with the manifest's
+(`text_scores`, `vector_score`), then `fuse` takes their weighted mean with the manifest's
 `[honey.retrieval]` weights -- a row found by only one side scores zero on the other -- and
 `select` keeps the best of them: nothing under the score floor, at most `max_hits_per_nectar` hits
 from any one Nectar (the raw deposit a row was ripened from), at most `max_hits` in all, best
 first. A weighted mean rather than reciprocal rank fusion is ADR-0031's choice: it keeps how good a
 match is, so the nearest of a set of irrelevant vectors still scores low enough for the floor to
-drop it. Everything here is pure (codingrules 8.3): numbers and rows in, numbers and rows out.
+drop it. The text side has one more rule: FTS5's bm25 treats a word found in half the rows or
+more as worthless (its weight falls to a 1e-6 floor), which on a young store -- one ripened Nectar
+is a SUMMARY row and a CHUNK row sharing its text -- scores every match near zero however exact it
+is. `text_scores` therefore floors each match at `RELATIVE_TEXT_FLOOR` times its strength relative
+to the query's best match, so the best match (and those near it) stays findable there, while on an
+established store the absolute score is already the larger of the two for any good match.
+Everything here is pure (codingrules 8.3): numbers and rows in, numbers and rows out.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package's
@@ -21,9 +27,9 @@ Fits into the Hive:
     packs into the reader's token budget.
 
 Key invariants:
-    - `text_score`, `vector_score` and every value `fuse` returns lie in [0, 1], and each is
-      monotone in its input: a better bm25, a nearer vector or a higher side score never lowers
-      a fused score (property-tested in `tests/unit/honey_store/honey/test_rank.py`).
+    - `text_score`, `text_scores`, `vector_score` and every value `fuse` returns lie in [0, 1],
+      and each is monotone in its input: a better bm25, a nearer vector or a higher side score
+      never lowers a fused score (property-tested in `tests/unit/honey_store/honey/test_rank.py`).
     - `fuse` refuses two zero weights (the mean would divide by zero); a caller with no vector
       side passes `vector_weight = 0` and a positive text weight.
     - `select` is deterministic: score descending, then newer `created_at`, then id ascending.
@@ -43,7 +49,19 @@ from hivemind.honey_store.models import Honey
 from waggle.ids import HoneyId, NectarId
 from waggle.messages.honey.hit import MAX_SCORE, MIN_SCORE
 
-__all__ = ["RankedHoney", "Selection", "fuse", "select", "text_score", "vector_score"]
+RELATIVE_TEXT_FLOOR = 0.5  # A query's best full-text match scores at least this on the text
+# side, and every other match this times its share of the best one's strength (module docstring).
+
+__all__ = [
+    "RELATIVE_TEXT_FLOOR",
+    "RankedHoney",
+    "Selection",
+    "fuse",
+    "select",
+    "text_score",
+    "text_scores",
+    "vector_score",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +95,26 @@ def text_score(bm25: float) -> float:
     """
     strength = max(0.0, -bm25)
     return strength / (1.0 + strength)
+
+
+def text_scores(bm25_by_id: Mapping[HoneyId, float]) -> dict[HoneyId, float]:
+    """Normalise one query's full-text candidates: absolute score, floored relative to the best.
+
+    Args:
+        bm25_by_id: Every full-text candidate's raw `bm25(honey_fts)`, by row id.
+
+    Returns:
+        Per row, the larger of `text_score(bm25)` and `RELATIVE_TEXT_FLOOR` times its strength
+        (`-bm25`) as a fraction of the strongest candidate's; in [0, 1).
+    """
+    strengths = {honey_id: max(0.0, -bm25) for honey_id, bm25 in bm25_by_id.items()}
+    best = max(strengths.values(), default=0.0)
+    scores: dict[HoneyId, float] = {}
+    for honey_id, strength in strengths.items():
+        # A best strength of 0 means every match is equally weak: each keeps the plain floor.
+        share = strength / best if best > 0 else 1.0
+        scores[honey_id] = max(text_score(-strength), RELATIVE_TEXT_FLOOR * share)
+    return scores
 
 
 def vector_score(distance: float) -> float:

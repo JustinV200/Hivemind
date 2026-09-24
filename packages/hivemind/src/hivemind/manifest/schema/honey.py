@@ -57,7 +57,9 @@ DEFAULT_BEE_BREAD_AFTER_S = 86_400.0  # A day: Bee Bread is recent memory; older
 DEFAULT_MAX_BEE_BREAD_PER_SWEEP = 200  # A slow week catches up over a few sweeps, not one.
 DEFAULT_FTS_WEIGHT = 0.4  # Exact terms matter (paths, flags, errors) but paraphrase matters more.
 DEFAULT_VECTOR_WEIGHT = 0.6  # The semantic half; renormalised away when no vector side exists.
-DEFAULT_MIN_SCORE = 0.05  # Drops the nearest-of-the-irrelevant a vector search always returns.
+DEFAULT_MIN_SCORE = 0.15  # Drops the nearest-of-the-irrelevant a vector search always returns:
+# measured with a real local embedder, unrelated text sits at cosine 0.18 or less (0.11 fused at
+# the default weights) and related text at 0.33 or more (0.2 fused). Calibrate per embedder.
 DEFAULT_CANDIDATE_MULTIPLIER = 4  # Each side ranks four times the hits asked for before fusion.
 MAX_CANDIDATE_MULTIPLIER = 20  # Past this a query costs more than the ranking gains.
 DEFAULT_MAX_HITS_PER_NECTAR = 2  # One deposit's summary and its best chunk; never a whole page.

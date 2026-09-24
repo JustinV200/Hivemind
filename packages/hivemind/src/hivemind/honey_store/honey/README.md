@@ -24,7 +24,10 @@ token budget.
   `withheld`, `tokens`, `vector_used`, `truncated`; never the words), none for a Night Veil reader.
   `search_outcome` runs the same search and returns a `SearchOutcome` (the response plus
   `vector_used`), for a caller that trails its own consultation (`queen.honey_consulted`).
-- `rank.py` (pure) -- `text_score(bm25) = x / (1 + x)` for `x = max(0, -bm25)`;
+- `rank.py` (pure) -- `text_score(bm25) = x / (1 + x)` for `x = max(0, -bm25)`, and
+  `text_scores`, which floors each of a query's matches at `RELATIVE_TEXT_FLOOR` (0.5) times its
+  strength relative to the best match, so a young store (where bm25 weighs every word near zero)
+  still finds its best match;
   `vector_score(distance) = clamp(1 - distance, 0, 1)`; `fuse` (the weighted mean, a missing side
   scoring 0); `select` (the floor, `max_hits_per_nectar`, `max_hits`; score order, then newer
   `created_at`, then id), returning a `Selection` whose `is_cut` says `max_hits` left an eligible

@@ -51,9 +51,24 @@ def test_build_match_quotes_every_token_including_the_literal_word_or() -> None:
     # every punctuation character is dropped and every surviving word (the literal text "OR"
     # included) is individually double-quoted, so it can only ever mean "search for these literal
     # words", never the FTS5 OR operator.
-    result = build_match('"evil" OR 1=1 --')
+    result = build_match('"evil" NEAR 1=1 --')
 
-    assert result == '"evil" OR "OR" OR "1" OR "1"'
+    assert result == '"evil" OR "NEAR" OR "1"'
+
+
+def test_build_match_drops_function_words_when_a_content_word_remains() -> None:
+    # "the" and friends are in nearly every row; matching them says nothing about relevance.
+    assert build_match("How do I restart the widget service?") == (
+        '"restart" OR "widget" OR "service"'
+    )
+
+
+def test_build_match_keeps_function_words_when_nothing_else_is_left() -> None:
+    assert build_match("what is it") == '"what" OR "is" OR "it"'
+
+
+def test_build_match_sends_a_repeated_word_once_whatever_its_case() -> None:
+    assert build_match("Widget widget WIDGET gear") == '"Widget" OR "gear"'
 
 
 # ──────────────────────────────────────────────────────────────────────────────

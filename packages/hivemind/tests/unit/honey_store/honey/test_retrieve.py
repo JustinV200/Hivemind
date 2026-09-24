@@ -151,8 +151,8 @@ async def _ripen_filler(hive_: _Hive, count: int = 3) -> None:
     """Ripen unrelated rows, so a query's words are rare enough for bm25 to weigh them.
 
     FTS5's bm25 gives a term found in half the rows or more a near-zero weight (an IDF floor of
-    1e-6), so on a store of one or two rows a text-only match scores about 3e-6, under any floor;
-    a real Hive's store is never that small for long, and a test of the text side should not be.
+    1e-6); `rank.text_scores`' relative floor keeps such a store searchable (see the young-store
+    test below), but a test of how bm25 itself ranks wants rows where its weights mean something.
     """
     for index in range(count):
         await _ripen(
@@ -450,3 +450,17 @@ async def test_search_records_no_event_for_a_night_veil_reader(hive: _Hive) -> N
 
     assert len(response.hits) == 1  # Answered in full...
     assert await _queried_events(hive) == []  # ...and nothing about it outlives the Cell.
+
+
+async def test_a_young_store_finds_its_only_deposit_by_full_text_alone(hive: _Hive) -> None:
+    # One Nectar ripened into a SUMMARY and a CHUNK row sharing its words: every word is in half
+    # the rows or more, so bm25 weighs each at about 1e-6. Without the relative floor this query
+    # scored about 3e-6, under min_score, and a Hive with no embedder found nothing at all.
+    (summary, chunk) = await _ripen(hive, "Staging config", _TARGET_BODY, chunks=(_TARGET_BODY,))
+
+    response = await hive.retriever(embedded=False).search(
+        _search(hive, "where does the widget staging configuration live?")
+    )
+
+    assert {hit.honey_ref for hit in response.hits} == {summary.path, chunk.path}
+    assert "Full-text search only" in response.reason

@@ -31,7 +31,8 @@ Public API:
       one query (`search`), or answer it and say whether vectors took part (`search_outcome`).
     - QUERIED_KIND, EMPTY_QUERY_REASON, NO_READABLE_SCOPE_REASON, TEXT_ONLY_WEIGHT (retrieve):
       the event kind and the fixed answers a search can give.
-    - text_score, vector_score, fuse, select, RankedHoney, Selection (rank): hybrid ranking.
+    - text_score, text_scores, vector_score, fuse, select, RankedHoney, Selection,
+      RELATIVE_TEXT_FLOOR (rank): hybrid ranking.
     - estimate_tokens, hit_tokens, pack_hits, PackResult, MIN_EXCERPT_CHARS (budget): the token
       budget.
 """
@@ -44,11 +45,13 @@ from hivemind.honey_store.honey.budget import (
     pack_hits,
 )
 from hivemind.honey_store.honey.rank import (
+    RELATIVE_TEXT_FLOOR,
     RankedHoney,
     Selection,
     fuse,
     select,
     text_score,
+    text_scores,
     vector_score,
 )
 from hivemind.honey_store.honey.retrieve import (
@@ -68,6 +71,7 @@ __all__ = [
     "MIN_EXCERPT_CHARS",
     "NO_READABLE_SCOPE_REASON",
     "QUERIED_KIND",
+    "RELATIVE_TEXT_FLOOR",
     "TEXT_ONLY_WEIGHT",
     "HoneyReader",
     "HoneyRetriever",
@@ -83,5 +87,6 @@ __all__ = [
     "pack_hits",
     "select",
     "text_score",
+    "text_scores",
     "vector_score",
 ]

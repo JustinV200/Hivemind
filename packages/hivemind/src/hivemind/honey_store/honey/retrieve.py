@@ -54,7 +54,7 @@ from dataclasses import dataclass
 from hivemind.cell import HoneyClearance
 from hivemind.guard import CapabilitySet
 from hivemind.honey_store.honey.budget import pack_hits
-from hivemind.honey_store.honey.rank import fuse, select, text_score, vector_score
+from hivemind.honey_store.honey.rank import fuse, select, text_scores, vector_score
 from hivemind.honey_store.identity import HoneyIdentity, honey_event
 from hivemind.honey_store.models import (
     Honey,
@@ -253,7 +253,7 @@ class HoneyRetriever:
         honey_by_id.update((c.honey.id, c.honey) for c in vector_side.candidates)
         # With no vector side the manifest's weights no longer apply: text alone decides.
         fused = fuse(
-            {candidate.honey.id: text_score(candidate.bm25) for candidate in text_candidates},
+            text_scores({candidate.honey.id: candidate.bm25 for candidate in text_candidates}),
             {
                 candidate.honey.id: vector_score(candidate.distance)
                 for candidate in vector_side.candidates

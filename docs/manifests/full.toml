@@ -416,8 +416,9 @@ max_bee_bread_per_sweep = 200
 # Hybrid ranking: the weight of full-text against vector evidence (never both zero).
 fts_weight = 0.4
 vector_weight = 0.6
-# The lowest fused score returned, and how far each side over-fetches before fusion.
-min_score = 0.05
+# The lowest fused score returned, and how far each side over-fetches before fusion. Calibrate
+# min_score to the embedder: an unrelated pair must fuse below it (0.6 x its cosine similarity).
+min_score = 0.15
 candidate_multiplier = 4
 # The most hits one deposit contributes to one result.
 max_hits_per_nectar = 2
