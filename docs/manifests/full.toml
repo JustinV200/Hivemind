@@ -384,6 +384,51 @@ write = ["C0", "C1", "C2"]
 read = ["C0", "C1"]
 write = ["C0", "C1"]
 
+# The Honey Store (roadmap phase 7, ADR-0031): Nectar deposits ripen into searchable Honey.
+[honey.store]
+# The largest single Nectar deposit intake accepts, in bytes (16 MiB; at most 64 MiB).
+max_nectar_bytes = 16777216
+
+[honey.ripening]
+# Seconds between two House Bee ripening passes.
+interval_s = 30.0
+# Nectar ripened per pass, at most, and passes a deposit may fail before it is set aside.
+max_nectar_per_pass = 16
+max_attempts = 3
+# How a deposit's text is chunked; the overlap must be shorter than a chunk.
+chunk_chars = 1600
+chunk_overlap_chars = 200
+# Whether the ripener slot writes titles, summaries and key facts, and below what length a
+# deposit is its own summary, and how much of a deposit the ripener is shown.
+summarise = true
+summarise_min_chars = 400
+summarise_max_input_chars = 12000
+# Embedding batch size, and rows embedded per pass (fresh and re-embedded alike, ADR-0032).
+embed_batch = 32
+max_embed_per_pass = 256
+# Cosine similarity at which a new chunk duplicates a live one in the same scope.
+near_duplicate_similarity = 0.97
+# Bee Bread older than this (seconds) is deposited for ripening, at most this many per sweep.
+bee_bread_after_s = 86400.0
+max_bee_bread_per_sweep = 200
+
+[honey.retrieval]
+# Hybrid ranking: the weight of full-text against vector evidence (never both zero).
+fts_weight = 0.4
+vector_weight = 0.6
+# The lowest fused score returned, and how far each side over-fetches before fusion.
+min_score = 0.05
+candidate_multiplier = 4
+# The most hits one deposit contributes to one result.
+max_hits_per_nectar = 2
+# The share of a reader's context window one result may fill, and a hard ceiling in tokens.
+budget_fraction = 0.15
+max_budget_tokens = 6000
+# Hits the Queen's pre-check attaches to an assignment (roadmap 7.9); 0 turns it off.
+precheck_max_hits = 6
+# The most a query waits for its own embedding before searching full text only.
+embed_timeout_s = 10.0
+
 [brood_chamber]
 # The most tasks one goal's task graph may hold at once.
 max_graph_tasks = 64

@@ -5,7 +5,9 @@ Fourteen documented sections is more than one module can hold under codingrules 
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
 ``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (``[security]`` and
-``[honey.clearance]``), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
+``[honey.clearance]``), ``honey`` (``[honey.store]``, ``[honey.ripening]`` and
+``[honey.retrieval]``, roadmap phase 7), ``placement`` (``[placement]`` and ``[virtual_cells]``,
+roadmap step 5.7),
 and ``manifest`` (``HiveManifest``, the root that gathers all of the above). This file is the
 schema's face: a caller imports any section model from here without knowing which module defines
 it.
@@ -33,6 +35,7 @@ Public API:
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
     - Security and clearance (security): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
+    - The Honey Store (honey): HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection.
     - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
       VirtualCellsSection, VirtualCellsOverwinterSection.
     - Root (manifest): HiveManifest.
@@ -47,6 +50,11 @@ from hivemind.manifest.schema.core import (
     QueenSection,
 )
 from hivemind.manifest.schema.forage import ForageSection
+from hivemind.manifest.schema.honey import (
+    HoneyRetrievalSection,
+    HoneyRipeningSection,
+    HoneyStoreSection,
+)
 from hivemind.manifest.schema.llm import (
     MANIFEST_KEY_PATTERN,
     CapabilityOverrides,
@@ -82,7 +90,10 @@ __all__ = [
     "HiveStandCapacityOverrides",
     "HiveStandSection",
     "HoneyClearanceSection",
+    "HoneyRetrievalSection",
+    "HoneyRipeningSection",
     "HoneySection",
+    "HoneyStoreSection",
     "LlmSection",
     "MemorySection",
     "PheromoneSection",
