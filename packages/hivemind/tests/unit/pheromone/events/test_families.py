@@ -240,6 +240,8 @@ def test_honey_family_kinds_match_the_documented_vocabulary() -> None:
         "honey.reembedded",
         "honey.label_raised",
         "honey.label_lowered",
+        "honey.lowering_proposed",
+        "honey.lowering_rejected",
         "honey.retired",
         "honey.queried",
         "honey.note_proposed",

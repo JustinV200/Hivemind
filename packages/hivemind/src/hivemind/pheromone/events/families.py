@@ -108,8 +108,14 @@ Vocabulary (family -> kind -> when it is recorded):
         this pass and stays pending); reembedded (one pass embedded pending Honey rows for the
         current embedding model, ADR-0032); label_raised (intake, a dedupe merge or the ripener
         raised a label); label_lowered (a judge verdict or the human lowered one, with the
-        approver); retired (a Honey row was superseded and no longer returned); queried (a Honey
-        query was answered, with hit, withheld and token counts, never the query or hit text);
+        approver; a whole Nectar's lowering, ADR-0034, also carries its proposal and rubric ids);
+        lowering_proposed (the House Bee filed a proposal to lower one Nectar's label, which only
+        the Real Cell floor held up, ADR-0034: both labels and the proposal id);
+        lowering_rejected (a judge rejected a lowering proposal, the human denied one, or one lost
+        its eligibility when it was applied: the approver, the outcome -- REJECT or INELIGIBLE --
+        and the ids, never a reason); retired (a Honey row was superseded and no longer
+        returned); queried (a Honey query was answered, with hit, withheld and token counts, never
+        the query or hit text);
         note_proposed (the human proposed a note from a Honey folder, queued for the Queen,
         roadmap step 7.10); vectors_pruned (`hive honey reembed --prune` dropped every other
         embedding model's vectors once every live row had one for the kept model, ADR-0033;
@@ -485,6 +491,9 @@ class HoneyEvent(PheromoneEvent):
             "honey.reembedded",
             "honey.label_raised",
             "honey.label_lowered",
+            # ADR-0034: a judge-reviewed lowering's filing and rejection; label_lowered above too.
+            "honey.lowering_proposed",
+            "honey.lowering_rejected",
             "honey.retired",
             "honey.queried",
             "honey.note_proposed",
