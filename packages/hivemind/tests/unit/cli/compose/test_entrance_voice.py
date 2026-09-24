@@ -1,4 +1,4 @@
-"""Test hivemind.cli.compose.entrance's voice wiring: `hive serve` hears through the Hive's own parts.
+"""Test `hive serve` voice wiring: the Entrance hears through the Hive's own registry and scanner.
 
 Roadmap 10.5f: with `[entrance.voice]` on, the Entrance's transcriber is the TRANSCRIBER slot bound
 through the Hive's own registry and Fanner (a metered transcriber) and its scanner is the Queen's;
