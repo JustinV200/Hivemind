@@ -198,7 +198,8 @@ class PlaywrightBrowser:
     async def url(self) -> str:
         """Return the page's URL; see Browser."""
         self._calls.check_open("read the URL")
-        return self._page.url
+        # str(): where the `browser` extra is absent mypy sees Page as Any (pyproject's override).
+        return str(self._page.url)
 
     async def title(self) -> str:
         """Return the page's title; see Browser."""

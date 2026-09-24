@@ -200,7 +200,8 @@ exclude = [
 #   module = ["some_untyped_package.*"]
 #   ignore_missing_imports = true  # WHY: <name the package and the reason no stub exists>
 # Every other dependency imported so far (pydantic, structlog, typer, websockets, cryptography)
-# ships its own type information, so this is the first (and, for now, only) override.
+# ships its own type information; docker was the first override, and playwright (typed, but an
+# optional extra CI does not install) the second.
 
 [[tool.mypy.overrides]]
 # WHY: "docker" (the Docker Engine SDK for Python, roadmap step 5.4) ships no inline types and no
@@ -213,6 +214,16 @@ exclude = [
 # the narrowly-scoped override the comment above documents, confined to that one module by the
 # import-linter contract below ("vendor Docker SDK only inside hive/backends/docker/sdk_client").
 module = ["docker", "docker.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# WHY: "playwright" (roadmap step 6.11, the Exoskeleton's browser fast path) ships inline types,
+# but it is an *optional* dependency (the `hivemind[browser]` extra) that CI's `types` job and a
+# plain `uv sync --all-groups` never install, so without this override mypy fails on the four
+# modules of hivemind.exoskeleton.browser.playwright wherever the extra is absent. Where it is
+# installed (`uv sync --all-packages --all-extras`), mypy still checks those modules against
+# Playwright's own types. The import-linter contract below confines Playwright to that package.
+module = ["playwright", "playwright.*"]
 ignore_missing_imports = true
 
 # ──────────────────────────────────────────────────────────────────────────────
