@@ -2,13 +2,14 @@
 
 A bee that may have read an injected instruction is quarantined by its Warden (the always-on
 supervisor of its Cell) through one code path (roadmap step 10.6c): checkpoint it, cancel it and
-kill its tracked runtime, revoke its slice of the grant, record `warden.intervened`, taint every
-checkpoint, Handoff, episode record and Bee Bread entry of the bee and its task from the suspect
-episode on (`memory.tainted`, through `hivemind.memory.taint.taint_memory`), hold the task PAUSED,
-and tell the Queen with a SECURITY Alarm. Three things can order it: the Queen (the orchestrator)
-with `Intervene(QUARANTINE)`, this Warden's own escalation policy row for a sub-bee's Alarm, and
-`Warden.intervene(child, Quarantine(...))`. The only way out is a respawn from the checkpoint once a
-judge has cleared it (`admit_respawn`).
+kill its tracked runtime (a command in flight dies with it), revoke its slice of the grant, record
+`warden.intervened`, taint every checkpoint, Handoff, episode record and Bee Bread entry of the bee
+and its task from the suspect episode on (`memory.tainted`, through
+`hivemind.memory.taint.taint_memory`), hold the task PAUSED, and tell the Queen with a SECURITY
+Alarm. Three things can order it: the Queen (the orchestrator) with `Intervene(QUARANTINE)`, this
+Warden's own escalation policy row for a sub-bee's Alarm, and `Warden.intervene(child,
+Quarantine(...))`. The only way out is a respawn from the checkpoint once a judge has cleared it
+(`admit_respawn`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package.
