@@ -108,10 +108,12 @@ typer layer that calls into a subsystem's public API and never contains logic of
       Typer app as `hive cells leavings` (roadmap step 5.0a).
     - `leavings.py` -- `hive cells leavings list [CELL] --manifest hive.toml [--include-removed]
       [--json]`: every `hivemind.cell.leavings.Leaving` recorded for CELL (active rows only,
-      unless `--include-removed`), never `Leaving.prior`; CELL is optional (every `hive run`
-      mints a fresh Cell id for the Hive Stand, so an operator cannot always name one) -- omitting
-      it lists every active Leaving across every Cell instead (`LeavingsStore.list_all_leavings`),
-      with a CELL column in the table and in `--json`. `hive cells leavings remove [CELL]
+      unless `--include-removed`), never `Leaving.prior`; CELL is optional (the Hive Stand's own
+      Cell id is now stable across every `hive run`, `hivemind.cell.hive_stand_cell_id`, phase 7
+      handoff item 4 -- but a Swarm device's leases, a later phase, still add Cells an operator
+      may not have to hand) -- omitting it lists every active Leaving across every Cell instead
+      (`LeavingsStore.list_all_leavings`), with a CELL column in the table and in `--json`. `hive
+      cells leavings remove [CELL]
       [--path PATH] --manifest hive.toml`: with CELL and no `--path`, replays every active row's
       `prior` bytes back (or unlinks, when `prior` is `None`) onto the Hive Stand's real
       filesystem, then marks each row removed and records one `cell.leaving_removed` event per
@@ -341,8 +343,8 @@ dispatch's file to grow a knob on) and a real SQLite file; `hivemind.cli.readbac
 build_virtual_cells`/`build_hive_stand_source` are monkeypatched to hand back one pre-seeded
 `VirtualCellsParts`/`FakeCellSource` per test (mirroring `test_llm.py`'s own `build_registry`
 monkeypatch), since a `FakeCellBackend` provisioned through its own real `provision()` call has no
-way to be reached back from outside the CLI process otherwise, and `HiveStandSource` mints a fresh
-random Cell id on every construction. `queen/cluster/test_orders.py` and `test_tick.py` gained
+way to be reached back from outside the CLI process otherwise. `queen/cluster/test_orders.py` and
+`test_tick.py` gained
 RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.py` gained
 `NullWaxRetirer` and `destroy_virtual`'s own returned event id.
 
@@ -364,11 +366,15 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
     - `stats [--json]` prints `HoneyStore.stats()`: Nectar by state, live Honey by part, label and
       scope kind, tainted and retired counts, vectors per embedding model (ADR-0032's coverage per
       model) and the vector backend.
-    - `ripen --now` runs one `Ripener.run_pass()` against the Hive's own file, built exactly as the
-      running Hive builds it (`open_honey_store`, then `build_honey_access` over a registry and
-      Fanner from `hivemind.cli.compose`), and prints what the pass did and each model slot's
-      binding, or why it has none (the pass still runs: heuristic summaries, no vectors). Without
-      `--now` it only says how much Nectar is waiting and how often a running House Bee ripens.
+    - `ripen --now` runs the House Bee's whole pass (`HouseBeeRipening.run_pass()`: drain every
+      queued operator note into HUMAN Nectar, then `Ripener.run_pass()`) against the Hive's own
+      file, built exactly as the running Hive builds it (`open_honey_store`, then
+      `build_honey_access` over a registry and Fanner from `hivemind.cli.compose`), attributed to
+      the Hive Stand's own stable Cell id (`hivemind.cell.hive_stand_cell_id`, derived from the
+      manifest's `[hive] node_id`, since this invocation leases no Hive Stand of its own), and
+      prints how many notes it drained, what the pass did, and each model slot's binding, or why
+      it has none (the pass still runs: heuristic summaries, no vectors). Without `--now` it says
+      how much Nectar and how many notes are waiting, and how often a running House Bee acts.
     - `reembed` repeats `Ripener.embed_pending()` until a pass embeds nothing (nothing pending, or
       no progress; at most `MAX_REEMBED_PASSES`), then prints how many rows it embedded for the
       current model and the vector count per model; with no usable embedder, or rows still

@@ -4,8 +4,9 @@ Roadmap step 7.11 gives the Honey Store (the Hive's cold-tier knowledge base: Ne
 findings, ripened into Honey, labelled searchable knowledge) its operator commands, and step 7.10
 its folder browser. They would not fit codingrules section 5.1's 300-line file limit as one flat
 module, so they are split the way `hivemind.cli.memory` splits its own: `query.py` (`query`,
-`stats`), `browse.py` (`ls`, `cat`, `propose`), `maintain.py` (`ripen --now`, `reembed`,
-`relabel`), a shared `context.py` (the group's options, the operator's reader, opening the store),
+`stats`), `browse.py` (`ls`, `cat`, `propose`), `maintain.py` (`ripen --now` -- the House Bee's
+whole pass: drains queued notes, then ripens -- `reembed`, `relabel`), a shared `context.py` (the
+group's options, the operator's reader, opening the store),
 `sources.py` (the browser's memory-backed wax and Bee Bread sources) and `render.py` (printing).
 This face only wires them together (codingrules section 5.4). `--manifest`, `--db` and
 `--clearance` belong to the group, so they come right after `honey` and before the subcommand

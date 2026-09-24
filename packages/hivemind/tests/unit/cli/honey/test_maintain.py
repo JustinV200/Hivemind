@@ -10,6 +10,8 @@ Key invariants:
 
 See Also:
     - hivemind.cli.honey.maintain for the module under test.
+    - .claude/phase-7-handoff.md section 8 item 7 for why `ripen --now` had to start draining
+      queued operator notes.
 """
 
 from __future__ import annotations
@@ -25,7 +27,9 @@ from unit.cli.honey.harness import (
     trail_events,
 )
 
-from hivemind.cell import HoneyClearance
+from hivemind.cell import HoneyClearance, hive_stand_cell_id
+from hivemind.honey_store import NectarOrigin
+from hivemind.manifest import load_manifest
 
 
 def _seeded(tmp_path: Path, count: int = 2) -> Path:
@@ -43,7 +47,38 @@ def test_ripen_without_now_only_says_how_much_is_waiting(tmp_path: Path) -> None
 
     assert result.exit_code == 0, result.output
     assert "2 Nectar waiting to ripen" in result.stdout
+    assert "0 operator note(s) queued" in result.stdout
     assert rows(manifest) == ()
+
+
+def test_ripen_without_now_also_counts_queued_operator_notes(tmp_path: Path) -> None:
+    manifest = make_hive(tmp_path)
+    assert invoke(manifest, "propose", "/hive", "Ops note", "Nothing urgent today.").exit_code == 0
+
+    result = invoke(manifest, "ripen")
+
+    assert result.exit_code == 0, result.output
+    assert "0 Nectar waiting to ripen" in result.stdout
+    assert "1 operator note(s) queued" in result.stdout
+    assert rows(manifest) == ()
+
+
+def test_ripen_now_drains_a_proposed_note_into_human_honey_attributed_to_the_hive_stand(
+    tmp_path: Path,
+) -> None:
+    """(phase 7 handoff items 4 and 7) a note proposed from the CLI is drained and attributed."""
+    manifest = make_hive(tmp_path)
+    proposed = invoke(manifest, "propose", "/hive", "Ops note", "Disk usage looked fine today.")
+    assert proposed.exit_code == 0, proposed.output
+
+    result = invoke(manifest, "ripen", "--now")
+
+    assert result.exit_code == 0, result.output
+    assert "drained 1 operator note(s)" in result.stdout
+    expected_cell_id = hive_stand_cell_id(load_manifest(manifest, {}).hive.node_id)
+    (row,) = rows(manifest)
+    assert row.origin is NectarOrigin.HUMAN
+    assert row.cell_id == expected_cell_id
 
 
 def test_ripen_now_runs_one_pass_and_names_both_slots(tmp_path: Path) -> None:

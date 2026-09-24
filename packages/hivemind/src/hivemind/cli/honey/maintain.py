@@ -1,32 +1,44 @@
 """Provide `hive honey ripen --now`, `reembed` and `relabel`: the operator's maintenance commands.
 
-`ripen --now` runs one House Bee ripening pass (`Ripener.run_pass`: pending Nectar, raw findings,
-into Honey, then rows still lacking a vector for the current embedder) against the Hive's own
-file, built exactly as the running Hive builds it; a missing RIPENER or EMBEDDER binding is
-printed with its reason and the pass still runs (heuristic summaries, no vectors), never a
-traceback. Without `--now` it only says how much is waiting, since ripening normally runs in the
-House Bee's own loop beside the Queen. `reembed` repeats `Ripener.embed_pending` until nothing is
-pending for the current embedding model or a pass makes no progress, then prints vectors per
-model (ADR-0032: a changed embedder re-embeds progressively; this runs the backlog now).
-`relabel PATH LABEL --reason TEXT` raises or lowers one Honey row's label as the human, through
-`HoneyRelabeller` (a lowering passes `check_lowering` with a HUMAN approver first). Every write
-here is idempotent by key or recorded by the store's own transaction, so running any of them
-beside a live Queen is safe (ADR-0031).
+`ripen --now` runs the House Bee's whole pass (`HouseBeeRipening.run_pass`: drain every operator
+note queued through `propose` into HUMAN Nectar, then `Ripener.run_pass` -- pending Nectar, raw
+findings, into Honey, then rows still lacking a vector for the current embedder) against the
+Hive's own file, built exactly as the running Hive builds it, attributed to the Hive Stand's own
+stable Cell id (`hivemind.cell.hive_stand_cell_id`, phase 7 handoff item 4: derived from the
+manifest's `[hive] node_id`, since the CLI has no running Hive Stand lease of its own to attribute
+notes to). A missing RIPENER or EMBEDDER binding is printed with its reason and the pass still
+runs (heuristic summaries, no vectors), never a traceback. Without `--now` it says how much
+Nectar and how many notes are waiting, since both normally drain in the House Bee's own loop
+beside the Queen. `reembed` repeats `Ripener.embed_pending` until nothing is pending for the
+current embedding model or a pass makes no progress, then prints vectors per model (ADR-0032: a
+changed embedder re-embeds progressively; this runs the backlog now). `relabel PATH LABEL
+--reason TEXT` raises or lowers one Honey row's label as the human, through `HoneyRelabeller` (a
+lowering passes `check_lowering` with a HUMAN approver first). Every write here is idempotent by
+key or recorded by the store's own transaction, so running any of them beside a live Queen is
+safe (ADR-0031).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Mounted by `hivemind.cli.honey` as `ripen`,
-    `reembed` and `relabel`. Calls into `hivemind.honey_store`, `hivemind.cli.stores` and this
-    group's own `context` and `render` only.
+    `reembed` and `relabel`. Calls into `hivemind.cell` (hive_stand_cell_id),
+    `hivemind.workers.roles.house_bee` (HouseBeeRipening), `hivemind.honey_store`,
+    `hivemind.cli.stores` and this group's own `context` and `render` only.
 
 Key invariants:
     - `reembed` stops on the first pass that embeds nothing, and never runs more than
       MAX_REEMBED_PASSES passes, so a failing embedder can never spin it forever.
     - `reembed` with no usable embedder exits 1 with the reason; it never touches the store.
+    - `ripen --now` never leaves a note queued and silently undrained: every proposal
+      `HouseBeeRipening.run_pass` sees is either drained into Nectar or logged and passed over
+      (its own module docstring), never dropped.
 
 See Also:
-    - hivemind.honey_store.ripening for Ripener.run_pass and embed_pending.
+    - hivemind.workers.roles.house_bee.loop for HouseBeeRipening, the pass `ripen --now` runs.
+    - hivemind.honey_store.ripening for Ripener.run_pass and embed_pending, the half of that pass
+      this module also calls directly for `reembed`.
     - hivemind.honey_store.browse.relabel for HoneyRelabeller.
     - docs/adr/0032-embedding-provider-and-reembedding-policy.md for re-embedding.
+    - .claude/phase-7-handoff.md section 8 items 4 and 7 for why `ripen --now` needed a stable
+      Cell id before it could drain notes at all.
 """
 
 from __future__ import annotations
@@ -36,7 +48,7 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cell import HoneyClearance
+from hivemind.cell import HoneyClearance, hive_stand_cell_id
 from hivemind.cli.honey.context import (
     EXIT_REFUSED,
     cli_context,
@@ -47,13 +59,17 @@ from hivemind.cli.honey.context import (
 )
 from hivemind.cli.honey.render import print_slot
 from hivemind.cli.stores import open_honey_store
-from hivemind.honey_store import HoneyStore, NectarState, PassOutcome, Ripener
+from hivemind.honey_store import HoneyStats, HoneyStore, NectarState, Ripener
 from hivemind.honey_store.browse import HoneyRelabeller, RelabelDirection, RelabelRequest
+from hivemind.workers.roles.house_bee import HouseBeeRipening, RipeningPass
 from waggle.clock import SystemClock
 
 # A runaway guard, not an expected count: at the default 256 rows a pass this re-embeds millions
 # of rows, far past any one Hive's store; each pass that embeds nothing ends the loop anyway.
 MAX_REEMBED_PASSES = 10_000
+# An indexed, oldest-first scan (idx_honey_proposals_pending): cheap even at this generous cap, so
+# reporting it without --now costs nothing close to a real ripening pass.
+_WAITING_NOTES_LIMIT = 1_000
 _NO_RIPENER = "summaries are heuristic (the text's own opening)"
 _NO_EMBEDDER = "rows are stored without vectors and search is full text only"
 
@@ -64,17 +80,24 @@ def ripen_command(
     ctx: typer.Context,
     now: Annotated[bool, typer.Option("--now", help="Run one ripening pass here, now.")] = False,
 ) -> None:
-    """Run one House Bee ripening pass now (--now); without it, say how much is waiting."""
+    """Run the House Bee's whole pass now (--now); without it, say how much is waiting."""
     cli_ctx = cli_context(ctx)
-    # Ripening normally runs in the House Bee's own loop; without --now nothing is written.
+    # Ripening (and draining notes) normally runs in the House Bee's own loop; without --now
+    # nothing is written.
     if not now:
         _print_waiting(cli_ctx.db, cli_ctx.manifest.honey.ripening.interval_s)
         return
     opened = open_access(cli_ctx)
-    # One pass: every summary and embedding call carries the Ripener's own timeouts, and a model
-    # that fails leaves a heuristic summary or an unembedded row, never a failed pass.
-    outcome = run_or_exit(opened.access.ripener.run_pass())
-    _print_pass(outcome)
+    # The Hive Stand's own stable Cell id (phase 7 handoff item 4): every drained note is
+    # attributed to it, exactly as the running Hive's own House Bee attributes them, even though
+    # this invocation leases nothing itself.
+    stand_cell_id = hive_stand_cell_id(cli_ctx.manifest.hive.node_id)
+    ripening = HouseBeeRipening(opened.access, stand_cell_id, SystemClock())
+    # One pass: drain queued notes, then every summary and embedding call, each carrying the
+    # Ripener's own timeouts; a model that fails leaves a heuristic summary or an unembedded row,
+    # never a failed pass.
+    pass_result = run_or_exit(ripening.run_pass())
+    _print_pass(pass_result)
     print_slot("ripener", opened.bindings.ripener, _NO_RIPENER)
     print_slot("embedder", opened.bindings.embedder, _NO_EMBEDDER)
 
@@ -127,23 +150,39 @@ def relabel_command(
 
 
 def _print_waiting(db: Path, interval_s: float) -> None:
-    """Say how much Nectar is waiting to ripen, and when the House Bee would ripen it."""
-    # Counts only; local SQLite, a handful of GROUP BYs.
-    stats = run_or_exit(open_honey_store(db).stats())
+    """Say how much Nectar and how many operator notes are waiting, and when the House Bee acts."""
+    # open_honey_store runs its own asyncio.run for setup, so it must be called here, outside the
+    # event loop run_or_exit opens next -- never from inside _waiting_counts itself.
+    store = open_honey_store(db)
+    stats, queued = run_or_exit(_waiting_counts(store))
     waiting = stats.nectar_by_state.get(NectarState.RECEIVED, 0)
     typer.echo(
-        f"{waiting} Nectar waiting to ripen; a running Hive's House Bee ripens every "
-        f"{interval_s:g}s. Pass --now to run one pass here."
+        f"{waiting} Nectar waiting to ripen, {queued} operator note(s) queued; a running Hive's "
+        f"House Bee ripens and drains notes every {interval_s:g}s. Pass --now to run one pass "
+        "here."
     )
 
 
-def _print_pass(outcome: PassOutcome) -> None:
-    """Print one ripening pass's counts."""
-    ripen = outcome.ripen
+async def _waiting_counts(store: HoneyStore) -> tuple[HoneyStats, int]:
+    """Read `store`'s Nectar counts and how many operator notes are still queued.
+
+    Two cheap reads on the one already-open store: `stats()` is a handful of GROUP BYs, and
+    `pending_proposals` is an indexed, oldest-first scan capped at `_WAITING_NOTES_LIMIT` (module
+    docstring).
+    """
+    stats = await store.stats()
+    queued = await store.pending_proposals(_WAITING_NOTES_LIMIT)
+    return stats, len(queued)
+
+
+def _print_pass(pass_result: RipeningPass) -> None:
+    """Print how many notes this pass drained, then the Ripener's own counts."""
+    ripen = pass_result.outcome.ripen
+    typer.echo(f"drained {pass_result.drained} operator note(s)")
     typer.echo(
         f"ripened {ripen.ripened} Nectar into {ripen.rows} Honey rows "
         f"(failed={ripen.failed}  discarded={ripen.discarded}  deduplicated={ripen.deduped}  "
-        f"embedded={ripen.embedded}); re-embedded {outcome.reembedded} older rows"
+        f"embedded={ripen.embedded}); re-embedded {pass_result.outcome.reembedded} older rows"
     )
 
 
