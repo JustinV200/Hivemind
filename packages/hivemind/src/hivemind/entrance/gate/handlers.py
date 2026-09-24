@@ -6,8 +6,11 @@ client can act on (ADR-0033, ADR-0034). The status comes from the error's catego
 authentication 401, a rate limit 429, a missed deadline 504, a configuration gap 503; the gate's own
 ``step_up_required`` answers 403 with its reason and, for a device that cannot step up, the pending
 confirmation's id. A request body that does not validate answers 422 naming only the fields,
-never their values, so a mistyped password is never echoed into a client's logs. Anything else the
-Hive raised on purpose is a 500 with its code and a fixed sentence.
+never their values, so a mistyped password is never echoed into a client's logs. A refusal the
+router makes itself (no such route here, which is also how a loopback-only route answers on the
+remote listener: 404; a method the path does not take: 405) carries an ``ErrorBody`` too, because
+the published document declares that body for every refusal. Anything else the Hive raised on
+purpose is a 500 with its code and a fixed sentence.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Installed on both
@@ -25,10 +28,13 @@ See Also:
 
 from __future__ import annotations
 
+from http import HTTPStatus
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.exceptions import HTTPException
 
 from hivemind.common.errors import (
     ConfigurationError,
@@ -48,6 +54,11 @@ from hivemind.entrance.gate.errors import (
 
 INVALID_REQUEST_CODE = "hivemind.entrance.invalid_request"  # A body or parameter did not validate.
 INTERNAL_CODE_DETAIL = "The Hive could not complete this request."  # A 500's fixed sentence.
+NOT_FOUND_CODE = "hivemind.entrance.not_found"  # No such route here, or not on this listener.
+NOT_FOUND_DETAIL = "Not found (or not served on this listener)."  # The router's 404 sentence.
+# The router's other refusals, by status; any status not listed answers with the generic code.
+_ROUTER_CODES = {405: "hivemind.entrance.method_not_allowed"}
+ROUTER_REFUSAL_CODE = "hivemind.entrance.http_refused"  # A router refusal with no code of its own.
 _MAX_FIELDS_NAMED = 8  # A 422 names at most this many fields: enough to fix, never a dump.
 # Checked in order: the first category an error belongs to decides its status.
 _STATUSES: tuple[tuple[type[HiveMindError], int], ...] = (
@@ -62,7 +73,14 @@ _STATUSES: tuple[tuple[type[HiveMindError], int], ...] = (
 
 log = get_logger(__name__)
 
-__all__ = ["INVALID_REQUEST_CODE", "ErrorBody", "install_error_handlers", "status_for"]
+__all__ = [
+    "INVALID_REQUEST_CODE",
+    "NOT_FOUND_CODE",
+    "ROUTER_REFUSAL_CODE",
+    "ErrorBody",
+    "install_error_handlers",
+    "status_for",
+]
 
 
 class ErrorBody(BaseModel):
@@ -96,6 +114,8 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(HiveMindError, _hive_error)
     app.add_exception_handler(RequestValidationError, _invalid_request)
     app.add_exception_handler(ValidationError, _invalid_request)
+    # Replaces FastAPI's default, whose {"detail": ...} body is not the documented ErrorBody.
+    app.add_exception_handler(HTTPException, _router_refusal)
 
 
 def status_for(error: HiveMindError) -> int:
@@ -138,3 +158,23 @@ async def _invalid_request(request: Request, error: Exception) -> JSONResponse:
     named = ", ".join(field for field in fields[:_MAX_FIELDS_NAMED] if field) or "the body"
     body = ErrorBody(error=INVALID_REQUEST_CODE, detail=f"These fields are not valid: {named}.")
     return JSONResponse(status_code=422, content=body.model_dump(mode="json"))
+
+
+async def _router_refusal(request: Request, error: Exception) -> JSONResponse:
+    """Answer a refusal the router makes itself (404, 405) with an ErrorBody and its headers."""
+    # Starlette only routes its HTTPExceptions here; the check narrows the type for the code below.
+    if not isinstance(error, HTTPException):
+        fallback = ErrorBody(error=HiveMindError.code, detail=INTERNAL_CODE_DETAIL)
+        return JSONResponse(status_code=500, content=fallback.model_dump(mode="json"))
+    status = error.status_code
+    if status == HTTPStatus.NOT_FOUND:
+        body = ErrorBody(error=NOT_FOUND_CODE, detail=NOT_FOUND_DETAIL)
+    else:
+        # The status's own phrase, never the exception's detail: nothing a request sent comes back.
+        phrase = HTTPStatus(status).phrase
+        code = _ROUTER_CODES.get(status, ROUTER_REFUSAL_CODE)
+        body = ErrorBody(error=code, detail=f"The request was refused: {phrase}.")
+    # Headers such as a 405's Allow tell the client what would have worked.
+    return JSONResponse(
+        status_code=status, content=body.model_dump(mode="json"), headers=error.headers
+    )

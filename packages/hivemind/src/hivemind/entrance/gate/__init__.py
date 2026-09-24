@@ -31,7 +31,8 @@ Public API:
     - Caller, gate_for, police, authorise, current_caller, current_arrival, arrival_of,
       CALLER_KEY: admission (admit).
     - require_step_up: step-up for sensitive actions (step_up).
-    - ErrorBody, install_error_handlers, status_for, INVALID_REQUEST_CODE: answers (handlers).
+    - ErrorBody, install_error_handlers, status_for, INVALID_REQUEST_CODE, NOT_FOUND_CODE,
+      ROUTER_REFUSAL_CODE: answers (handlers).
     - StepUpRequiredError, CapabilityDeniedError, RateLimitedError: the gate's refusals (errors).
     - EntranceServices, QueenDoor, HiveReads, PushServices, GateGuards, EntranceRules,
       StreamServices, DoorControl, ListenerDeps, get_services, get_listener: the services
@@ -56,6 +57,8 @@ from hivemind.entrance.gate.errors import (
 )
 from hivemind.entrance.gate.handlers import (
     INVALID_REQUEST_CODE,
+    NOT_FOUND_CODE,
+    ROUTER_REFUSAL_CODE,
     ErrorBody,
     install_error_handlers,
     status_for,
@@ -108,7 +111,9 @@ __all__ = [
     "INVALID_REQUEST_CODE",
     "LOOPBACK_ONLY",
     "MAX_BODY_BYTES",
+    "NOT_FOUND_CODE",
     "PUBLIC",
+    "ROUTER_REFUSAL_CODE",
     "Access",
     "AddressLimit",
     "ArrivalParam",
