@@ -134,8 +134,8 @@ class UntrustedContentSection(BaseModel):
         ge=MIN_MAX_SCAN_CHARS,
         le=MAX_MAX_SCAN_CHARS,
         description="How many characters of one text the scanner reads before matching; the rest "
-        "is not matched (the verdict says it was truncated), so a hostile document can never make "
-        "the scanner itself the slow path.",
+        "is neither matched nor shown to a model (the verdict says how much was read), so a "
+        "hostile document can never make the scanner the slow path nor ride in past it.",
     )
     meadow: ScanThresholds = Field(
         default_factory=lambda: ScanThresholds(label=3.0, drop=7.0),

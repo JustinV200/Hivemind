@@ -562,8 +562,9 @@ question_routing = "ask_human"
 # The untrusted-content scanner (roadmap step 10.6b, ADR-0035): every tool result, Cell session
 # output and chat message is scored against the pattern families shipped in hivemind.guard.defaults
 # (untrusted-content.toml, explained in docs/guard/untrusted-content.md) before a model reads it.
-# How many characters of one text are read before matching; the rest is never matched, so a
-# hostile document cannot make the scanner slow. 1024 to 1048576.
+# How many characters of one text are read before matching; the rest is never matched and never
+# shown to a model, so a hostile document can neither make the scanner slow nor ride in past it.
+# 1024 to 1048576.
 max_scan_chars = 65536
 
 # Per Comb Shield tier: at `label` the text still reaches the model, fenced under a harder label;
