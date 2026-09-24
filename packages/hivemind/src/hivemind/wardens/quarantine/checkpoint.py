@@ -58,7 +58,8 @@ if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
 
 NO_PROGRESS = "No progress was reported before the quarantine."  # When nothing was reported.
-RESUME_STEP = "Resume only once a judge has cleared this checkpoint."  # The one next step.
+# The one next step, for the bee that resumes from it once a judge has cleared it.
+RESUME_STEP = "Re-check what the quarantined attempt did before building on it."
 
 __all__ = ["NO_PROGRESS", "RESUME_STEP", "memory_context", "write_quarantine_checkpoint"]
 

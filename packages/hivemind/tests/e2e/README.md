@@ -58,6 +58,17 @@ exist to catch problems that only show up when every layer runs at once.
   the answer from the model, `guard.injection_suspected` lands on the real trail with the keyed
   hash (never the words), the steered outside-scratch write is capped and rejected, the goal still
   finishes, and the scanner's key is minted in the manifest's secrets dir on that first flag.
+- `test_quarantine_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 10.6c on a real run: a
+  real Drone writes its first haiku and starts a real minute-long command; while it runs, the Queen
+  orders a quarantine through `Queen.intervene` (the lever a Guard request pulls), suspect from the
+  command's `capping.proposed`. The Hive Stand's Warden writes the checkpoint first, stops the
+  Drone, and the command's process dies with it while the lease is still open; `warden.intervened`
+  and `memory.tainted` land, the Handoff loader refuses the checkpoint, the task is PAUSED and a
+  SECURITY Alarm reaches the human's inbox. Then the only way out: a resume from the still tainted
+  checkpoint is refused at the `quarantine` point and the task held again with nothing spawned;
+  once a judge clears it, the same resume lets a fresh Drone out from it and the goal finishes. Its
+  manifest heartbeat is 0.5 s: the quarantine runs in one Warden tick (a 0.2 s kill grace
+  included), which the builder's own 0.05 s cadence would read as an unreachable Cell.
 - `test_night_veil_floors.py` (`@pytest.mark.e2e`) -- roadmap steps 10.3a-d through a running
   Queen: a human's goal request naming NIGHT_VEIL is planned on her own tick, placed on a fresh
   Virtual Cell (the real `CellLifecycle`/`QueenReadinessGate`/`LifecycleVirtualCellProvider` path
