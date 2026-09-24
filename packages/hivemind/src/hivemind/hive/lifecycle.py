@@ -47,6 +47,15 @@ short-circuits to teardown before ever calling `decide_release` for a NIGHT_VEIL
 `overwinter()` refuses one directly too, so neither path depends on the other to keep the rule
 (codingrules section 8.7, "Night Veil lifecycle is teardown-only").
 
+The Night Veil boundary (codingrules section 12) hangs off the same edges, through the
+`NightVeilBoundary` `attach_night_veil` hands in (`hivemind.hive.night_veil.boundary`):
+`provision()` opens a NIGHT_VEIL Cell's ephemeral segment before it records a word about the Cell,
+and stamps every Cell's tier into its labels; `teardown()` purges a NIGHT_VEIL Cell once its
+backend has destroyed it, whichever path asked (a finished task, a failed provision, a shutdown);
+`reconcile()` holds again the segment of a NIGHT_VEIL Cell that outlived a restart and purges each
+one the trail shows gone unpurged. Every record this class makes goes through the trail the
+composition root hands it, which is the boundary's own `VeiledTrail`.
+
 Fits into the Hive:
     Layer 3 (sources of Cells). Called by `hivemind.queen.cell_gate.provider.
     LifecycleVirtualCellProvider`, `hivemind.workers.roles.undertaker` (the Queen-startup sweep's
@@ -57,7 +66,8 @@ Fits into the Hive:
     OverwinterPool, ReleaseOutcome, Scrubber, decide_release), `hivemind.hive.registry`,
     `hivemind.hive.snapshot.ledger` (SnapshotLedgerPort, roadmap step 5.10: `teardown()`'s own
     snapshot cleanup), `hivemind.hive.backends.base` (CellBackend, `snapshot_target`'s own return
-    type), `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
+    type), `hivemind.hive.night_veil.boundary` (the Night Veil boundary's open, purge and sweep),
+    `hivemind.pheromone` (CellEvent, PheromoneTrail) and waggle only.
 
 Key invariants:
     - Every state change goes through `hivemind.hive.cell_state.assert_transition` (or
@@ -72,6 +82,8 @@ Key invariants:
     - Every `CellBackend` call this class used to delegate to `OverwinterPool` now happens here,
       immediately around the matching pool bookkeeping call, so the abstract state
       (`VirtualCellStatus`) and the backend's own real state never drift mid-call.
+    - With a Night Veil boundary attached, a NIGHT_VEIL Cell's segment is open before its first
+      record and purged right after its `cell.destroyed`, on every teardown.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the edge sequence this module implements almost verbatim.
@@ -88,6 +100,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -104,6 +117,7 @@ from hivemind.hive.cell_state import (
 )
 from hivemind.hive.errors import CellProvisionError, InvalidCellTransitionError, UnknownCellError
 from hivemind.hive.models import VirtualCellSpec
+from hivemind.hive.night_veil import boundary
 from hivemind.hive.overwinter.policy import (
     OverwinterConfig,
     OverwinterDecision,
@@ -267,6 +281,9 @@ class CellLifecycle:
         # registry/trail/clock/identity/overwinter, and this field is optional for every Hive
         # that has no SnapshotLedger yet (every pre-5.10 caller keeps building unchanged).
         self._snapshot_ledger: SnapshotLedgerPort | None = None
+        # Set post-construction too (attach_night_veil), for the same five-parameter reason; a
+        # lifecycle with none never purges, which only a Hive with no Night Veil tier can afford.
+        self._night_veil: boundary.NightVeilBoundary | None = None
         self._cells: dict[CellId, LiveVirtualCell] = {}
 
     def attach_snapshot_ledger(self, ledger: SnapshotLedgerPort) -> None:
@@ -279,6 +296,16 @@ class CellLifecycle:
                 simply skips the cleanup step in `teardown()`, matching pre-5.10 behaviour.
         """
         self._snapshot_ledger = ledger
+
+    def attach_night_veil(self, night_veil: boundary.NightVeilBoundary) -> None:
+        """Attach the Night Veil boundary, so every Night Veil Cell is veiled and purged.
+
+        Args:
+            night_veil: The Queen's boundary (`hivemind.hive.night_veil.boundary`): a Night Veil
+                Cell's segment opens at `provision`, it is purged at `teardown`, and `reconcile`
+                sweeps the ones a restart finds gone. Without one none of that happens.
+        """
+        self._night_veil = night_veil
 
     def status_of(self, cell_id: CellId) -> VirtualCellStatus | None:
         """Return `cell_id`'s current status, or None if this lifecycle has no record of it."""
@@ -400,6 +427,9 @@ async def _reconcile(lifecycle: CellLifecycle, hive_id: HiveId) -> None:
             if record.cell_id in lifecycle._cells:
                 continue  # Already known: this process provisioned it before reconciling.
             lifecycle._cells[record.cell_id] = _from_backend_record(record, name)
+    # A Night Veil Cell that outlived the restart is veiled again; one gone unpurged is purged.
+    tiers = {cell_id: live.comb_shield for cell_id, live in lifecycle._cells.items()}
+    await boundary.sweep_night_veil(lifecycle._night_veil, tiers)
 
 
 async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_name: str) -> Cell:
@@ -417,6 +447,8 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
             before this re-raises.
     """
     backend = lifecycle._registry.get(backend_name)
+    # The tier rides on the Cell's own labels, so a restarted Queen's reconcile can read it back.
+    spec = boundary.with_tier_label(spec)
     try:
         cell = await backend.provision(spec)
     except CellProvisionError as exc:
@@ -443,10 +475,12 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
         cell=cell,
         spec=spec,
     )
+    # A Night Veil Cell's segment opens before either record below, so neither escapes it.
+    facts = boundary.provisioned_facts(lifecycle._night_veil, cell.id, spec, backend_name)
     # Two events for one arrival (module docstring): "provisioning began" and "the backend
     # created it" are both true the instant this Cell's id is first known to this lifecycle.
-    await lifecycle._record(cell.id, "cell.provisioning", backend=backend_name, image=spec.image)
-    await lifecycle._record(cell.id, "cell.provisioned", backend=backend_name, image=spec.image)
+    await lifecycle._record(cell.id, "cell.provisioning", **facts)
+    await lifecycle._record(cell.id, "cell.provisioned", **facts)
     return cell
 
 
@@ -583,6 +617,8 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
     assert_transition(record.status, VirtualCellStatus.DESTROYED, cell_id=cell_id)
     await lifecycle._record(cell_id, "cell.destroyed")
     del lifecycle._cells[cell_id]
+    # Codingrules 12: the Cell is gone, so its records go too; a no-op for any other tier.
+    await boundary.end_night_veil(lifecycle._night_veil, cell_id, record.comb_shield)
 
 
 async def _evict_expired(lifecycle: CellLifecycle, now: datetime) -> tuple[CellId, ...]:
@@ -656,27 +692,21 @@ def _virtual_backend_candidates(lifecycle: CellLifecycle) -> tuple[LifecycleVirt
 def _from_backend_record(record: VirtualCellRecord, backend_name: str) -> LiveVirtualCell:
     """Build a LiveVirtualCell from one `CellBackend.list_cells` row, best-effort.
 
-    Labels carry no guaranteed `comb_shield` key today (no backend stamps one), so a reconciled
-    record defaults to MEADOW, the safest assumption for a Cell this process cannot otherwise
-    identify: the Night Veil guard would only ever be too strict from this default, never too
-    permissive.
+    Every Cell `_provision` creates carries its tier in its labels (`hivemind.hive.night_veil.
+    boundary.with_tier_label`; Docker keeps its own copy too), read back here. A Cell whose labels
+    name none (one provisioned before the label existed) defaults to MEADOW: the Overwinter guard
+    is then only as strict as for any MEADOW Cell, and the Night Veil purge does not depend on
+    it, since the restart sweep also finds a Night Veil Cell by the trail's own skeleton.
     """
-    comb_shield_label = record.labels.get("comb_shield")
-    comb_shield = CombShieldLevel.MEADOW
-    if comb_shield_label is not None and comb_shield_label in CombShieldLevel.__members__:
-        comb_shield = CombShieldLevel[comb_shield_label]
     return LiveVirtualCell(
         cell_id=record.cell_id,
         status=record.status,
         backend=backend_name,
         image=record.image,
-        comb_shield=comb_shield,
+        comb_shield=boundary.tier_from_labels(record.labels),
     )
 
 
-def _counts_by_backend(records: Iterable[LiveVirtualCell]) -> dict[str, int]:
+def _counts_by_backend(records: Iterable[LiveVirtualCell]) -> Counter[str]:
     """Count live records per backend name, for `_virtual_backend_candidates`'s own narrowing."""
-    counts: dict[str, int] = {}
-    for record in records:
-        counts[record.backend] = counts.get(record.backend, 0) + 1
-    return counts
+    return Counter(record.backend for record in records)
