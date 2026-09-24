@@ -60,6 +60,9 @@ Key invariants:
       on, correlated to its own envelope id; a `TrailSegmentSync` is handed to `trail_receiver`
       and never answered (the wire kind is an event, not a request). Both are no-ops when
       `CellListenerDeps` names no handler/receiver (roadmap step 5.10/ADR-0027's own follow-up).
+    - At most `FANOUT_QUEUE_SIZE` envelopes wait in one connection's fan-out for the Queen's
+      reader: past that its pump stops reading the socket, so a Queen that is not reading backs
+      the Cell's own sends up (backpressure), rather than the Queen's memory growing with them.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -103,10 +106,19 @@ from waggle.messages.labels import OsFamily
 from waggle.messages.reports import PlatformReport
 from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_from_hex
+from waggle.transport.base import Transport
 from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
 
-__all__ = ["CellListener", "CellListenerDeps", "SnapshotRequestHandler"]
+__all__ = ["FANOUT_QUEUE_SIZE", "CellListener", "CellListenerDeps", "SnapshotRequestHandler"]
+
+# The most envelopes one connection's fan-out holds for the Queen's reader before its pump stops
+# reading the socket. Sixteen is websockets' own receive buffer (`max_queue`'s default, which
+# `WebSocketServer` keeps): once both are full the library stops reading the TCP socket and the
+# Cell's own sends block, backpressure all the way to the Cell. The Queen's real per-link buffer
+# is `hivemind.queen.inbox.links.LINK_QUEUE_SIZE`, behind this; more here would only hold frames
+# she cannot read yet, and fewer would make every frame a lock-step hand-off between two tasks.
+FANOUT_QUEUE_SIZE = 16
 
 # A placeholder ForageCapacity for a Cell that has reported CellReady/CellHeartbeat but no
 # forage.capacity_report (CapacityReport): today's only sender, hivemind.cli.in_cell.link.CellLink,
@@ -372,7 +384,9 @@ class _FanoutTransport:
     only task that ever calls the real transport's own `receive()`; every envelope it reads either
     answers inline (a snapshot relay request, a trail segment sync -- `CellListener._dispatch`) or
     is queued for `receive()` here to yield to the Queen, so both "readers" still see every
-    envelope meant for them without a second `recv()` ever happening.
+    envelope meant for them without a second `recv()` ever happening. At most `FANOUT_QUEUE_SIZE`
+    wait unread (`_room`'s credits, not the queue's own `maxsize`, so the end-of-stream marker
+    always fits): past that the pump parks and leaves the socket unread (backpressure).
 
     Implements `waggle.transport.base.Transport` structurally (`send`/`receive`/`close`/
     `is_connected`/`connect`, every one forwarded to or fed from the real transport): `hivemind.
@@ -380,9 +394,7 @@ class _FanoutTransport:
     more than that, so neither has to change to accept this in place of a real `WebSocketTransport`.
     """
 
-    def __init__(
-        self, real: WebSocketTransport, dispatch: Callable[[Envelope], Awaitable[None]]
-    ) -> None:
+    def __init__(self, real: Transport, dispatch: Callable[[Envelope], Awaitable[None]]) -> None:
         """Wrap `real`, starting `pump` immediately so nothing else may ever call its `receive()`.
 
         Args:
@@ -394,6 +406,9 @@ class _FanoutTransport:
         self._real = real
         self._dispatch = dispatch
         self._queue: asyncio.Queue[Envelope | object] = asyncio.Queue()
+        # One credit per envelope that may wait unread (class docstring: the bound lives here,
+        # so the end-of-stream marker never waits for room, even while the pump is cancelled).
+        self._room = asyncio.Semaphore(FANOUT_QUEUE_SIZE)
         self._closed_exc: Exception | None = None
         self.pump_task: asyncio.Task[None] = asyncio.ensure_future(self._pump())
 
@@ -425,6 +440,7 @@ class _FanoutTransport:
                     raise self._closed_exc
                 return  # A clean end (StopAsyncIteration-shaped): nothing more will ever arrive.
             assert isinstance(item, Envelope)  # noqa: S101 - only Envelope or _FANOUT_DONE is ever queued.
+            self._room.release()  # Taken off the fan-out: the pump may read one more frame.
             yield item
 
     async def close(self) -> None:
@@ -448,11 +464,16 @@ class _FanoutTransport:
                     # Queen's own bee-protocol dispatch (class docstring).
                     await self._dispatch(envelope)
                 else:
-                    await self._queue.put(envelope)
+                    # Parks while FANOUT_QUEUE_SIZE wait unread, the socket left unread with it:
+                    # a Queen that is not reading backs the Cell's own sends up (backpressure).
+                    await self._room.acquire()
+                    self._queue.put_nowait(envelope)
         except (ConnectionLostError, CodecError, SignatureError) as exc:
             self._closed_exc = exc
         finally:
-            await self._queue.put(_FANOUT_DONE)
+            # Never waits for room (the queue itself is unbounded): the stream still ends when
+            # nobody reads it, and a cancelled pump never parks here in its own finally.
+            self._queue.put_nowait(_FANOUT_DONE)
 
 
 class _GateVerifier:

@@ -30,7 +30,8 @@ Fits into the Hive:
 Key invariants:
     - At most `queue_size` (`LINK_QUEUE_SIZE` by default) envelopes wait per link. A full queue
       parks that link's reader, so the rest stay with its transport (backpressure): the Queen's
-      memory never grows with a Warden's send rate.
+      memory never grows with a Warden's send rate. A Virtual Cell's transport is bounded too
+      (`hivemind.queen.cell_gate.listener.FANOUT_QUEUE_SIZE`), so the wait reaches its socket.
     - `drain` takes everything queued on every link, and never more than `queue_size` from one
       link per call (nothing can be queued while its synchronous loop runs), so one flooding
       Warden adds at most that many items to a tick and every other link is drained in the same

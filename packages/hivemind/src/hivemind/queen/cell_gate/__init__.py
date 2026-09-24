@@ -22,6 +22,8 @@ Key invariants:
       every `CellBackend` implementation can take one unmodified.
     - `CellListener` never attaches a connection whose first frame does not verify as a signed
       `CellReady` naming an `expect`-ed Cell.
+    - A connection's fan-out holds at most `listener.FANOUT_QUEUE_SIZE` envelopes the Queen has
+      not read; past that it leaves the socket unread, so backpressure reaches the Cell.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
