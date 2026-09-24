@@ -2,8 +2,9 @@
 
 A Task is one unit of work the Queen decomposes a goal into. This module holds its whole shape:
 `TaskSpec` is what a task is asked to do (title, objective, acceptance criteria, the `TaskNeeds`
-its Cell must meet, the ids of tasks it depends on, and since roadmap step 10.3 the capability set
-of the goal it was planned from); `TaskOutcome` is how it ended, recorded
+its Cell must meet, the ids of tasks it depends on, since roadmap step 10.3 the capability set
+of the goal it was planned from, and since roadmap step 10.5 the goal request that asked for the
+goal and the spend cap that request set); `TaskOutcome` is how it ended, recorded
 once it reaches a terminal `TaskStatus` (`hivemind.brood_chamber.task.state`); `Task` is the whole
 record the Brood Chamber stores, spec plus current status plus placement plus outcome, immutable
 like every boundary value in the Hive (state changes produce a new `Task` via `model_copy`,
@@ -19,8 +20,9 @@ Fits into the Hive:
     `TaskGraphDraft` is read by `hivemind.cli.tasks` (`hive tasks submit FILE`) and turned into
     `Task`s by `BroodChamber.submit`. Calls into `hivemind.brood_chamber.task.state`,
     `hivemind.brood_chamber.task.graph` (for `TaskGraphDraft`'s cycle check),
-    `hivemind.brood_chamber.task.goal_set` (GoalCapabilities) and `hivemind.cell` (for
-    `TaskNeeds`, `HoneyClearance`) only.
+    `hivemind.brood_chamber.task.goal_set` (GoalCapabilities), `hivemind.brood_chamber.task.
+    goal_request` (GoalRequestRef, GoalSpendCap) and `hivemind.cell` (for `TaskNeeds`,
+    `HoneyClearance`) only.
 
 Key invariants:
     - Task.outcome is set if and only if Task.status is terminal (TaskStatus.is_terminal), and
@@ -54,6 +56,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from hivemind.brood_chamber.task.goal_request import GoalRequestRef, GoalSpendCap
 from hivemind.brood_chamber.task.goal_set import GoalCapabilities
 from hivemind.brood_chamber.task.graph import is_acyclic_edges
 from hivemind.brood_chamber.task.state import TERMINAL_STATUSES, TaskStatus
@@ -155,6 +158,10 @@ class TaskSpec(BaseModel):
         "10.3, ADR-0031), sorted capability strings: placement and the Warden never let the "
         "task do more. None means the operator's own local submission, with no device ceiling.",
     )
+    # Roadmap step 10.5 (ADR-0032): the request this task's goal was planned from, and the budget
+    # it set; both ride in the task's JSON body, so neither store needs a migration.
+    goal_request_id: GoalRequestRef = None
+    spend_cap_usd: GoalSpendCap = None
 
     @field_validator("depends_on")
     @classmethod
@@ -308,6 +315,9 @@ class TaskDraft(BaseModel):
         description="The capability set of the goal this draft belongs to (roadmap step 10.3); "
         "the chamber carries it onto the minted Task's TaskSpec. None means no device ceiling.",
     )
+    # Roadmap step 10.5: carried onto the minted Task's TaskSpec exactly like `capabilities`.
+    goal_request_id: GoalRequestRef = None
+    spend_cap_usd: GoalSpendCap = None
 
 
 class TaskGraphDraft(BaseModel):

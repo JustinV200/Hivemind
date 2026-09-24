@@ -49,6 +49,8 @@ from hivemind.memory import InMemoryMemoryStore
 from hivemind.pheromone import PheromoneTrail, TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen import ForageLedger, SqliteOrderStore
+from hivemind.queen.chat import InMemoryChatLog
+from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.wardens import WardenState
 from waggle.clock import FakeClock
 from waggle.ids import GrantId
@@ -188,6 +190,8 @@ def _in_memory_stores(clock: FakeClock, manifest: HiveManifest) -> HiveStores:
         chamber=chamber,
         memory=InMemoryMemoryStore(trail),
         leavings=InMemoryLeavingsStore(trail),
+        goal_requests=InMemoryGoalRequestStore(trail),
+        chat=InMemoryChatLog(trail),
     )
 
 

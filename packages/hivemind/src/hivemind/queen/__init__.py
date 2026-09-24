@@ -78,6 +78,16 @@ Public API (roadmap step 3.20):
       (cluster).
     - resume_paused: the dispatcher-path entry point a Clustering resume goes through so no work
       is redone (dispatcher).
+    - Roadmap step 10.5 (ADR-0032), the human end: GoalRequest, GoalRequestState, GoalSource,
+      GoalRequestStore, GoalRequestQuery, InMemoryGoalRequestStore, SqliteGoalRequestStore (the
+      durable goal requests `Queen.request_goal` commits and her own tick plans; intake);
+      ChatEntry, ChatAuthor, ChatKind, ChatLog, ChatQuery, InMemoryChatLog, SqliteChatLog (the
+      chat log, the human end of her inbox), HumanChannel, NullHumanChannel (the seam that tells
+      the human's devices something is waiting) and ChatDoor (the human-facing methods `Queen`
+      inherits: request_goal, confirm_goal_request, decline_goal_request, post_human_message,
+      acknowledge_alarm) (chat); GoalTerms, plan_goal_graph: what a goal is planned under, and the
+      plan-and-persist half of submit_goal (goal_submission); PlanningLane: her one in-flight
+      plan (deps).
 """
 
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
@@ -93,6 +103,18 @@ from hivemind.queen.awake import (
     QueenDecision,
     QueenSources,
     decide_awake,
+)
+from hivemind.queen.chat import (
+    ChatAuthor,
+    ChatDoor,
+    ChatEntry,
+    ChatKind,
+    ChatLog,
+    ChatQuery,
+    HumanChannel,
+    InMemoryChatLog,
+    NullHumanChannel,
+    SqliteChatLog,
 )
 from hivemind.queen.cluster import (
     ClusterBackoff,
@@ -113,17 +135,26 @@ from hivemind.queen.cluster import (
     resume,
     run_cluster_tick,
 )
-from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
+from hivemind.queen.deps import MemoryBudget, PlanningLane, QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, resume_paused
 from hivemind.queen.errors import QueenError, UnknownWardenError, WardenSpawnRefusedError
 from hivemind.queen.forage import ForageLedger
-from hivemind.queen.goal_submission import submit_goal
+from hivemind.queen.goal_submission import GoalTerms, plan_goal_graph, submit_goal
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import (
     MAX_TIE_REASON_CHARS,
     ModelTieBreaker,
     queen_attendant,
     to_inbox_item,
+)
+from hivemind.queen.intake import (
+    GoalRequest,
+    GoalRequestQuery,
+    GoalRequestState,
+    GoalRequestStore,
+    GoalSource,
+    InMemoryGoalRequestStore,
+    SqliteGoalRequestStore,
 )
 from hivemind.queen.placement import Placement, PlacementError
 from hivemind.queen.planner import (
@@ -174,17 +205,33 @@ __all__ = [
     "NOTES_LIMIT",
     "PLANNER_MAX_OUTPUT_TOKENS",
     "RECENT_DECISIONS_LIMIT",
+    "ChatAuthor",
+    "ChatDoor",
+    "ChatEntry",
+    "ChatKind",
+    "ChatLog",
+    "ChatQuery",
     "ClusterBackoff",
     "ClusterOrder",
     "ClusterOutcome",
     "ClusterState",
     "ForageLedger",
+    "GoalRequest",
+    "GoalRequestQuery",
+    "GoalRequestState",
+    "GoalRequestStore",
+    "GoalSource",
+    "GoalTerms",
     "HealthPoller",
+    "HumanChannel",
     "HumanInbox",
+    "InMemoryChatLog",
+    "InMemoryGoalRequestStore",
     "InMemoryOrderStore",
     "InvalidQueenModeTransitionError",
     "MemoryBudget",
     "ModelTieBreaker",
+    "NullHumanChannel",
     "OrderKind",
     "OrderStore",
     "Placement",
@@ -193,6 +240,7 @@ __all__ = [
     "PlannedPostcondition",
     "PlannedTask",
     "PlannerError",
+    "PlanningLane",
     "Queen",
     "QueenAction",
     "QueenDecision",
@@ -201,6 +249,8 @@ __all__ = [
     "QueenMode",
     "QueenSources",
     "ResumeOutcome",
+    "SqliteChatLog",
+    "SqliteGoalRequestStore",
     "SqliteOrderStore",
     "UnknownWardenError",
     "WardenLink",
@@ -220,6 +270,7 @@ __all__ = [
     "new_order_id",
     "next_probe_at",
     "plan_goal",
+    "plan_goal_graph",
     "queen_attendant",
     "record_event",
     "resume",

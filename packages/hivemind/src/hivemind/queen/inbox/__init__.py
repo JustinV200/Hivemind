@@ -21,11 +21,24 @@ See Also:
     - .claude/roadmap.md phase 3 step 3.20 for the work that first populates it.
 
 Public API (roadmap step 3.20):
-    - to_inbox_item, queen_attendant: build the Queen's Attendant and wrap one envelope (weights).
+    - to_inbox_item, queen_attendant: build the Queen's Attendant and wrap one envelope (weights);
+      human_inbox_item, HUMAN_PRINCIPAL: wrap one human chat message (weights, roadmap step 10.5).
     - MAX_TIE_REASON_CHARS, ModelTieBreaker: the model-backed tie-break seam (tie_breaker).
 """
 
 from hivemind.queen.inbox.tie_breaker import MAX_TIE_REASON_CHARS, ModelTieBreaker
-from hivemind.queen.inbox.weights import queen_attendant, to_inbox_item
+from hivemind.queen.inbox.weights import (
+    HUMAN_PRINCIPAL,
+    human_inbox_item,
+    queen_attendant,
+    to_inbox_item,
+)
 
-__all__ = ["MAX_TIE_REASON_CHARS", "ModelTieBreaker", "queen_attendant", "to_inbox_item"]
+__all__ = [
+    "HUMAN_PRINCIPAL",
+    "MAX_TIE_REASON_CHARS",
+    "ModelTieBreaker",
+    "human_inbox_item",
+    "queen_attendant",
+    "to_inbox_item",
+]

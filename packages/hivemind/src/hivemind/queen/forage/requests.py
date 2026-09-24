@@ -20,8 +20,9 @@ Fits into the Hive:
     sub-package. Called by `hivemind.queen.ticks.forage`, once per received `ForageRequest`. Calls
     into `hivemind.forage` (ForageGrant, SeatReservation), `hivemind.queen.autopilot`
     (ForageAutopilotOutcome, ForageRequestSignal, decide_forage_request), `hivemind.queen.deps`
-    (QueenDeps), `hivemind.queen.forage.grants` (revise) and `hivemind.queen.forage.ledger`
-    (ForageLedger) only.
+    (QueenDeps), `hivemind.queen.forage.grants` (revise), `hivemind.queen.forage.ledger`
+    (ForageLedger) and `hivemind.queen.intake` (goal_spend_cap: a SPEND request is measured
+    against the goal's own budget when its request set a lower one, roadmap step 10.5) only.
 
 Key invariants:
     - `handle_forage_request_for_kind` never mutates the ledger on a DENY or NEEDS_JUDGEMENT
@@ -46,6 +47,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from hivemind.brood_chamber import TaskNotFoundError
 from hivemind.forage import ForageGrant
 from hivemind.forage.models.grants import SeatReservation
 from hivemind.queen.autopilot import (
@@ -55,6 +57,7 @@ from hivemind.queen.autopilot import (
 )
 from hivemind.queen.forage import grants
 from hivemind.queen.forage.ledger import ForageLedger
+from hivemind.queen.intake import goal_spend_cap
 from waggle.ids import TaskId
 from waggle.messages.forage import ForageRequest as WireForageRequest
 from waggle.messages.forage.values import ForageRequestKind as WireForageRequestKind
@@ -212,7 +215,7 @@ async def _handle_spend(
         return ForageRequestOutcome(ForageAutopilotOutcome.DENY, None, _SPEND_NEEDS_GOAL_REASON)
 
     wanted = wire_request.wanted.spend
-    headroom = ledger.spend.headroom(goal_id, deps.budgets.spend_cap_usd)
+    headroom = ledger.spend.headroom(goal_id, await _goal_spend_cap(deps, goal_id))
     outcome = decide_forage_request(
         ForageRequestSignal(within_headroom=wanted <= headroom, shrinkable=False)
     )
@@ -310,3 +313,12 @@ def _reason(outcome: ForageAutopilotOutcome, dimension: str, wanted: float, free
             "but shrinking another live grant could -- contested, needs judgement."
         )
     return f"Wants {wanted} {dimension} against {free} free, and no other live grant to shrink."
+
+
+async def _goal_spend_cap(deps: QueenDeps, goal_id: TaskId) -> float:
+    """Return the spend cap for `goal_id`'s goal: its request's budget when lower (step 10.5)."""
+    try:
+        task = await deps.chamber.get(goal_id)
+    except TaskNotFoundError:
+        return deps.budgets.spend_cap_usd  # No such task: the manifest's cap, as before 10.5.
+    return goal_spend_cap(deps.budgets, task.spec)

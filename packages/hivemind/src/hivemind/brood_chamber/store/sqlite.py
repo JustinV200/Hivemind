@@ -317,7 +317,7 @@ def _select_tasks_rows(connection: sqlite3.Connection, query: TaskFilter) -> lis
     clauses, params = _task_query_where(query)
     sql = _SELECT_TASKS_BODY_SQL
     if clauses:
-        # clauses holds only fixed column-name literals chosen from the branches in
+        # clauses holds only fixed column-name (or JSON-path) literals chosen from the branches in
         # _task_query_where below; every value is bound through "?" in params, never interpolated.
         sql = f"{sql} WHERE {' AND '.join(clauses)}"
     sql += _ORDER_TASKS_BY
@@ -336,6 +336,11 @@ def _task_query_where(query: TaskFilter) -> tuple[list[str], list[object]]:
     if query.goal_id is not None:
         clauses.append("goal_id = ?")
         params.append(query.goal_id)
+    if query.goal_request_id is not None:
+        # The request id rides in the task's JSON body (TaskSpec.goal_request_id), not a column:
+        # only the Queen's crash recovery looks a goal up by it, so a scan beats a migration.
+        clauses.append("json_extract(body, '$.spec.goal_request_id') = ?")
+        params.append(query.goal_request_id)
     return clauses, params
 
 

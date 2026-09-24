@@ -14,7 +14,12 @@ says is ready. The work each action does lives in `hivemind.queen.ticks`, `hivem
 dispatcher`, `hivemind.queen.questions` and `hivemind.queen.goal_submission` (`submit_goal`,
 roadmap step 5.0b: threads `deps.scratch_root` into the plan so a declared leaving inside it is
 refused while planning), this module's own delegates, split out only so this file and its `Queen`
-class stay within codingrules 5.1's size limits.
+class stay within codingrules 5.1's size limits. Roadmap step 10.5 (ADR-0032) makes her the human
+end of the Hive Entrance: her tick also awaits `QueenDeps.wake` beside her Warden links, drains the
+human's waiting chat messages into the same Attendant (`hivemind.queen.ticks.chat`), runs every
+awake episode through `hivemind.queen.ticks.awake` (a `REPLY` decision's words go to the chat), and
+plans durable goal requests (`hivemind.queen.ticks.intake`); her human-facing methods
+(`request_goal`, `post_human_message`, ...) are the `hivemind.queen.chat.ChatDoor` mixin.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Constructed by whichever
@@ -69,12 +74,10 @@ from typing import Any, ClassVar
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.common.tasks import reap_all, reaping
-from hivemind.memory import TriggerEvent
 from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import attach, goal_submission, leave_memory, questions, ticks
-from hivemind.queen.autopilot import QueenAction, decide, effort_for
-from hivemind.queen.awake import QueenSources, decide_awake
-from hivemind.queen.cluster import awake_available
+from hivemind.queen.autopilot import QueenAction, decide
+from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
@@ -96,6 +99,7 @@ from waggle.envelope import Envelope, wrap
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import CellId, MessageId, TaskId, WardenId
 from waggle.loop import TickLoop
+from waggle.messages.control import HumanMessage
 from waggle.messages.supervision import (
     AlarmRaised,
     Answer,
@@ -110,7 +114,7 @@ from waggle.messages.task import TaskResult
 __all__ = ["Queen"]
 
 
-class Queen(TickLoop):
+class Queen(ChatDoor, TickLoop):
     """The Hive's single orchestrator: her own inbox, autopilot, awake mode, and Supervisor face.
 
     Owns her own mutable state in place (codingrules section 8.5), documented here: `_wardens`,
@@ -211,9 +215,8 @@ class Queen(TickLoop):
         Returns:
             The goal's own id (the first task minted from the plan).
         """
-        return await goal_submission.submit_goal(
-            self._deps, self.wardens, goal, clearance=clearance, capabilities=capabilities
-        )
+        terms = goal_submission.GoalTerms(clearance=clearance, capabilities=capabilities)
+        return await goal_submission.submit_goal(self._deps, self.wardens, goal, terms)
 
     async def answer_question(
         self,
@@ -329,6 +332,9 @@ async def _stop_queen(queen: Queen) -> None:
     TickLoop.stop(queen)  # Same as super().stop() would from inside Queen.stop's own body.
     await reap_all(queen._receive_tasks.values())
     queen._receive_tasks.clear()
+    # Roadmap step 10.5: a plan still in flight is reaped too; its request stays PLANNING, which
+    # the next start settles (hivemind.queen.ticks.intake), so nothing is lost or planned twice.
+    await ticks.intake.stop_planning(queen._deps.planning)
 
 
 async def _send_intervene(queen: Queen, child: str, intervention: Intervention) -> None:
@@ -353,22 +359,30 @@ async def _send_intervene(queen: Queen, child: str, intervention: Intervention) 
 
 
 async def _run_tick(queen: Queen) -> None:
-    """Drain what is ready, order it, act on it, then check liveness and dispatch."""
+    """Wait for a Warden link or the wake signal, act on what arrived, then the fixed sweeps."""
     receive_tasks = _receive_tasks_snapshot(queen)
-    # Throwaway: only wakes this wait early when stop() is called mid-tick.
+    wake = queen._deps.wake
+    # Throwaways: stop() ends this wait early, and so does the wake signal a goal request, a human
+    # message or a finished plan sets (ADR-0032: she awaits it beside her Warden links).
     stop_task: asyncio.Task[bool] = asyncio.ensure_future(queen._stop.wait())
-    waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), stop_task}
-    # reaping (not a bare reap after this line) so stop_task is never left pending even when this
-    # tick is cancelled from outside (this dispatch's own rule 1).
-    async with reaping(stop_task):
+    wake_task: asyncio.Task[bool] = asyncio.ensure_future(wake.wait())
+    waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), stop_task, wake_task}
+    # reaping (not a bare reap after this line) so neither waiter is ever left pending even when
+    # this tick is cancelled from outside (this dispatch's own rule 1).
+    async with reaping(stop_task), reaping(wake_task):
         done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
     if stop_task in done:
         return
-    items = _drain_items(queen, receive_tasks, done)
+    # Cleared before anything is drained, so a wake set while this tick runs starts the next one.
+    wake.clear()
+    items = [*_drain_items(queen, receive_tasks, done), *await ticks.chat.human_items(queen._deps)]
     if items:
         ordered = await queen._attendant.order(tuple(items))
         for item in ordered:
             await _handle_item(queen, item)
+    # Roadmap step 10.5: settle, hold or start planning goal requests before dispatch below places
+    # whatever a just-finished plan made ready.
+    await ticks.intake.drain_goal_requests(queen._deps, queen.wardens)
     await ticks.liveness.check_liveness(
         queen._deps, queen.wardens, queen._liveness, queen._human_inbox
     )
@@ -454,40 +468,16 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
     # redispatch's own docstring for why a RUNNING task's attempt count cannot live in the chamber.
     attempts = queen._attempts.get(task.id, 1) if task is not None else 0
     action = decide(item, task, attempts, queen._deps.policy, queen._deps.alarm_attempt_limit)
-    came_from_awake = False
-    if action is QueenAction.NEEDS_JUDGEMENT:
-        action = await _run_awake(queen, item)
-        came_from_awake = True
+    message: str | None = None
+    came_from_awake = action is QueenAction.NEEDS_JUDGEMENT
+    if came_from_awake:
+        # One stateless episode (hivemind.queen.ticks.awake); a REPLY brings its words with it.
+        decision = await ticks.awake.run_awake(queen._deps, queen._human_inbox, item)
+        action, message = decision.action, decision.message
     if came_from_awake or action is QueenAction.ESCALATE_TO_HUMAN:
         subject = task.id if task is not None else queen._deps.identity.hive_id
         await record_event(queen._deps, "queen.decided", subject, action=action.value)
-    await _act(queen, action, item, task, WardenId(item.principal))
-
-
-async def _run_awake(queen: Queen, item: InboxItem) -> QueenAction:
-    """Run one stateless awake episode for `item`, record that it happened, and return its action.
-
-    The decision's own `binding` (a REBIND hint) is not read here: `hivemind.queen.ticks.alarms`
-    always resolves the fallback key itself from `deps.bindings`, the one source of truth for a
-    task's own slot chain, so the model's own suggestion is advisory only.
-    """
-    sources = QueenSources(queen._deps.chamber, queen._deps.memory, queen._human_inbox)
-    effort = effort_for(item.kind)
-    event = TriggerEvent(
-        kind=item.payload_kind,
-        summary=f"{item.payload_kind} from {item.principal}",
-        payload_ref=item.id,
-        clearance=HoneyClearance.C2,
-    )
-    # Roadmap step 4.9: while the Queen's own slot is clustered, autopilot never wakes the model;
-    # the item takes the chain's last step instead (codingrules 8.8: the human is always last).
-    if not awake_available(queen._deps.cluster_state, queen._deps):
-        return QueenAction.ESCALATE_TO_HUMAN
-    decision = await decide_awake(queen._deps, event, sources, effort)
-    await record_event(
-        queen._deps, "queen.awake", queen._deps.identity.hive_id, event_kind=item.payload_kind
-    )
-    return decision.action
+    await _act(queen, action, item, task, message)
 
 
 async def _task_for_item(deps: QueenDeps, item: InboxItem) -> Task | None:
@@ -501,10 +491,14 @@ async def _task_for_item(deps: QueenDeps, item: InboxItem) -> Task | None:
 
 
 async def _act(
-    queen: Queen, action: QueenAction, item: InboxItem, task: Task | None, warden_id: WardenId
+    queen: Queen, action: QueenAction, item: InboxItem, task: Task | None, message: str | None
 ) -> None:
     """Carry out one decided QueenAction; a payload-type mismatch (a stale wire kind) is a no-op."""
-    payload = item.payload
+    payload, warden_id = item.payload, WardenId(item.principal)
+    if action is QueenAction.REPLY:
+        # Words for the human (ADR-0032), whatever woke the episode; the item itself is still
+        # handled below, so an Alarm answered with a REPLY still reaches its own handling.
+        await ticks.chat.reply(queen._deps, item, message)
     if isinstance(payload, TaskResult):
         await _act_on_task_result(queen, action, payload, warden_id)
     elif isinstance(payload, AlarmRaised):
@@ -520,6 +514,9 @@ async def _act(
     elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(payload, Question):
         asked = questions.AskedQuestion(payload, task, warden_id, MessageId(item.id))
         await questions.block_on_question(queen, asked)
+    elif isinstance(payload, HumanMessage):
+        # The episode already wrote its decision down: stamp the message so it is never re-read.
+        await ticks.chat.mark_handled(queen._deps, item)
     elif isinstance(payload, Answer):
         pass  # ROUTE_ANSWER: no wire path produces this in v0 (see hivemind.queen.questions).
 

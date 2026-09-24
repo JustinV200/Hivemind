@@ -61,7 +61,8 @@ Fits into the Hive:
     (Ceilings, ForageGrant, GrantInputs, ModelSlot, grant), `hivemind.pheromone` (ForageEvent),
     `hivemind.guard` (the placement point), `hivemind.pheromone` (MAX_PAYLOAD_STRING_CHARS),
     `hivemind.queen.authority`, `hivemind.queen.deps` (QueenDeps, WardenLink),
-    `hivemind.queen.forage.grants` (activate, roadmap step 4.7), `hivemind.queen.placement`
+    `hivemind.queen.forage.grants` (activate, roadmap step 4.7), `hivemind.queen.intake`
+    (goal_budgets: a requested goal's own budget, roadmap step 10.5), `hivemind.queen.placement`
     (Placement, PlacementError, ProvisionVirtual, ReuseDormant, ReuseReal, decide),
     `hivemind.queen.dispatcher.acquire`/`.grants`/`.snapshot`, `hivemind.queen.trail`
     (record_event, record_forage_event) and waggle only.
@@ -113,6 +114,7 @@ from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventor
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
 from hivemind.queen.forage.hosting import write_hosting_plan
+from hivemind.queen.intake import goal_budgets
 from hivemind.queen.placement import Placement, PlacementError, ProvisionVirtual, decide
 from hivemind.queen.trail import record_event, record_forage_event
 from waggle.envelope import wrap
@@ -418,7 +420,7 @@ async def _deny_zero_grant(
 def _grant_inputs(
     deps: QueenDeps, link: WardenLink, holder: WardenId, cell_id: CellId, task: Task
 ) -> GrantInputs:
-    """Build one ready task's GrantInputs from its Cell, its Tempo and the Queen's own budgets."""
+    """Build one ready task's GrantInputs from its Cell, its Tempo and its goal's own budgets."""
     return GrantInputs(
         cell_capacity=link.cell.capacity,
         role=WorkerRole.DRONE,
@@ -426,7 +428,8 @@ def _grant_inputs(
         tempo=task.spec.needs.tempo,
         map=deps.map,
         reserve=deps.reserve,
-        budgets=deps.budgets,
+        # Roadmap step 10.5: a requested goal's own budget narrows the manifest's per-goal cap.
+        budgets=goal_budgets(deps.budgets, task.spec),
         holder=holder,
         cell_id=cell_id,
         task_id=task.id,

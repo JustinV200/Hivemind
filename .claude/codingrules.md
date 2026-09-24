@@ -1789,6 +1789,7 @@ transaction as the state change.
 | Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
 | Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `INVITED → EXPIRED / REVOKED` (the invite lapsed unredeemed, or the operator cancelled it); `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → EXPIRED / REVOKED` (the approval's own expiry, or the operator) | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance_*` event pushed to every other device. |
 | Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | Persisted in the Entrance tables, so a restart resumes the mode it left; `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up; a failed remote listener reduces rather than stopping the Queen. |
+| Goal request | Queen, `queen/intake/state.py` | `RECEIVED → PLANNING → PLANNED / REFUSED`; `RECEIVED → AWAITING_CONFIRMATION → RECEIVED / REFUSED` (the human confirms or declines an echoed-back goal) | Committed before the Entrance answers `202`; only the Queen plans it, on her own tick; on a restart a `PLANNING` row whose goal already exists becomes `PLANNED` and any other is planned again, so a request is planned exactly once; every edge is a `queen.goal_request_*` event. |
 | Pending confirmation | Entrance, `entrance/auth/confirm/state.py` | `PENDING → CONFIRMED / EXPIRED / CANCELLED` | Holds a non-interactive device's request that needs step-up; confirmed only from an interactive device inside its step-up window, and carried out at most once; a hold whose device has lost its approval is settled `CANCELLED` when it is next touched; break-glass actions are never held. |
 
 Where state lives, and what survives a Queen crash:
@@ -1809,6 +1810,7 @@ Where state lives, and what survives a Queen crash:
 | Provider health | In memory | No | Re-probed on start. |
 | A bee's in-flight reasoning | Its process, and its last Handoff | Via the Handoff | Resume from the Handoff on the same or another slot or host. |
 | Hive identity and the Queen's address | Secret store (keypair); manifest `[hive_stand] address`; every device's enrolment record | Yes | Supersedure (8.16) rewrites the address on every node with a signed `QueenMoved`. |
+| Goal requests, the chat log | Queen tables (SQLite) | Yes | `RECEIVED` and `PLANNING` requests are planned (or settled) on start; unhandled human messages are read again. |
 | Operator credential, enrolled devices, sessions, push subscriptions | Entrance tables (SQLite) | Yes | Password hash and device public keys only; sessions are re-validated against device state on start; move with the stores on Supersedure. |
 
 Five rules follow from the tables:

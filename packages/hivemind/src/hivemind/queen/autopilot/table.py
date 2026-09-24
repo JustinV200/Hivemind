@@ -10,8 +10,10 @@ type: a `Heartbeat` is `RECORD`; a `TaskResult` resolves to `COMPLETE_TASK`, `RE
 `FAIL_TASK`; an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`, exactly the
 way `hivemind.wardens.autopilot.table._decide_alarm` does for a Warden, but capped by `limit`
 first, since the Queen is the last supervisor before the human and must never retry or rebind
-forever; a `Question` is `BLOCK_ON_QUESTION`; an `Answer` is `ROUTE_ANSWER`; anything this table
-has never seen returns `NEEDS_JUDGEMENT`. A task already in a terminal `TaskStatus`
+forever; a `Question` is `BLOCK_ON_QUESTION`; an `Answer` is `ROUTE_ANSWER`; a human's chat
+message (`waggle.messages.control.HumanMessage`, roadmap step 10.5) is `NEEDS_JUDGEMENT` by an
+explicit rule, since free text has no deterministic answer (ADR-0032); anything this table has
+never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
 (`hivemind.brood_chamber.TERMINAL_STATUSES`) makes a `TaskResult`/`AlarmRaised` about it a no-op
 `RECORD`: a stale or duplicate report about work the Queen already closed out is not a fresh
 decision to make.
@@ -51,6 +53,7 @@ from hivemind.queen.autopilot.actions import QueenAction
 from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
+from waggle.messages.control import HumanMessage
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
 from waggle.messages.task import TaskOutcome, TaskResult
 
@@ -110,6 +113,9 @@ def decide(
         return QueenAction.ROUTE_ANSWER
     if isinstance(payload, Heartbeat):
         return QueenAction.RECORD
+    if isinstance(payload, HumanMessage):
+        # ADR-0032: autopilot has no rule for free text; the human's words always wake a model.
+        return QueenAction.NEEDS_JUDGEMENT
     # A kind this table has never seen: hand off to queen.awake rather than silently dropping it.
     return QueenAction.NEEDS_JUDGEMENT
 

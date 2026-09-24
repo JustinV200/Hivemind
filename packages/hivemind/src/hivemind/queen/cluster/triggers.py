@@ -13,6 +13,7 @@ Fits into the Hive:
     sub-package. Called by `hivemind.queen.cluster.tick.run_cluster_tick`, once per tick, ahead of
     the order and health checks. Calls into `hivemind.forage` (UnknownSourceError),
     `hivemind.queen.cluster.protocol` (cluster), `hivemind.queen.deps` (QueenDeps, WardenLink),
+    `hivemind.queen.intake` (goal_spend_cap: a requested goal's own budget, roadmap step 10.5),
     `hivemind.queen.state` (ClusterState) and waggle only.
 
 Key invariants:
@@ -36,6 +37,7 @@ from typing import TYPE_CHECKING
 from hivemind.forage import ForageGrant, UnknownSourceError
 from hivemind.llm import HealthState
 from hivemind.queen.cluster.protocol import ClusterOutcome, cluster
+from hivemind.queen.intake import goal_spend_cap
 from hivemind.queen.state import ClusterState
 
 if TYPE_CHECKING:
@@ -67,7 +69,10 @@ async def check_cost_caps(
         if grant.task_id is None:
             continue
         task = await deps.chamber.get(grant.task_id)
-        headroom = deps.ledger.spend.headroom(task.goal_id, deps.budgets.spend_cap_usd)
+        # Roadmap step 10.5: a requested goal's own budget is its cap, when lower than the
+        # manifest's own per-goal cap.
+        cap = goal_spend_cap(deps.budgets, task.spec)
+        headroom = deps.ledger.spend.headroom(task.goal_id, cap)
         if headroom > 0:
             continue  # This goal is still within its cap; its grant's providers stay untouched.
         for provider in providers_of(grant, deps):

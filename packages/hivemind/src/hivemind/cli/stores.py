@@ -73,7 +73,8 @@ Public API:
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
     - open_trail, open_chamber, open_memory, open_leavings, open_ledger: the store composition
-      functions.
+      functions; open_goal_requests and open_chat_log (roadmap step 10.5) open the Queen's own
+      goal-request table and chat log the same way.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
       conversion functions.
 """
@@ -105,8 +106,10 @@ from hivemind.llm import (
 from hivemind.manifest import HiveManifest, ManifestError, load_manifest
 from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
+from hivemind.queen.chat import SqliteChatLog
 from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.forage.ledger import SqliteLedgerStore
+from hivemind.queen.intake import SqliteGoalRequestStore
 from waggle.clock import Clock, SystemClock
 
 # Shared so `hive tasks`, `hive trail` and `hive capping` declare `--db` with the exact same flag
@@ -141,7 +144,9 @@ __all__ = [
     "build_registry",
     "load_manifest_or_exit",
     "open_chamber",
+    "open_chat_log",
     "open_cluster_orders",
+    "open_goal_requests",
     "open_leavings",
     "open_ledger",
     "open_memory",
@@ -221,6 +226,50 @@ def open_memory(db: Path) -> MemoryStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_goal_requests(db: Path) -> SqliteGoalRequestStore:
+    """Open `db` and return the Queen's durable goal-request table, trail migrations first.
+
+    Roadmap step 10.5 (ADR-0032): `hivemind.cli.compose.deps.open_default_stores` calls this so a
+    goal request is committed on the Hive's own file before the Hive Entrance acknowledges it.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteGoalRequestStore whose `goal_requests` table exists and is current.
+    """
+
+    async def _open() -> SqliteGoalRequestStore:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same "trail's migration runs first" rule as open_chamber: every write here inserts a
+        # queen.goal_request_* event into pheromone_events on this same connection.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteGoalRequestStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_chat_log(db: Path) -> SqliteChatLog:
+    """Open `db` and return the Queen's chat log, trail migrations first (roadmap step 10.5).
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteChatLog whose `chat_entries` table exists and is current.
+    """
+
+    async def _open() -> SqliteChatLog:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same rule again: a human message's arrival and a reply insert their event here too.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteChatLog.create(connection, clock)
 
     return asyncio.run(_open())
 

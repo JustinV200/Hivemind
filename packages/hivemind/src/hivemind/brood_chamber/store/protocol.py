@@ -6,7 +6,8 @@ The Brood Chamber (`hivemind.brood_chamber`) is the Hive's task store: every `Ta
 module fixes the one seam every implementation must honour (codingrules section 8.1): a `Task` or
 `Question` mutation and the `TaskEvent` (`hivemind.pheromone`) that records it on the Pheromone
 Trail commit together, in the same transaction, or neither commits at all (Appendix C rule 3, "the
-trail can never disagree with the store"). `TaskFilter` is `list_tasks`'s query shape.
+trail can never disagree with the store"). `TaskFilter` is `list_tasks`'s query shape (status,
+goal, and since roadmap step 10.5 the goal request a task was planned from).
 `check_task_event` is the one guard both implementations (`hivemind.brood_chamber.store.memory.
 MemoryTaskStore`, `hivemind.brood_chamber.store.sqlite.SqliteTaskStore`) call before writing, so a
 bug inside the Brood Chamber can never file an event under the wrong task's `subject_id` or the
@@ -48,6 +49,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.brood_chamber.questions import Question, QuestionStatus
+from hivemind.brood_chamber.task.goal_request import GoalRequestRef
 from hivemind.brood_chamber.task.model import Task
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.common.errors import InvariantViolationError
@@ -83,6 +85,9 @@ class TaskFilter(BaseModel):
     goal_id: TaskIdField | None = Field(
         default=None, description="Only tasks whose goal_id equals this."
     )
+    # Roadmap step 10.5: how the Queen finds a goal she already planned for a request, after a
+    # crash between persisting the graph and marking the request PLANNED (hivemind.queen.intake).
+    goal_request_id: GoalRequestRef = None
     limit: int = Field(
         default=DEFAULT_TASK_FILTER_LIMIT,
         ge=MIN_TASK_FILTER_LIMIT,

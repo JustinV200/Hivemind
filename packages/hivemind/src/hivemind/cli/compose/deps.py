@@ -3,8 +3,9 @@
 Codingrules section 13: the composition root is the only place a `HiveManifest` is turned into the
 deps every subsystem actually takes; this module is that conversion for roadmap step 3.21's second
 half, one function per collaborator so `hivemind.cli.compose.hive.build_hive` stays a short list of
-calls. `HiveStores` groups the three stores every Hive shares one SQLite file for (mirrors
-`hivemind.cli.stores`'s own `open_trail`/`open_chamber`/`open_memory`, now composed together);
+calls. `HiveStores` groups the stores every Hive shares one SQLite file for (mirrors
+`hivemind.cli.stores`'s own `open_*` functions, composed together; roadmap step 10.5 adds the
+Queen's goal-request table and chat log, which the Hive Entrance reads directly);
 `HiveParts` groups what `build_warden_deps` and `build_queen_deps` both need (codingrules section
 5.1: "introduce a frozen dataclass for the argument group"), built by `build_hive` only once its
 own `Fanner` and `ProviderRegistry` already exist -- `build_hive_stand_source` and `build_fanner`
@@ -62,7 +63,9 @@ from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import (
     build_registry,
     open_chamber,
+    open_chat_log,
     open_cluster_orders,
+    open_goal_requests,
     open_leavings,
     open_ledger,
     open_memory,
@@ -93,7 +96,9 @@ from hivemind.manifest.schema import PlacementSection
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
+from hivemind.queen.chat import ChatLog
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
+from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import PlacementPolicy
 from hivemind.supervision import load_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
@@ -133,12 +138,17 @@ class HiveStores:
         memory: Where every Pin, Note, Handoff and episode this Hive writes lives.
         leavings: The Leavings ledger `build_hive_stand_source` hands to every
             `HiveStandLeaseReleaser` this Hive builds (roadmap step 5.0a).
+        goal_requests: The Queen's durable goal-request table (roadmap step 10.5, ADR-0032).
+        chat: The Queen's chat log, the human end of her inbox (roadmap step 10.5); the Hive
+            Entrance reads both directly, since reading never changes state.
     """
 
     trail: PheromoneTrail
     chamber: BroodChamber
     memory: MemoryStore
     leavings: LeavingsStore
+    goal_requests: GoalRequestStore
+    chat: ChatLog
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +197,8 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         chamber=open_chamber(db, identity),
         memory=open_memory(db),
         leavings=open_leavings(db),
+        goal_requests=open_goal_requests(db),
+        chat=open_chat_log(db),
     )
 
 
@@ -436,6 +448,8 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         clock=parts.clock,
         policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
         enforcer=parts.enforcer,  # Roadmap step 10.3: every enforcement point the Queen passes.
+        goal_requests=parts.stores.goal_requests,  # Roadmap step 10.5: her durable goal requests.
+        chat=parts.stores.chat,  # Roadmap step 10.5: the human end of her inbox.
         bound_for=parts.registry.bound,
         rebind=parts.registry.bound_for_key,
         bindings=slot_bindings(manifest),

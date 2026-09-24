@@ -88,8 +88,8 @@ def _mint_task(
 
     A module-level function rather than a method: it touches no chamber state at all, and pulling
     it out of `submit` is what keeps that method inside the codingrules 5.1 fifty-line budget once
-    `TaskSpec` carries `origin` (roadmap step 5.7a), `leaves` (roadmap step 5.0b) and the goal's
-    `capabilities` (roadmap step 10.3).
+    `TaskSpec` carries `origin` (roadmap step 5.7a), `leaves` (roadmap step 5.0b), the goal's
+    `capabilities` (roadmap step 10.3) and its request's id and spend cap (roadmap step 10.5).
 
     Args:
         draft: The already-validated draft to mint.
@@ -113,6 +113,8 @@ def _mint_task(
             depends_on=tuple(minted_ids[key] for key in draft.depends_on),
             leaves=draft.leaves,
             capabilities=draft.capabilities,
+            goal_request_id=draft.goal_request_id,
+            spend_cap_usd=draft.spend_cap_usd,
         ),
         status=TaskStatus.PENDING,
         created_at=now,

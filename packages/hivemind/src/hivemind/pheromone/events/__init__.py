@@ -2,9 +2,10 @@
 
 Every state-changing action anywhere in the Hive is recorded as one of the event subclasses this
 package exports (codingrules section 12). `base` defines the shared shape (`PheromoneEvent`) and
-`LlmUsage`, the normalised usage value `llm.call` carries; `families` defines one subclass per
-event family plus the JSON codec (`parse_event`, `parse_event_json`) that decodes a stored or
-wire-carried event without the caller knowing its family in advance. This face re-exports both
+`LlmUsage`, the normalised usage value `llm.call` carries; `families` (a package: the vocabulary
+split by what it records, plus its codec) defines one subclass per event family and the JSON codec
+(`parse_event`, `parse_event_json`) that decodes a stored or wire-carried event without the caller
+knowing its family in advance. This face re-exports both
 modules' public names so a caller writes `from hivemind.pheromone.events import parse_event`
 without knowing the split (codingrules 5.2).
 

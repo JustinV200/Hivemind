@@ -28,11 +28,12 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick, once per Heartbeat received
     (`record_heartbeat`, `renew_grants_on_heartbeat`) and unconditionally once per tick
-    (`check_liveness`). Calls into `hivemind.cell` (HoneyClearance), `hivemind.queen.deps`
-    (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (renew_grants_for_warden,
-    sweep_expired), `hivemind.queen.human_inbox` (HumanInbox), `hivemind.queen.ticks.wax`
-    (handle_wax_item), `hivemind.supervision` (Alarm, AlarmKind, AlarmSeverity, AlarmState) and
-    waggle only.
+    (`check_liveness`). Calls into `hivemind.cell` (HoneyClearance), `hivemind.queen.chat`
+    (post_alarm: an offline Warden's Alarm reaches the chat, roadmap step 10.5),
+    `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants`
+    (renew_grants_for_warden, sweep_expired), `hivemind.queen.human_inbox` (HumanInbox),
+    `hivemind.queen.ticks.wax` (handle_wax_item), `hivemind.supervision` (Alarm, AlarmKind,
+    AlarmSeverity, AlarmState) and waggle only.
 
 Key invariants:
     - `check_liveness` re-derives `missed_heartbeats` from elapsed wall-clock time on every call,
@@ -62,6 +63,7 @@ from typing import cast
 
 from hivemind.cell import HoneyClearance
 from hivemind.memory.thresholds import Thresholds
+from hivemind.queen.chat import post_alarm
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
@@ -252,8 +254,11 @@ async def check_liveness(
             current, missed_heartbeats=missed, is_offline=offline
         )
         if offline and not current.is_offline:
-            # The transition only: one Alarm per Warden per outage, not one per later check.
-            human_inbox.add_alarm(_offline_alarm(deps, link))
+            # The transition only: one Alarm per Warden per outage, not one per later check;
+            # it reaches the human in the chat too (roadmap step 10.5, ADR-0032).
+            alarm = _offline_alarm(deps, link)
+            human_inbox.add_alarm(alarm)
+            await post_alarm(deps, alarm)
     # roadmap step 4.7's own exit criterion: "A Warden whose heartbeat stops has its grant back in
     # the pool after expiry." Unconditional, like the loop above: a grant's own expires_at is a
     # wall-clock deadline independent of any one Warden's liveness state, so this runs every tick

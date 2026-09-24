@@ -5,8 +5,11 @@ Codingrules section 12: every trail event carries "ids, counts and enums, never 
 task id for `queen.assigned` and every task-scoped `queen.decided`. `record_event` is the one
 function every module under `hivemind.queen` that writes a `queen.*` event calls, so the shape
 (minted id, this Queen's own identity, `subject_id`, a payload of ids/enums/counts only) is built
-in exactly one place rather than once per caller. `record_forage_event` is its forage-family
-sibling (roadmap step 4.7): `hivemind.queen.dispatcher._record_forage_granted` already builds a
+in exactly one place rather than once per caller. `queen_event` builds the same shape without
+recording it (roadmap step 10.5): a goal request's edges and a chat entry's arrival are written
+by their own store in the same transaction as their row (codingrules Appendix C), so that store,
+not this helper, records it. `record_forage_event` is its forage-family sibling (roadmap step
+4.7): `hivemind.queen.dispatcher._record_forage_granted` already builds a
 `hivemind.pheromone.ForageEvent` by hand because no such helper existed yet (that dispatch's own
 flagged gap); `hivemind.queen.forage.grants` and `.requests` are this helper's own two callers, so
 every `forage.*` kind they write shares one shape too, the same way `record_event` already does
@@ -47,7 +50,31 @@ if TYPE_CHECKING:
     # import here would cycle back through queen/forage/__init__.py -> grants.py -> this module.
     from hivemind.queen.deps import QueenDeps
 
-__all__ = ["record_event", "record_forage_event"]
+__all__ = ["queen_event", "record_event", "record_forage_event"]
+
+
+def queen_event(deps: QueenDeps, kind: str, subject_id: str, **payload: JsonValue) -> QueenEvent:
+    """Build one queen.* QueenEvent, subject to `subject_id`, without recording it.
+
+    Args:
+        deps: The Queen's collaborators; `clock` and `identity` are what this stamps it with.
+        kind: One of `hivemind.pheromone.QueenEvent.KINDS`.
+        subject_id: The thing this event is about: the hive id, or a task id.
+        **payload: Ids, enum values and counts only (codingrules section 12); never free text.
+
+    Returns:
+        A validated QueenEvent, for a store that records it inside its own transaction.
+    """
+    return QueenEvent(
+        id=new_event_id(deps.clock),
+        hive_id=deps.identity.hive_id,
+        node_id=deps.identity.node_id,
+        at=deps.clock.now(),
+        actor=deps.identity.actor,
+        kind=kind,
+        subject_id=subject_id,
+        payload=payload,
+    )
 
 
 async def record_event(deps: QueenDeps, kind: str, subject_id: str, **payload: JsonValue) -> None:
@@ -59,17 +86,7 @@ async def record_event(deps: QueenDeps, kind: str, subject_id: str, **payload: J
         subject_id: The thing this event is about: the hive id, or a task id.
         **payload: Ids, enum values and counts only (codingrules section 12); never free text.
     """
-    event = QueenEvent(
-        id=new_event_id(deps.clock),
-        hive_id=deps.identity.hive_id,
-        node_id=deps.identity.node_id,
-        at=deps.clock.now(),
-        actor=deps.identity.actor,
-        kind=kind,
-        subject_id=subject_id,
-        payload=payload,
-    )
-    await deps.trail.record(event)
+    await deps.trail.record(queen_event(deps, kind, subject_id, **payload))
 
 
 async def record_forage_event(

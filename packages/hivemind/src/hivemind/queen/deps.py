@@ -18,7 +18,11 @@ into a `WardenLink` (`virtual_provider`, a `VirtualCellProvider`, defined here b
 rather than in `hivemind.queen.placement` since it names `WardenLink`/`Task` and that package must
 never import this one back). `WardenLink` is the Queen-side half of one attached Warden's own
 Waggle link: `hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own end of the
-exact same pair.
+exact same pair. Roadmap step 10.5 (ADR-0032) adds her human end: the durable goal-request table
+(`goal_requests`), the chat log (`chat`), the seam that tells the human's devices something is
+waiting (`human_channel`), and two small pieces of her own runtime bookkeeping kept here beside
+`housekeeping`: the in-process `wake` signal her tick awaits beside her Warden links, and the
+`planning` lane her one in-flight goal plan runs in (`PlanningLane`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -26,9 +30,11 @@ Fits into the Hive:
     `tests.builders.queen.make_queen_deps` in tests -- which attaches each `WardenLink` with
     `Queen.attach_warden` before `run()`. Calls into `hivemind.brood_chamber`, `hivemind.forage`,
     `hivemind.guard` (Enforcer, roadmap step 10.3), `hivemind.llm.ladders.gate`,
-    `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
-    `hivemind.queen.cluster.health`/`.orders` (HealthPoller, OrderStore, InMemoryOrderStore --
-    roadmap step 4.9), `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.queen.placement`
+    `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen.chat`
+    (ChatLog, HumanChannel, NullHumanChannel -- roadmap step 10.5), `hivemind.queen.intake`
+    (GoalRequestStore -- roadmap step 10.5), `hivemind.queen.cluster.health`/`.orders`
+    (HealthPoller, OrderStore, InMemoryOrderStore -- roadmap step 4.9),
+    `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.queen.placement`
     (PlacementPolicy, VirtualBackendCandidate, DormantCandidate, Placement -- roadmap step 5.7),
     `hivemind.supervision` and waggle only.
 
@@ -74,9 +80,11 @@ from hivemind.guard import Enforcer
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
+from hivemind.queen.chat import ChatLog, HumanChannel, NullHumanChannel
 from hivemind.queen.cluster.health import HealthPoller
 from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
+from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import (
     DormantCandidate,
     Placement,
@@ -123,6 +131,7 @@ __all__ = [
     "MemoryBudget",
     "OnCellGranted",
     "OnTaskFinished",
+    "PlanningLane",
     "QueenDeps",
     "VirtualBackendSource",
     "VirtualCellProvider",
@@ -254,6 +263,32 @@ class Housekeeping:
     ripener_unbound_warned: bool = field(default=False)
 
 
+@dataclass(slots=True)
+class PlanningLane:
+    """The Queen's one in-flight goal plan, run beside her tick rather than inside it (step 10.5).
+
+    Planning a goal is one long model call (seconds to minutes on a local model); run inside the
+    tick it would hold every Warden's Heartbeat unread long enough to mark a healthy Warden
+    offline. `hivemind.queen.ticks.intake` starts at most one plan here at a time, reaps it once
+    done on a later tick, and `Queen.stop` reaps it on the way out, so the task always has an
+    owner (codingrules section 11). Held on `QueenDeps` like `Housekeeping`, for the same reason.
+
+    Attributes:
+        request_id: The goal request being planned right now; None while the lane is free.
+        task: The asyncio task planning it; None while the lane is free.
+    """
+
+    request_id: str | None = field(default=None)
+    task: asyncio.Task[None] | None = field(default=None)
+
+
+def _set_event() -> asyncio.Event:
+    """Build the Queen's wake signal already set, so her first tick drains what a crash left."""
+    event = asyncio.Event()
+    event.set()
+    return event
+
+
 @dataclass(frozen=True, slots=True)
 class QueenDeps:
     """Every collaborator the Queen is built with; manifest slices only, never a HiveManifest.
@@ -292,6 +327,10 @@ class QueenDeps:
             step 10.3, ADR-0031): placement, grant issue, Forage requests, Warden spawn, question
             routing and Comb Shield egress. Its policy is the one every set she computes is built
             from, and it records each refusal as `guard.denied` on this Queen's own trail.
+        goal_requests: The durable goal-request table (roadmap step 10.5, ADR-0032): what
+            `Queen.request_goal` commits and her intake drain plans (`hivemind.queen.intake`).
+        chat: The chat log, the human end of her inbox (`hivemind.queen.chat`): human messages
+            in, her replies, questions and Alarms out.
         footprints: Every `[forage.roles.<role>]` footprint, forage-side, keyed by
             `waggle.messages.task.WorkerRole`; `hivemind.queen.dispatcher` reads
             `footprints[WorkerRole.DRONE]` for every fresh grant it computes (roadmap step 3.21,
@@ -361,6 +400,13 @@ class QueenDeps:
             None (the default) until the operator sets one. Read only by `hivemind.queen.
             goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.
             keep_root` so the planner can be told the keep root and declare a leaving under it.
+        human_channel: How the Queen tells the human's devices something is waiting (a reply, a
+            question, an Alarm, a goal request settled or finished); the Hive Entrance's own
+            implementation in production, `NullHumanChannel` (tells nobody) by default.
+        wake: The in-process signal her tick awaits beside her Warden links (ADR-0032), set by a
+            goal request, a human message or a finished plan; it starts set, so her first tick
+            drains whatever rows a crash left behind.
+        planning: Her one in-flight goal plan (`PlanningLane`).
     """
 
     chamber: BroodChamber
@@ -381,6 +427,8 @@ class QueenDeps:
     memory_budget: MemoryBudget
     scratch_root: Path
     enforcer: Enforcer
+    goal_requests: GoalRequestStore
+    chat: ChatLog
     footprints: Mapping[WorkerRole, RoleFootprint] = field(
         default_factory=lambda: {WorkerRole.DRONE: _DEFAULT_DRONE_FOOTPRINT}
     )
@@ -427,3 +475,9 @@ class QueenDeps:
     # to hivemind.queen.planner.PlanBrief.keep_root so the planner prompt can be told it (TaskAssign
     # itself carries no keep_root field -- see PlanBrief.keep_root's own docstring for why).
     keep_root: Path | None = None
+    # Roadmap step 10.5 (ADR-0032): the human end. Defaulted so a composition root that wires no
+    # Hive Entrance (hive run, every test) tells nobody, and so the Queen's own mutable wake and
+    # planning bookkeeping live here beside `housekeeping`, one per Queen.
+    human_channel: HumanChannel = field(default_factory=NullHumanChannel)
+    wake: asyncio.Event = field(default_factory=_set_event)
+    planning: PlanningLane = field(default_factory=PlanningLane)

@@ -134,7 +134,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivemind.brood_chamber import Answer, AnswerSource, Question, Task, TaskStatus
+from hivemind.brood_chamber import Answer, AnswerSource, Question, QuestionStatus, Task, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.guard import (
     Capability,
@@ -148,6 +148,7 @@ from hivemind.guard import (
 from hivemind.memory import MemoryStore, Note
 from hivemind.queen import leave_memory
 from hivemind.queen.authority import task_context, warden_held
+from hivemind.queen.chat import post_question
 from hivemind.queen.deps import QueenDeps, WardenLink
 from waggle.envelope import wrap
 from waggle.ids import MessageId, TaskId, WardenId
@@ -255,6 +256,8 @@ async def block_on_question(queen: Queen, asked: AskedQuestion) -> None:
     queen._open_questions[question.question_id] = question.task_id
     queen._question_wire_ids[chamber_question.id] = question.question_id
     queen._question_envelope_ids[chamber_question.id] = asked.envelope_id
+    # Roadmap step 10.5: the question reaches the human in the chat, and their devices are told.
+    await post_question(queen._deps, chamber_question)
 
 
 async def handle_question(deps: QueenDeps, question: WireQuestion) -> Question:
@@ -323,10 +326,10 @@ async def answer_question_in_process(queen: Queen, answer_input: AnswerInput) ->
     Lives here, not in `hivemind.queen.queen`, only to keep that file within its own size limit
     (this module already reaches into `Queen`'s private tracking dicts everywhere else, e.g.
     `sync_answers_from_chamber`). Roadmap step 5.0d: `answer_input.chosen_option` rides through to
-    `answer_question` unchanged, so this in-process path (a test harness's own direct answer,
-    unlike the real `hive inbox answer` -> `sync_answers_from_chamber` route `_forward_from_note`
-    remembers from) still resolves a closed-option leave Answer correctly; nothing here writes
-    `queen._leave_memory` itself.
+    `answer_question` unchanged, and a HUMAN answer choosing "keep for this whole goal" on a leave
+    Question is remembered here too, exactly as `_forward_from_note` remembers one that came
+    through `hive inbox answer` (roadmap step 10.5 closed that gap: the Entrance answers through
+    this path). The human's devices are told the question is closed either way.
     """
     wire_question_id = queen._question_wire_ids.pop(answer_input.question_id, None)
     correlation_id = queen._question_envelope_ids.pop(answer_input.question_id, None)
@@ -334,10 +337,19 @@ async def answer_question_in_process(queen: Queen, answer_input: AnswerInput) ->
     # sweep later mistakes it for "not yet forwarded" and looks for a Note that never comes.
     if wire_question_id is not None:
         queen._open_questions.pop(wire_question_id, None)
+    # Read before answering: once answered, the chamber no longer lists the question as pending.
+    leave_asked = await _is_pending_leave_question(queen._deps, answer_input.question_id)
     filled = dataclasses.replace(
         answer_input, wire_question_id=wire_question_id, correlation_id=correlation_id
     )
-    return await answer_question(queen._deps, queen.wardens, filled)
+    task = await answer_question(queen._deps, queen.wardens, filled)
+    if leave_asked and _keeps_for_goal(filled):
+        source_id = wire_question_id or answer_input.question_id
+        leave_memory.remember_if_keep_for_goal(queen, task, source_id, filled.text)
+    await queen._deps.human_channel.question_closed(
+        answer_input.question_id, QuestionStatus.ANSWERED
+    )
+    return task
 
 
 def answer_note_author(question_id: MessageId) -> str:
@@ -433,6 +445,8 @@ async def _forward_from_note(
     # the process, so it is the one place "keep for this whole goal" can be remembered from it.
     if note.chosen_option == leave_memory.KEEP_FOR_GOAL_INDEX:
         leave_memory.remember_if_keep_for_goal(queen, task, wire_question_id, note.text)
+    # Roadmap step 10.5: an answer from another process closes the question on every device too.
+    await queen._deps.human_channel.question_closed(chamber_question_id, QuestionStatus.ANSWERED)
     return True
 
 
@@ -443,6 +457,23 @@ async def _find_answer_note(memory: MemoryStore, question_id: MessageId) -> Note
     # clearance ceiling for the trigger event it builds around one.
     notes = await memory.list_notes(answer_note_author(question_id), HoneyClearance.C2, 1)
     return notes[0] if notes else None
+
+
+async def _is_pending_leave_question(deps: QueenDeps, question_id: MessageId) -> bool:
+    """Return whether `question_id` is still pending and is a leave Question (roadmap 5.0d)."""
+    pending = await deps.chamber.pending_questions()
+    question = next((asked for asked in pending if asked.id == question_id), None)
+    return question is not None and leave_memory.has_leave_options(question.options)
+
+
+def _keeps_for_goal(answer_input: AnswerInput) -> bool:
+    """Return whether `answer_input` is the human choosing "keep for this whole goal"."""
+    # Only the human's own choice is ever remembered (roadmap step 5.0d: "a Queen or Warden
+    # deciding on her own is refused"), and only the closed option, never free text.
+    return (
+        answer_input.source is AnswerSource.HUMAN
+        and answer_input.chosen_option == leave_memory.KEEP_FOR_GOAL_INDEX
+    )
 
 
 async def _may_reach_the_human(queen: Queen, asked: AskedQuestion) -> bool:

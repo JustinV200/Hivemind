@@ -27,11 +27,14 @@ def test_question_gets_medium_effort() -> None:
     assert effort_for(InboxKind.QUESTION) is Effort.MEDIUM
 
 
+def test_a_humans_chat_message_gets_medium_effort() -> None:
+    assert effort_for(InboxKind.HUMAN_MESSAGE) is Effort.MEDIUM
+
+
 @pytest.mark.parametrize(
     "kind",
     [
         InboxKind.WAGGLE_MESSAGE,
-        InboxKind.HUMAN_MESSAGE,
         InboxKind.TIMER,
         InboxKind.WATCH_OBSERVATION,
     ],

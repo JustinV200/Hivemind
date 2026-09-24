@@ -166,4 +166,6 @@ def _matches_task_filter(task: Task, query: TaskFilter) -> bool:
     """Return whether `task` satisfies every field `query` has set."""
     if query.status is not None and task.status != query.status:
         return False
+    if query.goal_request_id is not None and task.spec.goal_request_id != query.goal_request_id:
+        return False
     return not (query.goal_id is not None and task.goal_id != query.goal_id)

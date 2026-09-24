@@ -1,14 +1,17 @@
-"""Tests for hivemind.pheromone.events.families: the thirteen event families and the JSON codec.
+"""Tests for hivemind.pheromone.events.families.codec: the registry of families and the JSON codec.
+
+Also holds the tests that run across every family at once (each accepts its own vocabulary and
+refuses everyone else's), since those exercise the registry as a whole rather than one module.
 
 Fits into the Hive:
-    Mirrors src/hivemind/pheromone/events/families.py (codingrules section 3: tests/unit mirrors
-    src/ one-to-one).
+    Mirrors src/hivemind/pheromone/events/families/codec.py (codingrules section 3: tests/unit
+    mirrors src/ one-to-one).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.pheromone.events.families for the module under test.
+    - hivemind.pheromone.events.families.codec for the module under test.
 """
 
 from __future__ import annotations
@@ -35,10 +38,12 @@ from hivemind.pheromone.events.families import (
     ToolEvent,
     WardenEvent,
     WorkerEvent,
-    _build_event_families,  # White-box test of the collision assertion only; not public API.
     event_class_for,
     parse_event,
     parse_event_json,
+)
+from hivemind.pheromone.events.families.codec import (
+    _build_event_families,  # White-box test of the collision assertion only; not public API.
 )
 from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
@@ -122,137 +127,9 @@ def test_family_event_rejects_a_malformed_kind(event_cls: type[PheromoneEvent]) 
         event_cls(kind="NotAValidKindAtAll", **_base_kwargs(clock))
 
 
-def test_capping_event_kinds_include_audited() -> None:
-    # Roadmap step 4.10: sampled, after-the-fact judge review of an already-terminal proposal
-    # records capping.audited, alongside the gate's own real-time-check kinds.
-    assert "capping.audited" in CappingEvent.KINDS
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# LlmEvent's extra fields
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_llm_event_call_requires_slot_provider_and_usage() -> None:
-    clock = FakeClock()
-
-    with pytest.raises(ValidationError):
-        LlmEvent(kind="llm.call", **_base_kwargs(clock))
-
-
-def test_llm_event_call_accepts_slot_provider_and_usage() -> None:
-    clock = FakeClock()
-    usage = LlmUsage(input_tokens=10, output_tokens=5, cached_tokens=0, cost_usd=0.01)
-
-    event = LlmEvent(
-        kind="llm.call", slot="WORKER", provider="anthropic", usage=usage, **_base_kwargs(clock)
-    )
-
-    assert event.slot == "WORKER"
-    assert event.provider == "anthropic"
-    assert event.usage == usage
-
-
-@pytest.mark.parametrize("kind", ["llm.rebound", "llm.fallback", "llm.spill", "llm.throttled"])
-def test_llm_event_non_call_kinds_do_not_require_slot_provider_or_usage(kind: str) -> None:
-    clock = FakeClock()
-
-    event = LlmEvent(kind=kind, **_base_kwargs(clock))
-
-    assert event.slot is None
-    assert event.provider is None
-    assert event.usage is None
-
-
-def test_llm_event_kinds_include_throttled() -> None:
-    # Roadmap step 4.7a: the Fanner records llm.throttled after a RateLimitedError masks a
-    # source's headroom to zero on the Forage map (hivemind.forage.map.ForageMap.throttle).
-    assert "llm.throttled" in LlmEvent.KINDS
-
-
-def test_forage_event_kinds_include_ceilings_set() -> None:
-    # Roadmap step 4.8: hivemind.queen.forage.ceilings.set_ceilings/change_ceilings record this
-    # kind whenever the Queen sets or changes a Warden's Ceilings.
-    assert "forage.ceilings_set" in ForageEvent.KINDS
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # EVENT_FAMILIES and event_class_for
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
-    # roadmap step 3.14 (memory v0): added alongside the store that first needs them.
-    assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS
-
-
-def test_memory_event_kinds_include_the_phase_4_2_addition() -> None:
-    # roadmap step 4.2 (Bee Bread, the warm tier): added alongside the table that first needs it.
-    assert {"memory.bee_bread_deposited"} <= MemoryEvent.KINDS
-
-
-def test_memory_event_kinds_include_the_phase_4_4_addition() -> None:
-    # roadmap step 4.4 (overflow recovery): memory.overflow records one ContextTooLong shrink.
-    assert {"memory.overflow"} <= MemoryEvent.KINDS
-
-
-def test_queen_event_kinds_include_the_phase_3_20_additions() -> None:
-    # roadmap step 3.20 (the Queen kernel): added alongside the tick loop that first needs them.
-    assert {
-        "queen.decided",
-        "queen.planned",
-        "queen.assigned",
-        "queen.awake",
-    } <= QueenEvent.KINDS
-
-
-def test_warden_event_kinds_include_the_phase_3_19_additions() -> None:
-    # roadmap step 3.19 (the Warden): started/watch/active added alongside the state machine that
-    # first needs them.
-    assert {"warden.started", "warden.watch", "warden.active"} <= WardenEvent.KINDS
-
-
-def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
-    # roadmap step 3.15 (worker runtime): one kind per WorkerState transition it drives.
-    assert {
-        "worker.spawned",
-        "worker.started",
-        "worker.handing_off",
-        "worker.paused",
-        "worker.resumed",
-        "worker.done",
-        "worker.failed",
-        "worker.killed",
-    } == WorkerEvent.KINDS
-
-
-def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> None:
-    # Roadmap step 10.2 records guard.denied; the rest are declared now so later phase 10 steps
-    # never race on this file. The documents' guard.entrance.* is spelled guard.entrance_*
-    # because a kind has exactly one dot (KIND_PATTERN).
-    edges = {
-        "invited",
-        "pending",
-        "approved",
-        "denied",
-        "expired",
-        "locked",
-        "unlocked",
-        "revoked",
-        "login_failed",
-        "step_up",
-        "travel_lock",
-        "redeem_failed",
-    }
-    assert {
-        "guard.denied",
-        "guard.alert",
-        "guard.injection_suspected",
-        "guard.audit_rate_raised",
-        "guard.reduced",
-        "guard.reopened",
-        "guard.reduce_ordered",
-    } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
 
 
 def test_event_families_covers_exactly_the_thirteen_families() -> None:

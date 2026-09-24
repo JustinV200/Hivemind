@@ -21,10 +21,11 @@ Fits into the Hive:
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick dispatch, once per decided
     `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an `AlarmRaised`. Calls into
     `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.queen.autopilot`
-    (QueenAction), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.human_inbox`
-    (HumanInbox), `hivemind.queen.ticks.results` (fail_task, retry_task), `hivemind.queen.trail`
-    (record_event), `hivemind.supervision` (Alarm, record_alarm_event, intervention.Rebind,
-    to_wire) and waggle only.
+    (QueenAction), `hivemind.queen.chat` (post_alarm, roadmap step 10.5: an escalated Alarm is
+    appended to the chat), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
+    human_inbox` (HumanInbox), `hivemind.queen.ticks.results` (fail_task, retry_task),
+    `hivemind.queen.trail` (record_event), `hivemind.supervision` (Alarm, record_alarm_event,
+    intervention.Rebind, to_wire) and waggle only.
 
 Key invariants:
     - `handle_alarm` never re-decides `action`: it is a pure dispatch over whatever
@@ -58,6 +59,7 @@ from dataclasses import dataclass
 from hivemind.cell import CellIdentity
 from hivemind.forage.slots import ModelSlot
 from hivemind.queen.autopilot import QueenAction
+from hivemind.queen.chat import post_alarm
 from hivemind.queen.cluster.triggers import cluster_if_down
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
@@ -197,7 +199,7 @@ async def _cluster_or_retry(
 
 
 async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRaised) -> None:
-    """Add `payload` to the human inbox and record the Queen's own decision to escalate."""
+    """Add `payload` to the human inbox and the chat, and record the decision to escalate."""
     alarm = Alarm.from_wire(payload)
     human_inbox.add_alarm(alarm)
     subject = payload.context.task_id or deps.identity.hive_id
@@ -205,6 +207,8 @@ async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRais
         deps, "queen.decided", subject, action="ESCALATE_TO_HUMAN", alarm_id=alarm.id
     )
     await record_alarm_event(deps.trail, _identity(deps), deps.clock, alarm, "alarm.escalated")
+    # Roadmap step 10.5 (ADR-0032): the chain's last hop is the chat, and the human's devices.
+    await post_alarm(deps, alarm)
 
 
 async def _record_handled(

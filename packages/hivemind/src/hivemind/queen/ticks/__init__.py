@@ -19,7 +19,11 @@ autopilot.wax.decide_wax_proposal`); `decide`'s own fallback for an unrecognised
 step 4.3's own wiring step) is `run_housekeeping`, the single call `queen.py`'s own tick makes in
 place of the Clustering-only `run_cluster_tick` it used to call directly: it still runs
 `run_cluster_tick` first, then a House Bee sweep (demotion, Cell Wax expiry, compaction) whenever
-the manifest's own `sweep_interval_s` is due.
+the manifest's own `sweep_interval_s` is due. Roadmap step 10.5 (ADR-0032) adds the human end:
+`awake` (`run_awake`, one stateless episode per `NEEDS_JUDGEMENT` item, a human message's words
+fenced and labelled untrusted in its trigger), `chat` (the human's waiting messages into the inbox,
+a `REPLY`'s words out, each message stamped handled once decided) and `intake` (every durable goal
+request settled, held or planned, one plan at a time beside the tick).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -37,10 +41,31 @@ See Also:
       for `forage` and liveness's own grant renewal and expiry sweep; step 4.2a for `wax`.
     - hivemind.queen.queen for Queen, the one caller of every module here.
 
-Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3):
+Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3, 10.5):
     - alarms, liveness, results, forage, wax, housekeeping: the tick-handler modules.
+    - awake, chat, intake: the awake episode, the chat and the goal requests (step 10.5).
 """
 
-from hivemind.queen.ticks import alarms, forage, housekeeping, liveness, results, wax
+from hivemind.queen.ticks import (
+    alarms,
+    awake,
+    chat,
+    forage,
+    housekeeping,
+    intake,
+    liveness,
+    results,
+    wax,
+)
 
-__all__ = ["alarms", "forage", "housekeeping", "liveness", "results", "wax"]
+__all__ = [
+    "alarms",
+    "awake",
+    "chat",
+    "forage",
+    "housekeeping",
+    "intake",
+    "liveness",
+    "results",
+    "wax",
+]

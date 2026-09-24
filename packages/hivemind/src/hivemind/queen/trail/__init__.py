@@ -26,12 +26,13 @@ See Also:
     - hivemind.wardens.trail_sync for WaggleTrailSync, the sender `.sync` reassembles chunks from.
 
 Public API:
-    - record_event, record_forage_event: the Queen's own event writers (record).
+    - record_event, record_forage_event: the Queen's own event writers; queen_event: the same
+      queen.* shape built without recording it, for a store that writes it with its row (record).
     - TrailSegmentReceiver, SegmentSyncError, CorruptSegmentError, UnknownSegmentFormatError: the
       remote-segment receiver and its typed errors (sync).
 """
 
-from hivemind.queen.trail.record import record_event, record_forage_event
+from hivemind.queen.trail.record import queen_event, record_event, record_forage_event
 from hivemind.queen.trail.sync import (
     CorruptSegmentError,
     SegmentSyncError,
@@ -44,6 +45,7 @@ __all__ = [
     "SegmentSyncError",
     "TrailSegmentReceiver",
     "UnknownSegmentFormatError",
+    "queen_event",
     "record_event",
     "record_forage_event",
 ]

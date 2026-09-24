@@ -19,7 +19,10 @@ a BLOCK, a Worker's proposal, a proposal about another Cell, or a clear may pick
 `ForageRequest` resolves once `hivemind.queen.awake` judges it: shrink another live grant (named
 by `QueenDecision.shrink_grant_id`/`.shrink_amount`) to free the headroom the request needs, or
 deny it with a reason; `hivemind.queen.ticks.forage` is the one place either is acted on.
-`NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.queen.awake` instead.
+`REPLY` (roadmap step 10.5, ADR-0032) is the Queen answering the human in the chat, with the words
+in `QueenDecision.message`: only ever an awake decision (autopilot has no rule for free text), and
+`hivemind.queen.ticks.chat.reply` is the one place it is acted on. `NEEDS_JUDGEMENT` is the one
+signal that hands the item to `hivemind.queen.awake` instead.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -65,4 +68,5 @@ class QueenAction(Enum):
     CLEAR_WAX = "CLEAR_WAX"  # cell_wax.clear_wax: WRITTEN -> CLEARED, an awake decision.
     GRANT_BY_SHRINKING = "GRANT_BY_SHRINKING"  # Shrink QueenDecision.shrink_grant_id, then grant.
     DENY_REQUEST = "DENY_REQUEST"  # A contested ForageRequest denied, with QueenDecision.reason.
+    REPLY = "REPLY"  # Answer the human in the chat with QueenDecision.message; awake only.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to queen.awake.

@@ -3,7 +3,8 @@
 Codingrules section 8.8: "sets the effort for any awake episode it hands off by event class."
 `effort_for` is that one table: an Alarm reaching `NEEDS_JUDGEMENT` gets `Effort.HIGH` (the Queen
 is the last chance to resolve it before it reaches the human), a blocking Question gets
-`Effort.MEDIUM` (routine but worth a real answer), and everything else -- a Heartbeat, a routine
+`Effort.MEDIUM` (routine but worth a real answer), as does the human's own chat message (roadmap
+step 10.5: her reply is read by a person), and everything else -- a Heartbeat, a routine
 task report, an unrecognised kind -- gets `Effort.LOW`. A table, not a chain of `if`s, so a new
 event class is one row, not a new branch.
 
@@ -33,11 +34,14 @@ from hivemind.forage.slots import Effort
 from hivemind.supervision.attendant import InboxKind
 
 # Alarms are the Queen's last chance before an issue reaches the human: worth the strongest
-# thinking she can afford. Questions are routine but deserve a real answer, not a shrug. Every
-# other event class (Heartbeat, routine progress, an unrecognised kind) gets the cheapest rung.
+# thinking she can afford. Questions are routine but deserve a real answer, not a shrug, and so
+# does the human's own message in the chat (roadmap step 10.5): her reply is read by a person.
+# Every other event class (Heartbeat, routine progress, an unrecognised kind) gets the cheapest
+# rung.
 _EFFORT_BY_KIND: Mapping[InboxKind, Effort] = {
     InboxKind.ALARM: Effort.HIGH,
     InboxKind.QUESTION: Effort.MEDIUM,
+    InboxKind.HUMAN_MESSAGE: Effort.MEDIUM,
 }
 _DEFAULT_EFFORT = Effort.LOW  # Everything else: routine traffic, never worth more than this.
 
@@ -51,6 +55,7 @@ def effort_for(kind: InboxKind) -> Effort:
         kind: The InboxKind of the item that triggered NEEDS_JUDGEMENT.
 
     Returns:
-        Effort.HIGH for an Alarm, Effort.MEDIUM for a Question, Effort.LOW for everything else.
+        Effort.HIGH for an Alarm, Effort.MEDIUM for a Question or a human's chat message,
+        Effort.LOW for everything else.
     """
     return _EFFORT_BY_KIND.get(kind, _DEFAULT_EFFORT)

@@ -43,6 +43,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -71,6 +72,7 @@ __all__ = [
     "KEEP_FOR_GOAL_INDEX",
     "LeaveMemoryEntry",
     "answer_from_memory",
+    "has_leave_options",
     "is_leave_question",
     "remember_if_keep_for_goal",
 ]
@@ -86,7 +88,16 @@ class LeaveMemoryEntry:
 
 def is_leave_question(question: WireQuestion) -> bool:
     """Return whether `question` is a leave-policy ASK Question (roadmap step 5.0d)."""
-    return question.options == LEAVE_QUESTION_OPTIONS
+    return has_leave_options(question.options)
+
+
+def has_leave_options(options: Sequence[str]) -> bool:
+    """Return whether `options` are a leave Question's own closed options, in their own order.
+
+    Shared by the wire Question (`is_leave_question`) and the Brood Chamber's stored one, which
+    `hivemind.queen.questions`'s in-process answer path reads before it answers.
+    """
+    return tuple(options) == LEAVE_QUESTION_OPTIONS
 
 
 def remember_if_keep_for_goal(queen: Queen, task: Task, question_id: MessageId, text: str) -> None:

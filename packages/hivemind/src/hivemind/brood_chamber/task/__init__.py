@@ -38,8 +38,19 @@ Public API:
       (graph).
     - GoalCapabilities, canonical_goal_set, MAX_GOAL_CAPABILITIES, MAX_CAPABILITY_CHARS: a goal's
       capability set as a task stores it (goal_set).
+    - GoalRequestId, GoalRequestRef, GoalSpendCap, new_goal_request_id, GOAL_REQUEST_ID_PATTERN,
+      GOAL_REQUEST_ID_PREFIX: the goal request a task was planned from and the spend cap it set,
+      as a task stores them (goal_request, roadmap step 10.5).
 """
 
+from hivemind.brood_chamber.task.goal_request import (
+    GOAL_REQUEST_ID_PATTERN,
+    GOAL_REQUEST_ID_PREFIX,
+    GoalRequestId,
+    GoalRequestRef,
+    GoalSpendCap,
+    new_goal_request_id,
+)
 from hivemind.brood_chamber.task.goal_set import (
     MAX_CAPABILITY_CHARS,
     MAX_GOAL_CAPABILITIES,
@@ -75,6 +86,8 @@ from hivemind.brood_chamber.task.state import (
 )
 
 __all__ = [
+    "GOAL_REQUEST_ID_PATTERN",
+    "GOAL_REQUEST_ID_PREFIX",
     "KEY_PATTERN",
     "MAX_ACCEPTANCE_ITEMS",
     "MAX_ARTIFACTS",
@@ -91,6 +104,9 @@ __all__ = [
     "TERMINAL_STATUSES",
     "TRANSITIONS",
     "GoalCapabilities",
+    "GoalRequestId",
+    "GoalRequestRef",
+    "GoalSpendCap",
     "Task",
     "TaskDraft",
     "TaskGraphDraft",
@@ -104,5 +120,6 @@ __all__ = [
     "is_acyclic",
     "is_acyclic_edges",
     "is_terminal",
+    "new_goal_request_id",
     "ready_tasks",
 ]

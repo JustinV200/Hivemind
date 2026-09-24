@@ -25,7 +25,7 @@ See Also:
 Public API (roadmap step 3.20; WAX_CAP_PER_CELL, cells_in_play at step 4.2a; EpisodeExtras,
 overflow retry and dropped-item archiving at step 4.4; system_hint at step 4.7's leftover):
     - MAX_BINDING_CHARS, MAX_REASON_CHARS, MAX_TASK_ID_CHARS, QueenDecision: the one structured
-      decision (decision).
+      decision (decision); MAX_MESSAGE_CHARS bounds a REPLY's words (roadmap step 10.5).
     - ACTIVE_TASKS_LIMIT, AWAKE_MAX_OUTPUT_TOKENS, AWAKE_OUTPUT_RESERVE_TOKENS, NOTES_LIMIT,
       RECENT_DECISIONS_LIMIT, WAX_CAP_PER_CELL, EpisodeExtras, QueenSources, decide_awake: the
       episode itself (episode); `decide_awake` takes an optional `extras` (`cells_in_play`,
@@ -35,6 +35,7 @@ overflow retry and dropped-item archiving at step 4.4; system_hint at step 4.7's
 
 from hivemind.queen.awake.decision import (
     MAX_BINDING_CHARS,
+    MAX_MESSAGE_CHARS,
     MAX_REASON_CHARS,
     MAX_TASK_ID_CHARS,
     QueenDecision,
@@ -56,6 +57,7 @@ __all__ = [
     "AWAKE_MAX_OUTPUT_TOKENS",
     "AWAKE_OUTPUT_RESERVE_TOKENS",
     "MAX_BINDING_CHARS",
+    "MAX_MESSAGE_CHARS",
     "MAX_REASON_CHARS",
     "MAX_TASK_ID_CHARS",
     "NOTES_LIMIT",

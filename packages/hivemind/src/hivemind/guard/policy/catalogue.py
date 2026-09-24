@@ -66,6 +66,9 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("task.assigned", P.PLACEMENT),
     ("task.blocked", P.QUESTION_ROUTING),  # A question routed up to the human.
     ("task.answered", P.ENTRANCE_ROUTE),  # The human's answer (entrance:answer).
+    ("queen.goal_request_received", P.ENTRANCE_ROUTE),  # A goal from a client (entrance:submit).
+    ("queen.goal_request_confirmed", P.ENTRANCE_ROUTE),  # The human confirmed an echoed goal.
+    ("queen.human_message_received", P.ENTRANCE_ROUTE),  # A chat message from a client.
     ("forage.requested", P.FORAGE_REQUEST),
     ("forage.granted", P.GRANT_ISSUE),
     ("queen.placed", P.PLACEMENT),
@@ -148,6 +151,12 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("queen.planned", _DECISION),
     ("queen.awake", _OBSERVATION),
     ("queen.leave_remembered", _DECISION),  # Replays a human's own earlier answer.
+    ("queen.goal_request_held", _LIFECYCLE),  # Waiting on the human's confirmation.
+    ("queen.goal_request_planning", _LIFECYCLE),
+    ("queen.goal_request_planned", _OUTCOME),  # queen.planned itself is the decision record.
+    ("queen.goal_request_refused", _REFUSAL),
+    ("queen.goal_request_finished", _OUTCOME),  # Every task of its goal is terminal.
+    ("queen.replied", _DECISION),  # Words to the human in the chat; nothing else changes.
     ("warden.watch", _LIFECYCLE),
     ("warden.active", _LIFECYCLE),
     ("warden.clustered", _LIFECYCLE),

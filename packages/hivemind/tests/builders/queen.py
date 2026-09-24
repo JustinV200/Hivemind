@@ -10,7 +10,8 @@ policy.toml` loaded for real (the same table production loads), a `hivemind.llm.
 `bound_for`/`rebind` over a scriptable `FakeLLMProvider`, resolving four `[llm.slots]` rows:
 `"queen"`, `"attendant"`, `"worker"` (whose `fallback` is `"worker_fallback"`, so an e2e REBIND
 has somewhere to go) and
-`"worker_fallback"`, and (roadmap step 10.3) a `hivemind.guard.Enforcer` over the shipped Guard
+`"worker_fallback"`, (roadmap step 10.5) an in-memory goal-request table and chat log over the
+same trail, and (roadmap step 10.3) a `hivemind.guard.Enforcer` over the shipped Guard
 policy, built last so it records to whichever trail the test ended up with (`with_guard_policy`
 swaps in an Enforcer over another policy, the same trail and clock). It also builds one
 `hivemind.queen.deps.WardenLink` for the test to attach over a fresh
@@ -66,7 +67,9 @@ from hivemind.llm.models import LLMRequest, LLMResponse
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen.chat import InMemoryChatLog
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
+from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.supervision import load_policy
 from waggle.clock import Clock, FakeClock
 from waggle.codec import Codec
@@ -230,6 +233,10 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         # that needs a specific value for the leaves-vs-scratch rule passes scratch_root=... in
         # **overrides.
         "scratch_root": Path("/hive-stand/scratch"),
+        # Roadmap step 10.5: the Queen's goal requests and chat log, over the same trail, so a
+        # test reads every queen.goal_request_* and chat event back from where the rest land.
+        "goal_requests": InMemoryGoalRequestStore(inputs.trail),
+        "chat": InMemoryChatLog(inputs.trail),
     }
 
 

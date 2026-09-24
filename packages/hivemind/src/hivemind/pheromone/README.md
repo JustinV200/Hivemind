@@ -13,9 +13,11 @@ trail on reconnection.
   (`CellEvent`, `TaskEvent`, `AlarmEvent`, `ForageEvent`, `MemoryEvent`, `QueenEvent`,
   `WardenEvent`, `ToolEvent`, `SwarmEvent`, `CappingEvent`, `LlmEvent`, `WorkerEvent`,
   `GuardEvent`), the normative `kind`
-  vocabulary documented in `events/families.py`, and the JSON codec `parse_event`/
-  `parse_event_json`. No event ever carries prompt or completion text; `payload`'s own validator
-  enforces that.
+  vocabulary documented in the `events/families/` package (a package since roadmap step 10.5 added
+  the Queen's goal request and chat kinds: `work.py`, `resources.py` and `supervisors.py` each
+  document their own families' kinds, `codec.py` holds the registry), and the JSON codec
+  `parse_event`/`parse_event_json`. No event ever carries prompt or completion text; `payload`'s
+  own validator enforces that.
 - **Trail** (`hivemind.pheromone.trail`): a package because the protocol, its two implementations
   and live-tail follow together pushed past a single file (codingrules 5.6). `trail/__init__.py`
   is its face: a caller writes `from hivemind.pheromone.trail import PheromoneTrail` (or straight
