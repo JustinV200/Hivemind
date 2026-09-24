@@ -67,14 +67,9 @@ def configure_logging(*, json_output: bool, level: str, stream: TextIO | None = 
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    # JSON in production so a log aggregator can parse it; a colored console renderer in
-    # development because a human reading a terminal wants prose, not a JSON blob.
-    renderer = (
-        structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
-    )
 
     structlog.configure(
-        processors=[*shared_processors, renderer],
+        processors=[*shared_processors, _renderer(json_output=json_output, stream=stream)],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
         # PrintLogger only calls write and flush, which _StandardError provides; the cast names it.
         logger_factory=structlog.PrintLoggerFactory(
@@ -82,6 +77,22 @@ def configure_logging(*, json_output: bool, level: str, stream: TextIO | None = 
         ),
         cache_logger_on_first_use=True,
     )
+
+
+def _renderer(*, json_output: bool, stream: TextIO | None) -> structlog.typing.Processor:
+    """Pick the processor that renders each line: JSON for machines, prose for a human."""
+    # JSON in production so a log aggregator can parse it; a console renderer in development
+    # because a human reading a terminal wants prose, not a JSON blob.
+    if json_output:
+        return structlog.processors.JSONRenderer()
+    return structlog.dev.ConsoleRenderer(colors=_is_terminal(stream))
+
+
+def _is_terminal(stream: TextIO | None) -> bool:
+    """Say whether log lines will reach a terminal: colour codes are noise in a file or a pipe."""
+    target = stream if stream is not None else sys.stderr
+    isatty = getattr(target, "isatty", None)
+    return bool(isatty()) if callable(isatty) else False
 
 
 class _StandardError:
