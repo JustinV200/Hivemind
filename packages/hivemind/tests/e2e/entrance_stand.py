@@ -9,11 +9,15 @@ operator password and records the console device as `hive entrance operator pass
 logs the console in over HTTP to mint invites and approve devices, as the operator does on loopback.
 The scripted goal asks the human one question before it writes its files, and the Queen answers a
 chat message with a fixed reply, so a client can exercise all three calls: submit, subscribe,
-answer.
+answer. Given a ``PushNetwork``, every push delivery goes to its recorder and its names resolve from
+its table, and Web Push is offered (a VAPID contact is set), so a test can read what a program's
+webhook and a phone's push service were sent. ``standing`` serves with ``serve_hive`` unless handed
+another way to serve the same Hive (``e2e.remote_serve``, which adds a remote listener).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by
-    tests/e2e/test_landing_board_conformance.py and tests/e2e/test_landing_board_guide.py.
+    tests/e2e/test_landing_board_conformance.py, tests/e2e/test_landing_board_guide.py and the
+    phase 10 push tests beside them.
 
 Key invariants:
     - The operator password is minted per run, never written to a committed file.
@@ -27,14 +31,16 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 import httpx
 from builders.cli import fake_manifest
 from builders.entrance.landing import DeviceKey, LandingClient, LandingSession
+from builders.entrance.serving import VAPID_SUBJECT
 from e2e.kernel_helpers import (
     judge_approve_response,
     plan_response,
@@ -44,6 +50,7 @@ from e2e.kernel_helpers import (
     tool_round_count,
     write_call,
 )
+from e2e.push_network import PushNetwork
 
 from hivemind.cli.compose.entrance import ServedHive, build_served_hive, serve_hive
 from hivemind.common.secrets import FileSecretStore
@@ -73,6 +80,7 @@ WAIT_S = 20.0  # Generous: a goal with one question finishes in about two second
 _POLL_S = 0.02  # How often a wait re-reads the state it waits on.
 _PASSWORD_BYTES = 18  # A fresh operator password per run: 24 characters, above the 12 minimum.
 _CHAT_LINES = 50  # The newest chat lines a wait reads; a scripted run writes a handful.
+_VAPID_SUBJECT_ENV = "HIVEMIND_ENTRANCE_VAPID_SUBJECT"  # Web Push is offered only with a contact.
 # The loopback listener on a port the system picks, and limits a scripted client never meets.
 _ENTRANCE = (
     '\n[entrance]\nbind = "127.0.0.1:0"\n'
@@ -87,17 +95,25 @@ __all__ = [
     "QUESTION",
     "REPLY",
     "WAIT_S",
+    "Serve",
     "Stand",
     "build_served",
     "standing",
 ]
 
+# Serves a built Hive until the block exits: `serve_hive`, or a test's own way to serve it.
+type Serve = Callable[[ServedHive], AbstractAsyncContextManager[HiveEntrance]]
 
-def build_served(tmp_path: Path) -> tuple[HiveManifest, ServedHive]:
+
+def build_served(
+    tmp_path: Path, network: PushNetwork | None = None
+) -> tuple[HiveManifest, ServedHive]:
     """Write the manifest and build the Hive `hive serve` runs; call outside any event loop.
 
     Args:
         tmp_path: The test's own directory; the Hive's data and scratch live under it.
+        network: Where push deliveries go and how their names resolve; Web Push is offered too.
+            None leaves `hive serve`'s own network, and no Web Push (no VAPID contact).
 
     Returns:
         The manifest and the Hive, not yet started.
@@ -106,9 +122,14 @@ def build_served(tmp_path: Path) -> tuple[HiveManifest, ServedHive]:
     path.write_text(path.read_text(encoding="utf-8") + _ENTRANCE, encoding="utf-8")
     manifest = load_manifest(path, {})
     served = build_served_hive(
-        manifest, environ={}, clock=SystemClock(), responders={"fake": _responder}
+        manifest,
+        environ={} if network is None else {_VAPID_SUBJECT_ENV: VAPID_SUBJECT},
+        clock=SystemClock(),
+        responders={"fake": _responder},
+        push_transport=None if network is None else network.transport(),
     )
-    return manifest, served
+    # The destination guard resolves through the network's table, and still vets every answer.
+    return manifest, served if network is None else replace(served, resolver=network.resolver)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,8 +147,30 @@ class Stand:
         """The loopback listener's base URL, by address."""
         return f"http://127.0.0.1:{self.entrance.listeners.loopback_port}"
 
-    async def invite(self, label: str = "garden-bot") -> str:
+    @property
+    def remote_url(self) -> str:
+        """The remote listener's base URL, by address; only an exposed serve has one."""
+        port = self.entrance.listeners.remote_port
+        assert port is not None, "this Hive serves no remote listener"
+        return f"http://127.0.0.1:{port}"
+
+    async def mint(self, label: str = "garden-bot") -> dict[str, Any]:
         """Mint an invite at the Hive Stand, as `hive entrance invite` does.
+
+        Args:
+            label: What the operator calls the device.
+
+        Returns:
+            The invite as the Hive Stand shows it: its code, link, QR code and device id.
+        """
+        body = {"label": label}
+        minted = await self.console.call(self.session, "POST", "/v1/entrance/invites", body)
+        assert minted.status_code == 201, minted.text
+        shown: dict[str, Any] = minted.json()
+        return shown
+
+    async def invite(self, label: str = "garden-bot") -> str:
+        """Mint an invite at the Hive Stand and return its code alone.
 
         Args:
             label: What the operator calls the device.
@@ -135,19 +178,29 @@ class Stand:
         Returns:
             The invite code, as the Hive Stand shows it.
         """
-        body = {"label": label}
-        minted = await self.console.call(self.session, "POST", "/v1/entrance/invites", body)
-        assert minted.status_code == 201, minted.text
-        return str(minted.json()["code"])
+        return str((await self.mint(label))["code"])
 
-    async def approve(self, device_id: str, name: str = "garden-bot") -> None:
-        """Approve a pending device at the Hive Stand with the device role's proposed set.
+    async def approve(
+        self,
+        device_id: str,
+        name: str = "garden-bot",
+        capabilities: Sequence[str] | None = None,
+        spend_cap_usd_per_day: float = 5.0,
+    ) -> None:
+        """Approve a pending device at the Hive Stand.
 
         Args:
             device_id: The device that redeemed an invite.
             name: The name the operator binds.
+            capabilities: What it may do; None grants the device role's proposed set.
+            spend_cap_usd_per_day: Its daily spend cap.
         """
-        body = {"name": name, "capabilities": None, "spend_cap_usd_per_day": 5.0}
+        granted = list(capabilities) if capabilities is not None else None
+        body = {
+            "name": name,
+            "capabilities": granted,
+            "spend_cap_usd_per_day": spend_cap_usd_per_day,
+        }
         path = f"/v1/entrance/pending/{device_id}/approve"
         approved = await self.console.call(self.session, "POST", path, body)
         assert approved.status_code == 200, approved.text
@@ -183,19 +236,22 @@ class Stand:
 
 
 @asynccontextmanager
-async def standing(manifest: HiveManifest, served: ServedHive) -> AsyncIterator[Stand]:
+async def standing(
+    manifest: HiveManifest, served: ServedHive, serve: Serve = serve_hive
+) -> AsyncIterator[Stand]:
     """Bootstrap the operator, serve the Hive, and log the console in until the block exits.
 
     Args:
         manifest: The manifest ``build_served`` wrote.
         served: The Hive ``build_served`` built.
+        serve: How to serve it; ``hive serve``'s own ``serve_hive`` unless a test needs more.
 
     Yields:
         The stand: the running Entrance and the logged-in console.
     """
     password = secrets.token_urlsafe(_PASSWORD_BYTES)
     console_key = await _bootstrap_console(manifest, password)
-    async with serve_hive(served) as entrance:
+    async with serve(served) as entrance:
         base = f"http://127.0.0.1:{entrance.listeners.loopback_port}"
         async with httpx.AsyncClient(base_url=base, timeout=10.0, trust_env=False) as http:
             console = LandingClient(http, manifest.hive.id, served.hive.clock)
