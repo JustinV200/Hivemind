@@ -57,6 +57,18 @@ Both default such that a manifest that omits them entirely behaves exactly as be
 `prefer = "real"`, `allow_hive_stand = true`, and `[virtual_cells] backend` unset means no Virtual
 side is configured at all, so every task stays on the Real side.
 
+Roadmap step 6.12 adds `[virtual_cells] exoskeleton_image` (default `"desktop-ubuntu"`): the image
+a Virtual Cell boots when its task needs an Exoskeleton (a display, input, audio or browser
+attachment, `docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md`). `default_image`
+stays the terminal-only image every other task boots, so `images/base-ubuntu` never has to carry
+Xvfb, PulseAudio or Chromium. Name the tag you built, as for `default_image` (for example
+`"hivemind/desktop-ubuntu:dev"`). A Real Cell still takes an Exoskeleton task first when it can:
+a browser-only task where it has a browser and its access level is `"SCRATCH"` or `"FULL"`, a
+desktop task where it can start a display at `"FULL"`, or where `[hive_stand]
+exoskeleton_real_display = true` lends the operator's own running display at `"FULL"`; a task that
+needs audio also needs the Cell's sound tools. Every Real Cell placement skips is named in the
+placement reason with what it lacks.
+
 ## `HIVEMIND_*` environment variables
 
 Codingrules section 13: environment variables are read in exactly one place

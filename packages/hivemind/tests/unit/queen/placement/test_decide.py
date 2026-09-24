@@ -321,7 +321,8 @@ def test_allow_hive_stand_false_excludes_it_even_as_the_only_candidate() -> None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Rule 4: OS, network scopes, Exoskeleton.
+# Rule 4: OS and network scopes. The Exoskeleton fit (roadmap step 6.12) has its own module,
+# test_decide_exoskeleton.py.
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -331,23 +332,6 @@ def test_os_mismatch_excludes_a_real_candidate() -> None:
 
     with pytest.raises(PlacementError):
         decide(TaskNeeds(os=OsFamily.WINDOWS), inventory, _forage(), _policy())
-
-
-def test_exoskeleton_needs_a_display_or_the_ability_to_start_one() -> None:
-    no_display = _real(capabilities=make_capabilities(has_display=False, can_start_display=False))
-    inventory = Inventory(real=(no_display,))
-
-    with pytest.raises(PlacementError):
-        decide(TaskNeeds(exoskeleton=True), inventory, _forage(), _policy())
-
-
-def test_exoskeleton_is_satisfied_by_the_ability_to_start_a_display() -> None:
-    can_start = _real(capabilities=make_capabilities(has_display=False, can_start_display=True))
-    inventory = Inventory(real=(can_start,))
-
-    placement = decide(TaskNeeds(exoskeleton=True), inventory, _forage(), _policy())
-
-    assert isinstance(placement, ReuseReal)
 
 
 def test_network_scopes_not_reachable_excludes_a_real_candidate() -> None:

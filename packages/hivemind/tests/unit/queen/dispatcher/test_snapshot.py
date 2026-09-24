@@ -64,6 +64,9 @@ async def test_build_inventory_carries_one_real_candidate_per_attached_warden() 
     assert inventory.real[0].cell_id == link.cell.id
     assert inventory.real[0].warden_id == link.warden_id
     assert inventory.real[0].has_free_capacity is True
+    # Regression (roadmap step 6.12): without the Cell's own level, placement fell back to
+    # READ_ONLY and no Real Cell could ever take Exoskeleton work.
+    assert inventory.real[0].access_level is link.cell.access_level
     await warden_end.close()
 
 

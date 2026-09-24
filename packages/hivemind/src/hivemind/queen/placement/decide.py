@@ -14,6 +14,14 @@ performs no I/O of its own (ADR-0028): every candidate, every Cell Wax note and 
 figure it reads already sits on `inventory`, precomputed by `hivemind.queen.dispatcher`'s snapshot
 helper before this is ever called.
 
+Roadmap step 6.12 (ADR-0031, "Needs travel with the task"): an Exoskeleton need (a display, input,
+audio or browser attachment) takes a Real Cell only where attach could honour it there -- a
+browser-only need where the Cell has a browser, a desktop need where it can start a display or
+lends its operator's own, an audio need where it also has a sound server, each within what the
+Cell's access level ever grants -- and otherwise lands on a Virtual Cell whose spec provisions one
+(the manifest's desktop image). Every Real Cell it skips is named in the reason with the one
+requirement it lacks, so a `prefer = "real"` Hive falling back to Virtual explains itself.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
     sub-package. Called once per ready task by `hivemind.queen.dispatcher`. Calls into
@@ -25,7 +33,7 @@ Key invariants:
     - `decide` is pure: given the same arguments, it always returns the same `Placement` or raises
       the same shape of `PlacementError`.
     - `decide` never reads `cell.kind`: every check runs over `TaskNeeds`, `CellCapabilities`, a
-      `VirtualCellSpec`'s own fields, or Cell Wax set membership
+      Real Cell's access level, a `VirtualCellSpec`'s own fields, or Cell Wax set membership
       (`scripts/check_no_kind_branches.py` allowlists this whole package for exactly that reason --
       `hivemind/queen/placement/` is a path-fragment match, so every module here is covered).
     - A `BLOCK`ed or non-fitting candidate is never returned, on either side (a hypothesis property
@@ -36,7 +44,9 @@ See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the pipeline this module
       implements almost verbatim.
     - docs/adr/0029-overwintering-policy.md for the dormant-before-fresh-provision preference.
-    - .claude/roadmap.md step 5.7 for the exit criteria this pipeline satisfies.
+    - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for what an Exoskeleton need
+      asks of a Real Cell before placement may lend it.
+    - .claude/roadmap.md steps 5.7 and 6.12 for the exit criteria this pipeline satisfies.
     - hivemind.queen.placement.rules for the individually-tested rule functions this pipeline runs.
     - hivemind.queen.dispatcher for the snapshot helper that builds `decide`'s own `inventory`.
 """
@@ -161,8 +171,11 @@ def _real_exclusion_reason(
         return f"os mismatch (needs {needs.os}, has {candidate.capabilities.os})"
     if not rules.fits_network_scopes(needs, candidate.capabilities):
         return "network scopes not reachable"
-    if not rules.fits_exoskeleton(needs, candidate.capabilities):
-        return "Exoskeleton needed but no display and cannot start one"
+    # Roadmap step 6.12: rule 4c already words what the Cell lacks (a browser, a display it may
+    # start or drive, a sound server) and which fact fails it, so the reason is used as it is.
+    shortfall = rules.exoskeleton_shortfall(needs, candidate.capabilities, candidate.access_level)
+    if shortfall is not None:
+        return shortfall
     if not rules.real_has_forage(candidate):
         return "no free Forage capacity"
     return None
@@ -230,7 +243,7 @@ def _virtual_exclusion_reason(
     if not rules.virtual_fits_os(needs, spec):
         return "os mismatch"
     if not rules.virtual_fits_exoskeleton(needs, spec):
-        return "Exoskeleton needed but this image does not provision one"
+        return "Exoskeleton needed but this spec provisions none (not a desktop image)"
     if not rules.virtual_fits_network_scopes(needs, spec):
         return "network scopes not reachable"
     if not rules.virtual_has_forage(spec, forage.footprint):

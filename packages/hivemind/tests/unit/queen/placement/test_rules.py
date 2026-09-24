@@ -8,14 +8,21 @@ Key invariants:
 
 See Also:
     - hivemind.queen.placement.rules for the module under test.
+    - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for the Exoskeleton fit the
+      rule 4c tests pin down (roadmap step 6.12).
 """
 
 from __future__ import annotations
 
-from builders.cells import make_capabilities
+import pytest
+from builders.cells import (
+    make_capabilities,
+    make_desktop_capabilities,
+    make_windows_hive_stand_capabilities,
+)
 from builders.forage import make_capacity, make_footprint
 
-from hivemind.cell import CombShieldLevel, Isolation, OsFamily, TaskNeeds
+from hivemind.cell import AccessLevel, CombShieldLevel, Isolation, OsFamily, TaskNeeds
 from hivemind.hive import NetworkPolicy, VirtualCellSpec
 from hivemind.queen.placement import PlacementPolicy, RealCandidate, WaxMention, rules
 from waggle.clock import FakeClock
@@ -98,19 +105,131 @@ def test_fits_network_scopes_false_when_a_scope_is_missing() -> None:
     assert rules.fits_network_scopes(needs, capabilities) is False
 
 
-def test_fits_exoskeleton_true_when_not_needed() -> None:
-    capabilities = make_capabilities(has_display=False, can_start_display=False)
-    assert rules.fits_exoskeleton(TaskNeeds(), capabilities) is True
+# ──────────────────────────────────────────────────────────────────────────────
+# Rule 4c, Real side (roadmap step 6.12): what attach will ask of the Cell once leased.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_DESKTOP = TaskNeeds(exoskeleton=True)
+_DESKTOP_WITH_AUDIO = TaskNeeds(exoskeleton=True, audio=True)
+_BROWSER_ONLY = TaskNeeds(exoskeleton=True, browser_only=True)
 
 
-def test_fits_exoskeleton_true_with_a_display() -> None:
-    capabilities = make_capabilities(has_display=True)
-    assert rules.fits_exoskeleton(TaskNeeds(exoskeleton=True), capabilities) is True
+@pytest.mark.parametrize("level", list(AccessLevel))
+def test_exoskeleton_shortfall_none_for_a_terminal_only_task_on_a_bare_cell(
+    level: AccessLevel,
+) -> None:
+    assert rules.exoskeleton_shortfall(TaskNeeds(), make_capabilities(), level) is None
 
 
-def test_fits_exoskeleton_false_with_no_display_and_cannot_start_one() -> None:
-    capabilities = make_capabilities(has_display=False, can_start_display=False)
-    assert rules.fits_exoskeleton(TaskNeeds(exoskeleton=True), capabilities) is False
+def test_exoskeleton_shortfall_none_for_a_desktop_on_a_linux_cell_at_full() -> None:
+    shortfall = rules.exoskeleton_shortfall(_DESKTOP, make_desktop_capabilities(), AccessLevel.FULL)
+
+    assert shortfall is None
+
+
+def test_exoskeleton_shortfall_refuses_a_desktop_the_scratch_ceiling_cannot_start() -> None:
+    shortfall = rules.exoskeleton_shortfall(
+        _DESKTOP, make_desktop_capabilities(), AccessLevel.SCRATCH
+    )
+
+    assert shortfall is not None
+    assert shortfall.startswith("desktop Exoskeleton needs a display")
+    assert "access level SCRATCH never grants exoskeleton:display" in shortfall
+    assert "has_display=false" in shortfall
+
+
+@pytest.mark.parametrize("level", list(AccessLevel))
+def test_exoskeleton_shortfall_refuses_a_running_display_its_operator_never_allowed(
+    level: AccessLevel,
+) -> None:
+    # A display is running, but no ceiling ever holds exoskeleton:real_display without the opt-in.
+    capabilities = make_capabilities(has_display=True, real_display_allowed=False)
+
+    shortfall = rules.exoskeleton_shortfall(_DESKTOP, capabilities, level)
+
+    assert shortfall is not None
+    assert "real_display_allowed=false" in shortfall
+    assert "can_start_display=false" in shortfall
+
+
+def test_exoskeleton_shortfall_accepts_the_running_display_its_operator_allowed_at_full() -> None:
+    capabilities = make_capabilities(has_display=True, real_display_allowed=True)
+
+    assert rules.exoskeleton_shortfall(_DESKTOP, capabilities, AccessLevel.FULL) is None
+
+
+def test_exoskeleton_shortfall_refuses_the_allowed_running_display_below_full() -> None:
+    capabilities = make_capabilities(has_display=True, real_display_allowed=True)
+
+    shortfall = rules.exoskeleton_shortfall(_DESKTOP, capabilities, AccessLevel.SCRATCH)
+
+    assert shortfall is not None
+    assert "access level SCRATCH never grants exoskeleton:real_display" in shortfall
+
+
+def test_exoskeleton_shortfall_browser_only_needs_no_display_at_scratch() -> None:
+    capabilities = make_capabilities(has_browser=True)  # No display, and none it could start.
+
+    assert rules.exoskeleton_shortfall(_BROWSER_ONLY, capabilities, AccessLevel.SCRATCH) is None
+
+
+def test_exoskeleton_shortfall_browser_only_refuses_a_cell_with_no_browser() -> None:
+    capabilities = make_desktop_capabilities(has_browser=False)
+
+    shortfall = rules.exoskeleton_shortfall(_BROWSER_ONLY, capabilities, AccessLevel.FULL)
+
+    assert shortfall == "browser-only Exoskeleton needs a browser (has_browser=false)"
+
+
+def test_exoskeleton_shortfall_browser_only_refuses_a_read_only_cell() -> None:
+    capabilities = make_capabilities(has_browser=True)
+
+    shortfall = rules.exoskeleton_shortfall(_BROWSER_ONLY, capabilities, AccessLevel.READ_ONLY)
+
+    assert shortfall is not None
+    assert "access level READ_ONLY never grants exoskeleton:browser" in shortfall
+
+
+def test_exoskeleton_shortfall_audio_needs_a_sound_server_on_top_of_a_desktop() -> None:
+    capabilities = make_desktop_capabilities(has_audio=False)
+
+    shortfall = rules.exoskeleton_shortfall(_DESKTOP_WITH_AUDIO, capabilities, AccessLevel.FULL)
+
+    assert shortfall == "Exoskeleton audio needs a sound server (has_audio=false)"
+
+
+def test_exoskeleton_shortfall_accepts_audio_with_a_sound_server_at_full() -> None:
+    capabilities = make_desktop_capabilities()
+
+    assert rules.exoskeleton_shortfall(_DESKTOP_WITH_AUDIO, capabilities, AccessLevel.FULL) is None
+
+
+def test_exoskeleton_shortfall_names_the_missing_desktop_before_the_missing_audio() -> None:
+    shortfall = rules.exoskeleton_shortfall(
+        _DESKTOP_WITH_AUDIO, make_capabilities(), AccessLevel.FULL
+    )
+
+    assert shortfall is not None
+    assert shortfall.startswith("desktop Exoskeleton")
+
+
+def test_audio_shortfall_names_the_audio_scope_scratch_never_grants() -> None:
+    capabilities = make_capabilities(has_audio=True)
+
+    shortfall = rules.audio_shortfall(capabilities, AccessLevel.SCRATCH)
+
+    assert shortfall is not None
+    assert "access level SCRATCH never grants exoskeleton:audio" in shortfall
+
+
+@pytest.mark.parametrize("level", [AccessLevel.SCRATCH, AccessLevel.FULL])
+def test_a_windows_hive_stand_takes_a_browser_only_need_but_not_a_desktop(
+    level: AccessLevel,
+) -> None:
+    capabilities = make_windows_hive_stand_capabilities()
+
+    assert rules.exoskeleton_shortfall(_BROWSER_ONLY, capabilities, level) is None
+    assert rules.exoskeleton_shortfall(_DESKTOP, capabilities, level) is not None
 
 
 def _real_candidate(*, has_free_capacity: bool) -> RealCandidate:
@@ -161,6 +280,15 @@ def test_virtual_fits_exoskeleton_false_when_the_spec_provisions_none() -> None:
 def test_virtual_fits_exoskeleton_true_when_the_spec_provisions_one() -> None:
     spec = _spec(exoskeleton=True)
     assert rules.virtual_fits_exoskeleton(TaskNeeds(exoskeleton=True), spec) is True
+
+
+@pytest.mark.parametrize("needs", [_BROWSER_ONLY, _DESKTOP_WITH_AUDIO])
+def test_virtual_fits_exoskeleton_covers_every_need_shape_with_a_desktop_spec(
+    needs: TaskNeeds,
+) -> None:
+    # A desktop image carries a display to start, a sound server and a browser, all at FULL.
+    assert rules.virtual_fits_exoskeleton(needs, _spec(exoskeleton=True)) is True
+    assert rules.virtual_fits_exoskeleton(needs, _spec(exoskeleton=False)) is False
 
 
 def test_virtual_fits_network_scopes_false_for_none_policy() -> None:

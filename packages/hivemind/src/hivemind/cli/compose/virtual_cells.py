@@ -53,6 +53,12 @@ resolving each provider's own API key from this composition root's own environme
 QueenEndpoint.providers`/`.slots`/
 `.provider_api_keys`/`.llm_offline` is where all four ride to the Cell.
 
+Roadmap step 6.12: every backend candidate carries two spec templates, the terminal-only one
+booting `[virtual_cells] default_image` and, after it, one that provisions an Exoskeleton (the
+optional display, input, audio and browser attachment) booting `[virtual_cells] exoskeleton_image`,
+`desktop-ubuntu` by default. `hivemind.queen.placement.decide` takes the first spec that fits, so
+only a task that needs an Exoskeleton ever boots the desktop image, and such a task always does.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cell` (Cell, CellIdentity),
@@ -103,9 +109,12 @@ Key invariants:
       can ever break building a Hive that never uses that backend.
     - `_build_registry` (aliased from that module's own `build_registry`) registers exactly one
       backend, `section.backend`'s own selected name -- never "fake" alongside a real one.
+    - Every backend candidate's specs are exactly (terminal-only `default_image`, Exoskeleton
+      `exoskeleton_image`), in that order, with identical resources (roadmap step 6.12).
 
 See Also:
-    - .claude/roadmap.md step 5.6 for the composition-root wiring this module implements.
+    - .claude/roadmap.md step 5.6 for the composition-root wiring this module implements, and
+      step 6.12 for the Exoskeleton spec template.
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for QueenEndpoint and
       why a Cell's own dial-back address needs backend-specific resolution.
     - hivemind.cli.compose.hive for build_hive/run_hive, this module's one caller and the
@@ -365,7 +374,15 @@ def _virtual_backend_source(
     lifecycle: CellLifecycle, section: VirtualCellsSection, hive_id: HiveId
 ) -> VirtualBackendSource:
     """Build the closure `QueenDeps.virtual_backend_source` holds: live headroom, manifest specs."""
-    specs = (_default_spec(section, hive_id),)
+    # Roadmap step 6.12: the terminal-only spec first and the Exoskeleton spec second, because
+    # placement takes the first spec that fits (`VirtualBackendCandidate.specs`): a task with no
+    # Exoskeleton need never boots the heavier desktop image, and one with it skips the terminal
+    # spec, which provisions none. Both reserve the same resources, so neither ever fits Forage,
+    # OS or network where the other would not.
+    specs = (
+        _spec_from_section(section, hive_id, section.default_image, exoskeleton=False),
+        _spec_from_section(section, hive_id, section.exoskeleton_image, exoskeleton=True),
+    )
 
     async def source() -> tuple[VirtualBackendCandidate, ...]:
         return tuple(
@@ -387,8 +404,22 @@ def _dormant_cell_source(lifecycle: CellLifecycle) -> DormantCellSource:
     return source
 
 
-def _default_spec(section: VirtualCellsSection, hive_id: HiveId) -> VirtualCellSpec:
-    """Build the one `VirtualCellSpec` template `[virtual_cells]`'s own defaults describe."""
+def _spec_from_section(
+    section: VirtualCellsSection, hive_id: HiveId, image: str, *, exoskeleton: bool
+) -> VirtualCellSpec:
+    """Build one `VirtualCellSpec` template from `[virtual_cells]`'s own defaults, booting `image`.
+
+    Args:
+        section: The manifest's `[virtual_cells]` section; every resource figure comes from it.
+        hive_id: The Hive every provisioned Cell is labelled with.
+        image: `section.default_image` for the terminal-only template, `section.
+            exoskeleton_image` for the desktop one.
+        exoskeleton: Whether the template provisions an Exoskeleton; true only for the desktop
+            image, the one rule 4c accepts for an Exoskeleton need.
+
+    Returns:
+        A validated spec, so a malformed image name fails while the Hive is built, not mid-task.
+    """
     capacity = ForageCapacity(
         host=HostCapacity(
             cores=max(1, int(section.cpu_cores)),
@@ -405,11 +436,12 @@ def _default_spec(section: VirtualCellsSection, hive_id: HiveId) -> VirtualCellS
         max_sub_bees=_DEFAULT_MAX_SUB_BEES,
     )
     return VirtualCellSpec(
-        image=section.default_image,
+        image=image,
         cpu_cores=section.cpu_cores,
         memory_bytes=section.memory_bytes,
         disk_bytes=section.disk_bytes,
         network_policy=_network_policy(section.network_policy),
+        exoskeleton=exoskeleton,
         read_only_rootfs=section.read_only_rootfs,
         capacity=capacity,
         comb_shield=CombShieldLevel.MEADOW,

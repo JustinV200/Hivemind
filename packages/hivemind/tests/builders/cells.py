@@ -2,6 +2,8 @@
 
 Every builder here returns a real, validated model (codingrules 14.5), with sensible defaults for
 every field a test does not care about: `make_capabilities` for a terminal-only Linux Cell,
+`make_desktop_capabilities` and `make_windows_hive_stand_capabilities` for the two Real Cell
+reports an Exoskeleton (display, input, audio and browser attachment) placement test starts from,
 `make_cell` for a Cell whose `access_level` already matches the `kind` it is given (SCRATCH for a
 REAL Cell, FULL for a VIRTUAL one, so `Cell`'s own kind/access validator never needs a caller to
 remember the constraint), `make_identity` for a `CellIdentity`, `make_lease_request` for a
@@ -13,8 +15,8 @@ opened) `RealCellLease` a test can `await .open()` itself.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
-    packages/hivemind/tests/unit/cell (including tests/unit/cell/local) and the two Cell contract
-    suites.
+    packages/hivemind/tests/unit/cell (including tests/unit/cell/local), the two Cell contract
+    suites, and the placement tests under packages/hivemind/tests/unit/queen/placement.
 
 Key invariants:
     - Every builder that mints an id or a timestamp takes an optional `clock: Clock` (default a
@@ -64,12 +66,14 @@ from waggle.ids import (
 __all__ = [
     "make_capabilities",
     "make_cell",
+    "make_desktop_capabilities",
     "make_hive_stand_config",
     "make_hive_stand_releaser",
     "make_identity",
     "make_lease_request",
     "make_leaving",
     "make_real_cell_lease",
+    "make_windows_hive_stand_capabilities",
 ]
 
 
@@ -98,6 +102,52 @@ def make_capabilities(**overrides: object) -> CellCapabilities:
     }
     fields.update(overrides)
     return CellCapabilities(**fields)
+
+
+def make_desktop_capabilities(**overrides: object) -> CellCapabilities:
+    """Build a Linux machine with the Exoskeleton's tools installed and no display running yet.
+
+    What `hivemind.cell.local.probe` reports on the Ubuntu CI runner or inside
+    `images/desktop-ubuntu`: it can start a display, has sound tools and a browser, and nothing is
+    on screen until a lease attaches one (roadmap step 6.12's Linux Real Cell).
+
+    Args:
+        **overrides: Field values that replace these defaults, on top of `make_capabilities`'.
+
+    Returns:
+        A validated CellCapabilities.
+    """
+    fields: dict[str, object] = {"can_start_display": True, "has_audio": True, "has_browser": True}
+    fields.update(overrides)
+    return make_capabilities(**fields)
+
+
+def make_windows_hive_stand_capabilities(**overrides: object) -> CellCapabilities:
+    """Build the Windows Hive Stand's report: its operator's own screen, sound, Edge, no Xvfb.
+
+    Mirrors `hivemind.cell.local.probe`'s Windows branch, with the operator's running display
+    never lent to the Hive (`real_display_allowed` false, `[hive_stand]`'s own default).
+
+    Args:
+        **overrides: Field values that replace these defaults, on top of `make_capabilities`'.
+
+    Returns:
+        A validated CellCapabilities.
+    """
+    fields: dict[str, object] = {
+        "os": OsFamily.WINDOWS,
+        "arch": "AMD64",
+        "distribution": None,
+        "shell": "cmd.exe",
+        "package_manager": None,
+        "has_display": True,
+        "has_audio": True,
+        "has_browser": True,
+        "can_start_display": False,
+        "real_display_allowed": False,
+    }
+    fields.update(overrides)
+    return make_capabilities(**fields)
 
 
 def make_cell(

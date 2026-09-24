@@ -58,6 +58,31 @@ def test_virtual_cells_section_backend_is_unset_by_default() -> None:
     assert section.overwinter == VirtualCellsOverwinterSection()
 
 
+def test_virtual_cells_section_exoskeleton_image_defaults_to_the_desktop_image() -> None:
+    """Roadmap step 6.12: an Exoskeleton need boots images/desktop-ubuntu, never base-ubuntu."""
+    section = VirtualCellsSection()
+
+    assert section.exoskeleton_image == "desktop-ubuntu"
+    assert section.exoskeleton_image != section.default_image
+
+
+def test_virtual_cells_section_exoskeleton_image_is_overridable() -> None:
+    section = VirtualCellsSection(exoskeleton_image="hivemind/desktop-ubuntu:dev")
+
+    assert section.exoskeleton_image == "hivemind/desktop-ubuntu:dev"
+
+
+def test_virtual_cells_section_rejects_an_empty_exoskeleton_image() -> None:
+    with pytest.raises(ValidationError):
+        VirtualCellsSection(exoskeleton_image="")
+
+
+def test_full_toml_names_the_exoskeleton_image() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    assert manifest.virtual_cells.exoskeleton_image == "desktop-ubuntu"
+
+
 def test_virtual_cells_section_network_policy_defaults_to_egress_only() -> None:
     """A Cell must dial the Queen through the host gateway; "none" cannot on Docker Desktop."""
     assert VirtualCellsSection().network_policy == "egress_only"

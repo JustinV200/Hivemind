@@ -7,8 +7,8 @@ a Virtual candidate fit), ``allow_hive_stand`` (whether the Hive Stand may still
 member name, the same convention ``hivemind.manifest.schema.forage.ForageSection.roles`` already
 follows. ``VirtualCellsSection`` is ``[virtual_cells]``: the manifest-level default shape of a
 freshly provisioned Virtual Cell (which `hivemind.hive.backends.base.CellBackend` to provision
-from, its default image, cpu, memory, disk, outbound network shape, how long to wait for it to
-become ready, and the most Virtual Cells the Hive may hold at once) plus a nested
+from, its default and Exoskeleton images, cpu, memory, disk, outbound network shape, how long to
+wait for it to become ready, and the most Virtual Cells the Hive may hold at once) plus a nested
 ``[virtual_cells.overwinter]`` (``docs/adr/0029-overwintering-policy.md``: whether the pool is
 enabled at all, its own size caps, how long a dormant Cell may sit before the Undertaker destroys
 it, and the disk Forage the manifest allots to it). Every field defaults such that a manifest that
@@ -36,6 +36,13 @@ never true for a Docker container reaching its own host, hence the field). This 
 Ed25519 key material of its own: `hivemind.hive.backends.bootstrap.QueenEndpoint` (a later
 composition-root value, not a manifest field) is where the Queen's own key hex is threaded in.
 
+Roadmap step 6.12 adds ``exoskeleton_image`` to ``VirtualCellsSection``: the image a Virtual Cell
+boots when its task needs an Exoskeleton (the optional display, input, audio and browser attachment
+of a Cell). ``default_image`` stays terminal-only (``images/base-ubuntu`` carries none of the X11,
+sound or browser tools); ``exoskeleton_image`` names ``images/desktop-ubuntu`` by default, which
+carries all of them (ADR-0031). The composition root offers a spec for each, so placement boots the
+heavier desktop image only for a task that asks for an Exoskeleton.
+
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
     ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``waggle.messages.task``
@@ -54,6 +61,8 @@ Key invariants:
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the policy this section feeds.
     - docs/adr/0029-overwintering-policy.md for the ``[virtual_cells.overwinter]`` fields.
+    - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for why an Exoskeleton need
+      boots ``exoskeleton_image`` rather than ``default_image``.
     - .claude/roadmap.md step 5.7 for the field-by-field description this module implements.
     - hivemind.manifest.schema.forage for ForageSection, the role-key validator pattern this module
       mirrors.
@@ -80,6 +89,9 @@ NetworkPolicyName = Literal["none", "egress_only", "allowlist"]
 DEFAULT_PREFER: PreferName = "real"  # v0's only behaviour: every task placed on a Real Cell.
 DEFAULT_ALLOW_HIVE_STAND = True  # The Hive Stand is a candidate unless the operator excludes it.
 DEFAULT_VIRTUAL_CELLS_IMAGE = "base-ubuntu"  # Terminal-first; matches images/base-ubuntu.
+# The Exoskeleton-ready image (roadmap step 6.1): base-ubuntu plus Xvfb, openbox, xdotool,
+# ImageMagick, PulseAudio and Chromium, none of which base-ubuntu carries (ADR-0031).
+DEFAULT_VIRTUAL_CELLS_EXOSKELETON_IMAGE = "desktop-ubuntu"
 DEFAULT_VIRTUAL_CELLS_CPU_CORES = 1.0  # A modest default footprint for one fresh Virtual Cell.
 DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES = 1 * 1024**3  # 1 GiB.
 DEFAULT_VIRTUAL_CELLS_DISK_BYTES = 8 * 1024**3  # 8 GiB.
@@ -120,6 +132,7 @@ __all__ = [
     "DEFAULT_SNAPSHOT_RETENTION_S",
     "DEFAULT_VIRTUAL_CELLS_CPU_CORES",
     "DEFAULT_VIRTUAL_CELLS_DISK_BYTES",
+    "DEFAULT_VIRTUAL_CELLS_EXOSKELETON_IMAGE",
     "DEFAULT_VIRTUAL_CELLS_IMAGE",
     "DEFAULT_VIRTUAL_CELLS_LISTEN_HOST",
     "DEFAULT_VIRTUAL_CELLS_LISTEN_PORT",
@@ -235,6 +248,14 @@ class VirtualCellsSection(BaseModel):
     default_image: str = Field(
         default=DEFAULT_VIRTUAL_CELLS_IMAGE,
         description="The images/<name> a freshly provisioned Virtual Cell boots by default.",
+    )
+    exoskeleton_image: str = Field(
+        default=DEFAULT_VIRTUAL_CELLS_EXOSKELETON_IMAGE,
+        min_length=1,
+        description="The images/<name> a Virtual Cell boots when its task needs an Exoskeleton "
+        "(a display, input, audio or browser attachment); it must carry the tools "
+        "images/desktop-ubuntu does. A task with no Exoskeleton need still boots default_image "
+        "(roadmap step 6.12).",
     )
     cpu_cores: float = Field(
         default=DEFAULT_VIRTUAL_CELLS_CPU_CORES, gt=0, description="Logical cores to reserve."

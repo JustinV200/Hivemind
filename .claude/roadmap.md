@@ -1146,7 +1146,7 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 - [ ] **6.11 Playwright fast path.** `exoskeleton/browser/playwright.py`: headed in the Cell's
   display when one exists, headless otherwise; `browser_*` tools that also work without vision
   through the accessibility tree. The only Exoskeleton on Windows and macOS Real Cells for 1.0.
-- [ ] **6.12 Placement integration.** `TaskNeeds.exoskeleton` drives placement: a Real Cell
+- [x] **6.12 Placement integration.** `TaskNeeds.exoskeleton` drives placement: a Real Cell
   qualifies if it has or can start a display, or the task is browser-only; otherwise a
   `desktop-ubuntu` Virtual Cell.
 - [ ] **6.13 Pheromone Mask tactics (policy-gated, callable overlays).**

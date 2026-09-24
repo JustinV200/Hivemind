@@ -18,8 +18,9 @@ from pathlib import Path
 import pytest
 from builders.cells import make_cell
 from builders.cli import fake_manifest
+from builders.forage import make_footprint
 
-from hivemind.cell import CombShieldLevel
+from hivemind.cell import CombShieldLevel, TaskNeeds
 from hivemind.cli.compose import virtual_cell_backends
 from hivemind.cli.compose.virtual_cell_backends import night_veil_socks_proxy_url
 from hivemind.cli.compose.virtual_cells import (
@@ -32,6 +33,13 @@ from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.placement import VirtualCellsSection
 from hivemind.manifest.schema.security import SecuritySection, TierProfile
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen.placement import (
+    ForageView,
+    Inventory,
+    PlacementPolicy,
+    ProvisionVirtual,
+    decide,
+)
 from waggle.clock import FakeClock
 from waggle.messages import CombShieldLevel as WireCombShieldLevel
 
@@ -129,8 +137,47 @@ async def test_virtual_backend_source_reports_the_fake_backend_with_a_default_sp
 
     assert len(candidates) == 1
     assert candidates[0].name == "fake"
-    assert len(candidates[0].specs) == 1
-    assert candidates[0].specs[0].image == manifest.virtual_cells.default_image
+    terminal, desktop = candidates[0].specs  # Roadmap step 6.12: terminal first, desktop second.
+    assert (terminal.image, terminal.exoskeleton) == (manifest.virtual_cells.default_image, False)
+    assert (desktop.image, desktop.exoskeleton) == ("desktop-ubuntu", True)
+    # Identical resources: neither spec ever fits Forage where the other would not.
+    assert desktop.model_copy(update={"image": terminal.image, "exoskeleton": False}) == terminal
+
+
+async def test_virtual_backend_source_threads_the_manifests_own_exoskeleton_image(
+    tmp_path: Path,
+) -> None:
+    manifest = _load_with_virtual_cells(tmp_path, exoskeleton_image="hivemind/desktop-ubuntu:dev")
+    clock = FakeClock()
+    parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
+    assert parts is not None
+
+    candidates = await parts.virtual_backend_source()
+
+    assert candidates[0].specs[1].image == "hivemind/desktop-ubuntu:dev"
+
+
+@pytest.mark.parametrize(
+    ("needs", "image"),
+    [(TaskNeeds(), "base-ubuntu"), (TaskNeeds(exoskeleton=True, audio=True), "desktop-ubuntu")],
+)
+async def test_placement_over_the_composed_specs_boots_the_desktop_image_only_when_needed(
+    tmp_path: Path, needs: TaskNeeds, image: str
+) -> None:
+    """The composed feed and the real decide together: roadmap step 6.12 end to end, minus I/O."""
+    manifest = _load_with_virtual_cells(tmp_path)
+    clock = FakeClock()
+    parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
+    assert parts is not None
+    inventory = Inventory(virtual_backends=await parts.virtual_backend_source())
+
+    placement = decide(
+        needs, inventory, ForageView(footprint=make_footprint()), PlacementPolicy(prefer="virtual")
+    )
+
+    assert isinstance(placement, ProvisionVirtual)
+    assert placement.spec.image == image
+    assert placement.spec.exoskeleton is needs.exoskeleton
 
 
 async def test_dormant_cell_source_starts_empty(tmp_path: Path) -> None:

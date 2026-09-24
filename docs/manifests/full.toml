@@ -432,6 +432,10 @@ prefer = "real"
 backend = "docker"
 # The images/<name> a freshly provisioned Virtual Cell boots by default.
 default_image = "base-ubuntu"
+# The images/<name> a Virtual Cell boots when its task needs an Exoskeleton (a display, input,
+# audio or browser attachment; roadmap step 6.12). It must carry the X11, sound and browser tools
+# images/desktop-ubuntu does; a task with no Exoskeleton need still boots default_image.
+exoskeleton_image = "desktop-ubuntu"
 # Logical cores to reserve.
 cpu_cores = 1.0
 # Memory to reserve, in bytes (1 GiB here).

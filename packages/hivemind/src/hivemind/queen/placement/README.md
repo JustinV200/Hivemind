@@ -2,7 +2,8 @@
 
 The placement package is the Queen's pure decision of where a task's Cell comes from: reuse an
 already-attached Warden's own Real Cell, resume an Overwintered Virtual Cell, or provision a fresh
-one (roadmap step 5.7, `docs/adr/0028-placement-policy-real-versus-virtual.md`).
+one (roadmap step 5.7, `docs/adr/0028-placement-policy-real-versus-virtual.md`). Roadmap step 6.12
+adds the Exoskeleton to the fit rule (`docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md`).
 
 ## Public API (roadmap step 5.7)
 
@@ -23,11 +24,31 @@ one (roadmap step 5.7, `docs/adr/0028-placement-policy-real-versus-virtual.md`).
   `TaskNeeds` (`request_origin`, `night_veil_hosting`), both defaulted so every pre-5.7a caller is
   unaffected; see that dataclass's own docstring for why the real wiring of both is a report item.
 - `rules` (`rules.py`): one small, individually-tested function per ADR-0028 rule.
+- Exoskeleton fit (roadmap step 6.12, ADR-0031's "Needs travel with the task"): rule 4c asks of a
+  Real Cell what attach will ask once it is leased, from the Cell's capability report and the
+  widest Exoskeleton scopes its access level ever grants (`hivemind.guard.ceiling_for`, with the
+  operator's running-display opt-in, exactly as the Cell's own Warden builds it):
+
+  | Need | A Real Cell qualifies when |
+  |---|---|
+  | browser-only | `has_browser`, and the level grants `exoskeleton:browser` (SCRATCH or FULL) |
+  | desktop | `can_start_display` and the level grants `exoskeleton:display` (FULL), or `has_display` and `real_display_allowed` and the level grants `exoskeleton:real_display` (FULL with the opt-in) |
+  | audio (with desktop) | the desktop rule, plus `has_audio` and the level grants `exoskeleton:audio` (FULL) |
+
+  `rules.exoskeleton_shortfall` returns the first unmet requirement in words (for example
+  `desktop Exoskeleton needs a display, but cannot start one (access level SCRATCH never grants
+  exoskeleton:display) or drive the running one (has_display=false)`), which becomes the Cell's
+  line in the placement reason. `RealCandidate.access_level` carries the level and defaults to
+  READ_ONLY, so a caller that does not report it fails closed. A Virtual spec fits any Exoskeleton
+  need only when it provisions one (`VirtualCellSpec.exoskeleton`); the composition root offers
+  one per backend, booting `[virtual_cells] exoskeleton_image` (`desktop-ubuntu` by default), after
+  the terminal-only default spec, so a task without the need never boots the heavier image.
 - `PlacementError`, `decide` (`decide.py`): `decide(needs, inventory, forage, policy) -> Placement`
   runs ADR-0028's own ordered pipeline -- Night Veil first (always a fresh Virtual Cell, gated by
   `check_night_veil` above before any backend is even considered), then isolation (`REQUIRED`
   excludes every Real Cell), then each side's own candidates are filtered (a `BLOCK` Cell Wax or
-  `allow_hive_stand = false`, then fit -- OS, network scopes, Exoskeleton -- then Forage) and
+  `allow_hive_stand = false`, then fit -- OS, network scopes, the Exoskeleton fit above -- then
+  Forage) and
   ranked (a `CAUTION` note behind a clean candidate, a dormant Cell before a fresh provision,
   attachment order breaking every other tie); only then is `prefer` read, and if the preferred
   side has nothing, the other side is used with a reason saying why. `PlacementError` names every

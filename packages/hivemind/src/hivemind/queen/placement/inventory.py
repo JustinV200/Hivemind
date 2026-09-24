@@ -20,7 +20,10 @@ would cost, checked against a candidate `VirtualCellSpec`'s own promised capacit
 5.7a adds two more fields to that same `ForageView`, both Night Veil-only and both defaulted so
 every pre-5.7a caller is unaffected: `request_origin` and `night_veil_hosting`, the two facts
 `hivemind.queen.placement.policy.check_night_veil` needs beyond `TaskNeeds` (see `ForageView`'s own
-docstring for why the real wiring of both is a report item rather than a change here).
+docstring for why the real wiring of both is a report item rather than a change here). Roadmap step
+6.12 adds `RealCandidate.access_level`: the Cell's own `AccessLevel` caps which Exoskeleton scopes
+(display, audio, browser) any bee on it can ever hold, so rule 4c needs it to know whether attach
+could honour an Exoskeleton need there at all.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
@@ -28,9 +31,9 @@ Fits into the Hive:
     do the I/O -- reading Cell Wax, the attached Wardens' own Cells, and `QueenDeps.
     virtual_backends`/`.dormant_cells` -- that fills these fields); read by `hivemind.queen.
     placement.decide.decide` and `hivemind.queen.placement.rules`. Calls into `hivemind.cell`
-    (CellCapabilities, CombShieldLevel, RequestOrigin), `hivemind.forage` (RoleFootprint),
-    `hivemind.hive` (BackendCapabilities, VirtualCellSpec), this package's own `policy` module
-    (NightVeilHostingView) and `waggle.ids` only.
+    (AccessLevel, CellCapabilities, CombShieldLevel, RequestOrigin), `hivemind.forage`
+    (RoleFootprint), `hivemind.hive` (BackendCapabilities, VirtualCellSpec), this package's own
+    `policy` module (NightVeilHostingView) and `waggle.ids` only.
 
 Key invariants:
     - Every type here is a frozen, slotted dataclass (codingrules section 8.5): a snapshot is a
@@ -40,6 +43,9 @@ Key invariants:
     - `VirtualBackendCandidate.capabilities.headroom` is already the caller's own *remaining*
       figure (roadmap step 5.6's retry path zeroes it for one backend after a failed provision,
       ADR-0028 Consequences): `decide` only ever compares it against zero, never subtracts.
+    - `RealCandidate.access_level` defaults to READ_ONLY, the least any Real Cell holds: a caller
+      that does not report the level never has an Exoskeleton need placed on a Cell whose real
+      level might refuse every scope attach needs (codingrules section 15, least privilege).
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Inventory/ForageView split
@@ -54,7 +60,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from hivemind.cell import CellCapabilities, CombShieldLevel, RequestOrigin
+from hivemind.cell import AccessLevel, CellCapabilities, CombShieldLevel, RequestOrigin
 from hivemind.forage import RoleFootprint
 from hivemind.hive import BackendCapabilities, VirtualCellSpec
 from hivemind.queen.placement.policy import NightVeilHostingView
@@ -93,6 +99,10 @@ class RealCandidate:
             caller measured it against the placed bee's own `RoleFootprint` -- `decide` never
             recomputes this (ADR-0028: "a Real Cell needs free capacity... the caller
             precomputes").
+        access_level: The Cell's own `AccessLevel` (`Cell.access_level`, set at enrolment), which
+            caps the Exoskeleton scopes any bee on it can ever hold (`hivemind.guard.
+            ceiling_for`); rule 4c reads it (roadmap step 6.12). Defaults to READ_ONLY, the level
+            that grants no Exoskeleton scope at all, so an unreported level fails closed.
     """
 
     warden_id: WardenId
@@ -101,6 +111,7 @@ class RealCandidate:
     comb_shield: CombShieldLevel
     is_hive_stand: bool
     has_free_capacity: bool
+    access_level: AccessLevel = AccessLevel.READ_ONLY
 
 
 @dataclass(frozen=True, slots=True)

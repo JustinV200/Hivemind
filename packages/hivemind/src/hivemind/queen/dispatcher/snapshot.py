@@ -211,6 +211,9 @@ def _real_candidate(link: WardenLink, footprint: RoleFootprint) -> RealCandidate
         comb_shield=cell.comb_shield,
         is_hive_stand=cell.source == "hive_stand",
         has_free_capacity=_has_free_capacity(cell, footprint),
+        # Roadmap step 6.12: the level caps which exoskeleton scopes the Cell's bees can hold;
+        # left unset it defaults to READ_ONLY (fail closed) and no Real Cell takes Exoskeleton work.
+        access_level=cell.access_level,
     )
 
 
