@@ -39,6 +39,7 @@ See Also:
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Annotated
 
@@ -52,8 +53,12 @@ from hivemind.cli.remote import app as remote_app
 from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
 from hivemind.cli.version import collect_version_info, format_version
+from hivemind.common.logging import configure_logging
+from hivemind.manifest.env import read_env
 
 __all__ = ["app", "main"]
+
+_DEFAULT_LOG_LEVEL = "INFO"  # When HIVEMIND_LOG_LEVEL is unset; lines go to standard error.
 
 # The one Typer application every command group below attaches to. Building it at module level
 # is the composition root itself doing its job (codingrules 5.5 bars *side effects* on import,
@@ -170,7 +175,21 @@ def main() -> None:
         `uv run hive --version` prints one line and exits 0.
     """
     _tolerate_console_encoding()
+    _configure_logging()
     app()
+
+
+def _configure_logging() -> None:
+    """Send every log line to standard error, at `HIVEMIND_LOG_LEVEL` (INFO by default).
+
+    Unconfigured, structlog prints every level, debug included, to standard output, where it
+    corrupted `hive run --json` and interleaved with every table (a real `hive run` printed the
+    Entrance's debug lines between its progress lines). Production (`HIVEMIND_ENV=prod`) logs JSON
+    lines for an aggregator; anywhere else a person reads them.
+    """
+    env = read_env(os.environ)
+    level = env.log_level or _DEFAULT_LOG_LEVEL
+    configure_logging(json_output=env.env == "prod", level=level)
 
 
 def _tolerate_console_encoding() -> None:

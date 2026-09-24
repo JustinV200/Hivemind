@@ -53,3 +53,16 @@ def test_get_logger_respects_the_configured_minimum_level() -> None:
         logger.info("hivemind.should_be_filtered")
 
     assert captured == []
+
+
+def test_log_lines_go_to_standard_error_and_never_standard_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Standard output is the program's own (hive run --json, a table): a log line there
+    # corrupted it before logging was configured anywhere but inside a Cell.
+    configure_logging(json_output=True, level="INFO")
+    get_logger(__name__).info("hivemind.stream_probe")
+
+    captured = capsys.readouterr()
+    assert "hivemind.stream_probe" in captured.err
+    assert captured.out == ""

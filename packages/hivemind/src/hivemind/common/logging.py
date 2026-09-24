@@ -24,14 +24,15 @@ See Also:
 from __future__ import annotations
 
 import logging
-from typing import cast
+import sys
+from typing import TextIO, cast
 
 import structlog
 
 __all__ = ["configure_logging", "get_logger"]
 
 
-def configure_logging(*, json_output: bool, level: str) -> None:
+def configure_logging(*, json_output: bool, level: str, stream: TextIO | None = None) -> None:
     """Configure structlog's global processor chain for this process.
 
     Must be called exactly once, by a composition root, before any subsystem logs anything that
@@ -41,6 +42,8 @@ def configure_logging(*, json_output: bool, level: str) -> None:
         json_output: True for JSON lines (production, machine-parsed); False for a
             human-readable console renderer (local development).
         level: A standard-library logging level name, e.g. "DEBUG", "INFO", "WARNING".
+        stream: Where log lines go; standard error when None, because standard output is the
+            program's own (a `--json` report, a table) and a log line there corrupts it.
 
     Returns:
         None.
@@ -73,7 +76,9 @@ def configure_logging(*, json_output: bool, level: str) -> None:
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(
+            file=stream if stream is not None else sys.stderr
+        ),
         cache_logger_on_first_use=True,
     )
 
