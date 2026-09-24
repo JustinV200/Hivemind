@@ -56,6 +56,7 @@ from hivemind.guard.scanner import INJECTION_SUSPECTED_KIND, SCANNER_KEY_NAME, S
 from hivemind.llm import LLMRequest, LLMResponse, TextPart, ToolResultPart
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.pheromone import PheromoneEvent, TrailQuery
+from hivemind.queen.chat import ChatKind, ChatQuery
 from waggle.clock import SystemClock
 
 pytestmark = pytest.mark.e2e
@@ -105,6 +106,19 @@ def _shown(request: LLMRequest) -> str:
     return "\n".join([request.system or "", *shown])
 
 
+async def _question_is_posted(hive: Hive) -> bool:
+    """Return whether the Queen has posted the blocked task's question to the chat.
+
+    Posting is the last thing she does for a question, after the task turns BLOCKED: she appends
+    the chat line, then tells the human channel, whose unbound relay writes a debug line to
+    stdout before the chat store lets any reader see that line. `hive inbox` runs under
+    `CliRunner`, which swaps the process-wide stdout while it runs, so invoking it before this
+    holds let that debug line land at the head of its JSON output.
+    """
+    lines = await hive.stores.chat.read(ChatQuery())
+    return any(line.kind is ChatKind.QUESTION for line in lines)
+
+
 async def _task_is_blocked(hive: Hive) -> bool:
     """Whether the goal's own (only) task is BLOCKED on the Drone's question."""
     tasks = await hive.stores.chamber.list(TaskFilter())
@@ -120,6 +134,9 @@ async def _answer_and_finish(
             run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
         )
         await wait_until(lambda: _task_is_blocked(hive), timeout_s=_TIMEOUT_S)
+        # Only once the question has reached the chat can nothing the Queen writes for it land
+        # inside the CLI's own captured stdout (`_question_is_posted`'s own docstring).
+        await wait_until(lambda: _question_is_posted(hive), timeout_s=_TIMEOUT_S)
         # The CLI runs its own asyncio.run, so it goes to a worker thread (scenario (d)'s rule).
         inbox = ["inbox", "--manifest", str(manifest_path), "--json"]
         listed = await asyncio.to_thread(runner.invoke, app, inbox)
