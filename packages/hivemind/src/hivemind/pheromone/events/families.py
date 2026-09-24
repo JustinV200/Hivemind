@@ -29,7 +29,10 @@ Vocabulary (family -> kind -> when it is recorded):
         stale Real Cell lease or expired Overwintered Cell outside the normal `released`/
         `destroyed` path -- distinct from both, so an operator can tell a sweep-forced ending from
         a task-driven one); orphans_swept (one Undertaker sweep pass's rollup: how many Cells it
-        evicted or destroyed, roadmap step 5.8).
+        evicted or destroyed, roadmap step 5.8); exoskeleton_attached (attach equipped the Cell
+        with a display, input, audio or browser for one task: peripheral names and how many
+        processes it started, never a frame, roadmap step 6.4); exoskeleton_detached (detach
+        stopped exactly those processes: how many stopped and how many were still running).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
         report, no transition); blocked (RUNNING -> BLOCKED, a question was asked); answered
@@ -198,6 +201,10 @@ class CellEvent(PheromoneEvent):
             # for a normal CellBackend.destroy call, not a stale-lease eviction or a sweep rollup.
             "cell.evicted",
             "cell.orphans_swept",
+            # Roadmap step 6.4 (ADR-0031): the Exoskeleton attached to and detached from a Cell
+            # for one task; neither ever carries a frame, a recording or typed text.
+            "cell.exoskeleton_attached",
+            "cell.exoskeleton_detached",
         }
     )
 

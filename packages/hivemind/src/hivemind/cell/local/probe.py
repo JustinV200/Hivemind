@@ -65,12 +65,14 @@ _MAX_DISK_PROBE_ANCESTORS = 32  # A generous bound; a filesystem root always ter
 _POSIX_BROWSERS = ("firefox", "google-chrome", "chromium", "chromium-browser")
 _POSIX_PACKAGE_MANAGERS = ("apt", "dnf", "yum", "pacman", "apk", "brew")
 # What the Exoskeleton's X11 display needs (roadmap step 6.3, ADR-0031): the virtual framebuffer,
-# pointer and keyboard input, ImageMagick's screen capture and an X authority cookie tool. Kept in
-# step with hivemind.exoskeleton's own launcher (a test holds the two together).
-X11_DISPLAY_PROGRAMS = ("Xvfb", "xdotool", "import", "xauth")
-# The light window managers the Exoskeleton can start; one is required, because xdotool's pointer
-# moves are silently ignored by a bare Xvfb (found on Xvfb 21.1, recorded in ADR-0031).
-WINDOW_MANAGERS = ("openbox", "fluxbox", "twm")
+# pointer and keyboard input, and ImageMagick's screen capture. Attach writes the display's
+# authority cookie itself, so no cookie tool is needed. Kept in step with
+# hivemind.exoskeleton.attach's own programs (a test holds the two together).
+X11_DISPLAY_PROGRAMS = ("Xvfb", "xdotool", "import")
+# The window manager the Exoskeleton starts; one is required, because xdotool's pointer moves are
+# silently ignored by a bare Xvfb (found on Xvfb 21.1, recorded in ADR-0031). Only openbox is
+# listed because only openbox is proven: twm, for one, waits for a click to place each new window.
+WINDOW_MANAGERS = ("openbox",)
 # What the Exoskeleton's per-lease sound server needs: the daemon, its control tool, and the
 # record and play clients `listen` and `say` run (roadmap step 6.3).
 AUDIO_PROGRAMS = ("pulseaudio", "pactl", "parec", "paplay")

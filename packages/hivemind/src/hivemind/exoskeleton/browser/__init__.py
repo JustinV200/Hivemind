@@ -1,23 +1,33 @@
-"""Define the Exoskeleton's browser attachment: the browser package.
+"""Define the Exoskeleton's browser attachment: the browser fast path, and how it is launched.
 
-It gives tasks a controllable web browser on a Cell rather than raw screen and input access.
+A task that needs a web page gets a real browser on its Cell, driven through `Browser` (navigate,
+act on an element by accessible role and name, read the page back as structure) rather than through
+raw pixels and input, so a model without vision can still do browser work (roadmap step 6.11,
+ADR-0031). `BrowserLauncher` starts that browser through the Cell's session for one lease.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside the exoskeleton package.
-    Handles the browser attachment for tasks that need a controllable web browser. Called by
-    exoskeleton's public API on behalf of whatever calls exoskeleton itself; calls into sibling
-    packages at Layer 3 or below, never back up into exoskeleton's other sub-packages directly.
+    Used by `hivemind.exoskeleton.attach`, the Capping gate's GUI surface and the `browser_*`
+    tools. Calls into `hivemind.cell`, `hivemind.exoskeleton.frames` and `.scratch`.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 6 adds its first public name.
+    - Nothing here imports Playwright; only `browser.playwright` does (an import-linter contract).
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under exoskeleton.
-    - .claude/roadmap.md phase 6 for the work that first populates it.
+    - hivemind.exoskeleton.browser.base for the protocols.
+    - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for the fast path.
 
-Public API: none yet; first populated in phase 6.
+Public API:
+    - Browser, BrowserCheckpoint: drive a page and take its undo point (base).
+    - BrowserLauncher, BrowserLaunch, LaunchedBrowser: start a lease's browser (base).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 6 adds the first public name.
-__all__: list[str] = []
+from hivemind.exoskeleton.browser.base import (
+    Browser,
+    BrowserCheckpoint,
+    BrowserLaunch,
+    BrowserLauncher,
+    LaunchedBrowser,
+)
+
+__all__ = ["Browser", "BrowserCheckpoint", "BrowserLaunch", "BrowserLauncher", "LaunchedBrowser"]

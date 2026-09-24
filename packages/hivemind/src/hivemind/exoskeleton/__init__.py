@@ -1,24 +1,87 @@
 """Provide the Hive's optional Cell peripherals: the Exoskeleton.
 
-It bundles compound_eye (vision), antennae (input), buzz (audio), a browser attachment, and the
-tactics a Worker can invoke, such as the input tactic for the Pheromone Mask (the policy that
-makes a bee's actions look more human when active). Nothing in the core assumes any of this is
-attached; a task asks for it explicitly.
+A task that needs a desktop, a browser or audio gets them attached to its Cell for its own lease,
+and only then (codingrules section 8.7, ADR-0031): compound_eye (vision: capture a frame, digest a
+region), antennae (touch: pointer and keyboard), buzz (hearing and voice), and a browser (the fast
+path, driven through the accessibility tree rather than pixels). Every peripheral reaches its Cell
+only through that Cell's `CellSession`, so one backend serves a Virtual Cell and a Linux Real Cell
+alike. `attach` plans from capabilities, starts only what the plan names (a private display, a
+private sound server, a browser), and returns a handle whose `detach` stops exactly that. Nothing
+in the core assumes any of this is attached.
 
 Fits into the Hive:
-    Layer 3 (sources of Cells, and capabilities handed down). Called by the worker role that
-    requested it for a Cell. Calls into hivemind.cell and hivemind.common.
+    Layer 3 (sources of Cells, and capabilities handed down). Called by the Warden's spawn path
+    (attach and detach), the Worker's Exoskeleton tools and the Capping gate's GUI surface. Calls
+    into hivemind.cell, hivemind.guard, hivemind.pheromone and hivemind.common.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 6 adds its first public name.
+    - Nothing here runs a process except through a CellSession.
+    - No frame, recording or typed text ever reaches a log or the trail.
 
 See Also:
-    - .claude/codingrules.md section 4 for the layer 3 row this package occupies.
-    - .claude/roadmap.md phase 6 for the work that first populates this package.
+    - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for the design.
+    - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md for how
+      GUI actions are gated.
 
-Public API: none yet; first populated in phase 6.
+Public API:
+    - attach, AttachDeps, ExoskeletonConfig, ExoskeletonHandle, Peripherals, DetachReport,
+      AttachPlan, DisplaySource, plan_attach (attach): equip and unequip a Cell.
+    - ExoskeletonError, AttachError, PeripheralError, ElementNotFoundError (errors).
+    - Point, Region, ScreenSize (geometry); Frame, PNG_MEDIA_TYPE (frames); ScratchLayout
+      (scratch); X11Display (x11).
+    - The peripheral protocols CompoundEye, Antennae, Buzz, Recording, Browser (their packages).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 6 adds the first public name.
-__all__: list[str] = []
+from hivemind.exoskeleton.antennae import Antennae
+from hivemind.exoskeleton.attach import (
+    AttachDeps,
+    AttachPlan,
+    DetachReport,
+    DisplaySource,
+    ExoskeletonConfig,
+    ExoskeletonHandle,
+    Peripherals,
+    attach,
+    plan_attach,
+)
+from hivemind.exoskeleton.browser import Browser
+from hivemind.exoskeleton.buzz import Buzz, Recording
+from hivemind.exoskeleton.compound_eye import CompoundEye
+from hivemind.exoskeleton.errors import (
+    AttachError,
+    ElementNotFoundError,
+    ExoskeletonError,
+    PeripheralError,
+)
+from hivemind.exoskeleton.frames import PNG_MEDIA_TYPE, Frame
+from hivemind.exoskeleton.geometry import Point, Region, ScreenSize
+from hivemind.exoskeleton.scratch import ScratchLayout
+from hivemind.exoskeleton.x11 import X11Display
+
+__all__ = [
+    "PNG_MEDIA_TYPE",
+    "Antennae",
+    "AttachDeps",
+    "AttachError",
+    "AttachPlan",
+    "Browser",
+    "Buzz",
+    "CompoundEye",
+    "DetachReport",
+    "DisplaySource",
+    "ElementNotFoundError",
+    "ExoskeletonConfig",
+    "ExoskeletonError",
+    "ExoskeletonHandle",
+    "Frame",
+    "PeripheralError",
+    "Peripherals",
+    "Point",
+    "Recording",
+    "Region",
+    "ScratchLayout",
+    "ScreenSize",
+    "X11Display",
+    "attach",
+    "plan_attach",
+]

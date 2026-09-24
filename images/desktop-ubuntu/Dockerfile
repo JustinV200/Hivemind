@@ -4,7 +4,7 @@
 #
 # base-ubuntu plus everything the Exoskeleton (the optional display, input, audio and browser
 # attachment of a Cell) needs to start on demand: Xvfb, a light window manager, xdotool,
-# ImageMagick's screen capture, xauth, PulseAudio with its clients, a Chromium build, and fonts.
+# ImageMagick's screen capture, PulseAudio with its clients, a Chromium build, and fonts.
 # Nothing is started at boot: a task that needs a desktop gets a fresh display, sound server and
 # browser from `hivemind.exoskeleton.attach`, owned by its lease and stopped on detach, so an
 # Overwintered Cell never carries one task's windows into the next (ADR-0031). What every layer is
@@ -62,7 +62,6 @@ RUN apt-get update \
         xvfb \
         openbox \
         xdotool \
-        xauth \
         x11-utils \
         imagemagick \
         pulseaudio \
