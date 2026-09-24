@@ -6,7 +6,10 @@ file) with the Hive Entrance on a real loopback listener. The operator's console
 the Hive Stand as `hive entrance operator password` would, logs in over HTTP with its key and the
 password, mints an invite and approves a program that redeemed it with an Ed25519 key; the program
 logs in, submits a goal the Hive plans and finishes, says something in the chat, and reads the
-Queen's reply back. A second test proves the exposure check refuses before anything listens.
+Queen's reply back. Another follows a goal through the read side: the task-graph and telemetry
+views over real sockets while the Warden's Drone does the work, then the tasks, Cells, Wardens,
+trail and LLM reads over the Hive's own stores and the Queen's live tables. A last test proves
+the exposure check refuses before anything listens.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -21,6 +24,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -35,6 +39,8 @@ from e2e.kernel_helpers import (
     text_response,
     wait_until,
 )
+from websockets.asyncio.client import ClientConnection
+from websockets.asyncio.client import connect as open_socket
 
 from hivemind.cli.compose.entrance import ServedHive, build_served_hive, serve_hive
 from hivemind.common.secrets import FileSecretStore
@@ -47,6 +53,7 @@ from hivemind.entrance.enrol import (
     unlock_console_key,
 )
 from hivemind.entrance.expose import ExposureRefusedError
+from hivemind.entrance.runtime import HiveEntrance
 from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import LLMRequest, LLMResponse
@@ -170,6 +177,85 @@ async def _admit_and_run_a_goal(manifest: HiveManifest, served: ServedHive) -> N
         ("queen", _REPLY),
     ]
     assert device_id != console_key.device_id
+
+
+def test_hive_serve_shows_a_program_its_goal_through_the_live_views_and_the_reads(
+    tmp_path: Path,
+) -> None:
+    manifest = _manifest(tmp_path)
+    served = build_served_hive(
+        manifest, environ={}, clock=SystemClock(), responders={"fake": _responder}
+    )
+
+    asyncio.run(_follow_a_goal(manifest, served))
+
+
+async def _open_view(
+    entrance: HiveEntrance, client: LandingClient, session: LandingSession, path: str
+) -> ClientConnection:
+    """Open a live view on loopback with the session's signed first frame."""
+    socket = await open_socket(f"ws://localhost:{entrance.listeners.loopback_port}{path}")
+    await socket.send(client.hello(session, path))
+    return socket
+
+
+async def _frames_until(
+    socket: ClientConnection, done: Callable[[dict[str, Any]], bool]
+) -> list[dict[str, Any]]:
+    """Read frames until one satisfies ``done``; every frame read."""
+    frames: list[dict[str, Any]] = []
+    async with asyncio.timeout(_TIMEOUT_S):
+        while not frames or not done(frames[-1]):
+            frames.append(json.loads(await socket.recv()))
+    return frames
+
+
+async def _follow_a_goal(manifest: HiveManifest, served: ServedHive) -> None:
+    """Serve, admit a program, and follow its goal through the live views and the reads."""
+    console_key = await _bootstrap_console(manifest)
+    async with serve_hive(served) as entrance:
+        base = f"http://localhost:{entrance.listeners.loopback_port}"
+        async with httpx.AsyncClient(base_url=base, timeout=10.0) as http:
+            client = LandingClient(http, manifest.hive.id, served.hive.clock)
+            program, _ = await _approved_program(client, await client.login(console_key))
+            hub, board = entrance.services.streams.hub, served.hive.telemetry
+            before = hub.subscribers  # The Entrance's own follower of reduce orders among them.
+            graph = await _open_view(entrance, client, program, "/v1/tasks/stream")
+            pulse = await _open_view(entrance, client, program, "/v1/telemetry/stream")
+
+            async def subscribed() -> bool:
+                return hub.subscribers > before and board.subscribers > 0
+
+            # Both views follow their feeds before the goal is submitted, so they miss nothing.
+            await _until(subscribed)
+            await client.call(program, "POST", "/v1/goals", {"text": _GOAL})
+            moves = await _frames_until(graph, lambda f: f["task"]["status"] == "SUCCEEDED")
+            [sample] = await _frames_until(pulse, lambda f: f["sample"]["worker_id"] is None)
+            goal_id = moves[-1]["task"]["goal_id"]
+            reads = {
+                path: (await client.call(program, "GET", path)).json()
+                for path in (
+                    f"/v1/tasks?goal_id={goal_id}",
+                    "/v1/cells",
+                    "/v1/wardens",
+                    "/v1/llm",
+                    f"/v1/trail?kind=task.succeeded&subject_id={goal_id}",
+                )
+            }
+            await graph.close()
+            await pulse.close()
+
+    [task] = reads[f"/v1/tasks?goal_id={goal_id}"]["tasks"]
+    assert (task["status"], task["outcome"]["status"]) == ("SUCCEEDED", "SUCCEEDED")
+    assert all("title" not in move["task"] for move in moves)
+    [cell] = reads["/v1/cells"]["cells"]
+    [warden] = reads["/v1/wardens"]["wardens"]
+    assert (cell["kind"], cell["source"], cell["current_tasks"]) == ("REAL", "hive_stand", [])
+    assert (cell["warden_id"], warden["cell_id"]) == (warden["id"], cell["id"])
+    assert warden["last_heartbeat_at"] is not None and sample["sample"]["warden_id"] == warden["id"]
+    assert [provider["kind"] for provider in reads["/v1/llm"]["providers"]] == ["fake"]
+    [event] = reads[f"/v1/trail?kind=task.succeeded&subject_id={goal_id}"]["events"]
+    assert event["subject_id"] == task["id"]
 
 
 def test_hive_serve_refuses_lan_exposure_without_mutual_tls_before_listening(
