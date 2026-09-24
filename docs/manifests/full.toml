@@ -2,7 +2,7 @@
 #
 # A test in packages/hivemind/tests/unit/manifest/test_loader.py loads this file and round-trips
 # it through model_dump/model_validate, so it cannot silently drift from hivemind.manifest.schema.
-# [guard] is added by roadmap step 10.2.
+# [guard] is added by roadmap step 10.2; [guard.untrusted_content] by roadmap step 10.6b.
 
 [hive]
 # This Hive's identity: minted once with waggle.ids.new_hive_id/new_node_id, never regenerated.
@@ -557,3 +557,27 @@ allow = [
 # everywhere), "alarm" (also raise an Alarm to the principal's supervisor) or "ask_human".
 tool_invocation = "alarm"
 question_routing = "ask_human"
+
+[guard.untrusted_content]
+# The untrusted-content scanner (roadmap step 10.6b, ADR-0035): every tool result, Cell session
+# output and chat message is scored against the pattern families shipped in hivemind.guard.defaults
+# (untrusted-content.toml, explained in docs/guard/untrusted-content.md) before a model reads it.
+# How many characters of one text are read before matching; the rest is never matched, so a
+# hostile document cannot make the scanner slow. 1024 to 1048576.
+max_scan_chars = 65536
+
+# Per Comb Shield tier: at `label` the text still reaches the model, fenced under a harder label;
+# at `drop` it never does (a withheld notice with its keyed hash stands in). Either way the flag is
+# recorded as guard.injection_suspected; a flag never stops a bee. A stricter tier must react at
+# least as soon as a looser one. These are the defaults, written out.
+[guard.untrusted_content.meadow]
+label = 3.0
+drop = 7.0
+
+[guard.untrusted_content.propolis]
+label = 2.5
+drop = 6.0
+
+[guard.untrusted_content.night_veil]
+label = 2.0
+drop = 5.0

@@ -171,6 +171,28 @@ class AttemptManager:
             self._stop_after_handoff = True
             self._stop_reason = reason
 
+    async def refuse_resume(self, refusal: Exception) -> None:
+        """Fail this attempt before its role starts: the Handoff it was to resume was refused.
+
+        Moves RUNNING -> FAILED and raises a WORKER_CRASHED Alarm naming the refusal (ids only,
+        never the Handoff's text), exactly as a crash is reported, so the Warden's own escalation
+        policy decides what follows (roadmap 10.6d: a tainted Handoff is never resumed from).
+
+        Args:
+            refusal: The loader's `TaintedMemoryError` or `ClearanceError`.
+        """
+        runtime = self._runtime
+        await runtime._drain_pending_alarms()  # Fix 2: flush before the transition.
+        runtime._reporter.transition(WorkerState.FAILED)
+        await runtime._reporter.record_event("worker.failed")
+        await runtime._reporter.send_alarm(
+            AlarmDetails(
+                kind=AlarmKind.WORKER_CRASHED,
+                detail=str(refusal),
+                reason="The Handoff this attempt was to resume from was refused; nothing ran.",
+            )
+        )
+
     async def cancel_role_task(self) -> None:
         """Reap the role's own task if `run()` is ending while it is still mid-attempt."""
         await _cancel_role_task(self)

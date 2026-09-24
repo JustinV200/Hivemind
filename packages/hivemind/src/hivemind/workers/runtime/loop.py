@@ -75,7 +75,7 @@ from typing import Any
 from hivemind.cell import HoneyClearance
 from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reaping
-from hivemind.memory import Handoff, read_handoff
+from hivemind.memory import ClearanceError, Handoff, TaintedMemoryError, read_handoff
 from hivemind.supervision.intervention import Checkpoint, Compact, Rebind, Takeover
 from hivemind.supervision.intervention import Handoff as HandoffLever
 from hivemind.supervision.intervention import from_wire as intervention_from_wire
@@ -256,14 +256,23 @@ class WorkerRuntime(TickLoop):
     # ──────────────────────────────────────────────────────────────────────────
 
     async def _handle_assign(self, assign: TaskAssign) -> None:
-        """Move SPAWNED -> RUNNING, resolve any resume_from, and start the role."""
+        """Move SPAWNED -> RUNNING, resolve any resume_from, and start the role.
+
+        A Handoff the loader refuses (tainted, roadmap 10.6d, or above this attempt's clearance)
+        is never resumed from: the attempt fails with an Alarm before the role starts, so its
+        Warden's policy decides what follows, instead of the refusal ending this runtime.
+        """
         self._reporter.transition(WorkerState.RUNNING)
         self._reporter.set_assignment(assign)
         await self._reporter.record_event("worker.started", task_id=assign.task_id)
         resume_from: Handoff | None = None
         if assign.resume_from is not None:
             allowance = HoneyClearance.from_wire(assign.clearance)
-            resume_from = await read_handoff(self._ctx.memory, assign.resume_from, allowance)
+            try:
+                resume_from = await read_handoff(self._ctx.memory, assign.resume_from, allowance)
+            except (TaintedMemoryError, ClearanceError) as refusal:
+                await self._attempt.refuse_resume(refusal)
+                return
         await self._reporter.send_progress(TaskStage.STARTED, "Started.")
         self._attempt.start(resume_from)
 
