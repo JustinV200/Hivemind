@@ -419,16 +419,19 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
     backend = lifecycle._registry.get(backend_name)
     try:
         cell = await backend.provision(spec)
-    except CellProvisionError:
+    except CellProvisionError as exc:
         # No CellId exists yet on failure (the backend mints its own, internally, and never
         # hands one back on this path): the edge is still validated in its pure form, and the
-        # failure event is scoped to the Hive rather than a Cell that was never created.
+        # failure event is scoped to the Hive rather than a Cell that was never created. The
+        # backend's own reason rides along: without it, a Cell whose Warden never dialled back
+        # (a real Docker run, 2026-09-23) was only diagnosable from the container's own logs.
         assert_transition(VirtualCellStatus.PROVISIONING, VirtualCellStatus.FAILED)
         await lifecycle._record(
             lifecycle._identity.hive_id,
             "cell.provision_failed",
             backend=backend_name,
             image=spec.image,
+            reason=exc.reason,
         )
         raise
     lifecycle._cells[cell.id] = LiveVirtualCell(

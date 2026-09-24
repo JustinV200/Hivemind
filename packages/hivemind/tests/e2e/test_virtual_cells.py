@@ -52,12 +52,14 @@ import pytest
 from builders.virtual_cells import (
     ContainerSpawningFakeCellBackend,
     VirtualCellsTuning,
+    abscond_now,
     assert_every_warden_flushed_its_trail,
     clear_wax_note,
     default_container_script,
     independent_haiku_plan,
     single_haiku_plan,
     virtual_cells_manifest,
+    without_shutdown_retire,
     write_block_wax,
 )
 from e2e.kernel_helpers import (
@@ -76,7 +78,6 @@ from hivemind.brood_chamber import Task
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import Hive, build_hive, run_goal, run_hive
 from hivemind.cli.compose.deps import build_ledger
-from hivemind.cli.readback.virtual_abscond import AbscondDeps, run_abscond
 from hivemind.cli.stores import open_cluster_orders
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import LLMRequest, LLMResponse
@@ -311,6 +312,10 @@ async def _run_scenario_a(hive: Hive, *, overwinter_enabled: bool) -> None:
         _assert_scenario_a_trail_order(report.tasks, events, overwinter_enabled=overwinter_enabled)
         if not overwinter_enabled:
             assert_every_warden_flushed_its_trail(hive, report.tasks, events)
+        # run_hive's own shutdown retires every Cell this process still tracked, dormant ones
+        # included (hivemind.queen.cell_gate.shutdown): a paused Cell cannot outlive the Queen
+        # that minted its key and port, so nothing is left on the backend either way.
+        assert await backend.list_cells(hive.manifest.hive.id) == ()
     finally:
         await backend.aclose()
 
@@ -635,6 +640,11 @@ def test_g_abscond_after_a_haiku_run_leaves_zero_containers_and_is_left_as_found
 
 
 async def _run_scenario_g(hive: Hive, abscond_stores: tuple[ForageLedger, OrderStore]) -> None:
+    # abscond exists for the Cells a Queen never got to retire (a crash, a kill): run_hive's own
+    # clean shutdown now retires every Cell itself (hivemind.queen.cell_gate.shutdown), so this
+    # scenario stands in for the crashed Queen by disabling that step alone, leaving three
+    # dormant Cells on the backend for abscond to find from labels and the trail.
+    hive = without_shutdown_retire(hive)
     backend = _fake_backend(hive)
     try:
         async with run_hive(hive):
@@ -650,23 +660,9 @@ async def _run_scenario_g(hive: Hive, abscond_stores: tuple[ForageLedger, OrderS
                 cell_id = _cell_id_for_task(events, task.id)
                 await _wait_for_trail_kind(hive, "cell.overwintered", subject_id=cell_id)
 
-        # The same pass `hive cells abscond --yes` runs (hivemind.cli.readback.virtual._abscond),
-        # driven in this test's own event loop: CliRunner swaps sys.stdout process-wide, which
-        # collides with pytest's capture when run from a worker thread, and its own asyncio.run
-        # cannot host this loop's in-process containers. `hive.virtual_cells` is reused so
-        # abscond sees (and destroys) the three Cells this run just provisioned; the CLI's own
-        # unit tests cover the argument parsing and the printed receipt.
-        summary = await run_abscond(
-            AbscondDeps(
-                manifest=hive.manifest,
-                trail=hive.stores.trail,
-                ledger=abscond_stores[0],
-                orders=abscond_stores[1],
-                clock=SystemClock(),
-                virtual_cells=hive.virtual_cells,
-                leavings=hive.stores.leavings,
-            )
-        )
+        # The same pass `hive cells abscond --yes` runs, in this loop (builders.virtual_cells.
+        # abscond_now's own docstring says why not through CliRunner).
+        summary = await abscond_now(hive, *abscond_stores)
         assert summary.left_as_found, summary
         assert summary.containers_destroyed >= 3
 
@@ -674,13 +670,17 @@ async def _run_scenario_g(hive: Hive, abscond_stores: tuple[ForageLedger, OrderS
         assert remaining == ()
 
         events = await hive.stores.trail.query(TrailQuery())
-        # No cell.leased without a matching cell.released, on the Queen's own trail (the Hive
-        # Stand's own single real lease, opened at Warden.start() and closed cleanly by
-        # run_hive's own teardown -- every Virtual Cell's own container lease events live only on
-        # that container's own local trail segment, module docstring, never synced here since
-        # each container is cancelled abruptly rather than stopped gracefully).
+        # The Hive Stand's own single real lease (opened at Warden.start(), closed cleanly by
+        # run_hive's own teardown) is leased and released on the Queen's own trail. Every Virtual
+        # Cell's own `cell.leased` reaches it too, shipped with the rest of its task's rows before
+        # its TaskResult (hivemind.wardens.ticks.trail_ship); its `cell.released` is recorded at
+        # its Warden's stop, which abscond's abrupt destroy never allows -- exactly the
+        # crashed-Queen leftover this scenario stands in for.
         leased = {e.subject_id for e in events if e.kind == "cell.leased"}
         released = {e.subject_id for e in events if e.kind == "cell.released"}
-        assert leased <= released
+        provisioned = {e.subject_id for e in events if e.kind == "cell.provisioned"}
+        stand_cell_id = hive.warden_link.cell.id
+        assert stand_cell_id in leased and stand_cell_id in released
+        assert leased - released <= provisioned
     finally:
         await backend.aclose()

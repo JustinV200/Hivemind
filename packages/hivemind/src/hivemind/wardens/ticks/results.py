@@ -42,6 +42,7 @@ from hivemind.supervision import Alarm as MirroredAlarm
 from hivemind.supervision import record_alarm_event
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
 from hivemind.wardens.ticks.alarms import retire_sub_bee
+from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
 from waggle.ids import new_alarm_id
 from waggle.messages import AlarmSeverity
@@ -89,6 +90,9 @@ async def _send_succeeded(warden: Warden, sub_bee: SubBee, claim: TaskResult) ->
         spend=claim.spend,
         reason="Every acceptance criterion held.",
     )
+    # The Queen may pause or destroy this Cell the moment the result lands: ship the task's own
+    # trail rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
+    await ship_trail_before_result(warden)
     await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))
 
 
@@ -138,6 +142,7 @@ async def _send_acceptance_failed(
         spend=claim.spend,
         reason="acceptance",
     )
+    await ship_trail_before_result(warden)  # Same reason as _send_succeeded: teardown follows.
     await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))
 
 

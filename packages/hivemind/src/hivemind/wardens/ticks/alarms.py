@@ -54,6 +54,7 @@ from hivemind.forage.slots import ModelSlot
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
+from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
 from waggle.ids import TaskId, new_alarm_id
 from waggle.messages import AlarmSeverity
@@ -308,4 +309,7 @@ async def _send_result(
         spend=0.0,
         reason=reason[:MAX_REASON_CHARS],
     )
+    # The Queen tears this Cell down the moment a FAILED result lands: ship the task's own trail
+    # rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
+    await ship_trail_before_result(warden)
     await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))

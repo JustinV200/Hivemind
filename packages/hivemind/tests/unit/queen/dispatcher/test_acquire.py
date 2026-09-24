@@ -153,6 +153,12 @@ async def test_a_failed_provision_retries_once_with_that_backends_headroom_zeroe
     assert isinstance(effective, ProvisionVirtual)
     assert effective.backend == "qemu"  # docker's own headroom was zeroed on the retry.
     assert len(provider.calls) == 2
+    # The retry's own reason names the failure, not decide's "no headroom" view of a zeroed
+    # backend (a real run's own queen.placed read as a capacity problem, 2026-09-23).
+    assert effective.reason.startswith(
+        "[placement] retry after backend 'docker' could not provision a Cell ("
+    )
+    assert "[placement] prefer=virtual" in effective.reason
     await warden_end.close()
     await warden_end2.close()
 

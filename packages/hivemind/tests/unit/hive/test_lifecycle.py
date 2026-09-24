@@ -414,6 +414,9 @@ async def test_provision_failure_records_provision_failed_and_leaves_no_record()
     events = await trail.query(TrailQuery(kind="cell.provision_failed", limit=10))
     assert len(events) == 1
     assert events[0].payload["backend"] == "fake"
+    # The backend's own reason rides on the event: a Cell whose Warden never dialled back was
+    # otherwise only diagnosable from the container's own logs (a real Docker run, 2026-09-23).
+    assert events[0].payload["reason"] == "no capacity"
 
 
 async def test_provision_failure_never_records_provisioned_or_ready() -> None:

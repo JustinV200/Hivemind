@@ -285,6 +285,8 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             await hive.warden.stop()
             await asyncio.gather(queen_task, warden_task)
             if hive.virtual_cells is not None:
+                # Every Virtual Cell, dormant ones included: hivemind.queen.cell_gate.shutdown.
+                await hive.virtual_cells.retire_all()
                 # Stop accepting and close every Virtual Cell connection last: nothing above this
                 # still reads from a WardenLink once the Queen and Warden are both fully stopped.
                 await hive.virtual_cells.listener.stop()

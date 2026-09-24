@@ -152,6 +152,7 @@ from hivemind.queen.cell_gate import (
     make_on_task_finished,
     make_quiesce,
 )
+from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.deps import (
     DormantCellSource,
     OnCellGranted,
@@ -194,6 +195,8 @@ class VirtualCellsParts:
         dormant_cell_source: `QueenDeps.dormant_cell_source`'s own live feed.
         on_task_finished: `QueenDeps.on_task_finished`'s own implementation.
         on_cell_granted: `QueenDeps.on_cell_granted`'s own implementation.
+        retire_all: Awaited by `run_hive` at shutdown to tear down every Virtual Cell this
+            process still tracks, dormant ones included (hivemind.queen.cell_gate.shutdown).
     """
 
     registry: BackendRegistry
@@ -205,6 +208,7 @@ class VirtualCellsParts:
     dormant_cell_source: DormantCellSource
     on_task_finished: OnTaskFinished
     on_cell_granted: OnCellGranted
+    retire_all: RetireAll
 
 
 def build_virtual_cells(
@@ -248,6 +252,7 @@ def build_virtual_cells(
         dormant_cell_source=_dormant_cell_source(lifecycle),
         on_task_finished=make_on_task_finished(lifecycle, _null_scrub, quiesce),
         on_cell_granted=make_on_cell_granted(lifecycle),
+        retire_all=make_retire_all(lifecycle, quiesce),
     )
 
 
@@ -405,6 +410,7 @@ def _default_spec(section: VirtualCellsSection, hive_id: HiveId) -> VirtualCellS
         memory_bytes=section.memory_bytes,
         disk_bytes=section.disk_bytes,
         network_policy=_network_policy(section.network_policy),
+        read_only_rootfs=section.read_only_rootfs,
         capacity=capacity,
         comb_shield=CombShieldLevel.MEADOW,
         ready_timeout_s=section.ready_timeout_s,

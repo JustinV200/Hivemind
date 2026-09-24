@@ -41,6 +41,9 @@ Public API:
     - make_quiesce: builds the real `quiesce` callable make_on_task_finished calls before tearing a
       Cell down, so its Warden's final trail sync has a chance to land first
       (hivemind.queen.cell_gate.quiesce).
+    - make_retire_all, RetireAll: builds the callable `run_hive` awaits at shutdown to tear down
+      every Virtual Cell this process still tracks, dormant ones included
+      (hivemind.queen.cell_gate.shutdown).
     - CellSnapshotHandler: answers a Warden's own CellSnapshotRequest/CellRollbackRequest, the
       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
 """
@@ -50,6 +53,7 @@ from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps, Sn
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.cell_gate.quiesce import make_quiesce
 from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
+from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 
 __all__ = [
@@ -58,8 +62,10 @@ __all__ = [
     "CellSnapshotHandler",
     "LifecycleVirtualCellProvider",
     "QueenReadinessGate",
+    "RetireAll",
     "SnapshotRequestHandler",
     "make_on_cell_granted",
     "make_on_task_finished",
     "make_quiesce",
+    "make_retire_all",
 ]

@@ -9,6 +9,9 @@ dispatch calls into these; none of them is a general-purpose module on its own).
 - `assign`: spawn a sub-bee once its `TaskAssign` and `GrantIssued` have both arrived; park
   otherwise; retry a refused lease once before escalating `CELL_UNREACHABLE`.
 - `results`: run acceptance on a sub-bee's claimed `TaskResult`, on the Warden's own session.
+- `trail_ship`: ship this Warden's own trail segment right before a `TaskResult` goes to the
+  Queen, so a Cell paused or destroyed on that result never takes the task's rows with it;
+  called by `results` and `alarms`.
 - `alarms`: `RETRY`/`REBIND`/`ESCALATE`/`CANCEL_TASK` for an Alarm; `send_alarm_to_queen` for a
   Warden's own self-raised Alarm; `retire_sub_bee`, shared with `results`.
 - `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back.

@@ -98,10 +98,10 @@ async def resolve_link(
         )
     try:
         link = await deps.virtual_provider.acquire(placement, task)
-    except CellProvisionError:
+    except CellProvisionError as exc:
         # ADR-0028 Consequences: re-enter placement once with the failed backend's own headroom
         # zeroed (or, for a dormant Cell, that Cell excluded), then let a second failure propagate.
-        return await _retry_once(deps, wardens, task, placement)
+        return await _retry_once(deps, wardens, task, placement, exc)
     return link, placement
 
 
@@ -110,8 +110,15 @@ async def _retry_once(
     wardens: Sequence[WardenLink],
     task: Task,
     placement: ProvisionVirtual | ReuseDormant,
+    failure: CellProvisionError,
 ) -> tuple[WardenLink, Placement]:
-    """Re-run `decide` once, with the failed candidate excluded, and acquire its own result."""
+    """Re-run `decide` once, with the failed candidate excluded, and acquire its own result.
+
+    The retry's own `queen.placed` reason names what actually happened: `decide` only sees a
+    backend with zeroed headroom (or one dormant Cell fewer) and would otherwise report "no
+    headroom", which a real run (2026-09-23) showed reads as a capacity problem when the Cell had
+    in fact been provisioned and never dialled back.
+    """
     if isinstance(placement, ProvisionVirtual):
         current = await current_virtual_backends(deps)
         zeroed = tuple(_zero(b) if b.name == placement.backend else b for b in current)
@@ -120,7 +127,10 @@ async def _retry_once(
         inventory = await build_inventory(
             deps, wardens, exclude_dormant=frozenset({placement.cell_id})
         )
-    retry = decide(task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy)
+    decided = decide(
+        task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
+    )
+    retry = dataclasses.replace(decided, reason=_retry_reason(decided.reason, placement, failure))
     if isinstance(retry, ReuseReal):
         link = _attached(wardens, retry.warden_id)
         if link is None:
@@ -134,6 +144,17 @@ async def _retry_once(
         raise PlacementError("internal: no VirtualCellProvider left to retry an acquire with.")
     link = await deps.virtual_provider.acquire(retry, task)  # A second failure propagates.
     return link, retry
+
+
+def _retry_reason(
+    decided: str, placement: ProvisionVirtual | ReuseDormant, failure: CellProvisionError
+) -> str:
+    """Prefix the retry's own `decide` reason with what the first acquire actually failed on."""
+    if isinstance(placement, ProvisionVirtual):
+        what = f"backend {placement.backend!r} could not provision a Cell ({failure.reason})"
+    else:
+        what = f"dormant Cell {placement.cell_id} could not be resumed ({failure.reason})"
+    return f"[placement] retry after {what}: {decided}"
 
 
 def _zero(candidate: VirtualBackendCandidate) -> VirtualBackendCandidate:

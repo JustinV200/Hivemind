@@ -141,6 +141,35 @@ cancellation; the CLI dying on an emoji on a cp1252 console; abscond deferring a
 own in-Cell lease. Remember to rebuild the image after any source change: a container runs the
 package as built, not the checkout.
 
+**Follow-ups from the 2026-09-23 real runs on `main`** (five more Docker runs against LM Studio):
+`[virtual_cells] read_only_rootfs` (default false: a Virtual Cell is FULL access, so its root
+filesystem is writable; the container still runs as `hive` with every capability dropped);
+`[virtual_cells] network_policy` now defaults to `egress_only`, because `none` is an `internal`
+Docker network that cannot reach `host.docker.internal` on Docker Desktop (the Warden inside
+died with "Network is unreachable", the Cell timed out and the task fell back to the Hive Stand);
+`cell.provision_failed` carries the backend's `reason` and a retried `queen.placed` names the
+failure instead of "no headroom"; the in-Cell Warden ships its trail segment right before every
+`TaskResult` (`wardens/ticks/trail_ship.py`), because an overwintered (paused) Cell's `worker.done`
+and `capping.*` rows were otherwise stranded inside it and lost on destroy; and `run_hive` now
+retires every Virtual Cell it still tracks at shutdown (`queen/cell_gate/shutdown.py`, dormant
+ones torn down without a quiesce), since a paused Cell cannot outlive the Queen that minted its
+key and port (open item 5) and was only ever a container for the next Queen to find, fail to
+resume, and destroy. Proven on real Docker: the Cell's 24 `capping.*` rows and its `worker.done`
+on the Queen's trail before `task.succeeded`; `cell.overwintered -> cell.destroying ->
+cell.destroyed` at exit; zero containers after every run without `abscond`.
+
+**CI on the pushed merge (f245e9d) failed three ways, all fixed 2026-09-24 and reproduced on
+Linux in a non-root `uv` container before the fix went in:** the root `.dockerignore` excluded
+`images/night-veil-ubuntu/`, which that image's own Dockerfile COPYs from (Integration: every
+COPY "not found"); the in-Cell entry point hard-coded `/var/lib/hivemind/scratch` with no
+override, which Linux CI cannot create and Windows quietly could (`tests`: five
+`cli/in_cell` tests, `PermissionError`), and the same path sank every in-process Cell in the
+`e2e` job (six Virtual Cell scenarios, `succeeded=False`). `HIVEMIND_SCRATCH_ROOT` now overrides
+it (`manifest/env.py`, `cli/in_cell/config.py`); the in-Cell unit tests pass `tmp_path` and
+`builders.virtual_cells` gives each in-process Cell its own temporary scratch root. A real
+container never sets it. Note the phase 5 feature branches were never pushed before the merge, so
+this was the first Linux CI run over the Virtual Cells half.
+
 Still not proven for real: cross-process dormant reuse (a paused Cell's Warden dials the
 previous Queen's port and verifies the previous Queen's key; needs a fixed `listen_port` and the
 persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU.
