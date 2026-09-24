@@ -145,3 +145,17 @@ ADRs that exist today, in numeric order:
 - `0030-night-veil-retention-and-clearance-boundary.md`: readiness is attestation of an image,
   placement is Virtual-only, human-originated and local-model-only, only the lifecycle skeleton
   survives teardown, and C0/C1 Honey labelled with its origin tier is the one export.
+- `0031-exoskeleton-on-x11-with-playwright-fast-path.md`: four peripheral protocols over the
+  Cell's own session, X11 backends (Xvfb plus a window manager, xdotool, ImageMagick, PulseAudio)
+  and Chromium started through the session and driven by Playwright over CDP; `CellSession` gains
+  background processes; a pure attach plan reads only capabilities, starts per lease and stops
+  exactly what it started; a new `exoskeleton` capability family keeps the operator's real display
+  an explicit opt-in; needs and network scopes now travel on `TaskAssign`.
+- `0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md`: GUI actions are typed
+  `GUI` proposals the gate applies through an injected `GuiSurface`, verified by three structural
+  or pixel postcondition kinds, rolled back by snapshot or by the browser checkpoint, alarmed at
+  once when a declared postcondition fails, recorded frame by frame outside logs and the trail,
+  judged when irreversible, and rehearsed before a browser procedure is reused.
+- `0033-transcription-provider-whisper-first.md`: one `TranscriptionProvider` protocol on
+  `ModelSlot.TRANSCRIBER` with in-process faster-whisper, OpenAI-compatible and fake adapters, bound
+  and metered like chat slots, no model size in code, and audio never kept by default.
