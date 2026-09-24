@@ -255,9 +255,8 @@ def build_virtual_cells(
             or a plain trail an offline command opened (the boundary then wraps it here).
         clock: Injected time source shared by every collaborator this builds.
         environ: Resolves each provider's own API key (`provider_api_keys`); `None` resolves none.
-        hive_signer: The Hive's persisted key (`load_or_mint_hive_signer`) the Queen signs every
-            Virtual Cell frame with, so a Cell outliving a Queen restart verifies the next Queen;
-            `None` (offline `hive cells` commands, never provisioning) mints a throwaway key.
+        hive_signer: The Hive's persisted key the Queen signs every Virtual Cell frame with, so a
+            Cell outliving her restart verifies the next Queen; `None` (offline) mints a throwaway.
 
     Returns:
         A VirtualCellsParts ready for `hivemind.cli.compose.hive.build_hive` to fold into
@@ -273,8 +272,7 @@ def build_virtual_cells(
     )
     lifecycle.attach_night_veil(night_veil)
     provider = _build_provider(manifest, lifecycle, gate, night_veil.veiled, clock)
-    # No Queen exists yet: only a getter over the provider's own late-bound one (`bind_queen`,
-    # hivemind.queen.cell_gate.quiesce's own docstring) can reach her at teardown time.
+    # No Queen yet: only a getter over the provider's late-bound one reaches her at teardown.
     quiesce = make_quiesce(lambda: provider.queen, clock)
     return VirtualCellsParts(
         registry=registry,

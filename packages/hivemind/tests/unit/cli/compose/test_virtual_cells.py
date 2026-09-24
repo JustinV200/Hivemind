@@ -77,10 +77,12 @@ async def test_the_composed_cell_gate_records_what_it_refuses_on_the_hives_trail
 
     parts = build_virtual_cells(manifest, trail, clock)
 
-    # Roadmap step 10.6: a forged frame or segment is the Queen's own record, for the Guard Bee.
+    # Roadmap step 10.6: a forged frame or segment is the Queen's own record, for the Guard Bee,
+    # made through the Night Veil boundary over the Hive's trail (a Night Veil Cell's stays veiled).
     assert parts is not None
     recorder = parts.listener._deps.recorder
-    assert recorder is not None and recorder.trail is trail
+    assert recorder is not None and recorder.trail is parts.night_veil.veiled
+    assert parts.night_veil.veiled.durable is trail
     assert (recorder.hive_id, recorder.node_id) == (manifest.hive.id, manifest.hive.node_id)
 
 
