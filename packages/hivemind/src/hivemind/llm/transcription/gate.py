@@ -31,13 +31,14 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.llm.transcription.binding import BoundTranscriber
 from hivemind.llm.transcription.models import AudioClip, Transcript
 
-__all__ = ["DirectTranscriptionGate", "TranscriptionGate"]
+__all__ = ["DirectTranscriptionGate", "Ears", "TranscriptionGate"]
 
 
 class TranscriptionGate(Protocol):
@@ -82,3 +83,28 @@ class DirectTranscriptionGate:
                 if current.fallback is None:
                     raise  # The chain is exhausted; the caller sees the last link's own error.
                 current = current.fallback
+
+
+@dataclass(frozen=True, slots=True)
+class Ears:
+    """One ready way to hear: a gate and the transcriber chain it transcribes on.
+
+    What a Worker's `listen` tool holds (roadmap step 6.5): the composition root resolves
+    ModelSlot.TRANSCRIBER once (`ProviderRegistry.bound_transcriber`) and pairs it with the
+    Fanner's metered gate, so the tool never needs the registry or the slot table.
+    """
+
+    gate: TranscriptionGate  # The Fanner's gate in production; DirectTranscriptionGate in tests.
+    bound: BoundTranscriber  # The transcriber slot's resolved chain.
+
+    async def hear(self, clip: AudioClip, language: str | None = None) -> Transcript:
+        """Transcribe `clip` through the gate on the bound chain.
+
+        Args:
+            clip: The audio.
+            language: A lowercase ISO 639 hint, or None to detect it.
+
+        Returns:
+            The transcript.
+        """
+        return await self.gate.transcribe(self.bound, clip, language)

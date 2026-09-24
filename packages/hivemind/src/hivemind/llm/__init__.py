@@ -86,7 +86,7 @@ Public API (roadmap step 6.5a, ADR-0033: the transcription boundary, `hivemind.l
       TranscriptionProvider; buffered streaming: stream_by_buffering, collect_clip.
     - The fake: FakeTranscription, FakeTranscriptionCall.
     - The slot and the seam: BoundTranscriber, TranscriberLookup, resolve_transcriber,
-      TranscriptionGate, DirectTranscriptionGate, and the Fanner's FannerTranscriptionGate.
+      TranscriptionGate, DirectTranscriptionGate, Ears, and the Fanner's FannerTranscriptionGate.
     - The registry's transcription half (`hivemind.llm.registry`): TranscriptionBuild,
       TranscriptionFactory, TranscriptionUnsupportedError, IN_PROCESS_KINDS,
       default_transcription_factories; `ProviderRegistry.transcriber`/`bound_transcriber`.
@@ -217,6 +217,7 @@ from hivemind.llm.transcription import (
     AudioMediaType,
     BoundTranscriber,
     DirectTranscriptionGate,
+    Ears,
     FakeTranscription,
     FakeTranscriptionCall,
     TranscriberLookup,
@@ -270,6 +271,7 @@ __all__ = [
     "ContextTooLongError",
     "DirectCallGate",
     "DirectTranscriptionGate",
+    "Ears",
     "FakeLLMProvider",
     "FakeTranscription",
     "FakeTranscriptionCall",

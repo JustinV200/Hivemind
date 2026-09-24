@@ -56,7 +56,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.cell import Cell, CellSession
 from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.guard import CapabilitySet
-from hivemind.llm import BoundModel, CallGate
+from hivemind.llm import BoundModel, CallGate, Ears
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision.capping import CappingGate, LeaseView
@@ -153,6 +153,9 @@ class WorkerContext:
         exoskeleton: The display, input, audio and browser attached for this Worker's task
             (roadmap step 6.4), or None for a terminal-only task; the Exoskeleton tools read their
             peripherals from it and are offered only when it is set.
+        ears: How this Worker hears (roadmap steps 6.5 and 6.5a): the transcriber slot's resolved
+            chain behind the Fanner's gate; None where no transcriber is bound, and then the
+            `listen` tool is not offered.
     """
 
     worker_id: WorkerId
@@ -172,3 +175,4 @@ class WorkerContext:
     lease: LeaseView
     call_gate: CallGate
     exoskeleton: ExoskeletonHandle | None = None
+    ears: Ears | None = None

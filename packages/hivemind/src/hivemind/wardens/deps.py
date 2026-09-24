@@ -52,6 +52,7 @@ from hivemind.exoskeleton.recorder import RecordingStore
 from hivemind.forage.tempo import Tempo
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
+from hivemind.llm.transcription import Ears
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision import EscalationPolicy
@@ -176,6 +177,8 @@ class WardenDeps:
             None where this Hive has no browser extra installed.
         recording_store: Where every sub-bee's GUI proposals are recorded (the flight recorder,
             roadmap step 6.6); None keeps no recordings.
+        ears: The transcriber slot's resolved chain behind the Fanner's gate, handed to every
+            sub-bee for its `listen` tool (roadmap step 6.5); None where no transcriber is bound.
     """
 
     source: RealCellSource
@@ -234,6 +237,7 @@ class WardenDeps:
     exoskeleton_config: ExoskeletonConfig = field(default_factory=ExoskeletonConfig)
     browser_launcher: BrowserLauncher | None = None
     recording_store: RecordingStore | None = None  # Roadmap step 6.6; None records nothing.
+    ears: Ears | None = None  # Roadmap step 6.5: handed to every sub-bee's WorkerContext.
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

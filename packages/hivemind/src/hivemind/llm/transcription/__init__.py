@@ -38,7 +38,8 @@ Public API:
     - Buffered streaming (`buffered`): stream_by_buffering, collect_clip.
     - The fake (`fake`): FakeTranscription, FakeTranscriptionCall.
     - The slot (`binding`): BoundTranscriber, TranscriberLookup, resolve_transcriber.
-    - The seam (`gate`): TranscriptionGate, DirectTranscriptionGate.
+    - The seam (`gate`): TranscriptionGate, DirectTranscriptionGate, and Ears (a gate plus the
+      resolved chain, what a Worker's `listen` tool holds).
     - WAV (`wav`): encode_wav, read_wav_header, WavHeader, PCM_SAMPLE_WIDTH_BYTES.
 """
 
@@ -54,7 +55,7 @@ from hivemind.llm.transcription.capabilities import (
     check_request,
 )
 from hivemind.llm.transcription.fake import FakeTranscription, FakeTranscriptionCall
-from hivemind.llm.transcription.gate import DirectTranscriptionGate, TranscriptionGate
+from hivemind.llm.transcription.gate import DirectTranscriptionGate, Ears, TranscriptionGate
 from hivemind.llm.transcription.models import (
     LANGUAGE_PATTERN,
     MAX_CLIP_BYTES,
@@ -84,6 +85,7 @@ __all__ = [
     "AudioMediaType",
     "BoundTranscriber",
     "DirectTranscriptionGate",
+    "Ears",
     "FakeTranscription",
     "FakeTranscriptionCall",
     "TranscriberLookup",

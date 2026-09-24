@@ -420,6 +420,7 @@ def _build_worker_context(
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
         exoskeleton=exoskeleton,
+        ears=deps.ears,
     )
 
 
