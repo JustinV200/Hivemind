@@ -16,6 +16,7 @@ Key invariants:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import httpx
 import pytest
@@ -82,11 +83,18 @@ def test_route_table_declares_listeners_and_access_for_every_row() -> None:
         assert route.path.startswith(API_PREFIX)
         assert Listener.LOOPBACK in route.listeners
         assert route.access.authenticated or route.access.capability is None
-    assert {route.path for route in routes if route.listeners == LOOPBACK_ONLY} >= {
-        "/v1/entrance/pending/{device_id}/approve",
-        "/v1/devices/{device_id}/unlock",
-        "/v1/devices/{device_id}/capabilities",
-        "/v1/entrance/open",
+    # Exactly ADR-0033's loopback-only set, so a route joins or leaves it only on purpose: invite
+    # minting (and cancelling), approval, denial, unlock, capability widening, revocation and
+    # reopening.
+    assert {(route.method, route.path) for route in routes if route.listeners == LOOPBACK_ONLY} == {
+        ("POST", "/v1/entrance/invites"),
+        ("DELETE", "/v1/entrance/invites/{device_id}"),
+        ("POST", "/v1/entrance/pending/{device_id}/approve"),
+        ("POST", "/v1/entrance/pending/{device_id}/deny"),
+        ("POST", "/v1/devices/{device_id}/unlock"),
+        ("POST", "/v1/devices/{device_id}/capabilities"),
+        ("POST", "/v1/devices/{device_id}/revoke"),
+        ("POST", "/v1/entrance/open"),
     }
 
 
@@ -196,6 +204,23 @@ async def test_both_listeners_serve_the_committed_document_unchanged() -> None:
         remote = await rig.client(remote=True).http.get(OPENAPI_PATH)
 
     assert local.content == remote.content == render_document()
+
+
+async def test_both_listeners_serve_the_observation_hive_build_and_every_route_wins(
+    tmp_path: Path,
+) -> None:
+    # A build file on a route's own path must never shadow the route: the build is mounted last.
+    (tmp_path / "index.html").write_text("<title>Observation Hive</title>", encoding="utf-8")
+    (tmp_path / "v1").mkdir()
+    (tmp_path / "v1" / "openapi.json").write_text("{}", encoding="utf-8")
+    async with serving(RigOptions(remote=True, web_root=tmp_path)) as rig:
+        pages = [await rig.client(remote=side).http.get("/") for side in (False, True)]
+        document = await rig.client().http.get(OPENAPI_PATH)
+
+    assert [page.status_code for page in pages] == [200, 200]
+    assert all("Observation Hive" in page.text for page in pages)
+    assert all(page.headers["content-security-policy"] == CONTENT_SECURITY_POLICY for page in pages)
+    assert document.content == render_document()
 
 
 async def test_cors_allows_public_url_alone_and_only_on_the_remote_listener() -> None:

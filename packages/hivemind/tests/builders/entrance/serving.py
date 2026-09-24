@@ -27,6 +27,7 @@ import ipaddress
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 from builders.cells import make_cell
@@ -108,6 +109,7 @@ class RigOptions:
         stream_backlog: How far a live view may fall behind before it is closed.
         seed: Run once the console is recorded and before the Entrance starts.
         transcriber: What hears voice clips; None serves no voice (the route unmounted).
+        web_root: The Observation Hive's build to serve as static files; None serves none.
     """
 
     remote: bool = False
@@ -119,6 +121,7 @@ class RigOptions:
     stream_backlog: int = DEFAULT_BACKLOG
     seed: Seed | None = None
     transcriber: TranscriptionProvider | None = None
+    web_root: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +410,7 @@ def _settings(deps: QueenDeps, options: RigOptions) -> EntranceSettings:
         identity=identity,
         goal_spend_cap_usd=GOAL_SPEND_CAP_USD,
         plan=plan,
+        web_root=options.web_root,
         poll_interval_s=0.02,
         hello_deadline_s=options.hello_deadline_s,
         stream_backlog=options.stream_backlog,
