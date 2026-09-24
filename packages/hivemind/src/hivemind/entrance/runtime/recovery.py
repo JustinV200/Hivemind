@@ -14,8 +14,8 @@ device's work never runs.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.runtime``. Called by
     ``HiveEntrance`` while it settles what a restart left, before anything listens. Calls into the
-    pending table, the Queen's goal-request table and ``submit_held_goal`` (the goals route's own
-    commit, the one a live confirmation uses).
+    pending table, the Queen's goal-request table and ``submit_held_goal`` (the Entrance's one
+    goal commit, the one a live confirmation uses).
 
 Key invariants:
     - A goal request is committed at most once per hold: its id was minted when it was held.
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.routes.entrance.held for the live confirmation this completes.
-    - hivemind.entrance.routes.goals for ``submit_held_goal``.
+    - hivemind.entrance.intake for ``submit_held_goal``.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from hivemind.entrance.auth.step_up import ActionKind
 from hivemind.entrance.enrol import DeviceStatus, EnrolledDevice
 from hivemind.entrance.errors import DeviceNotFoundError
 from hivemind.entrance.gate import EntranceServices
-from hivemind.entrance.routes.goals import submit_held_goal
+from hivemind.entrance.intake import submit_held_goal
 from hivemind.queen.intake import GoalRequestNotFoundError
 
 log = get_logger(__name__)

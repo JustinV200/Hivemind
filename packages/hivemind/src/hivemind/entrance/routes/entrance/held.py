@@ -10,8 +10,8 @@ Declining needs no step-up.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes.entrance``.
-    Registered in the route table. Calls into the confirmation flow, the goals route's
-    ``submit_held_goal`` and the travel lock.
+    Registered in the route table. Calls into the confirmation flow, the Entrance's intake
+    (``submit_held_goal``) and the travel lock.
 
 Key invariants:
     - Only an interactive, stepped-up session confirms; a held action is carried out at most once.
@@ -33,13 +33,13 @@ from hivemind.entrance.gate.errors import StepUpRequiredError
 from hivemind.entrance.gate.params import CallerParam, Here, Services
 from hivemind.entrance.gate.services import EntranceServices, ListenerDeps
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
+from hivemind.entrance.intake import submit_held_goal
 from hivemind.entrance.models import (
     ConfirmationList,
     ConfirmationView,
     ConfirmedView,
     confirmation_view,
 )
-from hivemind.entrance.routes.goals import submit_held_goal
 
 SUBMIT = "entrance:submit"  # A person who may give the Hive work confirms what waits for them.
 
