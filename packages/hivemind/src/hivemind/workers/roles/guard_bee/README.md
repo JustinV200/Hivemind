@@ -61,13 +61,17 @@ have kept:
 
 A store of its own would only be a copy of the trail that could drift from it.
 
-Following is per node. A Virtual Cell Warden's segment is merged late, carrying times older than
-events already read, so besides one read of everything since the newest time seen, the watch keeps
-a read position per remote node and reads a node seen for the first time back over the whole
-horizon.
+Following is per node. A Virtual Cell Warden's segment is merged late (it ships on every
+heartbeat, 15 s by default), carrying times older than events already read, so besides one read of
+everything since `LATE_LAG_S` (120 s) before the newest time seen, the watch keeps a read position
+per remote node and reads a node seen for the first time back over the whole horizon. The lag is
+what hears a node's first segment at all: landing after the Hive Stand has moved on, it may hold
+nothing newer than what was already read. A finding on a Virtual Cell therefore comes up to one
+heartbeat and one round after the events behind it.
 
-The order of a report is fixed: act (file, raise or order), deposit, then record the alert that
-marks the finding reported. A crash in between repeats an action rather than losing one.
+The order of a report is fixed: act (file, raise or order), show it to the human if it is
+CRITICAL, deposit, then record the alert that marks the finding reported. A crash in between
+repeats an action rather than losing one; the door shows one report at most once.
 
 ## What it does with a finding
 
@@ -80,21 +84,27 @@ marks the finding reported. A crash in between repeats an action rather than los
 
 A request is filed only at or above `[guard] request_confidence` (high), one per rule and target
 (its Cell, else its first bee or task) per `[guard.bee] coalesce_window_s` (15 minutes), and at
-most `[guard] requests_per_hour` (6) in any hour. One held back is still a `guard.alert`, recorded
-as `below_floor`, `coalesced` or `capped`. A recommendation whose target the finding does not name
+most `[guard] requests_per_hour` (6) in any hour. A CRITICAL request is always filed: neither
+coalescing nor the cap holds it back. One held back is still a `guard.alert`, recorded as
+`below_floor`, `coalesced` or `capped`. A recommendation whose target the finding does not name
 (a quarantine with no bee) falls back to `observe`.
+
+A CRITICAL report that is not a request (a raise, a reduction, an observation) is shown to the
+human at once through the door's `report_to_human`, a CRITICAL SECURITY Alarm naming it; the alert
+records `shown`. A CRITICAL request is filed instead, and the Queen shows it when she decides.
 
 ### How a raised audit rate takes effect
 
 `hivemind.wardens.spawn.audited_gate.AuditingCappingGate` samples each terminal proposal at the
-higher of its tier table's rate and the live raise it reads back from its own trail
-(`hivemind.supervision.capping.raised_audit_rate`), from the next proposal on. The Hive Stand's
-Warden records to the Queen's own trail, so a raise takes effect there at once. A Virtual Cell's
-Warden records to its own local segment and never sees the central trail, so on a Virtual Cell a
-raise does not take effect yet: its gate samples at its tier table's rate. What will carry it is a
-Queen-to-Warden Waggle message naming the live raises (an additive, minor-version capping message),
-sent on attach and on every raise, which the Warden applies to what its gate reads, plus the same
-raises in a Cell's provisioning environment.
+highest of its tier table's rate, the live raise it reads back from its own trail
+(`hivemind.supervision.capping.raised_audit_rate`) and the live raise the Queen carried to its
+Warden, from the next proposal on. The Hive Stand's Warden records to the Queen's own trail, so a
+raise takes effect there at once. A Virtual Cell's Warden records to its own local segment and never
+sees the central trail, so the Queen carries the raises to it: every `GrantIssued` holds
+`audit_raises` (Waggle 1.8), the highest live raise per tier (`live_audit_raises`), by tier name,
+with its expiry. The Warden keeps the highest live one per tier (`CarriedAuditRaises`), ignoring a
+tier it does not know, so a raise applies there from its next grant. An in-Cell Warden has no
+model-backed judge yet, so each sample it draws is recorded as inconclusive (`judge_error`).
 
 ## Awake episodes
 
@@ -111,49 +121,52 @@ while the Guard policy's `guard_bee` role holds `llm:judge`.
 
 ## Wiring it in (the composition root)
 
-`hivemind.cli.compose` does not build one yet. A composition root builds it from the Queen's own
-parts and hands it to her:
+`hivemind.cli.compose.guard.with_guard` builds it for every Hive `hive run` and `hive serve`
+compose, from the Queen's own parts, and hands it to her on `QueenDeps.guard_bee`:
 
 ```python
-guard_bee = build_guard_bee(
-    GuardBeeInputs(
-        trail=queen_deps.trail,
-        clock=queen_deps.clock,
-        identity=CellIdentity(queen_deps.identity.hive_id, queen_deps.identity.node_id, "system"),
-        door=queen_guard_request_door,  # The Queen's own GuardRequestDoor (roadmap 10.6a).
-        guard=manifest.guard,
-        tiers=load_tiers(capping_tiers_path),  # The same table her Wardens' gates use.
-        policy=queen_deps.enforcer.policy,
-        bound_for=queen_deps.bound_for,
-        call_gate=queen_deps.call_gate,  # The Royal Reserve's seats.
-        sink=nectar_sink,  # Phase 7; InMemoryGuardReportSink until then.
-    )
-)
-queen = Queen(replace(queen_deps, guard_bee=guard_bee))
+queen_deps, door = with_guard(manifest, queen_deps, lifecycle, warden_deps.tiers)
+queen = Queen(queen_deps)
+door.bind(queen)  # Before anything ticks: she is the Guard Bee's door (Hive.guard_door).
 ...
-await guard_bee.aclose()  # After the Queen has stopped: cancels an episode in flight.
+await close_guard_bee(queen_deps)  # After the Queen has stopped: cancels an episode in flight.
 ```
 
-`tests/builders/guard_bee/queen.py` (`guard_bee_for_queen`) does exactly this for the tests.
+The Guard Bee rides on the Queen's own deps, so it is built before she is; its door is a
+`GuardDoorRelay` the composition root binds to her the moment she exists, which forwards both
+halves of the door and refuses a call made before it was bound. Its inputs are the Queen's trail,
+clock, node, Guard policy, slot resolver and call gate (the Royal Reserve), the manifest's
+`[guard]` section and the same tier table her Wardens' gates use. `tests/builders/guard_bee/queen.py`
+(`guard_bee_for_queen`) builds the same from a test's Queen.
 
 ## Seams
 
 - **C2 deposits** (`GuardReportSink`): phase 7's Nectar intake. In memory until then.
-- **The Queen's door** (`hivemind.guard.GuardRequestDoor`): the Queen's durable door and her
-  decision are roadmap step 10.6a.
-- **Node integrity**: Cell-gate signature failures, refused segment merges, Waggle replay
-  rejection (11.3) and capability reports without re-enrolment (13.4a) become rules once each has
-  a trail kind (see the header of `rules.toml`).
+- **Node integrity**: the Cell gate records a frame that failed its signature on a Cell's own link
+  (`guard.envelope_refused`) and a trail segment it would not merge (`guard.segment_refused`),
+  in `hivemind.queen.cell_gate.refusals`; three rules count them. Waggle replay refusal (11.3b),
+  frame-ceiling closes (11.3a), a merged segment whose events fail the node's key (11.9) and
+  capability reports without re-enrolment (13.4a) become rules once each has a trail kind (see the
+  header of `rules.toml`).
 
 ## How to test this
 
 ```bash
 uv run --frozen pytest packages/hivemind/tests/unit/workers/roles/guard_bee \
     packages/hivemind/tests/unit/queen/ticks/guard_bee \
-    packages/hivemind/tests/e2e/test_guard_bee_on_hive_stand.py
+    packages/hivemind/tests/unit/queen/cell_gate \
+    packages/hivemind/tests/unit/cli/compose/test_guard_bee.py \
+    packages/hivemind/tests/e2e/test_guard_bee_wiring.py \
+    packages/hivemind/tests/e2e/test_guard_bee_on_hive_stand.py \
+    packages/hivemind/tests/e2e/test_guard_bee_on_virtual_cell.py \
+    packages/hivemind/tests/e2e/test_audit_raise_on_virtual_cell.py
 ```
 
 `tests/builders/guard_bee/` builds a Guard Bee over fakes (`make_guard_bee`, `restart_guard_bee`),
 seeds the events its rules count as their producers write them (`TrailSeeder`), and seeds each
 shipped rule's trail (`SHIPPED_RULE_SEEDERS`). `test_bee_entrance.py` reduces a real Entrance over
-uvicorn; the e2e runs a real Drone on a real Hive Stand.
+uvicorn, once per Entrance door rule. `test_listener.py` sends a forged segment over a real socket
+and the running Queen isolates the Cell on the Guard Bee's request. The e2e tests compose the Hive
+as `hive run` does: a lured Drone on the Hive Stand (the fallback) and in a Virtual Cell
+(isolation by rule), the judge's calls on the Royal Reserve, and a raise sampling every proposal
+inside a Virtual Cell.

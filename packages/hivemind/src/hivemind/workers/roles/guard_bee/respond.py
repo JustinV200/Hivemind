@@ -6,8 +6,9 @@ tasks and grants it touches, the recommended action and a confidence), a `C2` de
 confidence, the counts and what became of it (ADR-0035). The Guard Bee acts alone only to narrow the
 whole Hive: `raise_audit_rate` records `guard.audit_rate_raised` (the tier's rate in force, raised
 by `[guard.bee] audit_raise_step`, capped at 1.0, for `audit_raise_hold_s`), which the Hive Stand's
-Capping gates read back from this same trail; `reduce_entrance` records `guard.reduce_ordered`,
-which the Hive Entrance follows. A report aimed at one Cell or one bee is a request filed through
+Capping gates read back from this same trail and every other Warden's receives on its next grant
+(`GrantIssued.audit_raises`, Waggle 1.8); `reduce_entrance` records `guard.reduce_ordered`, which
+the Hive Entrance follows. A report aimed at one Cell or one bee is a request filed through
 the Queen's `GuardRequestDoor` when `RequestLedger` admits it, and only a `guard.alert` otherwise.
 A recommendation whose target the finding does not name falls back to `observe`, never to a guess.
 A report at CRITICAL confidence that asks for nothing (a raise, a reduce order, an observation) is

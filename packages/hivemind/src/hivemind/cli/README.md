@@ -151,6 +151,14 @@ typer layer that calls into a subsystem's public API and never contains logic of
       (refusing with a clear message if the same path is active on more than one Cell); with
       neither CELL nor `--path`, refuses with a usage error (exit 2) rather than removing
       everything everywhere.
+    - `isolation.py` -- `hive cells isolate CELL_ID --reason TEXT [--report GUARD_REPORT_ID]
+      [--json]` and `hive cells lift CELL_ID [--json]` (roadmap step 10.6): the human's two levers
+      on a Cell's isolation (docs/guard/isolation.md). Unlike the rest of `readback/`, they act on
+      the running Queen: each is the Hive Stand's console over a running `hive serve`'s loopback
+      listener (`POST /v1/cells/{cell_id}/isolate` and `/lift`), logging in and stepping up with
+      the operator password (`--password-stdin`) exactly as `hive entrance open` does
+      (`cli/entrance/console.py`, whose `run_console` takes the group its refusal line names).
+      A nameless Typer app, folded into `hive cells` by `cells.py`.
     - `inbox.py` -- `hive inbox --manifest hive.toml [--json]` lists pending questions
       (`chamber.pending_questions`) and Alarms still escalated to the human, reconstructed from the
       trail's own `alarm.escalated`/`alarm.resolved` events; `hive inbox answer QUESTION_ID "text"

@@ -9,6 +9,13 @@ State machines: [codingrules Appendix C](../../.claude/codingrules.md), "Cell is
 The Guard Bee watches the Pheromone Trail and acts alone only to narrow the whole Hive. Anything
 aimed at one Cell or one bee it can only **request**, and only the Queen decides. Only the Queen
 isolates a Cell, and only the human isolates the Hive Stand's own lease or lifts an isolation.
+Every Hive `hive run` or `hive serve` composes runs the Guard Bee on the Queen's tick, filing
+through her own door ([the Guard Bee](guard-bee.md)).
+
+The Guard Bee's shipped dire patterns are `injection_then_denial` (a scanner flag, then a denial
+by the same bee in the same episode) and the two Cell gate forgeries, `envelope_forgery` (a frame
+that failed its signature on a Cell's own link) and `segment_forgery` (a trail segment a Cell
+shipped under another node's identity). The Queen decides each of those by rule.
 
 ## The request path
 
@@ -104,6 +111,27 @@ Both are served on both listeners, and both go through the Queen's door.
 A lift restores placement and egress. It does not restore trust. Tainted memory stays tainted until
 a judge clears it (`clear_taint`), and the tasks the isolation paused stay paused.
 
+### From the terminal
+
+The operator pulls both levers from the Hive Stand's own terminal while `hive serve` runs:
+
+```
+hive cells isolate CELL_ID --reason "why, in a short phrase" [--report GUARD_REPORT_ID] [--json]
+hive cells lift CELL_ID [--json]
+```
+
+Each acts as the Hive Stand's console device (ADR-0033: its key is wrapped under the operator
+password, approved and loopback-bound) over the running serve's loopback listener, exactly as
+`hive entrance` commands do. It logs in with the operator password and steps up with the same
+password when the route asks; `--password-stdin` reads it once, for both. A malformed report id is
+refused before anything is sent. A refusal from the route (a Cell the Queen does not know, a lift
+with nothing to lift) prints `hive cells isolate refused: ...` or `hive cells lift refused: ...`
+and exits 1. With no `hive serve` running there is nothing to act through, and the command says
+so. An isolation prints its `cell.isolated` event, the `BLOCK` Cell Wax it wrote, the grants it
+revoked, the tasks it paused, the Cell's egress and how many memory items it tainted. A lift prints
+the isolation it ended, the placement holds it released and the egress, and says that tainted
+memory stays tainted. `--json` prints the route's own view instead.
+
 ## The way out of a quarantine
 
 When a judge's verdict clears the checkpoint a quarantine wrote (`memory.taint_cleared` about the
@@ -119,4 +147,6 @@ resume and nothing else.
   while it stands. Tainting the in-Cell store needs a Waggle message that asks the Cell's Warden to
   run the setter (a follow-up).
 - The Docker and QEMU backends cannot cut egress yet (see the table above).
-- No CLI levers exist yet (`hive cells isolate|lift` is a follow-up for the CLI owner).
+- An isolation the Queen orders on a Cell whose link is gone (the Cell gate closes a link that
+  carried a forged frame) finds no attached Warden: her decision records `cell_not_attached`,
+  and the human still gets the CRITICAL Alarm naming the report.

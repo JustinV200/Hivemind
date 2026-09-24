@@ -29,7 +29,8 @@ she receives is handed to (the composition root wires it to the Entrance's telem
 a Heartbeat never reaches the trail), and `intake_lock`, which serialises every goal-request edge so
 a revocation from the Entrance and her own intake never move one request from a stale value.
 Roadmap step 10.6 adds the Guard Bee (the Hive's security watcher) she runs on her own tick beside
-the House Bee's sweep (`guard_bee`), optional until the composition root builds one.
+the House Bee's sweep (`guard_bee`): the composition root builds one for every Hive it composes
+(`hivemind.cli.compose.guard`), and a test that needs none leaves it None.
 The zero-grant fix adds her book of fresh tasks waiting for a grant (`grant_waits`,
 a `GrantWaits` holding `[forage] zero_grant_patience_s`), kept here beside `housekeeping` for the
 same reason, and to `WardenLink` the reader of its Cell's capacity as it stands right now
