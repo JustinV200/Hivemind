@@ -121,7 +121,7 @@ async def keep(invocation: ToolInvocation, arguments: JsonObject) -> str:
         invocation.assignment,
         _build_request(source, destination, content, resolved_destination),
     )
-    return describe(await cap(ctx, proposal))
+    return describe(await cap(invocation, proposal))
 
 
 KEEP_SPEC = ToolSpec(definition=KEEP_DEFINITION, run=keep)

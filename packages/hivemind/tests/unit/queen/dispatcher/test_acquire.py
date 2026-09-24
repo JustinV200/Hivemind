@@ -20,11 +20,12 @@ import pytest
 from builders.cells import make_cell
 from builders.forage import make_capacity
 from builders.queen import make_queen_deps
-from builders.tasks import make_task
+from builders.tasks import make_task, make_task_spec
 
 from hivemind.brood_chamber import Task
 from hivemind.cell import CellKind, CombShieldLevel
 from hivemind.hive import BackendCapabilities, CellProvisionError, NetworkPolicy, VirtualCellSpec
+from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.dispatcher.acquire import resolve_link
 from hivemind.queen.placement import (
@@ -229,5 +230,39 @@ async def test_the_retry_zeroes_the_live_backend_source_not_the_static_tuple() -
     assert resolved is fresh_link
     assert isinstance(effective, ProvisionVirtual)
     assert effective.backend == "qemu"
+    await warden_end.close()
+    await warden_end2.close()
+
+
+async def test_a_goal_without_the_tier_is_refused_egress_before_any_cell_is_provisioned() -> None:
+    # Roadmap step 10.3's comb_shield_egress point: activating MEADOW needs cell:comb_shield:meadow.
+    _deps, link, warden_end = make_queen_deps()
+    provider = FakeVirtualCellProvider(result=link)
+    deps2, link2, warden_end2 = make_queen_deps(virtual_provider=provider)
+    task = make_task(spec=make_task_spec(capabilities=("cell:virtual",)))
+    placement = ProvisionVirtual(_spec(deps2.clock), "docker", "test")
+
+    with pytest.raises(PlacementError, match="may not activate MEADOW"):
+        await resolve_link(deps2, (link2,), task, placement)
+
+    assert provider.calls == []  # Nothing was provisioned.
+    [denial] = await deps2.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["point"] == "comb_shield_egress"
+    assert denial.payload["capability"] == "cell:comb_shield:meadow"
+    await warden_end.close()
+    await warden_end2.close()
+
+
+async def test_a_goal_holding_the_tier_provisions_as_before() -> None:
+    _deps, link, warden_end = make_queen_deps()
+    provider = FakeVirtualCellProvider(result=link)
+    deps2, link2, warden_end2 = make_queen_deps(virtual_provider=provider)
+    spec = make_task_spec(capabilities=("cell:virtual", "cell:comb_shield:meadow"))
+    placement = ProvisionVirtual(_spec(deps2.clock), "docker", "test")
+
+    resolved, _effective = await resolve_link(deps2, (link2,), make_task(spec=spec), placement)
+
+    assert resolved is link
+    assert await deps2.trail.query(TrailQuery(kind="guard.denied")) == ()
     await warden_end.close()
     await warden_end2.close()

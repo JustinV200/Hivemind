@@ -10,7 +10,10 @@ policy.toml` loaded for real (the same table production loads), a `hivemind.llm.
 `bound_for`/`rebind` over a scriptable `FakeLLMProvider`, resolving four `[llm.slots]` rows:
 `"queen"`, `"attendant"`, `"worker"` (whose `fallback` is `"worker_fallback"`, so an e2e REBIND
 has somewhere to go) and
-`"worker_fallback"`. It also builds one attached `hivemind.queen.deps.WardenLink` over a fresh
+`"worker_fallback"`, and (roadmap step 10.3) a `hivemind.guard.Enforcer` over the shipped Guard
+policy, built last so it records to whichever trail the test ended up with (`with_guard_policy`
+swaps in an Enforcer over another policy, the same trail and clock). It also builds one
+`hivemind.queen.deps.WardenLink` for the test to attach over a fresh
 `waggle.transport.memory.MemoryTransport` pair, and `WardenEnd`, the Warden-side half of that same
 pair: it wraps the Warden's own end, mirroring `builders.wardens.QueenEnd` with the direction
 reversed -- it sends `Heartbeat`/`TaskResult`/`AlarmRaised`/`Question` (what a Warden reports) and
@@ -46,19 +49,22 @@ import dataclasses
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from builders.cells import make_cell
 from builders.forage import make_source
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStore
-from hivemind.cell import Cell, CellKind
+from hivemind.cell import Cell, CellIdentity, CellKind
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
+from hivemind.guard import Enforcer, GuardPolicy, load_guard_policy
 from hivemind.llm import BoundModel, DirectCallGate, FakeLLMProvider
 from hivemind.llm.fake import text_response
 from hivemind.llm.models import LLMRequest, LLMResponse
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
+from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
 from hivemind.supervision import load_policy
@@ -108,6 +114,7 @@ __all__ = [
     "WardenEnd",
     "make_queen_deps",
     "plan_responder",
+    "with_guard_policy",
 ]
 
 
@@ -126,11 +133,12 @@ def make_queen_deps(
             (full capabilities) when omitted.
         cell: The attached WardenLink's own Cell; a fresh REAL Cell (`builders.cells.make_cell`)
             when omitted.
-        **overrides: Field values that replace the QueenDeps defaults below.
+        **overrides: Field values that replace the QueenDeps defaults below; an `enforcer`
+            override replaces the shipped-policy Enforcer outright.
 
     Returns:
-        `(deps, warden_link, warden_end)`: build a `Queen(deps)`, call
-        `queen.attach_warden(warden_link)`, then drive the Warden side with `warden_end`.
+        `(deps, warden_link, warden_end)`: build a `Queen(deps)`, `await
+        queen.attach_warden(warden_link)`, then drive the Warden side with `warden_end`.
     """
     active_clock = clock if clock is not None else FakeClock()
     trail = MemoryPheromoneTrail(active_clock)
@@ -150,7 +158,35 @@ def make_queen_deps(
         )
     )
     fields.update(overrides)
+    # Roadmap step 10.3: built last, over whichever trail and clock the test ended up with, so a
+    # `guard.denied` lands on the very trail the test reads back.
+    if "enforcer" not in fields:
+        fields["enforcer"] = _build_enforcer(fields, hive_id, node_id)
     return QueenDeps(**fields), link, warden_end  # type: ignore[arg-type]
+
+
+def with_guard_policy(deps: QueenDeps, policy: GuardPolicy) -> QueenDeps:
+    """Return `deps` with an Enforcer over `policy`, recording to the same trail and clock.
+
+    Args:
+        deps: A QueenDeps from `make_queen_deps`.
+        policy: The Guard policy every enforcement point of the Queen should decide against.
+
+    Returns:
+        A copy of `deps` whose `enforcer` (and so every set the Queen computes) uses `policy`.
+    """
+    identity = CellIdentity(
+        hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor="system"
+    )
+    enforcer = Enforcer(policy, deps.trail, deps.clock, identity)
+    return dataclasses.replace(deps, enforcer=enforcer)
+
+
+def _build_enforcer(fields: dict[str, object], hive_id: HiveId, node_id: NodeId) -> Enforcer:
+    """Build an Enforcer over the shipped Guard policy and the test's own trail and clock."""
+    identity = CellIdentity(hive_id=hive_id, node_id=node_id, actor="system")
+    trail = cast(PheromoneTrail, fields["trail"])
+    return Enforcer(load_guard_policy(), trail, cast(Clock, fields["clock"]), identity)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

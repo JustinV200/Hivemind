@@ -38,16 +38,24 @@ from hivemind.guard.policy.models import EscalationAction
 from hivemind.guard.policy.points import EnforcementPoint
 from waggle.messages.task import WorkerRole
 
+QUEEN_ROLE = "queen"  # The orchestrator's own root set (roadmap step 10.3 reads it at her points).
 WARDEN_ROLE = "warden"  # The role every Warden's set starts from.
 DEVICE_ROLE = "device"  # An enrolled client device: the only role with a `proposed` set.
 # Every role a policy defines: the two roots, the Warden, one per Worker role (the lowercase wire
 # WorkerRole name, as [placement.roles] and [forage.roles] key them), and the two device kinds.
 POLICY_ROLES: frozenset[str] = frozenset(
-    {"operator", "queen", WARDEN_ROLE, DEVICE_ROLE, "swarm_device"}
+    {"operator", QUEEN_ROLE, WARDEN_ROLE, DEVICE_ROLE, "swarm_device"}
     | {role.name.lower() for role in WorkerRole}
 )
 
-__all__ = ["DEVICE_ROLE", "POLICY_ROLES", "WARDEN_ROLE", "GuardPolicy", "RoleDefaults"]
+__all__ = [
+    "DEVICE_ROLE",
+    "POLICY_ROLES",
+    "QUEEN_ROLE",
+    "WARDEN_ROLE",
+    "GuardPolicy",
+    "RoleDefaults",
+]
 
 
 @dataclass(frozen=True, slots=True)

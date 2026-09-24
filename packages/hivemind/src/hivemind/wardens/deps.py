@@ -11,13 +11,17 @@ its own model binding for awake episodes (`bound`) and the seat meter every mode
 through (`call_gate`), how it builds a fresh role implementation per sub-bee (`worker_factory`) and
 how it moves a stuck sub-bee to a stronger binding within its own grant (`rebind`), the cadence
 and threshold constants its tick handlers read (`handoff_threshold`, `heartbeat_interval_s`,
-`worker_heartbeat_interval_s`, `missed_heartbeats_before_stalled`), and the Guard policy its own
-capability set and every sub-bee's role default are built from (`guard`).
+`worker_heartbeat_interval_s`, `missed_heartbeats_before_stalled`), the Guard policy its own
+capability set and every sub-bee's role default are built from (`guard`), and (roadmap step 10.3,
+ADR-0031) the Guard's `Enforcer` its enforcement points and its sub-bees' tools call
+(`enforcer`), the capability its own Cell's lease needs (`lease_capability`) and the `[llm.slots]`
+rows a rebind's target is resolved to a slot against (`bindings`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built once per Warden by whichever
     composition root constructs one -- the CLI (roadmap step 3.21) in production, `tests.builders.
     wardens.make_warden_deps` in tests. Calls into `hivemind.cell`, `hivemind.guard.policy`,
+    `hivemind.forage` (SlotBinding), `hivemind.guard` (Capability, Enforcer),
     `hivemind.llm.ladders.gate`, `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
     `hivemind.supervision`, `hivemind.supervision.capping`, `hivemind.workers` and waggle only.
 
@@ -30,6 +34,8 @@ Key invariants:
     - `bound` is scoped to `hivemind.forage.slots.ModelSlot.WARDEN`, for awake episodes only; a
       sub-bee's own `BoundModel` is resolved separately, per its `TaskAssign.slot`, by
       `hivemind.wardens.spawn.spawn`.
+    - `lease_capability` is set by the composition root that knows which Cell it built
+      (`cell:hive_stand`, `cell:virtual`), never derived from a Cell's kind (codingrules 8.7).
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit this bundle exists to keep.
@@ -47,7 +53,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
+from hivemind.forage.map import SlotBinding
 from hivemind.forage.tempo import Tempo
+from hivemind.guard import Capability, Enforcer
 from hivemind.guard.policy import GuardPolicy, load_guard_policy
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
@@ -175,6 +183,19 @@ class WardenDeps:
             default at spawn (`role_set`). Defaults to the shipped policy
             (`load_guard_policy()`); `hivemind.cli.compose.deps` builds it from the manifest's
             `[guard]` table.
+        enforcer: The Guard's adapter (roadmap step 10.3) every enforcement point of this Warden
+            and of its sub-bees' tools calls: lease creation, slot binding, question routing,
+            tool invocation and session calls outside scratch; each refusal becomes a
+            `guard.denied` on this Warden's own trail. Built by the composition root over the
+            same policy as `guard`.
+        lease_capability: What this Warden's own Cell's lease needs of its set (roadmap step
+            10.3's `lease_creation` point): `cell:hive_stand` for the Hive Stand's Warden,
+            `cell:virtual` for a Virtual Cell's, `cell:real:<node>` for a Swarm device's. Set by
+            the composition root that built the Cell source, never derived from a Cell's kind.
+        bindings: Every `[llm.slots]` row, forage-side, so a rebind to a named binding
+            (`local_worker`) resolves to the slot whose fallback chain names it before its
+            `llm:<slot>` is checked (`hivemind.forage.map.slot_for_binding`). Defaults to empty:
+            only a slot's own key then resolves, and any named binding is refused.
     """
 
     source: RealCellSource
@@ -195,6 +216,8 @@ class WardenDeps:
     heartbeat_interval_s: float
     worker_heartbeat_interval_s: float
     missed_heartbeats_before_stalled: int
+    enforcer: Enforcer
+    lease_capability: Capability
     # Roadmap step 4.10 (judge review and sampled audit): additive fields, every one defaulted so
     # a WardenDeps built before this dispatch (every existing test) keeps building unchanged.
     judge_reviewer: JudgeReviewer = field(default_factory=FakeJudgeReviewer)
@@ -231,6 +254,9 @@ class WardenDeps:
     # WardenDeps built before this dispatch keeps building; the shipped Warden and Drone defaults
     # reproduce every capability today's access-level ceilings granted.
     guard: GuardPolicy = field(default_factory=load_guard_policy)
+    # Roadmap step 10.3: additive and defaulted to no rows, so a WardenDeps built without a slot
+    # table still builds; every composition root passes its own `[llm.slots]` rows.
+    bindings: tuple[SlotBinding, ...] = ()
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

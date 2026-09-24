@@ -35,7 +35,7 @@ from pathlib import Path
 
 from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
-from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
+from hivemind.cli.in_cell.deps import VIRTUAL_CELL_LEASE, build_in_cell_warden_deps
 from hivemind.cli.in_cell.link import CellLinkDeps, announce
 from hivemind.guard import load_guard_policy
 from hivemind.llm import text_response
@@ -211,6 +211,10 @@ async def _build_scenario(
     assert isinstance(provider, FakeLLMProvider)
     provider.script(text_response("Done."))  # A trivial, tool-free completion.
     assert deps.guard == load_guard_policy()  # No [guard] inside a Cell: the shipped policy.
+    # Roadmap step 10.3: one policy for the sets and the Enforcer, and a Virtual Cell's lease.
+    assert deps.enforcer.policy is deps.guard
+    assert deps.lease_capability == VIRTUAL_CELL_LEASE
+    assert deps.bindings == config.slots
 
     warden = Warden(config.warden_id, deps)
     await warden.start()

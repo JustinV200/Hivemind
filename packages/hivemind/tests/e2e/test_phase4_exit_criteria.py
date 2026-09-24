@@ -346,7 +346,7 @@ async def test_killing_the_provider_mid_run_clusters_and_hive_wake_resumes_with_
     fresh_starts: list[int] = []
     resumed_with_ref: list[bool] = []
     script = _cluster_script(write_counts, fresh_starts, resumed_with_ref)
-    pair = build_cluster_pair(
+    pair = await build_cluster_pair(
         clock, _cluster_plan(), lambda role: ScriptedWorker(script, role=role)
     )
     queen, warden = pair.queen, pair.warden

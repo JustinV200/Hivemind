@@ -4,8 +4,9 @@
 session on it, the model it is bound to, its own slice of the Warden's `ForageGrant`
 (`GrantSlice`), its `CapabilitySet` (`hivemind.workers.capabilities.worker_capabilities` computes
 it), where to write memory and the trail, a way to ask a blocking `Question`
-(`QuestionChannel`), its mutable telemetry, its Capping gate, a view of its Real Cell lease and the
-seam every model call passes through. It never carries a provider, a subprocess handle, or the
+(`QuestionChannel`), its mutable telemetry, its Capping gate, a view of its Real Cell lease, the
+seam every model call passes through, and (roadmap step 10.3) the Guard's `Enforcer` its tools
+check every action against. It never carries a provider, a subprocess handle, or the
 Cell's `kind` (codingrules section 8.7: "branch on capabilities, never on kind") -- a role reads
 `ctx.cell.capabilities`, never `ctx.cell.kind`. `GrantSlice` is deliberately nothing model-shaped:
 no provider, no model id, because `ctx.bound` (a `hivemind.llm.BoundModel`) already names the model
@@ -34,6 +35,9 @@ Key invariants:
       (`hivemind.workers.tools.proposals.cap`); `lease` is the `LeaseView` that same gate checks
       path reachability against. Both are read-only from a role's own perspective: a role never
       mutates either directly, only through `capping.propose`/`capping.run`.
+    - `enforcer` is the one door a tool's own capability checks go through (`tool_invocation`,
+      `session_outside_scratch`, `question_routing`), so every refusal is a `guard.denied` row;
+      a tool never decides a capability with `capabilities.allows` alone.
 
 See Also:
     - .claude/codingrules.md section 8.7 for "branch on capabilities, never on kind".
@@ -54,7 +58,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell, CellSession
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, Enforcer
 from hivemind.llm import BoundModel, CallGate
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -149,6 +153,9 @@ class WorkerContext:
             (`hivemind.llm.ladders.run_tool_loop`'s own `gate` option); the Warden passes its own
             `hivemind.llm.FannerLane` (the seat meter, roadmap step 3.12a) or a bare
             `hivemind.llm.DirectCallGate` when no metering is wired up yet.
+        enforcer: The Guard's adapter (roadmap step 10.3, ADR-0031) every one of this Worker's
+            tools calls before acting; its Warden's own, so each refusal is a `guard.denied` row
+            on the same trail the Warden records to.
     """
 
     worker_id: WorkerId
@@ -167,3 +174,4 @@ class WorkerContext:
     capping: CappingGate
     lease: LeaseView
     call_gate: CallGate
+    enforcer: Enforcer

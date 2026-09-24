@@ -126,7 +126,7 @@ async def test_prefer_virtual_dispatches_onto_a_freshly_acquired_virtual_cell() 
         placement_policy=PlacementPolicy(prefer="virtual"),
     )
     queen = Queen(deps)
-    queen.attach_warden(real_link)
+    await queen.attach_warden(real_link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
 

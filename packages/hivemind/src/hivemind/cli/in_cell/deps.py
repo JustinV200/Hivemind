@@ -7,11 +7,15 @@ manifest to read from. It reaches for the same shipped defaults `build_warden_de
 when an operator has not overridden them (`hivemind.supervision.load_policy(None)`,
 `hivemind.supervision.capping.load_tiers(None)`, `hivemind.guard.load_guard_policy()`), since a
 Virtual Cell image carries no `[supervision]` or `[guard]` section to name an override with in the
-first place.
+first place. Roadmap step 10.3: the Warden's Guard `Enforcer` is built over that same shipped policy
+and records to this Cell's own trail segment (shipped to the Queen like every other row), and its
+lease needs `cell:virtual` -- set here, because this module is the one place that knows it built a
+Virtual Cell's source, never read off the Cell's kind.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
-    `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (load_guard_policy),
+    `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.guard`
+    (Capability, CapabilityFamily, Enforcer, load_guard_policy),
     `hivemind.llm.ladders.gate` (DirectCallGate),
     `hivemind.memory` (InMemoryMemoryStore, MemoryIdentity), `hivemind.pheromone` (PheromoneTrail),
     `hivemind.supervision` (load_policy), `hivemind.supervision.capping` (deterministic_checks,
@@ -38,10 +42,11 @@ See Also:
 
 from __future__ import annotations
 
+from hivemind.cell import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
 from hivemind.forage.slots import ModelSlot
-from hivemind.guard import load_guard_policy
+from hivemind.guard import Capability, CapabilityFamily, Enforcer, load_guard_policy
 from hivemind.llm.ladders.gate import DirectCallGate
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
@@ -71,11 +76,14 @@ DEFAULT_WORKER_HEARTBEAT_INTERVAL_S = 15.0
 DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED = 3
 # codingrules section 8.9: "two thirds of its window" is the documented default threshold.
 DEFAULT_HANDOFF_THRESHOLD = 2.0 / 3.0
+# Roadmap step 10.3: what this Cell's own Warden's lease needs of its set (lease_creation).
+VIRTUAL_CELL_LEASE = Capability(family=CapabilityFamily.CELL_VIRTUAL)
 
 __all__ = [
     "DEFAULT_HANDOFF_THRESHOLD",
     "DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED",
     "DEFAULT_WORKER_HEARTBEAT_INTERVAL_S",
+    "VIRTUAL_CELL_LEASE",
     "build_in_cell_warden_deps",
 ]
 
@@ -90,10 +98,8 @@ def build_in_cell_warden_deps(
     """Build this Cell's own WardenDeps: manifest-free, from InCellRuntimeConfig and its own deps.
 
     Args:
-        config: This process's own validated runtime config (`hivemind.cli.in_cell.config.
-            build_runtime_config`).
-        source: This Cell's own `RealCellSource` of exactly one Cell (`InCellSpawnSource`), built
-            from `config.spawn_config`.
+        config: This process's own validated runtime config (`config.build_runtime_config`).
+        source: This Cell's own one-Cell `InCellSpawnSource`, built from `config.spawn_config`.
         queen_link: The signed WebSocket transport this Cell already announced CellReady over.
         trail: This Cell's own local Pheromone Trail segment.
         clock: Injected time source shared by every collaborator this composes.
@@ -101,22 +107,23 @@ def build_in_cell_warden_deps(
     Returns:
         A WardenDeps ready for `hivemind.wardens.Warden(config.warden_id, deps)`.
     """
-    identity = MemoryIdentity(
-        hive_id=config.hive_id, node_id=config.node_id, actor=str(config.warden_id)
-    )
     registry = build_in_cell_provider_registry(clock, config)
     hop = Hop(sender=config.warden_id, recipient=config.hive_id, node_id=config.node_id)
+    enforcer = _build_enforcer(config, trail, clock)  # Its policy is also every set's (`guard`).
     return WardenDeps(
         source=source,
         queen_link=queen_link,
         hop=hop,
         memory=InMemoryMemoryStore(trail),
         trail=trail,
-        identity=identity,
+        identity=_identity(config),
         clock=clock,
         policy=load_policy(None),  # No [supervision] section inside a Cell: the shipped default.
         tiers=load_tiers(None),  # Same reasoning: the shipped capping-tiers.toml.
-        guard=load_guard_policy(),  # And the shipped Guard policy: no [guard] inside a Cell.
+        guard=enforcer.policy,
+        enforcer=enforcer,  # Roadmap step 10.3.
+        lease_capability=VIRTUAL_CELL_LEASE,
+        bindings=config.slots,  # What a named binding resolves against at slot_binding.
         checks=deterministic_checks(),  # No JudgeReviewer wired yet; see this dispatch's report.
         bound=registry.bound(ModelSlot.WARDEN),
         call_gate=DirectCallGate(),  # No per-Cell Fanner yet (module docstring's own note).
@@ -129,6 +136,26 @@ def build_in_cell_warden_deps(
         trail_sync=_build_trail_sync(config, queen_link, trail, clock),
         snapshotter=_build_snapshotter(config, queen_link, hop, clock),
     )
+
+
+def _identity(config: InCellRuntimeConfig) -> MemoryIdentity:
+    """Return the identity this Warden stamps its memory writes with: itself, on this node."""
+    return MemoryIdentity(
+        hive_id=config.hive_id, node_id=config.node_id, actor=str(config.warden_id)
+    )
+
+
+def _build_enforcer(config: InCellRuntimeConfig, trail: PheromoneTrail, clock: Clock) -> Enforcer:
+    """Build this Warden's Guard Enforcer over the shipped policy, recording as the Warden itself.
+
+    No `[guard]` section exists inside a Cell, so the policy is the one `hivemind.guard.defaults`
+    ships (roadmap step 10.3); the refusals land on this Cell's own trail segment, shipped to the
+    Queen like every other row.
+    """
+    identity = CellIdentity(
+        hive_id=config.hive_id, node_id=config.node_id, actor=str(config.warden_id)
+    )
+    return Enforcer(load_guard_policy(), trail, clock, identity)
 
 
 def _build_snapshotter(

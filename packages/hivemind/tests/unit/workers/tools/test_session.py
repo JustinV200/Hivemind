@@ -1,4 +1,9 @@
-"""Unit tests for hivemind.workers.tools.session: run_command, read_file, write_file."""
+"""Unit tests for hivemind.workers.tools.session: run_command, read_file, write_file.
+
+Roadmap step 10.3: a read outside scratch passes the Guard's `session_outside_scratch` point (a
+refusal is `guard.denied` on the trail), and a write outside scratch needs `cell:outside_scratch`
+as well as `fs:write`.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,7 @@ from builders.workers import make_assignment, make_context
 from hivemind.cell import CompletedCommand, PathNotAllowedError
 from hivemind.cell.fake import FakeSession
 from hivemind.guard import CapabilitySet
+from hivemind.pheromone import TrailQuery
 from hivemind.workers.tools.errors import UnreachablePathError
 from hivemind.workers.tools.registry import ToolInvocation
 from hivemind.workers.tools.session import (
@@ -88,6 +94,7 @@ async def test_write_file_outside_scratch_with_capability_records_the_restore_pa
         "exec:*",
         "tool:*",
         f"fs:write:{_OUTSIDE_DIR.as_posix()}/**",
+        f"cell:outside_scratch:{_OUTSIDE_DIR.as_posix()}/**",  # Roadmap step 10.3.
     )
     ctx = make_context(clock=clock, session=session, lease=lease, capabilities=capabilities)
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(clock=clock))
@@ -99,6 +106,23 @@ async def test_write_file_outside_scratch_with_capability_records_the_restore_pa
     # 2026-09-21 defect: an outside-scratch write must carry a checkable postcondition too, not
     # only an inside-scratch one, and it must actually verify after apply, not just be declared.
     assert "[0] FILE_EXISTS=held" in result
+
+
+async def test_write_file_outside_scratch_without_cell_outside_scratch_is_a_guard_denial() -> None:
+    clock = FakeClock()
+    session = FakeSession(scratch_dir=_SCRATCH_DIR, clock=clock, allowed_paths=(_OUTSIDE_DIR,))
+    lease = FakeLeaseView(_SCRATCH_DIR, allowed_paths=(_OUTSIDE_DIR,))
+    capabilities = CapabilitySet.parse("tool:*", f"fs:write:{_OUTSIDE_DIR.as_posix()}/**")
+    ctx = make_context(clock=clock, session=session, lease=lease, capabilities=capabilities)
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(clock=clock))
+
+    result = await write_file(invocation, {"path": _OUTSIDE_PATH, "content": "refused"})
+
+    assert "state=REJECTED" in result
+    [denial] = await ctx.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["point"] == "session_outside_scratch"
+    assert str(denial.payload["capability"]).startswith("cell:outside_scratch:")
+    assert lease.restore_records == []  # Nothing was applied.
 
 
 async def test_run_command_is_verified_when_the_scripted_exit_code_is_zero() -> None:
@@ -158,7 +182,10 @@ async def test_read_file_outside_scratch_requires_an_fs_read_capability() -> Non
 
     result = await read_file(invocation, {"path": _OUTSIDE_PATH})
 
-    assert "no fs:read capability covers" in result
+    assert result.startswith("refused by the Guard (guard.not_held)")
+    [denial] = await ctx.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["point"] == "session_outside_scratch"
+    assert denial.payload["capability"] == f"fs:read:{_OUTSIDE_DIR.as_posix()}/note.txt"
 
 
 async def test_read_file_outside_scratch_unreachable_from_the_session_raises() -> None:

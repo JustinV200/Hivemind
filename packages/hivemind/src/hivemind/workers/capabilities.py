@@ -11,8 +11,12 @@ when the task actually needs it, and roadmap step 5.0e's `extra_write_roots` add
 `fs:write` candidate per root (the manifest's own `keep_root` and each of the task's declared
 `leaves` roots): without them, a Worker's own `fs:write` never reaches past scratch regardless of
 the Cell's `AccessLevel`, since `TaskNeeds` itself carries no field for "this task may write
-outside scratch". Every candidate, the role default's included, is kept only when the Warden
-itself already holds it -- never invented, never wider. The final call is
+outside scratch". Roadmap step 10.3 (ADR-0031) makes an outside-scratch write need
+`cell:outside_scratch:<path>` as well as `fs:write:<path>`, so each extra root also offers that
+pair, for exactly the roots `fs:write` is offered for and no others. Every candidate, the role
+default's included, is kept only when the Warden itself already holds it -- never invented, never
+wider -- and, when the task's goal carries a capability set (`goal`, ADR-0031's "a goal carries a
+ceiling"), only when that set allows it too. The final call is
 `CapabilitySet.attenuate`, which either returns the computed slice unchanged or raises
 `CapabilityWideningError`; calling it here is deliberately defensive (the slice is already
 filtered down to what the Warden allows before that call), so a raise from it can only mean this
@@ -24,6 +28,9 @@ Fits into the Hive:
     `hivemind.cell` (TaskNeeds) and `hivemind.guard` (CapabilitySet) only.
 
 Key invariants:
+    - The result is never wider than `goal` either, when one is given: a candidate the goal's
+      set does not allow is dropped the same way (None means no ceiling, the operator's own
+      local submission).
     - The result is never wider than `warden_caps`: every candidate capability is checked with
       `warden_caps.allows(...)` before it is even offered to the final `attenuate` call --
       including every role-default entry and every `extra_write_roots` entry, so a Cell below
@@ -60,6 +67,7 @@ def worker_capabilities(
     role_default: CapabilitySet,
     needs: TaskNeeds,
     extra_write_roots: tuple[Path, ...] = (),
+    goal: CapabilitySet | None = None,
 ) -> CapabilitySet:
     """Compute one Worker's strict CapabilitySet slice from its Warden's set and its role's.
 
@@ -72,12 +80,15 @@ def worker_capabilities(
         needs: The task's TaskNeeds; `network_scopes` and `exoskeleton` are the only fields that
             add a family beyond the role default.
         extra_write_roots: Roadmap step 5.0e: one more `fs:write` candidate per root (the
-            manifest's own `keep_root`, plus each of the task's declared `leaves` roots), still
-            filtered through `warden_caps.allows(...)` like every other candidate here; empty by
-            default so a caller with none builds the plain role-and-needs slice.
+            manifest's own `keep_root`, plus each of the task's declared `leaves` roots), and
+            (roadmap step 10.3) the matching `cell:outside_scratch` candidate, still filtered
+            through `warden_caps.allows(...)` like every other candidate here; empty by default
+            so a caller with none builds the plain role-and-needs slice.
+        goal: The capability set the task's goal carries (`TaskAssign.capabilities`, parsed);
+            every candidate must be allowed by it too. None, the default, is no ceiling.
 
     Returns:
-        A CapabilitySet that is always a subset of `warden_caps`.
+        A CapabilitySet that is always a subset of `warden_caps`, and of `goal` when given.
 
     Raises:
         hivemind.guard.InvalidCapabilityError: A `needs.network_scopes` entry is not a valid
@@ -87,12 +98,14 @@ def worker_capabilities(
             before this is possible, so reaching it means this function's own filtering broke.
     """
     extra = CapabilitySet.parse(*_needs_specs(needs), *_write_root_specs(extra_write_roots))
-    # Keep only what the Warden itself already grants: this is where "extra families only when
-    # needs asks for them AND the warden has them" actually happens, uniformly for the role
-    # default and the needs-derived entries alike.
+    # Keep only what the Warden itself already grants and the goal allows: this is where "extra
+    # families only when needs asks for them AND the warden has them" actually happens, uniformly
+    # for the role default and the needs-derived entries alike.
     granted = CapabilitySet(
         capabilities=frozenset(
-            capability for capability in (*role_default, *extra) if warden_caps.allows(capability)
+            capability
+            for capability in (*role_default, *extra)
+            if warden_caps.allows(capability) and (goal is None or goal.allows(capability))
         )
     )
     # Proves the slice invariant rather than relying on the filtering above alone (module
@@ -101,7 +114,7 @@ def worker_capabilities(
 
 
 def _write_root_specs(roots: tuple[Path, ...]) -> list[str]:
-    """Return two `fs:write` candidates per root (roadmap step 5.0e): the root itself, and nested.
+    """Return the write candidates per root (roadmap steps 5.0e, 10.3): the root, and nested.
 
     Args:
         roots: Already-resolved directories (or files) outside scratch a Worker may need to write
@@ -109,17 +122,20 @@ def _write_root_specs(roots: tuple[Path, ...]) -> list[str]:
             (`hivemind.supervision.capping.leave.declared_leaving_root`).
 
     Returns:
-        Two capability strings per root: `fs:write:<root>` (an exact match, for a leaving that is
-        itself the one file to write -- `Capability.matches`' own `fnmatch` never matches a bare
-        path against a `/**`-suffixed pattern) and `fs:write:<root>/**` (the same
+        Four capability strings per root: `fs:write:<root>` (an exact match, for a leaving that
+        is itself the one file to write -- `Capability.matches`' own `fnmatch` never matches a
+        bare path against a `/**`-suffixed pattern) and `fs:write:<root>/**` (the same
         `<posix-path>/**` shape `hivemind.guard.access.fill_scratch` gives a scratch root, for a
-        root that is a directory a task writes files under).
+        root that is a directory a task writes files under), and the same two shapes of
+        `cell:outside_scratch` (roadmap step 10.3: an outside-scratch write needs both families).
     """
     specs: list[str] = []
     for root in roots:
         posix_root = root.as_posix().rstrip("/")
-        specs.append(f"fs:write:{posix_root}")
-        specs.append(f"fs:write:{posix_root}/**")
+        # One exact and one nested scope per family, for a file root and a directory root alike.
+        for family in ("fs:write", "cell:outside_scratch"):
+            specs.append(f"{family}:{posix_root}")
+            specs.append(f"{family}:{posix_root}/**")
     return specs
 
 

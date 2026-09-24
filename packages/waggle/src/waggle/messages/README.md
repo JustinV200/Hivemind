@@ -18,6 +18,9 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   `Postcondition`, `PlannedLeaving` (roadmap step 5.0b: one path a task's plan declares should
   stay on its Cell, carried unchanged by a `TaskDraft`, a stored `Task` and a `task.assign`),
   `PlatformReport`, `HostCapacityReport`, ...), so no family file imports another.
+- Waggle 1.6 (roadmap step 10.3): `task.assign` carries `capabilities` (the task's goal set, bounded
+  in count and length; None from an older peer or the operator's own path) and `network_scopes`
+  (the task's needs, so a Worker can be given `net` at all), both in `task/assignment.py`.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section

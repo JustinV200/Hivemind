@@ -158,6 +158,31 @@ every assignment goes to a Warden, over Waggle.
   seeds `deps.housekeeping.last_sweep_at` rather than sweeping immediately.
 - `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
+## Enforcement points (roadmap step 10.3)
+
+The Queen passes six of ADR-0031's points through `QueenDeps.enforcer` (the Guard's `Enforcer`,
+built by the composition root); `queen.authority` names what each principal holds there (her
+`queen` role default; a Warden's set as `warden_set` computes it from its Cell's access level; a
+goal's set, or None for the operator's own local path) and builds her requests.
+
+- `submit_goal(..., capabilities=)` carries the submitter's set to every planned task
+  (`TaskSpec.capabilities`); the dispatcher sends it, and the task's network scopes, on Waggle 1.6's
+  `task.assign`.
+- `placement`: `placement.decide` excludes any candidate the goal's set does not allow; when that
+  alone leaves none, `dispatcher.ready` records `queen.decided` with the full reason and one
+  `guard.denied` per missing capability, and the task stays PENDING.
+- `comb_shield_egress`: `dispatcher.acquire` refuses to provision or resume a Virtual Cell at a
+  tier the goal lacks `cell:comb_shield:<tier>` for, before anything is provisioned.
+- `grant_issue`: `dispatcher.grants.authorize_grant` removes each binding whose `llm:<slot>` the
+  receiving Warden's set or the goal's set does not allow (a `guard.denied` each); a grant left
+  with no binding is refused like a zero-bee grant.
+- `forage_request`: `ticks.forage` requires `forage:request` and that the requester holds the
+  grant (`guard.scope.grant_holder` otherwise); a refusal is `forage.denied` too.
+- `warden_spawn`: `attach.attach_warden` (now async) requires `warden:spawn`, records
+  `warden.spawned`, and raises `WardenSpawnRefusedError` with nothing attached on a refusal.
+- `question_routing`: `questions.block_on_question` refuses a Question from a Warden whose set
+  lacks `question:human`, answering it back down its link instead of blocking the task.
+
 ## How to test this
 
 Every module is tested against fakes: `hivemind.brood_chamber.MemoryTaskStore`-backed

@@ -1,4 +1,9 @@
-"""Unit tests for hivemind.supervision.capping.checks.deterministic: the four v0 rungs."""
+"""Unit tests for hivemind.supervision.capping.checks.deterministic: the v0 rungs.
+
+Roadmap step 10.3 adds: a write outside scratch needs `cell:outside_scratch` too, every capability
+refusal names the missing capability, and a well-formed network step passes SCHEMA on its own tier
+while `NetworkAllowlistCheck` requires `net:<host>` for it.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,7 @@ from hivemind.supervision.capping.checks.base import CheckContext
 from hivemind.supervision.capping.checks.deterministic import (
     CommandAllowlistCheck,
     DiffSizeCapCheck,
+    NetworkAllowlistCheck,
     PathAllowlistCheck,
     SchemaCheck,
     deterministic_checks,
@@ -122,13 +128,54 @@ async def test_path_allowlist_check_allows_a_lease_allowed_path_outside_scratch(
     outside = tmp_path / "outside" / "config.toml"
     action = make_action(ActionKind.DIFF, paths=(str(outside),))
     lease = FakeLeaseView(scratch_root, allowed_paths=(outside.parent,))
-    capabilities = CapabilitySet.parse(f"fs:write:{outside.as_posix()}")
+    capabilities = CapabilitySet.parse(
+        f"fs:write:{outside.as_posix()}", f"cell:outside_scratch:{outside.as_posix()}"
+    )
 
     result = await PathAllowlistCheck().run(
         _context(tmp_path, action=action, capabilities=capabilities, lease=lease)
     )
 
     assert result.outcome is CheckOutcome.PASSED
+
+
+async def test_path_allowlist_check_requires_cell_outside_scratch_to_write_outside_scratch(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside" / "config.toml"
+    action = make_action(ActionKind.DIFF, paths=(str(outside),))
+    lease = FakeLeaseView(tmp_path / "scratch", allowed_paths=(outside.parent,))
+    capabilities = CapabilitySet.parse(f"fs:write:{outside.as_posix()}")  # No cell:outside_...
+
+    result = await PathAllowlistCheck().run(
+        _context(tmp_path, action=action, capabilities=capabilities, lease=lease)
+    )
+
+    assert result.outcome is CheckOutcome.FAILED
+    assert result.denied_capability == f"cell:outside_scratch:{outside.as_posix()}"
+
+
+async def test_path_allowlist_check_names_the_missing_fs_capability(tmp_path: Path) -> None:
+    action = make_action(ActionKind.DIFF, paths=("note.txt",))
+
+    result = await PathAllowlistCheck().run(_context(tmp_path, action=action))
+
+    note = (tmp_path / "scratch" / "note.txt").resolve(strict=False)
+    assert result.denied_capability == f"fs:write:{note.as_posix()}"
+
+
+async def test_path_allowlist_check_names_no_capability_for_an_unreachable_path(
+    tmp_path: Path,
+) -> None:
+    # Beyond every root the lease reaches: a boundary, not a missing capability.
+    action = make_action(ActionKind.DIFF, paths=("/elsewhere/note.txt",))
+
+    result = await PathAllowlistCheck().run(
+        _context(tmp_path, action=action, capabilities=CapabilitySet.parse("fs:write:**"))
+    )
+
+    assert result.outcome is CheckOutcome.FAILED
+    assert result.denied_capability is None
 
 
 async def test_path_allowlist_check_uses_fs_read_for_a_read_only_proposal(tmp_path: Path) -> None:
@@ -193,6 +240,83 @@ async def test_command_allowlist_check_rejects_a_disallowed_program(tmp_path: Pa
 
     assert result.outcome is CheckOutcome.FAILED
     assert "no exec capability" in result.reason
+    assert result.denied_capability == "exec:rm"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# A network step (roadmap step 10.3): SchemaCheck and NetworkAllowlistCheck
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _network_step(step: str = "GET https://example.com/data") -> ProposedAction:
+    """The HTTP tool's own shape: one `"<METHOD> <url>"` step in an ACTION_SEQUENCE."""
+    return make_action(ActionKind.ACTION_SEQUENCE, steps=(step,))
+
+
+async def test_schema_check_passes_a_well_formed_network_step_on_its_own_tier(
+    tmp_path: Path,
+) -> None:
+    context = _context(tmp_path, action=_network_step(), risk_tier=RiskTier.NETWORK_EGRESS)
+
+    result = await SchemaCheck().run(context)
+
+    assert result.outcome is CheckOutcome.PASSED
+
+
+async def test_schema_check_rejects_a_network_step_on_any_other_tier(tmp_path: Path) -> None:
+    context = _context(tmp_path, action=_network_step(), risk_tier=RiskTier.DEVICE_COMMAND)
+
+    result = await SchemaCheck().run(context)
+
+    assert result.outcome is CheckOutcome.FAILED
+
+
+async def test_schema_check_rejects_a_sequence_that_is_no_network_step(tmp_path: Path) -> None:
+    action = _network_step("Click the confirm button.")
+
+    result = await SchemaCheck().run(
+        _context(tmp_path, action=action, risk_tier=RiskTier.NETWORK_EGRESS)
+    )
+
+    assert result.outcome is CheckOutcome.FAILED
+
+
+async def test_network_allowlist_check_requires_net_for_the_host(tmp_path: Path) -> None:
+    context = _context(tmp_path, action=_network_step(), risk_tier=RiskTier.NETWORK_EGRESS)
+
+    result = await NetworkAllowlistCheck().run(context)
+
+    assert result.outcome is CheckOutcome.FAILED
+    assert result.denied_capability == "net:example.com"
+
+
+async def test_network_allowlist_check_passes_a_held_host(tmp_path: Path) -> None:
+    context = _context(
+        tmp_path,
+        action=_network_step(),
+        capabilities=CapabilitySet.parse("net:example.com"),
+        risk_tier=RiskTier.NETWORK_EGRESS,
+    )
+
+    result = await NetworkAllowlistCheck().run(context)
+
+    assert result.outcome is CheckOutcome.PASSED
+
+
+async def test_network_allowlist_check_passes_trivially_for_a_diff(tmp_path: Path) -> None:
+    result = await NetworkAllowlistCheck().run(_context(tmp_path))
+
+    assert result.outcome is CheckOutcome.PASSED
+
+
+async def test_the_registered_allowlist_runs_the_network_check_too(tmp_path: Path) -> None:
+    allowlist = deterministic_checks()[CheckKind.ALLOWLIST]
+    context = _context(tmp_path, action=_network_step(), risk_tier=RiskTier.NETWORK_EGRESS)
+
+    result = await allowlist.run(context)
+
+    assert result.outcome is CheckOutcome.FAILED
+    assert result.denied_capability == "net:example.com"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

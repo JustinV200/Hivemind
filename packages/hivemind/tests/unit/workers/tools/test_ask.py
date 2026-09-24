@@ -1,9 +1,15 @@
-"""Unit tests for hivemind.workers.tools.ask: ask, a blocking Question round-trip."""
+"""Unit tests for hivemind.workers.tools.ask: ask, a blocking Question round-trip.
+
+Roadmap step 10.3: asking the human is the `question_routing` point, so a Worker whose set lacks
+`question:human` is refused (a `guard.denied` row) and no Question ever leaves it.
+"""
 
 from __future__ import annotations
 
 from builders.workers import FakeAsker, make_assignment, make_context
 
+from hivemind.guard import CapabilitySet
+from hivemind.pheromone import TrailQuery
 from hivemind.workers.tools.ask import ask
 from hivemind.workers.tools.registry import ToolInvocation
 from waggle.clock import FakeClock
@@ -77,3 +83,17 @@ async def test_ask_refuses_the_capping_gates_own_leave_options() -> None:
 
     assert "reserved" in result
     assert asker.questions == []
+
+
+async def test_ask_without_question_human_is_refused_and_asks_nothing() -> None:
+    asker = FakeAsker()
+    ctx = make_context(asker=asker, capabilities=CapabilitySet.parse("tool:*"))
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
+
+    result = await ask(invocation, {"text": "Which environment?"})
+
+    assert result.startswith("refused by the Guard (guard.not_held)")
+    assert asker.questions == []
+    [denial] = await ctx.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["point"] == "question_routing"
+    assert denial.payload["capability"] == "question:human"

@@ -34,9 +34,12 @@ from waggle.messages.labels import (
     PostconditionKind,
     Tempo,
 )
+from waggle.messages.reports import MAX_NETWORK_SCOPE_CHARS, MAX_NETWORK_SCOPES
 from waggle.messages.task.assignment import (
     MAX_ACCEPTANCE_CHARS,
     MAX_ACCEPTANCE_ITEMS,
+    MAX_CAPABILITIES,
+    MAX_CAPABILITY_CHARS,
     MAX_LEAVES_ITEMS,
     MAX_OBJECTIVE_CHARS,
     TaskAssign,
@@ -96,6 +99,8 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         objective="Summarise the release notes into one page.",
         acceptance=(RUBRIC, TESTS_PASS),
         leaves=(LEAVING,),
+        capabilities=("cell:virtual", "net:*.example.org", "tool:*"),
+        network_scopes=("docs.example.org",),
         tempo=Tempo(latency_budget_s=None, accuracy=AccuracyBar.NORMAL),
         clearance=HoneyClearance.C1,
         grant_id=GRANT_ID,
@@ -299,6 +304,52 @@ def test_task_assign_leaves_defaults_to_empty_so_an_older_peers_message_still_va
     rebuilt = TaskAssign.model_validate(payload)
 
     assert rebuilt.leaves == ()
+
+
+@pytest.mark.parametrize("field", ["capabilities", "network_scopes"])
+def test_task_assign_minor_six_fields_are_optional_so_an_older_peers_message_still_validates(
+    field: str,
+) -> None:
+    # roadmap step 10.3: both fields are additive (PROTOCOL_MINOR 6), so a payload built before
+    # they existed -- one with neither key at all -- must still validate, to the "no goal
+    # ceiling" None and the "no network needs" empty tuple respectively.
+    payload = _example(TaskAssign).model_dump(mode="json")
+    del payload[field]
+
+    rebuilt = TaskAssign.model_validate(payload)
+
+    assert rebuilt.model_dump()[field] == (None if field == "capabilities" else ())
+
+
+def test_task_assign_tells_no_goal_ceiling_apart_from_a_goal_allowed_nothing() -> None:
+    example = _example(TaskAssign)
+
+    no_ceiling = _rebuild(example, capabilities=None)
+    allowed_nothing = _rebuild(example, capabilities=())
+
+    assert no_ceiling.model_dump()["capabilities"] is None
+    assert allowed_nothing.model_dump()["capabilities"] == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "count", "chars"),
+    [
+        ("capabilities", MAX_CAPABILITIES, MAX_CAPABILITY_CHARS),
+        ("network_scopes", MAX_NETWORK_SCOPES, MAX_NETWORK_SCOPE_CHARS),
+    ],
+)
+def test_task_assign_minor_six_fields_are_bounded_in_count_and_length(
+    field: str, count: int, chars: int
+) -> None:
+    example = _example(TaskAssign)
+
+    assert _rebuild(example, **{field: tuple("x" * chars for _ in range(count))})
+    with pytest.raises(ValidationError, match=f"at most {count}"):
+        _rebuild(example, **{field: ("x",) * (count + 1)})
+    with pytest.raises(ValidationError, match=f"at most {chars}"):
+        _rebuild(example, **{field: ("x" * (chars + 1),)})
+    with pytest.raises(ValidationError, match="at least 1"):
+        _rebuild(example, **{field: ("",)})
 
 
 def test_task_assign_leaves_is_bounded() -> None:

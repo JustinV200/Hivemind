@@ -1,11 +1,19 @@
-"""Define handle_question, answer_question and sync_answers_from_chamber: Queen question traffic.
+"""Define block_on_question, answer_question and sync_answers_from_chamber: Queen question traffic.
 
 Roadmap step 3.20's own dispatch map: "Question from a sub-bee -> BLOCK_ON_QUESTION: chamber.ask
 (task BLOCKED, pending_question_id) -> visible in the human inbox; Answer arrives via chamber.answer
 (the CLI's `hive inbox answer`): questions.sync_answers_from_chamber finds answered questions the
 Queen has not yet forwarded and sends an Answer envelope to the Warden that asked."
 
-`handle_question` is the first half: `chamber.ask` with the *original* asker (`Question.asked_by`
+`block_on_question` (moved here from `hivemind.queen.queen` for that file's size cap) is where a
+forwarded Question arrives: a leave Question the Queen already has a "keep for this whole goal"
+answer for is answered at once (roadmap step 5.0d); anything else is the `question_routing`
+enforcement point (roadmap step 10.3, ADR-0031), the Warden at the Queen: the forwarding Warden's
+set, as she computes it from its Cell, must hold `question:human`, or the Question is refused
+back down the same link as a QUEEN Answer naming the reason (the Guard has already recorded
+`guard.denied`), so the asking bee unblocks instead of waiting on a human who will never see it.
+
+`handle_question` is the routed half: `chamber.ask` with the *original* asker (`Question.asked_by`
 survives forwarding on the wire, so the Warden's own name never overwrites who actually asked).
 It returns the chamber's own newly-minted `Question`, which never reuses the wire message's own
 `question_id` (`hivemind.brood_chamber.questions`'s own module docstring: the chamber's `Question`
@@ -76,14 +84,18 @@ then forward once" -- and exactly one place it is applied.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
-    by `hivemind.queen.queen.Queen`'s tick (`handle_question`, `sync_answers_from_chamber`) and by
+    by `hivemind.queen.queen.Queen`'s tick (`block_on_question`, `sync_answers_from_chamber`) and by
     whichever composition root wires `hive inbox answer` to the Queen (`answer_question`);
     `hivemind.cli.compose.run_goal`'s own poll loop also calls `sync_answers_from_chamber`, for the
     cross-process reason given above. Calls into `hivemind.brood_chamber` (Answer, AnswerSource,
-    Task, TaskStatus), `hivemind.cell` (HoneyClearance), `hivemind.memory` (MemoryStore, Note),
-    `hivemind.queen.deps` (QueenDeps, WardenLink) and waggle only.
+    Task, TaskStatus), `hivemind.cell` (HoneyClearance), `hivemind.guard` (the question_routing
+    point), `hivemind.memory` (MemoryStore, Note), `hivemind.queen.authority`, `.deps`
+    (QueenDeps, WardenLink), `.leave_memory` and waggle only.
 
 Key invariants:
+    - A Question reaches the human inbox (`chamber.ask`) only once the forwarding Warden's set
+      holds `question:human`; a refused one is answered back with the reason and never blocks
+      its task.
     - `answer_question` sends the wire Answer only when the resumed task's own `warden_id` still
       names an attached Warden; a task whose Warden has since detached is resumed in the chamber
       regardless (the human's answer is never lost), but nothing is sent over a link that no
@@ -124,8 +136,18 @@ from typing import TYPE_CHECKING
 
 from hivemind.brood_chamber import Answer, AnswerSource, Question, Task, TaskStatus
 from hivemind.cell import HoneyClearance
+from hivemind.guard import (
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+    EnforcementPoint,
+    PolicyContext,
+    PolicyRequest,
+    warden_principal,
+)
 from hivemind.memory import MemoryStore, Note
 from hivemind.queen import leave_memory
+from hivemind.queen.authority import task_context, warden_held
 from hivemind.queen.deps import QueenDeps, WardenLink
 from waggle.envelope import wrap
 from waggle.ids import MessageId, TaskId, WardenId
@@ -133,6 +155,7 @@ from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Answer as WireAnswer
 from waggle.messages.supervision import AnswerSource as WireAnswerSource
 from waggle.messages.supervision import Question as WireQuestion
+from waggle.messages.supervision.questions import MAX_TEXT_CHARS
 
 if TYPE_CHECKING:
     # Only for the type hint below: hivemind.queen.queen imports this module at load time (its
@@ -143,16 +166,37 @@ if TYPE_CHECKING:
 # MemoryStore.list_notes(author=...) filter looks for exactly this, so both sides of the
 # cross-process handoff share one constant rather than two copies of the same string shape.
 ANSWER_NOTE_AUTHOR_PREFIX = "human_answer:"
+_QUESTION_HUMAN = Capability(family=CapabilityFamily.QUESTION_HUMAN)  # Routing up to the human.
 
 __all__ = [
     "ANSWER_NOTE_AUTHOR_PREFIX",
     "AnswerInput",
+    "AskedQuestion",
     "answer_note_author",
     "answer_question",
     "answer_question_in_process",
+    "block_on_question",
     "handle_question",
     "sync_answers_from_chamber",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class AskedQuestion:
+    """One Question a Warden forwarded, and where it came from (codingrules 5.1's grouping).
+
+    Attributes:
+        question: The wire Question, `asked_by` still naming the original asker.
+        task: The task it blocks, or None when the chamber no longer has it.
+        warden_id: The Warden whose link it arrived on.
+        envelope_id: The id of the envelope it arrived in; an Answer's reply envelope correlates
+            to it.
+    """
+
+    question: WireQuestion
+    task: Task | None
+    warden_id: WardenId
+    envelope_id: MessageId
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +229,32 @@ class AnswerInput:
     wire_question_id: MessageId | None = None
     correlation_id: MessageId | None = None
     chosen_option: int | None = None
+
+
+async def block_on_question(queen: Queen, asked: AskedQuestion) -> None:
+    """Answer `asked` from goal+Cell memory, refuse it, or queue it for the human.
+
+    Roadmap step 5.0d: a leave Question this Queen already has a "keep for this whole goal"
+    answer for is answered here, instantly, and never reaches `hive inbox`
+    (`hivemind.queen.leave_memory.answer_from_memory`'s own docstring). Roadmap step 10.3: every
+    other question passes the `question_routing` point first (module docstring); only then does
+    it take the ordinary `chamber.ask` path.
+
+    Args:
+        queen: The running Queen; her question bookkeeping is written directly.
+        asked: The forwarded Question and where it came from.
+    """
+    question, task = asked.question, asked.task
+    if task is not None and await leave_memory.answer_from_memory(
+        queen, task, asked.warden_id, question, asked.envelope_id
+    ):
+        return
+    if not await _may_reach_the_human(queen, asked):
+        return
+    chamber_question = await handle_question(queen._deps, question)
+    queen._open_questions[question.question_id] = question.task_id
+    queen._question_wire_ids[chamber_question.id] = question.question_id
+    queen._question_envelope_ids[chamber_question.id] = asked.envelope_id
 
 
 async def handle_question(deps: QueenDeps, question: WireQuestion) -> Question:
@@ -373,6 +443,48 @@ async def _find_answer_note(memory: MemoryStore, question_id: MessageId) -> Note
     # clearance ceiling for the trigger event it builds around one.
     notes = await memory.list_notes(answer_note_author(question_id), HoneyClearance.C2, 1)
     return notes[0] if notes else None
+
+
+async def _may_reach_the_human(queen: Queen, asked: AskedQuestion) -> bool:
+    """Check `question:human` against the forwarding Warden's set; refuse it back when denied.
+
+    A Warden no longer attached holds nothing the Queen can compute, so it is refused too, and
+    has no link to answer down: the refusal is only on the trail.
+    """
+    deps = queen._deps
+    link = queen._wardens.get(asked.warden_id)
+    cell = link.cell if link is not None else None
+    held = warden_held(deps, cell) if cell is not None else CapabilitySet.empty()
+    context = task_context(asked.task, cell) if asked.task is not None else PolicyContext()
+    decision = await deps.enforcer.check(
+        PolicyRequest(
+            principal=warden_principal(asked.warden_id),
+            point=EnforcementPoint.QUESTION_ROUTING,
+            needed=_QUESTION_HUMAN,
+            held=held,
+            context=context,
+        )
+    )
+    if decision.allowed:
+        return True
+    if link is not None:
+        await _refuse_back(deps, link, asked, decision.reason)
+    return False
+
+
+async def _refuse_back(deps: QueenDeps, link: WardenLink, asked: AskedQuestion, why: str) -> None:
+    """Answer a refused Question down its own link, as the Queen, so its asker unblocks."""
+    question = asked.question
+    answer = WireAnswer(
+        question_id=question.question_id,
+        task_id=question.task_id,
+        text=f"This question was not routed to the human: {why}"[:MAX_TEXT_CHARS],
+        chosen_option=None,
+        source=WireAnswerSource.QUEEN,
+        clearance=question.clearance,
+    )
+    envelope = wrap(answer, link.hop, clock=deps.clock, correlation_id=asked.envelope_id)
+    await link.transport.send(envelope)
 
 
 def _link_for(wardens: Sequence[WardenLink], warden_id: WardenId | None) -> WardenLink | None:

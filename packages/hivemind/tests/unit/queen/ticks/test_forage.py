@@ -209,3 +209,28 @@ def _shrink_decision_provider(other_grant_id: str) -> FakeLLMProvider:
         "shrink_amount": 1,
     }
     return FakeLLMProvider(name="fake", responder=_json_responder(decision_json))
+
+
+async def test_a_warden_asking_to_grow_a_grant_it_does_not_hold_is_refused() -> None:
+    # Roadmap step 10.3: before it, the grant was found by id alone, so any Warden could grow any.
+    deps, link, warden_end = make_queen_deps()
+    await deps.ledger.report_capacity(new_cell_id(deps.clock), make_capacity(max_sub_bees=10))
+    someone_elses = make_grant(clock=deps.clock, state=GrantState.ACTIVE, max_sub_bees=2)
+    await deps.ledger.record_grant(someone_elses)
+
+    await handle_forage_request(
+        deps,
+        {link.warden_id: link},
+        link,
+        _wire_request(someone_elses.id, sub_bees=3),
+        new_message_id(deps.clock),
+    )
+
+    reply = await warden_end.wait_for_forage_reply()
+    assert reply.outcome is ForageOutcome.DENIED
+    assert warden_end.grants == []
+    assert deps.ledger.grant(someone_elses.id) == someone_elses
+    [denial] = await deps.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["rule"] == "guard.scope.grant_holder"
+    assert denial.payload["point"] == "forage_request"
+    assert denial.subject_id == link.warden_id

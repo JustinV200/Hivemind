@@ -211,7 +211,8 @@ def test_build_hive_wires_the_registry_warden_and_queen(tmp_path: Path) -> None:
     provider = hive.registry.provider("fake")
     assert isinstance(provider, FakeLLMProvider)
     assert hive.warden.lease is None  # start() has not run yet.
-    assert hive.queen.wardens == (hive.warden_link,)
+    # Roadmap step 10.3: attaching is the Queen's awaited warden_spawn check, so run_hive does it.
+    assert hive.queen.wardens == ()
     assert hive.warden_link.cell.source == "hive_stand"
 
 
@@ -331,6 +332,20 @@ async def test_run_hive_starts_and_stops_cleanly_and_leaves_scratch_empty(
         hive.warden.lease is not None
     )  # release() does not forget the lease; it marks it RELEASED.
     assert list((tmp_path / "scratch").iterdir()) == []  # Left as found.
+
+
+async def test_run_hive_attaches_the_warden_through_the_guard_and_records_warden_spawned(
+    plain_hive: tuple[Hive, FakeClock],
+) -> None:
+    hive, _clock = plain_hive
+
+    async with run_hive(hive):
+        assert hive.queen.wardens == (hive.warden_link,)
+
+    spawned = await hive.stores.trail.query(TrailQuery(kind="warden.spawned"))
+    assert [event.subject_id for event in spawned] == [hive.warden_link.warden_id]
+    # The Hive Stand's Warden leased under its own `cell:hive_stand`, so nothing was refused.
+    assert await hive.stores.trail.query(TrailQuery(kind="guard.denied")) == ()
 
 
 async def test_run_hive_leaves_no_pending_tasks_after_it_exits(

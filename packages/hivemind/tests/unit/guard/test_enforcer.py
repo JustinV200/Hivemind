@@ -148,3 +148,19 @@ def test_the_enforcer_exposes_its_policy() -> None:
     assert enforcer.policy.escalation_for(EnforcementPoint.TOOL_INVOCATION) is (
         EscalationAction.ALARM
     )
+
+
+async def test_refuse_records_the_points_own_refusal_under_a_scope_rule() -> None:
+    # Roadmap step 10.3: a point that decided a refusal itself (the target is out of reach, not
+    # the capability missing) records the same guard.denied shape through `refuse`.
+    enforcer, trail, _identity = _enforcer()
+    request = _worker_request("tool:read_file", "tool:*")  # Held, so `check` would allow it.
+
+    decision = await enforcer.refuse(request, "grant_holder", "grant g is held by another Warden")
+
+    assert decision.allowed is False
+    assert decision.rule == "guard.scope.grant_holder"
+    (event,) = await _events(trail)
+    assert event.kind == DENIED_KIND
+    assert event.payload["rule"] == "guard.scope.grant_holder"
+    assert "grant g is held by another Warden" in str(event.payload["reason"])

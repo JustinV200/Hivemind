@@ -6,16 +6,18 @@ supervising, mirroring that Worker's `hivemind.workers.state.WorkerState` from t
 or `TaskProgress` it reported, the binding key it last ran on (for a REBIND's "next binding in the
 grant's allowed_bindings" search), its last `HandoffRef` (for a RETRY's `resume_from`), and its own
 `hivemind.workers.runtime.WorkerRuntime` plus the `asyncio.Task` running it inside the Warden's own
-`TaskGroup`. `missed_heartbeats` is the Warden's own watchdog counter, incremented once per
-heartbeat interval that passes with nothing heard, reset the moment a fresh `Heartbeat` arrives;
-crossing `WardenDeps.missed_heartbeats_before_stalled` is what turns into a synthesised
-`AlarmKind.WORKER_STALLED`.
+`TaskGroup`, plus (roadmap step 10.3) the capability set its spawn computed, which the Warden's
+question-routing and rebinding checks read. `missed_heartbeats` is the Warden's own watchdog
+counter, incremented once per heartbeat interval that passes with nothing heard, reset the moment
+a fresh `Heartbeat` arrives; crossing `WardenDeps.missed_heartbeats_before_stalled` is what turns
+into a synthesised `AlarmKind.WORKER_STALLED`.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
     by `hivemind.wardens.spawn.spawn.spawn_sub_bee`; read and mutated by
     `hivemind.wardens.warden.Warden` and its `hivemind.wardens.ticks` handlers on every report a
-    sub-bee sends. Calls into `hivemind.workers` (WorkerState, WorkerRuntime) and waggle only.
+    sub-bee sends. Calls into `hivemind.guard` (CapabilitySet), `hivemind.workers` (WorkerState,
+    WorkerRuntime) and waggle only.
 
 Key invariants:
     - `state` only ever moves along `hivemind.workers.state.TRANSITIONS`; a SubBee's own state is
@@ -40,6 +42,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from hivemind.guard import CapabilitySet
 from hivemind.workers.runtime import WorkerRuntime
 from hivemind.workers.state import WorkerState
 from waggle.ids import TaskId, WorkerId
@@ -77,6 +80,9 @@ class SubBee:
             awaited or cancelled by the Warden, never dropped.
         missed_heartbeats: How many heartbeat intervals have elapsed with nothing heard since the
             last Heartbeat; reset to 0 the moment a fresh one arrives.
+        capabilities: The sub-bee's own set, as its spawn computed it (roadmap step 10.3); read
+            when the Warden routes its question to the Queen or rebinds it. Defaults to empty,
+            which allows nothing, for a row built outside `spawn_sub_bee`.
     """
 
     worker_id: WorkerId
@@ -91,3 +97,4 @@ class SubBee:
     runtime_task: asyncio.Task[None]
     last_telemetry: ContextTelemetry | None = field(default=None)
     missed_heartbeats: int = field(default=0)
+    capabilities: CapabilitySet = field(default_factory=CapabilitySet.empty)

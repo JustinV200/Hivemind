@@ -10,12 +10,21 @@ envelope id too, because `waggle.messages.supervision.Answer` is a reply
 the id of *some* request envelope, even though the receiving sub-bee's own `hivemind.workers.
 runtime.mailbox.Mailbox.resolve_answer` only ever matches on `answer.question_id` itself.
 
+Roadmap step 10.3 (ADR-0031): forwarding is the `question_routing` enforcement point, the Worker
+at the Warden -- a Question goes up the chain toward the human only when the asking sub-bee's own
+set holds `question:human`, checked through the Guard's `Enforcer`. A refused Question is answered
+straight back down the sub-bee's own link as a WARDEN Answer naming the reason (already a
+`guard.denied` row), so the asker unblocks instead of waiting on a human who will never see it.
+
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
-    assign`'s own module docstring for why). Calls into waggle only.
+    assign`'s own module docstring for why). Calls into `hivemind.guard` (the question_routing
+    point) and waggle only.
 
 Key invariants:
+    - Nothing reaches the Queen from a sub-bee whose set does not hold `question:human`, and a
+      refused asker is always answered (when it is still attached) rather than left blocked.
     - `forward_answer` is a no-op, not an error, for a `question_id` this Warden never forwarded
       (already answered, or from a sub-bee that has since ended) -- a stray Answer is a peer's
       timing, not this module's contract to enforce, matching `Mailbox.resolve_answer`'s own rule.
@@ -29,12 +38,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.guard import (
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+    EnforcementPoint,
+    PolicyContext,
+    PolicyRequest,
+    worker_principal,
+)
 from waggle.envelope import Hop, wrap
 from waggle.ids import MessageId, WorkerId
-from waggle.messages.supervision import Answer, Question
+from waggle.messages.supervision import Answer, AnswerSource, Question
+from waggle.messages.supervision.questions import MAX_TEXT_CHARS
+from waggle.messages.task import WorkerRole
 
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
+
+_QUESTION_HUMAN = Capability(family=CapabilityFamily.QUESTION_HUMAN)  # Routing up to the human.
 
 __all__ = ["forward_answer", "forward_question"]
 
@@ -51,7 +73,12 @@ async def forward_question(warden: Warden, envelope_id: MessageId, question: Que
     # A Question's own asker is always a sub-bee (never the Queen itself, a HiveId), so this
     # narrowing is safe: the wire union exists only because the same shape could in principle
     # carry a Warden's own question one level up, which this Warden's own inbox never receives.
-    warden._questions[question.question_id] = WorkerId(question.asked_by)
+    asker = WorkerId(question.asked_by)
+    refusal = await _routing_refusal(warden, asker)
+    if refusal is not None:
+        await _answer_refused(warden, asker, envelope_id, question, refusal)
+        return
+    warden._questions[question.question_id] = asker
     warden._question_envelope_ids[question.question_id] = envelope_id
     await warden._deps.queen_link.send(wrap(question, warden._deps.hop, clock=warden._deps.clock))
 
@@ -73,3 +100,45 @@ async def forward_answer(warden: Warden, answer: Answer) -> None:
     hop = Hop(sender=warden._warden_id, recipient=worker_id, node_id=warden._deps.identity.node_id)
     envelope = wrap(answer, hop, clock=warden._deps.clock, correlation_id=correlation_id)
     await sub_bee.link.send(envelope)
+
+
+async def _routing_refusal(warden: Warden, asker: WorkerId) -> str | None:
+    """Pass the `question_routing` point for `asker`; return the refusal's reason, or None.
+
+    An asker this Warden no longer supervises holds nothing it can vouch for, so it is refused.
+    """
+    sub_bee = warden._sub_bees.get(asker)
+    role = sub_bee.assignment.role if sub_bee is not None else WorkerRole.DRONE
+    cell = warden._cell
+    decision = await warden._deps.enforcer.check(
+        PolicyRequest(
+            principal=worker_principal(asker, role),
+            point=EnforcementPoint.QUESTION_ROUTING,
+            needed=_QUESTION_HUMAN,
+            held=sub_bee.capabilities if sub_bee is not None else CapabilitySet.empty(),
+            context=PolicyContext(
+                comb_shield=cell.comb_shield if cell is not None else None,
+                access_level=cell.access_level if cell is not None else None,
+            ),
+        )
+    )
+    return None if decision.allowed else decision.reason
+
+
+async def _answer_refused(
+    warden: Warden, asker: WorkerId, envelope_id: MessageId, question: Question, reason: str
+) -> None:
+    """Answer a refused Question straight back to its asker, as this Warden, naming the reason."""
+    sub_bee = warden._sub_bees.get(asker)
+    if sub_bee is None:
+        return  # Nobody left to unblock; the refusal itself is already on the trail.
+    answer = Answer(
+        question_id=question.question_id,
+        task_id=question.task_id,
+        text=f"This question was not routed to the human: {reason}"[:MAX_TEXT_CHARS],
+        chosen_option=None,
+        source=AnswerSource.WARDEN,
+        clearance=question.clearance,
+    )
+    hop = Hop(sender=warden._warden_id, recipient=asker, node_id=warden._deps.identity.node_id)
+    await sub_bee.link.send(wrap(answer, hop, clock=warden._deps.clock, correlation_id=envelope_id))

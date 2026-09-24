@@ -2,7 +2,8 @@
 
 A Task is one unit of work the Queen decomposes a goal into. This module holds its whole shape:
 `TaskSpec` is what a task is asked to do (title, objective, acceptance criteria, the `TaskNeeds`
-its Cell must meet, and the ids of tasks it depends on); `TaskOutcome` is how it ended, recorded
+its Cell must meet, the ids of tasks it depends on, and since roadmap step 10.3 the capability set
+of the goal it was planned from); `TaskOutcome` is how it ended, recorded
 once it reaches a terminal `TaskStatus` (`hivemind.brood_chamber.task.state`); `Task` is the whole
 record the Brood Chamber stores, spec plus current status plus placement plus outcome, immutable
 like every boundary value in the Hive (state changes produce a new `Task` via `model_copy`,
@@ -17,8 +18,9 @@ Fits into the Hive:
     (roadmap step 2.6), which is where a `Task`'s immutability is exercised through `model_copy`.
     `TaskGraphDraft` is read by `hivemind.cli.tasks` (`hive tasks submit FILE`) and turned into
     `Task`s by `BroodChamber.submit`. Calls into `hivemind.brood_chamber.task.state`,
-    `hivemind.brood_chamber.task.graph` (for `TaskGraphDraft`'s cycle check) and `hivemind.cell`
-    (for `TaskNeeds`, `HoneyClearance`) only.
+    `hivemind.brood_chamber.task.graph` (for `TaskGraphDraft`'s cycle check),
+    `hivemind.brood_chamber.task.goal_set` (GoalCapabilities) and `hivemind.cell` (for
+    `TaskNeeds`, `HoneyClearance`) only.
 
 Key invariants:
     - Task.outcome is set if and only if Task.status is terminal (TaskStatus.is_terminal), and
@@ -52,6 +54,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from hivemind.brood_chamber.task.goal_set import GoalCapabilities
 from hivemind.brood_chamber.task.graph import is_acyclic_edges
 from hivemind.brood_chamber.task.state import TERMINAL_STATUSES, TaskStatus
 from hivemind.cell import HoneyClearance, RequestOrigin, TaskNeeds
@@ -145,6 +148,12 @@ class TaskSpec(BaseModel):
         description="What the plan declared should stay on this task's Cell once its lease is "
         "released (roadmap step 5.0b); empty unless the goal itself asks for something to "
         "remain. Carried unchanged into the task.assign this task's Warden sends.",
+    )
+    capabilities: GoalCapabilities = Field(
+        default=None,
+        description="The capability set of the goal this task was planned from (roadmap step "
+        "10.3, ADR-0031), sorted capability strings: placement and the Warden never let the "
+        "task do more. None means the operator's own local submission, with no device ceiling.",
     )
 
     @field_validator("depends_on")
@@ -293,6 +302,11 @@ class TaskDraft(BaseModel):
         description="What the plan declared should stay on this task's Cell once its lease is "
         "released (roadmap step 5.0b); empty unless the goal itself asks for something to "
         "remain.",
+    )
+    capabilities: GoalCapabilities = Field(
+        default=None,
+        description="The capability set of the goal this draft belongs to (roadmap step 10.3); "
+        "the chamber carries it onto the minted Task's TaskSpec. None means no device ceiling.",
     )
 
 

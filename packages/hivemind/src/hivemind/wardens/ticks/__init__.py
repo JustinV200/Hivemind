@@ -7,8 +7,11 @@ modules here are what each action actually does, split out only so `warden.py` a
 class stay within codingrules 5.1's size limits: `assign` (spawn once a `TaskAssign` and its
 `GrantIssued` have both arrived), `results` (run acceptance on a sub-bee's claim), `alarms`
 (RETRY/REBIND/ESCALATE/CANCEL_TASK), `questions` (forward Question/Answer), `control` (forward
-TaskCancel/Pause/Resume/Intervene) and `heartbeat` (send this Warden's own Heartbeat, mirror a
-sub-bee's reports, watch for a stall, and build the `HotStateSources` an awake episode reads).
+TaskCancel/Pause/Resume/Intervene), `heartbeat` (send this Warden's own Heartbeat, mirror a
+sub-bee's reports, watch for a stall, and build the `HotStateSources` an awake episode reads) and
+`lease` (roadmap step 10.3: `Warden.start`'s own body, leasing the Cell once the Guard's
+`lease_creation` point allows it; `trail_ship` is the trail-shipping helper `alarms` and
+`results` share).
 Every function here is one of `Warden`'s own delegates (not general-purpose: they read and write
 its private state directly, the same way `hivemind.workers.runtime.attempt.AttemptManager` does
 for `WorkerRuntime`).
@@ -28,8 +31,9 @@ See Also:
 
 Public API (roadmap step 3.19):
     - alarms, assign, control, heartbeat, questions, results: the six tick-handler modules.
+    - lease: `Warden.start`'s own body, behind the `lease_creation` point (roadmap step 10.3).
 """
 
-from hivemind.wardens.ticks import alarms, assign, control, heartbeat, questions, results
+from hivemind.wardens.ticks import alarms, assign, control, heartbeat, lease, questions, results
 
-__all__ = ["alarms", "assign", "control", "heartbeat", "questions", "results"]
+__all__ = ["alarms", "assign", "control", "heartbeat", "lease", "questions", "results"]

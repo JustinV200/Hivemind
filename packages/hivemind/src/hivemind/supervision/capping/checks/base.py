@@ -80,6 +80,14 @@ class CheckResultRecord(BaseModel):
         default=False,
         description="True only for a JUDGE check whose reviewer could not produce a verdict.",
     )
+    # Roadmap step 10.3: set only by the ALLOWLIST checks, only when they failed because the
+    # proposing bee's set lacks one capability (never for an unreachable path), so the Worker's
+    # own `hivemind.workers.tools.proposals.cap` can record that refusal as a `guard.denied` row.
+    denied_capability: str | None = Field(
+        default=None,
+        description="The capability string the proposer's set lacked, when that alone failed "
+        "an ALLOWLIST check; None for every other outcome.",
+    )
 
 
 class Check(Protocol):

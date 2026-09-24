@@ -9,7 +9,10 @@ calls. `HiveStores` groups the three stores every Hive shares one SQLite file fo
 5.1: "introduce a frozen dataclass for the argument group"), built by `build_hive` only once its
 own `Fanner` and `ProviderRegistry` already exist -- `build_hive_stand_source` and `build_fanner`
 take `manifest`/`trail`/`clock` directly instead, since `build_hive` calls each of them earlier,
-before a `HiveParts` naming their own return values could exist.
+before a `HiveParts` naming their own return values could exist. Roadmap step 10.3: `build_enforcer`
+builds the one Guard `Enforcer` (over `[guard]`'s policy) that the Queen and the Hive Stand's Warden
+share, carried on `HiveParts.enforcer`; the Warden's lease needs `cell:hive_stand`, because this
+module is the one place that knows it built the Hive Stand's own source.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -67,7 +70,7 @@ from hivemind.cli.stores import (
     slot_bindings,
 )
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
-from hivemind.guard import GuardPolicy, load_guard_policy
+from hivemind.guard import Capability, CapabilityFamily, Enforcer, GuardPolicy, load_guard_policy
 from hivemind.llm import (
     CallGate,
     CompositeLlmEventRecorder,
@@ -101,9 +104,15 @@ from hivemind.workers.roles import Drone
 from waggle.clock import Clock
 from waggle.messages.task import WorkerRole
 
+# Roadmap step 10.3: what the Hive Stand's own Warden's lease needs of its set (the lease_creation
+# point); set here because this module built the Hive Stand's source, never read off a Cell's kind.
+HIVE_STAND_LEASE = Capability(family=CapabilityFamily.CELL_HIVE_STAND)
+
 __all__ = [
+    "HIVE_STAND_LEASE",
     "HiveParts",
     "HiveStores",
+    "build_enforcer",
     "build_fanner",
     "build_hive_stand_source",
     "build_ledger",
@@ -147,6 +156,8 @@ class HiveParts:
         fanner: The Fanner every `CallGate` this Hive hands out is a lane of.
         stores: This Hive's trail, chamber, memory and leavings stores.
         clock: Injected time source shared by every collaborator this composes.
+        enforcer: The Guard's one Enforcer (`build_enforcer`, roadmap step 10.3), shared by the
+            Queen and the Hive Stand's Warden so both decide against the same policy.
     """
 
     manifest: HiveManifest
@@ -154,6 +165,7 @@ class HiveParts:
     fanner: Fanner
     stores: HiveStores
     clock: Clock
+    enforcer: Enforcer
 
 
 def open_default_stores(manifest: HiveManifest) -> HiveStores:
@@ -289,8 +301,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
 
     Args:
         parts: This Hive's shared collaborators.
-        source: The Hive Stand's own RealCellSource (`build_hive_stand_source`); the Warden leases
-            and releases through it, never provisions (CLAUDE.md).
+        source: The Hive Stand's own RealCellSource: leased and released, never provisioned.
         links: Both ends of the Queen<->Warden link (`hivemind.cli.compose.links.build_hive_
             links`); `links.warden_transport`/`.warden_hop` are this Warden's own end.
 
@@ -299,9 +310,6 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     """
     manifest = parts.manifest
     supervision = manifest.supervision
-    identity = MemoryIdentity(
-        hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system"
-    )
     # Roadmap step 4.10: a model-backed JudgeReviewer, merged into the deterministic check
     # registry so CheckKind.JUDGE is available wherever a tier's own `judge` flag turns it on.
     judge_rubrics = load_judge_rubrics()
@@ -312,7 +320,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         hop=links.warden_hop,
         memory=parts.stores.memory,
         trail=parts.stores.trail,
-        identity=identity,
+        identity=_system_identity(manifest),
         clock=parts.clock,
         policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
         tiers=load_tiers(_supervision_file(manifest, supervision.capping_tiers_file)),
@@ -332,8 +340,27 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         # Roadmap step 5.0e: resolved the same way build_queen_deps resolves scratch_root.
         keep_root=_keep_root(manifest),
         disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
-        guard=_guard_policy(manifest),  # Roadmap step 10.2: every set this Warden builds.
+        guard=parts.enforcer.policy,  # Roadmap step 10.2: every set this Warden builds.
+        # Roadmap step 10.3: the Guard's adapter, its lease's need, the slot_binding slot table.
+        enforcer=parts.enforcer,
+        lease_capability=HIVE_STAND_LEASE,
+        bindings=slot_bindings(manifest),
     )
+
+
+def build_enforcer(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) -> Enforcer:
+    """Build the Hive's one Guard Enforcer over `[guard]`'s policy (roadmap step 10.3).
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[guard]` is read.
+        trail: Where every refusal's `guard.denied` row lands.
+        clock: Mints each refusal's id and timestamp.
+
+    Returns:
+        An Enforcer recording as `actor="system"`, like every identity this module builds.
+    """
+    identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
+    return Enforcer(_guard_policy(manifest), trail, clock, identity)
 
 
 def _guard_policy(manifest: HiveManifest) -> GuardPolicy:
@@ -408,6 +435,7 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         identity=_system_identity(manifest),
         clock=parts.clock,
         policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
+        enforcer=parts.enforcer,  # Roadmap step 10.3: every enforcement point the Queen passes.
         bound_for=parts.registry.bound,
         rebind=parts.registry.bound_for_key,
         bindings=slot_bindings(manifest),

@@ -486,7 +486,7 @@ class ClusterPair:
     cell: Cell
 
 
-def build_cluster_pair(
+async def build_cluster_pair(
     clock: SystemClock,
     plan: dict[str, object],
     worker_factory: Callable[[WorkerRole], Worker],
@@ -530,7 +530,7 @@ def build_cluster_pair(
     )
     link = WardenLink(warden_id=warden_id, cell=cell, transport=queen_transport, hop=queen_hop)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)  # Roadmap step 10.3: the awaited warden_spawn Guard check.
     warden = Warden(warden_id, warden_deps)
     return ClusterPair(deps=deps, queen=queen, warden=warden, provider=provider, cell=cell)
 

@@ -119,7 +119,7 @@ def test_constraint_lines_reports_a_capability_denial() -> None:
     capability_denial = _record(
         "http_request",
         is_error=True,
-        result_text="no net capability covers 'example.com'; the request was never sent.",
+        result_text="refused by the Guard (guard.not_held): net:example.com. Nothing was done.",
         method="GET",
         url="https://example.com",
     )
@@ -127,7 +127,7 @@ def test_constraint_lines_reports_a_capability_denial() -> None:
     lines = constraint_lines([capability_denial])
 
     assert len(lines) == 1
-    assert "no net capability covers" in lines[0]
+    assert "refused by the Guard" in lines[0]
 
 
 def test_constraint_lines_ignores_a_failure_that_named_no_limit_at_all() -> None:

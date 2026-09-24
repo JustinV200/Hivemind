@@ -6,7 +6,10 @@ REAL Cell (so `Warden.start()` has something to lease), an unsigned `waggle.tran
 MemoryTransport` pair for the Queen link, `hivemind.memory.InMemoryMemoryStore`,
 `hivemind.pheromone.trail.memory.MemoryPheromoneTrail`, a `FakeClock` shared by every collaborator,
 `supervision/defaults/default-policy.toml`, `capping-tiers.toml` and the Guard's shipped
-`guard/defaults/policy.toml` loaded for real (the same tables production loads), a
+`guard/defaults/policy.toml` loaded for real (the same tables production loads) with a
+`hivemind.guard.Enforcer` over it (roadmap step 10.3; built last, so an overridden `guard`, `trail`
+or `clock` is the one it uses), the Hive Stand's own `cell:hive_stand` as the lease capability,
+two `[llm.slots]` rows (`worker`, falling back to `worker_fallback`) for a rebind to resolve, a
 `worker_factory` returning a `builders.workers.ScriptedWorker` (so a test's own Worker never
 depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate` (no metering), and a
 `hivemind.llm.BoundModel` on `ModelSlot.WARDEN` over a scriptable `FakeLLMProvider`. `QueenEnd`
@@ -41,6 +44,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import cast
 
 from builders.capping import RepeatingJudgeReviewer
 from builders.cells import make_cell
@@ -49,10 +53,12 @@ from builders.workers import ScriptedWorker, make_outcome, yield_then
 from hivemind.cell import Cell, CellKind
 from hivemind.cell.fake import FakeCellSource
 from hivemind.cell.source import CellIdentity
+from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
-from hivemind.guard import load_guard_policy
+from hivemind.guard import Capability, CapabilityFamily, Enforcer, GuardPolicy, load_guard_policy
 from hivemind.llm import BoundModel, DirectCallGate, FakeLLMProvider
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
+from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.supervision import load_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_judge_rubrics
@@ -102,7 +108,6 @@ def make_warden_deps(
     """
     active_clock = clock if clock is not None else FakeClock()
     trail = MemoryPheromoneTrail(active_clock)
-    memory = InMemoryMemoryStore(trail)
     hive_id, node_id = new_hive_id(active_clock), new_node_id(active_clock)
     warden_id = _resolve_warden_id(overrides, active_clock)
     identity, cell_identity = _build_identities(hive_id, node_id)
@@ -116,7 +121,7 @@ def make_warden_deps(
             source=source,
             queen_link=warden_transport,
             hop=hop,
-            memory=memory,
+            memory=InMemoryMemoryStore(trail),
             trail=trail,
             identity=identity,
             clock=active_clock,
@@ -125,7 +130,36 @@ def make_warden_deps(
         )
     )
     fields.update(overrides)
+    # Roadmap step 10.3: built last, over the policy, trail and clock the test ended up with.
+    fields.setdefault("enforcer", _build_enforcer(fields, cell_identity))
     return WardenDeps(**fields), queen_end, warden_id  # type: ignore[arg-type]
+
+
+def _build_enforcer(fields: dict[str, object], identity: CellIdentity) -> Enforcer:
+    """Build an Enforcer over the fields' own Guard policy, trail and clock."""
+    policy = cast(GuardPolicy, fields["guard"])
+    trail = cast(PheromoneTrail, fields["trail"])
+    return Enforcer(policy, trail, cast(Clock, fields["clock"]), identity)
+
+
+def _default_bindings() -> tuple[SlotBinding, ...]:
+    """Build two `[llm.slots]` rows: `worker`, whose fallback chain names `worker_fallback`."""
+    return (
+        SlotBinding(
+            key="worker",
+            provider="fake",
+            model="test-model",
+            fallback="worker_fallback",
+            effort=Effort.MEDIUM,
+        ),
+        SlotBinding(
+            key="worker_fallback",
+            provider="fake",
+            model="test-model-strong",
+            fallback=None,
+            effort=Effort.MEDIUM,
+        ),
+    )
 
 
 def _resolve_warden_id(overrides: dict[str, object], active_clock: Clock) -> WardenId:
@@ -229,6 +263,10 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "judge_rubrics": judge_rubrics,
         # Roadmap step 10.2: the shipped Guard policy, the same one production loads by default.
         "guard": load_guard_policy(),
+        # Roadmap step 10.3: the Hive Stand Warden's own lease capability, and the slot table a
+        # rebind's target key resolves against (the Enforcer itself is built after overrides).
+        "lease_capability": Capability(family=CapabilityFamily.CELL_HIVE_STAND),
+        "bindings": _default_bindings(),
     }
 
 

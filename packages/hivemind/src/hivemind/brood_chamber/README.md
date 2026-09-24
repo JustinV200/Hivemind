@@ -25,7 +25,12 @@ Task` without knowing the split.
   record), plus `TaskDraft`/`TaskGraphDraft`, the JSON graph file a human hands to
   `hive tasks submit`. Both `TaskSpec` and `TaskDraft` carry `leaves`, a bounded tuple of
   `waggle.messages.PlannedLeaving` declared by the plan (roadmap step 5.0b), empty by default;
-  `chamber/submission.py` copies a draft's `leaves` onto its minted `TaskSpec` unchanged.
+  `chamber/submission.py` copies a draft's `leaves` onto its minted `TaskSpec` unchanged. Roadmap
+  step 10.3 adds `capabilities` to both (`task/goal_set.py`'s `GoalCapabilities`): the goal's
+  capability set as sorted, unique capability strings, bounded like Waggle 1.6's
+  `task.assign.capabilities`; `None` (the default) means the operator's own local path, with no
+  ceiling, and `()` a goal allowed nothing. It is part of the task's JSON body, so both stores
+  round-trip it with no migration.
 - `task/graph.py` -- pure functions over a task graph: `is_acyclic_edges` (generic, used by
   `TaskGraphDraft`'s own validator), `is_acyclic`, `ready_tasks`, `descendants`. No I/O.
 

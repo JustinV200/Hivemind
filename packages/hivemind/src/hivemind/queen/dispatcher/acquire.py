@@ -12,13 +12,21 @@ dormant Cell excluded (`ReuseDormant`, `docs/adr/0029`: "a Cell that fails to re
 destroyed and placement falls through to a fresh provision"), and a second failure propagates
 uncaught.
 
+Roadmap step 10.3 (ADR-0031): provisioning or resuming a Virtual Cell activates its Comb Shield
+tier's egress policy for the task, so before any `acquire` call -- the first or the retry -- the
+Queen, acting for the goal, passes the `comb_shield_egress` enforcement point: the task's goal
+set, when it carries one, must hold `cell:comb_shield:<tier>` for the tier the Cell will carry.
+Placement already excludes a tier the goal lacks, so this refuses only a path that reached here
+some other way; a refusal is `guard.denied` on the trail and a `PlacementError` to the dispatcher.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready._dispatch_one`. Calls into
-    `hivemind.brood_chamber` (Task), `hivemind.hive` (CellProvisionError), `hivemind.queen.deps`
-    (QueenDeps, WardenLink), `hivemind.queen.dispatcher.snapshot` (build_forage_view,
-    build_inventory), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
-    ReuseDormant, ReuseReal, VirtualBackendCandidate, decide) and waggle only.
+    `hivemind.brood_chamber` (Task), `hivemind.guard` (EnforcementPoint), `hivemind.hive`
+    (CellProvisionError), `hivemind.queen.authority`, `hivemind.queen.deps` (QueenDeps,
+    WardenLink), `hivemind.queen.dispatcher.snapshot` (build_forage_view, build_inventory),
+    `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual, ReuseDormant,
+    ReuseReal, VirtualBackendCandidate, decide, rules) and waggle only.
 
 Key invariants:
     - `resolve_link` retries at most once: the retry path never calls itself recursively, so a
@@ -26,6 +34,7 @@ Key invariants:
     - The retry path never mutates `deps.virtual_backends`/`.dormant_cells` in place: it builds a
       fresh `Inventory` through `build_inventory`'s own keyword arguments, so a failed provision
       for one task never leaks into the next task's own placement decision.
+    - No `VirtualCellProvider.acquire` call happens before the `comb_shield_egress` check passes.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Consequences this module's
@@ -41,7 +50,9 @@ import dataclasses
 from collections.abc import Sequence
 
 from hivemind.brood_chamber import Task
+from hivemind.guard import EnforcementPoint
 from hivemind.hive import CellProvisionError
+from hivemind.queen.authority import goal_held, request_for, task_context
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.snapshot import (
     build_forage_view,
@@ -56,6 +67,7 @@ from hivemind.queen.placement import (
     ReuseReal,
     VirtualBackendCandidate,
     decide,
+    rules,
 )
 from waggle.ids import WardenId
 
@@ -83,6 +95,8 @@ async def resolve_link(
             Placement and `deps.virtual_provider` is unset.
         hivemind.hive.CellProvisionError: The Virtual acquire failed twice in a row (once at the
             original placement, once at the retry with headroom zeroed / the dormant Cell excluded).
+        PlacementError: The `comb_shield_egress` point refused the Cell's tier for this task's
+            goal; `guard.denied` is already on the trail.
     """
     if isinstance(placement, ReuseReal):
         link = _attached(wardens, placement.warden_id)
@@ -96,6 +110,7 @@ async def resolve_link(
             "decide() chose a Virtual Cell but no VirtualCellProvider is configured on QueenDeps "
             "(roadmap step 5.6 wires one); a Virtual placement cannot be acquired without it."
         )
+    await _authorize_egress(deps, task, placement)
     try:
         link = await deps.virtual_provider.acquire(placement, task)
     except CellProvisionError as exc:
@@ -142,8 +157,37 @@ async def _retry_once(
         # Unreachable in practice: reaching this branch means the first attempt already called
         # a provider (the only way `placement` could have been a Virtual Placement at all).
         raise PlacementError("internal: no VirtualCellProvider left to retry an acquire with.")
+    await _authorize_egress(deps, task, retry)
     link = await deps.virtual_provider.acquire(retry, task)  # A second failure propagates.
     return link, retry
+
+
+async def _authorize_egress(
+    deps: QueenDeps, task: Task, placement: ProvisionVirtual | ReuseDormant
+) -> None:
+    """Pass the `comb_shield_egress` point for the tier the Virtual Cell will carry, or refuse.
+
+    A fresh provision carries its spec's own tier; a dormant Cell was matched on the task's own
+    requested tier (`hivemind.queen.placement.decide._matching_dormant`), so that is its tier.
+
+    Raises:
+        PlacementError: The goal's set does not hold `cell:comb_shield:<tier>`; the Enforcer has
+            already recorded `guard.denied`.
+    """
+    goal = goal_held(task)
+    if goal is None:
+        return  # The operator's own local path: no ceiling to check the tier against.
+    tier = (
+        placement.spec.comb_shield
+        if isinstance(placement, ProvisionVirtual)
+        else task.spec.needs.comb_shield
+    )
+    request = request_for(
+        deps, EnforcementPoint.COMB_SHIELD_EGRESS, rules.tier_capability(tier), goal
+    )
+    decision = await deps.enforcer.check(request.model_copy(update={"context": task_context(task)}))
+    if not decision.allowed:
+        raise PlacementError(f"Task {task.id} may not activate {tier.name}: {decision.reason}")
 
 
 def _retry_reason(

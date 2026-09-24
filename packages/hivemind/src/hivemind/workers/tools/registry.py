@@ -1,23 +1,25 @@
 """Define ToolInvocation, ToolSpec and ToolRegistry: how a Drone's tools are offered and run.
 
-`hivemind.workers.roles.drone.Drone` builds one `ToolRegistry` per attempt from `build_registry`
-and hands its `definitions()` to `hivemind.llm.run_tool_loop` as the tools a model may call; the
-ladder validates a call's schema itself before ever invoking a `ToolExecutor`, but this registry
-validates again on `execute` (codingrules section 15: "Tool calls proposed by a model are validated
-against the tool's schema and the Worker's capabilities before execution" -- true whichever caller
-reaches `ToolRegistry.execute` directly, not only through the ladder). `ToolInvocation` is the one
-bundle every `ToolRunner` receives: a Worker's tools need the current `TaskAssign` (for its task
-id, tempo and clearance, when they build a Capping `Proposal`) as well as `WorkerContext`, and
-codingrules section 8.7's "never a provider, a subprocess handle" pattern for `WorkerContext`
-itself argues against stashing one task's assignment onto that shared value, so it travels
-alongside instead.
+`hivemind.workers.roles.drone.Drone` builds one `ToolRegistry` per attempt from `build_registry` and
+hands its `definitions()` to `hivemind.llm.run_tool_loop` as the tools a model may call; the ladder
+validates a call's schema itself before ever invoking a `ToolExecutor`, but this registry validates
+again on `execute` (codingrules section 15: "Tool calls proposed by a model are validated against
+the tool's schema and the Worker's capabilities before execution" -- true whichever caller reaches
+`ToolRegistry.execute` directly, not only through the ladder). Roadmap step 10.3 (ADR-0031):
+`execute` is the `tool_invocation` enforcement point -- the Worker must hold `tool:<name>` before a
+tool runs, checked through the Guard's `Enforcer`, and a refusal comes back to the model as a clear
+line (and onto the trail as `guard.denied`), never an exception. `ToolInvocation` is the one bundle
+every `ToolRunner` receives: a Worker's tools need the current `TaskAssign` (for its task id, tempo
+and clearance, when they build a Capping `Proposal`) as well as `WorkerContext`, and codingrules
+section 8.7's "never a provider, a subprocess handle" pattern for `WorkerContext` itself argues
+against stashing one task's assignment onto that shared value, so it travels alongside instead.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Built and read by
     `hivemind.workers.roles.drone.Drone`; the six `ToolSpec`s it registers live in
     `hivemind.workers.tools.session`, `.http`, `.ask` and `.keep` (roadmap step 5.0e). Calls into
-    `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.errors`
-    and waggle only.
+    `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.
+    authorize`, `hivemind.workers.tools.errors` and waggle only.
 
 Key invariants:
     - `ToolRegistry.execute` never raises for an unknown tool or an invalid argument: both become
@@ -25,9 +27,11 @@ Key invariants:
       purpose becomes its message the same way; every other exception -- a control exception such
       as `hivemind.workers.roles.drone.HandoffRequestedError` or
       `hivemind.workers.errors.WorkerCancelledError` included -- propagates unchanged.
-    - `build_registry` offers `http_request` only when `ctx.capabilities` holds at least one `net`
-      capability; offering a tool with nothing it could ever be allowed to do would only invite a
-      model to try it and be refused every time.
+    - No tool runs unless the Worker holds `tool:<name>`: `execute` asks the Guard first, and a
+      refusal is its readable text plus a `guard.denied` row.
+    - `build_registry` offers every built-in tool, `http_request` included, whatever the Worker
+      holds (roadmap step 10.3): a capability decides at invocation, where a refusal is visible
+      on the trail, rather than by silently leaving a tool out of the offer.
 
 See Also:
     - .claude/codingrules.md section 15 for "LLM output is untrusted input" and least privilege.
@@ -43,9 +47,10 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from hivemind.guard import CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
 from hivemind.llm import JsonObject, ToolCall, ToolDefinition, validate_arguments
 from hivemind.workers.context import WorkerContext
+from hivemind.workers.tools.authorize import authorize, refusal_text
 from hivemind.workers.tools.errors import ToolError
 from waggle.messages.task import TaskAssign
 
@@ -146,7 +151,8 @@ class ToolRegistry:
 
         Returns:
             The tool's result text on success; a readable error string for an unknown tool, a
-            schema violation, or a `ToolError` the runner raised.
+            refusal at the `tool_invocation` point, a schema violation, or a `ToolError` the
+            runner raised.
 
         Raises:
             hivemind.workers.roles.drone.HandoffRequestedError: The runner asked to hand off;
@@ -159,6 +165,11 @@ class ToolRegistry:
             # Untrusted model output naming a tool that was never offered: a readable string, not
             # a raise (codingrules section 15).
             return f"no tool named {call.name!r} is offered."
+        # Roadmap step 10.3: the tool itself must be held before anything about the call is read.
+        needed = Capability(family=CapabilityFamily.TOOL, scope=call.name)
+        decision = await authorize(invocation, EnforcementPoint.TOOL_INVOCATION, needed)
+        if not decision.allowed:
+            return refusal_text(decision)
         errors = validate_arguments(spec.definition.parameters, call.arguments)
         if errors:
             return "; ".join(errors)
@@ -174,12 +185,12 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
     """Build the ToolRegistry one Drone attempt offers, from what `ctx.capabilities` allows.
 
     Args:
-        ctx: This attempt's WorkerContext; only `capabilities` decides which tools are offered.
+        ctx: This attempt's WorkerContext; accepted so a later role-specific registry can narrow
+            its offer, though every built-in tool is offered today (module docstring).
 
     Returns:
-        A ToolRegistry with `run_command`, `read_file`, `write_file`, `ask` and `keep` always,
-        plus `http_request` only when `ctx.capabilities` holds at least one `net` capability --
-        there is nothing else a network tool could ever be allowed to do for this Worker.
+        A ToolRegistry with `run_command`, `read_file`, `write_file`, `ask`, `keep` and
+        `http_request`; each call is authorised when it is made (`ToolRegistry.execute`).
     """
     # Imported here, not at module level: session/http/ask/keep each import ToolInvocation/
     # ToolSpec from this module, so importing them back at module scope would cycle.
@@ -188,13 +199,7 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
     from hivemind.workers.tools.keep import KEEP_SPEC
     from hivemind.workers.tools.session import READ_FILE_SPEC, RUN_COMMAND_SPEC, WRITE_FILE_SPEC
 
-    specs: list[ToolSpec] = [
-        RUN_COMMAND_SPEC,
-        READ_FILE_SPEC,
-        WRITE_FILE_SPEC,
-        ASK_SPEC,
-        KEEP_SPEC,
-    ]
-    if any(capability.family is CapabilityFamily.NET for capability in ctx.capabilities):
-        specs.append(HTTP_SPEC)
-    return ToolRegistry(specs)
+    del ctx  # Every built-in tool is offered; a capability decides at invocation (module docs).
+    return ToolRegistry(
+        [RUN_COMMAND_SPEC, READ_FILE_SPEC, WRITE_FILE_SPEC, ASK_SPEC, KEEP_SPEC, HTTP_SPEC]
+    )

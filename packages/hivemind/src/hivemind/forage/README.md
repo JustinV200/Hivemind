@@ -22,6 +22,13 @@ slot without pulling in the provider machinery.
   mirrors `waggle.messages.forage.Effort` and is the per-binding "how hard to think" value a
   grant caps.
 
+## Roadmap step 10.3
+
+`map.slot_for_binding(key, bindings)` resolves an `[llm.slots]` key to the `ModelSlot` it serves:
+a slot's own key is that slot, and a named binding (such as `local_worker`) is the first slot, in
+`ModelSlot` order, whose fallback chain reaches it; None when no chain does. The Warden's
+`slot_binding` point checks `llm:<slot>` for the slot a binding key resolves to.
+
 ## Public API (roadmap step 3.12)
 
 Eleven frozen pydantic models, one per Forage concept in codingrules section 6.1's table, split

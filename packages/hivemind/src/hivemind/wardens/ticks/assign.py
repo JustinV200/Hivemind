@@ -7,20 +7,24 @@ rule, plus the Hive Stand Warden's own retry: when this Warden currently holds n
 (`WardenState.WATCH` from a refused `start()`), it retries the lease exactly once before giving up
 and escalating `AlarmKind.CELL_UNREACHABLE` to the Queen, per this Warden's own `start()` docstring.
 `handle_grant` is the mirror image for the other arrival order: record the grant, then spawn
-whatever assignment was waiting for exactly this `grant_id`.
+whatever assignment was waiting for exactly this `grant_id`. Roadmap step 10.3: a sub-bee's first
+binding passes the Guard's `slot_binding` point inside `spawn_sub_bee`; a refused one frees the
+pool slot it took and reports the task FAILED to the Queen with the Guard's reason.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. These are `hivemind.wardens.warden.Warden`'s own delegates (not general-purpose
     functions: they read and write its private state directly, the same way `hivemind.workers.
     runtime.attempt.AttemptManager` does for `WorkerRuntime`), called from its tick's own dispatch.
-    Calls into `hivemind.wardens.spawn` (WardenCellContext, spawn_sub_bee) and waggle only.
+    Calls into `hivemind.wardens.errors` (BindingRefusedError), `hivemind.wardens.spawn`
+    (WardenCellContext, spawn_sub_bee), `hivemind.wardens.ticks.alarms` and waggle only.
 
 Key invariants:
     - `handle_assign` never spawns twice for the same `task_id`: once a matching grant lets it
       through, the assignment is removed from `warden._pending` in the same call that spawns it.
     - A local-pool refusal parks the assignment exactly like a missing grant does; both are the
       same "not yet, try again later" outcome, never an error.
+    - A refused binding never holds a pool slot: it is released before the task is reported.
 
 See Also:
     - .claude/roadmap.md step 3.19's own dispatch map for "TaskAssign ... else park... local_pool
@@ -34,9 +38,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.pheromone import WardenEvent
+from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
-from hivemind.wardens.ticks.alarms import send_alarm_to_queen
+from hivemind.wardens.ticks.alarms import report_refused, send_alarm_to_queen
 from waggle.ids import new_event_id
 from waggle.messages.forage import GrantIssued
 from waggle.messages.supervision import AlarmKind
@@ -73,7 +78,13 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
         lease=warden._lease,
         session=warden._session,
     )
-    sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+    try:
+        sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+    except BindingRefusedError as refused:
+        # The Guard refused the first binding (already guard.denied): free the slot, tell the Queen.
+        warden._sub_bee_slots.release()
+        await report_refused(warden, assignment, refused.reason)
+        return
     warden._sub_bees[sub_bee.worker_id] = sub_bee
     warden._sub_bee_iters[sub_bee.worker_id] = sub_bee.link.receive()
 

@@ -25,7 +25,9 @@ from hivemind.guard.policy.evaluate import (
     DENY_LIST_RULE,
     HELD_RULE,
     NOT_HELD_RULE,
+    SCOPE_RULE,
     evaluate,
+    refusal,
 )
 from hivemind.guard.policy.models import (
     OPERATOR_ID,
@@ -232,3 +234,16 @@ def test_an_allow_always_means_held_undenied_and_admitted(
     if decision.allowed:
         assert request.held.allows(request.needed)
         assert not policy.deny.allows(request.needed)
+
+
+def test_refusal_names_the_scope_rule_and_the_points_escalation() -> None:
+    # Roadmap step 10.3: a point's own out-of-reach refusal; held, yet refused all the same.
+    policy = load_guard_policy(None, GuardSection(escalation={"tool_invocation": "alarm"}))
+    request = _request("tool:read_file", "tool:*")
+
+    decision = refusal(request, policy, "binding_key", "no [llm.slots] row serves 'x'")
+
+    assert decision.allowed is False
+    assert decision.rule == f"{SCOPE_RULE}.binding_key"
+    assert decision.reason.endswith("no [llm.slots] row serves 'x'.")
+    assert decision.escalation is EscalationAction.ALARM

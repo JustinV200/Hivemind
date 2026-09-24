@@ -10,8 +10,11 @@ records the prior bytes on the lease (`LeaseView.note_restore_path`) and marks t
 `release()` can replay (codingrules section 8.7, roadmap step 3.17's note about the operator's
 restore-path sentence). For a COMMAND action it runs the argv through the session and reports the
 exit code; a non-zero exit is an apply failure the gate rolls back with nothing to undo (no file
-was touched). ACTION_SEQUENCE never reaches this module: `checks.deterministic.SchemaCheck`
-rejects it during CHECKING, before the gate ever applies anything.
+was touched). An ACTION_SEQUENCE reaches this module only as a network step on the NETWORK_EGRESS
+tier (roadmap step 10.3: the HTTP tool's one shape, which `checks.deterministic.SchemaCheck` passes
+there alone): applying it is the authorisation itself, a success that touches nothing, after which
+the tool makes its one request; any other ACTION_SEQUENCE is rejected by SchemaCheck during
+CHECKING, before the gate ever applies anything.
 
 Roadmap step 5.0e: a COPY action (the `keep` tool) is applied by `_apply_copy`, the same leave-
 decision shape as `_apply_diff`'s own outside-scratch branch, plus two things a diff never needs:
@@ -181,9 +184,10 @@ async def apply_action(
         What was written or run, and whether it succeeded.
 
     Raises:
-        CappingError: `proposal.action.kind` is ACTION_SEQUENCE, which SchemaCheck should already
-            have rejected before the gate ever calls this function -- reaching here means that
-            check was bypassed, a bug in the caller, not a normal apply failure.
+        CappingError: `proposal.action.kind` is ACTION_SEQUENCE on any tier but NETWORK_EGRESS,
+            which SchemaCheck should already have rejected before the gate ever calls this
+            function -- reaching here means that check was bypassed, a bug in the caller, not a
+            normal apply failure.
     """
     extras = extras if extras is not None else ApplyExtras()
     if proposal.action.kind is ActionKind.DIFF:
@@ -192,6 +196,9 @@ async def apply_action(
         return await _apply_command(session, lease, proposal, extras)
     if proposal.action.kind is ActionKind.COPY:
         return await _apply_copy(session, lease, proposal, scratch_root, extras)
+    if proposal.risk_tier is RiskTier.NETWORK_EGRESS:
+        # Roadmap step 10.3: a network step's apply is its authorisation; the tool sends it.
+        return ApplyResult(succeeded=True, touched=())
     raise CappingError(
         f"apply_action cannot apply an {proposal.action.kind.value} action (unsupported in v0); "
         "SchemaCheck should have rejected this proposal before it reached CAPPED."

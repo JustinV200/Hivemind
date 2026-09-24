@@ -30,19 +30,23 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
-from builders.queen import make_queen_deps, plan_responder
+from builders.queen import make_queen_deps, plan_responder, with_guard_policy
 from builders.supervision import make_telemetry
 
 from hivemind.brood_chamber import Answer, AnswerSource, TaskStatus
 from hivemind.cell import HoneyClearance
+from hivemind.guard import load_guard_policy
 from hivemind.llm import FakeLLMProvider
+from hivemind.manifest import GuardRoleSection, GuardSection
 from hivemind.memory import MemoryContext, Note, add_note
+from hivemind.pheromone import TrailQuery
 from hivemind.queen import answer_note_author, sync_answers_from_chamber
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.clock import Clock
 from waggle.ids import MessageId, TaskId, WardenId, new_event_id, new_message_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
+from waggle.messages.supervision import AnswerSource as WireAnswerSource
 from waggle.messages.supervision import Heartbeat, Question, WardenState
 
 
@@ -121,7 +125,7 @@ async def test_question_blocks_the_task_and_surfaces_in_the_human_inbox() -> Non
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -150,11 +154,40 @@ async def test_question_blocks_the_task_and_surfaces_in_the_human_inbox() -> Non
     await warden_end.close()
 
 
+async def test_a_question_from_a_warden_without_question_human_is_refused_back_down() -> None:
+    """Roadmap step 10.3's question_routing point, the Queen's half: never blocks the task."""
+    section = GuardSection(roles={"warden": GuardRoleSection(allow=("cell:real:*", "llm:*"))})
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    base, link, warden_end = make_queen_deps(fake_provider=provider)
+    deps = with_guard_policy(base, load_guard_policy(None, section))
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    question = _question(deps.clock, task_id=goal_id, warden_id=link.warden_id)
+    await warden_end.send(question)
+    answer = await warden_end.wait_for_answer()
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+    assert answer.question_id == question.question_id
+    assert answer.source is WireAnswerSource.QUEEN
+    assert "not routed to the human" in answer.text
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+    assert await queen.human_inbox.pending_questions(deps.chamber) == ()
+    [denial] = await deps.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["point"] == "question_routing"
+    assert denial.subject_id == link.warden_id
+    await warden_end.close()
+
+
 async def test_answer_question_resumes_the_task_and_forwards_the_answer_to_its_warden() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -238,7 +271,7 @@ async def test_sync_answers_from_chamber_forwards_a_note_a_separate_process_left
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -280,7 +313,7 @@ async def test_sync_answers_from_chamber_is_a_no_op_while_the_task_is_still_bloc
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -317,7 +350,7 @@ async def test_sync_answers_from_chamber_retries_when_the_note_has_not_landed_ye
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -365,7 +398,7 @@ async def test_the_queens_own_tick_forwards_an_answer_interleaved_with_the_two_w
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())

@@ -1,24 +1,36 @@
-"""Define detach_warden: remove one attached Warden's own bookkeeping from a Queen.
+"""Define attach_warden and detach_warden: admit one Warden to a Queen, and remove it again.
 
-`hivemind.queen.queen.Queen.attach_warden` records an already-built `WardenLink`; this is its own
-mirror, roadmap step 5.6's own new edge -- `hivemind.queen.cell_gate.CellListener` calls it once a
-Virtual Cell's accepted connection ends, so a dead link is never drained again on the next tick. A
-free function taking `queen: Queen` rather than a new method on `Queen` itself (unlike
-`attach_warden`): `hivemind.queen.queen`'s own file is already at codingrules 5.1's 300-line file
-cap, and this function's real body -- reaping the Warden's in-flight receive task, not just
-popping four dicts -- is too much to inline there without pushing it over; `queen.py`'s own
+`attach_warden` is `hivemind.queen.queen.Queen.attach_warden`'s own body (roadmap step 10.3): the
+`warden_spawn` enforcement point (ADR-0031). The Queen never creates Wardens or Cells herself
+(CLAUDE.md), but every Warden she supervises joins her tree only here, so this is where she
+checks that her own set holds `warden:spawn` through the Guard's `Enforcer` (a refusal is a
+`guard.denied` on the trail and a `WardenSpawnRefusedError` to the caller, and nothing is
+attached), records the declared `warden.spawned` event, and starts draining the link on her next
+tick. `detach_warden` is its mirror, roadmap step 5.6's own new edge --
+`hivemind.queen.cell_gate.CellListener` calls it once a Virtual Cell's accepted connection ends,
+so a dead link is never drained again on the next tick. Both are free functions taking `queen:
+Queen` rather than method bodies on `Queen` itself: `hivemind.queen.queen`'s own file sits at
+codingrules 5.1's 300-line file cap, and neither body (a Guard check and a trail row; reaping the
+Warden's in-flight receive task) fits there without pushing it over; `queen.py`'s own
 `_stop_queen`/`_send_intervene` already live as module-level delegates for the same class-size
-reason, this is one file further out for the same file-size reason. `CellListener` (and any test)
-calls `hivemind.queen.attach.detach_warden(queen, warden_id)` directly.
+reason, these are one file further out for the same file-size reason. `CellListener` (and any
+test) calls `hivemind.queen.attach.detach_warden(queen, warden_id)` directly; `Queen.attach_warden`
+is a one-line delegator to `attach_warden`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
-    by `hivemind.queen.cell_gate.CellListener` on every accepted connection's own close. Calls
-    into `hivemind.common.tasks` (reap) only; reaches into `Queen`'s own private attributes
-    directly, the same cross-file access `hivemind.wardens.ticks.control` already takes on
-    `Warden`'s private state for the identical reason (module docstring there).
+    by `hivemind.queen.queen.Queen.attach_warden` (attach) and `hivemind.queen.cell_gate.
+    CellListener` on every accepted connection's own close (detach). Calls into
+    `hivemind.common.tasks` (reap), `hivemind.guard` (EnforcementPoint), `hivemind.pheromone`
+    (WardenEvent), `hivemind.queen.authority`, `.errors` and `.ticks.liveness` only; reaches into
+    `Queen`'s own private attributes directly, the same cross-file access
+    `hivemind.wardens.ticks.control` already takes on `Warden`'s private state for the identical
+    reason (module docstring there).
 
 Key invariants:
+    - `attach_warden` attaches nothing when the Queen's set refuses `warden:spawn`: the refusal is
+      on the trail before `WardenSpawnRefusedError` leaves, and `warden.spawned` is recorded only
+      for a Warden actually attached.
     - Never raises for a `warden_id` that is not currently attached: a caller may detach
       defensively (e.g. a connection that never finished the readiness handshake).
     - A receive task still in flight for the detached Warden is always reaped, never left
@@ -34,12 +46,51 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.common.tasks import reap
-from waggle.ids import WardenId
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
+from hivemind.pheromone import WardenEvent
+from hivemind.queen.authority import queen_held, request_for
+from hivemind.queen.errors import WardenSpawnRefusedError
+from hivemind.queen.ticks.liveness import WardenLiveness
+from waggle.ids import WardenId, new_event_id
 
 if TYPE_CHECKING:
+    from hivemind.queen.deps import WardenLink
     from hivemind.queen.queen import Queen
 
-__all__ = ["detach_warden"]
+# The one capability admitting a Warden to the Queen's tree needs (ADR-0031's warden:spawn flag).
+_WARDEN_SPAWN = Capability(family=CapabilityFamily.WARDEN_SPAWN)
+
+__all__ = ["attach_warden", "detach_warden"]
+
+
+async def attach_warden(queen: Queen, link: WardenLink) -> None:
+    """Admit one already-built Warden link to `queen`, once her set holds `warden:spawn`.
+
+    Args:
+        queen: The Queen to attach `link` to.
+        link: The Warden's own address, Cell and Waggle link.
+
+    Raises:
+        WardenSpawnRefusedError: The Queen's set does not hold `warden:spawn` (or the deny list
+            covers it); `guard.denied` is already recorded and nothing was attached.
+    """
+    deps = queen._deps
+    request = request_for(deps, EnforcementPoint.WARDEN_SPAWN, _WARDEN_SPAWN, queen_held(deps))
+    # The Cell the Warden supervises is where the action lands: its tier and access level are the
+    # context a floor (roadmap step 10.3a) will read.
+    context = request.context.model_copy(
+        update={"comb_shield": link.cell.comb_shield, "access_level": link.cell.access_level}
+    )
+    decision = await deps.enforcer.check(request.model_copy(update={"context": context}))
+    if not decision.allowed:
+        raise WardenSpawnRefusedError(link.warden_id, decision.reason)
+    # Bookkeeping first, then the trail row: the event records a Warden that is really attached.
+    queen._wardens[link.warden_id] = link
+    queen._link_iters[link.warden_id] = link.transport.receive()
+    queen._liveness[link.warden_id] = WardenLiveness(
+        last_heartbeat_at=None, missed_heartbeats=0, is_offline=False
+    )
+    await _record_spawned(queen, link)
 
 
 async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
@@ -57,3 +108,19 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
     receive_task = queen._receive_tasks.pop(warden_id, None)
     if receive_task is not None:
         await reap(receive_task)
+
+
+async def _record_spawned(queen: Queen, link: WardenLink) -> None:
+    """Record the declared `warden.spawned` event for a Warden just admitted to the Queen's tree."""
+    deps = queen._deps
+    event = WardenEvent(
+        id=new_event_id(deps.clock),
+        hive_id=deps.identity.hive_id,
+        node_id=deps.identity.node_id,
+        at=deps.clock.now(),
+        actor=deps.identity.actor,
+        kind="warden.spawned",
+        subject_id=link.warden_id,
+        payload={"cell_id": link.cell.id},
+    )
+    await deps.trail.record(event)

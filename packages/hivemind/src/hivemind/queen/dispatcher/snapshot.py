@@ -15,8 +15,9 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
     acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory` (WaxSeverity,
-    WaxState), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.placement`
-    (Inventory, ForageView, RealCandidate, VirtualBackendCandidate, WaxMention) and waggle only.
+    WaxState), `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps,
+    WardenLink), `hivemind.queen.placement` (Inventory, ForageView, RealCandidate,
+    VirtualBackendCandidate, WaxMention) and waggle only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
@@ -44,6 +45,7 @@ from hivemind.forage import RoleFootprint
 from hivemind.hive import VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import WaxSeverity, WaxState
+from hivemind.queen.authority import goal_held
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage.night_veil import night_veil_local_only
 from hivemind.queen.placement import (
@@ -121,6 +123,8 @@ def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
     `task.cell_id` already names a Cell with a written `HostingPlan` -- true only when `decide` is
     re-run for a task still nominally tied to one (a retry, or a re-dispatch after Clustering),
     never on a fresh NIGHT_VEIL provision's first decide() call, which has no Cell yet to check.
+    `goal_capabilities` (roadmap step 10.3) is the task's goal set, parsed: the ceiling every
+    candidate must be allowed by, or None for the operator's own local path.
 
     Args:
         deps: The Queen's collaborators; `deps.footprints[WorkerRole.DRONE]` is the only Worker
@@ -135,6 +139,7 @@ def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
         footprint=deps.footprints[WorkerRole.DRONE],
         request_origin=task.spec.origin,
         night_veil_hosting=_night_veil_hosting(deps, task),
+        goal_capabilities=goal_held(task),
     )
 
 
@@ -211,6 +216,8 @@ def _real_candidate(link: WardenLink, footprint: RoleFootprint) -> RealCandidate
         comb_shield=cell.comb_shield,
         is_hive_stand=cell.source == "hive_stand",
         has_free_capacity=_has_free_capacity(cell, footprint),
+        # Copied for placement, the one caller allowed to branch on it (codingrules 8.7).
+        kind=cell.kind,
     )
 
 

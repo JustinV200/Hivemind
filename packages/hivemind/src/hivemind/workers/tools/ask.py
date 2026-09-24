@@ -6,13 +6,16 @@ the same thing to the model). `ask` builds a `waggle.messages.supervision.Questi
 fresh so it survives re-wrapping at every hop, its `task_id` and `clearance` taken from the current
 assignment -- and awaits `ctx.asker.ask(question)`, which blocks the calling coroutine (and so the
 whole tool loop) until a matching `Answer` arrives. There is no Proposal here: asking a question has
-no side effect the Capping gate needs to check.
+no side effect the Capping gate needs to check. Roadmap step 10.3 (ADR-0031): asking is the
+`question_routing` enforcement point at its source -- the Worker must hold `question:human`,
+checked through the Guard's `Enforcer`, or the tool answers with the refusal (the Warden checks the
+same capability again before forwarding, for a Question a tool did not raise).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
-    `hivemind.workers.tools.registry.build_registry`. Calls into `hivemind.llm`,
+    `hivemind.workers.tools.registry.build_registry`. Calls into `hivemind.guard`, `hivemind.llm`,
     `hivemind.supervision.capping.checks` (LEAVE_QUESTION_OPTIONS), `hivemind.workers.tools.
-    registry` and waggle only.
+    authorize`, `hivemind.workers.tools.registry` and waggle only.
 
 Key invariants:
     - A model can never raise a Question carrying the Capping gate's own leave options (roadmap
@@ -32,13 +35,16 @@ See Also:
 
 from __future__ import annotations
 
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping.checks import LEAVE_QUESTION_OPTIONS
+from hivemind.workers.tools.authorize import authorize, refusal_text
 from hivemind.workers.tools.registry import ToolInvocation, ToolSpec
 from waggle.ids import new_message_id
 from waggle.messages.supervision import Question
 
 MAX_OPTIONS_ACCEPTED = 16  # Matches waggle.messages.supervision.questions.MAX_OPTIONS.
+_QUESTION_HUMAN = Capability(family=CapabilityFamily.QUESTION_HUMAN)  # Routing up to the human.
 
 ASK_DEFINITION = ToolDefinition(
     name="ask",
@@ -65,8 +71,8 @@ async def ask(invocation: ToolInvocation, arguments: JsonObject) -> str:
         arguments: `text` (required) and `options` (optional, a list of choices).
 
     Returns:
-        A readable string for a malformed `text`; otherwise the Answer's text, with the chosen
-        option's own wording appended when the Answer names one.
+        A readable string for a malformed `text` or a refused `question:human`; otherwise the
+        Answer's text, with the chosen option's own wording appended when the Answer names one.
     """
     text = arguments.get("text")
     if not isinstance(text, str) or not text:
@@ -79,6 +85,9 @@ async def ask(invocation: ToolInvocation, arguments: JsonObject) -> str:
         # must never be able to word that Question itself, or one misleading ask would approve
         # leavings the human was never shown.
         return "those options are reserved for the Capping gate; ask with different options."
+    decision = await authorize(invocation, EnforcementPoint.QUESTION_ROUTING, _QUESTION_HUMAN)
+    if not decision.allowed:
+        return refusal_text(decision)
     question = Question(
         question_id=new_message_id(ctx.clock),
         task_id=invocation.assignment.task_id,

@@ -43,7 +43,12 @@ Public API:
     - EnforcementPoint, PrincipalKind, PrincipalRef, PolicyContext, PolicyRequest,
       EscalationAction, PolicyDecision, GuardPolicy, load_guard_policy, evaluate, role_set,
       warden_set, proposed_set, worker_role_name: the policy engine (policy).
-    - Enforcer: the effectful adapter every enforcement point calls (enforcer).
+    - queen_principal, warden_principal, worker_principal, QUEEN_ROLE, WARDEN_ROLE: who each bee
+      acts as at a point, and the two roots' role names (policy).
+    - AUTHORISED_AT, NOT_ACTIONS, PENDING_POINTS, classify: every trail kind's classification
+      and the points still pending (policy, roadmap step 10.3).
+    - Enforcer: the effectful adapter every enforcement point calls: `check` and, for a refusal
+      the point decides itself, `refuse` (enforcer).
     - GuardError, InvalidCapabilityError, CapabilityWideningError, GuardPolicyError: this
       package's error tree (errors).
 """
@@ -66,6 +71,11 @@ from hivemind.guard.errors import (
     InvalidCapabilityError,
 )
 from hivemind.guard.policy import (
+    AUTHORISED_AT,
+    NOT_ACTIONS,
+    PENDING_POINTS,
+    QUEEN_ROLE,
+    WARDEN_ROLE,
     EnforcementPoint,
     EscalationAction,
     GuardPolicy,
@@ -74,17 +84,26 @@ from hivemind.guard.policy import (
     PolicyRequest,
     PrincipalKind,
     PrincipalRef,
+    classify,
     evaluate,
     load_guard_policy,
     proposed_set,
+    queen_principal,
     role_set,
+    warden_principal,
     warden_set,
+    worker_principal,
     worker_role_name,
 )
 
 __all__ = [
+    "AUTHORISED_AT",
     "CELL_EFFECT_FAMILIES",
+    "NOT_ACTIONS",
+    "PENDING_POINTS",
+    "QUEEN_ROLE",
     "SCRATCH_PLACEHOLDER",
+    "WARDEN_ROLE",
     "Capability",
     "CapabilityFamily",
     "CapabilitySet",
@@ -105,12 +124,16 @@ __all__ = [
     "admits",
     "cap_to_access",
     "ceiling_for",
+    "classify",
     "evaluate",
     "fill_scratch",
     "governs",
     "load_guard_policy",
     "proposed_set",
+    "queen_principal",
     "role_set",
+    "warden_principal",
     "warden_set",
+    "worker_principal",
     "worker_role_name",
 ]

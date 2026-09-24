@@ -176,7 +176,8 @@ class PolicyDecision(BaseModel):
         min_length=1,
         max_length=_MAX_RULE_CHARS,
         description="The stable id of the rule that decided: 'guard.held', 'guard.not_held', "
-        "'guard.deny_list', 'guard.access_level.<level>' or 'guard.tier_floor.<floor>'.",
+        "'guard.deny_list', 'guard.access_level.<level>', 'guard.tier_floor.<floor>' or, for "
+        "a refusal the point decided itself, 'guard.scope.<scope>'.",
     )
     reason: str = Field(
         min_length=1,

@@ -37,7 +37,8 @@ Fits into the Hive:
     by the composition root when `[virtual_cells] backend` is set; attaches Wardens onto whichever
     `Queen` it is given. Calls into `hivemind.cell` (CellCapabilities), `hivemind.forage`
     (ForageCapacity, HostCapacity), `hivemind.queen.attach` (detach_warden), `hivemind.queen.deps`
-    (WardenLink), `hivemind.queen.queen` (Queen), `hivemind.queen.cell_gate.gate`
+    (WardenLink), `hivemind.queen.errors` (WardenSpawnRefusedError), `hivemind.queen.queen`
+    (Queen), `hivemind.queen.cell_gate.gate`
     (QueenReadinessGate), `hivemind.queen.cell_gate.snapshot` (CellSnapshotHandler),
     `hivemind.queen.trail.sync` (TrailSegmentReceiver), waggle (codec, envelope, errors, ids,
     signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
@@ -49,7 +50,10 @@ Key invariants:
     - `QueenReadinessGate.resolve` is called exactly once per Cell, only once both `CellReady` and
       a first `CellHeartbeat` on the same connection have arrived (the Protocol's own contract).
     - Every accepted connection is either attached (a `WardenLink` handed to `Queen.attach_warden`)
-      or closed outright; none is left open and un-tracked.
+      or closed outright; none is left open and un-tracked. A Warden the Queen's own set refuses
+      to spawn (roadmap step 10.3, `WardenSpawnRefusedError`, already `guard.denied` on the trail)
+      is closed the same way and its Cell's gate is never resolved, so the provider's own ready
+      wait tears the Cell down.
     - `_handle_connection` always calls `hivemind.queen.attach.detach_warden` on its own way out
       once attached, whether the connection ended cleanly or the listener is stopping.
     - A `CellSnapshotRequest`/`CellRollbackRequest` is answered on the same connection it arrived
@@ -79,6 +83,7 @@ from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
+from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.queen import Queen
 from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
@@ -278,7 +283,13 @@ class CellListener:
             await transport.close()
             return  # Never became ready; nothing was attached, so nothing to detach either.
         assert self._queen is not None  # noqa: S101 - start() always runs before a connection.
-        fanout = self._attach(transport, binding)
+        try:
+            fanout = await self._attach(transport, binding)
+        except WardenSpawnRefusedError:
+            # The Queen's set refused this Warden (the refusal is already on the trail): it is
+            # never attached, so there is nothing to detach, only the connection to close.
+            await transport.close()
+            return
         try:
             # Ends normally once fanout's own pump notices the connection close (or a decode
             # failure); never raises on that path (_FanoutTransport.pump's own docstring), so the
@@ -290,12 +301,18 @@ class CellListener:
             await asyncio.gather(fanout.pump_task, return_exceptions=True)
             await detach_warden(self._queen, binding.warden_id)
 
-    def _attach(self, transport: WebSocketTransport, binding: _ReadyBinding) -> _FanoutTransport:
+    async def _attach(
+        self, transport: WebSocketTransport, binding: _ReadyBinding
+    ) -> _FanoutTransport:
         """Build the fan-out link for a ready Cell, attach it to the Queen, then resolve the gate.
 
         Attach before resolving the gate: a caller waking from QueenReadinessGate.wait_ready
         (hivemind.queen.cell_gate.provider, roadmap step 5.6) looks this Cell's own link up in
         `queen.wardens` next, so it must already be there the instant wait_ready returns.
+
+        Raises:
+            WardenSpawnRefusedError: The Queen's own set refused `warden:spawn` (roadmap step
+                10.3); the fan-out's pump is stopped and reaped before this propagates.
         """
         assert self._queen is not None  # noqa: S101 - _handle checked already.
         hop = Hop(
@@ -307,7 +324,13 @@ class CellListener:
         link = WardenLink(
             warden_id=binding.warden_id, cell=_cell_from_binding(binding), transport=fanout, hop=hop
         )
-        self._queen.attach_warden(link)
+        try:
+            await self._queen.attach_warden(link)
+        except WardenSpawnRefusedError:
+            # The pump started at construction; reap it here so no task outlives the refusal.
+            fanout.pump_task.cancel()
+            await asyncio.gather(fanout.pump_task, return_exceptions=True)
+            raise
         self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
         return fanout
 

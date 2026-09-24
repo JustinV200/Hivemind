@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.5`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.6`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.5"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.6"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.5"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 5` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.6"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 6` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -184,6 +184,19 @@ The protocol version travels on every envelope as `version = "<major>.<minor>"`.
   peer has advertised, a sender assumes minor 0 of the known major.
 - Kind strings, field names, enum member values and error codes are never renamed once they have
   been sent on the wire; a rename is a removal plus an addition, which is a major bump.
+
+Minor-version history of major 1 (each entry additive, so a peer at an older minor still
+validates every message a newer one sends it, as long as the sender honours the rule above):
+
+- **1.1**: `AlarmKind.QUOTA_EXCEEDED` (roadmap step 3.11).
+- **1.2**: `Intervene.binding`, the `[llm.slots]` key a Queen-sent REBIND names.
+- **1.3**: `TaskAssign.leaves` (roadmap step 5.0b, the plan declares what stays).
+- **1.4**: `ActionKind.COPY` and `ProposedAction.copy_sha256`/`copy_size` (roadmap step 5.0e).
+- **1.5**: the snapshot relay (`cell.snapshot_request`/`_reply`, `cell.rollback_request`/`_reply`)
+  and `InterventionAction.RELEASE_LEASE` (roadmap steps 5.10 and 5.13).
+- **1.6**: `TaskAssign.capabilities` and `TaskAssign.network_scopes` (roadmap step 10.3,
+  ADR-0031): a goal's capability set and a task's network needs reach the Warden that
+  attenuates its Worker's set to them.
 
 ## 5. Wire format and size limit
 
@@ -544,8 +557,9 @@ Family enums and value models:
 
 #### TaskAssign
 
-Hand a placed task, with its acceptance criteria, Tempo, clearance, grant and optional Handoff to
-resume from, to the Warden that owns the chosen Cell, which re-issues it to the Worker it spawns.
+Hand a placed task, with its acceptance criteria, Tempo, clearance, grant, its goal's capability
+set and network needs (`PROTOCOL_MINOR` 6) and optional Handoff to resume from, to the Warden
+that owns the chosen Cell, which re-issues it to the Worker it spawns.
 
 - `task_id` (`TaskId`): the task being assigned.
 - `goal_id` (`TaskId`): the root of the task graph this task belongs to; equals `task_id` for a
@@ -563,6 +577,17 @@ resume from, to the Warden that owns the chosen Cell, which re-issues it to the 
   on this Cell once the lease is released, carried unchanged from the plan. Max 16 items;
   defaults to empty, so an envelope from before this field existed still validates. A Drone
   cannot widen this set, only raise a `Question`.
+- `capabilities` (`tuple[str, ...] | None`, `PROTOCOL_MINOR` 6): the capability set of the goal
+  this task was planned from (ADR-0031), as sorted capability strings (`family` or
+  `family:scope`); the Warden gives the task's Worker only what its own set and this set both
+  allow. Max 64 entries of 1 to 1,024 characters each; opaque to the codec, parsed by the
+  receiving Warden's Guard. Defaults to None, which means no goal ceiling travels (the operator's
+  own local submission, or a peer older than minor 6); an empty tuple is a goal allowed nothing.
+- `network_scopes` (`tuple[str, ...]`, `PROTOCOL_MINOR` 6): the network scopes the task's needs
+  name (a host, `*.domain`, an address or a network), so the Warden can offer its Worker a
+  `net:<scope>` for each one its own set and the goal's allow. Max 32 entries of 1 to 256
+  characters each; defaults to empty, so an envelope from before this field existed still
+  validates.
 - `tempo` (`Tempo`): the task's latency budget and accuracy bar.
 - `clearance` (`HoneyClearance`): the highest label the task's bee may read, resume from or
   write.
@@ -2139,7 +2164,9 @@ Shared shapes:
     only; the seats, VRAM and measured speed follow in the `forage.capacity_report` a promotion
     always triggers, so no model-server value model crosses families.
 13. **`TaskNeedsReport` and `IsolationNeed` stay in `cell/status.py`** because `task.assign` carries no
-    needs in phase 1; a task inherits its tiers from the placed Cell.
+    needs in phase 1; a task inherits its tiers from the placed Cell. `PROTOCOL_MINOR` 6 adds only
+    `TaskAssign.network_scopes`, the one need a Warden acts on (it sizes the Worker's `net`
+    capabilities); the rest of a task's needs stay placement's business.
 14. **Shared bounds** live in `messages/base.py`: `MAX_REASON_CHARS`, `MAX_CHUNK_BYTES`,
     `MAX_PATH_CHARS`, `MAX_SLOT_CHARS` with the slot pattern, and the sha256 pattern. The
     designers' three names for the reason bound are unified as `MAX_REASON_CHARS`.
@@ -2173,8 +2200,9 @@ Registry and shapes:
 24. **Demotion rides `swarm.nuc_promote`** with `action = DEMOTE`; there is no separate kind.
 25. **Wax rejection is a `control.error`** with code `hive.memory.wax_rejected`; no
     `cell.wax_rejected` kind.
-26. **`TaskAssign` carries no capabilities field**; the Warden attenuates its own set locally in
-    phase 3, and a `capabilities` field is an additive minor later.
+26. **`TaskAssign` carried no capabilities field** until `PROTOCOL_MINOR` 6: the Warden attenuated
+    its own set locally in phase 3, and roadmap step 10.3 added `capabilities` (the goal's set)
+    as the additive minor this note anticipated.
 27. **`ForageRequestKind` keeps `SUB_BEES`**; the phase 4 exit criterion needs a Warden to ask
     for more sub-bees and be denied with a reason.
 28. **`CellHeartbeat` carries no capacity figures**; live capacity travels only in

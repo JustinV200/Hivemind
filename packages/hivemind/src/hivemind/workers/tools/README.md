@@ -13,23 +13,31 @@ roadmap step 5.0e adds a sixth, `keep`.
   it; an unknown tool or a schema violation returns readable text, never raises; a
   `hivemind.workers.tools.errors.ToolError` becomes its message; a control exception such as
   `HandoffRequestedError` or `WorkerCancelledError` propagates unchanged) and `build_registry`
-  (offers `run_command`/`read_file`/`write_file`/`ask`/`keep` always, `http_request` only when the
-  Worker holds a `net` capability).
+  (offers all six tools always: since roadmap step 10.3 a capability decides at invocation, so a
+  refusal is visible). `execute` checks `tool:<name>` through the Guard's `Enforcer`
+  (`tool_invocation`) before running a tool.
+- `authorize.py` (roadmap step 10.3) -- `authorize(invocation, point, needed)`: the one way a tool
+  asks the Guard, as the Worker itself, holding its own set, on its own Cell; a refusal is already
+  `guard.denied` on the trail. `refusal_text` renders it for the model, behind the fixed
+  `GUARD_REFUSAL_PREFIX` the Drone's outcome records read.
 - `session.py` -- `run_command` (a COMMAND proposal, `SCRATCH_WRITE` or `OUTSIDE_SCRATCH_WRITE`
-  depending on the resolved working directory), `read_file` (no proposal; requires an `fs:read`
-  capability outside scratch; truncates to `MAX_TOOL_RESULT_CHARS`) and `write_file` (a whole-file
+  depending on the resolved working directory), `read_file` (no proposal; outside scratch it
+  passes the `session_outside_scratch` point for `fs:read:<path>`; truncates to
+  `MAX_TOOL_RESULT_CHARS`) and `write_file` (a whole-file
   DIFF proposal with one `FILE_EXISTS` postcondition, at the same two tiers as `run_command`).
   Every side-effecting call goes through `hivemind.workers.tools.proposals.cap` first, inside
   scratch included: nothing lands uncapped, and the scratch-tier check ladder is cheap.
-- `http.py` -- `http_request`: checks a `net` capability for the URL's host, then proposes an
-  `ACTION_SEQUENCE` at `RiskTier.NETWORK_EGRESS`. `waggle.messages.capping.ActionKind` has no
-  network shape yet, so v0's `SchemaCheck` always rejects it; the tool reports that rejection and
-  the request is never actually sent. `httpx` is imported only inside the one branch a `VERIFIED`
-  outcome would reach (unreachable in v0), and nowhere else under `workers/`. A real network
-  `ActionKind` is a later waggle minor bump.
+- `http.py` -- `http_request`: checks `net:<host>` for the URL's host through the Guard
+  (`tool_invocation`; a refusal is on the trail), then proposes a one-step `ACTION_SEQUENCE`
+  (`"<METHOD> <url>"`) at `RiskTier.NETWORK_EGRESS`. Since roadmap step 10.3 the Capping gate
+  passes a well-formed network step on that tier (its ALLOWLIST rung checks `net:<host>` again;
+  its apply is the authorisation itself), and once the outcome is `VERIFIED` `_send` makes the one
+  request; a connection failure is a readable result, never an exception. `httpx` is imported
+  only inside `_send`, and nowhere else under `workers/`.
 - `ask.py` -- `ask`: raises a blocking `waggle.messages.supervision.Question` through
   `ctx.asker.ask` and returns its `Answer`'s text (plus the chosen option's own wording, when one
-  was offered) as the tool result. No proposal: asking has no side effect to check.
+  was offered) as the tool result. No proposal: asking has no side effect to check; since roadmap
+  step 10.3 it needs `question:human` (the `question_routing` point).
 - `keep.py` (roadmap step 5.0e) -- `keep(source, destination)`: moves a scratch file to a path
   outside it, an ordinary `outside_scratch_write` through the same gate, leave policy and Leavings
   ledger every other outside-scratch write goes through. `source` must resolve inside scratch
@@ -42,7 +50,10 @@ roadmap step 5.0e adds a sixth, `keep`.
   so `make_proposal` stays under codingrules 5.1's parameter limit), `make_proposal` (build a
   Proposal from one), `cap` (propose, then run, through `ctx.capping`; on a `ROLLED_BACK` outcome
   also notes `ROLLBACK_ALARM_KIND` (`POSTCONDITION_FAILED`) on `ctx.telemetry`, so the runtime
-  raises a real Alarm instead of the rollback only ever showing up as tool-result text) and
+  raises a real Alarm instead of the rollback only ever showing up as tool-result text; since
+  roadmap step 10.3 it takes the whole `ToolInvocation`, and an ALLOWLIST refusal that names a
+  missing capability is also recorded as the Guard's `guard.denied`, at `session_outside_scratch`
+  for an outside-scratch write and `tool_invocation` otherwise) and
   `describe` (render a `GateOutcome` as tool-result text: state, reason, every check and
   postcondition, and -- roadmap step 5.0e, only when the proposal touched a path outside scratch
   -- each such path's own leave verdict and whether it will actually remain; never the diff or

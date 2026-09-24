@@ -93,7 +93,9 @@ Vocabulary (family -> kind -> when it is recorded):
         reason); summary (a per-tier rollup of approved/rejected/rolled_back counts, the only
         capping.* record kept through a Night Veil teardown, codingrules section 12).
     llm: call (one model call completed; carries the normalised Usage, slot and provider);
-        rebound (a call was retried on the same binding after a transient failure); fallback (a
+        rebound (a sub-bee was rebound to another binding inside its grant, by its Warden's own
+        REBIND or a Queen-sent Intervene(REBIND), once the slot_binding point allowed it, roadmap
+        step 10.3; carries the task id, both binding keys and who ordered it); fallback (a
         call moved to the plan's next binding); spill (the Fanner spilled from a local binding to
         shared Forage, one of the three cases in codingrules 8.10); throttled (a hosted source
         was rate-limited and its headroom masked to zero on the Forage map, roadmap step 4.7a).

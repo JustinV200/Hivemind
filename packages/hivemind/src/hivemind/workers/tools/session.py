@@ -5,14 +5,16 @@ Every path a caller passes is relative to `ctx.session.scratch_dir` when it is r
 rule. `run_command` and `write_file` have a side effect, so both build a
 `waggle.messages.capping.ProposedAction` and go through `hivemind.workers.tools.proposals.cap`
 before anything runs or lands; `read_file` has none, so it goes straight to the session once a
-capability check (only for a path outside scratch -- scratch is always readable) passes.
+capability check (only for a path outside scratch -- scratch is always readable) passes; since
+roadmap step 10.3 that check is the Guard's `session_outside_scratch` enforcement point, through
+the Worker's `Enforcer`, so a refused read is a `guard.denied` row with its reason.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
     `hivemind.workers.tools.registry.build_registry`. Calls into `hivemind.cell`, `hivemind.guard`,
     `hivemind.llm` (ToolDefinition, JsonObject), `hivemind.supervision.capping` (RiskTier),
-    `hivemind.workers.tools.errors`, `hivemind.workers.tools.proposals`,
-    `hivemind.workers.tools.registry` and waggle only.
+    `hivemind.workers.tools.authorize`, `hivemind.workers.tools.errors`,
+    `hivemind.workers.tools.proposals`, `hivemind.workers.tools.registry` and waggle only.
 
 Key invariants:
     - `run_command` and `write_file` declare `RiskTier.SCRATCH_WRITE` when the resolved target is
@@ -44,10 +46,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import PathNotAllowedError
-from hivemind.guard import Capability, CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping import RiskTier
 from hivemind.workers.context import WorkerContext
+from hivemind.workers.tools.authorize import authorize, refusal_text
 from hivemind.workers.tools.errors import UnreachablePathError
 from hivemind.workers.tools.proposals import ProposalRequest, cap, describe, make_proposal
 from hivemind.workers.tools.registry import ToolInvocation, ToolSpec
@@ -156,7 +159,7 @@ async def run_command(invocation: ToolInvocation, arguments: JsonObject) -> str:
         tier=tier, action=action, postconditions=(), reason=f"Drone run_command {argv[0]!r}"
     )
     proposal = make_proposal(ctx, invocation.assignment, request)
-    return describe(await cap(ctx, proposal))
+    return describe(await cap(invocation, proposal))
 
 
 async def read_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
@@ -182,9 +185,11 @@ async def read_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
     ctx = invocation.ctx
     resolved = _resolve(ctx.session.scratch_dir, Path(path))
     if not _within_scratch(resolved, ctx.session.scratch_dir):
+        # Roadmap step 10.3: a read outside scratch is the session_outside_scratch point.
         needed = Capability(family=CapabilityFamily.FS_READ, scope=resolved.as_posix())
-        if not ctx.capabilities.allows(needed):
-            return f"no fs:read capability covers {resolved.as_posix()}."
+        decision = await authorize(invocation, EnforcementPoint.SESSION_OUTSIDE_SCRATCH, needed)
+        if not decision.allowed:
+            return refusal_text(decision)
     try:
         data = await ctx.session.get_file(Path(path))
     except FileNotFoundError:
@@ -236,7 +241,7 @@ async def write_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
         tier=tier, action=action, postconditions=postconditions, reason=f"Drone write_file {path}"
     )
     proposal = make_proposal(ctx, invocation.assignment, request)
-    return describe(await cap(ctx, proposal))
+    return describe(await cap(invocation, proposal))
 
 
 RUN_COMMAND_SPEC = ToolSpec(definition=RUN_COMMAND_DEFINITION, run=run_command)

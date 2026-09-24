@@ -48,7 +48,7 @@ def _heartbeat() -> Heartbeat:
 async def test_children_returns_one_child_ref_per_attached_warden() -> None:
     deps, link, warden_end = make_queen_deps(fake_provider=FakeLLMProvider())
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     children = await queen.children()
 
@@ -62,7 +62,7 @@ async def test_children_returns_one_child_ref_per_attached_warden() -> None:
 async def test_telemetry_and_inspect_read_the_last_reported_heartbeat() -> None:
     deps, link, warden_end = make_queen_deps(fake_provider=FakeLLMProvider())
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
 
     await warden_end.send(_heartbeat())
@@ -101,7 +101,7 @@ async def test_inspect_raises_for_a_warden_the_queen_never_attached() -> None:
 async def test_intervene_sends_the_intervention_to_the_named_wardens_own_link() -> None:
     deps, link, warden_end = make_queen_deps(fake_provider=FakeLLMProvider())
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     await queen.intervene(link.warden_id, Compact(reason="Its context is getting long."))
     intervene = await warden_end.wait_for_intervene()

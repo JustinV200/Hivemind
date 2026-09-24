@@ -8,14 +8,20 @@ other tool in `hivemind.workers.tools` that has a side effect (`write_file`, `ru
 `http_request`) builds its own `waggle.messages.capping.ProposedAction` and postconditions, then
 calls `make_proposal` and `cap` here rather than talking to `ctx.capping` directly, so the id
 minting, the Proposal's fixed fields (task id, Cell id, proposer, tempo, clearance, spend estimate)
-and the human-readable outcome text are written once.
+and the human-readable outcome text are written once. Roadmap step 10.3 (ADR-0031): the gate's
+ALLOWLIST rung is a capability check, so when it refuses because the Worker's set lacks one
+capability (`CheckResultRecord.denied_capability`), `cap` also records that refusal through the
+Guard's `Enforcer` as `guard.denied` -- at `session_outside_scratch` for an outside-scratch write,
+at `tool_invocation` for anything else (a command's `exec`, a network step's `net`) -- so every
+capability refusal a Worker meets is on the trail as a Guard decision, not only as `capping.*`.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Called by
-    `hivemind.workers.tools.session` and `hivemind.workers.tools.http`. Calls into `hivemind.cell`,
-    `hivemind.forage.tempo`, `hivemind.supervision.capping`, `hivemind.workers.context`,
-    `hivemind.workers.telemetry` (through `ctx.telemetry.note_alarm`, this dispatch's own fix 2)
-    and waggle only.
+    `hivemind.workers.tools.session`, `.keep` and `.http`. Calls into `hivemind.cell`,
+    `hivemind.forage.tempo`, `hivemind.guard`, `hivemind.supervision.capping`,
+    `hivemind.workers.context`, `hivemind.workers.telemetry` (through `ctx.telemetry.note_alarm`,
+    this dispatch's own fix 2), `hivemind.workers.tools.authorize`, `hivemind.workers.tools.
+    registry` (ToolInvocation) and waggle only.
 
 Key invariants:
     - `make_proposal` never reads `ctx.capabilities` or `ctx.lease`: those are checked by
@@ -31,6 +37,9 @@ Key invariants:
     - `cap` notes exactly one Alarm per ROLLED_BACK outcome, never more: a Proposal only ever
       reaches ROLLED_BACK once (`hivemind.supervision.capping.state`'s own transition table has no
       edge back out of it).
+    - `cap` records at most one `guard.denied` per proposal, and only for a REJECTED outcome whose
+      failing check named a missing capability: the Guard re-checks that capability against the
+      same set, so it is recorded only when the Guard agrees it is not held.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit `ProposalRequest` exists
@@ -47,9 +56,12 @@ from dataclasses import dataclass
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.tempo import Tempo
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint, InvalidCapabilityError
 from hivemind.supervision.capping import GateOutcome, Proposal, ProposalState, RiskTier
 from hivemind.supervision.capping.leave import LeaveDecisionRecord
 from hivemind.workers.context import WorkerContext
+from hivemind.workers.tools.authorize import authorize
+from hivemind.workers.tools.registry import ToolInvocation
 from waggle.ids import new_message_id
 from waggle.messages.capping import ProposedAction
 from waggle.messages.labels import Postcondition
@@ -61,6 +73,12 @@ MIN_SPEND_ESTIMATE_USD = 0.0  # v0: no built-in tool proposes a real spend (modu
 # hold after applying" (hivemind.supervision.alarm.AlarmKind's own docstring) is ROLLED_BACK's own
 # definition (hivemind.supervision.capping.gate's module docstring); no new AlarmKind is needed.
 ROLLBACK_ALARM_KIND = AlarmKind.POSTCONDITION_FAILED
+# Roadmap step 10.3: the families a path refusal names. An outside-scratch write refused on one of
+# them is the session_outside_scratch point; every other allowlist refusal (a command's `exec`, a
+# network step's `net`, a path inside scratch) is the tool's own call, tool_invocation.
+_PATH_FAMILIES = frozenset(
+    {CapabilityFamily.FS_READ, CapabilityFamily.FS_WRITE, CapabilityFamily.CELL_OUTSIDE_SCRATCH}
+)
 
 __all__ = ["ROLLBACK_ALARM_KIND", "ProposalRequest", "cap", "describe", "make_proposal"]
 
@@ -105,7 +123,7 @@ def make_proposal(ctx: WorkerContext, assignment: TaskAssign, request: ProposalR
     )
 
 
-async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
+async def cap(invocation: ToolInvocation, proposal: Proposal) -> GateOutcome:
     """Propose, then run, `proposal` through this attempt's Capping gate.
 
     A ROLLED_BACK outcome is also counted on `ctx.telemetry`, which queues an Alarm once this
@@ -116,22 +134,47 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     into a real `AlarmRaised` on its next tick).
 
     Args:
-        ctx: This attempt's WorkerContext: supplies the gate, the capabilities to check the
-            proposal against, the lease view for path reachability, the telemetry tracker a
-            rollback is noted on, and (roadmap step 5.0d) `ctx.asker`, the real transport-backed
-            asker `WorkerRuntime` has already substituted in by the time a tool call runs, so an
-            ASK-verdict leaving can raise its Question up the same Worker -> Warden -> Queen chain
-            `hivemind.workers.tools.ask.ask` uses.
+        invocation: This attempt's context and assignment. `ctx` supplies the gate, the
+            capabilities to check the proposal against, the lease view for path reachability, the
+            telemetry tracker a rollback is noted on, the Enforcer an allowlist refusal is recorded
+            through (roadmap step 10.3), and (roadmap step 5.0d) `ctx.asker`, the real
+            transport-backed asker `WorkerRuntime` has already substituted in by the time a tool
+            call runs, so an ASK-verdict leaving can raise its Question up the same Worker ->
+            Warden -> Queen chain `hivemind.workers.tools.ask.ask` uses.
         proposal: A freshly built Proposal, from `make_proposal`.
 
     Returns:
         The gate's terminal outcome: VERIFIED, REJECTED or ROLLED_BACK.
     """
+    ctx = invocation.ctx
     await ctx.capping.propose(proposal)
     outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease, ctx.asker)
     if outcome.state is ProposalState.ROLLED_BACK:
         ctx.telemetry.note_rollback(ROLLBACK_ALARM_KIND, outcome.reason)
+    if outcome.state is ProposalState.REJECTED:
+        await _record_refusal(invocation, proposal, outcome)
     return outcome
+
+
+async def _record_refusal(
+    invocation: ToolInvocation, proposal: Proposal, outcome: GateOutcome
+) -> None:
+    """Record the gate's capability refusal, if it was one, as the Guard's own `guard.denied`."""
+    denied = next((c.denied_capability for c in outcome.checks if c.denied_capability), None)
+    if denied is None:
+        return  # Refused for a reason no capability names (a schema, a size, a path's reach).
+    try:
+        needed = Capability.parse(denied)
+    except InvalidCapabilityError:
+        return  # The gate built this string from a Capability; this is unreachable defence.
+    # Leaving scratch is its own point; every other allowlist refusal is the tool's own call.
+    leaving = proposal.risk_tier is RiskTier.OUTSIDE_SCRATCH_WRITE
+    point = (
+        EnforcementPoint.SESSION_OUTSIDE_SCRATCH
+        if leaving and needed.family in _PATH_FAMILIES
+        else EnforcementPoint.TOOL_INVOCATION
+    )
+    await authorize(invocation, point, needed)
 
 
 def describe(outcome: GateOutcome) -> str:

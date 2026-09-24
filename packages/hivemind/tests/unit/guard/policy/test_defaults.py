@@ -114,6 +114,10 @@ def test_warden_default_is_the_adrs_list_plus_its_scratch_writes() -> None:
     warden = role_set(load_guard_policy(), "warden", _SCRATCH)
 
     assert set(warden.as_strings()) == {
+        # Roadmap step 10.3 (lease_creation): the lease each kind of Warden's Cell needs.
+        "cell:hive_stand",
+        "cell:virtual",
+        "cell:real:*",
         "tool:*",
         "tool:scope:*",
         "tool:request",

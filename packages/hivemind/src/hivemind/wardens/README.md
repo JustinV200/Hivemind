@@ -74,6 +74,25 @@ Warden never provisions Cells itself.
   rather than only relaying it to the sub-bee to checkpoint and stop.
 - `wardens.offline`, `wardens.watch`: placeholders; populated in phase 11.
 
+## Enforcement points (roadmap step 10.3)
+
+`WardenDeps` carries the Guard's `enforcer`, the `lease_capability` its composition root named
+(`cell:hive_stand` for the Hive Stand's Warden, `cell:virtual` in a Virtual Cell; never read off a
+Cell's kind) and the `[llm.slots]` rows (`bindings`) a binding key resolves against.
+
+- `lease_creation` (`ticks.lease.open_lease`, `Warden.start`'s delegate): the lease capability must
+  be allowed by the `warden` role; a refusal is `guard.denied` and WATCH, and nothing is leased.
+- `slot_binding` (`spawn.binding.authorize_binding`): every binding -- a sub-bee's first, the
+  Warden's own REBIND, and a Queen-sent `Intervene(REBIND)` (never checked before) -- must name a
+  slot the grant allows and the sub-bee's set holds as `llm:<slot>`; a named binding resolves to
+  the slot whose fallback chain names it. A refused spawn reports the task FAILED; a landed
+  rebind records `llm.rebound`.
+- `question_routing` (`ticks.questions`): a sub-bee's Question goes up only when its set holds
+  `question:human`; otherwise the Warden answers it back down with the Guard's reason.
+- A sub-bee's slice (`spawn.attenuate`) now reads the task's `network_scopes` (so a Worker can hold
+  `net` at all) and the goal's set off Waggle 1.6's `TaskAssign`, and keeps a candidate only where
+  the Warden's set and the goal's both allow it.
+
 ## How to test this
 
 Every module is tested against fakes: `hivemind.cell.fake.FakeCellSource`, `waggle.transport.

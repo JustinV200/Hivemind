@@ -126,6 +126,12 @@ allow = [
 # human-only or device-only.
 [roles.warden]
 allow = [
+    # Leasing the Cell it supervises (roadmap step 10.3, lease_creation): the composition root
+    # that builds a Warden names which of these its Cell's lease needs, so a policy that drops
+    # one keeps every Warden of that kind in WATCH.
+    "cell:hive_stand",
+    "cell:virtual",
+    "cell:real:*",
     # Its sub-bees' tools, and asking the Queen for one the Comb Registry lacks.
     "tool:*",
     "tool:scope:*",

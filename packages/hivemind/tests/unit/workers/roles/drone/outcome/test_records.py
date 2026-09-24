@@ -42,8 +42,10 @@ def test_classify_error_reads_a_pre_proposal_validation_string_as_failure() -> N
 
 def test_classify_error_reads_a_known_fixed_template_as_failure() -> None:
     assert classify_error("read_file", "no file at 'missing.txt'.") is True
-    assert classify_error("read_file", "no fs:read capability covers /etc/passwd.") is True
-    assert classify_error("http_request", "no net capability covers 'example.com'.") is True
+    refused = "refused by the Guard (guard.not_held): Worker w was refused it. Nothing was done."
+    assert classify_error("read_file", refused) is True
+    assert classify_error("ask", refused) is True
+    assert classify_error("http_request", refused) is True
     assert classify_error("ask", "no tool named 'ask' is offered.") is True
 
 

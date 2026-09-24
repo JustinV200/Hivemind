@@ -21,6 +21,8 @@ import asyncio
 from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_context, make_outcome, yield_then
 
+from hivemind.guard import CapabilitySet
+from hivemind.pheromone import TrailQuery
 from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.wardens.ticks.control import forward_control
@@ -37,6 +39,10 @@ from waggle.messages.supervision import Answer, AnswerSource, Question
 from waggle.messages.task import TaskCancel, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
 
+# Roadmap step 10.3: forwarding a question is the question_routing point, so a sub-bee built
+# here holds `question:human` unless a test says otherwise.
+_MAY_ASK = CapabilitySet.parse("question:human")
+
 
 def _control_item(clock: Clock, task_id: TaskId | None, payload_kind: str) -> InboxItem:
     """A minimal InboxItem wrapping a control payload, from the Queen link (module docstring)."""
@@ -52,7 +58,9 @@ def _control_item(clock: Clock, task_id: TaskId | None, payload_kind: str) -> In
     )
 
 
-async def _make_sub_bee(warden: Warden) -> tuple[SubBee, MemoryTransport]:
+async def _make_sub_bee(
+    warden: Warden, capabilities: CapabilitySet = _MAY_ASK
+) -> tuple[SubBee, MemoryTransport]:
     """Build a SubBee over a real MemoryTransport pair, with a real, never-run runtime behind it.
 
     The runtime is only ever inspected (never `run()`), since these tests drive `forward_control`/
@@ -87,6 +95,7 @@ async def _make_sub_bee(warden: Warden) -> tuple[SubBee, MemoryTransport]:
         link=warden_link,
         runtime=runtime,
         runtime_task=dummy_task,
+        capabilities=capabilities,
     )
     warden._sub_bees[sub_bee.worker_id] = sub_bee
     return sub_bee, other_end
@@ -181,6 +190,33 @@ async def test_forward_question_then_forward_answer_round_trip_by_question_id() 
     delivered = await anext(other_end.receive())
     assert delivered.payload == answer
     assert delivered.recipient == sub_bee.worker_id
+
+
+async def test_a_question_from_a_sub_bee_without_question_human_is_answered_back_down() -> None:
+    deps, queen_end, warden_id = make_warden_deps()
+    warden = Warden(warden_id, deps)
+    sub_bee, other_end = await _make_sub_bee(warden, CapabilitySet.parse("tool:*"))
+    question = Question(
+        question_id=new_message_id(deps.clock),
+        task_id=sub_bee.task_id,
+        asked_by=sub_bee.worker_id,
+        text="may I?",
+        options=(),
+        clearance=WireHoneyClearance.C1,
+        asked_at=deps.clock.now(),
+    )
+
+    await forward_question(warden, wrap(question, deps.hop, clock=deps.clock).id, question)
+
+    delivered = await anext(other_end.receive())
+    assert isinstance(delivered.payload, Answer)
+    assert delivered.payload.source is AnswerSource.WARDEN
+    assert "not routed to the human" in delivered.payload.text
+    assert queen_end.questions == []  # Nothing went up the chain.
+    assert question.question_id not in warden._questions
+    [denial] = await deps.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["point"] == "question_routing"
+    assert denial.subject_id == sub_bee.worker_id
 
 
 async def test_forward_answer_is_a_no_op_for_an_unknown_question_id() -> None:

@@ -8,13 +8,15 @@ registry itself for an unknown tool or a schema violation) reports a failure thr
 small, fixed set of literal templates. `classify_error` reads exactly those two vocabularies --
 never a model's own free-form text -- to decide whether one call's result was a failure, and
 `target_for` names the one path/command/url a call acted on, so a Handoff line can say what,
-not just that something happened.
+not just that something happened. Roadmap step 10.3: a capability refusal is now the Guard's own,
+rendered by `hivemind.workers.tools.authorize.refusal_text` behind its fixed
+`GUARD_REFUSAL_PREFIX`, the one capability-denial template left.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.drone.outcome`. Read by
     `hivemind.workers.roles.drone.outcome.executor` (to classify a call as it lands) and
     `hivemind.workers.roles.drone.outcome.fields` (to turn classified calls into Handoff lines).
-    Calls into `hivemind.llm` only.
+    Calls into `hivemind.llm` and `hivemind.workers.tools.authorize` (GUARD_REFUSAL_PREFIX) only.
 
 Key invariants:
     - `classify_error` never inspects `ask`'s own result text as an error signal: an Answer's
@@ -33,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivemind.llm import ToolCall
+from hivemind.workers.tools.authorize import GUARD_REFUSAL_PREFIX
 
 # Every tool that proposes a side effect through the Capping gate (hivemind.workers.tools.
 # proposals.cap): the only ones a Handoff's do_not_redo list ever names, since nothing else this
@@ -49,7 +52,7 @@ _CAPPED_VERIFIED_PREFIX = "state=VERIFIED"
 # Every non-capped tool's own built-in error text is one of these fixed templates
 # (hivemind.workers.tools.session/http/ask/registry); matched by exact prefix, never fuzzy prose
 # matching, since a model's own answer text (from `ask`) never starts with one of these.
-CAPABILITY_DENIAL_PREFIXES = ("no net capability covers ", "no fs:read capability covers ")
+CAPABILITY_DENIAL_PREFIXES = (GUARD_REFUSAL_PREFIX,)  # Roadmap step 10.3: the Guard's refusal.
 _KNOWN_ERROR_PREFIXES = (
     *CAPABILITY_DENIAL_PREFIXES,
     "no tool named ",

@@ -74,7 +74,7 @@ async def test_heartbeat_updates_the_queens_own_liveness_view() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
 
     await warden_end.send(_heartbeat())
@@ -102,7 +102,7 @@ async def test_a_heartbeat_past_the_handoff_threshold_orders_an_intervene() -> N
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
     full_telemetry = make_telemetry(tokens_used=7_500, context_window=8_192)  # ~92% full.
     heartbeat = Heartbeat(
@@ -176,7 +176,7 @@ async def test_heartbeat_renews_live_grants_for_that_warden() -> None:
     original_expiry = grant.expires_at
     clock.advance(120.0)  # Time passes before the heartbeat arrives.
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
 
     await warden_end.send(_heartbeat())

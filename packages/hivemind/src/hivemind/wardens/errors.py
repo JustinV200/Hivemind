@@ -7,14 +7,17 @@ edge it does not have (`InvalidWardenTransitionError`), a `Supervisor.telemetry`
 (`UnknownSubBeeError`), or its local pool (`hivemind.wardens.local_pool.sub_bee_slots.
 SubBeeSlots`, renamed from `LocalPool` in roadmap step 4.7) is asked to acquire a slot it has none
 of left (`LocalPoolExhaustedError`; the error class keeps its own name -- it names the failure, not
-the class that raises it). Every subsystem roots its own error tree at
+the class that raises it), or a sub-bee's model binding is refused at the Guard's `slot_binding`
+point (`BindingRefusedError`, roadmap step 10.3; the refusal is already `guard.denied` on the
+trail when this is raised). Every subsystem roots its own error tree at
 `hivemind.common.errors.HiveMindError` (codingrules section 10); this module is
 `hivemind.wardens`'s own root plus its specific subclasses.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Raised by
     `hivemind.wardens.state.assert_transition`, `hivemind.wardens.warden.Warden` (the `Supervisor`
-    methods) and `hivemind.wardens.local_pool.sub_bee_slots.SubBeeSlots.acquire`; caught by
+    methods), `hivemind.wardens.local_pool.sub_bee_slots.SubBeeSlots.acquire` and
+    `hivemind.wardens.spawn.spawn.spawn_sub_bee` (a refused binding); caught by
     whichever caller can recover (the Warden's own tick handlers convert a
     `LocalPoolExhaustedError` into "park the assignment" rather than letting it propagate). Calls
     into `hivemind.common.errors` only.
@@ -38,7 +41,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from hivemind.common.errors import ConflictError, HiveMindError, NotFoundError
+from hivemind.common.errors import (
+    ConflictError,
+    HiveMindError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 
 if TYPE_CHECKING:
     # Only for the type hints below: hivemind.wardens.state imports this module for
@@ -46,6 +54,7 @@ if TYPE_CHECKING:
     from hivemind.wardens.state import WardenState
 
 __all__ = [
+    "BindingRefusedError",
     "InvalidWardenTransitionError",
     "LocalPoolExhaustedError",
     "UnknownSubBeeError",
@@ -139,3 +148,27 @@ class LocalPoolExhaustedError(WardenError):
         """
         super().__init__(f"Local pool is at capacity ({capacity} sub-bees); no slot to acquire.")
         self.capacity = capacity
+
+
+class BindingRefusedError(PermissionDeniedError):
+    """Raise when a sub-bee may not be bound to a model binding (the `slot_binding` point).
+
+    Raised by `hivemind.wardens.spawn.spawn.spawn_sub_bee` before anything is started, after the
+    Guard's `Enforcer` has already recorded `guard.denied`; the Warden's own tick handler reports
+    the task FAILED to the Queen with `reason`, so a refused binding never leaves a task hanging.
+    """
+
+    code: ClassVar[str] = "hivemind.wardens.binding_refused"
+
+    def __init__(self, task_id: str, binding_key: str, reason: str) -> None:
+        """Build the error for a binding the Guard refused.
+
+        Args:
+            task_id: The task whose sub-bee was about to be bound.
+            binding_key: The `[llm.slots]` key it was about to be bound to.
+            reason: The Guard's own reason sentence, naming the rule that refused.
+        """
+        super().__init__(f"Task {task_id}'s sub-bee may not be bound to {binding_key!r}: {reason}")
+        self.task_id = task_id
+        self.binding_key = binding_key
+        self.reason = reason

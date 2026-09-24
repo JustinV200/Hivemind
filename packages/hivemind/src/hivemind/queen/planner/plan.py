@@ -94,7 +94,8 @@ class PlanBrief:
     unit to hand a planner: the text as the human stated it, the data-sensitivity ceiling every
     subtask inherits, the Cells placement will match the plan's needs against, who asked for the
     goal in the first place, the Hive Stand's own scratch root (roadmap step 5.0b) so a declared
-    leaving inside it is caught here, and (roadmap step 5.0e) its own keep root.
+    leaving inside it is caught here, (roadmap step 5.0e) its own keep root, and (roadmap step
+    10.3) the capability set the goal's submitter holds, which every planned subtask inherits.
     """
 
     goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
@@ -116,6 +117,11 @@ class PlanBrief:
     # the goal's own artefact belongs there, which then rides to the Drone unchanged on
     # `TaskAssign.leaves` (roadmap step 5.0b), exactly like any other declared leaving.
     keep_root: Path | None = None
+    # Roadmap step 10.3 (ADR-0031, "a goal carries a ceiling"): the submitter's capability set,
+    # copied onto every planned subtask the way `origin` is, never read off the model's reply (a
+    # planned task has no way to widen its own goal's set). None is the operator's own local
+    # path (`hive run`), which has no device ceiling.
+    capabilities: tuple[str, ...] | None = None
 
 
 async def plan_goal(
@@ -153,7 +159,7 @@ async def plan_goal(
     # the ladder itself retries and steps down rungs on a malformed reply.
     result = await complete_structured(bound, request, PlanSchema, gate=gate, options=options)
     try:
-        return _to_graph_draft(result.value, brief.clearance, brief.origin)
+        return _to_graph_draft(result.value, brief)
     except ValidationError as exc:
         raise PlannerError(f"The planned graph for {brief.goal[:80]!r} is invalid: {exc}") from exc
 
@@ -215,22 +221,20 @@ def describe_fleet(cells: Sequence[Cell]) -> str:
     return "\n".join(lines)
 
 
-def _to_graph_draft(
-    plan: PlanSchema, clearance: HoneyClearance, origin: RequestOrigin
-) -> TaskGraphDraft:
+def _to_graph_draft(plan: PlanSchema, brief: PlanBrief) -> TaskGraphDraft:
     """Convert every PlannedTask into a TaskDraft; TaskGraphDraft's own validators do the rest."""
-    drafts = tuple(_to_task_draft(task, clearance, origin) for task in plan.tasks)
+    drafts = tuple(_to_task_draft(task, brief) for task in plan.tasks)
     return TaskGraphDraft(tasks=drafts)
 
 
-def _to_task_draft(
-    task: PlannedTask, clearance: HoneyClearance, origin: RequestOrigin
-) -> TaskDraft:
+def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
     """Convert one PlannedTask, and every criterion it carries, into a TaskDraft.
 
     Every sub-task gets the same `origin` as the goal it was planned from (roadmap step 5.7a: "the
     planner's sub-tasks inherit the goal's origin"), never a value read off the model's own reply --
-    a planned task has no way to assert who originally asked for the goal.
+    a planned task has no way to assert who originally asked for the goal. The goal's capability
+    set (roadmap step 10.3) is inherited the same way, for the same reason, and its clearance is
+    the lower of the task's own and the goal's ceiling.
     """
     return TaskDraft(
         key=task.key,
@@ -238,10 +242,11 @@ def _to_task_draft(
         objective=task.objective,
         acceptance=tuple(_to_postcondition(item) for item in task.acceptance),
         needs=task.needs,
-        clearance=min(task.clearance, clearance, key=lambda label: label.rank),
-        origin=origin,
+        clearance=min(task.clearance, brief.clearance, key=lambda label: label.rank),
+        origin=brief.origin,
         depends_on=task.depends_on,
         leaves=task.leaves,
+        capabilities=brief.capabilities,
     )
 
 

@@ -14,7 +14,10 @@ dispatch calls into these; none of them is a general-purpose module on its own).
   called by `results` and `alarms`.
 - `alarms`: `RETRY`/`REBIND`/`ESCALATE`/`CANCEL_TASK` for an Alarm; `send_alarm_to_queen` for a
   Warden's own self-raised Alarm; `retire_sub_bee`, shared with `results`.
-- `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back.
+- `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
+  `lease_creation` point.
+- `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back; since
+  roadmap step 10.3 only when the sub-bee holds `question:human` (the `question_routing` point).
 - `control`: forward `TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` from the Queen unchanged.
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports, watch for a stall,
   and build the `HotStateSources` an awake episode reads -- including `wax(cells)` (roadmap step

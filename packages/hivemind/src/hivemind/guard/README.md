@@ -10,7 +10,7 @@ live in `cell/tiers.py`; the Guard interprets them.
 Everything here is pure except `enforcer.py`, the one effectful module: it records each refusal
 on the Pheromone Trail. The policy loader reads its TOML once, when a composition root builds it.
 
-## Public API (roadmap steps 10.1, 10.2 and the data half of 10.7)
+## Public API (roadmap steps 10.1, 10.2, 10.3 and the data half of 10.7)
 
 - **Capabilities** (`hivemind.guard.capabilities`, a package since 10.1): `CapabilityFamily`
   (every family in ADR-0031's table; phase 3's seven keep their values), `ScopeKind` (`FLAG`,
@@ -37,11 +37,16 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   `[guard]` applied on top; refuses an unknown role, point or action, or an entry that is not a
   capability, with `GuardPolicyError`), `EnforcementPoint` (every point ADR-0031 names; step 10.3
   wires them), the request and decision models (`PrincipalKind`, `PrincipalRef`,
-  `PolicyContext`, `PolicyRequest`, `EscalationAction`, `PolicyDecision`), the pure `evaluate`,
-  and `role_set`, `warden_set`, `proposed_set`, `worker_role_name`.
+  `PolicyContext`, `PolicyRequest`, `EscalationAction`, `PolicyDecision`), the pure `evaluate`
+  and `refusal` (a point's own out-of-reach refusal, rule `guard.scope.<scope>`), `role_set`,
+  `warden_set`, `proposed_set`, `worker_role_name`, `QUEEN_ROLE`/`WARDEN_ROLE`, and (step 10.3)
+  `queen_principal`, `warden_principal`, `worker_principal` and the classification catalogue
+  (`AUTHORISED_AT`, `NOT_ACTIONS`, `PENDING_POINTS`, `classify`).
 - **Enforcer** (`hivemind.guard.enforcer`): `Enforcer.check(request)` calls `evaluate` and, on a
   denial, records `guard.denied` (principal, point, capability, rule, reason, escalation; never
-  content) before returning the decision. It never raises on a denial.
+  content) before returning the decision. It never raises on a denial. `Enforcer.refuse(request,
+  scope, why)` records the same row for a refusal the point decided itself (a Warden asking to
+  grow a grant it does not hold; a binding key no `[llm.slots]` row serves).
 - **Errors** (`hivemind.guard.errors`): `GuardError` (root), `InvalidCapabilityError`,
   `CapabilityWideningError`, `GuardPolicyError`.
 
@@ -65,6 +70,34 @@ Only holding the capability turns a request into an allow. A Warden's own set is
 `warden_set(policy, access_level, scratch_root)`: the `warden` role default, narrowed to the
 lease's access level, less the deny list. A Worker's is its role default (`role_set`) plus what
 its task needs, kept only where its Warden's set allows (`hivemind.workers.capabilities`).
+
+## Enforcement points (roadmap step 10.3)
+
+Every state-changing action that exists today passes its point through an `Enforcer` before it
+happens. The composition roots build one: `hivemind.cli.compose.deps.build_enforcer` (the Queen
+and the Hive Stand's Warden share it, over `[guard]`'s policy) and `hivemind.cli.in_cell.deps`
+(a Virtual Cell's Warden, over the shipped policy, recording to that Cell's own trail segment).
+
+| Point | Principal | Needs | Where |
+| --- | --- | --- | --- |
+| `placement` | the Queen, for the goal | `cell:hive_stand`, `cell:real:<cell>`, `cell:virtual`, `cell:comb_shield:<tier>` | `queen.placement` rules; `queen.dispatcher.ready` records the refusal |
+| `lease_creation` | the Warden | its Cell's lease capability (`WardenDeps.lease_capability`) | `wardens.ticks.lease` |
+| `grant_issue` | the Queen | `llm:<slot>` per binding, in the Warden's set and the goal's | `queen.dispatcher.grants` |
+| `forage_request` | the Warden | `forage:request`, and holding the grant | `queen.ticks.forage` |
+| `warden_spawn` | the Queen | `warden:spawn` | `queen.attach` |
+| `tool_invocation` | the Worker | `tool:<name>`; `net:<host>` for `http_request`; a Capping `exec`/`net` refusal | `workers.tools.registry`, `.http`, `.proposals` |
+| `session_outside_scratch` | the Worker | `fs:read:<path>`; a write also `cell:outside_scratch:<path>` | `workers.tools.session`, `.proposals` |
+| `slot_binding` | the Warden, or the Queen for her `Intervene(REBIND)` | `llm:<slot>` in the grant and the sub-bee's set | `wardens.spawn.binding` |
+| `question_routing` | the Worker at the Warden, the Warden at the Queen | `question:human` | `workers.tools.ask`, `wardens.ticks.questions`, `queen.questions` |
+| `comb_shield_egress` | the Queen, for the goal | `cell:comb_shield:<tier>` | `queen.dispatcher.acquire` |
+
+A goal carries a ceiling: `TaskSpec.capabilities` (the submitter's set, `None` for the operator's
+own local path) travels on every task and on Waggle 1.6's `task.assign`, so placement, grant
+issue and the Warden's `worker_capabilities` all narrow to it. `policy/catalogue.py` classifies
+every trail kind as authorised at a point or as no action (with the reason), and names the
+points whose subsystem is not built (`PENDING_POINTS`); `tests/unit/guard/policy/test_catalogue.py`
+fails on an unclassified or doubly classified kind, and holds the call-site registry that must
+keep naming each built point.
 
 ## How to test this
 

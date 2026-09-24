@@ -65,11 +65,11 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from hivemind.cell import Cell, CellSession, LeaseRefusedError, LeaseRequest, RealCellLease
+from hivemind.cell import Cell, CellSession, RealCellLease
 from hivemind.cell import HoneyClearance as _HoneyClearance
 from hivemind.common.tasks import reap, reap_all, reaping
 from hivemind.forage import Ceilings, HostingPlan
-from hivemind.guard import CapabilitySet, warden_set
+from hivemind.guard import CapabilitySet
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import ChildKind, ChildRef, Intervention
@@ -82,7 +82,7 @@ from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.spawn import SubBee, stop_sub_bee
-from hivemind.wardens.state import WardenState, assert_transition
+from hivemind.wardens.state import WardenState
 from waggle.envelope import Envelope
 from waggle.errors import (
     CodecError,
@@ -184,35 +184,11 @@ class Warden(TickLoop):
         """Lease this Warden's Cell and open its own session, or move to WATCH if refused.
 
         The Hive Stand's Warden exists even when its lease is refused (codingrules section 8.8):
-        this method never raises for that case, only for a truly unrecoverable state.
+        this method never raises for that case, only for a truly unrecoverable state. Roadmap
+        step 10.3: the lease is refused, too, when the Guard's `lease_creation` point does not
+        allow this Warden's `lease_capability` (`hivemind.wardens.ticks.lease.open_lease`).
         """
-        cells = await self._deps.source.cells()
-        if not cells:
-            self._state = WardenState.WATCH
-            await _record_event(self, "warden.watch")
-            return
-        cell = cells[0]  # v0: one Warden, one Cell (the Hive Stand's own).
-        request = LeaseRequest(
-            cell_id=cell.id,
-            holder=self._warden_id,
-            task_id=None,
-            access_level=cell.access_level,
-            allowed_paths=(),
-        )
-        try:
-            lease = await self._deps.source.lease(request)
-        except LeaseRefusedError:
-            self._state = WardenState.WATCH
-            await _record_event(self, "warden.watch")
-            return
-        self._lease = lease
-        self._cell = cell
-        self._session = await self._deps.source.open_session(lease)
-        self._ceiling = warden_set(self._deps.guard, lease.access_level, lease.scratch_root)
-        assert_transition(self._state, WardenState.ACTIVE, warden_id=self._warden_id)
-        self._state = WardenState.ACTIVE
-        await _record_event(self, "warden.started")
-        await _record_event(self, "warden.active")
+        await ticks.lease.open_lease(self)
 
     async def stop(self) -> None:  # type: ignore[override]
         """End the loop first, then stop this Warden's heartbeats, every sub-bee and its lease.

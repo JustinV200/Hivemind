@@ -87,6 +87,12 @@ typer layer that calls into a subsystem's public API and never contains logic of
   sync_answers_from_chamber` and streaming trail events to `on_event` each poll. Split into
   `links.py` (the one Waggle link) and `deps.py` (every manifest-slice-to-deps conversion) to stay
   within codingrules section 5.1's 300-line budget; see its own `__init__.py` for the full split.
+  Roadmap step 10.3: `deps.build_enforcer` builds the one Guard `Enforcer` (over `[guard]`'s
+  policy) the Queen and the Hive Stand's Warden share (`HiveParts.enforcer`), the Warden's lease
+  needs `HIVE_STAND_LEASE` (`cell:hive_stand`), and `run_hive` attaches the Hive Stand's Warden to
+  the Queen first (her awaited `warden_spawn` point), so a freshly built `Hive.queen` has no Warden
+  attached yet. `in_cell/deps.py` does the same for a Virtual Cell's Warden: the shipped policy,
+  recording to the Cell's own trail, with `VIRTUAL_CELL_LEASE` (`cell:virtual`).
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
   [--json]`: the one command that calls `build_hive`/`run_hive`/`run_goal`. Streams trail events as
   they arrive (unless `--json`), then a one-line summary; exits 0 on success, 1 when the goal

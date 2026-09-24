@@ -71,7 +71,7 @@ from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.common.tasks import reap_all, reaping
 from hivemind.memory import TriggerEvent
 from hivemind.memory.thresholds import capped_compact_view
-from hivemind.queen import goal_submission, leave_memory, questions, ticks
+from hivemind.queen import attach, goal_submission, leave_memory, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide, effort_for
 from hivemind.queen.awake import QueenSources, decide_awake
 from hivemind.queen.cluster import awake_available
@@ -182,33 +182,37 @@ class Queen(TickLoop):
         """The pending questions and Alarms currently waiting on the human."""
         return self._human_inbox
 
-    def attach_warden(self, link: WardenLink) -> None:
-        """Attach one Warden's own link; the composition root calls this before `run()`.
+    async def attach_warden(self, link: WardenLink) -> None:
+        """Attach one Warden's own link, once her set holds `warden:spawn` (roadmap step 10.3).
 
-        The Queen never creates Wardens or Cells (CLAUDE.md): this only records an already-built
-        link, and starts draining it on the next tick.
+        The Queen never creates Wardens or Cells (CLAUDE.md): this only admits an already-built
+        link, records `warden.spawned`, and starts draining it on the next tick
+        (`hivemind.queen.attach.attach_warden`, this method's own body).
 
         Args:
             link: The Warden's own address, Cell and Waggle link.
-        """
-        self._wardens[link.warden_id] = link
-        self._link_iters[link.warden_id] = link.transport.receive()
-        self._liveness[link.warden_id] = WardenLiveness(
-            last_heartbeat_at=None, missed_heartbeats=0, is_offline=False
-        )
 
-    async def submit_goal(self, goal: str, *, clearance: HoneyClearance) -> TaskId:
+        Raises:
+            WardenSpawnRefusedError: The Guard refused `warden:spawn`; nothing was attached.
+        """
+        await attach.attach_warden(self, link)
+
+    async def submit_goal(
+        self, goal: str, *, clearance: HoneyClearance, capabilities: tuple[str, ...] | None = None
+    ) -> TaskId:
         """Plan `goal` into a task graph, persist it, and place whatever is ready at once.
 
         Args:
             goal: The goal text, as the human (or a bee on the human's behalf) stated it.
             clearance: The goal's own data-sensitivity ceiling.
+            capabilities: The submitter's capability set, carried by every planned task (roadmap
+                step 10.3); None for the operator's own local path, which has no ceiling.
 
         Returns:
             The goal's own id (the first task minted from the plan).
         """
         return await goal_submission.submit_goal(
-            self._deps, self.wardens, goal, clearance=clearance
+            self._deps, self.wardens, goal, clearance=clearance, capabilities=capabilities
         )
 
     async def answer_question(
@@ -514,29 +518,10 @@ async def _act(
         )
         await ticks.alarms.handle_alarm(queen._deps, queen.wardens, handling)
     elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(payload, Question):
-        await _block_on_question(queen, payload, task, warden_id, MessageId(item.id))
+        asked = questions.AskedQuestion(payload, task, warden_id, MessageId(item.id))
+        await questions.block_on_question(queen, asked)
     elif isinstance(payload, Answer):
         pass  # ROUTE_ANSWER: no wire path produces this in v0 (see hivemind.queen.questions).
-
-
-async def _block_on_question(
-    queen: Queen, question: Question, task: Task | None, warden_id: WardenId, envelope_id: MessageId
-) -> None:
-    """Answer `question` from goal+Cell memory if it qualifies; otherwise queue it for the human.
-
-    Roadmap step 5.0d: a leave Question this Queen already has a "keep for this whole goal"
-    answer for is answered here, instantly, and never reaches `hive inbox`
-    (`hivemind.queen.leave_memory.answer_from_memory`'s own docstring); every other question
-    takes the ordinary `chamber.ask` path.
-    """
-    if task is not None and await leave_memory.answer_from_memory(
-        queen, task, warden_id, question, envelope_id
-    ):
-        return
-    chamber_question = await questions.handle_question(queen._deps, question)
-    queen._open_questions[question.question_id] = question.task_id
-    queen._question_wire_ids[chamber_question.id] = question.question_id
-    queen._question_envelope_ids[chamber_question.id] = envelope_id
 
 
 async def _act_on_task_result(

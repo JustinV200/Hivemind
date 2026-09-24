@@ -6,7 +6,9 @@ free functions, so `queen.py` (pinned exactly at codingrules 5.1's 300-line file
 grow to carry a new `PlanBrief` field (roadmap step 5.0b: `scratch_root`, so a plan that declares a
 leaving inside the Hive Stand's own scratch is refused while planning, not discovered at release;
 roadmap step 5.0e: `keep_root`, so the planner prompt can be told the manifest's own keep root and
-declare a leaving under it). `Queen.submit_goal` becomes a one-line delegator, exactly like
+declare a leaving under it; roadmap step 10.3: `capabilities`, the submitter's capability set,
+which every planned task carries as its goal's ceiling). `Queen.submit_goal` becomes a one-line
+delegator, exactly like
 `Queen._tick`/`_on_tick_failed` are for `_run_tick`/`_record_recovered_tick_error` in `queen.py`
 itself.
 
@@ -23,6 +25,8 @@ Key invariants:
       module reaching into her private attributes from outside `queen.py`.
     - The returned TaskId is always the first task minted from the plan (the goal's own id),
       matching `Queen.submit_goal`'s own documented contract.
+    - Every task minted from one goal carries the same `capabilities` the caller passed; None
+      (the operator's own local path) stays None, never an empty set.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the file-size limit this module exists to keep.
@@ -47,7 +51,12 @@ __all__ = ["submit_goal"]
 
 
 async def submit_goal(
-    deps: QueenDeps, wardens: Sequence[WardenLink], goal: str, *, clearance: HoneyClearance
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    goal: str,
+    *,
+    clearance: HoneyClearance,
+    capabilities: tuple[str, ...] | None = None,
 ) -> TaskId:
     """Plan `goal` into a task graph, persist it, and place whatever is ready at once.
 
@@ -57,9 +66,16 @@ async def submit_goal(
             needs against their Cells, and `dispatch_ready` assigns to them.
         goal: The goal text, as the human (or a bee on the human's behalf) stated it.
         clearance: The goal's own data-sensitivity ceiling.
+        capabilities: The submitter's capability set (roadmap step 10.3, ADR-0031): an approved
+            device's set through the Hive Entrance; None for `hive run`/`hive tasks submit`, the
+            operator's own local path, which has no device ceiling.
 
     Returns:
         The goal's own id (the first task minted from the plan).
+
+    Raises:
+        hivemind.queen.planner.PlannerError: The plan could not become a valid task graph; a
+            string in `capabilities` that is not a capability fails the same way.
     """
     bound = deps.bound_for(ModelSlot.QUEEN)
     brief = PlanBrief(
@@ -68,6 +84,7 @@ async def submit_goal(
         [link.cell for link in wardens],
         scratch_root=deps.scratch_root,
         keep_root=deps.keep_root,
+        capabilities=capabilities,
     )
     draft = await plan_goal(brief, bound, gate=deps.call_gate)
     minted = await deps.chamber.submit(draft)

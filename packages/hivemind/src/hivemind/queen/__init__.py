@@ -38,7 +38,8 @@ See Also:
 Public API (roadmap step 3.20):
     - Queen: the TickLoop face, also a Supervisor over her attached Wardens (queen).
     - MemoryBudget, QueenDeps, WardenLink: every collaborator the Queen is built with (deps).
-    - QueenError, UnknownWardenError: this subsystem's error tree (errors).
+    - QueenError, UnknownWardenError, WardenSpawnRefusedError: this subsystem's error tree
+      (errors); the last is the Guard refusing the Queen `warden:spawn` (roadmap step 10.3).
     - HumanInbox: pending questions and Alarms awaiting the human (human_inbox).
     - answer_question, handle_question: the Queen's own question traffic (questions).
       ANSWER_NOTE_AUTHOR_PREFIX, answer_note_author and sync_answers_from_chamber: the one
@@ -114,7 +115,7 @@ from hivemind.queen.cluster import (
 )
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, resume_paused
-from hivemind.queen.errors import QueenError, UnknownWardenError
+from hivemind.queen.errors import QueenError, UnknownWardenError, WardenSpawnRefusedError
 from hivemind.queen.forage import ForageLedger
 from hivemind.queen.goal_submission import submit_goal
 from hivemind.queen.human_inbox import HumanInbox
@@ -204,6 +205,7 @@ __all__ = [
     "UnknownWardenError",
     "WardenLink",
     "WardenLiveness",
+    "WardenSpawnRefusedError",
     "answer_note_author",
     "answer_question",
     "apply_order_migrations",

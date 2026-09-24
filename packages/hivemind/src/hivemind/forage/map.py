@@ -1,4 +1,4 @@
-"""Define SlotBinding and ForageMap: the catalogue of every source that can serve a model.
+"""Define SlotBinding, slot_for_binding and ForageMap: every source that can serve a model.
 
 The **Forage map** is every `ModelSource` (`hivemind.forage.models.sources`) the Hive knows about,
 wherever it lives: a hosted API, or a server on some Cell (a unit of compute). `ForageMap` owns
@@ -9,7 +9,11 @@ in the manifest never does. `SlotBinding` is the forage-side view of one `[llm.s
 (a key, a provider, a model, an optional fallback key and an effort); `ForageMap.for_slot` resolves
 a slot to the map source that row currently names, without this package ever importing
 `hivemind.manifest` (Layer 1 may not import Layer 2, codingrules section 4) -- the caller reads the
-manifest and builds `SlotBinding`s from it. `throttle` (roadmap step 4.7a) is the third
+manifest and builds `SlotBinding`s from it. `slot_for_binding` (roadmap step 10.3) answers the
+reverse question over the same rows: which slot a `[llm.slots]` key serves -- itself, when it is a
+slot's own key, or the slot whose fallback chain names it (`local_worker` serves `worker` when
+`worker`'s chain falls back to it) -- so a rebind's `llm:<slot>` can be checked before it happens.
+`throttle` (roadmap step 4.7a) is the third
 live-updating method: it masks a source's headroom to zero after a `RateLimitedError`, until the
 window the provider asked for passes -- read entirely from the clock, with no timer anywhere.
 
@@ -32,6 +36,8 @@ Key invariants:
       invariant holds unchanged even though a throttled source's expiry is resolved on every read.
     - Constructing a ForageMap from sources with a repeated `source_id` keeps the last one; this
       mirrors how a manifest's `[forage.map.*]` TOML table itself cannot repeat a key.
+    - `slot_for_binding` never loops on a cyclic table: each chain walk stops at the first key it
+      has already seen.
 
 See Also:
     - .claude/roadmap.md step 3.12 for "forage/map.py loads [forage.map.*] and [llm.slots]".
@@ -57,7 +63,7 @@ from waggle.messages.forage.values import MAX_MODEL_CHARS, MAX_PROVIDER_CHARS
 
 MAX_SLOT_BINDING_KEY_CHARS = 64  # A manifest [llm.slots] key: a slot name or a short named binding.
 
-__all__ = ["ForageMap", "SlotBinding"]
+__all__ = ["ForageMap", "SlotBinding", "slot_for_binding"]
 
 # A frozen, extras-forbidding config, matching every other boundary value (codingrules 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -91,6 +97,30 @@ class SlotBinding(BaseModel):
         "knob for a model that thinks past a call site's own budget. None leaves each call "
         "site's budget alone.",
     )
+
+
+def slot_for_binding(key: str, bindings: Iterable[SlotBinding]) -> ModelSlot | None:
+    """Return the slot a `[llm.slots]` key serves: its own, or the one whose chain names it.
+
+    Args:
+        key: A manifest `[llm.slots]` key: a slot's own lowercase name, or a named binding.
+        bindings: Every `[llm.slots]` row, forage-side.
+
+    Returns:
+        The slot `key` names when it is one; otherwise the first slot (in `ModelSlot` order)
+        whose fallback chain reaches `key`; None when no slot's chain does, so a caller refuses a
+        binding it cannot attribute rather than guessing.
+    """
+    try:
+        return ModelSlot.from_manifest_key(key)
+    except KeyError:
+        pass  # Not a slot's own key: a named binding, served by whichever chain reaches it.
+    by_key = {binding.key: binding for binding in bindings}
+    # Walk each slot's own chain from its key; the first chain that reaches `key` names its slot.
+    for slot in ModelSlot:
+        if key in _chain(slot.manifest_key, by_key):
+            return slot
+    return None
 
 
 class ForageMap:
@@ -300,3 +330,14 @@ def _find_by_provider_and_model(
 ) -> ModelSource | None:
     """Return the first source in `sources` whose spec names `provider` and `model`, if any."""
     return next((s for s in sources if s.spec.provider == provider and s.spec.model == model), None)
+
+
+def _chain(start: str, by_key: dict[str, SlotBinding]) -> set[str]:
+    """Return every key reachable from `start` by following `fallback`, `start` itself included."""
+    seen: set[str] = set()
+    current: str | None = start
+    # A cycle (which the manifest's own validators forbid) stops at the first repeated key.
+    while current is not None and current not in seen and current in by_key:
+        seen.add(current)
+        current = by_key[current].fallback
+    return seen

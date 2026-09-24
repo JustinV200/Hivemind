@@ -89,6 +89,15 @@ def _capabilities(*extra_scopes: str) -> CapabilitySet:
     )
 
 
+def _keep_root_capabilities() -> CapabilitySet:
+    """`_capabilities` plus what writing under `_KEEP_ROOT` needs, since roadmap step 10.3.
+
+    Its `fs:write` and its `cell:outside_scratch`: the pair a Warden grants for a keep root.
+    """
+    root = _KEEP_ROOT.as_posix()
+    return _capabilities(f"fs:write:{root}/**", f"cell:outside_scratch:{root}/**")
+
+
 async def test_keep_rejects_a_missing_source() -> None:
     ctx = make_context()
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
@@ -142,7 +151,7 @@ async def test_keep_reports_a_missing_source_file() -> None:
         clock=clock,
         session=session,
         lease=FakeLeaseView(_SCRATCH_DIR, allowed_paths=(_KEEP_ROOT,)),
-        capabilities=_capabilities(f"fs:write:{_KEEP_ROOT.as_posix()}/**"),
+        capabilities=_keep_root_capabilities(),
         capping=_gate(session, keep_root=_KEEP_ROOT),
     )
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(clock=clock))
@@ -161,7 +170,7 @@ async def test_keep_moves_a_file_declared_under_keep_root_and_it_remains() -> No
         clock=clock,
         session=session,
         lease=FakeLeaseView(_SCRATCH_DIR, allowed_paths=(_KEEP_ROOT,)),
-        capabilities=_capabilities(f"fs:write:{_KEEP_ROOT.as_posix()}/**"),
+        capabilities=_keep_root_capabilities(),
         capping=_gate(session, keep_root=_KEEP_ROOT, leaves=leaves),
     )
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(clock=clock, leaves=leaves))
@@ -184,7 +193,7 @@ async def test_keep_applies_but_will_be_removed_for_an_undeclared_destination() 
         clock=clock,
         session=session,
         lease=FakeLeaseView(_SCRATCH_DIR, allowed_paths=(_KEEP_ROOT,)),
-        capabilities=_capabilities(f"fs:write:{_KEEP_ROOT.as_posix()}/**"),
+        capabilities=_keep_root_capabilities(),
         capping=_gate(session, keep_root=_KEEP_ROOT),  # No declared leaves at all.
     )
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(clock=clock))

@@ -41,6 +41,16 @@ respectively) hit this same choke point and fail the same way, since both funnel
 left here is the narrower case of a Cell that fits on paper but has no headroom left by the time
 the grant is sized.
 
+Roadmap step 10.3 (ADR-0031) wires two enforcement points through here. `placement`: a
+`PlacementError` now records its own message on `queen.decided` (it used to record only
+"placement_failed"), and when the task's goal set alone left no candidate (`PlacementError.
+denied`) the Queen, acting for the goal, checks each missing capability through her `Enforcer`,
+which records the `guard.denied`. `grant_issue`: every fresh grant passes `hivemind.queen.
+dispatcher.grants.authorize_grant` before it is sent, and one left with no model binding is
+refused exactly like a zero-bee grant (`forage.denied`, the task failed). The `TaskAssign` carries
+the goal's capability set and the task's network scopes (Waggle 1.6), so the Warden can attenuate
+its Worker's set to both.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and
@@ -49,10 +59,12 @@ Fits into the Hive:
     `hivemind.queen.ticks.results.retry_task` and `hivemind.queen.ticks.alarms` for a REBIND.
     Calls into `hivemind.brood_chamber` (Task), `hivemind.cell` (Cell), `hivemind.forage`
     (Ceilings, ForageGrant, GrantInputs, ModelSlot, grant), `hivemind.pheromone` (ForageEvent),
-    `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
-    roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
-    ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.snapshot`,
-    `hivemind.queen.trail` (record_event, record_forage_event) and waggle only.
+    `hivemind.guard` (the placement point), `hivemind.pheromone` (MAX_PAYLOAD_STRING_CHARS),
+    `hivemind.queen.authority`, `hivemind.queen.deps` (QueenDeps, WardenLink),
+    `hivemind.queen.forage.grants` (activate, roadmap step 4.7), `hivemind.queen.placement`
+    (Placement, PlacementError, ProvisionVirtual, ReuseDormant, ReuseReal, decide),
+    `hivemind.queen.dispatcher.acquire`/`.grants`/`.snapshot`, `hivemind.queen.trail`
+    (record_event, record_forage_event) and waggle only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task,
@@ -64,9 +76,12 @@ Key invariants:
       RUNNING task's own status is untouched by a retry.
     - `queen.placed` is always recorded before `queen.assigned`, for a fresh dispatch: the reason a
       Cell was chosen precedes the record that it was actually assigned.
-    - A fresh grant with `max_sub_bees < 1` is never sent to a Warden: `_send_grant_and_assign`
-      records `forage.denied` and fails the task (RUNNING -> FAILED) instead, whether the grant
-      came from a fresh dispatch, a retry or a resume.
+    - A fresh grant with `max_sub_bees < 1`, or with no model binding left once
+      `authorize_grant` has run, is never sent to a Warden: `_send_grant_and_assign` records
+      `forage.denied` and fails the task (RUNNING -> FAILED) instead, whether the grant came from
+      a fresh dispatch, a retry or a resume.
+    - `guard.denied` for placement is recorded only when the goal's capability set alone left no
+      candidate; a capacity or fit failure records `queen.decided` and nothing more.
 
 See Also:
     - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
@@ -88,9 +103,12 @@ from hivemind.brood_chamber import Task, TaskOutcome, TaskStatus
 from hivemind.cell import Cell
 from hivemind.forage import Ceilings, ForageGrant, GrantInputs, ModelSlot, grant
 from hivemind.forage.models.sources import ModelSource
-from hivemind.pheromone import ForageEvent
+from hivemind.guard import CapabilitySet, EnforcementPoint
+from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS, ForageEvent
+from hivemind.queen.authority import goal_held, request_for, task_context
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.acquire import resolve_link
+from hivemind.queen.dispatcher.grants import authorize_grant
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
@@ -129,9 +147,9 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
             attempted.add(task.id)
             try:
                 await _dispatch_one(deps, wardens, task)
-            except PlacementError:
-                # The reason string on the trail is enough; the next ready task still gets a chance.
-                await record_event(deps, "queen.decided", task.id, reason="placement_failed")
+            except PlacementError as exc:
+                # The next ready task still gets a chance; this one stays PENDING to retry later.
+                await _record_placement_failure(deps, task, exc)
 
 
 async def redispatch(
@@ -246,6 +264,23 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     await _record_forage_granted(deps, task, fresh_grant, link.warden_id)
 
 
+async def _record_placement_failure(deps: QueenDeps, task: Task, error: PlacementError) -> None:
+    """Record why `task` found no Cell, and refuse each capability its goal alone lacked.
+
+    `queen.decided` carries the error's own message (every rule that eliminated a candidate),
+    bounded to the trail's per-string limit. When the goal's set alone left no candidate
+    (`error.denied`, roadmap step 10.3), the Queen acting for the goal checks each missing
+    capability at the placement point, so each is a `guard.denied` row with its reason.
+    """
+    detail = str(error)[:MAX_PAYLOAD_STRING_CHARS]
+    await record_event(deps, "queen.decided", task.id, reason="placement_failed", detail=detail)
+    held = goal_held(task) or CapabilitySet.empty()  # `denied` is only ever set for a goal set.
+    context = task_context(task)
+    for needed in error.denied:
+        request = request_for(deps, EnforcementPoint.PLACEMENT, needed, held)
+        await deps.enforcer.check(request.model_copy(update={"context": context}))
+
+
 async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> None:
     """Record `queen.placed`: the placement's own reason, with any Cell or Virtual spec it names.
 
@@ -302,6 +337,12 @@ async def _send_grant_and_assign(
     if fresh_grant.max_sub_bees < 1:
         await _deny_zero_grant(deps, task, inputs, fresh_grant)
         return None
+    # Roadmap step 10.3's grant_issue point: a binding neither set allows never leaves; a grant
+    # with none left can run no bee at all, so it is refused the same way a zero-bee one is.
+    fresh_grant = await authorize_grant(deps, link, task, fresh_grant)
+    if not fresh_grant.allowed:
+        await _deny_zero_grant(deps, task, inputs, fresh_grant)
+        return None
     # roadmap step 4.7: the ledger is the live book of every shared grant, not only the ones a
     # ForageRequest later grows; activate() moves it past ISSUED since a task dispatch means the
     # Warden is about to draw on it at once. The Cell's own capacity is reported here too, from the
@@ -327,7 +368,11 @@ async def _send_grant_and_assign(
 async def _deny_zero_grant(
     deps: QueenDeps, task: Task, inputs: GrantInputs, fresh_grant: ForageGrant
 ) -> None:
-    """Record `forage.denied` for a grant that computed to zero sub-bees, and fail `task` at once.
+    """Record `forage.denied` for a grant that can run no bee, and fail `task` at once.
+
+    Two ways a grant runs no bee: it computed to zero sub-bees, or (roadmap step 10.3) the
+    grant_issue point removed every model binding it named; `allowed_bindings` on the event and
+    the outcome's own summary say which.
 
     Carries the allocator's own `reason` string (`hivemind.forage.allocate.grant`'s own
     `_reason`) plus the free-memory, reserve and seat figures that produced zero, so an operator
@@ -349,9 +394,11 @@ async def _deny_zero_grant(
         reserve_memory_bytes=inputs.reserve.memory_bytes,
         reserve_seats=inputs.reserve.seats,
         footprint_memory_bytes=inputs.footprint.memory_bytes,
+        allowed_bindings=len(fresh_grant.allowed),
         reason=fresh_grant.reason,
     )
-    summary = f"Forage denied: grant allows zero sub-bees. {fresh_grant.reason}"
+    what = "zero sub-bees" if fresh_grant.max_sub_bees < 1 else "no model binding"
+    summary = f"Forage denied: grant allows {what}. {fresh_grant.reason}"
     outcome = TaskOutcome(status=TaskStatus.FAILED, summary=summary)
     await deps.chamber.fail(task.id, outcome)
 
@@ -423,6 +470,10 @@ def _task_assign(
         objective=task.spec.objective,
         acceptance=task.spec.acceptance,
         leaves=task.spec.leaves,
+        # Waggle 1.6 (roadmap step 10.3): the goal's own ceiling and the task's network needs,
+        # so the Warden attenuates its Worker's set to both.
+        capabilities=task.spec.capabilities,
+        network_scopes=task.spec.needs.network_scopes,
         tempo=task.spec.needs.tempo.to_wire(),
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,

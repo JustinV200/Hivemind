@@ -8,7 +8,9 @@ refused" is always a trail row carrying the principal, the point, the capability
 reason and the escalation, never any content the action carried. It never raises on a denial:
 the caller reads `decision.allowed` and decides what refusing means at its own point (return an
 error to a tool call, skip a placement candidate), and `decision.escalation` says whether to
-raise an Alarm or ask the human as well.
+raise an Alarm or ask the human as well. `refuse` (roadmap step 10.3) is the same edge for a
+refusal the point reached itself, when the principal holds the capability but not over this
+target (a Warden asking to grow a grant another Warden holds): it records the identical row.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by a composition root with the
@@ -41,6 +43,7 @@ from hivemind.guard.policy import (
     PolicyRequest,
     PrincipalRef,
     evaluate,
+    refusal,
 )
 from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS, GuardEvent, PheromoneTrail
 from waggle.clock import Clock
@@ -98,6 +101,30 @@ class Enforcer:
             # A local trail write (milliseconds, no network), awaited before the refusal is
             # returned so the record always exists first; a failure propagates to the caller.
             await self._trail.record(self._denied_event(request, decision))
+        return decision
+
+    async def refuse(self, request: PolicyRequest, scope: str, why: str) -> PolicyDecision:
+        """Record a refusal the enforcement point reached itself, then return it.
+
+        For a principal that holds the needed capability but not over this target (a Warden
+        asking to grow a grant another Warden holds); the held set cannot say that, so the point
+        decides it and this records the same `guard.denied` row `check` would, with the rule
+        `guard.scope.<scope>` (`hivemind.guard.policy.refusal`).
+
+        Args:
+            request: Who acted, at which point, needing what, holding what, and where.
+            scope: What the target lay outside of, a lowercase snake_case word.
+            why: Why the target is out of reach, naming ids only, never content.
+
+        Returns:
+            The refused PolicyDecision; never an allow.
+
+        Raises:
+            Whatever the trail's `record` raises: a refusal is never returned unrecorded.
+        """
+        decision = refusal(request, self._policy, scope, why)
+        # The same local, awaited trail write `check` makes before a refusal leaves this method.
+        await self._trail.record(self._denied_event(request, decision))
         return decision
 
     def _denied_event(self, request: PolicyRequest, decision: PolicyDecision) -> GuardEvent:

@@ -95,7 +95,7 @@ async def test_queen_instance_never_holds_a_cell_session_anywhere_in_her_own_sta
     provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
 
@@ -135,7 +135,7 @@ async def test_stop_leaves_no_pending_tasks_behind_a_concurrently_running_run_lo
     """
     deps, link, warden_end = make_queen_deps()
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     before = asyncio.all_tasks() - {asyncio.current_task()}
     run_task = asyncio.ensure_future(queen.run())
     await asyncio.sleep(0)  # Let the first tick start its own receive task on the attached link.
@@ -152,7 +152,7 @@ async def test_trail_events_are_recorded_in_the_order_they_happened() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
     root_assignment = await warden_end.wait_for_assignment()

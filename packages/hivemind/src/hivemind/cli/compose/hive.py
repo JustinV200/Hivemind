@@ -63,6 +63,7 @@ from hivemind.cell.local import HiveStandSource
 from hivemind.cli.compose.deps import (
     HiveParts,
     HiveStores,
+    build_enforcer,
     build_fanner,
     build_hive_stand_source,
     build_ledger,
@@ -104,8 +105,10 @@ class Hive:
         fanner: The seat meter every model call in this Hive passes through.
         source: The Hive Stand's own RealCellSource; its one Cell is leased once `run_hive` starts.
         warden: The Hive Stand's own Warden, built but not yet started.
-        queen: The Queen, with `warden`'s own WardenLink already attached.
-        warden_link: The Queen's own end of the Queen<->Warden link; `run_hive` closes it on exit.
+        queen: The Queen, not yet attached to `warden_link`: attaching is her `warden_spawn`
+            enforcement point, an awaited Guard check, so `run_hive` does it (roadmap step 10.3).
+        warden_link: The Queen's own end of the Queen<->Warden link; `run_hive` attaches it first
+            and closes it on exit.
         clock: The injected time source every collaborator above shares.
         virtual_cells: `hivemind.cli.compose.virtual_cells.build_virtual_cells`'s own return
             value, when `[virtual_cells] backend` is set; `None` otherwise, in which case
@@ -170,22 +173,17 @@ def build_hive(
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
         environ: The composition root's own environment mapping, read once for provider API keys.
         clock: Injected time source shared by every collaborator this builds.
-        stores: Supplies the trail, chamber and memory store directly (an in-memory, `FakeClock`-
-            timestamped `HiveStores` a test builds by hand); `open_default_stores(manifest)` (real
+        stores: A test's own in-memory `HiveStores`; `open_default_stores(manifest)` (real
             SQLite, `[hive] db`) when omitted.
-        responders: Installed on every `kind = "fake"` provider this Hive constructs; see
-            `hivemind.cli.compose.deps.build_provider_registry`'s own docstring. `None` in
-            production, where no provider is ever `kind = "fake"`.
+        responders: Installed on every `kind = "fake"` provider this Hive constructs
+            (`hivemind.cli.compose.deps.build_provider_registry`); `None` in production.
 
     Returns:
-        A Hive whose Warden has not yet leased its Cell and whose Queen has not yet ticked; pass
-        it to `run_hive` to start both.
+        A Hive not yet started (no lease, no tick, no Warden attached); pass it to `run_hive`.
     """
     hive_stores = stores if stores is not None else open_default_stores(manifest)
     forage_map = build_forage_map(manifest, clock)
-    # Roadmap step 4.8's own wiring step: built ahead of its usual place in build_queen_deps, so
-    # build_fanner can chain a LedgerRecorder onto the same ledger (a completed llm.call then
-    # updates the ledger's own seat and spend books the moment it happens, not only on the trail).
+    # Roadmap step 4.8: built before build_fanner, whose LedgerRecorder books each llm.call live.
     ledger = build_ledger(manifest, manifest.forage.reserve)
     registry = build_provider_registry(manifest, environ, clock, forage_map, responders)
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
@@ -196,7 +194,12 @@ def build_hive(
         manifest, hive_stores.trail, clock, environ, hive_signer=_hive_signer(manifest)
     )
     parts = HiveParts(
-        manifest=manifest, registry=registry, fanner=fanner, stores=hive_stores, clock=clock
+        manifest=manifest,
+        registry=registry,
+        fanner=fanner,
+        stores=hive_stores,
+        clock=clock,
+        enforcer=build_enforcer(manifest, hive_stores.trail, clock),  # Roadmap step 10.3.
     )
     extras = _AssemblyExtras(forage_map=forage_map, ledger=ledger, virtual_cells=virtual_cells)
     return _assemble_hive(parts, source, links, extras)
@@ -245,10 +248,9 @@ class _AssemblyExtras:
 def _assemble_hive(
     parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
-    """Build the Warden and Queen from `parts`, attach the link, and wrap it all as a Hive."""
+    """Build the Warden and Queen from `parts` and wrap them as a Hive; `run_hive` attaches."""
     warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
     queen = Queen(build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells))
-    queen.attach_warden(links.queen_link)
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).
@@ -277,19 +279,12 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
     Yields:
         Control to the caller, with `hive.queen` and `hive.warden` both ticking as background
         tasks; call `hive.queen.submit_goal`/`run_goal` inside the `async with` block.
+
+    Raises:
+        hivemind.queen.WardenSpawnRefusedError: The Guard refused the Queen `warden:spawn`; nothing
+            was started (roadmap step 10.3).
     """
-    if hive.virtual_cells is not None:
-        # Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile
-        # the live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
-        # CellLifecycle.reconcile's own contract: called once, before any other method). The
-        # listener goes first because reconcile constructs every backend, and a Docker or QEMU
-        # backend's QueenEndpoint carries the listener's bound port, which only exists after
-        # start() (the first real Docker run failed on exactly this). Both happen before
-        # hive.warden.start()/the TaskGroup below, so a Cell dialling back in while the Queen is
-        # still coming up is never dropped for connecting "too early".
-        await hive.virtual_cells.listener.start(hive.queen)
-        await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
-    await hive.warden.start()
+    await _start(hive)
     # Structured concurrency (codingrules section 11): both loops are owned by this one
     # asyncio.TaskGroup, which awaits them to completion when the block below exits, whether
     # cleanly or through an exception raised inside the caller's own `async with` body.
@@ -318,6 +313,29 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
             # is left awaiting a link neither side will ever write to again.
             await hive.warden_link.transport.close()
+
+
+async def _start(hive: Hive) -> None:
+    """Attach the Hive Stand's Warden, open the Virtual side, then lease the Hive Stand's Cell.
+
+    Split out of `run_hive` for codingrules 5.1's function length only; everything here happens
+    before the Queen's and the Warden's own loops start.
+    """
+    # Roadmap step 10.3: admitting the Hive Stand's Warden is the Queen's warden_spawn point, an
+    # awaited Guard check (and a `warden.spawned` row), so it happens here, before anything runs.
+    await hive.queen.attach_warden(hive.warden_link)
+    if hive.virtual_cells is not None:
+        # Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile
+        # the live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
+        # CellLifecycle.reconcile's own contract: called once, before any other method). The
+        # listener goes first because reconcile constructs every backend, and a Docker or QEMU
+        # backend's QueenEndpoint carries the listener's bound port, which only exists after
+        # start() (the first real Docker run failed on exactly this). Both happen before
+        # hive.warden.start()/the TaskGroup in run_hive, so a Cell dialling back in while the Queen
+        # is still coming up is never dropped for connecting "too early".
+        await hive.virtual_cells.listener.start(hive.queen)
+        await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+    await hive.warden.start()
 
 
 async def run_goal(

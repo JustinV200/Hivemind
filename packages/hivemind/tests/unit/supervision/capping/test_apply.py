@@ -118,6 +118,20 @@ async def test_apply_action_command_reports_failure_on_nonzero_exit(tmp_path: Pa
     assert result.exit_code == 1
 
 
+async def test_apply_action_applies_a_network_step_as_a_no_op(tmp_path: Path) -> None:
+    # Roadmap step 10.3: the HTTP tool's step is authorised by the gate, then sent by the tool.
+    scratch_root = tmp_path / "scratch"
+    lease = FakeLeaseView(scratch_root)
+    action = make_action(ActionKind.ACTION_SEQUENCE, steps=("GET https://example.com/",))
+    proposal = make_proposal(risk_tier=RiskTier.NETWORK_EGRESS, action=action)
+
+    result = await apply_action(_session(scratch_root), lease, proposal, scratch_root)
+
+    assert result.succeeded
+    assert result.touched == ()
+    assert lease.touched_paths == []
+
+
 async def test_apply_action_rejects_action_sequence(tmp_path: Path) -> None:
     scratch_root = tmp_path / "scratch"
     session = _session(scratch_root)

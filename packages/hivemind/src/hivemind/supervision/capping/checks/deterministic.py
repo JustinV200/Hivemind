@@ -4,17 +4,24 @@ Codingrules section 8.12: "deterministic validators in autopilot (schema, lint, 
 size caps)." `SchemaCheck` confirms a proposal's action kind is one v0 can actually apply (waggle's
 own `ProposedAction` validators already enforce that the right field is populated for its kind).
 `PathAllowlistCheck` and `CommandAllowlistCheck` enforce codingrules section 15's least privilege
-on the paths and command a proposal touches. `DiffSizeCapCheck` enforces a tier's `max_diff_bytes`.
+on the paths and command a proposal touches. Roadmap step 10.3 (ADR-0031) adds three things: a
+write outside scratch needs `cell:outside_scratch:<path>` as well as `fs:write:<path>`; a network
+step -- one `"<METHOD> <url>"` step proposed on the `NETWORK_EGRESS` tier, the HTTP tool's only
+shape, whose apply is the authorisation itself -- passes `SchemaCheck` when well formed, and
+`NetworkAllowlistCheck` then requires `net:<host>` for it (the tier's own ALLOWLIST rung); and every
+capability refusal names the missing capability on `CheckResultRecord.denied_capability`, which the
+Worker records as `guard.denied`. `DiffSizeCapCheck` enforces a tier's `max_diff_bytes`.
 waggle's `CheckKind` has one `ALLOWLIST` member for both paths and commands, so `deterministic_
 checks()` -- the composition root's registry, `Mapping[CheckKind, Check]` -- can register only one
-`Check` under it; `_AllowlistCheck` composes the two so each stays independently testable while
+`Check` under it; `_AllowlistCheck` composes the three so each stays independently testable while
 still fitting that one slot.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Built
     by whichever composition root constructs a `hivemind.supervision.capping.gate.GateDeps` (a
     Warden, roadmap step 3.19); run by `hivemind.supervision.capping.gate.CappingGate`. Calls into
-    `hivemind.guard` (Capability, CapabilityFamily), `hivemind.supervision.capping.checks.base`,
+    `hivemind.guard` (Capability, CapabilityFamily, InvalidCapabilityError), `hivemind.
+    supervision.capping.checks.base`,
     `hivemind.supervision.capping.tiers` (RiskTier) and waggle only.
 
 Key invariants:
@@ -24,6 +31,9 @@ Key invariants:
       `Path.resolve(strict=False)`, collapsing ".." segments) before either reachability check
       runs, so `scratch/../etc/passwd` cannot slip past `PathAllowlistCheck` unresolved
       (codingrules section 15: a path is validated before it reaches a filesystem call).
+    - An `ACTION_SEQUENCE` passes `SchemaCheck` only as a well-formed network step on the
+      `NETWORK_EGRESS` tier; every other unsupported shape is still refused before the gate could
+      ever apply it.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "deterministic validators in autopilot."
@@ -41,21 +51,26 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
+from urllib.parse import urlsplit
 
-from hivemind.guard import Capability, CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, InvalidCapabilityError
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
 from hivemind.supervision.capping.tiers import RiskTier
 from waggle.messages.capping import ActionKind, CheckKind, CheckOutcome, ProposedAction
 
-# ActionKind.ACTION_SEQUENCE has no applier yet (roadmap 3.17: "ACTION_SEQUENCE -> REJECTED with
-# reason 'unsupported in v0'"); SchemaCheck is where that rejection actually happens, before the
-# gate ever reaches apply.py. COPY (roadmap step 5.0e, the `keep` tool) does have an applier
+# ActionKind.ACTION_SEQUENCE has no general applier (roadmap 3.17: "ACTION_SEQUENCE -> REJECTED
+# with reason 'unsupported in v0'"); SchemaCheck is where that rejection actually happens, before
+# the gate ever reaches apply.py. COPY (roadmap step 5.0e, the `keep` tool) does have an applier
 # (hivemind.supervision.capping.apply._apply_copy).
 _SUPPORTED_ACTION_KINDS = frozenset({ActionKind.DIFF, ActionKind.COMMAND, ActionKind.COPY})
+# Roadmap step 10.3: the one tier an ACTION_SEQUENCE is supported on, the HTTP tool's network step
+# (hivemind.workers.tools.http), whose apply is a no-op authorisation the tool then acts on.
+_SEQUENCE_TIERS = frozenset({RiskTier.NETWORK_EGRESS})
 
 __all__ = [
     "CommandAllowlistCheck",
     "DiffSizeCapCheck",
+    "NetworkAllowlistCheck",
     "PathAllowlistCheck",
     "SchemaCheck",
     "deterministic_checks",
@@ -73,9 +88,13 @@ class SchemaCheck:
     kind: ClassVar[CheckKind] = CheckKind.SCHEMA
 
     async def run(self, context: CheckContext) -> CheckResultRecord:
-        """Pass DIFF and COMMAND actions; fail ACTION_SEQUENCE as unsupported in v0."""
+        """Pass DIFF, COMMAND and COPY, and a well-formed network step on its own tier only."""
         action_kind = context.proposal.action.kind
-        if action_kind not in _SUPPORTED_ACTION_KINDS:
+        network_step = (
+            context.proposal.risk_tier in _SEQUENCE_TIERS
+            and _network_host(context.proposal.action) is not None
+        )
+        if action_kind not in _SUPPORTED_ACTION_KINDS and not network_step:
             return CheckResultRecord(
                 kind=CheckKind.SCHEMA,
                 outcome=CheckOutcome.FAILED,
@@ -91,7 +110,8 @@ class PathAllowlistCheck:
 
     A path is reachable when it resolves under scratch or the lease's own `allowed_paths`
     (`LeaseView.is_path_allowed`); it is granted when some held capability's scope actually covers
-    the resolved path. Both must hold.
+    the resolved path -- and, for a write outside scratch (roadmap step 10.3), when a held
+    `cell:outside_scratch` covers it too. Both must hold.
     """
 
     kind: ClassVar[CheckKind] = CheckKind.ALLOWLIST
@@ -113,13 +133,15 @@ class PathAllowlistCheck:
                     outcome=CheckOutcome.FAILED,
                     reason=f"{resolved} is outside scratch and outside every allowed path",
                 )
-            needed = Capability(family=family, scope=resolved.as_posix())
-            if not context.capabilities.allows(needed):
-                return CheckResultRecord(
-                    kind=CheckKind.ALLOWLIST,
-                    outcome=CheckOutcome.FAILED,
-                    reason=f"no capability allows touching {resolved}",
-                )
+            # Every capability this path needs, in order; the first one not held refuses it.
+            for needed in _path_needs(family, resolved, _under_scratch(context, resolved)):
+                if not context.capabilities.allows(needed):
+                    return CheckResultRecord(
+                        kind=CheckKind.ALLOWLIST,
+                        outcome=CheckOutcome.FAILED,
+                        reason=f"no capability allows touching {resolved} ({needed.family.value})",
+                        denied_capability=str(needed),
+                    )
         return CheckResultRecord(
             kind=CheckKind.ALLOWLIST, outcome=CheckOutcome.PASSED, reason="every path is allowed"
         )
@@ -144,9 +166,48 @@ class CommandAllowlistCheck:
                 kind=CheckKind.ALLOWLIST,
                 outcome=CheckOutcome.FAILED,
                 reason=f"no exec capability allows running {program!r}",
+                denied_capability=str(needed),
             )
         return CheckResultRecord(
             kind=CheckKind.ALLOWLIST, outcome=CheckOutcome.PASSED, reason=f"{program!r} is allowed"
+        )
+
+
+class NetworkAllowlistCheck:
+    """Require a network step's destination host to be granted by a `net` capability.
+
+    Roadmap step 10.3: the NETWORK_EGRESS tier's own ALLOWLIST rung (`capping-tiers.toml`: "the
+    allowlist check still enforces a net: capability for the destination"), so the gate never
+    passes a network step on the tool's own word alone. Any other action carries no destination.
+    """
+
+    kind: ClassVar[CheckKind] = CheckKind.ALLOWLIST
+
+    async def run(self, context: CheckContext) -> CheckResultRecord:
+        """Pass trivially for anything but an ACTION_SEQUENCE; else check its host's `net`."""
+        action = context.proposal.action
+        if action.kind is not ActionKind.ACTION_SEQUENCE:
+            return CheckResultRecord(
+                kind=CheckKind.ALLOWLIST, outcome=CheckOutcome.PASSED, reason="no destination"
+            )
+        # A host the `net` grammar cannot hold (or no host at all) is refused, never raised.
+        try:
+            needed = Capability.parse(f"{CapabilityFamily.NET.value}:{_network_host(action)}")
+        except InvalidCapabilityError:
+            return CheckResultRecord(
+                kind=CheckKind.ALLOWLIST,
+                outcome=CheckOutcome.FAILED,
+                reason="the network step names no valid host",
+            )
+        if not context.capabilities.allows(needed):
+            return CheckResultRecord(
+                kind=CheckKind.ALLOWLIST,
+                outcome=CheckOutcome.FAILED,
+                reason=f"no net capability allows reaching {needed.scope!r}",
+                denied_capability=str(needed),
+            )
+        return CheckResultRecord(
+            kind=CheckKind.ALLOWLIST, outcome=CheckOutcome.PASSED, reason="the host is allowed"
         )
 
 
@@ -180,23 +241,26 @@ def deterministic_checks() -> Mapping[CheckKind, Check]:
     """
     return {
         CheckKind.SCHEMA: SchemaCheck(),
-        CheckKind.ALLOWLIST: _AllowlistCheck(PathAllowlistCheck(), CommandAllowlistCheck()),
+        CheckKind.ALLOWLIST: _AllowlistCheck(
+            PathAllowlistCheck(), CommandAllowlistCheck(), NetworkAllowlistCheck()
+        ),
         CheckKind.SIZE_CAP: DiffSizeCapCheck(),
     }
 
 
 @dataclass(frozen=True, slots=True)
 class _AllowlistCheck:
-    """Compose PathAllowlistCheck and CommandAllowlistCheck under the gate's one ALLOWLIST slot.
+    """Compose the path, command and network checks under the gate's one ALLOWLIST slot.
 
-    waggle.messages.capping.CheckKind has a single ALLOWLIST member for both a proposal's paths
-    and its command, so `deterministic_checks()`'s Mapping[CheckKind, Check] can register only one
-    check per kind. This class runs both, reporting the first failure, so PathAllowlistCheck and
-    CommandAllowlistCheck stay independently testable while still fitting that one slot.
+    waggle.messages.capping.CheckKind has a single ALLOWLIST member for a proposal's paths, its
+    command and (roadmap step 10.3) its network destination, so `deterministic_checks()`'s
+    Mapping[CheckKind, Check] can register only one check per kind. This class runs all three,
+    reporting the first failure, so each stays independently testable while fitting that one slot.
     """
 
     path_check: PathAllowlistCheck
     command_check: CommandAllowlistCheck
+    network_check: NetworkAllowlistCheck
     kind: ClassVar[CheckKind] = CheckKind.ALLOWLIST
 
     async def run(self, context: CheckContext) -> CheckResultRecord:
@@ -204,7 +268,10 @@ class _AllowlistCheck:
         path_result = await self.path_check.run(context)
         if path_result.outcome is not CheckOutcome.PASSED:
             return path_result
-        return await self.command_check.run(context)
+        command_result = await self.command_check.run(context)
+        if command_result.outcome is not CheckOutcome.PASSED:
+            return command_result
+        return await self.network_check.run(context)
 
 
 def _check_diff_size(action: ProposedAction, cap: int | None) -> CheckResultRecord:
@@ -267,8 +334,40 @@ def _normalise(scratch_root: Path, path: Path) -> Path:
     return joined.resolve(strict=False)
 
 
+def _under_scratch(context: CheckContext, resolved: Path) -> bool:
+    """Return whether `resolved` is the scratch root itself or somewhere beneath it."""
+    scratch_resolved = context.scratch_root.resolve(strict=False)
+    return resolved == scratch_resolved or scratch_resolved in resolved.parents
+
+
 def _is_reachable(context: CheckContext, resolved: Path) -> bool:
     """Return whether `resolved` is under scratch_root or explicitly allowed by the lease."""
-    scratch_resolved = context.scratch_root.resolve(strict=False)
-    under_scratch = resolved == scratch_resolved or scratch_resolved in resolved.parents
-    return under_scratch or context.lease.is_path_allowed(resolved)
+    return _under_scratch(context, resolved) or context.lease.is_path_allowed(resolved)
+
+
+def _network_host(action: ProposedAction) -> str | None:
+    """Return a network step's host: one `"<METHOD> <url>"` step naming one; else None."""
+    if action.kind is not ActionKind.ACTION_SEQUENCE or len(action.steps) != 1:
+        return None
+    method, _, url = action.steps[0].partition(" ")
+    if not method.isalpha() or not method.isupper():
+        return None
+    try:
+        return urlsplit(url).hostname or None
+    except ValueError:  # urlsplit refuses some malformed URLs (an unclosed IPv6 bracket, ...).
+        return None
+
+
+def _path_needs(
+    family: CapabilityFamily, resolved: Path, inside_scratch: bool
+) -> tuple[Capability, ...]:
+    """Return what touching `resolved` needs: its `fs` family, and `cell:outside_scratch` too.
+
+    The second only for a write outside scratch (roadmap step 10.3: leaving scratch is its own,
+    separate grant).
+    """
+    scope = resolved.as_posix()
+    needs = [Capability(family=family, scope=scope)]
+    if family is CapabilityFamily.FS_WRITE and not inside_scratch:
+        needs.append(Capability(family=CapabilityFamily.CELL_OUTSIDE_SCRATCH, scope=scope))
+    return tuple(needs)

@@ -51,8 +51,8 @@ Public API:
       ForageRequestKind, RoyalReserve (hivemind.forage.models.grants).
     - Local pool and hosting models: LocalPool, Ceilings, SourceChain, SlotPlan, HostingPlan
       (hivemind.forage.models.pools).
-    - ForageMap, SlotBinding: the catalogue of Forage map sources and its live figures
-      (hivemind.forage.map).
+    - ForageMap, SlotBinding, slot_for_binding: the catalogue of Forage map sources and its live
+      figures, and which slot a `[llm.slots]` key serves (hivemind.forage.map).
     - GrantInputs, GoalBudgets, grant, should_recompute: the pure allocator, v0 plus roadmap step
       4.7's v1 (remaining goal caps, tempo headroom relief, reachability, drift recomputation)
       (hivemind.forage.allocate).
@@ -70,7 +70,7 @@ from hivemind.forage.errors import (
     UnknownSourceError,
 )
 from hivemind.forage.grant_state import GrantState, assert_transition, can_transition, is_terminal
-from hivemind.forage.map import ForageMap, SlotBinding
+from hivemind.forage.map import ForageMap, SlotBinding, slot_for_binding
 from hivemind.forage.models import (
     Abundance,
     AllowedBinding,
@@ -138,4 +138,5 @@ __all__ = [
     "grant",
     "is_terminal",
     "should_recompute",
+    "slot_for_binding",
 ]

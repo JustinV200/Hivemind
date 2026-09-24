@@ -1465,7 +1465,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   and `attenuate(subset)`; pure.
 - [x] **10.2 Policy engine.** `[guard]` manifest section (per-role default sets, deny lists,
   escalation rules), pure `evaluate` with a reason; denials are `guard.*` events.
-- [ ] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
+- [x] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
   invocation, session calls outside scratch, Exoskeleton attach on a real display, Honey access,
   slot binding and rebinding, question routing to the human, Nuc promotion, device commands,
   tactic invocation, and Comb Shield egress policy activation. A test enumerates them and fails if a new state-changing action

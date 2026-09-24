@@ -25,7 +25,8 @@ Fits into the Hive:
     composition root constructs one -- the CLI (roadmap step 3.21) in production,
     `tests.builders.queen.make_queen_deps` in tests -- which attaches each `WardenLink` with
     `Queen.attach_warden` before `run()`. Calls into `hivemind.brood_chamber`, `hivemind.forage`,
-    `hivemind.llm.ladders.gate`, `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
+    `hivemind.guard` (Enforcer, roadmap step 10.3), `hivemind.llm.ladders.gate`,
+    `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
     `hivemind.queen.cluster.health`/`.orders` (HealthPoller, OrderStore, InMemoryOrderStore --
     roadmap step 4.9), `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.queen.placement`
     (PlacementPolicy, VirtualBackendCandidate, DormantCandidate, Placement -- roadmap step 5.7),
@@ -69,6 +70,7 @@ from hivemind.forage import (
     RoyalReserve,
     SlotBinding,
 )
+from hivemind.guard import Enforcer
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -282,9 +284,14 @@ class QueenDeps:
             regardless of what the escalation policy's own rows would otherwise decide.
         memory_budget: The `[memory]` slice an awake episode's `TokenBudget` is built from.
         scratch_root: The Hive Stand's own `[hive_stand] scratch_root`, resolved (roadmap step
-            5.0b). Read only by `hivemind.queen.goal_submission.submit_goal`, which passes it to
+            5.0b). Read by `hivemind.queen.goal_submission.submit_goal`, which passes it to
             `hivemind.queen.planner.PlanBrief.scratch_root` so a plan that declares a leaving
-            inside scratch is refused while planning.
+            inside scratch is refused while planning, and by `hivemind.queen.authority` to fill
+            a Warden's `{scratch}` entries when she computes its set (roadmap step 10.3).
+        enforcer: The Guard's adapter every one of the Queen's enforcement points calls (roadmap
+            step 10.3, ADR-0031): placement, grant issue, Forage requests, Warden spawn, question
+            routing and Comb Shield egress. Its policy is the one every set she computes is built
+            from, and it records each refusal as `guard.denied` on this Queen's own trail.
         footprints: Every `[forage.roles.<role>]` footprint, forage-side, keyed by
             `waggle.messages.task.WorkerRole`; `hivemind.queen.dispatcher` reads
             `footprints[WorkerRole.DRONE]` for every fresh grant it computes (roadmap step 3.21,
@@ -373,6 +380,7 @@ class QueenDeps:
     alarm_attempt_limit: int
     memory_budget: MemoryBudget
     scratch_root: Path
+    enforcer: Enforcer
     footprints: Mapping[WorkerRole, RoleFootprint] = field(
         default_factory=lambda: {WorkerRole.DRONE: _DEFAULT_DRONE_FOOTPRINT}
     )
