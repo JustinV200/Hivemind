@@ -1097,9 +1097,13 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 
 ### Steps
 
-- [ ] **6.1 Desktop image.** `images/desktop-ubuntu/Dockerfile` on `base-ubuntu`: Xvfb, a light
+- [x] **6.1 Desktop image.** `images/desktop-ubuntu/Dockerfile` on `base-ubuntu`: Xvfb, a light
   window manager, `xdotool`, PulseAudio null sink and virtual source, a browser, fonts. Reports
-  `has_display`, `has_audio`, `has_browser`. README documents each package.
+  `has_display`, `has_audio`, `has_browser`. README documents each package. Landed with nothing
+  started at boot: the probe reports `can_start_display` (not `has_display`), `has_audio` and
+  `has_browser`, and `tests/integration/test_exoskeleton_docker.py` attaches a desktop, audio and
+  a browser inside a real container as the unprivileged `hive` user and checks detach leaves
+  nothing running.
 - [x] **6.2 Protocols.** `CompoundEye`, `Antennae`, `Buzz` under `exoskeleton/*/base.py`, each
   operating through a `CellSession` so the same backend works inside a Virtual Cell and on a Linux
   Real Cell. Every method documents latency class and failure mode.
