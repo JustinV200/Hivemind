@@ -43,7 +43,7 @@ console). DENIED, EXPIRED and REVOKED are terminal.
 | Seam | Default | Implemented by |
 |---|---|---|
 | `SecurityNotifier.notify(notice)`: "something happened to device X", the trail event as the push's `ref` | `NullSecurityNotifier` | roadmap 10.5b (push) |
-| `DeviceOffboarder.offboard(device_id, reason)`: end sessions, delete push subscriptions (idempotent) | `NullDeviceOffboarder` | roadmap 10.5e (sessions) and 10.5b (subscriptions) |
+| `DeviceOffboarder.offboard(device_id, reason)`: end sessions, delete push subscriptions (idempotent) | `NullDeviceOffboarder` | roadmap 10.5e (sessions: `hivemind.entrance.auth.SessionBook.offboard`) and 10.5b (subscriptions: `PushDispatcher.forget_device`); the app composes the two |
 | `GoalLedger.open_goals(device_id)`, `cancel_goals(goal_ids, reason)` | `NullGoalLedger` | the Queen's goal-request table |
 
 Each no-op is safe on its own: the trail records every event whether or not anyone is told, and

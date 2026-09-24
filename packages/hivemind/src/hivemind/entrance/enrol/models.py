@@ -36,7 +36,6 @@ See Also:
 
 from __future__ import annotations
 
-import ipaddress
 import unicodedata
 from typing import Annotated
 
@@ -44,6 +43,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 
 from hivemind.entrance.auth.canonical import b64url_decode
 from hivemind.entrance.auth.keys import ED25519_PUBLIC_KEY_BYTES, KeyKind, key_fingerprint
+from hivemind.entrance.auth.network import is_device_network
 from hivemind.entrance.enrol.state import DeviceStatus
 from waggle.messages.base import DeviceIdField, UtcDatetime
 
@@ -56,8 +56,6 @@ MAX_PUBLIC_KEY_CHARS = 2048  # base64url of a COSE key; an RSA-4096 passkey need
 MAX_CREDENTIAL_ID_CHARS = 1364  # WebAuthn's 1023-byte credential id cap, in base64url.
 MAX_RP_ID_CHARS = 253  # A DNS name, the longest a relying party id can be.
 MAX_PASSWORD_HASH_CHARS = 256  # The PHC string at this profile is about 100 characters.
-IPV4_NETWORK_PREFIX = 24  # ADR-0033: a device's network is the /24 of an IPv4 address...
-IPV6_NETWORK_PREFIX = 64  # ...and the /64 of an IPv6 one.
 _SHA256_HEX = r"^[0-9a-f]{64}$"  # A lowercase hex SHA-256: an invite code's hash.
 # The PHC string cryptography's Argon2id writes; anything else (a plaintext password stored by a
 # bug, above all) is refused before it can reach the Entrance tables.
@@ -211,8 +209,9 @@ class EnrolledDevice(BaseModel):
     spend_cap_usd_per_day: float | None = Field(
         default=None,
         ge=0,
-        description="The most it may spend per day, in USD, a hard limit step-up never lifts; "
-        "None is uncapped, which only the console is.",
+        description="The most it may spend per day, in USD, on its own two factors: a goal "
+        "past it needs a human's step-up (or a pending confirmation a human steps up to "
+        "confirm, ADR-0033); None is uncapped, which only the console is.",
     )
     expires_at: UtcDatetime | None = Field(
         default=None,
@@ -235,8 +234,9 @@ class EnrolledDevice(BaseModel):
     )
     last_network: str | None = Field(
         default=None,
-        description="The network it was last seen from, as CIDR text: the /24 of an IPv4 "
-        "address or the /64 of an IPv6 one (the travel lock compares it).",
+        description="The network it was last seen from: the /24 of an IPv4 address or the /64 "
+        "of an IPv6 one as CIDR text, or derp:<region> when tailscaled reported the peer as "
+        "relayed (hivemind.entrance.auth.network).",
     )
 
     @property
@@ -259,13 +259,11 @@ class EnrolledDevice(BaseModel):
     @field_validator("last_network")
     @classmethod
     def _last_network_is_a_device_network(cls, value: str | None) -> str | None:
-        """Refuse anything but an IPv4 /24 or an IPv6 /64 written in CIDR form."""
-        if value is None:
-            return value
-        network = ipaddress.ip_network(value, strict=True)
-        prefix = IPV4_NETWORK_PREFIX if network.version == 4 else IPV6_NETWORK_PREFIX
-        if network.prefixlen != prefix:
-            raise ValueError(f"last_network must be a /{prefix} for IPv{network.version}.")
+        """Refuse anything but a canonical IPv4 /24, IPv6 /64 or ``derp:<region>``."""
+        if value is not None and not is_device_network(value):
+            raise ValueError(
+                "last_network must be a canonical IPv4 /24, IPv6 /64 or derp:<region> network."
+            )
         return value
 
     @model_validator(mode="after")

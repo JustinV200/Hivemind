@@ -13,7 +13,10 @@ status), ``use_invite`` makes an invite single-use and refuses it once expired, 
 ``check_device_event`` makes sure the Pheromone Trail (audit log) event written with a change is
 the one that change records. A status change's other field updates travel as ``DeviceChanges``,
 keyword arguments typed per field; the id, the creation time, the console flag and the login
-bookkeeping cannot be among them.
+bookkeeping cannot be among them. The login bookkeeping has its own write, ``record_login``
+(``apply_login`` is its rule): when an APPROVED device last logged in, from which network, and
+its passkey's signature counter, which may only move forward. ``EntranceStore`` also extends
+``AuthTables``: the session, login, pending-confirmation and mode tables (roadmap 10.5e).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store``. Used by
@@ -29,6 +32,8 @@ Key invariants:
       and moves its device to PENDING in one atomic step, so neither happens without the other.
     - Every entry and every transition carries its ``guard.entrance_*`` trail event, written in
       the same atomic step as the state change (codingrules Appendix C): both commit, or neither.
+    - ``record_login`` never changes a status, touches only an APPROVED device, and never moves a
+      passkey's counter backwards (two logins racing with the same counter: the second fails).
 
 See Also:
     - hivemind.entrance.enrol.state for the transition table and the kinds these guards apply.
@@ -60,13 +65,16 @@ from hivemind.entrance.errors import (
     InvalidDeviceEntryError,
     InviteAlreadyUsedError,
     InviteExpiredError,
+    PasskeyRejectedError,
 )
+from hivemind.entrance.store.tables import AuthTables
 from hivemind.pheromone import GuardEvent
 from waggle.ids import DeviceId
 
 __all__ = [
     "DeviceChanges",
     "EntranceStore",
+    "apply_login",
     "check_device_event",
     "check_new_device",
     "check_status_change",
@@ -104,12 +112,13 @@ class DeviceChanges(TypedDict, total=False):
 _CHANGEABLE_FIELDS = frozenset(DeviceChanges.__annotations__)
 
 
-class EntranceStore(Protocol):
+class EntranceStore(AuthTables, Protocol):
     """Persist the operator row, enrolled devices and invites; apply the enrolment rules.
 
     Implementations serialise their own operations (one lock or one connection thread) and apply
-    ``check_new_device``, ``check_status_change``, ``transition_device`` and ``use_invite`` inside
-    the same atomic step as the write they guard, writing the change's trail event in that step.
+    ``check_new_device``, ``check_status_change``, ``transition_device``, ``use_invite`` and
+    ``apply_login`` inside the same atomic step as the write they guard, writing the change's
+    trail event in that step. The four tables of ``AuthTables`` come with the store.
     """
 
     async def get_operator(self) -> OperatorCredential | None:
@@ -259,6 +268,27 @@ class EntranceStore(Protocol):
         """
         ...
 
+    async def record_login(
+        self, device_id: DeviceId, at: datetime, network: str | None, sign_count: int | None
+    ) -> EnrolledDevice:
+        """Record a successful login on an APPROVED device (``apply_login``), atomically.
+
+        Args:
+            device_id: The device that logged in.
+            at: When; becomes ``last_seen_at``.
+            network: The network it logged in from; becomes ``last_network`` (None: unknown).
+            sign_count: A passkey's new signature counter; None for an Ed25519 device.
+
+        Returns:
+            The device as stored after the change.
+
+        Raises:
+            DeviceNotFoundError: No such device.
+            DeviceStatusConflictError: It is not (or no longer) APPROVED.
+            PasskeyRejectedError: ``sign_count`` does not move the stored counter forward.
+        """
+        ...
+
 
 def check_new_device(device: EnrolledDevice, event: GuardEvent) -> None:
     """Refuse a new record anywhere but the state machine's entry, or without its entry event.
@@ -379,3 +409,40 @@ def use_invite(invite: DeviceInvite, used_at: datetime) -> DeviceInvite:
         raise InviteExpiredError(invite.code_hash)
     # model_validate, not model_copy, so the model's own window rule still checks used_at.
     return DeviceInvite.model_validate({**dict(invite), "used_at": used_at})
+
+
+def apply_login(
+    current: EnrolledDevice, at: datetime, network: str | None, sign_count: int | None
+) -> EnrolledDevice:
+    """Apply one successful login to ``current``: the rule ``record_login`` applies atomically.
+
+    Args:
+        current: The device as stored right now.
+        at: When it logged in.
+        network: The network it logged in from, or None.
+        sign_count: A passkey's new counter, or None for an Ed25519 device.
+
+    Returns:
+        A new, fully re-validated record with the login applied; its status is unchanged.
+
+    Raises:
+        DeviceStatusConflictError: ``current`` is not APPROVED.
+        PasskeyRejectedError: ``sign_count`` does not move the counter forward (both 0, which
+            many platform authenticators always report, is allowed).
+        pydantic.ValidationError: The result breaks a model rule (a malformed network).
+    """
+    if current.status is not DeviceStatus.APPROVED:
+        raise DeviceStatusConflictError(current.id, DeviceStatus.APPROVED, current.status)
+    fields: dict[str, object] = {**dict(current), "last_seen_at": at, "last_network": network}
+    if sign_count is not None:
+        # Re-checked here, against the row as it is now: two assertions verified against the same
+        # stored counter can both pass verification, but only the first may move it.
+        stalled = sign_count <= current.sign_count and not sign_count == current.sign_count == 0
+        if stalled:
+            raise PasskeyRejectedError(
+                f"The passkey of device {current.id} reported a signature counter that did not "
+                "move forward."
+            )
+        fields["sign_count"] = sign_count
+    # model_validate (not model_copy) so every field and cross-field rule runs on the result.
+    return EnrolledDevice.model_validate(fields)

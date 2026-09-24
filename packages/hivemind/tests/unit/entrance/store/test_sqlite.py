@@ -1,9 +1,10 @@
 """Tests for hivemind.entrance.store.sqlite: migrations and durability of the Entrance tables.
 
-What every EntranceStore does is in tests/contracts/test_entrance_store_contract.py; this module
-covers what only the SQLite store does: its own migration series in the shared schema table, its
-refusal of a file without the Pheromone Trail's table, and state (with its trail events) that
-survives a new connection to the same file (a Queen restart).
+What every EntranceStore does is in tests/contracts/test_entrance_store_contract.py (and the
+10.5e tables' two suites beside it); this module covers what only the SQLite store does: its own
+migration series in the shared schema table, its refusal of a file without the Pheromone Trail's
+table, and state (with its trail events) that survives a new connection to the same file (a Queen
+restart), the sessions, spent nonces, login failures, networks, held requests and mode included.
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/store/sqlite.py (codingrules section 3).
@@ -17,15 +18,26 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from builders.entrance import entry_event, make_device, make_invite, walk_to
+from builders.entrance import (
+    STORE_IDENTITY,
+    entry_event,
+    make_device,
+    make_invite,
+    make_pending,
+    make_session,
+    walk_to,
+)
 
 from hivemind.common.errors import MigrationError
 from hivemind.common.migrations import applied_versions
 from hivemind.common.sqlite import connect
+from hivemind.entrance.auth.session import NonceClaim
 from hivemind.entrance.enrol import DeviceStatus
+from hivemind.entrance.reducer import EntranceMode
 from hivemind.entrance.store import SUBSYSTEM, SqliteEntranceStore, apply_entrance_migrations
 from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
 from waggle.clock import FakeClock
@@ -59,7 +71,7 @@ async def test_create_records_the_entrance_series_once(tmp_path: Path) -> None:
     applied_again = apply_entrance_migrations(connection, clock)
 
     assert SUBSYSTEM == "entrance"
-    assert applied_versions(connection, SUBSYSTEM) == (1,)
+    assert applied_versions(connection, SUBSYSTEM) == (1, 2)
     assert applied_again == ()
 
 
@@ -98,3 +110,30 @@ async def test_the_status_column_follows_every_change(tmp_path: Path) -> None:
 
     row = connect(db).execute("SELECT status FROM entrance_devices WHERE id = ?", (device.id,))
     assert row.fetchone()["status"] == "LOCKED"
+
+
+async def test_the_login_session_and_mode_tables_survive_a_new_connection(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+    clock = FakeClock()
+    store = await _store(db, clock)
+    device = make_device(clock)
+    await store.put_device(device, entry_event(device, clock))
+    session, pending = make_session(device.id, clock), make_pending(device.id, clock)
+    later = clock.now() + timedelta(seconds=120)
+    claim = NonceClaim("bm9uY2Utb25lLW5vbmNlLW9uZQ", session.token_hash, later, clock.now())
+    reduced = STORE_IDENTITY.event(clock, "guard.reduced", STORE_IDENTITY.hive_id, {})
+    await store.sessions.put(session)
+    await store.sessions.claim_nonce(claim)
+    await store.logins.count_failure(device.id, clock.now())
+    await store.logins.remember_network(device.id, "derp:nyc", clock.now())
+    await store.pending.put(pending)
+    await store.entrance_mode.change(EntranceMode.OPEN, EntranceMode.REDUCED, reduced)
+
+    reopened = await SqliteEntranceStore.create(connect(db), clock)
+
+    assert await reopened.sessions.get(session.token_hash) == session
+    assert not await reopened.sessions.claim_nonce(claim)
+    assert await reopened.logins.failures(device.id) == 1
+    assert await reopened.logins.networks(device.id) == frozenset({"derp:nyc"})
+    assert await reopened.pending.get(pending.id) == pending
+    assert await reopened.entrance_mode.get() is EntranceMode.REDUCED

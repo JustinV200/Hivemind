@@ -1,4 +1,4 @@
-"""Build valid hivemind.entrance test data: devices, invites, events and a whole enrolment rig.
+"""Build valid hivemind.entrance records and events, and walk a stored device along its machine.
 
 Every builder returns a real, validated model (codingrules 14.5) with sensible defaults for every
 field a test does not care about. ``make_device(status=...)`` fills in whatever that status
@@ -7,14 +7,13 @@ requires (a key and a description once redeemed, ``approved_at`` once approved),
 ``DeviceChanges`` an INVITED-to-PENDING and a PENDING-to-APPROVED move need; ``changes_for`` picks
 the right one for any edge, ``entry_event`` and ``edge_event`` the ``guard.entrance_*`` event each
 store write carries, and ``walk_to`` drives a stored INVITED device along the state machine to any
-status, so a contract test can start an edge from wherever it needs to. ``Enrolment`` is a whole
-enrolment rig over real stores (in memory, or SQLite with ``sqlite_enrolment``) with recording
-fakes for the seams; ``mint``, ``redeem_program``, ``redeem_browser`` and ``admitted`` drive a
-device through the real flows.
+status, so a contract test can start an edge from wherever it needs to. ``make_session`` and
+``make_pending`` build the session and pending-confirmation records of roadmap step 10.5e.
 
 Fits into the Hive:
-    Test infrastructure (codingrules section 14.5), not shipped. Used by the tests under
-    packages/hivemind/tests/unit/entrance and the Entrance store contract suite.
+    Test infrastructure (codingrules section 14.5), not shipped. Used through the
+    ``builders.entrance`` face by the tests under packages/hivemind/tests/unit/entrance and the
+    Entrance store contract suites.
 
 Key invariants:
     - Every builder that mints an id or a timestamp takes an optional ``clock`` (default a fresh
@@ -29,68 +28,36 @@ See Also:
 
 from __future__ import annotations
 
-import base64
 import secrets
-from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path
 
-from hivemind.common.sqlite import connect
 from hivemind.entrance.auth import (
-    ChallengeBook,
+    ActionKind,
+    BindingKind,
     KeyKind,
+    Listener,
+    PendingConfirmation,
+    PendingStatus,
     RelyingParty,
-    SoftPasskey,
+    Session,
     b64url_encode,
-    enrol_string,
     sha256_hex,
 )
+from hivemind.entrance.auth.confirm import new_pending_id
 from hivemind.entrance.enrol import (
-    ENROLMENT_CHALLENGE_TTL,
     ENTRY_TRAIL_KINDS,
-    ApprovalRequest,
     DeviceDescription,
     DeviceInvite,
     DeviceStatus,
-    Ed25519Proof,
     EnrolledDevice,
-    EnrolmentCeremony,
-    EnrolmentDeps,
-    EnrolmentRecords,
-    EnrolmentRules,
-    EnrolmentSeams,
     EntranceIdentity,
-    FakeGoalLedger,
-    MintedInvite,
-    RecordingDeviceOffboarder,
-    RecordingSecurityNotifier,
-    Redemption,
-    approve,
     can_transition,
-    invite_code_hash,
-    mint_invite,
-    passkey_options,
-    redeem_ed25519,
-    redeem_passkey,
     trail_kind,
 )
-from hivemind.entrance.store import (
-    DeviceChanges,
-    EntranceStore,
-    MemoryEntranceStore,
-    SqliteEntranceStore,
-)
-from hivemind.guard import load_guard_policy
-from hivemind.pheromone import (
-    GuardEvent,
-    MemoryPheromoneTrail,
-    PheromoneEvent,
-    PheromoneTrail,
-    SqlitePheromoneTrail,
-    TrailQuery,
-)
+from hivemind.entrance.store import DeviceChanges, EntranceStore
+from hivemind.pheromone import GuardEvent
 from waggle.clock import Clock, FakeClock
-from waggle.ids import new_device_id, new_hive_id, new_node_id
+from waggle.ids import DeviceId, new_device_id, new_hive_id, new_node_id
 from waggle.signing import Ed25519Signer
 
 INVITE_TTL = timedelta(minutes=15)  # [entrance] invite_ttl_minutes' default.
@@ -255,132 +222,38 @@ async def walk_to(
     return current
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# A whole enrolment rig, driven through the real flows
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True)
-class Fakes:
-    """The recording fakes an Enrolment rig's seams are, typed as themselves for assertions."""
-
-    notifier: RecordingSecurityNotifier
-    offboarder: RecordingDeviceOffboarder
-    goals: FakeGoalLedger
-
-
-@dataclass(frozen=True, slots=True)
-class Enrolment:
-    """EnrolmentDeps over real stores, with the recording fakes a test inspects."""
-
-    deps: EnrolmentDeps
-    trail: PheromoneTrail
-    clock: FakeClock
-    fakes: Fakes
-
-    @property
-    def store(self) -> EntranceStore:
-        """The Entrance tables under test."""
-        return self.deps.records.store
-
-    @property
-    def notifier(self) -> RecordingSecurityNotifier:
-        """Every security notice sent so far."""
-        return self.fakes.notifier
-
-    @property
-    def offboarder(self) -> RecordingDeviceOffboarder:
-        """Every device cut off so far."""
-        return self.fakes.offboarder
-
-    @property
-    def goals(self) -> FakeGoalLedger:
-        """The devices' open goals and every cancellation."""
-        return self.fakes.goals
-
-    async def events(self, kind: str | None = None) -> tuple[PheromoneEvent, ...]:
-        """Return every trail event, or every event of ``kind``, in trail order."""
-        return await self.trail.query(TrailQuery(kind=kind))
-
-
-def enrolment_over(
-    store: EntranceStore, trail: PheromoneTrail, clock: FakeClock, goals: FakeGoalLedger
-) -> Enrolment:
-    """Build an Enrolment rig over ``store`` and ``trail`` (which the store records on)."""
-    fakes = Fakes(RecordingSecurityNotifier(), RecordingDeviceOffboarder(), goals)
-    deps = EnrolmentDeps(
-        records=EnrolmentRecords(store, trail, clock, make_identity(clock)),
-        rules=EnrolmentRules(load_guard_policy(), INVITE_TTL, PENDING_TTL, ORIGIN),
-        ceremony=EnrolmentCeremony(
-            Ed25519Signer.generate().public_key_bytes,
-            RELYING_PARTY,
-            ChallengeBook(clock, ENROLMENT_CHALLENGE_TTL),
-        ),
-        seams=EnrolmentSeams(fakes.notifier, fakes.offboarder, fakes.goals),
-    )
-    return Enrolment(deps, trail, clock, fakes)
-
-
-def memory_enrolment(goals: FakeGoalLedger | None = None) -> Enrolment:
-    """Build an Enrolment rig over in-memory tables and trail."""
-    clock = FakeClock()
-    trail = MemoryPheromoneTrail(clock)
-    return enrolment_over(MemoryEntranceStore(trail), trail, clock, goals or FakeGoalLedger())
-
-
-async def sqlite_enrolment(path: Path, goals: FakeGoalLedger | None = None) -> Enrolment:
-    """Build an Enrolment rig over one SQLite file holding both the trail and the tables."""
-    clock = FakeClock()
-    trail = await SqlitePheromoneTrail.create(connect(path), clock)
-    store = await SqliteEntranceStore.create(connect(path), clock)
-    return enrolment_over(store, trail, clock, goals or FakeGoalLedger())
-
-
-def ed25519_proof(rig: Enrolment, code: str, signer: Ed25519Signer) -> Ed25519Proof:
-    """Sign the enrolment string for ``code`` with ``signer``, as a program would."""
-    public_key_hex = signer.public_key_bytes.hex()
-    message = enrol_string(
-        rig.deps.records.identity.hive_id, invite_code_hash(code), public_key_hex
-    )
-    # Ed25519Signer returns padded standard base64; the Entrance's wire form is base64url.
-    raw = base64.b64decode(signer.sign(message))
-    return Ed25519Proof(public_key_hex=public_key_hex, signature=b64url_encode(raw))
-
-
-async def mint(rig: Enrolment, label: str = "phone") -> MintedInvite:
-    """Mint an invite through the real flow."""
-    return await mint_invite(rig.deps, label)
-
-
-async def redeem_program(
-    rig: Enrolment, minted: MintedInvite, signer: Ed25519Signer | None = None
-) -> Redemption:
-    """Redeem ``minted`` as a program with an Ed25519 key."""
-    key = signer if signer is not None else Ed25519Signer.generate()
-    proof = ed25519_proof(rig, minted.code, key)
-    return await redeem_ed25519(rig.deps, minted.code, proof, make_description(), ADDRESS)
-
-
-async def redeem_browser(
-    rig: Enrolment, minted: MintedInvite, passkey: SoftPasskey | None = None
-) -> Redemption:
-    """Redeem ``minted`` as a browser creating a passkey over the issued options."""
-    authenticator = passkey if passkey is not None else SoftPasskey(ORIGIN)
-    options = await passkey_options(rig.deps, minted.code, ADDRESS)
-    registration = authenticator.create(options)
-    return await redeem_passkey(rig.deps, minted.code, registration, make_description(), ADDRESS)
-
-
-def approval(**overrides: object) -> ApprovalRequest:
-    """Build an ApprovalRequest for a phone, with any field overridden."""
-    fields: dict[str, object] = {"name": "phone", "spend_cap_usd_per_day": 5.0, "actor": "human"}
+def make_session(device_id: DeviceId, clock: Clock | None = None, **overrides: object) -> Session:
+    """Build an open Session for ``device_id``: an Ed25519-bound remote session, 12 hours long."""
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "token_hash": sha256_hex(secrets.token_bytes(32)),
+        "device_id": device_id,
+        "binding_kind": BindingKind.ED25519,
+        "binding_key": ed25519_public_key(),
+        "listener": Listener.REMOTE,
+        "address": "100.64.0.7",
+        "network": "100.64.0.0/24",
+        "created_at": active_clock.now(),
+        "last_seen_at": active_clock.now(),
+        "expires_at": active_clock.now() + timedelta(hours=12),
+    }
     fields.update(overrides)
-    return ApprovalRequest.model_validate(fields)
+    return Session.model_validate(fields)
 
 
-async def admitted(rig: Enrolment, status: DeviceStatus = DeviceStatus.APPROVED) -> EnrolledDevice:
-    """Enrol a program through the real flows as far as PENDING or APPROVED."""
-    redemption = await redeem_program(rig, await mint(rig))
-    if status is DeviceStatus.PENDING:
-        return await rig.store.get_device(redemption.device_id)
-    return await approve(rig.deps, redemption.device_id, approval())
+def make_pending(
+    device_id: DeviceId, clock: Clock | None = None, **overrides: object
+) -> PendingConfirmation:
+    """Build a PENDING confirmation of a goal for ``device_id``, held for an hour."""
+    active_clock = clock if clock is not None else FakeClock()
+    fields: dict[str, object] = {
+        "id": new_pending_id(active_clock),
+        "device_id": device_id,
+        "action": ActionKind.GOAL,
+        "payload": {"budget_usd": 12.5, "goal": "tidy the garden"},
+        "status": PendingStatus.PENDING,
+        "created_at": active_clock.now(),
+        "expires_at": active_clock.now() + timedelta(hours=1),
+    }
+    fields.update(overrides)
+    return PendingConfirmation.model_validate(fields)

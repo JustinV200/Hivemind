@@ -56,6 +56,7 @@ __all__ = [
     "P256_PUBLIC_KEY_BYTES",
     "P256_SIGNATURE_BYTES",
     "KeyKind",
+    "is_p256_point",
     "key_fingerprint",
     "verify_ed25519",
     "verify_p256",
@@ -122,6 +123,29 @@ def verify_p256(public_key: bytes, message: bytes, signature: bytes) -> bool:
         key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_key)
         key.verify(encode_dss_signature(r, s), message, ec.ECDSA(hashes.SHA256()))
     except (InvalidSignature, ValueError):
+        return False
+    return True
+
+
+def is_p256_point(public_key: bytes) -> bool:
+    """Return whether ``public_key`` is an uncompressed P-256 point, as WebCrypto exports one.
+
+    A browser registers its session-binding key with its login challenge; checking it then means
+    a session is never bound to a key no signature could ever verify under.
+
+    Args:
+        public_key: The candidate key's raw bytes.
+
+    Returns:
+        True for a 65-byte ``0x04 || X || Y`` point on P-256; False for anything else. Never
+        raises.
+    """
+    if len(public_key) != P256_PUBLIC_KEY_BYTES or public_key[0] != _UNCOMPRESSED_POINT_PREFIX:
+        return False
+    try:
+        # from_encoded_point raises ValueError for a point that is not on the curve.
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_key)
+    except ValueError:
         return False
     return True
 

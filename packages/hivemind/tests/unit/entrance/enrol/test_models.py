@@ -113,9 +113,10 @@ def test_fingerprint_is_the_stored_keys_fingerprint_and_none_before_redemption()
     assert pending.fingerprint == key_fingerprint(b64url_decode(public_key))
 
 
-def test_last_network_accepts_an_ipv4_24_and_an_ipv6_64() -> None:
+def test_last_network_accepts_an_ipv4_24_an_ipv6_64_and_a_relay_region() -> None:
     assert make_device(last_network="100.64.3.0/24").last_network == "100.64.3.0/24"
     assert make_device(last_network="fd7a:115c:a1e0::/64").last_network == "fd7a:115c:a1e0::/64"
+    assert make_device(last_network="derp:nyc").last_network == "derp:nyc"
 
 
 @pytest.mark.parametrize(
@@ -137,6 +138,7 @@ def test_last_network_accepts_an_ipv4_24_and_an_ipv6_64() -> None:
         (DeviceStatus.APPROVED, {"loopback_bound": True, "interactive": False}),
         (DeviceStatus.INVITED, {"last_network": "100.64.3.0/16"}),  # Not the device's /24.
         (DeviceStatus.INVITED, {"last_network": "100.64.3.7/24"}),  # Host bits set.
+        (DeviceStatus.INVITED, {"last_network": "derp:NYC fra"}),  # Not a region code.
         (DeviceStatus.INVITED, {"capabilities": ("Observe",)}),  # Not a family name.
         (DeviceStatus.INVITED, {"capabilities": ("observe\n",)}),
         (DeviceStatus.INVITED, {"created_at": datetime(2026, 1, 1)}),  # A naive timestamp.

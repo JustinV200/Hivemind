@@ -9,14 +9,17 @@ subclasses the ``hivemind.common.errors`` category it belongs to (``NotFoundErro
 ``ConflictError``, ``PermissionDeniedError``) so a generic handler (an HTTP status mapper, the CLI)
 can react by category without knowing the Entrance. Every class carries its own stable, dotted
 ``code`` (codingrules section 10), the form an error takes once it crosses the Landing Board (the
-Entrance's versioned API).
+Entrance's versioned API). Roadmap step 10.5e adds the refusals of login and sessions (one generic
+``AuthenticationFailedError``), step-up, pending confirmations, the travel lock and the Entrance
+Reducer.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Raised by
-    ``hivemind.entrance.auth`` (passwords, keys, passkeys, wrapped keys, challenges),
-    ``hivemind.entrance.enrol`` (the device state machine, the console bootstrap, invites,
-    redemption, approval and the operator's other decisions) and ``hivemind.entrance.store`` (the
-    Entrance tables). Imports only ``hivemind.common.errors``.
+    ``hivemind.entrance.auth`` (passwords, keys, passkeys, wrapped keys, challenges, login,
+    sessions, step-up, pending confirmations, the travel lock), ``hivemind.entrance.enrol`` (the
+    device state machine, the console bootstrap, invites, redemption, approval and the operator's
+    other decisions), ``hivemind.entrance.reducer`` and ``hivemind.entrance.store`` (the Entrance
+    tables). Imports only ``hivemind.common.errors``.
 
 Key invariants:
     - Every class sets its own ``code``; no two share one (a test walks them all).
@@ -25,9 +28,10 @@ Key invariants:
     - ``PasskeyRejectedError`` and ``KeyUnwrapError`` never say which check failed beyond what the
       verifying library reports about the ceremony itself: a wrong password and a tampered blob
       read the same (ADR-0033: a failure never says which factor failed).
-    - ``EnrolmentRefusedError`` and ``ChallengeRejectedError`` carry one fixed message each, so a
-      device that is refused learns nothing about why (an unknown, used or expired code and a bad
-      proof all read the same); the reason goes to the Pheromone Trail instead.
+    - ``EnrolmentRefusedError``, ``ChallengeRejectedError`` and ``AuthenticationFailedError``
+      carry one fixed message each, so a device that is refused learns nothing about why (an
+      unknown, used or expired code, a bad proof, a wrong password, a replayed nonce all read the
+      same); the reason goes to the Pheromone Trail instead.
     - Statuses are typed as ``Enum`` here, not ``DeviceStatus``, so this module never imports
       ``hivemind.entrance.enrol.state``, which imports it.
 
@@ -42,6 +46,7 @@ from enum import Enum
 from typing import ClassVar
 
 from hivemind.common.errors import (
+    ConfigurationError,
     ConflictError,
     HiveMindError,
     NotFoundError,
@@ -49,17 +54,23 @@ from hivemind.common.errors import (
 )
 
 __all__ = [
+    "AuthenticationFailedError",
+    "BreakGlassRefusedError",
     "CapabilityCeilingError",
     "ChallengeRejectedError",
+    "ConfirmationRefusedError",
     "ConsoleProtectedError",
     "DeviceAlreadyExistsError",
     "DeviceNotFoundError",
     "DeviceStatusConflictError",
     "EnrolmentRefusedError",
     "EntranceError",
+    "EntranceModeConflictError",
     "InvalidApprovalError",
     "InvalidDeviceEntryError",
     "InvalidDeviceTransitionError",
+    "InvalidModeTransitionError",
+    "InvalidPendingTransitionError",
     "InviteAlreadyExistsError",
     "InviteAlreadyUsedError",
     "InviteExpiredError",
@@ -69,7 +80,12 @@ __all__ = [
     "OperatorNotInitialisedError",
     "OperatorPasswordMismatchError",
     "PasskeyRejectedError",
+    "PendingNotFoundError",
+    "PendingStatusConflictError",
+    "ReopenRefusedError",
+    "StepUpUnavailableError",
     "StewardGrantError",
+    "TravelLockUnavailableError",
     "WeakPasswordError",
 ]
 
@@ -413,3 +429,201 @@ class ConsoleProtectedError(EntranceError, PermissionDeniedError):
             "means `hive entrance operator password --reset` while `hive serve` is stopped."
         )
         self.device_id = device_id
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Login, sessions and step-up
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class AuthenticationFailedError(EntranceError, PermissionDeniedError):
+    """Raise when a login, a signed request, a socket's first frame or a step-up is refused.
+
+    An unknown device, a device that is not approved, a bad device proof, a wrong password, an
+    unknown, ended or idle session, a bad signature, a stale timestamp, a replayed nonce and the
+    wrong listener all raise this with one fixed message (ADR-0033: a failure never says which
+    factor failed); the reason category goes to the Pheromone Trail instead.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.authentication_failed"
+
+    def __init__(self) -> None:
+        """Build the error; it has one fixed message on purpose (see the class docstring)."""
+        super().__init__("Authentication failed; log in again with the device key and password.")
+
+
+class StepUpUnavailableError(EntranceError, PermissionDeniedError):
+    """Raise when a device no person types at asks to step up.
+
+    A non-interactive device (a program key) cannot step up (ADR-0033): what it asks for that
+    needs step-up waits as a pending confirmation until a person confirms it from an interactive
+    device.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.step_up_unavailable"
+
+    def __init__(self, device_id: str) -> None:
+        """Build the error for a non-interactive device.
+
+        Args:
+            device_id: The device that asked to step up.
+        """
+        super().__init__(
+            f"Device {device_id} is not interactive and cannot step up; a person confirms its "
+            "request from an interactive device instead."
+        )
+        self.device_id = device_id
+
+
+class BreakGlassRefusedError(EntranceError, PermissionDeniedError):
+    """Raise when a break-glass action lacks its phrase, its step-up or an interactive device.
+
+    Absconding, Sting Cut and Supersedure need the typed confirmation phrase of codingrules 15 on
+    every path, the API included, and only from a device a person types at (ADR-0033).
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.break_glass_refused"
+
+
+class ConfirmationRefusedError(EntranceError, PermissionDeniedError):
+    """Raise when a pending confirmation cannot be held, confirmed or cancelled; says why."""
+
+    code: ClassVar[str] = "hivemind.entrance.confirmation_refused"
+
+
+class PendingNotFoundError(EntranceError, NotFoundError):
+    """Raise when no pending confirmation has the requested id."""
+
+    code: ClassVar[str] = "hivemind.entrance.pending_not_found"
+
+    def __init__(self, pending_id: str) -> None:
+        """Build the error for a missing pending confirmation.
+
+        Args:
+            pending_id: The id that was looked up.
+        """
+        super().__init__(f"No pending confirmation {pending_id} exists in the Entrance tables.")
+        self.pending_id = pending_id
+
+
+class InvalidPendingTransitionError(EntranceError, ConflictError):
+    """Raise when a pending confirmation's status change is not an edge of its state machine."""
+
+    code: ClassVar[str] = "hivemind.entrance.invalid_pending_transition"
+
+    def __init__(self, from_status: Enum, to_status: Enum) -> None:
+        """Build the error for a forbidden edge.
+
+        Args:
+            from_status: The status the confirmation is in (or is expected to be in).
+            to_status: The status a caller asked to move it to.
+        """
+        super().__init__(
+            f"Cannot move a pending confirmation from {from_status.name} to {to_status.name}: "
+            "a confirmation is settled once, from PENDING."
+        )
+        self.from_status = from_status
+        self.to_status = to_status
+
+
+class PendingStatusConflictError(EntranceError, ConflictError):
+    """Raise when a pending confirmation is not in the status its settler expected.
+
+    Two people confirming the same request at once can never both carry it out: the second
+    finds it settled and fails.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.pending_status_conflict"
+
+    def __init__(self, pending_id: str, expected: Enum, actual: Enum) -> None:
+        """Build the error for a stale expectation.
+
+        Args:
+            pending_id: The confirmation whose status moved.
+            expected: What the caller believed the status was.
+            actual: What the Entrance tables hold.
+        """
+        super().__init__(
+            f"Pending confirmation {pending_id} is {actual.name}, not {expected.name}; it was "
+            "settled already."
+        )
+        self.pending_id = pending_id
+        self.expected = expected
+        self.actual = actual
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The travel lock and the Entrance Reducer
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TravelLockUnavailableError(EntranceError, ConfigurationError):
+    """Raise when ``travel_lock`` is on but the Entrance cannot see real endpoints.
+
+    The travel lock works only with ``expose = "vpn"`` on Tailscale, whose local API reports
+    each peer's current endpoint (ADR-0033); anywhere else it refuses to start rather than run
+    blind.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.travel_lock_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        """Build the error with why endpoints cannot be seen.
+
+        Args:
+            reason: A clause, e.g. ``"expose is 'lan', not 'vpn'"``.
+        """
+        super().__init__(
+            f"travel_lock is on but the Entrance cannot see where devices connect from: {reason}. "
+            "Turn travel_lock off or run expose = 'vpn' on Tailscale."
+        )
+        self.reason = reason
+
+
+class InvalidModeTransitionError(EntranceError, ConflictError):
+    """Raise when an Entrance mode change is not an edge of ``OPEN <-> REDUCED``."""
+
+    code: ClassVar[str] = "hivemind.entrance.invalid_mode_transition"
+
+    def __init__(self, from_mode: Enum, to_mode: Enum) -> None:
+        """Build the error for a forbidden edge.
+
+        Args:
+            from_mode: The mode the Entrance is in (or is expected to be in).
+            to_mode: The mode a caller asked to move it to.
+        """
+        super().__init__(
+            f"Cannot move the Entrance from {from_mode.name} to {to_mode.name}: only OPEN to "
+            "REDUCED and back are edges."
+        )
+        self.from_mode = from_mode
+        self.to_mode = to_mode
+
+
+class EntranceModeConflictError(EntranceError, ConflictError):
+    """Raise when the Entrance is not in the mode a caller expected when it asked to move it."""
+
+    code: ClassVar[str] = "hivemind.entrance.mode_conflict"
+
+    def __init__(self, expected: Enum, actual: Enum) -> None:
+        """Build the error for a stale expectation.
+
+        Args:
+            expected: What the caller believed the mode was.
+            actual: What the Entrance tables hold.
+        """
+        super().__init__(
+            f"The Entrance is {actual.name}, not {expected.name}; re-read the mode and decide "
+            "again."
+        )
+        self.expected = expected
+        self.actual = actual
+
+
+class ReopenRefusedError(EntranceError, PermissionDeniedError):
+    """Raise when anything but a stepped-up loopback session asks to reopen a reduced Entrance.
+
+    Reopening is a loopback-only decision that needs step-up (ADR-0033).
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.reopen_refused"

@@ -14,8 +14,10 @@ Fits into the Hive:
 
 Key invariants:
     - The series is numbered contiguously from 0001; ``0001_create_entrance.sql`` creates the
-      operator, device and invite tables, and later steps take 0002 (sessions), 0003 (push
-      subscriptions) and 0004 (goals by device).
+      operator, device and invite tables, and ``0002_create_sessions.sql`` the tables login,
+      sessions, step-up and the Entrance Reducer keep (sessions and spent nonces, login failures
+      and known networks, pending confirmations, the Entrance mode). Push subscriptions keep
+      their own series (``hivemind.entrance.push.store``).
     - No migration's text opens or closes a transaction: ``hivemind.common.migrations`` wraps
       each file itself.
 

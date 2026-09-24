@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from hivemind.common.errors import (
+    ConfigurationError,
     ConflictError,
     HiveMindError,
     NotFoundError,
@@ -77,6 +78,17 @@ def test_every_entrance_error_has_its_own_stable_code() -> None:
         (errors.StewardGrantError, PermissionDeniedError),
         (errors.ConsoleProtectedError, PermissionDeniedError),
         (errors.InvalidApprovalError, ConflictError),
+        (errors.AuthenticationFailedError, PermissionDeniedError),
+        (errors.StepUpUnavailableError, PermissionDeniedError),
+        (errors.BreakGlassRefusedError, PermissionDeniedError),
+        (errors.ConfirmationRefusedError, PermissionDeniedError),
+        (errors.ReopenRefusedError, PermissionDeniedError),
+        (errors.PendingNotFoundError, NotFoundError),
+        (errors.PendingStatusConflictError, ConflictError),
+        (errors.InvalidPendingTransitionError, ConflictError),
+        (errors.InvalidModeTransitionError, ConflictError),
+        (errors.EntranceModeConflictError, ConflictError),
+        (errors.TravelLockUnavailableError, ConfigurationError),
     ],
 )
 def test_each_refusal_also_belongs_to_its_common_category(
@@ -153,3 +165,10 @@ def test_the_console_protection_says_how_to_replace_it() -> None:
     assert "cannot be revoked" in str(error)
     assert "operator password --reset" in str(error)
     assert error.device_id == "device_x"
+
+
+def test_authentication_failed_has_one_fixed_message_that_names_no_factor() -> None:
+    first, second = errors.AuthenticationFailedError(), errors.AuthenticationFailedError()
+
+    assert str(first) == str(second)
+    assert "password" in str(first)  # Log in again with the key and password: never which.

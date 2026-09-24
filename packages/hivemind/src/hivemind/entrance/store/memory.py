@@ -8,7 +8,9 @@ plus the same referential rules the SQLite schema enforces (an invite names an e
 device, and at most one invite per device), so the contract suite runs unchanged over both. Every
 change's ``guard.entrance_*`` event is recorded on the Pheromone Trail (the Hive's audit log) it
 was built over, before the dicts change, so a failed record leaves them as they were: the memory
-form of "the event commits with the state change, or neither does".
+form of "the event commits with the state change, or neither does". The four tables of roadmap
+step 10.5e are their own in-memory classes, built with the store (the mode table over the same
+trail).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store``. Used by tests,
@@ -44,13 +46,18 @@ from hivemind.entrance.errors import (
     InviteAlreadyExistsError,
     InviteNotFoundError,
 )
+from hivemind.entrance.store.logins.memory import MemoryLoginTable
+from hivemind.entrance.store.mode.memory import MemoryModeTable
+from hivemind.entrance.store.pending.memory import MemoryPendingTable
 from hivemind.entrance.store.protocol import (
     DeviceChanges,
+    apply_login,
     check_new_device,
     check_status_change,
     transition_device,
     use_invite,
 )
+from hivemind.entrance.store.sessions.memory import MemorySessionTable
 from hivemind.pheromone import GuardEvent, PheromoneTrail
 from waggle.ids import DeviceId
 
@@ -58,7 +65,7 @@ __all__ = ["MemoryEntranceStore"]
 
 
 class MemoryEntranceStore:
-    """The Entrance tables in three in-process structures, gone when the process exits."""
+    """The Entrance tables in in-process structures, gone when the process exits."""
 
     def __init__(self, trail: PheromoneTrail) -> None:
         """Create empty tables that record their events on ``trail``.
@@ -73,6 +80,31 @@ class MemoryEntranceStore:
         self._invites: dict[str, DeviceInvite] = {}
         # Serialises every method, so each read-decide-write step is atomic (module docstring).
         self._lock = asyncio.Lock()
+        # The 10.5e tables refuse an unknown device, as the SQLite tables' foreign keys do.
+        self._sessions = MemorySessionTable(self._devices.__contains__)
+        self._logins = MemoryLoginTable(self._devices.__contains__)
+        self._pending = MemoryPendingTable(self._devices.__contains__)
+        self._mode = MemoryModeTable(trail)
+
+    @property
+    def sessions(self) -> MemorySessionTable:
+        """The session and nonce tables; see AuthTables.sessions."""
+        return self._sessions
+
+    @property
+    def logins(self) -> MemoryLoginTable:
+        """The login failure and network tables; see AuthTables.logins."""
+        return self._logins
+
+    @property
+    def pending(self) -> MemoryPendingTable:
+        """The pending-confirmation table; see AuthTables.pending."""
+        return self._pending
+
+    @property
+    def entrance_mode(self) -> MemoryModeTable:
+        """The Entrance mode; see AuthTables.entrance_mode."""
+        return self._mode
 
     async def get_operator(self) -> OperatorCredential | None:
         """Return the operator row; see EntranceStore.get_operator."""
@@ -170,6 +202,15 @@ class MemoryEntranceStore:
             await self._trail.record(event)
             self._invites[code_hash] = used
             self._devices[updated.id] = updated
+            return updated
+
+    async def record_login(
+        self, device_id: DeviceId, at: datetime, network: str | None, sign_count: int | None
+    ) -> EnrolledDevice:
+        """Record a successful login on its device; see EntranceStore.record_login."""
+        async with self._lock:
+            updated = apply_login(self._require_device(device_id), at, network, sign_count)
+            self._devices[device_id] = updated
             return updated
 
     def _require_device(self, device_id: DeviceId) -> EnrolledDevice:

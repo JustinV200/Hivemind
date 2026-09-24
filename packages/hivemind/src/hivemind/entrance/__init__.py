@@ -5,11 +5,16 @@ when explicitly exposed), serve the Landing Board (the versioned public API cont
 enrolment, auth, push delivery, exposure control and the human inbox. Approval routes never exist on
 the remote listener. Every client, the Hive Stand's (the machine the Queen, the orchestrator, runs
 on) own console included, is a device enrolled with its own key and approved at the Hive Stand, and
-logs in with that key plus the operator's password (ADR-0033). Phase 10's first steps land what
+logs in with that key plus the operator's password (ADR-0033). Phase 10's steps so far land what
 this face re-exports: the credential primitives and the ceremony challenge book (``auth``), device
 enrolment end to end (``enrol``: the enrolled-device model and state machine, the console
 bootstrap, invites, redemption by Ed25519 key or passkey, the operator's decisions and the expiry
-sweep), the Entrance tables (``store``) and the error tree (``errors``).
+sweep), login, sessions bound to a key with every request signed, step-up, pending
+confirmations, lockout, rate limits and the travel lock (``auth``'s sub-packages, roadmap 10.5e),
+the Entrance Reducer (``reducer``), the Entrance tables (``store``) and the error tree
+(``errors``). The push channels (``push``, roadmap 10.5b) and remote exposure (``expose``, 10.5a:
+the mode check, the Hive's own certificate authority for mutual TLS, the tunnel child, the
+loopback listener's Host check) have their own faces.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an enrolled device or the Observation
@@ -17,15 +22,17 @@ Fits into the Hive:
 
 Key invariants:
     - This file holds re-exports and ``__all__`` only; the sub-packages' faces list every name.
-    - Nothing in the Entrance stores a password, an invite code or a private key in the clear:
-      the tables hold hashes and public keys, and the console's key is wrapped under the password.
+    - Nothing in the Entrance stores a password, an invite code, a session token or a private
+      key in the clear: the tables hold hashes and public keys, and the console's key is wrapped
+      under the password.
 
 See Also:
     - .claude/codingrules.md sections 8.15 and 15 for the Entrance's rules.
     - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment,
       login and exposure.
     - hivemind.entrance.auth, hivemind.entrance.enrol and hivemind.entrance.store for the
-      sub-packages behind this face.
+      sub-packages behind this face; hivemind.entrance.push and hivemind.entrance.expose for the
+      two with faces of their own.
 
 Public API:
     - EntranceError and its subclasses: every refusal the Entrance makes on purpose.
@@ -39,15 +46,32 @@ Public API:
       redeem_ed25519, redeem_passkey, Ed25519Proof, ApprovalRequest, approve, deny, revoke, lock,
       unlock, LockReason, expire_due, steward_grant: device enrolment (the rest via
       hivemind.entrance.enrol).
-    - EntranceStore, SqliteEntranceStore, MemoryEntranceStore: the Entrance tables.
+    - EntranceStore, SqliteEntranceStore, MemoryEntranceStore, SplitSessionTable: the Entrance
+      tables (the rest via hivemind.entrance.store).
+    - SessionBook, SessionRules, AuthDeps, begin_login, finish_login, authenticate_request,
+      authenticate_websocket, step_up, requires_step_up, hold, confirm: login, sessions, step-up
+      and pending confirmations (the rest via hivemind.entrance.auth).
+    - EntranceReducer, EntranceMode, ReduceReason, ReducerSeams, RemoteListenerControl,
+      StreamCloser: the Entrance Reducer.
 """
 
 from hivemind.entrance.auth import (
+    AuthDeps,
     ChallengeBook,
     KeyKind,
     PasswordHasher,
     RelyingParty,
+    SessionBook,
+    SessionRules,
     SoftPasskey,
+    authenticate_request,
+    authenticate_websocket,
+    begin_login,
+    confirm,
+    finish_login,
+    hold,
+    requires_step_up,
+    step_up,
 )
 from hivemind.entrance.enrol import (
     ApprovalRequest,
@@ -78,17 +102,23 @@ from hivemind.entrance.enrol import (
     unlock_console_key,
 )
 from hivemind.entrance.errors import (
+    AuthenticationFailedError,
+    BreakGlassRefusedError,
     CapabilityCeilingError,
     ChallengeRejectedError,
+    ConfirmationRefusedError,
     ConsoleProtectedError,
     DeviceAlreadyExistsError,
     DeviceNotFoundError,
     DeviceStatusConflictError,
     EnrolmentRefusedError,
     EntranceError,
+    EntranceModeConflictError,
     InvalidApprovalError,
     InvalidDeviceEntryError,
     InvalidDeviceTransitionError,
+    InvalidModeTransitionError,
+    InvalidPendingTransitionError,
     InviteAlreadyExistsError,
     InviteAlreadyUsedError,
     InviteExpiredError,
@@ -98,16 +128,38 @@ from hivemind.entrance.errors import (
     OperatorNotInitialisedError,
     OperatorPasswordMismatchError,
     PasskeyRejectedError,
+    PendingNotFoundError,
+    PendingStatusConflictError,
+    ReopenRefusedError,
+    StepUpUnavailableError,
     StewardGrantError,
+    TravelLockUnavailableError,
     WeakPasswordError,
 )
-from hivemind.entrance.store import EntranceStore, MemoryEntranceStore, SqliteEntranceStore
+from hivemind.entrance.reducer import (
+    EntranceMode,
+    EntranceReducer,
+    ReduceReason,
+    ReducerSeams,
+    RemoteListenerControl,
+    StreamCloser,
+)
+from hivemind.entrance.store import (
+    EntranceStore,
+    MemoryEntranceStore,
+    SplitSessionTable,
+    SqliteEntranceStore,
+)
 
 __all__ = [
     "ApprovalRequest",
+    "AuthDeps",
+    "AuthenticationFailedError",
+    "BreakGlassRefusedError",
     "CapabilityCeilingError",
     "ChallengeBook",
     "ChallengeRejectedError",
+    "ConfirmationRefusedError",
     "ConsoleDeps",
     "ConsoleProtectedError",
     "DeviceAlreadyExistsError",
@@ -122,10 +174,15 @@ __all__ = [
     "EnrolmentRefusedError",
     "EntranceError",
     "EntranceIdentity",
+    "EntranceMode",
+    "EntranceModeConflictError",
+    "EntranceReducer",
     "EntranceStore",
     "InvalidApprovalError",
     "InvalidDeviceEntryError",
     "InvalidDeviceTransitionError",
+    "InvalidModeTransitionError",
+    "InvalidPendingTransitionError",
     "InviteAlreadyExistsError",
     "InviteAlreadyUsedError",
     "InviteExpiredError",
@@ -140,23 +197,43 @@ __all__ = [
     "OperatorPasswordMismatchError",
     "PasskeyRejectedError",
     "PasswordHasher",
+    "PendingNotFoundError",
+    "PendingStatusConflictError",
+    "ReduceReason",
+    "ReducerSeams",
     "RelyingParty",
+    "RemoteListenerControl",
+    "ReopenRefusedError",
+    "SessionBook",
+    "SessionRules",
     "SoftPasskey",
+    "SplitSessionTable",
     "SqliteEntranceStore",
+    "StepUpUnavailableError",
     "StewardGrantError",
+    "StreamCloser",
+    "TravelLockUnavailableError",
     "WeakPasswordError",
     "approve",
+    "authenticate_request",
+    "authenticate_websocket",
+    "begin_login",
     "bootstrap_operator",
     "cancel_invite",
     "change_operator_password",
+    "confirm",
     "deny",
     "expire_due",
+    "finish_login",
+    "hold",
     "lock",
     "mint_invite",
     "passkey_options",
     "redeem_ed25519",
     "redeem_passkey",
+    "requires_step_up",
     "revoke",
+    "step_up",
     "steward_grant",
     "unlock",
     "unlock_console_key",

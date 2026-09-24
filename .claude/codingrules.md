@@ -1789,6 +1789,7 @@ transaction as the state change.
 | Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
 | Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `INVITED → EXPIRED / REVOKED` (the invite lapsed unredeemed, or the operator cancelled it); `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → EXPIRED / REVOKED` (the approval's own expiry, or the operator) | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance_*` event pushed to every other device. |
 | Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | Persisted in the Entrance tables, so a restart resumes the mode it left; `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up; a failed remote listener reduces rather than stopping the Queen. |
+| Pending confirmation | Entrance, `entrance/auth/confirm/state.py` | `PENDING → CONFIRMED / EXPIRED / CANCELLED` | Holds a non-interactive device's request that needs step-up; confirmed only from an interactive device inside its step-up window, and carried out at most once; a hold whose device has lost its approval is settled `CANCELLED` when it is next touched; break-glass actions are never held. |
 
 Where state lives, and what survives a Queen crash:
 

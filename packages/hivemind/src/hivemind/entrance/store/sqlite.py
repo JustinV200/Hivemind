@@ -10,7 +10,9 @@ applies the protocol's rule (``check_new_device``, ``transition_device``, ``use_
 the result together with its ``guard.entrance_*`` event (``hivemind.pheromone.insert_event``, on
 this store's own connection to the same file), so the state machine and the single-use rule see the
 row as it is, even against another process writing the same file, and the state change and its
-Pheromone Trail (audit log) event commit together or not at all (codingrules Appendix C).
+Pheromone Trail (audit log) event commit together or not at all (codingrules Appendix C). The four
+tables of roadmap step 10.5e (sessions, logins, pending confirmations, the mode) are their own
+classes sharing this store's connection, thread and lock through one ``SqliteLink``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store``. Constructed by
@@ -52,13 +54,19 @@ from hivemind.entrance.errors import (
     InviteAlreadyExistsError,
     InviteNotFoundError,
 )
+from hivemind.entrance.store.link import SqliteLink
+from hivemind.entrance.store.logins.sqlite import SqliteLoginTable
+from hivemind.entrance.store.mode.sqlite import SqliteModeTable
+from hivemind.entrance.store.pending.sqlite import SqlitePendingTable
 from hivemind.entrance.store.protocol import (
     DeviceChanges,
+    apply_login,
     check_new_device,
     check_status_change,
     transition_device,
     use_invite,
 )
+from hivemind.entrance.store.sessions.sqlite import SqliteSessionTable
 from hivemind.pheromone import GuardEvent, insert_event
 from waggle.clock import Clock
 from waggle.ids import DeviceId
@@ -114,7 +122,7 @@ def apply_entrance_migrations(connection: sqlite3.Connection, clock: Clock) -> t
 
 
 class SqliteEntranceStore:
-    """The durable EntranceStore: three tables, one connection, one thread, one lock."""
+    """The durable EntranceStore: every Entrance table, one connection, one thread, one lock."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         """Wrap an already-migrated connection; prefer ``create``.
@@ -128,6 +136,12 @@ class SqliteEntranceStore:
         self._thread = ConnectionThread("hive-entrance")
         # Serialises this instance's operations, like every other SQLite store in the Hive.
         self._lock = asyncio.Lock()
+        # The 10.5e tables write through the same connection, thread and lock as the devices.
+        link = SqliteLink(connection, self._thread, self._lock)
+        self._sessions = SqliteSessionTable(link)
+        self._logins = SqliteLoginTable(link)
+        self._pending = SqlitePendingTable(link)
+        self._mode = SqliteModeTable(link)
 
     @classmethod
     async def create(cls, connection: sqlite3.Connection, clock: Clock) -> SqliteEntranceStore:
@@ -156,6 +170,26 @@ class SqliteEntranceStore:
         # Blocking: at most one transaction per pending migration, usually none once current.
         await asyncio.to_thread(apply_entrance_migrations, connection, clock)
         return cls(connection)
+
+    @property
+    def sessions(self) -> SqliteSessionTable:
+        """The session and nonce tables; see AuthTables.sessions."""
+        return self._sessions
+
+    @property
+    def logins(self) -> SqliteLoginTable:
+        """The login failure and network tables; see AuthTables.logins."""
+        return self._logins
+
+    @property
+    def pending(self) -> SqlitePendingTable:
+        """The pending-confirmation table; see AuthTables.pending."""
+        return self._pending
+
+    @property
+    def entrance_mode(self) -> SqliteModeTable:
+        """The Entrance mode's row; see AuthTables.entrance_mode."""
+        return self._mode
 
     async def get_operator(self) -> OperatorCredential | None:
         """Return the operator row; see EntranceStore.get_operator."""
@@ -250,6 +284,16 @@ class SqliteEntranceStore:
             # Blocking: two reads, two writes and one event insert in one transaction.
             return await self._thread.run(
                 _redeem, self._connection, code_hash, used_at, changes, event
+            )
+
+    async def record_login(
+        self, device_id: DeviceId, at: datetime, network: str | None, sign_count: int | None
+    ) -> EnrolledDevice:
+        """Record a successful login on its device; see EntranceStore.record_login."""
+        async with self._lock:
+            # Blocking: one read and one write in one transaction.
+            return await self._thread.run(
+                _login, self._connection, device_id, (at, network), sign_count
             )
 
 
@@ -378,6 +422,25 @@ def _redeem(
         connection.execute(_UPDATE_INVITE_SQL, (_body(used), code_hash))
         connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), updated.id))
         insert_event(connection, event)
+        return updated
+
+
+def _login(
+    connection: sqlite3.Connection,
+    device_id: DeviceId,
+    seen: tuple[datetime, str | None],
+    sign_count: int | None,
+) -> EnrolledDevice:
+    """Re-read the device, apply the login rule, and write the result (its status unchanged)."""
+    at, network = seen
+    with transaction(connection):
+        row = connection.execute(_SELECT_DEVICE_SQL, (device_id,)).fetchone()
+        if row is None:
+            raise DeviceNotFoundError(device_id)
+        updated = apply_login(
+            EnrolledDevice.model_validate_json(row["body"]), at, network, sign_count
+        )
+        connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), device_id))
         return updated
 
 

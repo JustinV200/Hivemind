@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 from hivemind.entrance.auth.keys import (
     KeyKind,
+    is_p256_point,
     key_fingerprint,
     verify_ed25519,
     verify_p256,
@@ -112,6 +113,15 @@ def test_verify_p256_returns_false_for_malformed_keys_and_signatures() -> None:
     assert verify_p256(wrong_prefix, _MESSAGE, signature) is False
     assert verify_p256(public_key, _MESSAGE, signature[:63]) is False
     assert verify_p256(public_key, _MESSAGE, zero_signature) is False
+
+
+def test_is_p256_point_accepts_only_an_uncompressed_point_on_the_curve() -> None:
+    public_key, _ = _webcrypto_p256()
+
+    assert is_p256_point(public_key) is True
+    assert is_p256_point(b"\x02" + public_key[1:33]) is False
+    assert is_p256_point(b"\x04" + b"\x01" * 64) is False
+    assert is_p256_point(public_key[:64]) is False
 
 
 def test_key_fingerprint_is_four_groups_of_base32_and_deterministic() -> None:
