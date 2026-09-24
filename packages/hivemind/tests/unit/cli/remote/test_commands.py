@@ -13,7 +13,6 @@ Key invariants:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from builders.entrance.auth import PASSWORD
@@ -27,6 +26,8 @@ from builders.entrance.stand import (
     set_password,
     stand_manifest,
 )
+
+from hivemind.entrance.models import InboxView
 
 _STDIN = f"{PASSWORD}\n"
 
@@ -113,11 +114,10 @@ async def test_inbox_remote_reads_the_inbox_and_acknowledges_as_the_device(
         )
 
     assert listed.exit_code == 0, listed.output
-    assert "Nothing waits on the human." in listed.output
-    assert json.loads(as_json.stdout[as_json.stdout.index("{") :]) == {
-        "questions": [],
-        "alarms": [],
-    }
+    # No goal ran, so no question waits; an Alarm may (a Warden's heartbeat late on a busy
+    # machine reaches the human like any other), and the listing then shows it instead.
+    assert "Nothing waits on the human." in listed.output or "alarm alarm_" in listed.output
+    assert InboxView.model_validate(json_of(as_json)).questions == []
     assert acknowledged.exit_code == 0, acknowledged.output
     assert "was not waiting" in acknowledged.output
 

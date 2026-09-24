@@ -11,7 +11,10 @@ stream``) says ``goal_completed`` for this request the moment it ends; either wa
 chat (no ``honey:clearance:c2``) or push (no ``entrance:push``): the follow then goes on without
 that view, and a re-read at least every ``GOAL_RECHECK_S`` still sees the end. A view the Entrance
 closes because this client fell behind is reopened from the last line seen; any other close ends
-the follow with the reason. Printing is the caller's: ``Follower`` receives what arrives.
+the follow with the reason. A view is live, not a record: lines it had not delivered when the goal
+ended (a question asked and answered from another terminal while this one was still connecting)
+would end with it, so the follow closes by reading the chat page by page from the last line it
+relayed. Printing is the caller's: ``Follower`` receives what arrives, each line once.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.remote``. Called by ``hive run --remote``
@@ -20,6 +23,8 @@ Fits into the Hive:
 
 Key invariants:
     - A goal is submitted once; everything after is reading.
+    - Every chat line after the submission reaches the follower exactly once, in order, however
+      the view and the closing read overlap.
     - The follow ends when the goal request is finished or refused, or at the caller's timeout;
       the goal itself goes on regardless.
 
@@ -59,6 +64,8 @@ from hivemind.entrance.push import NoticeKind, PushNotice
 
 GOAL_RECHECK_S = 10.0  # The longest the goal's state goes unread when no view says it moved.
 VIEW_WAIT_S = 30.0  # One wait on a view; a quiet view stays open and is waited on again.
+CATCH_UP_PAGE = 100  # Chat lines per read in the closing catch-up (the Landing Board allows 500).
+CATCH_UP_S = 10.0  # The longest the closing catch-up reads; the goal's end is already known.
 CHAT_FORBIDDEN_NOTE = (
     "This device may not read the chat (it needs honey:clearance:c2); following the goal's "
     "state only."
@@ -133,6 +140,17 @@ class FollowOutcome:
     timed_out: bool
 
 
+@dataclass(slots=True)
+class _ChatCursor:
+    """The newest chat position told to the follower, shared by the live relay and the catch-up.
+
+    Attributes:
+        seq: The last line relayed (or the chat's newest before the submission).
+    """
+
+    seq: int
+
+
 async def submit_and_follow(
     board: SignedIn, ask: GoalAsk, pace: FollowPace, follower: Follower
 ) -> FollowOutcome:
@@ -179,28 +197,38 @@ async def follow_goal(
     Raises:
         LandingError: A read was refused or a view closed for a reason other than falling behind.
     """
+    cursor = None if after is None else _ChatCursor(after)
+    view: GoalView | None = None
     try:
         # External wait: the Hive's own work, bounded by the caller's patience.
         async with asyncio.timeout(pace.timeout_s):
-            view = await _race(board, request_id, after, pace.recheck_s, follower)
+            view = await _race(board, request_id, cursor, pace.recheck_s, follower)
     except TimeoutError:
-        # The goal goes on without this terminal; say where it stood.
-        return FollowOutcome(await _read_goal(board, request_id), timed_out=True)
+        pass  # The goal goes on without this terminal; where it stood is read below.
     except BaseExceptionGroup as group:
         # A view's own failure, not the group it travelled in, is what the operator reads.
         raise _first_failure(group) from group
+    if cursor is not None:
+        # The view is live, not a record: what it had not delivered yet is read now.
+        await _catch_up(board, cursor, follower)
+    if view is None:
+        return FollowOutcome(await _read_goal(board, request_id), timed_out=True)
     return FollowOutcome(view, timed_out=False)
 
 
 async def _race(
-    board: SignedIn, request_id: str, after: int | None, recheck_s: float, follower: Follower
+    board: SignedIn,
+    request_id: str,
+    cursor: _ChatCursor | None,
+    recheck_s: float,
+    follower: Follower,
 ) -> GoalView:
     """Watch both views while re-reading the goal until it ends; stop the views then."""
     moved = asyncio.Event()
     async with asyncio.TaskGroup() as group:
         watchers = [group.create_task(_watch_push(board, request_id, moved))]
-        if after is not None:
-            watchers.append(group.create_task(_relay_chat(board, after, follower, moved)))
+        if cursor is not None:
+            watchers.append(group.create_task(_relay_chat(board, cursor, follower, moved)))
         try:
             return await _until_done(board, request_id, recheck_s, moved)
         finally:
@@ -226,33 +254,60 @@ async def _until_done(
 
 
 async def _relay_chat(
-    board: SignedIn, after: int, follower: Follower, moved: asyncio.Event
+    board: SignedIn, cursor: _ChatCursor, follower: Follower, moved: asyncio.Event
 ) -> None:
-    """Relay every chat line after ``after``, reopening the view whenever it fell behind."""
-    cursor: int | None = after
-    while cursor is not None:
-        cursor = await _relay_once(board, cursor, follower, moved)
+    """Relay every chat line after the cursor, reopening the view whenever it fell behind."""
+    while await _relay_once(board, cursor, follower, moved):
+        pass  # Fell behind: reopened from the last line relayed, which the cursor holds.
 
 
 async def _relay_once(
-    board: SignedIn, cursor: int, follower: Follower, moved: asyncio.Event
-) -> int | None:
-    """Relay lines until the view closes; the cursor to reopen from, or None to stop."""
+    board: SignedIn, cursor: _ChatCursor, follower: Follower, moved: asyncio.Event
+) -> bool:
+    """Relay lines until the view closes; True to reopen it, False to stop relaying."""
     try:
-        async with open_view(board, f"/v1/chat/stream?after={cursor}") as view:
+        async with open_view(board, f"/v1/chat/stream?after={cursor.seq}") as view:
             while True:
                 frame = await _next(view, ChatFrame)
                 if frame is not None:
-                    cursor = frame.entry.seq
-                    follower.line(frame.entry)
+                    _relay(frame.entry, cursor, follower)
                     moved.set()
     except ViewClosedError as closed:
         if closed.close_code == FELL_BEHIND:
-            return cursor
+            return True
         if closed.close_code == FORBIDDEN:
             follower.note(CHAT_FORBIDDEN_NOTE)
-            return None
+            return False
         raise
+
+
+async def _catch_up(board: SignedIn, cursor: _ChatCursor, follower: Follower) -> None:
+    """Relay the chat lines after the cursor that the view had not delivered, page by page."""
+    try:
+        # External wait: a page or two of local reads at the Entrance, bounded.
+        async with asyncio.timeout(CATCH_UP_S):
+            while True:
+                target = f"/v1/chat?after={cursor.seq}&limit={CATCH_UP_PAGE}"
+                page = await board.call("GET", target, None, ChatPage)
+                for line in page.entries:
+                    _relay(line, cursor, follower)
+                if len(page.entries) < CATCH_UP_PAGE:
+                    return
+    except TimeoutError:
+        return  # The goal's end is already known; a slow chat is not worth holding it for.
+    except LandingRefusedError as refusal:
+        # The view already said this device may not read the chat; nothing more to relay.
+        if refusal.body.error != CAPABILITY_CODE:
+            raise
+
+
+def _relay(line: ChatLine, cursor: _ChatCursor, follower: Follower) -> None:
+    """Tell the follower a line it has not been told, and move the cursor past it."""
+    # The view and the closing read can both deliver a line; the cursor tells each once.
+    if line.seq <= cursor.seq:
+        return
+    cursor.seq = line.seq
+    follower.line(line)
 
 
 async def _watch_push(board: SignedIn, request_id: str, moved: asyncio.Event) -> None:

@@ -443,8 +443,9 @@ prints the public half in hex, the form a peer pins).
   one and its key. `hive run --remote "goal" [--profile P] [--timeout S] [--json]` submits the goal
   through `POST /v1/goals` and follows it to its end through the chat and push views and its own
   re-reads (a device without those views follows by re-reading alone), printing the Queen's lines
-  with the command that answers a question; exit 0 finished, 1 refused, 2 the timeout ended the
-  follow first (the goal goes on). `hive inbox --remote [--json]`, `hive inbox --remote answer ID
+  with the command that answers a question, each once, and at the end reading the chat for any
+  line the view had not delivered yet; exit 0 finished, 1 refused, 2 the timeout ended the follow
+  first (the goal goes on). `hive inbox --remote [--json]`, `hive inbox --remote answer ID
   TEXT [--option N]` and `hive inbox --remote acknowledge ALARM_ID` act on the remote inbox.
   Every refusal (no profile, pending, locked, revoked, a wrong password, a held request with its
   pending id, an Entrance that does not answer) is one stderr line and exit 1.

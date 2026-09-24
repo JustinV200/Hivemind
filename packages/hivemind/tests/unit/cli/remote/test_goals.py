@@ -19,24 +19,36 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import pytest
 from builders.entrance.auth import PASSWORD
 from builders.entrance.goals import goal_responder
 from builders.entrance.stand import Stand, json_of, serving_stand, set_password, stand_manifest
 from pydantic import SecretStr
 
 from hivemind.cell import HoneyClearance
-from hivemind.cli.landing import SignedIn
+from hivemind.cli.landing import SignedIn, View
 from hivemind.cli.remote import (
     EnrolmentOrder,
     FollowPace,
     GoalAsk,
     ProfileStore,
     enrol_device,
+    follow_goal,
     remote_session,
     submit_and_follow,
 )
+from hivemind.cli.remote import goals as goals_module
 from hivemind.cli.remote.goals import CHAT_FORBIDDEN_NOTE
-from hivemind.entrance.models import AnswerBody, AnsweredView, ChatLine, GoalAccepted
+from hivemind.entrance.models import (
+    AnswerBody,
+    AnsweredView,
+    ChatLine,
+    ChatPage,
+    GoalAccepted,
+    GoalSubmission,
+    GoalView,
+    InboxView,
+)
 from hivemind.queen import ChatKind
 from waggle.clock import SystemClock
 
@@ -164,6 +176,73 @@ async def test_the_timeout_ends_the_follow_not_the_goal(tmp_path: Path) -> None:
 
     assert outcome.timed_out
     assert outcome.view.finished_at is None and not outcome.view.refused
+
+
+async def test_lines_the_view_never_delivered_are_read_once_the_goal_has_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = stand_manifest(tmp_path / "stand")
+    await set_password(path)
+    follower = _Recorder()
+
+    async with (
+        serving_stand(path, goal_responder("Which season?")) as (stand, _entrance),
+        _laptop(stand, tmp_path / "laptop") as board,
+    ):
+        # Everything happens before the follow starts: asked, answered from elsewhere, finished.
+        after = (await board.call("GET", "/v1/chat?limit=1", None, ChatPage)).newest_seq or 0
+        body = GoalSubmission(text=_GOAL.text, comb_shield=None, clearance=_GOAL.clearance)
+        accepted = await board.call("POST", "/v1/goals", body, GoalAccepted)
+        await _answer_the_waiting_question(board)
+        await _until_finished(board, accepted.id)
+        # A connection so slow that no view delivers a frame before the end is read.
+        monkeypatch.setattr(goals_module, "open_view", _NeverOpens)
+        outcome = await follow_goal(board, accepted.id, after, FollowPace(_FOLLOW_S), follower)
+
+    assert outcome.view.finished_at is not None
+    asked = [line for line in follower.lines if line.kind is ChatKind.QUESTION]
+    assert [line.text for line in asked] == ["Which season?"]
+    # Each line once, in order, whichever of the view and the closing read delivered it.
+    seqs = [line.seq for line in follower.lines]
+    assert seqs == sorted(set(seqs)) and seqs[0] > after
+
+
+class _NeverOpens:
+    """Stands in for ``open_view``: a view whose opening outlasts the whole follow."""
+
+    def __init__(self, board: SignedIn, target: str) -> None:
+        """Take what ``open_view`` takes."""
+        self.target = target
+
+    async def __aenter__(self) -> View:
+        """Wait until the follow ends and cancels the wait."""
+        await asyncio.Event().wait()
+        raise AssertionError(f"{self.target} was never meant to open")
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        """Nothing was opened, so nothing closes."""
+
+
+async def _answer_the_waiting_question(board: SignedIn) -> None:
+    """Wait for the Drone's question in the inbox and answer it, as another terminal would."""
+    async with asyncio.timeout(_FOLLOW_S):
+        while True:
+            inbox = await board.call("GET", "/v1/inbox", None, InboxView)
+            if inbox.questions:
+                break
+            await asyncio.sleep(0.1)
+    path = f"/v1/inbox/questions/{inbox.questions[0].id}/answer"
+    await board.call("POST", path, AnswerBody(text="spring"), AnsweredView)
+
+
+async def _until_finished(board: SignedIn, request_id: str) -> None:
+    """Wait until the goal request is finished."""
+    async with asyncio.timeout(_FOLLOW_S):
+        while True:
+            view = await board.call("GET", f"/v1/goals/{request_id}", None, GoalView)
+            if view.finished_at is not None:
+                return
+            await asyncio.sleep(0.1)
 
 
 async def _question(follower: _Recorder) -> ChatLine:

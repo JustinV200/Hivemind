@@ -97,7 +97,7 @@ async def test_2_a_laptop_runs_a_goal_and_answers_its_question_through_hive_serv
             # Latency: the goal finishes seconds after the answer; the follower's timeout bounds it.
             output, _ = await asyncio.wait_for(follower.communicate(), _WAIT_S + 10.0)
         tasks = await stand.terminal.hive("tasks", "list", "--manifest", str(path))
-        emptied = await laptop.hive("inbox", "--remote", "--password-stdin", stdin=_STDIN)
+        after = await laptop.hive("inbox", "--remote", "--password-stdin", "--json", stdin=_STDIN)
 
     printed = output.decode("utf-8", errors="replace")
     assert question["text"] == _QUESTION
@@ -106,7 +106,9 @@ async def test_2_a_laptop_runs_a_goal_and_answers_its_question_through_hive_serv
     assert f"queen asks [{question['id']}]: {_QUESTION}" in printed
     assert "received (RECEIVED)" in printed and " finished at " in printed
     assert "SUCCEEDED" in tasks.output, tasks.output
-    assert "Nothing waits on the human." in emptied.output
+    # Answered, the question no longer waits (an Alarm might: a Warden's heartbeat late on a busy
+    # machine reaches the human too, and is not this test's business).
+    assert question["id"] not in [waiting["id"] for waiting in json_of(after)["questions"]]
     assert PASSWORD not in printed and PASSWORD not in answered.output
 
 
