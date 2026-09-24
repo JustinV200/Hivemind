@@ -28,8 +28,26 @@ Public API:
     - SectionLabel: what kind of durable state one rendered section carries.
     - load_prompt: read one prompt's markdown body.
     - render: assemble a prompt body plus its labelled sections in stable-prefix order.
+    - FENCE_OPEN, FENCE_CLOSE, neutralise_fences: the section delimiter, and how untrusted text
+      wrapped in one is kept from closing it early (roadmap step 10.6b).
 """
 
-from hivemind.llm.prompts.loader import PromptName, SectionLabel, load_prompt, render
+from hivemind.llm.prompts.loader import (
+    FENCE_CLOSE,
+    FENCE_OPEN,
+    PromptName,
+    SectionLabel,
+    load_prompt,
+    neutralise_fences,
+    render,
+)
 
-__all__ = ["PromptName", "SectionLabel", "load_prompt", "render"]
+__all__ = [
+    "FENCE_CLOSE",
+    "FENCE_OPEN",
+    "PromptName",
+    "SectionLabel",
+    "load_prompt",
+    "neutralise_fences",
+    "render",
+]

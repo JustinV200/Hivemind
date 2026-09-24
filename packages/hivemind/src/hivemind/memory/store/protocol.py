@@ -17,7 +17,15 @@ one write, one lookup by id, one by task, one by a time range -- lookup only, no
 persistence: `put_wax` inserts a fresh proposal, `update_wax_state` overwrites an already-
 transitioned row (`hivemind.memory.cell_wax.writes` is the only caller of either, and it always
 validates the edge with `hivemind.memory.cell_wax.state.assert_transition` first), `get_wax` and
-`list_wax` are the two reads.
+`list_wax` are the two reads. The three `*_taint*` methods (roadmap step 10.6d, ADR-0035) make the
+memory tables a `hivemind.memory.taint.TaintLedger`: `find_taintable` lists what a `TaintScope`
+covers that is not already TAINTED, `read_taintable` shows one item as the taint judge sees it, and
+`write_taint` replaces one item's label and records its `memory.tainted` or `memory.taint_cleared`
+event in the same transaction, checking the label's transition table against the stored label
+inside it. Every read that could feed a prompt refuses a TAINTED item: `list_episodes` and the Bee
+Bread lists leave it out, `get_bee_bread_entry` raises `TaintedMemoryError`, and `get_handoff`
+returns it labelled so `hivemind.memory.checkpoint.read_handoff` can refuse it; and every insert
+refuses an item that arrives already labelled.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by `hivemind.memory.store.
@@ -39,6 +47,9 @@ Key invariants:
     - `get_handoff` returns the stored clearance alongside the Handoff itself, so a caller (
       `hivemind.memory.checkpoint.read_handoff`) can refuse an over-clearance read without first
       decoding the whole document.
+    - No list or lookup here ever returns a TAINTED episode record or Bee Bread entry; a TAINTED
+      Handoff comes back from `get_handoff` carrying its label, and only `read_taintable` shows
+      any item's content regardless of its label (roadmap 10.6d).
     - The `BeeBreadEntry` import below is TYPE_CHECKING-only: `hivemind.memory.bee_bread.index`
       imports `MemoryStore` from this module (also TYPE_CHECKING-only, for the same reason) to
       type `BeeBread.__init__`, so a real, eager import here would close that cycle.
@@ -64,6 +75,7 @@ from hivemind.memory.episodes import EpisodeRecord
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
+from hivemind.memory.taint import TaintableItem, TaintMarker, TaintScope, TaintTarget
 from hivemind.pheromone import MemoryEvent
 from waggle.ids import CellId, EventId, TaskId
 
@@ -357,13 +369,60 @@ class _WaxStore(Protocol):
         ...
 
 
+class _TaintStore(Protocol):
+    """A sixth of MemoryStore (the taint label, roadmap 10.6d): the `TaintLedger` it satisfies."""
+
+    async def find_taintable(self, scope: TaintScope) -> tuple[TaintTarget, ...]:
+        """Return every Handoff, episode and Bee Bread entry `scope` covers not already TAINTED.
+
+        Args:
+            scope: The authors, tasks, kinds and moment a taint covers.
+
+        Returns:
+            Their targets, oldest first; empty when the scope covers nothing new.
+        """
+        ...
+
+    async def read_taintable(self, target: TaintTarget) -> TaintableItem:
+        """Return one item's label, clearance and the text a taint judge reviews.
+
+        Args:
+            target: A HANDOFF, EPISODE or BEE_BREAD item.
+
+        Returns:
+            The item as `hivemind.memory.taint.clear.clear_taint` needs it.
+
+        Raises:
+            hivemind.memory.errors.TaintTargetNotFoundError: No such item (or not a kind the
+                memory tables hold).
+        """
+        ...
+
+    async def write_taint(
+        self, target: TaintTarget, marker: TaintMarker, event: MemoryEvent
+    ) -> None:
+        """Replace `target`'s label with `marker` and record `event`, atomically.
+
+        Args:
+            target: The item to label.
+            marker: Its new label.
+            event: The accompanying `memory.tainted` or `memory.taint_cleared` event.
+
+        Raises:
+            hivemind.memory.errors.TaintTargetNotFoundError: No such item.
+            hivemind.memory.errors.InvalidTaintTransitionError: The stored label cannot move to
+                `marker.state` (hivemind.memory.taint.state); nothing is written.
+        """
+        ...
+
+
 class MemoryStore(
-    _PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, _WaxStore, Protocol
+    _PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, _WaxStore, _TaintStore, Protocol
 ):
     """Persist pins, notes, Handoffs, episodes, Bee Bread entries and Cell Wax, atomic with events.
 
-    Composed from the four private Protocols above, split only to keep each one under codingrules
+    Composed from the five private Protocols above, split only to keep each one under codingrules
     5.1's class-length limit; `MemoryStore` itself is the whole contract every caller and
     implementation (`InMemoryMemoryStore`, `SqliteMemoryStore`) actually names. Implementations
-    must be safe to call concurrently.
+    must be safe to call concurrently. It is also a `hivemind.memory.taint.TaintLedger`.
     """

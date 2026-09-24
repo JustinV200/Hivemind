@@ -2,8 +2,9 @@
 
 A **prompt asset** is one of the plain-markdown files shipped beside this module
 (``queen_system.md``, ``decompose_goal.md``, ``warden_system.md``, ``drone_system.md``,
-``attendant_triage.md``, ``compact_records.md``, ``judge_review.md``): the system text a bee's
-awake episode (a bounded, stateless turn where a bee is allowed to think with a model) opens with.
+``attendant_triage.md``, ``compact_records.md``, ``judge_review.md``, ``taint_review.md``): the
+system text a bee's awake episode (a bounded, stateless turn where a bee is allowed to think with a
+model) opens with.
 :func:`load_prompt` reads one such file through ``importlib.resources`` rather than a filesystem
 path built from ``__file__``, so it works the same way from an installed wheel as from a checkout.
 :func:`render` then appends whatever durable state
@@ -52,13 +53,18 @@ from hivemind.common.errors import NotFoundError
 # The package these prompt assets ship inside, resolved through importlib.resources rather than a
 # path built from __file__ (see the module docstring's "Key invariants").
 _PROMPTS_PACKAGE = "hivemind.llm.prompts"
+FENCE_OPEN = "<<<"  # Opens every section delimiter render() writes, and every nested block.
+FENCE_CLOSE = ">>>"  # Closes one.
 
 __all__ = [
+    "FENCE_CLOSE",
+    "FENCE_OPEN",
     "LabelledSection",
     "PromptName",
     "PromptNotFoundError",
     "SectionLabel",
     "load_prompt",
+    "neutralise_fences",
     "render",
 ]
 
@@ -73,6 +79,7 @@ class PromptName(Enum):
     ATTENDANT_TRIAGE = "attendant_triage"  # queen|wardens/inbox: the model tie-breaker (3.13).
     COMPACT_RECORDS = "compact_records"  # memory.compact: one summary from source records (4.3).
     JUDGE_REVIEW = "judge_review"  # wardens.judge: an independent review, no shared context (4.10).
+    TAINT_REVIEW = "taint_review"  # memory.taint.judge: may a tainted item be cleared (10.6d).
 
 
 class SectionLabel(Enum):
@@ -133,7 +140,7 @@ class LabelledSection(BaseModel):
     def delimited(self) -> str:
         """Wrap this section in its `<<<label>>> ... <<<end label>>>` plain-text delimiter."""
         tag = self.label.value
-        return f"<<<{tag}>>>\n{self.text}\n<<<end {tag}>>>"
+        return f"{FENCE_OPEN}{tag}{FENCE_CLOSE}\n{self.text}\n{FENCE_OPEN}end {tag}{FENCE_CLOSE}"
 
 
 @functools.cache
@@ -182,3 +189,22 @@ def render(name: PromptName, *, sections: Mapping[SectionLabel, str]) -> str:
         if label in sections
     ]
     return "\n\n".join([body, *ordered_sections])
+
+
+def neutralise_fences(text: str) -> str:
+    """Break every section delimiter inside `text`, so it can never close its own section early.
+
+    Untrusted text (a human's message, a tool's result, a tainted item under review) is wrapped in
+    a labelled `<<<label>>> ... <<<end label>>>` block before a model reads it (codingrules 15);
+    a copy of the closing delimiter inside the text would end that block early and let the rest
+    read as if it were outside it. Spacing the brackets out keeps the words readable and makes
+    every copy inert. Applied by whoever wraps untrusted text, never by `render` itself, since
+    trusted sections legitimately nest blocks of their own (a resumed Handoff's `<<<handoff>>>`).
+
+    Args:
+        text: The untrusted text about to be wrapped.
+
+    Returns:
+        `text` with every `<<<` and `>>>` broken apart.
+    """
+    return text.replace(FENCE_OPEN, "< < <").replace(FENCE_CLOSE, "> > >")
