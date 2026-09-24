@@ -164,11 +164,13 @@ class SigningRules:
         Raises:
             SchemaError: A part is missing, or the example does not reproduce.
         """
+        # Each signed string's field list, and the four header names, exactly as published.
         strings = as_object(signing.get("strings"), "strings")
         self._fields = {tag: _field_list(fields, tag) for tag, fields in strings.items()}
         self._headers = {
             role: str(name) for role, name in as_object(signing.get("headers"), "headers").items()
         }
+        # The nonce size is stated in prose ("at least 16 random bytes"); read the number.
         floor = _NONCE_FLOOR.search(str(signing.get("nonce")))
         if floor is None:
             raise SchemaError("x-hive-signing does not say how many random bytes a nonce needs")
@@ -238,6 +240,7 @@ class SigningRules:
             "body_sha256": sha256_hex(body),
         }
         signature = session.key.sign(self.message("hive-request-v1", values))
+        # The document spells the Authorization header as "Name: value template".
         name, _, template = self._headers["authorization"].partition(": ")
         return {
             name: template.replace(_TOKEN_PLACEHOLDER, session.token),

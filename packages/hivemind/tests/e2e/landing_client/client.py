@@ -131,6 +131,7 @@ class GenericClient:
             self.board.check(request.body, schema, "the request body")
             content = json.dumps(request.body).encode("utf-8")
             headers["Content-Type"] = JSON_MEDIA_TYPE
+        # Only an operation that names HiveSession is signed: a public one carries no credential.
         if operation.needs_session:
             if session is None:
                 raise SchemaError(f"{operation.template} needs a session")
@@ -193,6 +194,7 @@ class GenericClient:
         Yields:
             The feed of validated frames; the socket closes when the block exits.
         """
+        # The first frame signs the target exactly as requested, and is checked before it is sent.
         stream = self.board.stream(path)
         target = f"{path}?{urlencode(query)}" if query else path
         tag = str(stream.first_frame.get("signs"))

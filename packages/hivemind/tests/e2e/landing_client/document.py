@@ -149,6 +149,7 @@ class LandingBoard:
         Raises:
             SchemaError: The document has no such operation.
         """
+        # OpenAPI keys an operation by its path template, then its lower-case method.
         item = as_object(self.document.get("paths"), "paths").get(template)
         spec = as_object(item, template).get(method.lower()) if item is not None else None
         if spec is None:
@@ -173,6 +174,7 @@ class LandingBoard:
         Raises:
             SchemaError: The document describes no such stream.
         """
+        # x-hive-streams is a list of views, each naming its own path.
         streams = self.document.get("x-hive-streams")
         for entry in streams if isinstance(streams, list) else []:
             spec = as_object(entry, "a stream")
@@ -223,6 +225,7 @@ class LandingBoard:
             return quote(params[name], safe="")
 
         path = _PARAMETER.sub(fill, operation.template)
+        # A query parameter the operation does not declare would be ignored at best: refuse it.
         for name, value in query.items():
             if ("query", name) not in declared:
                 raise SchemaError(f"{operation.template} declares no query parameter {name}")
@@ -239,6 +242,7 @@ class LandingBoard:
             The body schema, or None.
         """
         body = operation.spec.get("requestBody")
+        # No requestBody member: the operation takes no body at all.
         if body is None:
             return None
         content = as_object(as_object(body, "requestBody").get("content"), "content")
