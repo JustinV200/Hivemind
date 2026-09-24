@@ -20,6 +20,19 @@ dependencies = [
 docker = [
     "docker>=7,<8",  # 7.x is the current major; pin the major only, like every other dependency here.
 ]
+# roadmap step 6.11 (ADR-0031): Playwright drives the Exoskeleton's browser fast path over CDP. It
+# is imported only inside hivemind.exoskeleton.browser.playwright, lazily, so a terminal-only Hive
+# never needs it; `uv sync --extra browser` (or `hivemind[browser]`) pulls it in. Its bundled
+# driver runs beside the bee; the browser itself is started on the Cell through its CellSession.
+browser = [
+    "playwright>=1.56,<2",  # 1.56 is the release whose Chromium build (141) the dev images carry.
+]
+# roadmap step 6.5a (ADR-0033): faster-whisper runs Whisper in process for ModelSlot.TRANSCRIBER.
+# Optional because it pulls a native inference runtime (CTranslate2) a terminal-only Hive never
+# loads; imported only inside hivemind.llm.providers.whisper (codingrules 8.6).
+whisper = [
+    "faster-whisper>=1.1,<2",  # 1.1 is the first release with the batched pipeline and VAD defaults we rely on.
+]
 
 [tool.uv.sources]
 waggle = { workspace = true }  # Resolve waggle from this workspace, not from an index.
