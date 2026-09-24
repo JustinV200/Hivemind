@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.exoskeleton import AttachError
 from hivemind.pheromone import WardenEvent
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
@@ -73,7 +74,21 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
         lease=warden._lease,
         session=warden._session,
     )
-    sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+    try:
+        sub_bee = await spawn_sub_bee(ctx, assignment, grant)
+    except AttachError as error:
+        # The Cell cannot equip this task (roadmap step 6.4): free the slot and tell the Queen,
+        # who alone can place it somewhere that can (EXOSKELETON_FAILED escalates by default).
+        warden._sub_bee_slots.release()
+        await send_alarm_to_queen(
+            warden,
+            kind=AlarmKind.EXOSKELETON_FAILED,
+            detail=f"Task {assignment.task_id} needs an Exoskeleton this Cell cannot attach: "
+            f"{error.reason}",
+            reason="Attach refused or failed before the sub-bee started; nothing is left running.",
+            task_id=assignment.task_id,
+        )
+        return
     warden._sub_bees[sub_bee.worker_id] = sub_bee
     warden._sub_bee_iters[sub_bee.worker_id] = sub_bee.link.receive()
 

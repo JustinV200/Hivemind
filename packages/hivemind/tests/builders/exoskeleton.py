@@ -32,7 +32,7 @@ from hivemind.cell import BackgroundSpec, CellSession, CompletedCommand, ExecSpe
 from hivemind.cell.fake import FakeSession, FakeStart
 from hivemind.exoskeleton.attach.ready import POLL_INTERVAL_S
 from hivemind.exoskeleton.browser import Browser, BrowserLaunch, LaunchedBrowser
-from waggle.clock import FakeClock
+from waggle.clock import Clock, FakeClock
 
 DISPLAY_NUMBER = 7  # What the scripted Xvfb reports through -displayfd.
 XVFB_LOG = b"(WW) a warning Xvfb prints first\n7\n"  # Warnings, then the number on its own line.
@@ -104,7 +104,7 @@ class ScriptedDesktop:
 
 
 def desktop_session(
-    tmp_path: Path, clock: FakeClock, desktop: ScriptedDesktop | None = None
+    tmp_path: Path, clock: Clock, desktop: ScriptedDesktop | None = None
 ) -> FakeSession:
     """Build a FakeSession whose Xvfb reports DISPLAY_NUMBER and whose execs `desktop` answers."""
     session = FakeSession(tmp_path, clock, responder=desktop or ScriptedDesktop())

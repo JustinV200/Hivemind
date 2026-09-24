@@ -54,6 +54,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell, CellSession
+from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.guard import CapabilitySet
 from hivemind.llm import BoundModel, CallGate
 from hivemind.memory import MemoryIdentity, MemoryStore
@@ -149,6 +150,9 @@ class WorkerContext:
             (`hivemind.llm.ladders.run_tool_loop`'s own `gate` option); the Warden passes its own
             `hivemind.llm.FannerLane` (the seat meter, roadmap step 3.12a) or a bare
             `hivemind.llm.DirectCallGate` when no metering is wired up yet.
+        exoskeleton: The display, input, audio and browser attached for this Worker's task
+            (roadmap step 6.4), or None for a terminal-only task; the Exoskeleton tools read their
+            peripherals from it and are offered only when it is set.
     """
 
     worker_id: WorkerId
@@ -167,3 +171,4 @@ class WorkerContext:
     capping: CappingGate
     lease: LeaseView
     call_gate: CallGate
+    exoskeleton: ExoskeletonHandle | None = None

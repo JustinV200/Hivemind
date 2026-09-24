@@ -424,6 +424,10 @@ def _task_assign(
         acceptance=task.spec.acceptance,
         leaves=task.spec.leaves,
         tempo=task.spec.needs.tempo.to_wire(),
+        # Protocol 1.6: the Warden attaches exactly this Exoskeleton and grants exactly these
+        # scopes; before it, both stopped at placement and never reached the Cell (ADR-0031).
+        exoskeleton=task.spec.needs.exoskeleton_need(),
+        network_scopes=task.spec.needs.network_scopes,
         clearance=task.spec.clearance.to_wire(),
         grant_id=grant_id,
         attempt=attempt,

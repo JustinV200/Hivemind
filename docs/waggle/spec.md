@@ -709,7 +709,9 @@ Family enums and value models:
 - `AlarmKind`: `WORKER_FAILED`, `WORKER_CRASHED`, `WORKER_STALLED`, `ACCEPTANCE_FAILED`,
   `POSTCONDITION_FAILED`, `CONTEXT_OVERFLOW`, `GRANT_EXCEEDED`, `PROVIDER_UNAVAILABLE`,
   `AUDIT_FAILED`, `CELL_UNREACHABLE`, `QUOTA_EXCEEDED` (a lease's scratch directory outgrew its
-  configured quota; added in a minor 1 bump, roadmap step 3.11), `OTHER`. The closed set the
+  configured quota; added in a minor 1 bump, roadmap step 3.11), `EXOSKELETON_FAILED` (attach
+  could not equip the Cell with the Exoskeleton its task needs, or a lease-started peripheral
+  process would not stop; added in minor 6, ADR-0031), `OTHER`. The closed set the
   escalation policy keys on; `OTHER` carries anything new until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:

@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.workers.runtime import WorkerRuntime
 from hivemind.workers.state import WorkerState
 from waggle.ids import TaskId, WorkerId
@@ -77,6 +78,8 @@ class SubBee:
             awaited or cancelled by the Warden, never dropped.
         missed_heartbeats: How many heartbeat intervals have elapsed with nothing heard since the
             last Heartbeat; reset to 0 the moment a fresh one arrives.
+        exoskeleton: The Exoskeleton attached for this sub-bee's task (roadmap step 6.4), None
+            for a terminal-only task; detached by `stop_sub_bee`, whichever way it retires.
     """
 
     worker_id: WorkerId
@@ -91,3 +94,4 @@ class SubBee:
     runtime_task: asyncio.Task[None]
     last_telemetry: ContextTelemetry | None = field(default=None)
     missed_heartbeats: int = field(default=0)
+    exoskeleton: ExoskeletonHandle | None = field(default=None)

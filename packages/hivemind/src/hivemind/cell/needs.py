@@ -49,6 +49,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import Enum
 from typing import Annotated
 
@@ -167,6 +168,35 @@ class TaskNeeds(BaseModel):
         description="The task's speed-against-accuracy setting; read by routing, Forage "
         "allocation and Capping.",
     )
+
+    @classmethod
+    def from_wire(
+        cls,
+        tempo: Tempo,
+        exoskeleton: ExoskeletonNeed | None,
+        network_scopes: Sequence[str] = (),
+    ) -> TaskNeeds:
+        """Rebuild the needs a Warden must honour from what its task.assign carries.
+
+        The inverse of `exoskeleton_need` for the fields that travel (protocol 1.6): a Warden
+        that rebuilt needs from the tempo alone never attached the Exoskeleton a task asked
+        for and never granted its network scopes (ADR-0031).
+
+        Args:
+            tempo: The assignment's tempo.
+            exoskeleton: The assignment's Exoskeleton need, None for a terminal-only task.
+            network_scopes: The assignment's network scopes.
+
+        Returns:
+            The needs, with every field that does not travel at its default.
+        """
+        return cls(
+            tempo=tempo,
+            exoskeleton=exoskeleton is not None,
+            browser_only=exoskeleton is not None and exoskeleton.browser_only,
+            audio=exoskeleton is not None and exoskeleton.audio,
+            network_scopes=tuple(network_scopes),
+        )
 
     def exoskeleton_need(self) -> ExoskeletonNeed | None:
         """Return the wire form of this task's Exoskeleton need, for its task.assign.

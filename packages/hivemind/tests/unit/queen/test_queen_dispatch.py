@@ -18,10 +18,11 @@ import asyncio
 import dataclasses
 from datetime import timedelta
 
+from builders.cells import make_capabilities, make_cell
 from builders.queen import FORAGE_SOURCE_SEATS, make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.cell import HoneyClearance
+from hivemind.cell import AccessLevel, HoneyClearance
 from hivemind.forage import RoleFootprint, RoyalReserve
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import PheromoneTrail
@@ -32,7 +33,7 @@ from waggle.ids import TaskId, WardenId, new_event_id, new_message_id
 from waggle.messages.labels import HandoffRef
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import Question
-from waggle.messages.task import WorkerRole
+from waggle.messages.task import ExoskeletonNeed, WorkerRole
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -121,6 +122,34 @@ async def test_submit_goal_carries_a_declared_leaving_all_the_way_to_the_assignm
     assert assignment.leaves[0].reason == "Set up a project in /opt/project."
     task = await deps.chamber.get(goal_id)
     assert task.spec.leaves == assignment.leaves
+    await warden_end.close()
+
+
+def _browser_task_plan(goal: str) -> dict[str, object]:
+    """`_single_task_plan`, needing the browser fast path and one network scope (protocol 1.6)."""
+    plan = _single_task_plan(goal)
+    plan["tasks"][0]["needs"] = {  # type: ignore[index]
+        "exoskeleton": True,
+        "browser_only": True,
+        "network_scopes": ["example.org"],
+    }
+    return plan
+
+
+async def test_submit_goal_carries_the_exoskeleton_need_and_scopes_to_the_assignment() -> None:
+    """ADR-0031: the need and the scopes reach the Warden that must honour them."""
+    provider = FakeLLMProvider(responder=plan_responder(_browser_task_plan))
+    capabilities = make_capabilities(has_browser=True, network_scopes=("example.org",))
+    cell = make_cell(access_level=AccessLevel.FULL, capabilities=capabilities)
+    deps, link, warden_end = make_queen_deps(fake_provider=provider, cell=cell)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+
+    await queen.submit_goal("Read a page.", clearance=HoneyClearance.C1)
+
+    assignment = await warden_end.wait_for_assignment()
+    assert assignment.exoskeleton == ExoskeletonNeed(browser_only=True)
+    assert assignment.network_scopes == ("example.org",)
     await warden_end.close()
 
 

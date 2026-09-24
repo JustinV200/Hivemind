@@ -145,3 +145,20 @@ def test_task_needs_exoskeleton_need_is_the_wire_form_of_its_refinements(
 
     assert wire is not None
     assert (wire.browser_only, wire.audio) == (browser_only, audio)
+
+
+@pytest.mark.parametrize(
+    "needs",
+    [
+        TaskNeeds(),
+        TaskNeeds(exoskeleton=True),
+        TaskNeeds(exoskeleton=True, browser_only=True, network_scopes=("example.org",)),
+        TaskNeeds(exoskeleton=True, audio=True),
+    ],
+)
+def test_task_needs_from_wire_rebuilds_every_field_that_travels(needs: TaskNeeds) -> None:
+    # A Warden rebuilt needs from the tempo alone, so neither the Exoskeleton need nor the
+    # network scopes a task carried ever reached its Cell (ADR-0031).
+    rebuilt = TaskNeeds.from_wire(needs.tempo, needs.exoskeleton_need(), needs.network_scopes)
+
+    assert rebuilt == needs

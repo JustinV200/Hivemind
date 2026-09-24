@@ -70,6 +70,7 @@ from pathlib import Path
 from hivemind.cell import AccessLevel, Cell, CellSession, RealCellLease, TaskNeeds
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
+from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.forage.slots import ModelSlot
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import CapabilitySet
@@ -80,6 +81,7 @@ from hivemind.supervision.capping import GateDeps
 from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
+from hivemind.wardens.spawn.equip import equip, unequip
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
     GrantSlice,
@@ -185,13 +187,15 @@ async def spawn_sub_bee(
         assignment: The TaskAssign to run; `assignment.resume_from`, when set, is threaded through
             to the role as its starting Handoff reference via the sub-bee's own TaskAssign.
         grant: The GrantIssued this sub-bee's budgets and allowed bindings are carved from.
-        binding_override: A `[llm.slots]` manifest key to resolve instead of the one
-            `assignment.slot` names; set by a REBIND respawn, whose target binding (a named
-            binding such as `"local_worker"`) need not be any `ModelSlot`'s own manifest key.
+        binding_override: A `[llm.slots]` key to resolve instead of `assignment.slot`'s own; set
+            by a REBIND respawn, whose target (`"local_worker"`) need not be a ModelSlot's key.
 
     Returns:
         A SubBee in `WorkerState.SPAWNED`, its runtime task already started (owned by the caller)
-        and its first TaskAssign already sent.
+        and its first TaskAssign already sent; equipped when the task needs an Exoskeleton.
+
+    Raises:
+        hivemind.exoskeleton.AttachError: The task needs an Exoskeleton its Cell cannot attach.
     """
     deps = ctx.deps
     worker_id = new_worker_id(deps.clock)
@@ -200,28 +204,17 @@ async def spawn_sub_bee(
     bound = deps.rebind(binding_key)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
     facts = _SpawnedBeeFacts(worker_id=worker_id, bound=bound, capabilities=capabilities)
-
     _widen_lease_reachability(ctx, write_roots)
     capping_gate = _build_capping_gate(ctx, assignment)
-    worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate)
+    exoskeleton = await equip(ctx, assignment, capabilities)  # Before the role's first tool call.
+    worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
-
     await _record_spawned(deps, worker_id, assignment)
     assign_hop = Hop(sender=ctx.warden_id, recipient=worker_id, node_id=deps.identity.node_id)
     await warden_link.send(wrap(assignment, assign_hop, clock=deps.clock))
 
-    return SubBee(
-        worker_id=worker_id,
-        task_id=assignment.task_id,
-        assignment=assignment,
-        attempt=assignment.attempt,
-        state=WorkerState.SPAWNED,
-        binding=binding_key,
-        last_handoff=assignment.resume_from,
-        link=warden_link,
-        runtime=runtime,
-        runtime_task=runtime_task,
-    )
+    started = _Started(warden_link, runtime, runtime_task, exoskeleton)
+    return _sub_bee_row(worker_id, assignment, binding_key, started)
 
 
 async def stop_sub_bee(
@@ -247,6 +240,38 @@ async def stop_sub_bee(
     await asyncio.wait({sub_bee.runtime_task, deadline}, return_when=asyncio.FIRST_COMPLETED)
     await reap(deadline)
     await reap(sub_bee.runtime_task)
+    # Roadmap step 6.4: every retirement passes here, so this is where the task's display, sound
+    # server and browser stop; the runtime is already gone, so no tool is still driving them.
+    await unequip(sub_bee.exoskeleton)
+
+
+@dataclass(frozen=True, slots=True)
+class _Started:
+    """What spawn_sub_bee started for one sub-bee, bundled for its record (codingrules 5.1)."""
+
+    link: MemoryTransport
+    runtime: WorkerRuntime
+    runtime_task: asyncio.Task[None]
+    exoskeleton: ExoskeletonHandle | None
+
+
+def _sub_bee_row(
+    worker_id: WorkerId, assignment: TaskAssign, binding_key: str, started: _Started
+) -> SubBee:
+    """Build the Warden's bookkeeping row for a sub-bee that just started."""
+    return SubBee(
+        worker_id=worker_id,
+        task_id=assignment.task_id,
+        assignment=assignment,
+        attempt=assignment.attempt,
+        state=WorkerState.SPAWNED,
+        binding=binding_key,
+        last_handoff=assignment.resume_from,
+        link=started.link,
+        runtime=started.runtime,
+        runtime_task=started.runtime_task,
+        exoskeleton=started.exoskeleton,
+    )
 
 
 def _prepare_capabilities(
@@ -258,7 +283,9 @@ def _prepare_capabilities(
     `_widen_lease_reachability`'s own lease widening -- an outside-scratch write needs both to
     actually land (`hivemind.workers.capabilities.worker_capabilities`'s own module docstring).
     """
-    needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
+    needs = TaskNeeds.from_wire(
+        Tempo.from_wire(assignment.tempo), assignment.exoskeleton, assignment.network_scopes
+    )
     write_roots = _declared_write_roots(ctx.deps, assignment)
     capabilities = worker_capabilities(
         ctx.ceiling, needs, ctx.lease.scratch_root, extra_write_roots=write_roots
@@ -366,6 +393,7 @@ def _build_worker_context(
     facts: _SpawnedBeeFacts,
     sub_bee_grant: _SubBeeGrant,
     capping_gate: AuditingCappingGate,
+    exoskeleton: ExoskeletonHandle | None,
 ) -> WorkerContext:
     """Assemble the WorkerContext one sub-bee runs its role inside."""
     deps = ctx.deps
@@ -386,6 +414,7 @@ def _build_worker_context(
         capping=capping_gate,
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
+        exoskeleton=exoskeleton,
     )
 
 

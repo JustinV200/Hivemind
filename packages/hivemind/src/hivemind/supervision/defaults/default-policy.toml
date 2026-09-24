@@ -118,6 +118,8 @@ kind = "QUOTA_EXCEEDED"
 min_attempts = 1
 action = "CANCEL"
 
-# AUDIT_FAILED, CELL_UNREACHABLE and OTHER have no row here on purpose: each is rare enough, or
-# unnamed enough (OTHER), that a fixed playbook would be guessing. `default` (ESCALATE) reaches a
-# human rather than autopilot guessing wrong on a case nobody has characterised yet.
+# AUDIT_FAILED, CELL_UNREACHABLE, EXOSKELETON_FAILED and OTHER have no row here on purpose: each
+# is rare enough, or unnamed enough (OTHER), that a fixed playbook would be guessing (an
+# EXOSKELETON_FAILED usually means the task sits on a Cell that cannot equip it, which only a new
+# placement fixes). `default` (ESCALATE) reaches a human rather than autopilot guessing wrong on a
+# case nobody has characterised yet.

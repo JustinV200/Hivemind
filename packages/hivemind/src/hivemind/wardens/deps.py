@@ -46,6 +46,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
+from hivemind.exoskeleton import ExoskeletonConfig
+from hivemind.exoskeleton.browser import BrowserLauncher
 from hivemind.forage.tempo import Tempo
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
@@ -167,6 +169,10 @@ class WardenDeps:
             RelaySnapshotter` in instead: a Virtual Cell's own Warden cannot reach the host
             backend itself (ADR-0027), so it asks the Queen over `queen_link` (roadmap step
             5.10's own follow-up gap).
+        exoskeleton_config: How `hivemind.wardens.spawn.equip` equips a sub-bee whose task needs
+            an Exoskeleton: screen size, readiness budget, whether the browser keeps its sandbox.
+        browser_launcher: Starts a lease's browser (the Playwright launcher in production), or
+            None where this Hive has no browser extra installed.
     """
 
     source: RealCellSource
@@ -219,6 +225,11 @@ class WardenDeps:
     # NoopSnapshotter so a WardenDeps built before this dispatch (every existing test) keeps
     # building and behaving unchanged.
     snapshotter: Snapshotter = field(default_factory=NoopSnapshotter)
+    # Roadmap step 6.4 (ADR-0031): how this Warden equips a sub-bee whose task needs an
+    # Exoskeleton. Additive and defaulted: no browser launcher means a desktop still attaches
+    # without the browser fast path, and a browser-only task is refused with EXOSKELETON_FAILED.
+    exoskeleton_config: ExoskeletonConfig = field(default_factory=ExoskeletonConfig)
+    browser_launcher: BrowserLauncher | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

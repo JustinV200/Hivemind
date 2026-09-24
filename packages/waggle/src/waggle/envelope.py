@@ -68,8 +68,8 @@ PROTOCOL_MINOR = 6  # Additive changes bump it; any minor of a known major is ac
 # Cell snapshot relay (cell.snapshot_request/_reply, cell.rollback_request/_reply) and
 # InterventionAction.RELEASE_LEASE (roadmap steps 5.10 and 5.13); 6 for the Exoskeleton (roadmap
 # phase 6): ActionKind.GUI with its typed GuiStep, PostconditionKind.URL_MATCHES/REGION_CHANGED,
-# RollbackMethod.GUI_STATE, CellCapabilitiesReport.real_display_allowed, TaskAssign.exoskeleton/
-# network_scopes/recon and TaskResult.scout_report.
+# RollbackMethod.GUI_STATE, AlarmKind.EXOSKELETON_FAILED, CellCapabilitiesReport.
+# real_display_allowed, TaskAssign.exoskeleton/network_scopes/recon and TaskResult.scout_report.
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.
