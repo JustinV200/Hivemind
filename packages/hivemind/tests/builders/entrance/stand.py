@@ -45,6 +45,8 @@ from hivemind.manifest import HiveManifest, load_manifest
 from waggle.clock import SystemClock
 from waggle.signing import Ed25519Signer
 
+_DRONE_CPU = "[forage.roles.drone]\ncpu_cores = 0.5\n"  # fake_manifest's own Drone footprint.
+_NO_CPU = "[forage.roles.drone]\ncpu_cores = 0.0\n"  # A footprint no machine load can refuse.
 # The loopback listener on a port the system picks, and limits a scripted operator never meets.
 ENTRANCE = (
     '\n[entrance]\nbind = "127.0.0.1:0"\nrate_limit_per_address = 1000\n'
@@ -166,9 +168,12 @@ def stand_manifest(root: Path, extra: str = "") -> Path:
     Returns:
         The manifest's path.
     """
-    # fake_manifest's Drone has no CPU footprint, so the machine's load never refuses a goal here.
     path = fake_manifest(root)
     text = path.read_text(encoding="utf-8")
+    # A Drone's CPU footprint weighs free cores, which a loaded test machine (other suites
+    # running beside this one) can drive to zero, and a goal would then get no sub-bee at all.
+    # A zero footprint takes the machine's load out of whether a stand's goals can run.
+    text = text.replace(_DRONE_CPU, _NO_CPU)
     path.write_text(text + ENTRANCE + extra, encoding="utf-8")
     return path
 
