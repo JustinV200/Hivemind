@@ -13,13 +13,16 @@ Hive's Ed25519 key, the Web Push keys, and in a remote mode the Hive's certifica
 builds the Entrance, and runs it inside `run_hive` until the caller leaves the block, publishing
 the serve record (the loopback listener's port) the console commands find it by. The Web Push
 contact defaults to `[entrance] public_url` when `HIVEMIND_ENTRANCE_VAPID_SUBJECT` is unset; with
-neither, Web Push is not offered. The tunnel child's environment is the Hive's without its own
-variables and without any provider's API key, plus `HIVEMIND_ENTRANCE_TUNNEL_*`. While
-`[entrance.voice]` is on (roadmap step 10.5f), the `TRANSCRIBER` slot is bound through the Hive's
-own provider registry and metered by its own Fanner (`bind_transcriber`), so every clip is one
-`llm.call` on the Hive's trail, and a slot bound to a provider that cannot transcribe refuses to
-start `hive serve` rather than failing the first spoken word; the transcript is scored by the
-Queen's own scanner, and a kept clip goes to the in-memory Nectar seam until phase 7.
+neither, Web Push is not offered. Push deliveries go out through httpx's own transport (TLS
+verified, no environment proxy) unless a test hands `build_served_hive` a recording one, so an
+end-to-end test's webhooks and Web Push never leave the process. The tunnel child's environment
+is the Hive's without its own variables and without any provider's API key, plus
+`HIVEMIND_ENTRANCE_TUNNEL_*`. While `[entrance.voice]` is on (roadmap step 10.5f), the
+`TRANSCRIBER` slot is bound through the Hive's own provider registry and metered by its own Fanner
+(`bind_transcriber`), so every clip is one `llm.call` on the Hive's trail, and a slot bound to a
+provider that cannot transcribe refuses to start `hive serve` rather than failing the first spoken
+word; the transcript is scored by the Queen's own scanner, and a kept clip goes to the in-memory
+Nectar seam until phase 7.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.serve` and by the
@@ -121,12 +124,16 @@ class ServedHive:
         environ: The composition root's environment: the Web Push key and contact, the tunnel's.
         interfaces: This host's interfaces; the kernel's unless a test injects its own.
         resolver: Resolves push destinations; the system resolver unless a test injects one.
+        push_transport: Carries every push delivery; None (production) is httpx's own transport
+            over the network, TLS verified. A test injects a recording one so nothing leaves the
+            process; the destination guard still vets and pins every delivery either way.
     """
 
     hive: Hive
     environ: Mapping[str, str] = field(repr=False)
     interfaces: LocalInterfaces = field(default_factory=SystemInterfaces)
     resolver: Resolver = system_resolver
+    push_transport: httpx.AsyncBaseTransport | None = field(default=None, repr=False)
 
 
 def build_served_hive(
@@ -135,6 +142,7 @@ def build_served_hive(
     environ: Mapping[str, str],
     clock: Clock,
     responders: Mapping[str, Responder] | None = None,
+    push_transport: httpx.AsyncBaseTransport | None = None,
 ) -> ServedHive:
     """Build the Hive `hive serve` runs: exactly `build_hive`'s, not yet started.
 
@@ -145,12 +153,14 @@ def build_served_hive(
         environ: The composition root's environment mapping.
         clock: The time source every collaborator shares.
         responders: Installed on every `kind = "fake"` provider; None in production.
+        push_transport: Carries every push delivery; None in production, where deliveries go
+            over the network through httpx's own transport.
 
     Returns:
         The Hive, not yet started.
     """
     hive = build_hive(manifest, environ=environ, clock=clock, responders=responders)
-    return ServedHive(hive=hive, environ=environ)
+    return ServedHive(hive=hive, environ=environ, push_transport=push_transport)
 
 
 @asynccontextmanager
@@ -203,8 +213,11 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
         tables = await _open_tables(manifest, hive, clock)
         keys = await _load_keys(manifest, read_env(served.environ), plan, clock)
         # No environment proxy: the destination guard's pinned address is where a push connects.
+        # No transport given (production) is httpx's own, verifying TLS for the pinned name.
         http = await stack.enter_async_context(
-            httpx.AsyncClient(trust_env=False, timeout=PUSH_HTTP_TIMEOUT_S)
+            httpx.AsyncClient(
+                trust_env=False, timeout=PUSH_HTTP_TIMEOUT_S, transport=served.push_transport
+            )
         )
         parts = EntranceParts(
             settings=_settings(served, plan),
