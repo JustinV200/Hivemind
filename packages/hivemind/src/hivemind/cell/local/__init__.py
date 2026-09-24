@@ -42,8 +42,9 @@ Public API:
     - LocalProcessSession: a CellSession over a real OS process (hivemind.cell.local.session).
     - HiveStandLeaseReleaser, kill_process_tree, KILL_GRACE_S: leaving the Hive Stand as found on
       release (hivemind.cell.local.releaser).
-    - HiveStandSource: the RealCellSource for the Hive Stand's one Cell
-      (hivemind.cell.local.source).
+    - HiveStandSource, HIVE_STAND_SOURCE, hive_stand_cell_id: the RealCellSource for the Hive
+      Stand's one Cell, the `source` name it carries, and the pure function that derives its id
+      from the node id (hivemind.cell.local.source).
 """
 
 from hivemind.cell.local.config import HiveStandConfig
@@ -56,10 +57,11 @@ from hivemind.cell.local.quota import (
 )
 from hivemind.cell.local.releaser import KILL_GRACE_S, HiveStandLeaseReleaser, kill_process_tree
 from hivemind.cell.local.session import LocalProcessSession
-from hivemind.cell.local.source import HiveStandSource
+from hivemind.cell.local.source import HIVE_STAND_SOURCE, HiveStandSource, hive_stand_cell_id
 
 __all__ = [
     "DEFAULT_MAX_SUB_BEES",
+    "HIVE_STAND_SOURCE",
     "KILL_GRACE_S",
     "QUOTA_SAMPLE_INTERVAL_S",
     "DirectorySizer",
@@ -70,6 +72,7 @@ __all__ = [
     "ProbeResult",
     "ScratchQuota",
     "directory_size_bytes",
+    "hive_stand_cell_id",
     "kill_process_tree",
     "probe_host",
     "refresh_live",

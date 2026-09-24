@@ -64,6 +64,12 @@ exist to catch problems that only show up when every layer runs at once.
   over memory transports and a seeded SQLite Honey Store. Proves a query's round trip hop by hop
   (Worker -> Warden -> Queen -> Warden -> Worker, correlation ids intact) and a two-chunk deposit
   reaching intake whole with the Worker's provenance.
+- `test_hive_stand_identity.py` (`@pytest.mark.e2e`) -- phase 7 handoff item 4: two separate
+  `HiveStandSource`/`HoneyAccess` builds from the same manifest and database file, driven one
+  after the other (standing in for two separate `hive run` processes), lease the identical Hive
+  Stand Cell id (`hivemind.cell.hive_stand_cell_id`, derived from `[hive] node_id`), and the
+  second leaseholder reads back, at that same `cell:<id>` scope, a Honey row the first one
+  deposited and ripened before releasing.
 
 ## Budget
 

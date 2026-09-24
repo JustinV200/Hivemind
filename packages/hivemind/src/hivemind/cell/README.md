@@ -48,8 +48,10 @@ here; `swarm` for enrolled devices, a later phase).
 - **Leavings** (`hivemind.cell.leavings`, roadmap step 5.0a): the ledger of paths a task was
   allowed to keep on a Cell past its lease's release -- `Leaving`, `ApprovedBy`, `LeavingsStore`
   (`record_leaving`, `get_leaving`, `list_leavings`, `list_all_leavings` -- every Cell's active
-  Leavings in one call, since every `hive run` mints a fresh Cell id -- `mark_removed`) and its
-  two implementations; see `cell/leavings/README.md` for its own public API. Written by
+  Leavings in one call, handy across every Cell a Swarm device adds, a later phase, since the
+  Hive Stand's own Cell id is stable across `hive run`s (`hive_stand_cell_id`, below) --
+  `mark_removed`) and its two implementations; see `cell/leavings/README.md` for its own public
+  API. Written by
   `hivemind.cell.local.HiveStandLeaseReleaser.release`; read and cleared by `hive cells
   leavings list|remove [CELL] [--path PATH]`.
 - **Source** (`hivemind.cell.source`): `RealCellSource` (`name`, `cells()`, `lease(request)`,
@@ -69,7 +71,11 @@ here; `swarm` for enrolled devices, a later phase).
 - **Local** (`hivemind.cell.local`): the Hive Stand, the machine the Queen runs on and the first
   Real Cell source (roadmap step 3.11) -- `HiveStandConfig`, `probe_host`/`refresh_live`,
   `LocalProcessSession`, `HiveStandLeaseReleaser`, `HiveStandSource`; see `cell/local/README.md`
-  for its own public API.
+  for its own public API. `HIVE_STAND_SOURCE` (the `source` name `HiveStandSource` stamps on its
+  one Cell) and `hive_stand_cell_id(node_id)` (the pure function that derives that Cell's id from
+  the manifest's `[hive] node_id`, phase 7 handoff item 4, instead of minting a fresh one on every
+  `hive run`) are re-exported from here too, since callers outside `cell.local` name a Hive Stand
+  Cell by these without reaching into that sub-package's other, subprocess-carrying names.
 
 ## How to test this
 
