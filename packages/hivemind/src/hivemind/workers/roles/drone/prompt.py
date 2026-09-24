@@ -3,7 +3,9 @@
 `assemble_drone_prompt` is a thin composition over `hivemind.memory.assemble`: it builds the
 `Principal` (who this prompt is for), the `TriggerEvent` (the task assignment itself) and the
 `TokenBudget` (a manifest-shaped fraction of the bound model's context window, minus an output
-reserve) that `assemble` needs, then hands off to it -- never a conversation, per codingrules
+reserve) that `assemble` needs, passes the Honey hits the assignment carries (`TaskAssign.honey`:
+what the Queen's pre-check found in the Hive's ripened knowledge, plus the Cell's live Cell Wax) as
+the retrieved cold tier, then hands off to it -- never a conversation, per codingrules
 section 8.8: "Awake episodes are stateless." `build_request` turns the resulting `Prompt` into the
 `LLMRequest` `hivemind.llm.run_tool_loop` actually calls: the system prompt is
 `hivemind.llm.prompts.drone_system.md` rendered with the assembled sections plus the triggering
@@ -30,6 +32,10 @@ Key invariants:
       roles.drone.role.Drone.run` calls `initial_drone_budget` once, then re-calls
       `assemble_drone_prompt` with a smaller budget on each `hivemind.memory.overflow.
       run_with_overflow_retry` retry, so a `ContextTooLongError` never crashes a Drone.
+    - The assignment's Honey hits reach the model only inside assemble's RETRIEVED section, which
+      render() delimits and `drone_system.md` names as reference data, never instructions
+      (codingrules section 15); they never displace hot state, and a hit left out for the budget
+      is not deposited anywhere (it already lives in the Honey Store).
 
 See Also:
     - .claude/codingrules.md section 8.8 for "awake episodes are stateless."
@@ -117,7 +123,8 @@ async def assemble_drone_prompt(
         ctx: This attempt's WorkerContext; supplies `worker_id`, `bound` (for the slot) and the
             counter selection.
         assignment: The task this attempt is working; becomes the Principal's clearance and the
-            TriggerEvent's summary.
+            TriggerEvent's summary, and its `honey` (the Queen's pre-check hits) becomes the
+            RETRIEVED section, within the budget's retrieved share.
         sources: Where every hot-state candidate comes from (`hivemind.workers.roles.drone.
             sources.DroneSources` in production).
         budget: How much room the assembled sections have; `initial_drone_budget(ctx)` on the
@@ -133,7 +140,11 @@ async def assemble_drone_prompt(
     event = TriggerEvent(
         kind=TASK_ASSIGN_EVENT_KIND, summary=assignment.objective, clearance=clearance
     )
-    request = AssembleRequest(principal=principal, event=event, budget=budget)
+    # The Queen's pre-check hits (roadmap 7.9) ride on the assignment; assemble packs them into
+    # the RETRIEVED section after hot state, labelled as reference data, never instructions.
+    request = AssembleRequest(
+        principal=principal, event=event, budget=budget, retrieved=assignment.honey
+    )
     dropped: list[Scorable] = []
     prompt = await assemble(request, sources, select_counter(ctx), on_drop=dropped.append)
     if dropped:

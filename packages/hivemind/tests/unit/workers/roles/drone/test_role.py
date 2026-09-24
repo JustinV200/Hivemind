@@ -20,6 +20,9 @@ from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
 from hivemind.pheromone import TrailQuery
 from hivemind.workers.errors import WorkerCancelledError
 from hivemind.workers.roles.drone import Drone
+from waggle.clock import FakeClock
+from waggle.messages.honey import HoneyHit, HoneyProvenance
+from waggle.messages.labels import CombShieldLevel, HoneyClearance
 
 
 async def test_drone_happy_path_writes_three_haiku_and_completes() -> None:
@@ -175,3 +178,30 @@ async def test_cancel_raises_worker_cancelled_error() -> None:
 
     with pytest.raises(WorkerCancelledError):
         await Drone().run(ctx, assignment, resume_from=None)
+
+
+async def test_drone_shows_its_assignments_honey_to_the_model_as_retrieved_data() -> None:
+    # Roadmap 7.7: the Queen's pre-check hits ride on TaskAssign.honey into the RETRIEVED section.
+    provider = FakeLLMProvider()
+    ctx = make_context(bound=make_bound(provider=provider))
+    hit = HoneyHit(
+        honey_ref="/hive/honey_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        title="Where the report goes",
+        excerpt="Reports for this Cell are written under scratch/.",
+        score=0.8,
+        scope="hive",
+        clearance=HoneyClearance.C1,
+        origin_tier=CombShieldLevel.MEADOW,
+        provenance=HoneyProvenance(
+            task_id=None, cell_id=None, bee=None, observed_at=FakeClock().now()
+        ),
+    )
+    assignment = make_assignment(honey=(hit,))
+    provider.script(text_response("Done."))
+
+    await Drone().run(ctx, assignment, resume_from=None)
+
+    system = provider.calls[0].system
+    assert system is not None
+    assert system.index("<<<retrieved>>>\n") < system.index(hit.excerpt)
+    assert system.index(hit.excerpt) < system.index("<<<end retrieved>>>")
