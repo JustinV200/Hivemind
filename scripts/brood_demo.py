@@ -48,7 +48,7 @@ from pathlib import Path
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, TaskOutcome, TaskStatus
 from hivemind.brood_chamber.questions import Answer, AnswerSource
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.cli.stores import open_chamber, open_trail
 from hivemind.common.sqlite import connect
 from hivemind.pheromone import PheromoneEvent, SqlitePheromoneTrail, TrailQuery, WardenEvent
@@ -185,7 +185,12 @@ def _step2_drive_plan(chamber: BroodChamber, plan_id: str, recorder: Recorder) -
     """Advance `plan` through assign, start, progress, ask/answer, pause/resume, complete."""
     clock = SystemClock()
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
-    plan = asyncio.run(chamber.assign(TaskId(plan_id), warden_id, cell_id, reason="placement"))
+    # The demo's Cell is an ordinary MEADOW one; assignment binds the task to that tier.
+    plan = asyncio.run(
+        chamber.assign(
+            TaskId(plan_id), warden_id, cell_id, "placement", bound_tier=CombShieldLevel.MEADOW
+        )
+    )
     recorder.check("plan assigned", plan.status is TaskStatus.ASSIGNED)
     plan = asyncio.run(chamber.start(TaskId(plan_id)))
     recorder.check("plan started", plan.status is TaskStatus.RUNNING)
@@ -228,7 +233,11 @@ def _step2_drive_build_and_verify(
     )
     clock = SystemClock()
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
-    asyncio.run(chamber.assign(TaskId(ids["build"]), warden_id, cell_id, reason="placement"))
+    asyncio.run(
+        chamber.assign(
+            TaskId(ids["build"]), warden_id, cell_id, "placement", bound_tier=CombShieldLevel.MEADOW
+        )
+    )
     asyncio.run(chamber.start(TaskId(ids["build"])))
     outcome = TaskOutcome(status=TaskStatus.SUCCEEDED, summary="done", verified_by=warden_id)
     build = asyncio.run(chamber.complete(TaskId(ids["build"]), outcome))

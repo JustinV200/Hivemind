@@ -32,7 +32,7 @@ from hivemind.brood_chamber import (
     TaskStatus,
 )
 from hivemind.brood_chamber.questions import Answer, AnswerSource
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.cli.app import app
 from hivemind.cli.stores import open_chamber, open_trail
 from hivemind.common.sqlite import connect
@@ -156,7 +156,9 @@ async def _drive_plan_through_every_transition(
     BLOCKED and PAUSED included, ending SUCCEEDED.
     """
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
-    await chamber.assign(TaskId(task_id), warden_id, cell_id, reason="placement")
+    await chamber.assign(
+        TaskId(task_id), warden_id, cell_id, reason="placement", bound_tier=CombShieldLevel.MEADOW
+    )
     clock.advance(_STEP_SECONDS)
     await chamber.start(TaskId(task_id))
     clock.advance(_STEP_SECONDS)
@@ -190,7 +192,13 @@ async def _drive_build_then_cancel_verify(
     assert ready_after_plan.id == ids["build"]
 
     warden_id, cell_id = new_warden_id(clock), new_cell_id(clock)
-    await chamber.assign(TaskId(ids["build"]), warden_id, cell_id, reason="placement")
+    await chamber.assign(
+        TaskId(ids["build"]),
+        warden_id,
+        cell_id,
+        reason="placement",
+        bound_tier=CombShieldLevel.MEADOW,
+    )
     clock.advance(_STEP_SECONDS)
     await chamber.start(TaskId(ids["build"]))
     clock.advance(_STEP_SECONDS)

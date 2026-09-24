@@ -121,8 +121,12 @@ PROVIDER_CLOSE_TIMEOUT_S = 5.0  # Closing a pooled HTTP client is local work mea
 # whole Hive's shutdown hostage.
 
 log = get_logger(__name__)
+# Roadmap step 10.3a: provider kinds whose model runs inside the calling process itself, so a call
+# to one never leaves the machine it is made on (Night Veil's local-only rule, `runs_locally`).
+IN_PROCESS_KINDS: frozenset[ProviderKind] = frozenset({"fake"})
 
 __all__ = [
+    "IN_PROCESS_KINDS",
     "PENDING_KINDS",
     "PROVIDER_CLOSE_TIMEOUT_S",
     "MissingDefaultModelError",
@@ -135,6 +139,7 @@ __all__ = [
     "apply_overrides",
     "default_factories",
     "default_transcriber_factories",
+    "runs_locally",
 ]
 
 
@@ -463,6 +468,27 @@ def _check_offline(name: str, base_url: str, offline: bool) -> None:
         return
     if not _is_provably_local(base_url):
         raise OfflineViolationError(name, base_url)
+
+
+def runs_locally(config: ProviderConfig) -> bool:
+    """Return whether a provider serves from the calling machine itself: in process, or loopback.
+
+    Roadmap step 10.3a (ADR-0030): a Night Veil task binds only local models, never a hosted one
+    and never the Hive Stand's. Stricter than offline's own `_is_provably_local` on purpose: a
+    Virtual Cell gateway host is the Hive Stand's machine seen from inside a Cell, so it is
+    local enough for `offline` and never local for Night Veil.
+
+    Args:
+        config: One provider's configuration, as the caller's own registry holds it.
+
+    Returns:
+        True for an in-process kind (`IN_PROCESS_KINDS`) or a base URL on a loopback host;
+        False for a hosted endpoint, a gateway host or any other address.
+    """
+    if config.kind in IN_PROCESS_KINDS:
+        return True  # Nothing leaves the process, so nothing leaves the machine.
+    hostname = urlsplit(config.base_url).hostname if config.base_url else None
+    return hostname is not None and is_loopback_host(hostname)
 
 
 def _is_provably_local(base_url: str) -> bool:

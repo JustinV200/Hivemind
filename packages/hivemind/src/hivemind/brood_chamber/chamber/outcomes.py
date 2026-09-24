@@ -22,8 +22,9 @@ Key invariants:
     - `complete`/`fail` reject a mismatched `outcome.status` before touching the store, so a
       caller's bug never reaches `_transition` and fails against the wrong edge of
       `hivemind.brood_chamber.task.state.TRANSITIONS` instead of the real problem.
-    - Every terminal transition here clears `warden_id`/`cell_id` (a terminal Task is never
-      "placed", per `Task`'s own invariants); `cancel` also clears `pending_question_id`, since
+    - Every terminal transition here clears `warden_id`/`cell_id` and `bound_tier` (a terminal
+      Task is never "placed", per `Task`'s own invariants); `cancel` also clears
+      `pending_question_id`, since
       `BLOCKED -> CANCELLED` is a legal edge and a cancelled task can never still be blocked.
 
 See Also:
@@ -108,6 +109,7 @@ class _OutcomesMixin(_ChamberBase):
             outcome=outcome,
             warden_id=None,
             cell_id=None,
+            bound_tier=None,
             pending_question_id=None,
         )
 
@@ -144,5 +146,12 @@ class _OutcomesMixin(_ChamberBase):
             )
         task = await self._store.get_task(task_id)
         return await self._transition(
-            task, expected_status, kind, payload, outcome=outcome, warden_id=None, cell_id=None
+            task,
+            expected_status,
+            kind,
+            payload,
+            outcome=outcome,
+            warden_id=None,
+            cell_id=None,
+            bound_tier=None,
         )

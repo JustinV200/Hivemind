@@ -61,6 +61,7 @@ from hivemind.hive.backends.bootstrap import (
     CellReadyInfo,
     QueenEndpoint,
     ReadinessGate,
+    cell_endpoint,
     mint_cell_bootstrap,
 )
 from hivemind.hive.backends.qemu.cloud_init import (
@@ -184,7 +185,10 @@ class QemuCellBackend:
                 f"VPN_TOR requires image={_NIGHT_VEIL_IMAGE!r} (roadmap step 5.3a), so its own "
                 "kill-switch is what actually enforces this Cell's network policy",
             )
-        bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
+        # Roadmap step 10.3a: a NIGHT_VEIL Cell dials the hidden service through Tor, or is
+        # refused here before anything exists; every other tier keeps this backend's endpoint.
+        endpoint = cell_endpoint(self._endpoint, spec, self.name)
+        bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
         # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify
         # this Cell's very first signed frame the instant the VM's Warden dials out.
         await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)
@@ -204,7 +208,9 @@ class QemuCellBackend:
         overlay_path = await self._runner.create_overlay_disk(
             cell_id, vm_dir, self._config.base_image, spec.disk_bytes
         )
-        plan = plan_network(spec, self._endpoint)
+        # The Cell's own endpoint, not this backend's: a Night Veil Cell's is its hidden service,
+        # which no QEMU-level rewrite may replace with a clearnet address (roadmap step 10.3a).
+        plan = plan_network(spec, bootstrap.endpoint)
         user_data = render_user_data(bootstrap, queen_waggle_url_override=plan.queen_waggle_url)
         meta_data = render_meta_data(bootstrap)
         seed_path = await self._runner.write_seed_image(cell_id, vm_dir, user_data, meta_data)

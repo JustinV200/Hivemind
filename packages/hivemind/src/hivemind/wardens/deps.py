@@ -202,6 +202,11 @@ class WardenDeps:
             pass through (`WorkerContext.scanner`): the Hive Stand's composition root builds it
             from `[guard.untrusted_content]` and the Hive's secret store; a Virtual Cell's Warden
             gets the shipped patterns and thresholds with a key that lives and dies with the Cell.
+        local_providers: The `[llm.providers]` names that serve from this Warden's own machine
+            (in process, or on its loopback: `hivemind.llm.registry.runs_locally`), so a binding
+            under Night Veil is local only when every provider its fallback chain can reach is
+            one of these (roadmap step 10.3a). Defaults to none: nothing is shown local, so a
+            Night Veil binding fails closed.
     """
 
     source: RealCellSource
@@ -266,6 +271,9 @@ class WardenDeps:
     # Roadmap step 10.6b: additive and defaulted to the shipped patterns and thresholds with an
     # in-memory key, so a WardenDeps built without one (every test, a Virtual Cell) still scans.
     scanner: ContentScanner = field(default_factory=default_content_scanner)
+    # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil binding fails closed
+    # unless the composition root states which providers run on this machine.
+    local_providers: frozenset[str] = frozenset()
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

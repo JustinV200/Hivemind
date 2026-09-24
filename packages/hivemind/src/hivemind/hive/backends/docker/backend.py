@@ -56,6 +56,7 @@ from hivemind.hive.backends.bootstrap import (
     CellReadyInfo,
     QueenEndpoint,
     ReadinessGate,
+    cell_endpoint,
     mint_cell_bootstrap,
 )
 from hivemind.hive.backends.docker.client import (
@@ -161,7 +162,10 @@ class DockerCellBackend:
                 f"VPN_TOR requires image={_NIGHT_VEIL_IMAGE!r} (roadmap step 5.3a), so its own "
                 "kill-switch is what actually enforces this Cell's network policy",
             )
-        bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
+        # Roadmap step 10.3a: a NIGHT_VEIL Cell dials the hidden service through Tor, or is
+        # refused here before anything exists; every other tier keeps this backend's endpoint.
+        endpoint = cell_endpoint(self._endpoint, spec, self.name)
+        bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
         # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify
         # this Cell's very first signed frame, which can arrive the instant the container starts.
         await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)

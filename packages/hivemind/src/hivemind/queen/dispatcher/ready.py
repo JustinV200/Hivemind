@@ -251,8 +251,14 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     )
     link, placement = await resolve_link(deps, wardens, task, placement)
     await _record_placed(deps, task, placement)
+    # Roadmap step 10.3b: the task is bound to its Cell's tier with the assignment, so every later
+    # check for it (a rebind, a grant revision, an egress change) reads the tier it runs under.
     await deps.chamber.assign(
-        task.id, link.warden_id, link.cell.id, "Placed by the Queen's dispatcher."
+        task.id,
+        link.warden_id,
+        link.cell.id,
+        "Placed by the Queen's dispatcher.",
+        bound_tier=link.cell.comb_shield,
     )
     await deps.chamber.start(task.id)
     await record_event(

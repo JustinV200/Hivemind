@@ -25,7 +25,7 @@ import pytest
 from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
-from hivemind.hive.backends.bootstrap import QueenEndpoint
+from hivemind.hive.backends.bootstrap import NightVeilLink, QueenEndpoint
 from hivemind.hive.backends.fake import FakeReadinessGate
 from hivemind.hive.backends.qemu.backend import QemuBackendConfig, QemuCellBackend
 from hivemind.hive.backends.qemu.fake import FakeQemuRunner
@@ -49,8 +49,14 @@ def _make_spec(**overrides: object) -> VirtualCellSpec:
     return VirtualCellSpec(**fields)
 
 
+# The Hive's Night Veil link, as a composition root builds it from [security.tiers.NIGHT_VEIL].
+_LINK = NightVeilLink(
+    waggle_url="ws://hivestandhiddenservice.onion:8710", socks_proxy_url="socks5h://127.0.0.1:9050"
+)
+
+
 def _make_backend(
-    clock: FakeClock, *, max_cells: int | None = None
+    clock: FakeClock, *, max_cells: int | None = None, night_veil: NightVeilLink | None = None
 ) -> tuple[QemuCellBackend, FakeQemuRunner, FakeReadinessGate]:
     """Build a fresh QemuCellBackend over fresh fakes, plus the fakes for direct assertions."""
     runner = FakeQemuRunner()
@@ -59,6 +65,7 @@ def _make_backend(
         waggle_url="ws://localhost:8710",
         queen_node_id=new_node_id(clock),
         queen_verify_key_hex="00" * 32,
+        night_veil=night_veil,
     )
     config = QemuBackendConfig(
         base_image=Path("base-ubuntu.qcow2"), vm_root=Path("vm_root"), max_cells=max_cells
@@ -107,20 +114,46 @@ async def test_provision_refuses_vpn_tor_on_any_image_but_night_veil_ubuntu() ->
     assert gate.expect_calls == []
 
 
-async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
-    backend, runner, _ = _make_backend(FakeClock())
-    spec = _make_spec(
+def _night_veil_spec() -> VirtualCellSpec:
+    """A Night Veil Cell on the one image whose kill-switch can hold it."""
+    return _make_spec(
         image="night-veil-ubuntu",
         network_policy=NetworkPolicy.VPN_TOR,
         comb_shield=CombShieldLevel.NIGHT_VEIL,
     )
 
-    cell = await backend.provision(spec)
+
+async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
+    backend, runner, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    cell = await backend.provision(_night_veil_spec())
 
     assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
     # QEMU's own SLIRP network gives unrestricted outbound reach (module docstring: the in-guest
     # kill-switch is the real boundary, not QEMU's own network layer).
     assert runner.start_vm_calls[0].netdev_arg == "user,id=net0"
+
+
+async def test_a_night_veil_guest_boots_dialling_the_hidden_service_through_tor() -> None:
+    # Roadmap step 10.3a: no QEMU-level rewrite may swap the onion URL for a clearnet address.
+    backend, runner, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    cell = await backend.provision(_night_veil_spec())
+
+    user_data = runner.seed_user_data[cell.id]
+    assert f"HIVEMIND_QUEEN_WAGGLE_URL={_LINK.waggle_url}" in user_data
+    assert f"HIVEMIND_SOCKS_PROXY_URL={_LINK.socks_proxy_url}" in user_data
+    assert "localhost:8710" not in user_data
+
+
+async def test_provision_refuses_a_night_veil_cell_when_no_link_is_configured() -> None:
+    backend, runner, gate = _make_backend(FakeClock())
+
+    with pytest.raises(CellProvisionError, match="hidden service"):
+        await backend.provision(_night_veil_spec())
+
+    assert runner.create_overlay_disk_calls == []
+    assert gate.expect_calls == []
 
 
 async def test_provision_cleans_up_on_start_vm_failure() -> None:

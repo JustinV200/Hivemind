@@ -157,7 +157,10 @@ async def http_request(invocation: ToolInvocation, arguments: JsonObject) -> str
         return f"method must be one of {HTTP_METHODS!r}."
     if not isinstance(url, str) or not url:
         return "url must be a non-empty string."
-    pinned_or_refusal = await _authorize_destination(invocation, url)
+    # Roadmap step 10.3: the tool_invocation point, named here where the tool is called.
+    pinned_or_refusal = await _authorize_destination(
+        invocation, EnforcementPoint.TOOL_INVOCATION, url
+    )
     if isinstance(pinned_or_refusal, str):
         return pinned_or_refusal
     body = arguments.get("body")
@@ -168,24 +171,24 @@ async def http_request(invocation: ToolInvocation, arguments: JsonObject) -> str
     return describe(outcome)
 
 
-async def _authorize_destination(invocation: ToolInvocation, url: str) -> PinnedRequest | str:
+async def _authorize_destination(
+    invocation: ToolInvocation, point: EnforcementPoint, url: str
+) -> PinnedRequest | str:
     """Check the URL's host, then every address it resolves to; return the pin or a refusal."""
     parsed = _parse(url)
     needed = _net_need(parsed[1]) if parsed is not None else None
     # A model wrote this URL: one with no host the `net` grammar can hold is refused, not raised.
     if parsed is None or needed is None:
         return f"url {url!r} names no valid host; the request was never sent."
-    # Roadmap step 10.3: the name is a tool_invocation check first, so nothing unheld is resolved.
-    decision = await authorize(invocation, EnforcementPoint.TOOL_INVOCATION, needed)
+    # The name is checked first, so nothing the Worker does not hold is ever resolved.
+    decision = await authorize(invocation, point, needed)
     if not decision.allowed:
         return refusal_text(decision)
     addresses = await _addresses(invocation, parsed)
     if isinstance(addresses, str):
         return addresses
     # Roadmap step 10.3a: every address a connection could use meets the Hive-state floor.
-    refused = await floor_refusal_text(
-        invocation, EnforcementPoint.TOOL_INVOCATION, needed, addresses
-    )
+    refused = await floor_refusal_text(invocation, point, needed, addresses)
     if refused is not None:
         return refused
     return PinnedRequest(url=parsed[0], host=parsed[1], address=addresses[0])

@@ -28,6 +28,7 @@ from builders.tasks import make_graph_draft
 from typer.testing import CliRunner
 
 from hivemind.brood_chamber import ChamberIdentity
+from hivemind.cell import CombShieldLevel
 from hivemind.cli.app import app
 from hivemind.cli.stores import open_chamber, open_trail
 from hivemind.manifest import HiveManifest, load_manifest
@@ -64,6 +65,7 @@ def _seed_pending_question(manifest_path: Path) -> str:
             WardenId(new_warden_id(SystemClock())),
             CellId(new_cell_id(SystemClock())),
             "test",
+            bound_tier=CombShieldLevel.MEADOW,
         )
         await chamber.start(task.id)
         question = await chamber.ask(
