@@ -23,8 +23,8 @@ See Also:
 Public API:
     - ChallengeRequest, ChallengeView, LoginRequest, OpenedSessionView, StepUpRequest,
       SteppedUpView: login and step-up (auth).
-    - PasskeyOptionsRequest, PasskeyOptionsView, Ed25519Redemption, PasskeyRedemption,
-      RedemptionView: enrolment (enrol).
+    - HiveView, PasskeyOptionsRequest, PasskeyOptionsView, Ed25519Redemption,
+      PasskeyRedemption, RedemptionView: enrolment (enrol).
     - ModeView, ChangedView, InviteRequest, InviteView, ApprovalBody, DenyBody,
       ConfirmationView, ConfirmationList, ConfirmedView, confirmation_view: the door (door).
     - DeviceView, DeviceList, RevokeBody, RevocationView, WidenBody, device_view: devices.
@@ -67,6 +67,7 @@ from hivemind.entrance.models.door import (
 )
 from hivemind.entrance.models.enrol import (
     Ed25519Redemption,
+    HiveView,
     PasskeyOptionsRequest,
     PasskeyOptionsView,
     PasskeyRedemption,
@@ -129,6 +130,7 @@ __all__ = [
     "GoalSubmission",
     "GoalView",
     "HiveKeyView",
+    "HiveView",
     "InboxView",
     "InviteRequest",
     "InviteView",

@@ -1219,6 +1219,22 @@
         "title": "HiveKeyView",
         "type": "object"
       },
+      "HiveView": {
+        "additionalProperties": false,
+        "description": "The Hive a device is joining or logging into: what its signed strings name.",
+        "properties": {
+          "hive_id": {
+            "description": "The Hive's id (hive_...): hive-enrol-v1 and hive-login-v1 sign it, so a signature made for one Hive is refused by every other.",
+            "title": "Hive Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hive_id"
+        ],
+        "title": "HiveView",
+        "type": "object"
+      },
       "HoneyClearance": {
         "description": "A data-sensitivity label carried by every memory tier, not only Honey (the cold tier).\n\nTotally ordered C0 < C1 < C2 by declaration; compare `rank`, never the values. Any detail\nabout the operator or a Real Cell -- a first name or a habit included -- is C2. Labels come\nfrom provenance at intake; a model may raise a label, only a judge verdict or a human may\nlower one.",
         "enum": [
@@ -3513,6 +3529,94 @@
         ],
         "x-hive-c2": false,
         "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/enrol/hive": {
+      "get": {
+        "operationId": "hive_identity_v1_enrol_hive_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HiveView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [],
+        "summary": "Read the Hive's id, which a program's enrolment and login signatures name.",
+        "tags": [
+          "enrol"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "read",
         "x-hive-listeners": [
           "loopback",
           "remote"

@@ -22,6 +22,7 @@ own session.
 | POST | /v1/auth/logout | L+R | session | session |
 | POST | /v1/auth/step-up/challenge | L+R | session | session |
 | POST | /v1/auth/step-up | L+R | session | session |
+| GET | /v1/enrol/hive | L+R | public | read |
 | POST | /v1/enrol/passkey-options | L+R | public | session |
 | POST | /v1/enrol/ed25519 | L+R | public | session |
 | POST | /v1/enrol/passkey | L+R | public | session |

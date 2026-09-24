@@ -1,12 +1,14 @@
 """Serve the enrol resource: redeem an invite with a device's own key (unauthenticated).
 
 A device joins the Hive by redeeming the single-use invite the operator minted on loopback
-(ADR-0033). These routes need no session, on either listener: a program sends its Ed25519 public
-key and a signature over ``enrol_string``; a browser first asks for WebAuthn creation options for
-the code, then sends its registration. The request then waits, PENDING, for the operator at the
-Hive Stand, and every approved device is told that a device is asking to join. Every refusal is the
-same answer (an unknown, used or expired code and a bad proof read alike), recorded on the trail by
-reason; the per-address rate limit is what bounds guessing. The relying party a passkey is created
+(ADR-0033). These routes need no session, on either listener: a program first reads the Hive's id
+(its enrolment and login signatures name the Hive, and the invite code does not carry it; the id
+is not a secret), then sends its Ed25519 public key and a signature over ``enrol_string``; a
+browser first asks for WebAuthn creation options for the code, then sends its registration. The
+request then waits, PENDING, for the operator at the Hive Stand, and every approved device is told
+that a device is asking to join. Every refusal is the same answer (an unknown, used or expired
+code and a bad proof read alike), recorded on the trail by reason; the per-address rate limit is
+what bounds guessing. The relying party a passkey is created
 for is the arrival listener's: ``localhost`` on loopback, the exposure plan's name remotely.
 
 Fits into the Hive:
@@ -34,6 +36,7 @@ from hivemind.entrance.gate.params import ArrivalParam, Here
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, PUBLIC, RouteEffect, RouteSpec
 from hivemind.entrance.models import (
     Ed25519Redemption,
+    HiveView,
     PasskeyOptionsRequest,
     PasskeyOptionsView,
     PasskeyRedemption,
@@ -43,6 +46,18 @@ from hivemind.entrance.models import (
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])  # WebAuthn options arrive as JSON text.
 
 __all__ = ["ROUTES"]
+
+
+async def hive_identity(here: Here) -> HiveView:
+    """Answer the Hive's id, which a program's enrolment and login signatures name.
+
+    Args:
+        here: This listener's enrolment dependencies, which carry the Hive's identity.
+
+    Returns:
+        The Hive's id.
+    """
+    return HiveView(hive_id=here.enrolment.records.identity.hive_id)
 
 
 async def creation_options(
@@ -112,6 +127,16 @@ def _redemption_view(redemption: Redemption) -> RedemptionView:
 
 
 ROUTES: tuple[RouteSpec, ...] = (
+    RouteSpec(
+        method="GET",
+        path="/v1/enrol/hive",
+        listeners=BOTH_LISTENERS,
+        access=PUBLIC,
+        effect=RouteEffect.READ,
+        endpoint=hive_identity,
+        summary="Read the Hive's id, which a program's enrolment and login signatures name.",
+        response_model=HiveView,
+    ),
     RouteSpec(
         method="POST",
         path="/v1/enrol/passkey-options",
