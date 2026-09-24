@@ -266,8 +266,9 @@ Layer 0  common                                                       (primitive
 - Process execution is a `CellSession` concern. `subprocess`, `os.system` and friends are
   importable only from `hivemind.cell.*` (the local and in-cell sessions),
   `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`,
-  `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its session;
-  `lint-imports` rejects anything else.
+  `hivemind.entrance.expose.tunnel` (the tunnel client the Entrance supervises in `tunnel` mode,
+  ADR-0033), `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its
+  session; `lint-imports` rejects anything else.
 - Autopilot never awaits a model. Any module under a directory named `autopilot/` may not import
   `hivemind.llm`, directly or transitively; `lint-imports` enforces it. This is what keeps the
   Hive alive when every provider is down (section 8.8).
@@ -1108,10 +1109,12 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   additionally need the typed confirmation from section 15 on every path, the API included.
 - **Never on the open internet.** `entrance/expose.py` reads `[entrance] expose`: `loopback`
   (always on), `vpn` (recommended for remote access: a WireGuard or Tailscale overlay, the remote
-  listener bound to the overlay interface only, so unauthenticated packets never reach the
-  Entrance), `lan` and `tunnel` (both require TLS and mutual TLS with the device certificate on
+  listener bound to an address on the overlay interface only, so unauthenticated packets never
+  reach the Entrance), `lan` and `tunnel` (both require mutual TLS with the device certificate on
   top of login). There is no `public` value, and the Entrance refuses to start exposed without
-  TLS.
+  TLS on a DNS name, in every remote mode: browsers get passkeys, WebCrypto and push only in a
+  secure context, and WebAuthn refuses an IP address as a relying party (ADR-0033). The loopback
+  listener refuses a non-loopback `Host` and any proxy-forwarding header, so nothing can front it.
 - **Guard Bees watch the door; the Entrance Reducer narrows it.** `entrance/reducer.py` drops
   the Entrance to loopback only and kills every remote session, on `hive entrance reduce` or on a
   Guard Bee autopilot rule (failure bursts, lockouts across devices, an unknown client hammering
@@ -1337,8 +1340,12 @@ Rules:
   expose = "loopback"                    # loopback | vpn | lan | tunnel; there is no public mode
   remote_bind = ""                       # the remote listener; set when expose is not loopback
   public_url = ""                        # used for CORS, webhooks and the PWA manifest
-  tls = { cert = "", key = "" }          # required for lan and tunnel; vpn may rely on the overlay
+  tls = { cert = "", key = "" }          # required in every remote mode: TLS on a DNS name
   mutual_tls = true                      # lan and tunnel refuse to start with this false
+  vpn_interface = ""                     # the overlay interface remote_bind must be on (vpn)
+  vpn_cidrs = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]  # the overlay's ranges (Tailscale's)
+  rp_id = ""                             # WebAuthn relying party; empty means public_url's host
+  tunnel_command = []                    # argv of the TCP-forwarding tunnel client (tunnel)
   operators = 1                          # Brood 1.0 is single-operator
   steward_devices = false                # let one enrolled device approve others after step-up
   travel_lock = false                    # step-up and notify when a known device changes network
@@ -1346,12 +1353,19 @@ Rules:
   idle_timeout_minutes = 30
   step_up_window_minutes = 5
   step_up_spend = 5.00                   # spend per goal above which step-up is required
-  lockout_attempts = 5
+  lockout_attempts = 5                   # valid-proof login failures before LOCKED
+  lockout_denials = 20                   # capability denials in the window before LOCKED
+  lockout_denial_window_s = 60
   rate_limit_per_device = 60             # requests per minute
+  rate_limit_per_address = 30            # requests per minute; covers unauthenticated routes
+  request_skew_s = 60                    # a signed request's timestamp tolerance
+  invite_ttl_minutes = 15
+  pending_ttl_hours = 24
 
   [entrance.push]
   webhooks = true
-  web_push = true                        # VAPID keys come from HIVEMIND_ENTRANCE_VAPID_*
+  web_push = true                        # VAPID key: HIVEMIND_ENTRANCE_VAPID_* or the secret store
+  webhook_allowlist = []                 # extra webhook destinations beyond https and vpn_cidrs
 
   [entrance.voice]
   enabled = true                         # audio in on the chat route, transcribed on the transcriber slot
@@ -1774,7 +1788,7 @@ transaction as the state change.
 | Cell Wax note | Memory, `memory/cell_wax.py` | `PROPOSED → WRITTEN → CLEARED / EXPIRED`; `PROPOSED → REJECTED` | Only the Queen writes, rejects or clears; every edge is a `memory.wax_*` event; cleared and expired notes are ripened into Honey at `cell:<id>` scope. |
 | Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
 | Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → REVOKED` | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance.*` event pushed to every other device. |
-| Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up. |
+| Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | Persisted in the Entrance tables, so a restart resumes the mode it left; `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up; a failed remote listener reduces rather than stopping the Queen. |
 
 Where state lives, and what survives a Queen crash:
 

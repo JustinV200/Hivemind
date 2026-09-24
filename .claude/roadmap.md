@@ -1602,8 +1602,9 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   and is deposited as `C2` Nectar so it appears in the Honey browser; a report the Queen acts on,
   or one at `CRITICAL`, also reaches the human on the existing path, an Alarm that reached the
   human in the inbox, pushed to every enrolled device (10.5b), with the report linked. `AlarmKind`
-  gains `SECURITY` and `PolicyAction` gains `ISOLATE` and `QUARANTINE`, a waggle minor bump
-  since both mirror wire enums.
+  gains `SECURITY` and the wire's `InterventionAction` gains `QUARANTINE` (10.6c), a waggle minor
+  bump since both are wire enums; the Hive-side `PolicyAction` gains `ISOLATE` and `QUARANTINE`,
+  which no wire enum mirrors (ADR-0035).
 - [ ] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
   never a Guard Bee's or a Warden's: revoke the Warden's grant, checkpoint and pause every bee on
   the Cell, write a `BLOCK` Cell Wax so nothing is placed there, set a Virtual Cell's network
@@ -1629,7 +1630,8 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   of the injection signal the Guard Bee watches. The invariant, tested with seeded payloads
   through Honey and a tool result: an injected instruction can at most make a bee ask; it never
   widens a grant, never reaches an outside-scratch write uncapped, and always leaves a `guard.*`
-  event. The patterns are data, not code: `docs/guard/untrusted-content.toml`, one family per
+  event. The patterns are data, not code: `guard/defaults/untrusted-content.toml` (shipped,
+  read through `importlib.resources`, explained in `docs/guard/`), one family per
   table (imperatives addressed to the model, role and identity overrides, secrets paths beside
   exfiltration verbs, encoded blobs over a size, tool-call-shaped text, hosts outside the task's
   targets), each with a weight, and the `[guard] untrusted_content` thresholds for label and
@@ -2255,4 +2257,5 @@ borrowed device and revoking every grant.
 | A lost or stolen phone. | Its key is one device among several; revoking it on loopback kills its sessions instantly; every login and step-up is pushed to the other devices; the passkey needs the phone's biometric or PIN; push payloads carry no content. |
 | A prompt injection through Honey, hot state or a tool result steers a bee. | Untrusted content labelled and delimited in every prompt (3.9, 7.8); the scanner and its trail event (10.6b); tool calls validated against schema and capabilities whichever rung produced them (3.16); Capping on every side effect outside scratch (3.17); the Guard Bee's injection-then-denial rule (10.6); Queen-only isolation and tainted memory (10.6a); the chaos seeds (13.6). |
 | A compromised Swarm device lies in its reports or poisons its session output. | Pollen has no brain and holds no capabilities, so its key speaks only as that node (11.3); signed envelopes and replay rejection (1.7, 11.3); session output is untrusted content to the scanner (10.6b); a capability report changed without re-enrolment is a dire pattern (13.4a); trail segments verified on merge (11.9); the dead-man switch (11.4); isolation and Sting Cut on the Queen's decision only (10.6a, 13.4a). |
+| A bee on the Hive Stand reads or rewrites the Hive's own state (its database, secret store or manifest). | Bees run as the Hive's own OS user today. The console key is wrapped under the operator password, so reading the secret store yields nothing usable (ADR-0033); a guard floor denies every bee `fs:*` on the state paths, `exec` of the Hive's entry points and `net` to loopback (10.3); arbitrary commands stay Capping-gated; work that must not be trusted with the Hive Stand runs with `isolation = "required"`. A separate OS user for Hive Stand bees is the lasting fix, not yet scheduled. |
 | A stolen client key or an abusive enrolled program. | Sessions bound to the device key and step-up for anything sensitive (10.5e); narrow capability sets and spend caps per device (10.5d); lockout on capability-denial bursts, undone only on loopback (10.5e); revocation on loopback; every Entrance event pushed to every other device (10.5b). |
