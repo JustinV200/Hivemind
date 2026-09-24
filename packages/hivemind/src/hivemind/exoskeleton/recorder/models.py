@@ -12,12 +12,14 @@ recording can be logged by id without leaking a pixel.
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
     `hivemind.exoskeleton.recorder`. Built by `recorder.FlightRecorder`, stored by a
-    `recorder.store.RecordingStore`, read by the judge review, the playback export and (phase 12)
-    the Observation Hive. Calls into `hivemind.exoskeleton.frames` and pydantic only.
+    `recorder.store.RecordingStore`, read by the judge review, the playback export, the rehearsal
+    export (roadmap step 6.7) and (phase 12) the Observation Hive. Calls into
+    `hivemind.exoskeleton.frames`, waggle (GuiStep) and pydantic only.
 
 Key invariants:
     - Every text field here has already been through `recorder.redact`: step descriptions carry
-      secrets as a length, URLs have credential-looking parameters masked, snapshots are scrubbed.
+      secrets as a length, typed steps carry them as the mask, URLs have credential-looking
+      parameters masked, snapshots are scrubbed.
     - `repr(evidence)` never contains image bytes.
 
 See Also:
@@ -31,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.exoskeleton.frames import Frame
 from waggle.messages.base import UtcDatetime
+from waggle.messages.capping import GuiStep
 
 MAX_SNAPSHOT_CHARS = 20_000  # An accessibility snapshot past this is cut: evidence, not a mirror.
 
@@ -83,6 +86,11 @@ class RecordedAction(BaseModel):
     proposal_id: str = Field(description="The Capping proposal this records.")
     tier: str = Field(description="The RiskTier value the proposal was capped at.")
     steps: tuple[str, ...] = Field(description="Each step's one-line description, redacted.")
+    gui: tuple[GuiStep, ...] = Field(
+        default=(),
+        description="The typed steps, redacted (a secret's text is the mask), so a verified "
+        "recording can be exported as a BrowserProcedure and rehearsed (roadmap step 6.7).",
+    )
     before: Evidence = Field(description="The Cell just before the steps ran.")
     after: Evidence | None = Field(default=None, description="The Cell once the gate was done.")
     postconditions: tuple[RecordedPostcondition, ...] = Field(default=())

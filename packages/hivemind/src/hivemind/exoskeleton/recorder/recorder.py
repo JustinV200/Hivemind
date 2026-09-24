@@ -6,7 +6,8 @@ took before applying, and `end` once the proposal is terminal, with the evidence
 GUI postcondition observed, and how it was rolled back; `end` builds the `RecordedAction` (steps
 described with secrets as a length, text scrubbed) and appends it to the store. A proposal the
 gate rejected before it was ever applied is still recorded, with no evidence: an attempt is
-evidence too. `open` writes the recording's header once, at attach.
+evidence too. `open` writes the recording's header once, at attach. The typed steps are kept
+too, redacted, so a verified recording can be exported as a procedure and rehearsed (step 6.7).
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
@@ -15,8 +16,8 @@ Fits into the Hive:
     `recorder.models`, `.redact`, `.store`, `hivemind.supervision.capping` (Proposal) and waggle.
 
 Key invariants:
-    - Nothing recorded ever holds typed secret text: steps go through `GuiStep.describe()`,
-      expected values and snapshots through `scrub_text`, URLs through `scrub_url`.
+    - Nothing recorded ever holds typed secret text: steps go through `describe_step` and
+      `redact_step`, expected values and snapshots through `scrub_text`, URLs through `scrub_url`.
     - Owns mutable state (codingrules 8.5): the proposals begun and not yet ended, keyed by id.
 
 See Also:
@@ -37,7 +38,13 @@ from hivemind.exoskeleton.recorder.models import (
     RecordedPostcondition,
     RecordingInfo,
 )
-from hivemind.exoskeleton.recorder.redact import MASK, scrub_text, scrub_url
+from hivemind.exoskeleton.recorder.redact import (
+    MASK,
+    describe_step,
+    redact_step,
+    scrub_text,
+    scrub_url,
+)
 from hivemind.exoskeleton.recorder.store import RecordingStore
 from hivemind.supervision.capping import Proposal
 from waggle.clock import Clock
@@ -110,10 +117,12 @@ class FlightRecorder:
         """
         begun = self._begun.pop(str(proposal.id), None)
         now = self._clock.now()
+        steps = proposal.action.gui
         action = RecordedAction(
             proposal_id=str(proposal.id),
             tier=proposal.risk_tier.value,
-            steps=tuple(step.describe() for step in proposal.action.gui),
+            steps=tuple(describe_step(step) for step in steps),
+            gui=tuple(redact_step(step) for step in steps),
             before=begun.before if begun is not None else Evidence(),
             after=after,
             postconditions=postconditions,

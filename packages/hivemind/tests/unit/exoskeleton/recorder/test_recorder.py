@@ -55,6 +55,8 @@ async def test_an_action_is_recorded_with_its_secret_as_a_length_only() -> None:
 
     (action,) = await store.actions(recorder.recording_id)
     assert action.steps == ("BROWSER_FILL label='Password' with [redacted: 7 chars]",)
+    # The typed step keeps its shape for a procedure export; its secret is the mask.
+    assert action.gui == (_FILL.model_copy(update={"text": MASK}),)
     # Everything but the frame's pixels (never JSON: a dump can't leak a screenshot as text).
     assert "hunter2" not in str(action.model_dump(exclude={"before": {"frame"}}))
     assert action.before.url is not None and "abc" not in action.before.url
