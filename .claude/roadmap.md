@@ -1520,7 +1520,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   runs the tunnel client as a supervised child of the Entrance. There is no `public` value.
   Per-device rate limiting, CORS only for `public_url`. A test starts the Entrance in every mode
   and asserts every refusal.
-- [ ] **10.5b Push channel.** `entrance/push/`: `PushChannel` protocol; `websocket.py` for live
+- [x] **10.5b Push channel.** `entrance/push/`: `PushChannel` protocol; `websocket.py` for live
   clients, `webhook.py` (signed with the Hive key, retried with backoff, idempotent by event id),
   `web_push.py` (VAPID; keys from `HIVEMIND_ENTRANCE_VAPID_*`), and the native channel the
   Android build registers through (12.12). Subscriptions are per device, filtered by capability,
