@@ -103,8 +103,9 @@ async def listen(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutpu
     ctx = invocation.ctx
     buzz = need(attached(invocation).peripherals.buzz, "audio")
     recording = await _record(buzz, _seconds(arguments))
-    if ctx.bound.provider.capabilities.audio:
-        # The bound model hears audio itself: no transcription call, the recording goes to it.
+    if ctx.bound.hears:
+        # The bound model hears audio itself, and so would every fallback: no transcription call,
+        # the recording goes to it (a fallback without audio would refuse the part outright).
         clip = AudioPart(
             media_type=WAV_MEDIA_TYPE, data_base64=base64.b64encode(recording.wav).decode("ascii")
         )

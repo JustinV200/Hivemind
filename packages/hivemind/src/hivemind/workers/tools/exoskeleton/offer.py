@@ -86,14 +86,16 @@ def exoskeleton_specs(ctx: WorkerContext) -> tuple[ToolSpec, ...]:
     if handle is None:
         return ()  # A terminal-only task: nothing to see, touch or hear.
     attached = handle.peripherals
-    model = ctx.bound.provider.capabilities
+    # Media tools only when every fallback could take their media too: a provider without vision
+    # refuses an image, so a screenshot offered on the primary alone fails at the first fallback.
+    sees, hears = ctx.bound.sees, ctx.bound.hears
     # Each row: whether its tools are offered, and which. A row per need, read top to bottom.
     rows: tuple[tuple[bool, tuple[ToolSpec, ...]], ...] = (
         (attached.antennae is not None, _DESKTOP),
-        (attached.compound_eye is not None and model.vision, (SEE_SPEC,)),
+        (attached.compound_eye is not None and sees, (SEE_SPEC,)),
         (attached.browser is not None, (*_BROWSER_ACTIONS, *_BROWSER_READS)),
-        (attached.browser is not None and model.vision, (BROWSER_SCREENSHOT_SPEC,)),
-        (attached.buzz is not None and (ctx.ears is not None or model.audio), (LISTEN_SPEC,)),
+        (attached.browser is not None and sees, (BROWSER_SCREENSHOT_SPEC,)),
+        (attached.buzz is not None and (ctx.ears is not None or hears), (LISTEN_SPEC,)),
         (attached.buzz is not None, (SAY_SPEC,)),
     )
     return tuple(spec for offered, specs in rows if offered for spec in specs)

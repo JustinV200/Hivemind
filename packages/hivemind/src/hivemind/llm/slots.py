@@ -166,6 +166,30 @@ class BoundModel:
             update["max_output_tokens"] = self.max_output_tokens
         return request.model_copy(update=update)
 
+    def chain(self) -> tuple[BoundModel, ...]:
+        """Return this binding and every fallback after it, in the order a call falls back."""
+        links: list[BoundModel] = []
+        link: BoundModel | None = self
+        while link is not None:
+            links.append(link)
+            link = link.fallback
+        return tuple(links)
+
+    @property
+    def sees(self) -> bool:
+        """Whether every binding down the chain accepts images, so one may be sent at all.
+
+        A provider without vision refuses an ImagePart outright rather than dropping it, so a
+        request carrying an image fails the moment it falls back to one; an image goes only where
+        a fallback could take it too (a judge's frames, the `see` tool).
+        """
+        return all(link.provider.capabilities.vision for link in self.chain())
+
+    @property
+    def hears(self) -> bool:
+        """Whether every binding down the chain accepts audio parts; see `sees` for why."""
+        return all(link.provider.capabilities.audio for link in self.chain())
+
 
 def resolve(
     slot: ModelSlot,

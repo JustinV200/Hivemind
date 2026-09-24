@@ -23,6 +23,7 @@ from builders.llm import bindings_from_manifest, make_binding
 from hivemind.forage.map import ForageMap
 from hivemind.forage.models.sources import Abundance, ModelCost, ModelSource, ModelSourceSpec
 from hivemind.forage.slots import Effort, ModelSlot
+from hivemind.llm.capabilities import ProviderCapabilities
 from hivemind.llm.errors import UnknownProviderError
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
@@ -103,6 +104,20 @@ def test_bound_model_chains_a_fallback() -> None:
 
     assert primary.fallback is fallback
     assert primary.fallback.fallback is None
+
+
+def test_bound_model_sees_and_hears_only_where_every_fallback_does() -> None:
+    # A provider without vision (or audio) refuses the part outright, so one link that cannot
+    # take it makes the whole chain unable to (the judge's frames, the see and listen tools).
+    full = ProviderCapabilities.full().model_copy(update={"audio": True})
+    blind = full.model_copy(update={"vision": False, "audio": False})
+    fallback = _make_bound(binding="local_worker", provider=FakeLLMProvider(capabilities=blind))
+    primary = _make_bound(provider=FakeLLMProvider(capabilities=full), fallback=fallback)
+
+    assert primary.chain() == (primary, fallback)
+    assert (primary.sees, primary.hears) == (False, False)
+    alone = _make_bound(provider=FakeLLMProvider(capabilities=full))
+    assert (alone.sees, alone.hears) == (True, True)
 
 
 def test_bound_model_is_frozen() -> None:

@@ -114,6 +114,28 @@ def test_listen_is_offered_only_when_something_can_hear_and_say_whenever_buzz_is
     assert _offered("buzz", audio=audio, ears=ears) == expected
 
 
+def test_media_tools_wait_for_a_fallback_that_could_take_their_media_too() -> None:
+    clock = FakeClock()
+    peripherals = Peripherals(
+        compound_eye=FakeCompoundEye(FakeScreen(_SIZE), clock),
+        browser=FakeBrowser(login_site(), clock),
+        buzz=FakeBuzz(FakeSession(scratch_dir=Path("scratch"), clock=clock)),
+    )
+    full = ProviderCapabilities.full().model_copy(update={"audio": True})
+    blind = full.model_copy(update={"vision": False, "audio": False})
+    bound = make_bound(
+        provider=FakeLLMProvider(capabilities=full),
+        fallback=make_bound(provider=FakeLLMProvider(capabilities=blind)),
+    )
+    ctx = make_gui_context(peripherals, clock, bound=bound, ears=None)
+
+    offered = {spec.definition.name for spec in exoskeleton_specs(ctx)}
+
+    # No screenshot and no raw audio: the fallback would refuse either, mid-task.
+    assert {"see", "browser_screenshot", "listen"}.isdisjoint(offered)
+    assert {"browser_snapshot", "say"} <= offered
+
+
 def test_every_offered_tool_either_acts_or_reads_never_both() -> None:
     everything = _offered("eye hands browser buzz")
 

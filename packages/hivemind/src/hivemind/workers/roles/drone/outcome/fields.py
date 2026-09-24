@@ -42,9 +42,9 @@ from hivemind.workers.context import WorkerContext
 from hivemind.workers.roles.drone.outcome.records import (
     ALLOWLIST_FAILED_MARK,
     CAPABILITY_DENIAL_PREFIXES,
-    SIDE_EFFECT_TOOLS,
     SIZE_CAP_FAILED_MARK,
     ToolCallRecord,
+    is_lasting,
     target_for,
 )
 from waggle.messages import Postcondition, PostconditionKind
@@ -60,6 +60,7 @@ _REDO_VERBS: dict[str, str] = {
     "write_file": "writing to",
     "run_command": "running",
     "http_request": "requesting",
+    "keep": "keeping",
 }
 # The fallback next_steps line for the rare case every named acceptance criterion already looks
 # satisfied by the time this attempt checkpoints -- an edge case, not the common path: the whole
@@ -115,9 +116,10 @@ def do_not_redo_lines(records: Sequence[ToolCallRecord]) -> tuple[str, ...]:
     """Name every side-effecting call that actually landed, so a resuming bee never repeats it."""
     lines: list[str] = []
     for record in records:
-        if record.is_error or record.call.name not in SIDE_EFFECT_TOOLS:
+        if record.is_error or not is_lasting(record.call):
             continue
-        verb = _REDO_VERBS[record.call.name]
+        # An irreversible GUI action has no verb of its own: it is named for what it was.
+        verb = _REDO_VERBS.get(record.call.name, f"the irreversible {record.call.name} on")
         lines.append(
             f"Do not redo {verb} {target_for(record.call)}; it already succeeded before this "
             "checkpoint."

@@ -60,12 +60,14 @@ from hivemind.llm.ladders.observer import (
     NullLadderObserver,
 )
 from hivemind.llm.models import (
+    ContentPart,
     JsonObject,
     LLMRequest,
     LLMResponse,
     Message,
     Role,
     StopReason,
+    TextPart,
     ToolCall,
     ToolCallPart,
     ToolDefinition,
@@ -346,9 +348,22 @@ async def _result_for_call(
 
 
 def _prompted_result_message(calls: list[ToolCall], results: tuple[ToolResultPart, ...]) -> Message:
-    """Render every call's result as one line each, in one user text Message."""
-    lines = [_render_result_line(call, result) for call, result in zip(calls, results, strict=True)]
-    return Message.text(Role.USER, "\n".join(lines))
+    """Render every call's result as one line each, then any images or audio a result carries.
+
+    Media goes after the lines, each run labelled with its call, the way the OpenAI-compatible
+    mapping sends it (roadmap step 6.5: `see` returns a screenshot). Dropped here, a model on the
+    prompted protocol would read that a screenshot was taken and never see it; kept, a provider
+    that cannot take a part refuses the request instead of silently losing it.
+    """
+    pairs = tuple(zip(calls, results, strict=True))
+    parts: list[ContentPart] = [
+        TextPart(text="\n".join(_render_result_line(*pair) for pair in pairs))
+    ]
+    for call, result in pairs:
+        if result.media:
+            parts.append(TextPart(text=f"Returned by tool call {call.id}:"))
+            parts.extend(result.media)
+    return Message(role=Role.USER, parts=tuple(parts))
 
 
 def _render_result_line(call: ToolCall, result: ToolResultPart) -> str:

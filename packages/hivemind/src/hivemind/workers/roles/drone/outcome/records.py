@@ -14,13 +14,14 @@ Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.drone.outcome`. Read by
     `hivemind.workers.roles.drone.outcome.executor` (to classify a call as it lands) and
     `hivemind.workers.roles.drone.outcome.fields` (to turn classified calls into Handoff lines).
-    Calls into `hivemind.llm` only.
+    Calls into `hivemind.llm` and `hivemind.workers.tools.exoskeleton` (ACTION_TOOL_NAMES) only.
 
 Key invariants:
     - `classify_error` never inspects `ask`'s own result text as an error signal: an Answer's
       wording is free-form human/Warden text, not one of the fixed templates this module matches.
-    - `SIDE_EFFECT_TOOLS` names every tool that goes through the Capping gate; a Handoff's
-      `do_not_redo` (built in `fields.py`) only ever names one of these.
+    - `is_lasting` holds for every call to a tool in `SIDE_EFFECT_TOOLS` and for a GUI action
+      flagged irreversible; a Handoff's `do_not_redo` (built in `fields.py`) names nothing else.
+    - `target_for` never renders typed text: a GUI action is named by its element, URL or point.
 
 See Also:
     - hivemind.workers.tools.proposals for describe(), the "state=" rendering this module parses.
@@ -33,11 +34,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivemind.llm import ToolCall
+from hivemind.workers.tools.exoskeleton import ACTION_TOOL_NAMES
 
 # Every tool that proposes a side effect through the Capping gate (hivemind.workers.tools.
-# proposals.cap): the only ones a Handoff's do_not_redo list ever names, since nothing else this
-# Drone offers changes anything outside the model's own next turn.
-SIDE_EFFECT_TOOLS = frozenset({"write_file", "run_command", "http_request"})
+# proposals.cap) and leaves it behind: the only ones a Handoff's do_not_redo list names without
+# looking at the call, since nothing else this Drone offers changes anything outside the model's
+# own next turn. (`keep` was missing until 2026-09-24: a resumed bee would have kept a file twice.)
+SIDE_EFFECT_TOOLS = frozenset({"write_file", "run_command", "http_request", "keep"})
 
 # hivemind.workers.tools.proposals.describe's own rendering always starts with one of these two
 # tokens for a capped tool's result: reading them is parsing a fixed, machine-produced format,
@@ -74,6 +77,7 @@ __all__ = [
     "SIZE_CAP_FAILED_MARK",
     "ToolCallRecord",
     "classify_error",
+    "is_lasting",
     "target_for",
 ]
 
@@ -120,6 +124,24 @@ def classify_error(name: str, content: str) -> bool:
     return content.startswith(_KNOWN_ERROR_PREFIXES)
 
 
+def is_lasting(call: ToolCall) -> bool:
+    """Whether `call`'s effect outlives this attempt, so a resuming bee must not repeat it.
+
+    A capped side effect always does. A GUI action does only when the bee called it irreversible
+    (a submitted form, a payment): a resumed bee is equipped afresh, with a new browser and
+    screen, so every other GUI step is one it may well need to take again (ADR-0032).
+
+    Args:
+        call: One call that landed.
+
+    Returns:
+        True for a SIDE_EFFECT_TOOLS call or an irreversible GUI action.
+    """
+    if call.name in SIDE_EFFECT_TOOLS:
+        return True
+    return call.name in ACTION_TOOL_NAMES and call.arguments.get("irreversible") is True
+
+
 def target_for(call: ToolCall) -> str:
     """Name the one path/command/url `call` acted on, for a short Handoff line.
 
@@ -141,4 +163,25 @@ def target_for(call: ToolCall) -> str:
     if call.name == "http_request":
         url = call.arguments.get("url")
         return str(url) if isinstance(url, str) else "<unknown url>"
+    if call.name == "keep":
+        source, destination = call.arguments.get("source"), call.arguments.get("destination")
+        return f"{source} to {destination}" if isinstance(source, str) else "<unknown path>"
+    if call.name in ACTION_TOOL_NAMES:
+        return _gui_target(call)
     return call.name
+
+
+def _gui_target(call: ToolCall) -> str:
+    """Name what a GUI action acted on: its element, its URL or its point; never typed text."""
+    arguments = call.arguments
+    target = arguments.get("target")
+    if isinstance(target, dict):
+        named = ", ".join(
+            f"{key}={value!r}" for key, value in target.items() if isinstance(value, str)
+        )
+        return named or call.name
+    url = arguments.get("url")
+    if isinstance(url, str):
+        return url
+    x, y = arguments.get("x"), arguments.get("y")
+    return f"({x}, {y})" if isinstance(x, int) and isinstance(y, int) else call.name

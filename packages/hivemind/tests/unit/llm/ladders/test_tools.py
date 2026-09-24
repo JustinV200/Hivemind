@@ -28,7 +28,14 @@ from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError, Refu
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.ladders.observer import FallbackReason
 from hivemind.llm.ladders.tools import ToolLoopOptions, run_tool_loop
-from hivemind.llm.models import StopReason, ToolCall, ToolResultPart, Usage
+from hivemind.llm.models import (
+    ImagePart,
+    StopReason,
+    TextPart,
+    ToolCall,
+    ToolResultPart,
+    Usage,
+)
 
 
 class _RecordingExecutor:
@@ -183,6 +190,28 @@ async def test_run_tool_loop_prompted_protocol_executes_a_fenced_call_then_retur
     assert result.calls[0].name == "lookup"
     assert result.calls[0].id == "call_1"
     assert len(executor.calls) == 1
+
+
+async def test_run_tool_loop_prompted_protocol_sends_a_results_media_after_its_line() -> None:
+    # A text-protocol model that can see (vision without native tools) must get the screenshot.
+    capabilities = ProviderCapabilities.none().model_copy(update={"vision": True})
+    provider = FakeLLMProvider(capabilities=capabilities)
+    provider.script(
+        text_response('```tool\n{"name": "lookup", "arguments": {"query": "screen"}}\n```'),
+        text_response("I see it."),
+    )
+    shot = ImagePart(media_type="image/png", data_base64="iVBORw0KGgo=")
+
+    class _Seeing:
+        async def execute(self, call: ToolCall) -> ToolResultPart:
+            return ToolResultPart(call_id=call.id, content="a screenshot", media=(shot,))
+
+    await run_tool_loop(make_bound(provider=provider), make_request(), (_TOOL,), _Seeing())
+
+    turn = provider.calls[1].messages[-1]
+    assert [type(part) for part in turn.parts] == [TextPart, TextPart, ImagePart]
+    assert turn.parts[1] == TextPart(text="Returned by tool call call_1:")
+    assert turn.parts[2] == shot
 
 
 async def test_run_tool_loop_prompted_protocol_offers_no_native_tools() -> None:

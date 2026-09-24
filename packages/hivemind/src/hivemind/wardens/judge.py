@@ -195,7 +195,7 @@ def _user_message(bound: BoundModel, request: JudgeRequest) -> Message:
     them, since a provider without vision refuses an ImagePart outright rather than dropping it.
     """
     frames = request.evidence.frames if request.evidence is not None else ()
-    if not frames or not _sees(bound):
+    if not frames or not bound.sees:
         return Message.text(Role.USER, _ONE_LINE_INSTRUCTION)
     parts: list[ContentPart] = [TextPart(text=f"{_ONE_LINE_INSTRUCTION} {_FRAMES_INSTRUCTION}")]
     parts += [
@@ -203,15 +203,6 @@ def _user_message(bound: BoundModel, request: JudgeRequest) -> Message:
         for png in frames
     ]
     return Message(role=Role.USER, parts=tuple(parts))
-
-
-def _sees(bound: BoundModel | None) -> bool:
-    """Whether every binding from `bound` down its fallback chain declares vision."""
-    while bound is not None:
-        if not bound.provider.capabilities.vision:
-            return False
-        bound = bound.fallback
-    return True
 
 
 def _render_request(request: JudgeRequest) -> str:

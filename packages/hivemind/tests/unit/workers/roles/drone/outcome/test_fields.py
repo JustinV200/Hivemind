@@ -56,6 +56,38 @@ def test_do_not_redo_lines_names_every_landed_side_effect() -> None:
     assert "b.txt" not in lines[0]
 
 
+def test_do_not_redo_lines_names_a_kept_file_and_an_irreversible_gui_action_only() -> None:
+    kept = _record(
+        "keep", is_error=False, result_text="state=VERIFIED", source="a.txt", destination="~/a"
+    )
+    paid = _record(
+        "browser_click",
+        is_error=False,
+        result_text="state=VERIFIED",
+        target={"role": "button", "name": "Pay"},
+        irreversible=True,
+    )
+    # A fresh Exoskeleton starts from nothing, so a resumed bee may need these again.
+    navigated = _record(
+        "browser_navigate", is_error=False, result_text="state=VERIFIED", url="https://x.test/"
+    )
+    typed = _record(
+        "browser_fill",
+        is_error=False,
+        result_text="state=VERIFIED",
+        target={"label": "Password"},
+        text="honeycomb",
+    )
+
+    lines = do_not_redo_lines([kept, paid, navigated, typed])
+
+    assert lines == (
+        "Do not redo keeping a.txt to ~/a; it already succeeded before this checkpoint.",
+        "Do not redo the irreversible browser_click on role='button', name='Pay'; it already "
+        "succeeded before this checkpoint.",
+    )
+
+
 def test_do_not_redo_lines_is_capped_to_max_derived_list_items() -> None:
     records = [
         _record("write_file", is_error=False, result_text="state=VERIFIED", path=f"f{i}.txt")
