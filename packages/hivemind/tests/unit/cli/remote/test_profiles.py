@@ -1,5 +1,8 @@
 """Test hivemind.cli.remote.profiles: a profile is plain JSON, its key lives only beside it.
 
+A profile's client certificate (public) is kept beside it, owner-only like the profile, and goes
+with it when the profile is forgotten; ``update`` rewrites an existing profile and nothing else.
+
 Fits into the Hive:
     Mirrors src/hivemind/cli/remote/profiles.py (codingrules section 3).
 
@@ -119,3 +122,46 @@ def test_a_profile_knows_its_entrance_and_pinned_ca(tmp_path: Path) -> None:
 
     assert address.origin == "https://hive.example.ts.net:8711"
     assert address.ca_file == ca_file
+
+
+_PEM = b"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"  # Kept as given.
+
+
+async def test_a_certificate_is_kept_beside_its_profile_and_forgotten_with_it(
+    tmp_path: Path,
+) -> None:
+    store = ProfileStore(tmp_path)
+    await store.save(_profile(), Ed25519Signer.generate())
+
+    before = store.certificate("default")
+    kept = store.save_certificate("default", _PEM)
+    read = store.certificate("default")
+    await store.forget("default")
+
+    assert before is None and read == _PEM
+    assert kept == tmp_path / "profiles" / "default.crt"
+    assert not kept.exists() and store.certificate("default") is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+async def test_the_certificate_is_owner_only_like_the_profile(tmp_path: Path) -> None:
+    store = ProfileStore(tmp_path)
+    await store.save(_profile(), Ed25519Signer.generate())
+
+    kept = store.save_certificate("default", _PEM)
+
+    assert stat.S_IMODE(kept.stat().st_mode) == 0o600
+
+
+async def test_update_rewrites_an_existing_profile_and_refuses_an_unknown_one(
+    tmp_path: Path,
+) -> None:
+    store = ProfileStore(tmp_path)
+    await store.save(_profile(), Ed25519Signer.generate())
+    moved = _profile().model_copy(update={"entrance_url": "https://192.0.2.2:8711"})
+
+    store.update(moved)
+
+    assert store.load("default") == moved
+    with pytest.raises(LandingError, match="No remote profile"):
+        store.update(_profile("garden"))

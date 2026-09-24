@@ -6,13 +6,15 @@ way a laptop's would. ``private_address`` finds one (a private, non-loopback IPv
 interface); ``server_tls`` makes a throwaway certificate authority and a server certificate it
 signed for ``PUBLIC_NAME`` (the DNS name the exposure check requires public_url to carry) and for
 that address (the laptop connects by address: nothing here edits a trust store or a hosts file);
-``mtls_manifest`` writes the stand's manifest for ``lan`` or ``vpn`` exposure over those files.
-The laptop pins the throwaway authority with ``--ca-file`` and reaches the listener at
-``https://<address>:<port>``, the certificate's IP subject-alternative name. ``self_signed_tls``
-makes the plainer kind an operator may bring, a self-signed certificate on a DNS name alone (or an
-expired one, for the refusal that names it), and ``served_exposed`` composes ``hive serve``'s Hive
-over an ``[entrance]`` section and a fake interface table, for tests that enter ``serve_hive``
-themselves.
+``mtls_manifest`` writes the stand's manifest for ``lan`` or ``vpn`` exposure over those files. The
+laptop pins the throwaway authority with ``--ca-file`` and reaches the listener at
+``https://<address>:<port>``, the certificate's IP subject-alternative name. ``tunnel_manifest``
+needs no private address: tunnel mode binds the remote listener to loopback (a stand-in tunnel
+client idles as the Entrance's child), with TLS and mutual TLS exactly as in lan.
+``self_signed_tls`` makes the plainer kind an operator may bring, a self-signed certificate on a DNS
+name alone (or an expired one, for the refusal that names it), and ``served_exposed`` composes
+``hive serve``'s Hive over an ``[entrance]`` section and a fake interface table, for tests that
+enter ``serve_hive`` themselves.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the CLI's certificate
@@ -26,7 +28,9 @@ Key invariants:
 from __future__ import annotations
 
 import ipaddress
+import json
 import socket
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -50,6 +54,7 @@ PUBLIC_NAME = "hive.test"  # public_url's host: a DNS name, as every remote mode
 _BRIDGE_PREFIXES = ("docker", "br-", "veth", "virbr", "cni", "vmnet", "vboxnet")
 _LIFETIME = timedelta(days=30)  # Long enough for any test; the checks read the real clock.
 _SKEW = timedelta(hours=1)  # Valid from a little before now, as a real authority issues.
+_IDLE_TUNNEL = "import time; time.sleep(3600)"  # A tunnel client's stand-in: forwards nothing.
 
 __all__ = [
     "PUBLIC_NAME",
@@ -60,6 +65,7 @@ __all__ = [
     "self_signed_tls",
     "served_exposed",
     "server_tls",
+    "tunnel_manifest",
 ]
 
 
@@ -148,6 +154,26 @@ def server_tls(directory: Path, address: str) -> ServerTls:
     files.cert_path.write_bytes(server.public_bytes(serialization.Encoding.PEM))
     files.key_path.write_bytes(_private_pem(key))
     return files
+
+
+def tunnel_manifest(root: Path) -> tuple[Path, ServerTls]:
+    """Write a stand manifest in tunnel mode: TLS and mutual TLS, all on loopback.
+
+    Args:
+        root: The stand's directory.
+
+    Returns:
+        The manifest's path and the TLS files it names (the server certificate also names
+        127.0.0.1, where the laptop reaches the remote listener).
+    """
+    tls = server_tls(root / "tls", "127.0.0.1")
+    argv = json.dumps([sys.executable, "-c", _IDLE_TUNNEL])
+    table = (
+        f'expose = "tunnel"\nremote_bind = "127.0.0.1:0"\npublic_url = "https://{PUBLIC_NAME}"\n'
+        f"tunnel_command = {argv}\n"
+        f'\n[entrance.tls]\ncert = "{tls.cert_path}"\nkey = "{tls.key_path}"\n'
+    )
+    return stand_manifest(root, table), tls
 
 
 def self_signed_tls(

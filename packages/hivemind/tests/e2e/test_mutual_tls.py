@@ -101,7 +101,7 @@ async def test_a_laptop_with_its_certificate_runs_a_goal_and_is_refused_without_
     assert revoked.exit_code == 0, revoked.output
     assert after.exit_code == 1 and _HANDSHAKE_REFUSED in after.output, after.output
     assert "may have been refused (revoked" in after.output
-    assert spare.exit_code == 0 and "Nothing waits on the human." in spare.output, spare.output
+    assert spare.exit_code == 0 and _read(spare.output), spare.output
 
 
 async def test_a_laptop_registered_offline_imports_its_certificate_and_reads_its_inbox(
@@ -135,7 +135,7 @@ async def test_a_laptop_registered_offline_imports_its_certificate_and_reads_its
     assert registered.exit_code == 0 and device_id.startswith("device_"), registered.output
     assert approved.exit_code == 0 and certificate.exists(), approved.output
     assert imported.exit_code == 0 and f"device {device_id}" in imported.output, imported.output
-    assert inbox.exit_code == 0 and "Nothing waits on the human." in inbox.output, inbox.output
+    assert inbox.exit_code == 0 and _read(inbox.output), inbox.output
 
 
 async def test_mutual_tls_turned_on_for_vpn_admits_a_device_with_its_certificate(
@@ -158,7 +158,7 @@ async def test_mutual_tls_turned_on_for_vpn_admits_a_device_with_its_certificate
         inbox = await laptop.hive(*_INBOX, **_IN)
 
     assert json_of(plan)["plan"]["mode"] == "vpn"
-    assert inbox.exit_code == 0 and "Nothing waits on the human." in inbox.output, inbox.output
+    assert inbox.exit_code == 0 and _read(inbox.output), inbox.output
 
 
 _IN = {"stdin": _STDIN}  # The operator password, on stdin, for every command that logs in.
@@ -166,6 +166,11 @@ _RUN = ("run", "--remote")
 _INBOX = ("inbox", "--remote", "--password-stdin")
 _BARE = ("--profile", "bare")
 _SPARE = ("--profile", "spare")
+
+
+def _read(output: str) -> bool:
+    """Whether an inbox listing was read: empty, or an Alarm (a heartbeat late on a busy host)."""
+    return "Nothing waits on the human." in output or "alarm alarm_" in output
 
 
 def _remote_origin(entrance: HiveEntrance) -> str:

@@ -2,7 +2,9 @@
 
 ``hive serve``'s own composition runs the Hive Stand; a second terminal whose config directory is
 the test's own ("the laptop") enrols, is approved at the Stand, runs a goal and reads its inbox,
-all through ``CliRunner`` as a person would type them.
+all through ``CliRunner`` as a person would type them. A laptop that can reach no enrolment
+listener enrols ``--offline``: it makes its key and certificate request, sends nothing, and says
+what the operator runs; its profile waits for its certificate, and ``set-url`` moves it.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/remote/commands.py (codingrules section 3).
@@ -132,3 +134,29 @@ async def test_the_remote_commands_refuse_cleanly_without_a_profile(tmp_path: Pa
     assert inbox.exit_code == 1 and "No remote profile 'default'" in inbox.output
     assert run.exit_code == 1 and "No remote profile 'garden'" in run.output
     assert local_ack.exit_code == 1 and "hive inbox --remote acknowledge" in local_ack.output
+
+
+async def test_offline_enrolment_sends_nothing_and_its_profile_waits_for_its_certificate(
+    tmp_path: Path,
+) -> None:
+    laptop, request = laptop_terminal(tmp_path / "laptop"), tmp_path / "field.csr"
+    hive = ("--hive", "hive_01DXF6DT00S8CWQEAHWB40R349")
+    offline = ("remote", "enrol", "https://192.0.2.2:8711", "--offline", *hive)
+    named = ("--name", "field laptop")
+
+    with_code = await laptop.hive(*offline, *named, "--code", "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YY")
+    made = await laptop.hive(*offline, *named, "--csr-out", str(request))
+    waiting = await laptop.hive("remote", "profiles")
+    refused = await laptop.hive("inbox", "--remote", "--password-stdin", stdin=_STDIN)
+    moved = await laptop.hive("remote", "set-url", "https://192.0.2.3:8711")
+    after = await laptop.hive("remote", "profiles")
+
+    assert with_code.exit_code == 1 and "needs no invite code" in with_code.output
+    assert made.exit_code == 0 and "nothing was sent" in made.output, made.output
+    assert "hive entrance register --name 'field laptop' --public-key " in made.output
+    assert f"--csr {request.name}" in made.output and "certificate import" in made.output
+    assert request.read_text(encoding="ascii").startswith("-----BEGIN CERTIFICATE REQUEST-----")
+    assert "(waits for its certificate)" in waiting.output
+    assert "no client certificate" in waiting.output
+    assert refused.exit_code == 1 and "waits for its certificate" in refused.output
+    assert moved.exit_code == 0 and "https://192.0.2.3:8711" in after.output

@@ -52,6 +52,21 @@ def test_the_approval_view_shows_the_fingerprint_backup_flags_and_self_descripti
     assert "device_01J8Z3Q4X5Y6Z7A8B9C0D1E2F3" in device_row(view)
 
 
+def test_the_device_view_says_whether_a_certificate_was_requested_or_is_held() -> None:
+    waiting = _view(None).model_copy(update={"certificate_requested": True})
+    holding = _view(None).model_copy(
+        update={"certificate_serial": "5f3a", "certificate_not_after": _AT}
+    )
+
+    asked, held, neither = (
+        "\n".join(device_lines(view)) for view in (waiting, holding, _view(None))
+    )
+
+    assert "client certificate: requested" in asked
+    assert "client certificate: serial 5f3a, until 2026-09-24T12:00:00+00:00" in held
+    assert "client certificate" not in neither
+
+
 def test_an_invite_prints_its_code_link_hive_and_a_qr_code() -> None:
     invite = InviteView(
         device_id="device_01J8Z3Q4X5Y6Z7A8B9C0D1E2F3",
