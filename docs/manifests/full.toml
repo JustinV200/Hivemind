@@ -456,7 +456,8 @@ bind = "127.0.0.1:8710"
 # There is no public mode.
 expose = "vpn"
 # The remote listener's own address: a specific address, never a wildcard. In vpn mode it must be
-# assigned to this machine and fall inside vpn_cidrs (a Tailscale address here).
+# assigned to vpn_interface and fall inside vpn_cidrs (a Tailscale address here); in tunnel mode
+# it is a loopback address the tunnel client forwards to.
 remote_bind = "100.101.102.103:8711"
 # The https URL devices use; the invite links' base, the only CORS origin, and the WebAuthn
 # relying party for passkeys enrolled through it (Tailscale MagicDNS name and `tailscale cert`).
@@ -489,16 +490,25 @@ invite_ttl_minutes = 15.0
 pending_ttl_hours = 24.0
 # The overlay's ranges; Tailscale's by default.
 vpn_cidrs = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
+# The overlay's interface remote_bind must be on; empty means the platform's Tailscale interface.
+vpn_interface = "tailscale0"
+# The WebAuthn relying party for remote devices; empty means public_url's host. Fixed once the
+# first remote device enrols (a passkey is bound to it).
+rp_id = "hivestand.example-tailnet.ts.net"
 
 [entrance.tls]
-# Paths to the remote listener's certificate chain and key (here, `tailscale cert` output).
+# Paths to the remote listener's certificate chain and key (here, `tailscale cert` output). Every
+# remote mode requires TLS on a DNS name: browsers need a secure context for passkeys.
 cert = "tls/hivestand.example-tailnet.ts.net.crt"
 key = "tls/hivestand.example-tailnet.ts.net.key"
 
 [entrance.push]
 webhooks = true
-# VAPID keys come from HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY and HIVEMIND_ENTRANCE_VAPID_SUBJECT.
+# The VAPID key comes from HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY (or the secret store), its contact
+# from HIVEMIND_ENTRANCE_VAPID_SUBJECT.
 web_push = true
+# Extra hosts or CIDRs a webhook may target beyond https URLs and vpn_cidrs addresses.
+webhook_allowlist = []
 
 [entrance.voice]
 enabled = true

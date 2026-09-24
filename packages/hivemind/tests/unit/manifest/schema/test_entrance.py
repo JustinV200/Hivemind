@@ -91,15 +91,28 @@ def test_entrance_remote_bind_accepts_a_specific_address(remote_bind: str) -> No
     [
         ("0.0.0.0:8711", "wildcard"),
         ("[::]:8711", "wildcard"),
-        ("127.0.0.1:8711", "loopback"),
         ("hive.example:8711", "does not appear to be an IPv4 or IPv6 address"),
     ],
 )
-def test_entrance_remote_bind_rejects_wildcard_loopback_and_names(
-    remote_bind: str, reason: str
-) -> None:
+def test_entrance_remote_bind_rejects_wildcards_and_names(remote_bind: str, reason: str) -> None:
     with pytest.raises(ValidationError, match=reason):
         EntranceSection(remote_bind=remote_bind)
+
+
+def test_entrance_remote_bind_accepts_loopback_for_a_tunnel_client() -> None:
+    # Tunnel mode binds the remote listener to loopback for the local tunnel client (ADR-0033);
+    # which address each mode needs is expose.py's start-time check, not the schema's.
+    assert EntranceSection(remote_bind="127.0.0.1:8711").remote_bind == "127.0.0.1:8711"
+
+
+@pytest.mark.parametrize("rp_id", ["https://hive.example", "hive.example:8711", "100.64.0.1"])
+def test_entrance_rp_id_must_be_a_bare_dns_name(rp_id: str) -> None:
+    with pytest.raises(ValidationError, match="rp_id"):
+        EntranceSection(rp_id=rp_id)
+
+
+def test_entrance_rp_id_accepts_a_tailnet_name() -> None:
+    assert EntranceSection(rp_id="hivestand.example.ts.net").rp_id == "hivestand.example.ts.net"
 
 
 def test_entrance_exposure_has_no_public_mode() -> None:

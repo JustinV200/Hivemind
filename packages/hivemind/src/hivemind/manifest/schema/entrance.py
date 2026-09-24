@@ -21,7 +21,8 @@ Fits into the Hive:
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
     - ``EntranceExposure`` has no public member, and ``remote_bind`` is never a wildcard address,
-      so no manifest can put the Entrance on every interface (codingrules 8.15, ADR-0033).
+      so no manifest can put the Entrance on every interface (codingrules 8.15, ADR-0033); it may
+      be a loopback address, because tunnel mode binds it there for the local tunnel client.
     - ``bind`` always names a loopback host: the loopback listener, where approval lives, can
       never be moved onto a routable address.
     - No secret lives here: the operator password, device keys, TLS private key material for
@@ -62,6 +63,9 @@ _LOOPBACK_HOSTNAME = "localhost"  # The one hostname accepted as loopback; every
 _MAX_PORT = 65535  # The highest TCP port; 0 is allowed and means "let the OS choose" (tests).
 _MAX_TUNNEL_ARGS = 64  # A tunnel client's argv; generous, but a bound keeps the manifest sane.
 _MAX_VPN_CIDRS = 32  # Overlay ranges; a real Hive lists one or two.
+_MAX_INTERFACE_CHARS = 64  # A network interface name; the OS limits are far shorter.
+_MAX_RP_ID_CHARS = 253  # A WebAuthn relying party id is a DNS name, at most 253 characters.
+_MAX_WEBHOOK_ALLOWLIST = 64  # Extra webhook destinations; a real Hive lists a handful.
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -104,8 +108,15 @@ class EntrancePushSection(BaseModel):
     web_push: bool = Field(
         default=True,
         description="Offer Web Push to browsers and phones; the VAPID key comes from "
-        "HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY and its contact from "
+        "HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY (or the secret store) and its contact from "
         "HIVEMIND_ENTRANCE_VAPID_SUBJECT.",
+    )
+    webhook_allowlist: tuple[str, ...] = Field(
+        default=(),
+        max_length=_MAX_WEBHOOK_ALLOWLIST,
+        description="Hosts or CIDR networks a webhook may target beyond the default rule (an "
+        "https URL, or an address inside vpn_cidrs); never loopback, link-local or the Hive "
+        "Stand's own addresses, whatever this lists (ADR-0034).",
     )
 
 
@@ -232,6 +243,21 @@ class EntranceSection(BaseModel):
         max_length=_MAX_VPN_CIDRS,
         description="The overlay's address ranges; in vpn mode remote_bind must fall inside one.",
     )
+    vpn_interface: str = Field(
+        default="",
+        max_length=_MAX_INTERFACE_CHARS,
+        description="The overlay's network interface remote_bind must be assigned to in vpn "
+        "mode; empty means the platform's Tailscale interface (tailscale0 on Linux, Tailscale "
+        "on Windows). The interface is what proves the overlay: Tailscale's IPv4 range is also "
+        "carrier-grade NAT space an ordinary WAN address can fall in.",
+    )
+    rp_id: str = Field(
+        default="",
+        max_length=_MAX_RP_ID_CHARS,
+        description="The WebAuthn relying party id for devices enrolled on the remote listener; "
+        "empty means public_url's host. A passkey is bound to it, so it is fixed once the first "
+        "remote device enrols and moves with the Hive Stand on Supersedure.",
+    )
     tunnel_command: tuple[str, ...] = Field(
         default=(),
         max_length=_MAX_TUNNEL_ARGS,
@@ -259,18 +285,17 @@ class EntranceSection(BaseModel):
     @field_validator("remote_bind")
     @classmethod
     def _remote_bind_is_specific(cls, value: str) -> str:
-        """Reject a remote listener address that is a wildcard, loopback or not an IP."""
+        """Reject a remote listener address that is a wildcard or not an IP literal."""
         # Empty means "no remote listener configured"; expose.py refuses a remote mode then.
         if not value:
             return value
         host, _ = split_host_port(value)
         address = ipaddress.ip_address(host)
-        # A wildcard listens on every interface, the open internet included (ADR-0033).
+        # A wildcard listens on every interface, the open internet included (ADR-0033). A
+        # loopback address is allowed here: tunnel mode binds the remote listener to loopback
+        # for its local tunnel client, and expose.py checks each mode's own address rule.
         if address.is_unspecified:
             raise ValueError(f"[entrance] remote_bind {value!r} is a wildcard address.")
-        # The loopback listener already covers loopback; a second one there is a mistake.
-        if address.is_loopback:
-            raise ValueError(f"[entrance] remote_bind {value!r} is a loopback address.")
         return value
 
     @field_validator("vpn_cidrs")
@@ -280,6 +305,21 @@ class EntranceSection(BaseModel):
         for cidr in value:
             ipaddress.ip_network(cidr, strict=True)
         return value
+
+    @field_validator("rp_id")
+    @classmethod
+    def _rp_id_is_a_name(cls, value: str) -> str:
+        """Reject a relying party id that is an IP literal or carries a scheme or port."""
+        if not value:
+            return value
+        # WebAuthn refuses an IP address as a relying party, and an id is a bare host name.
+        if "/" in value or ":" in value:
+            raise ValueError(f"[entrance] rp_id {value!r} must be a bare DNS name.")
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            return value
+        raise ValueError(f"[entrance] rp_id {value!r} is an IP address; WebAuthn needs a name.")
 
     @field_validator("public_url")
     @classmethod
