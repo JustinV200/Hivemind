@@ -72,7 +72,7 @@ def test_request_to_json_puts_system_on_its_own_message_when_system_role_is_true
     )
 
     assert _wire_message(body, 0) == {"role": "system", "content": "You are a bee."}
-    assert _wire_message(body, 1) == {"role": "user", "content": [{"type": "text", "text": "Hi"}]}
+    assert _wire_message(body, 1) == {"role": "user", "content": "Hi"}
     assert body["model"] == "local-small"
     assert body["max_tokens"] == request.max_output_tokens
 
@@ -215,6 +215,33 @@ def test_request_to_json_maps_an_image_part_to_a_data_url_when_vision() -> None:
 
     content = _wire_message(body, 0)["content"]
     assert content == [{"type": "image_url", "image_url": {"url": "data:image/png;base64,Zm9v"}}]
+
+
+def test_request_to_json_sends_text_only_content_as_one_string_with_the_system_folded_in() -> None:
+    """A text-only turn is one string: llama.cpp's server 500s on the part array (2026-09-24)."""
+    request = make_request(system="You are a bee.", messages=(Message.text(Role.USER, "Hi"),))
+    capabilities = ProviderCapabilities.full().model_copy(update={"system_role": False})
+
+    body = mapping.request_to_json(
+        request, model="local-small", capabilities=capabilities, provider="p"
+    )
+
+    assert _wire_message(body, 0) == {"role": "user", "content": "You are a bee.\n\nHi"}
+
+
+def test_request_to_json_keeps_the_part_array_when_text_rides_with_an_image() -> None:
+    image = ImagePart(media_type="image/png", data_base64="Zm9v")
+    message = Message(role=Role.USER, parts=(*Message.text(Role.USER, "Look").parts, image))
+    request = make_request(messages=(message,))
+
+    body = mapping.request_to_json(
+        request, model="local-small", capabilities=ProviderCapabilities.full(), provider="p"
+    )
+
+    assert _wire_message(body, 0)["content"] == [
+        {"type": "text", "text": "Look"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,Zm9v"}},
+    ]
 
 
 def test_request_to_json_refuses_an_image_part_without_vision() -> None:
