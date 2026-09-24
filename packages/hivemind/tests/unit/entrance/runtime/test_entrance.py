@@ -38,6 +38,7 @@ async def test_a_reduction_closes_a_live_remote_socket_and_the_listener_within_a
         url = f"ws://127.0.0.1:{rig.entrance.listeners.remote_port}{_STREAM}"
         async with connect(url) as socket:
             await socket.send(remote.hello(session, _STREAM))
+            await rig.until(lambda: rig.entrance.services.streams.sockets.count() == 1)
             started = time.monotonic()
             reduced = await console.call(console_session, "POST", "/v1/entrance/reduce")
             try:

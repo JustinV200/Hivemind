@@ -70,7 +70,10 @@ async def test_a_browser_socket_from_its_own_origin_is_admitted() -> None:
         client, session = await rig.browser(ProgramGrant(capabilities=("observe",)))
         origin = Origin(rig.loopback_origin)
         async with connect(_url(rig, _SECURITY), origin=origin) as socket:
+            hub = rig.entrance.services.streams.hub
+            before = hub.subscribers
             await socket.send(client.hello(session, _SECURITY))
+            await rig.until(lambda: hub.subscribers > before)
             console, console_session = await rig.console_session()
             await console.call(console_session, "POST", "/v1/entrance/invites", {"label": "tv"})
 
@@ -96,7 +99,8 @@ async def test_logging_out_closes_the_sessions_sockets() -> None:
         client, session = await rig.program()
         async with connect(_url(rig, _SECURITY)) as socket:
             await socket.send(client.hello(session, _SECURITY))
-            await asyncio.sleep(0.1)  # Admitted and registered before the session ends.
+            # Admitted and registered before the session ends.
+            await rig.until(lambda: rig.entrance.services.streams.sockets.count() == 1)
 
             logout = await client.call(session, "POST", "/v1/auth/logout")
             code = await _close_code(socket)

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
@@ -155,6 +155,19 @@ class ServingRig:
         http = httpx.AsyncClient(base_url=base, timeout=5.0)
         self.http.append(http)
         return LandingClient(http, self.hive_id, self.clock)
+
+    async def until(self, check: Callable[[], bool], timeout_s: float = 3.0) -> None:
+        """Wait until ``check`` holds (a socket admitted, a view subscribed), or fail.
+
+        Args:
+            check: Reads the running Entrance's own state.
+            timeout_s: The longest to wait.
+        """
+        async with asyncio.timeout(timeout_s):
+            while True:
+                if check():
+                    return
+                await asyncio.sleep(0.005)
 
     async def console_session(self) -> tuple[LandingClient, LandingSession]:
         """Log the console in on loopback, as the operator at the Hive Stand."""

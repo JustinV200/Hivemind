@@ -50,6 +50,7 @@ from hivemind.entrance.auth import (
     step_up,
     step_up_challenge,
 )
+from hivemind.entrance.auth.confirm import CONFIRMED_KIND, HELD_KIND, HOLD_ENDED_KIND
 from hivemind.entrance.enrol import EnrolledDevice, revoke
 from hivemind.entrance.errors import (
     ConfirmationRefusedError,
@@ -191,3 +192,24 @@ async def test_the_sweep_expires_only_what_is_past_its_expiry() -> None:
     assert expired == 1
     assert (await auth.store.pending.get(short)).status is PendingStatus.EXPIRED
     assert (await auth.store.pending.get(long)).status is PendingStatus.PENDING
+
+
+async def test_every_step_of_a_held_request_is_on_the_trail_without_its_payload() -> None:
+    auth = await auth_rig()
+    program, _ = await admitted_program(auth.enrolment)
+    records = auth.deps.records
+    confirmed = await hold(auth.deps.enrolment, program, ActionKind.GOAL, _GOAL)
+    declined = await hold(auth.deps.enrolment, program, ActionKind.GOAL, _GOAL)
+    console = await _stepped_up_console(auth)
+
+    await confirm(records, confirmed, console)
+    await cancel(records, declined, console)
+
+    held = await auth.enrolment.events(HELD_KIND)
+    [done] = await auth.enrolment.events(CONFIRMED_KIND)
+    [ended] = await auth.enrolment.events(HOLD_ENDED_KIND)
+    assert [event.payload["pending_id"] for event in held] == [confirmed, declined]
+    assert (done.payload["pending_id"], done.actor) == (confirmed, console.device.id)
+    assert (ended.payload["pending_id"], ended.payload["ended"]) == (declined, "cancelled")
+    assert all("rebuild the photo index" not in e.model_dump_json() for e in [*held, done, ended])
+    assert len(auth.enrolment.notifier.notices) >= 2  # Every hold told the other devices.

@@ -36,10 +36,16 @@ async def _next(socket: ClientConnection) -> Any:  # noqa: ANN401 -- one parsed 
 async def _open(
     rig: ServingRig, client: LandingClient, session: LandingSession, path: str
 ) -> ClientConnection:
-    """Open ``path`` on loopback and send its signed first frame."""
+    """Open ``path`` on loopback, send its signed first frame, and wait until it is served."""
+    hub, live = rig.entrance.services.streams.hub, rig.entrance.services.push.live
+    before = hub.subscribers
     socket = await connect(f"ws://127.0.0.1:{rig.entrance.listeners.loopback_port}{path}")
     await socket.send(client.hello(session, path))
-    await asyncio.sleep(0.1)  # Admitted and subscribed before the test writes anything.
+    # Admitted and subscribed (to the trail, or to the live push hub) before the test writes.
+    if path == "/v1/push/stream":
+        await rig.until(lambda: session.key.device_id in live.live_devices())
+    else:
+        await rig.until(lambda: hub.subscribers > before)
     return socket
 
 
