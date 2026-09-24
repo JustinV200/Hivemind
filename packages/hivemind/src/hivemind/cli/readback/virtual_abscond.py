@@ -22,15 +22,17 @@ process holds, or the trail's skeleton, `hivemind.hive.night_veil.adopt_night_ve
 destruction is recorded through the boundary's own trail so only the skeleton of it survives, and
 the teardown purge runs once it is gone. In a running Hive's process that boundary is the Queen's
 own, so the Cell's ephemeral segment goes with it; a separate `hive cells abscond` process holds no
-segment, and purges what the trail and the registered side channels still hold.
+segment, and purges what the trail and the registered side channels still hold. That process
+never saw the Cell's grants issued either, so it files every grant the ledger holds on the Cell
+under it first (`_veil`): the Undertaker's `forage.revoked` rows then stay out of the trail too.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.readback`. Called only by
     `hivemind.cli.readback.virtual`'s own `abscond` command. Calls into `hivemind.cell`
     (CellIdentity, CombShieldLevel), `hivemind.cli.readback.virtual_offline`, `hivemind.hive.
-    backends.fake` (FakeCellBackend), `hivemind.hive.night_veil` (adopt_night_veil,
-    end_night_veil), `hivemind.manifest` (HiveManifest), `hivemind.pheromone` (PheromoneTrail),
-    `hivemind.queen.cluster` (ClusterOrder, OrderKind, OrderStore, new_order_id),
+    backends.fake` (FakeCellBackend), `hivemind.hive.night_veil` (NightVeilBoundary,
+    adopt_night_veil, end_night_veil), `hivemind.manifest` (HiveManifest), `hivemind.pheromone`
+    (PheromoneTrail), `hivemind.queen.cluster` (ClusterOrder, OrderKind, OrderStore, new_order_id),
     `hivemind.queen.forage.ledger` (ForageLedger) and waggle only.
 
 Key invariants:
@@ -68,7 +70,7 @@ from hivemind.cli.readback.virtual_offline import (
 )
 from hivemind.hive import VirtualCellRecord
 from hivemind.hive.backends.fake import FakeCellBackend
-from hivemind.hive.night_veil import adopt_night_veil, end_night_veil
+from hivemind.hive.night_veil import NightVeilBoundary, adopt_night_veil, end_night_veil
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen.cluster import ClusterOrder, OrderKind, OrderStore, new_order_id
@@ -186,13 +188,29 @@ async def _destroy_every_virtual(deps: AbscondDeps, identity: CellIdentity) -> i
     rows = await _virtual_rows(deps)
     for backend_name, record in rows:
         backend = deps.virtual_cells.registry.get(backend_name)
-        veiled = await adopt_night_veil(night_veil, record.cell_id, record.labels)
+        veiled = await _veil(night_veil, deps.ledger, record)
         trail = night_veil.veiled if veiled else None
         undertaker = build_undertaker(backend, _offline(deps, identity, trail), deps.ledger)
         await undertaker.destroy_virtual(record.cell_id)
         if veiled:
             await end_night_veil(night_veil, record.cell_id, CombShieldLevel.NIGHT_VEIL)
     return len(rows)
+
+
+async def _veil(
+    night_veil: NightVeilBoundary, ledger: ForageLedger, record: VirtualCellRecord
+) -> bool:
+    """Hold `record`'s Cell behind the Night Veil boundary when it is one; return whether it is.
+
+    Every grant the ledger holds on a Night Veil Cell is filed under it too (module docstring), so
+    each revocation the Undertaker records is routed to the Cell's segment by its grant id.
+    """
+    if not await adopt_night_veil(night_veil, record.cell_id, record.labels):
+        return False
+    for grant in ledger.live_grants():
+        if grant.cell_id == record.cell_id:
+            night_veil.segments.file(grant.id, record.cell_id)
+    return True
 
 
 async def _virtual_rows(deps: AbscondDeps) -> tuple[tuple[str, VirtualCellRecord], ...]:
