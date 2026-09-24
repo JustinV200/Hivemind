@@ -121,6 +121,7 @@ PROVIDER_CLOSE_TIMEOUT_S = 5.0  # Closing a pooled HTTP client is local work mea
 # whole Hive's shutdown hostage.
 
 log = get_logger(__name__)
+
 # Roadmap step 10.3a: provider kinds whose model runs inside the calling process itself, so a call
 # to one never leaves the machine it is made on (Night Veil's local-only rule, `runs_locally`).
 IN_PROCESS_KINDS: frozenset[ProviderKind] = frozenset({"fake"})

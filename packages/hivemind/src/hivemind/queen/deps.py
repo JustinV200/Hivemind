@@ -462,11 +462,8 @@ class QueenDeps:
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S
     hot_window_s: float = _DEFAULT_HOT_WINDOW_S
-    # Roadmap step 5.7 (ADR-0028): additive fields, every one defaulted so a QueenDeps built
-    # before this dispatch (every existing test) keeps placing every task on the Real side alone,
-    # exactly as before. `virtual_backends`/`dormant_cells` stay empty until roadmap step 5.6 (the
-    # Virtual Cell lifecycle) and step 5.9 (the Overwintering pool) give a composition root
-    # something real to populate them with.
+    # Roadmap step 5.7 (ADR-0028): additive and defaulted, so a QueenDeps built without them
+    # places every task on the Real side alone, exactly as before the Virtual side existed.
     placement_policy: PlacementPolicy = field(default_factory=PlacementPolicy)
     virtual_backends: tuple[VirtualBackendCandidate, ...] = field(default_factory=tuple)
     dormant_cells: tuple[DormantCandidate, ...] = field(default_factory=tuple)
@@ -482,10 +479,7 @@ class QueenDeps:
     # provision inside resolve_link, the other call site could otherwise pick the same still-PENDING
     # task and lose the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
     dispatch_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # Roadmap step 5.0e: the manifest's own [hive_stand] keep_root, resolved; None until the
-    # operator sets one. Read only by hivemind.queen.goal_submission.submit_goal, which passes it
-    # to hivemind.queen.planner.PlanBrief.keep_root so the planner prompt can be told it (TaskAssign
-    # itself carries no keep_root field -- see PlanBrief.keep_root's own docstring for why).
+    # Roadmap step 5.0e (see the docstring): TaskAssign carries no keep_root, the planner does.
     keep_root: Path | None = None
     # Roadmap step 10.5 (ADR-0032): the human end. Defaulted so a composition root that wires no
     # Hive Entrance (hive run, every test) tells nobody, and so the Queen's own mutable wake and
