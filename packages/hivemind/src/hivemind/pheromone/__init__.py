@@ -42,10 +42,10 @@ Public API:
       insert_event (the primitive another store's own transaction calls), SUBSYSTEM and
       MIGRATIONS_PACKAGE.
     - SegmentPurge, SqliteSegmentPurge, LazySqliteSegmentPurge, MemorySegmentPurge,
-      SideChannelPurger, SideChannels, PurgeReport, TrailRecorder, NightVeilTeardownPurge,
-      EphemeralSegments, VeiledTrail, segments_of, SKELETON_KINDS, skeleton_event: the Night Veil
-      boundary
-      (its whole public API lives on `hivemind.pheromone.retention`).
+      SideChannelPurger, MemberSource, SideChannels, PurgeReport, TrailRecorder,
+      NightVeilTeardownPurge, EphemeralSegments, VeiledTrail, segments_of, SKELETON_KINDS,
+      skeleton_event: the Night Veil boundary (its whole public API lives on
+      `hivemind.pheromone.retention`).
     - follow, DEFAULT_POLL_INTERVAL_S: live-tail the trail.
     - PheromoneError, DuplicateEventError, UnknownEventFamilyError: the error tree, so a
       caller in another subsystem can catch a duplicate id by name.
@@ -88,6 +88,7 @@ from hivemind.pheromone.retention import (
     SKELETON_KINDS,
     EphemeralSegments,
     LazySqliteSegmentPurge,
+    MemberSource,
     MemorySegmentPurge,
     NightVeilTeardownPurge,
     PurgeReport,
@@ -143,6 +144,7 @@ __all__ = [
     "LazySqliteSegmentPurge",
     "LlmEvent",
     "LlmUsage",
+    "MemberSource",
     "MemoryEvent",
     "MemoryPheromoneTrail",
     "MemorySegmentPurge",

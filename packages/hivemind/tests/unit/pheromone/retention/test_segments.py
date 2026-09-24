@@ -22,7 +22,15 @@ from hivemind.pheromone import PheromoneEvent, event_class_for
 from hivemind.pheromone.retention import EphemeralSegments, Veiling
 from hivemind.pheromone.trail.protocol import TrailQuery, TrailSegment
 from waggle.clock import FakeClock
-from waggle.ids import CellId, NodeId, new_cell_id, new_event_id, new_hive_id, new_node_id
+from waggle.ids import (
+    CellId,
+    NodeId,
+    new_cell_id,
+    new_event_id,
+    new_hive_id,
+    new_node_id,
+    new_task_id,
+)
 
 _TASK = "task_01HZZZZZZZZZZZZZZZZZZZZZZZ"
 _WARDEN = "warden_01HZZZZZZZZZZZZZZZZZZZZZZZ"
@@ -169,12 +177,29 @@ async def test_a_taken_cell_is_never_held_again_and_its_late_records_are_withhel
     assert await setup.segments.merge(setup.cell, setup.segment(new_node_id(setup.clock), 1)) == 0
 
 
+async def test_take_names_every_id_filed_under_the_cell_and_none_of_anothers() -> None:
+    setup = _Setup()
+    other = new_cell_id(setup.clock)
+    for cell in (setup.cell, other):
+        setup.segments.open(cell)
+    task, node = new_task_id(setup.clock), new_node_id(setup.clock)
+    setup.segments.bind(task, setup.cell)
+    setup.segments.file(_WARDEN, setup.cell)
+    await setup.segments.merge(setup.cell, setup.segment(node, 1))
+    setup.segments.file(new_task_id(setup.clock), other)
+
+    taken = await setup.segments.take(setup.cell)
+
+    # The Cell's own id is the purge's own argument, never one of its members.
+    assert taken.members == frozenset({task, _WARDEN, node})
+
+
 async def test_taking_a_cell_never_held_here_still_marks_it_owned() -> None:
     setup = _Setup()
 
     taken = await setup.segments.take(setup.cell)
 
-    assert taken.events == () and taken.node_ids == frozenset()
+    assert taken.events == () and taken.node_ids == frozenset() and taken.members == frozenset()
     assert setup.segments.veiling(setup.event("cell.destroyed", setup.cell)) == Veiling(
         cell_id=setup.cell, held=False
     )

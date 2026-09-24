@@ -36,6 +36,7 @@ from hivemind.pheromone import (
     MemoryPheromoneTrail,
     MemorySegmentPurge,
     NightVeilTeardownPurge,
+    SideChannels,
     TrailRecorder,
     VeiledTrail,
 )
@@ -63,7 +64,9 @@ def make_night_veil(
     recorder = TrailRecorder(
         trail=durable, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
     )
-    purge = NightVeilTeardownPurge(MemorySegmentPurge(durable), (), recorder, ephemeral=segments)
+    purge = NightVeilTeardownPurge(
+        MemorySegmentPurge(durable), SideChannels(), recorder, ephemeral=segments
+    )
     return NightVeilBoundary(
         segments=segments,
         veiled=VeiledTrail(durable, segments),

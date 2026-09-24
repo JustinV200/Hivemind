@@ -7,8 +7,13 @@ segment whole, folds its `capping.*` detail into one `capping.summary` per tier 
 record the skeleton keeps), removes any row a Cell's own node ever left on the durable trail (a
 segment merged before the Cell was known to be Night Veil, or by a Queen older than this
 boundary), clears every registered side channel, and records one `cell.purged` event carrying
-counts only. The side channels are the logs the trail does not own whose no-retention rule is the
-same: `SideChannels` names each one, and the ones no store exists for yet are named seams.
+counts only. The side channels are the stores the trail does not own whose no-retention rule is
+the same: `SideChannels` names each one (the Queen's memory tables, the Brood Chamber's task
+words, the Forage ledger's rows about the Cell and its Warden, a backend's snapshot images, and
+the named seams no store exists for yet). Each is handed the Cell and every id that belongs to it:
+the ids its segment's index filed under it (its tasks, Wardens, grants, ...), plus those each
+`MemberSource` still ties to it durably, for a Queen that never held the segment (a restart's
+sweep, an offline Absconding).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.pheromone.retention`.
@@ -28,6 +33,8 @@ Key invariants:
       whose durable rows are about the Cell, and never the recorder's.
     - `capping.summary` and `cell.purged` carry counts and a tier name only, never the content of
       anything purged.
+    - Every side channel is handed the same members, gathered once before the first of them runs,
+      so a channel that forgets a Cell's rows cannot hide them from the channels after it.
 
 See Also:
     - .claude/codingrules.md section 12 for the Night Veil boundary this module ends.
@@ -40,7 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -68,6 +75,7 @@ SIDE_CHANNEL_TIMEOUT_S = 30.0
 __all__ = [
     "SIDE_CHANNEL_TIMEOUT_S",
     "LazySqliteSegmentPurge",
+    "MemberSource",
     "MemorySegmentPurge",
     "NightVeilTeardownPurge",
     "PurgeReport",
@@ -169,16 +177,33 @@ class MemorySegmentPurge:
 
 
 class SideChannelPurger(Protocol):
-    """Purge one Cell's records from a log the Pheromone Trail does not own."""
+    """Purge one Cell's records from a store the Pheromone Trail does not own."""
 
-    async def purge(self, cell_id: CellId) -> int:
-        """Remove every record this side channel holds for `cell_id`.
+    async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
+        """Remove every record this side channel holds for `cell_id` or any of `members`.
 
         Args:
             cell_id: The Cell whose records to remove.
+            members: Every other id that belongs to the Cell: its tasks, Wardens, grants, nodes
+                and the rest its segment filed under it, plus what the `MemberSource`s name.
 
         Returns:
-            How many records were removed.
+            How many records were removed (or reduced to their skeleton).
+        """
+        ...
+
+
+class MemberSource(Protocol):
+    """Name the ids a store durably ties to a Cell: for a purge whose index never saw them."""
+
+    async def members_of(self, cell_id: CellId) -> frozenset[str]:
+        """Return every id this store ties to `cell_id` (a task placed on it, its Warden, ...).
+
+        Args:
+            cell_id: The Night Veil Cell being purged.
+
+        Returns:
+            The ids, never `cell_id` itself; empty when the store ties nothing to it.
         """
         ...
 
@@ -187,11 +212,12 @@ class SideChannelPurger(Protocol):
 class SideChannels:
     """Every store beyond the trail a Night Veil teardown must clear, each by its own name.
 
-    A field left None is a registered seam: the store it names does not exist in this Hive yet,
-    so nothing there holds a record of the Cell, and the purger that store ships with plugs in
-    here by name. Every store a Night Veil Cell writes itself (its trail segment, memory, Tor and
-    OpenVPN logs, scratch) lives inside the Cell and dies with its backend resources, which the
-    backend's own destroy removes (the `hivemind.hive` README says what that must cover).
+    A field left None is a registered seam: the store it names does not exist in this Hive (or in
+    this process: an offline command opens no Honey Store), so nothing there holds a record of the
+    Cell, and the purger that store ships with plugs in here by name. Every store a Night Veil
+    Cell writes itself (its trail segment, memory, Tor and OpenVPN logs, scratch) lives inside the
+    Cell and dies with its backend resources, which the backend's own destroy removes (the
+    `hivemind.hive` README says what that must cover).
 
     Attributes:
         vpn_gateway: A VPN gateway outside the Cell, with its own per-Cell connection log. None
@@ -201,16 +227,38 @@ class SideChannels:
         nectar: The raw findings the Cell's bees deposit (phase 7, the Honey Store).
         honey: Honey ripened from them (phase 7), except what the work deposited on purpose at
             C0 or C1, labelled `origin_tier = NIGHT_VEIL`, which is kept (codingrules 12).
+        memory: The Queen's memory tables: her episode records, Handoffs, Bee Bread, notes and
+            Cell Wax about the Cell or its tasks, taint labels and all.
+        brood_chamber: The Brood Chamber's words about the Cell's tasks (title, objective,
+            outcome, questions and answers), reduced to ids, states and timestamps.
+        snapshot_images: The backend's snapshot images of the Cell, which outlive its container.
+        forage_ledger: The Forage ledger's rows keyed to the Cell or its Warden (capacity, pool
+            report, hosting plan, ceilings, any grant left live).
+        members: Every store that ties ids to a Cell durably, consulted before any side channel.
     """
 
     vpn_gateway: SideChannelPurger | None = None
     tor_hidden_service: SideChannelPurger | None = None
     nectar: SideChannelPurger | None = None
     honey: SideChannelPurger | None = None
+    memory: SideChannelPurger | None = None
+    brood_chamber: SideChannelPurger | None = None
+    snapshot_images: SideChannelPurger | None = None
+    forage_ledger: SideChannelPurger | None = None
+    members: tuple[MemberSource, ...] = ()
 
     def registered(self) -> tuple[SideChannelPurger, ...]:
         """Return every side channel that exists, in the fixed order the purge runs them."""
-        channels = (self.vpn_gateway, self.tor_hidden_service, self.nectar, self.honey)
+        channels = (
+            self.vpn_gateway,
+            self.tor_hidden_service,
+            self.nectar,
+            self.honey,
+            self.memory,
+            self.brood_chamber,
+            self.snapshot_images,
+            self.forage_ledger,
+        )
         return tuple(channel for channel in channels if channel is not None)
 
 
@@ -249,7 +297,7 @@ class NightVeilTeardownPurge:
     def __init__(
         self,
         segments: SegmentPurge,
-        side_channels: Sequence[SideChannelPurger],
+        side_channels: SideChannels,
         recorder: TrailRecorder,
         *,
         ephemeral: EphemeralSegments | None = None,
@@ -258,8 +306,8 @@ class NightVeilTeardownPurge:
 
         Args:
             segments: Removes a node's rows from the durable trail.
-            side_channels: Every registered side-channel purger (`SideChannels.registered`), run
-                in this order.
+            side_channels: Every side channel and member source this Hive has; `attach` replaces
+                them once the stores they clear exist.
             recorder: The durable trail and the Queen's identity the summaries and `cell.purged`
                 are written with, past the boundary rather than through it.
             ephemeral: The Queen's store of living Night Veil Cells' segments; None where there
@@ -269,6 +317,17 @@ class NightVeilTeardownPurge:
         self._side_channels = side_channels
         self._recorder = recorder
         self._ephemeral = ephemeral
+
+    def attach(self, side_channels: SideChannels) -> None:
+        """Replace the side channels and member sources every later purge runs.
+
+        The composition root builds the boundary before the stores it must clear are all in hand,
+        so it attaches them here, once, before the Hive runs anything that could end a Cell.
+
+        Args:
+            side_channels: Every side channel and member source this Hive has.
+        """
+        self._side_channels = side_channels
 
     async def purge(
         self, cell_id: CellId, actor: str, *, segment_node_ids: Iterable[NodeId] = ()
@@ -295,11 +354,13 @@ class NightVeilTeardownPurge:
         # side channel, so a later side-channel failure never leaves the trail's rows behind.
         nodes = await self._cell_nodes(cell_id, taken, segment_node_ids)
         rows = sum([await self._segments.purge_segment(node) for node in sorted(nodes)])
-        # Step 4: every registered side channel, in order; the guarantee holds only if all ran.
+        # Step 4: every registered side channel, in order, each handed every id of the Cell's
+        # own, gathered once up front; the guarantee holds only if all ran.
+        members = await self._members(cell_id, taken)
         side_total = 0
-        for side_channel in self._side_channels:
+        for side_channel in self._side_channels.registered():
             async with asyncio.timeout(SIDE_CHANNEL_TIMEOUT_S):
-                side_total += await side_channel.purge(cell_id)
+                side_total += await side_channel.purge(cell_id, members)
         report = PurgeReport(
             cell_id=cell_id,
             events_purged=len(taken.events) + rows,
@@ -310,10 +371,20 @@ class NightVeilTeardownPurge:
         await self._record(_PURGED_KIND, cell_id, actor, _purged_payload(report))
         return report
 
+    async def _members(self, cell_id: CellId, taken: TakenSegment) -> frozenset[str]:
+        """Return every id of `cell_id`'s own: its segment's index, then every member source."""
+        found = set(taken.members)
+        # A store's durable ties cover what this Queen never filed: a Cell she never held.
+        for source in self._side_channels.members:
+            async with asyncio.timeout(SIDE_CHANNEL_TIMEOUT_S):
+                found |= await source.members_of(cell_id)
+        found.discard(cell_id)
+        return frozenset(found)
+
     async def _take(self, cell_id: CellId) -> TakenSegment:
         """Take `cell_id`'s ephemeral segment, or an empty one where no store was wired."""
         if self._ephemeral is None:
-            return TakenSegment(events=(), node_ids=frozenset())
+            return TakenSegment(events=(), node_ids=frozenset(), members=frozenset())
         return await self._ephemeral.take(cell_id)
 
     async def _cell_nodes(

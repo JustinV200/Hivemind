@@ -202,7 +202,7 @@ def build_night_veil(
     )
     purge = NightVeilTeardownPurge(
         _segment_purge(manifest, veiled.durable),
-        SideChannels().registered(),  # Every side channel is a registered seam today.
+        SideChannels(),  # Attached once the stores exist (`attach_side_channels`).
         recorder,
         ephemeral=veiled.segments,
     )

@@ -31,7 +31,6 @@ from hivemind.pheromone.retention import (
     MemorySegmentPurge,
     NightVeilTeardownPurge,
     PurgeReport,
-    SideChannelPurger,
     SideChannels,
     TrailRecorder,
 )
@@ -39,7 +38,17 @@ from hivemind.pheromone.retention import purge as purge_module
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery, TrailSegment
 from waggle.clock import FakeClock
-from waggle.ids import CellId, HiveId, NodeId, new_cell_id, new_event_id, new_hive_id, new_node_id
+from waggle.ids import (
+    CellId,
+    HiveId,
+    NodeId,
+    new_cell_id,
+    new_event_id,
+    new_hive_id,
+    new_node_id,
+    new_task_id,
+    new_warden_id,
+)
 
 
 class _FakeSegmentPurge:
@@ -56,22 +65,34 @@ class _FakeSegmentPurge:
 
 
 class _FakeSideChannel:
-    """A SideChannelPurger that records that it ran and returns a fixed count."""
+    """A SideChannelPurger that records that it ran, and the members it was handed."""
 
     def __init__(self, count: int, calls: list[str], name: str) -> None:
         self._count, self._calls, self._name = count, calls, name
+        self.members: list[frozenset[str]] = []
 
-    async def purge(self, cell_id: CellId) -> int:
+    async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
         self._calls.append(self._name)
+        self.members.append(members)
         return self._count
 
 
 class _HangingSideChannel:
     """A SideChannelPurger whose store never answers."""
 
-    async def purge(self, cell_id: CellId) -> int:
+    async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
         await asyncio.Event().wait()
         return 0
+
+
+class _FakeMembers:
+    """A MemberSource that ties fixed ids to every Cell it is asked about."""
+
+    def __init__(self, *ids: str) -> None:
+        self._ids = frozenset(ids)
+
+    async def members_of(self, cell_id: CellId) -> frozenset[str]:
+        return self._ids
 
 
 class _Hive:
@@ -87,11 +108,11 @@ class _Hive:
         )
         self.segments = EphemeralSegments(self.clock)
 
-    def purge(self, side_channels: tuple[SideChannelPurger, ...] = ()) -> NightVeilTeardownPurge:
+    def purge(self, side_channels: SideChannels | None = None) -> NightVeilTeardownPurge:
         """A purge over the real durable trail and segments, with these side channels."""
         return NightVeilTeardownPurge(
             MemorySegmentPurge(self.trail),
-            side_channels,
+            side_channels if side_channels is not None else SideChannels(),
             self.recorder,
             ephemeral=self.segments,
         )
@@ -186,7 +207,7 @@ async def test_the_purge_runs_summaries_segment_side_channels_then_its_own_recor
     hive, calls = _Hive(), list[str]()
     cell_id, node = new_cell_id(hive.clock), new_node_id(hive.clock)
     segments = _FakeSegmentPurge(calls)
-    sides = SideChannels(nectar=_FakeSideChannel(2, calls, "nectar")).registered()
+    sides = SideChannels(nectar=_FakeSideChannel(2, calls, "nectar"))
     purge = NightVeilTeardownPurge(segments, sides, hive.recorder, ephemeral=hive.segments)
 
     report = await purge.purge(cell_id, actor="system", segment_node_ids=(node,))
@@ -217,13 +238,54 @@ async def test_the_purge_removes_the_cells_durable_rows_but_never_the_queens_own
 
 async def test_side_channels_run_in_their_registered_order_and_seams_are_skipped() -> None:
     calls = list[str]()
-    tor = _FakeSideChannel(0, calls, "tor")
-    honey = _FakeSideChannel(0, calls, "honey")
+    tor, honey, memory, chamber, images, ledger = (
+        _FakeSideChannel(0, calls, name)
+        for name in ("tor", "honey", "memory", "chamber", "images", "ledger")
+    )
 
-    registered = SideChannels(tor_hidden_service=tor, honey=honey).registered()
+    registered = SideChannels(
+        forage_ledger=ledger,
+        snapshot_images=images,
+        brood_chamber=chamber,
+        memory=memory,
+        honey=honey,
+        tor_hidden_service=tor,
+    ).registered()
 
-    assert registered == (tor, honey)
+    assert registered == (tor, honey, memory, chamber, images, ledger)
     assert SideChannels().registered() == ()
+
+
+async def test_every_side_channel_is_handed_the_cells_filed_ids_and_its_sources_ids() -> None:
+    hive, calls = _Hive(), list[str]()
+    cell_id = new_cell_id(hive.clock)
+    task_id, warden_id = new_task_id(hive.clock), new_warden_id(hive.clock)
+    hive.segments.open(cell_id)
+    hive.segments.bind(task_id, cell_id)
+    hive.segments.file(warden_id, cell_id)
+    memory, ledger = _FakeSideChannel(1, calls, "memory"), _FakeSideChannel(2, calls, "ledger")
+    # A store that still ties an older task to the Cell (and names the Cell itself, too).
+    older = new_task_id(hive.clock)
+    sides = SideChannels(
+        memory=memory, forage_ledger=ledger, members=(_FakeMembers(older, cell_id),)
+    )
+
+    report = await hive.purge(sides).purge(cell_id, actor="system")
+
+    expected = frozenset({task_id, warden_id, older})
+    assert memory.members == ledger.members == [expected]
+    assert report.side_channel_records_purged == 3
+
+
+async def test_attach_replaces_the_side_channels_every_later_purge_runs() -> None:
+    hive, calls = _Hive(), list[str]()
+    purge = hive.purge(SideChannels(nectar=_FakeSideChannel(5, calls, "nectar")))
+    purge.attach(SideChannels(memory=_FakeSideChannel(1, calls, "memory")))
+
+    report = await purge.purge(new_cell_id(hive.clock), actor="system")
+
+    assert calls == ["memory"]
+    assert report.side_channel_records_purged == 1
 
 
 async def test_a_side_channel_that_never_answers_fails_the_purge_before_its_record(
@@ -235,7 +297,7 @@ async def test_a_side_channel_that_never_answers_fails_the_purge_before_its_reco
     monkeypatch.setattr(purge_module, "SIDE_CHANNEL_TIMEOUT_S", 0.01)
 
     with pytest.raises(TimeoutError):
-        await hive.purge((_HangingSideChannel(),)).purge(cell_id, actor="system")
+        await hive.purge(SideChannels(nectar=_HangingSideChannel())).purge(cell_id, actor="system")
 
     # The segment is gone all the same; only the claim that the purge finished is missing.
     assert not hive.segments.holds(cell_id)
@@ -245,7 +307,7 @@ async def test_a_side_channel_that_never_answers_fails_the_purge_before_its_reco
 async def test_a_purge_with_no_ephemeral_store_still_purges_and_records() -> None:
     hive = _Hive()
     cell_id = new_cell_id(hive.clock)
-    purge = NightVeilTeardownPurge(MemorySegmentPurge(hive.trail), (), hive.recorder)
+    purge = NightVeilTeardownPurge(MemorySegmentPurge(hive.trail), SideChannels(), hive.recorder)
 
     report = await purge.purge(cell_id, actor="system")
 

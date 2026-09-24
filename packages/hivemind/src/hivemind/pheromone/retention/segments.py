@@ -31,7 +31,8 @@ Key invariants:
       reopens it, so a late sync can never rebuild what a purge removed.
     - An id is filed under one Cell, first come; a Cell id is never filed under another Cell.
     - `take` returns every event the Cell's segment held, whatever its size (per-node exports, no
-      query limit), and the ids of the Cell's own nodes, never the Queen's.
+      query limit), the ids of the Cell's own nodes, never the Queen's, and every id filed under
+      the Cell.
 
 See Also:
     - .claude/codingrules.md section 12 for the boundary this store keeps.
@@ -83,10 +84,13 @@ class TakenSegment:
     Attributes:
         events: Every event the segment held, in no particular order.
         node_ids: The Cell's own nodes (its Warden, once per boot) whose segments shipped here.
+        members: Every id filed under the Cell (its tasks, Wardens, nodes, grants, workers,
+            alarms and leases), never the Cell's own id: what the purge's side channels clear.
     """
 
     events: tuple[PheromoneEvent, ...]
     node_ids: frozenset[NodeId]
+    members: frozenset[str]
 
 
 class EphemeralSegments:
@@ -224,13 +228,15 @@ class EphemeralSegments:
         nodes = frozenset(self._cell_nodes.pop(cell_id, set()))
         self._taken.add(cell_id)
         self._owner.setdefault(cell_id, cell_id)
+        # The index outlives the segment (module docstring), so what it filed is still read here.
+        members = frozenset(m for m, owner in self._owner.items() if owner == cell_id) - {cell_id}
         if held is None:
-            return TakenSegment(events=(), node_ids=nodes)
+            return TakenSegment(events=(), node_ids=nodes, members=members)
         # Per-node exports carry no query limit, so a long-lived Cell's segment is taken whole.
         events = [
             event for node in sorted(writers) for event in (await held.export_segment(node)).events
         ]
-        return TakenSegment(events=tuple(events), node_ids=nodes)
+        return TakenSegment(events=tuple(events), node_ids=nodes, members=members)
 
 
 def _members(event: PheromoneEvent) -> tuple[str, ...]:

@@ -33,13 +33,14 @@ Public API:
     - VeiledTrail, segments_of: the trail decorator every Queen-side writer records through, and
       the segments behind it (trail).
     - NightVeilTeardownPurge, PurgeReport, TrailRecorder, SegmentPurge, SqliteSegmentPurge,
-      LazySqliteSegmentPurge, MemorySegmentPurge, SideChannelPurger, SideChannels,
+      LazySqliteSegmentPurge, MemorySegmentPurge, SideChannelPurger, MemberSource, SideChannels,
       SIDE_CHANNEL_TIMEOUT_S: the purge.
 """
 
 from hivemind.pheromone.retention.purge import (
     SIDE_CHANNEL_TIMEOUT_S,
     LazySqliteSegmentPurge,
+    MemberSource,
     MemorySegmentPurge,
     NightVeilTeardownPurge,
     PurgeReport,
@@ -67,6 +68,7 @@ __all__ = [
     "SUMMARY_KIND",
     "EphemeralSegments",
     "LazySqliteSegmentPurge",
+    "MemberSource",
     "MemorySegmentPurge",
     "NightVeilTeardownPurge",
     "PurgeReport",
