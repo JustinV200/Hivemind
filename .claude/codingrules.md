@@ -1776,7 +1776,7 @@ transaction as the state change.
 
 | Machine | Owner and file | States and transitions | Notes |
 |---|---|---|---|
-| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
+| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering, and a quarantine until a judge clears its checkpoint); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
 | Question | Brood Chamber, `brood_chamber/questions.py` | `ASKED → ANSWERED / WITHDRAWN` | Asking blocks the task; answering resumes it. |
 | Proposal | Capping, `supervision/capping/state.py` | `PROPOSED → CHECKING → CAPPED → APPLIED → VERIFIED`; `CHECKING → REJECTED`; `APPLIED → ROLLED_BACK` | Tier decides the checks between `CHECKING` and `CAPPED`. |
 | Alarm | Supervision, `supervision/alarm.py` | `RAISED → HANDLING → RESOLVED`; `HANDLING → ESCALATED → HANDLING` (at the next level) | Attempt count travels with it; same id at every level. |

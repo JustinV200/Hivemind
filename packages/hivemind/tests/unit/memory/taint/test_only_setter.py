@@ -6,9 +6,11 @@ This is that test. It parses every module under `hivemind/` and fails when a lab
 anywhere but the two functions allowed to: a `write_taint(...)` call or a `TaintMarker(...)` built
 outside `memory/taint/set.py` and `memory/taint/clear.py`; a `"tainted"` key set outside the stores
 that persist the label; a `tainted=` argument that is not a label read off another item; or a call
-to `taint_memory` from a module that is not one of the three setters. The next steps add their own
-module to `_SETTER_CALLERS` (10.6a: `queen/isolation.py`; 10.6c: the quarantine path in
-`wardens/`), each bound to its own `TaintSource`.
+to `taint_memory` from a module that is not one of the three setters. Each setter's module is in
+`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: `queen/isolation.py`; 10.6c: the
+quarantine path in `wardens/`). The quarantine setter has landed, so it is also pinned as real and
+single: exactly one module in the whole tree calls `taint_memory` with `TaintSource.QUARANTINE`,
+the one quarantine path, and nothing else in `wardens/` calls the setter at all.
 
 Fits into the Hive:
     Mirrors src/hivemind/memory/taint/set.py's key invariant (codingrules section 3).
@@ -33,13 +35,14 @@ import hivemind
 _SRC = Path(hivemind.__file__).resolve().parent.parent  # packages/hivemind/src
 _WRITERS = ("hivemind/memory/taint/set.py", "hivemind/memory/taint/clear.py")
 _LABEL_STORES = ("hivemind/memory/store/",)  # The stores that persist a label they were handed.
-# The three setters (ADR-0035), by module, each with the only TaintSource it may pass. None is
-# built yet: 10.6a and 10.6c land the first two; the Queen's Guard-report path lands with phase 7.
+# The three setters (ADR-0035), by module, each with the only TaintSource it may pass. 10.6c's is
+# built; 10.6a lands the first, and the Queen's Guard-report path lands with phase 7.
 _SETTER_CALLERS: dict[str, str] = {
     "hivemind/queen/isolation.py": "ISOLATION",
     "hivemind/wardens/quarantine": "QUARANTINE",
     "hivemind/queen/guard_reports": "GUARD_REPORT",
 }
+_QUARANTINE_PATH = "hivemind/wardens/quarantine/path.py"  # Roadmap 10.6c's one code path.
 
 
 @functools.cache
@@ -122,3 +125,23 @@ def test_only_the_three_setters_call_taint_memory_each_with_its_own_source() -> 
         assert allowed, f"{path} calls taint_memory but is not one of the three setters"
         source = _SRC.joinpath(path).read_text(encoding="utf-8")
         assert f"TaintSource.{_SETTER_CALLERS[allowed[0]]}" in source
+
+
+def _names_source(tree: ast.Module, member: str) -> bool:
+    """Whether a module's code (not its prose) names `TaintSource.<member>`."""
+    return any(
+        isinstance(node, ast.Attribute)
+        and node.attr == member
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "TaintSource"
+        for node in ast.walk(tree)
+    )
+
+
+def test_the_one_quarantine_path_is_the_only_quarantine_setter() -> None:
+    callers = [path for path, tree in _modules() if _calls(tree, "taint_memory")]
+    quarantining = [path for path, tree in _modules() if _names_source(tree, "QUARANTINE")]
+
+    # Real, not vacuous: the path calls the setter, and names the source, and nothing else does.
+    assert quarantining == [_QUARANTINE_PATH]
+    assert [path for path in callers if path.startswith("hivemind/wardens/")] == [_QUARANTINE_PATH]

@@ -156,6 +156,19 @@ every assignment goes to a Warden, over Waggle.
   never raises out of the tick: compaction is skipped for that sweep (demotion and wax expiry
   still run), logged once via `deps.housekeeping.ripener_unbound_warned`. The very first tick only
   seeds `deps.housekeeping.last_sweep_at` rather than sweeping immediately.
+- `queen.quarantine` (roadmap step 10.6c, ADR-0035): the Queen's side of the one quarantine.
+  `order_quarantine(deps, wardens, lever, alarm_id=None) -> bool` sends `Intervene(QUARANTINE)`
+  (`hivemind.supervision.to_intervene`) to the Warden the Brood Chamber places the lever's task
+  on, and records `queen.decided` (action `QUARANTINE_BEE`); it returns False, sending nothing,
+  when the task is unplaced or its Warden detached. `lever_from_alarm(payload)` scopes one from an
+  Alarm (its bee, task and trail event), or None when the Alarm names no task or no event, which
+  the Queen's `QUARANTINE_BEE` handling (`queen.ticks.alarms`) then escalates to the human
+  instead. `hold_task(deps, progress)` is `PAUSE_TASK`: the Warden that quarantined a bee reports
+  its task at stage PAUSED, and the Queen withdraws a question the bee left it blocked on, then
+  moves it RUNNING -> PAUSED (the Brood Chamber is hers alone to write). `Queen.intervene(warden,
+  Quarantine(...))` carries a whole lever too. The Warden's SECURITY Alarm about it goes to the
+  human by the shipped policy; the way out is a `resume_paused` from the quarantine's checkpoint
+  once a judge has cleared it, which the Warden's gate admits and nothing else does.
 - `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
 ## Enforcement points (roadmap step 10.3)

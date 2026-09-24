@@ -26,6 +26,17 @@ over the wildcard rows; failing that, `default`. The file's own header and per-r
 why each threshold and action were chosen; `tests/unit/supervision/test_policy.py` loads it and
 checks a table of `(kind, attempts) -> action` pairs, including the default case.
 
+Roadmap step 10.6c adds the `SECURITY` kind (Waggle 1.7) and its one row: `ESCALATE` from the
+first attempt, so a security Alarm is never retried, respawned or rebound at any level; a Warden
+sends it to the Queen, and she sends it on to the human. It also adds `QUARANTINE` to the actions a
+row may name: on a Warden's own row it quarantines that Warden's sub-bee through the one quarantine
+path (`hivemind.wardens.quarantine`), and on the Queen's it orders the Warden of the Alarm's task
+to, scoped by the Alarm's bee, task and trail event. The shipped table names it nowhere: a
+quarantine is ordered on a Guard request, or by an operator's own row.
+`tests/unit/supervision/test_policy_tables.py` walks every `AlarmKind` through the shipped table
+and every `PolicyAction` through both autopilot tables, so a member without its row fails there
+rather than as a `KeyError` in a tick.
+
 The manifest's `[supervision] policy_file` (roadmap step 3.1) is unset by default, which is what
 selects the shipped table; setting it to a path, resolved against the manifest's own directory,
 overrides it with an operator's own. The Queen and each Warden load their own `EscalationPolicy`

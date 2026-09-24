@@ -1641,7 +1641,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   *Landed for tool results, session output and Landing Board messages; Honey hits at assembly
   and Nectar intake are named seams (`ScanSource.HONEY_HIT`, `NECTAR_INTAKE`,
   `AssembleRequest.retrieved`) that phase 7 fills.*
-- [ ] **10.6c Quarantine, one intervention.** `Quarantine` joins the `Intervention` union (3.13)
+- [x] **10.6c Quarantine, one intervention.** `Quarantine` joins the `Intervention` union (3.13)
   and `InterventionAction` on the wire (minor bump), carrying the episode id from which the
   bee's memory is suspect. One code path in `wardens/`, nothing composed by hand anywhere else:
   checkpoint, cancel, kill the tracked process, revoke the bee's slice of the grant, label every
@@ -1651,6 +1651,10 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   policy row for its own sub-bee, since a Warden may already cancel it; the Queen is told
   either way. The only way out is a respawn from a Handoff the judge has cleared. A test
   asserts no other path marks memory tainted.
+  *Landed with Waggle 1.7 as `hivemind.wardens.quarantine` (the path, and the gate that is the
+  only way out), ordered through `Queen.intervene`, `hivemind.queen.quarantine.order_quarantine`
+  or a `QUARANTINE` policy row at either level; the Queen holds the task on the Warden's PAUSED
+  report and hears a SECURITY Alarm. The Guard request that pulls the lever lands with 10.6.*
 - [x] **10.6d Taint, one label.** `tainted` is one marker on checkpoints, Handoffs, episode
   records, Nectar and Honey items, with the reason and the event that set it. Set by isolation
   (10.6a), by quarantine (10.6c), or by the Queen on a Guard report about a Honey item, and by

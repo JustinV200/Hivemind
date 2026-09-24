@@ -8,10 +8,14 @@ awaits a model. Nothing under this package may import hivemind.llm.
 - `QueenAction` (`actions.py`): the closed set of moves the dispatch table can pick -- `RECORD`,
   `DISPATCH`, `COMPLETE_TASK`, `RETRY_TASK`, `FAIL_TASK`, `REBIND`, `ESCALATE_TO_HUMAN`,
   `BLOCK_ON_QUESTION`, `ROUTE_ANSWER`, `MARK_WARDEN_OFFLINE`, `WRITE_WAX`, `REJECT_WAX`,
-  `CLEAR_WAX`, `NEEDS_JUDGEMENT`.
+  `CLEAR_WAX`, `QUARANTINE_BEE`, `PAUSE_TASK`, `NEEDS_JUDGEMENT`.
 - `decide` (`table.py`): the pure dispatch table itself, keyed by the wrapped payload's own type
   (and the task's own status, where it matters); an escalated Alarm is mapped through
-  `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling.
+  `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling. Roadmap step
+  10.6c: a policy row naming `QUARANTINE` maps to `QUARANTINE_BEE` (carried out by
+  `hivemind.queen.quarantine.order_quarantine`), and a Warden's `TaskProgress` at stage PAUSED
+  about a task not yet terminal maps to `PAUSE_TASK` (`hivemind.queen.quarantine.hold_task`); every
+  other `TaskProgress` stays `RECORD`.
 - `effort_for` (`effort.py`): the `Effort` an awake episode gets, by `InboxKind` -- alarms `HIGH`,
   questions `MEDIUM`, everything else `LOW`; a table, not a chain of branches.
 - `ForageAutopilotOutcome`, `ForageRequestSignal`, `decide_forage_request` (`forage.py`, roadmap

@@ -165,11 +165,12 @@ class _LifecycleMixin(_ChamberBase):
         )
 
     async def pause(self, task_id: TaskId, reason: str) -> Task:
-        """Move a task RUNNING -> PAUSED: Clustering suspended it.
+        """Move a task RUNNING -> PAUSED: Clustering suspended it, or its bee was quarantined.
 
         Args:
             task_id: The task to pause.
-            reason: Why it was paused (typically which provider set became unavailable).
+            reason: Why it was paused (which provider set became unavailable, or which bee's
+                quarantine holds it).
 
         Returns:
             The task, now PAUSED.
@@ -179,7 +180,7 @@ class _LifecycleMixin(_ChamberBase):
         return await self._transition(task, TaskStatus.PAUSED, "task.paused", payload)
 
     async def resume(self, task_id: TaskId, reason: str) -> Task:
-        """Move a task PAUSED -> RUNNING: Clustering resumed it.
+        """Move a task PAUSED -> RUNNING: Clustering resumed it, or its quarantine was lifted.
 
         Args:
             task_id: The task to resume.

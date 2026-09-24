@@ -41,8 +41,10 @@ label. Three callers may call it, one per `TaintSource`:
 a label is written anywhere else: a `write_taint(...)` call or a `TaintMarker(...)` built outside
 `taint/set.py` and `taint/clear.py`, a `"tainted"` key set outside the stores that persist the
 label, a `tainted=` argument that is not a label read off another item, or a call to
-`taint_memory` from a module that is not one of the three setters. When 10.6a and 10.6c land, they
-add their modules to the test's `_SETTER_CALLERS`, each bound to its own source.
+`taint_memory` from a module that is not one of the three setters. Each setter's module is in the
+test's `_SETTER_CALLERS`, bound to its own source. 10.6c's has landed, so the test also pins it as
+real and single: `wardens/quarantine/path.py` is the only module that labels with `quarantine`, and
+nothing else in `wardens/` calls the setter.
 
 A `TaintScope` names the slice of memory one taint covers: the bees whose items it covers (a
 Handoff's `written_by`, an episode's principal), the tasks whose items it covers, the moment from
@@ -107,6 +109,13 @@ Every path but `cleared` leaves the item exactly as it was: clearing fails close
 label) and `source`. Never the item's content or the judge's reasons; the caller gets those.
 
 After a quarantine (10.6c), the only way back is a respawn from a Handoff the judge has cleared.
+The quarantine writes that Handoff first (its checkpoint), then taints it with the rest of the
+bee's memory from the suspect episode on. The Warden's gate (`wardens/quarantine/gate.py`)
+refuses every respawn of the held task at the `quarantine` enforcement point until the Queen's
+resume names that checkpoint and `read_handoff` reads it as `cleared`; a clearer asks the judge
+through `clear_taint` like any other. `tests/e2e/test_quarantine_on_hive_stand.py` runs the whole
+cycle on a real Hive Stand run: quarantined mid-command, refused while tainted, let out once
+cleared.
 
 ## Phase 7 seams
 

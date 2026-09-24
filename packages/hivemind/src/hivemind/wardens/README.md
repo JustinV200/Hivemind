@@ -68,10 +68,35 @@ Warden never provisions Cells itself.
   against a grant.
 - `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat` -- one of
   `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size limits.
+  Roadmap step 10.6c: `heartbeat.raise_stalled_alarms` returns a stalled sub-bee's synthesised
+  `WORKER_STALLED` Alarm as an inbox item, which `Warden` dispatches through the same `decide`
+  and `_act` as any other Alarm, so a policy row naming QUARANTINE for it reaches the one path
+  below; no tick module imports the quarantine package.
   `alarms.handle_alarm_action`/`rebind_sub_bee` also record `alarm.handled`/`alarm.escalated` on
   the Pheromone Trail (`hivemind.supervision.record_alarm_event`); `control.forward_control` turns
   a Queen-sent `Intervene(REBIND)` into a real respawn on the binding the Queen already resolved,
   rather than only relaying it to the sub-bee to checkpoint and stop.
+- `wardens.quarantine` (roadmap step 10.6c, ADR-0035's "Quarantine is one intervention"): the
+  one quarantine code path, `quarantine_bee(warden, order) -> QuarantineRecord | None`, and
+  nothing composed by hand anywhere else. In order: authorise at the `quarantine` point, write the
+  checkpoint (a Handoff the Warden composes, carrying the bee's last one forward when it can
+  still read it), stop the bee (its role cancelled; a command it has in flight dies with it, since
+  a Cell session's exec kills its child's tree when cancelled), withdraw its task's grant and any
+  parked assignment, record `warden.intervened` (task, bee, action, suspect episode, checkpoint,
+  grant, orderer), taint the bee's memory and its task's from the suspect episode on through
+  `hivemind.memory.taint.taint_memory` (`TaintSource.QUARANTINE`, over the memory tables plus
+  `WardenDeps.taint_ledgers`, where the Honey Store's Nectar ledger joins in phase 7), hold the
+  task (`TaskProgress` at stage PAUSED, which the Queen turns into the Brood Chamber's PAUSED) and
+  tell the Queen with a SECURITY Alarm of this Warden's own. Three ways in, one path:
+  a Queen-sent `Intervene(QUARANTINE)` and this Warden's own `PolicyAction.QUARANTINE` row for an
+  Alarm about its own sub-bee (both `WardenAction.QUARANTINE`, `carry_out`), and
+  `Warden.intervene(child, Quarantine(...))` (`quarantine_child`). A repeated order changes
+  nothing; a refused one changes nothing but its `guard.denied` row; a Warden's own row that
+  cannot go ahead escalates the Alarm instead. `admit_respawn` (`gate.py`) is the only way out:
+  a quarantined task's `TaskAssign` spawns only when it resumes from the quarantine's own
+  checkpoint and `read_handoff` reads that checkpoint as CLEARED by a judge (`clear_taint`);
+  any other respawn is refused at the `quarantine` point (`guard.scope.quarantine_checkpoint`),
+  its grant dropped, and the Queen told again that the task is held.
 - `wardens.offline`, `wardens.watch`: placeholders; populated in phase 11.
 
 ## Enforcement points (roadmap step 10.3)
@@ -91,6 +116,10 @@ Cell's kind) and the `[llm.slots]` rows (`bindings`) a binding key resolves agai
   (`WardenDeps.local_providers`), so a Night Veil task can never be rebound to a hosted slot.
 - `question_routing` (`ticks.questions`): a sub-bee's Question goes up only when its set holds
   `question:human`; otherwise the Warden answers it back down with the Guard's reason.
+- `quarantine` (`quarantine.authority`, roadmap step 10.6c): whoever orders a quarantine (the
+  Queen, as her role set; this Warden itself, as its own) must hold the Cell's lease capability,
+  and the order must name a current sub-bee (`guard.scope.sub_bee`); a respawn of a quarantined
+  task that is not the one way out is refused here too (`guard.scope.quarantine_checkpoint`).
 - A sub-bee's slice (`spawn.attenuate`) now reads the task's `network_scopes` (so a Worker can hold
   `net` at all) and the goal's set off Waggle 1.6's `TaskAssign`, and keeps a candidate only where
   the Warden's set and the goal's both allow it.
