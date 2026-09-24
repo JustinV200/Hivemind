@@ -22,7 +22,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest, pump_until_done
+from builders.cli import HIVE_STAND_CORES, fake_manifest, pump_until_done
 from builders.forage import make_grant
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStore, TaskStatus
@@ -30,7 +30,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose import GoalReport, Hive, HiveStores, build_hive, run_goal, run_hive
 from hivemind.cli.stores import open_ledger
-from hivemind.forage import RoleFootprint, RoyalReserve
+from hivemind.forage import ForageCapacity, RoleFootprint, RoyalReserve
 from hivemind.forage.grant_state import GrantState
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
@@ -276,6 +276,29 @@ def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_p
     # reserve, rather than falling back to QueenDeps's own default-constructed one.
     assert isinstance(deps.ledger, ForageLedger)
     assert deps.ledger.reserve == deps.reserve
+    # The zero-grant fix: [forage] zero_grant_patience_s, fake_manifest leaving the default.
+    assert deps.grant_waits.patience_s == 300.0
+
+
+def test_build_hive_gives_the_hive_stands_link_a_reader_of_its_capacity_as_it_stands(
+    tmp_path: Path,
+) -> None:
+    # The zero-grant fix: every grant for the Hive Stand is sized from a fresh reading, so a load
+    # that has dropped since build_hive probed the host is seen at the next dispatch pass.
+    hive, _clock = _build_test_hive(tmp_path)
+    reader = hive.warden_link.live_capacity
+    assert reader is not None
+
+    async def _read_once() -> ForageCapacity:
+        """Take one reading, the way the dispatcher does before sizing a grant."""
+        assert reader is not None  # Narrowed above; restated for the closure.
+        return await reader()
+
+    reading = asyncio.run(_read_once())
+
+    # Static totals as probed (fake_manifest pins the cores), live figures re-read.
+    assert reading.host.cores == HIVE_STAND_CORES
+    assert reading.max_sub_bees == hive.warden_link.cell.capacity.max_sub_bees
 
 
 def test_build_hive_wires_the_queen_deps_ledger_over_sqlite_and_restores_it(

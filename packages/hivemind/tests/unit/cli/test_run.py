@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest
+from pydantic import JsonValue
 from typer.testing import CliRunner
 
 import hivemind.cli.run as run_module
@@ -44,7 +45,9 @@ from hivemind.llm import (
     Usage,
 )
 from hivemind.manifest import HiveManifest
-from waggle.clock import Clock
+from hivemind.pheromone import ForageEvent
+from waggle.clock import Clock, FakeClock
+from waggle.ids import new_event_id, new_grant_id, new_hive_id, new_node_id, new_task_id
 
 runner = CliRunner()
 
@@ -256,3 +259,55 @@ def test_describe_joins_every_cause_in_a_nested_group() -> None:
     assert "KeyError" in described
     assert "RuntimeError: stopped" in described
     assert "; " in described
+
+
+def _denial(subject_id: str, **payload: JsonValue) -> ForageEvent:
+    """Build one `forage.denied` event, as the Queen's dispatcher records it."""
+    clock = FakeClock()
+    return ForageEvent(
+        id=new_event_id(clock),
+        hive_id=new_hive_id(clock),
+        node_id=new_node_id(clock),
+        at=clock.now(),
+        actor="system",
+        kind="forage.denied",
+        subject_id=subject_id,
+        payload=payload,
+    )
+
+
+def test_a_task_waiting_for_the_host_streams_a_deferral_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The zero-grant fix: a waiting task says why on screen, never looking like a stall."""
+    task_id = new_task_id(FakeClock())
+    event = _denial(task_id, deferred=True, limited_by="free_cores", patience_s=300.0)
+
+    run_module._print_event(event)
+
+    line = capsys.readouterr().out
+    assert f"forage.denied  {task_id}  deferred: waiting for free_cores" in line
+    assert "fails after 300s" in line
+
+
+def test_a_task_waiting_for_its_own_goal_streams_when_its_wait_ends(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    event = _denial(
+        new_task_id(FakeClock()), deferred=True, limited_by="goal_bees", patience_s=None
+    )
+
+    run_module._print_event(event)
+
+    assert "until one of its goal's running tasks finishes" in capsys.readouterr().out
+
+
+def test_a_denial_streams_the_limit_to_blame(capsys: pytest.CaptureFixture[str]) -> None:
+    grant_id = new_grant_id(FakeClock())
+
+    run_module._print_event(_denial(grant_id, deferred=False, limited_by="seats"))
+    run_module._print_event(_denial(grant_id, deferred=False, limited_by=None))
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].endswith(f"forage.denied  {grant_id}  denied: seats")
+    assert lines[1].endswith("denied: no model binding")

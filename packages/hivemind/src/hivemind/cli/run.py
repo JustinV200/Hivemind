@@ -6,7 +6,8 @@ possible typer layer over `hivemind.cli.compose`: it loads the manifest, calls `
 `waggle.clock.SystemClock` (codingrules section 11: `SystemClock` only at the command edge),
 enters `run_hive`, and awaits `run_goal`, streaming one line per trail event of interest as it
 lands (`_STREAMED_KINDS`, roadmap step 3.21's own list: queen decisions, Warden/Worker lifecycle,
-Capping's QA-gate cycle, terminal task and Alarm events) unless `--json` was given, in which case
+Capping's QA-gate cycle, terminal task and Alarm events, and every Forage denial with its cause, a
+task left waiting for room said so on its own line) unless `--json` was given, in which case
 only the final `GoalReport` prints, as one JSON object. `run_command` is a plain function, not
 wrapped in its own `typer.Typer` the way every other command group in this package is
 (`hivemind.cli.app`'s own docstring calls this out): a `hive run "goal"` invocation has no
@@ -69,11 +70,13 @@ DEFAULT_TIMEOUT_S = 120.0  # Two minutes: generous for a multi-step goal against
 DEFAULT_CLEARANCE = "C1"  # codingrules 8.9's own default label for ordinary, non-personal work.
 
 # The trail kinds worth a line as `hive run` streams a goal: queen decisions, Warden/Worker
-# lifecycle, Capping's own QA-gate cycle, and terminal task/Alarm events (roadmap step 3.21).
+# lifecycle, Capping's own QA-gate cycle, and terminal task/Alarm events (roadmap step 3.21), plus
+# every Forage denial (the zero-grant fix), so a task waiting for room never looks like a stall.
 _STREAMED_KINDS = frozenset(
     {
         "queen.planned",
         "queen.assigned",
+        "forage.denied",
         "warden.started",
         "warden.watch",
         "warden.active",
@@ -283,7 +286,30 @@ def _exit_unplanned(unplanned: GoalNotPlannedError) -> NoReturn:
 def _print_event(event: PheromoneEvent) -> None:
     """Print one line for a trail event of interest; every other kind is silently skipped."""
     if event.kind in _STREAMED_KINDS:
-        typer.echo(f"{event.at.isoformat()}  {event.kind}  {event.subject_id}")
+        typer.echo(f"{event.at.isoformat()}  {event.kind}  {event.subject_id}{_cause(event)}")
+
+
+def _cause(event: PheromoneEvent) -> str:
+    """Return a Forage denial's own cause, as the rest of its line; empty for every other kind.
+
+    A waiting task (`deferred = true`: the Queen tries it again on every pass) and a failed one
+    both carry the limit to blame (`limited_by`), so the operator reads on screen whether the
+    goal is waiting for the host, waiting for its own tasks, or has been refused for good.
+    """
+    if event.kind != "forage.denied":
+        return ""
+    limit = event.payload.get("limited_by") or "no model binding"
+    if event.payload.get("deferred") is not True:
+        return f"  denied: {limit}"
+    patience_s = event.payload.get("patience_s")
+    # A wait on the host's live figures is bounded by [forage] zero_grant_patience_s; a wait on
+    # the goal's own allowance ends when one of its own running tasks does.
+    until = (
+        f"fails after {patience_s:.0f}s"
+        if isinstance(patience_s, int | float)
+        else "until one of its goal's running tasks finishes"
+    )
+    return f"  deferred: waiting for {limit} ({until})"
 
 
 def _print_summary(report: GoalReport, as_json: bool) -> None:

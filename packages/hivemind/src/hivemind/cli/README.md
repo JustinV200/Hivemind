@@ -87,7 +87,10 @@ typer layer that calls into a subsystem's public API and never contains logic of
   sync_answers_from_chamber` and streaming trail events to `on_event` each poll. Split into
   `links.py` (the one Waggle link) and `deps.py` (every manifest-slice-to-deps conversion) to stay
   within codingrules section 5.1's 300-line budget; see its own `__init__.py` for the full split.
-  Roadmap step 10.3: `deps.build_enforcer` builds the one Guard `Enforcer` (over `[guard]`'s
+  The zero-grant fix: `build_hive` gives the Hive Stand's Queen-side link a reader of the Stand's
+  capacity as it stands (`WardenLink.live_capacity`, over `HiveStandSource.cells()`), so every
+  grant sees the load and free memory of its moment, and the Queen `[forage]
+  zero_grant_patience_s` (`QueenDeps.grant_waits`). Roadmap step 10.3: `deps.build_enforcer` builds the one Guard `Enforcer` (over `[guard]`'s
   policy) the Queen and the Hive Stand's Warden share (`HiveParts.enforcer`), the Warden's lease
   needs `HIVE_STAND_LEASE` (`cell:hive_stand`), and `run_hive` attaches the Hive Stand's Warden to
   the Queen first (her awaited `warden_spawn` point), so a freshly built `Hive.queen` has no Warden
@@ -108,7 +111,9 @@ typer layer that calls into a subsystem's public API and never contains logic of
   planned it; a request she refuses prints `hive run refused: <reason>` (exit 1), one still
   unplanned at the timeout exits 2. `RunCommand` carries `--json` and `--comb-shield` on the
   command itself, keeping `run_command` within five parameters. Streams trail events as
-  they arrive (unless `--json`), then a one-line summary; exits 0 on success, 1 when the goal
+  they arrive (unless `--json`), every `forage.denied` with its cause (`deferred: waiting for
+  free_cores (fails after 300s)` for a task left waiting for room, `denied: seats` for one
+  refused), then a one-line summary; exits 0 on success, 1 when the goal
   failed, 2 on a timeout or a bad manifest. The streamed view begins at the goal's own
   submission, never earlier (a store that already holds other runs does not replay them), and
   with `[hive_stand] keep_scratch = true` (development only) the last line names the lease

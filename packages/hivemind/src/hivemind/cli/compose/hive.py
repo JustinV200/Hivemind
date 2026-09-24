@@ -9,7 +9,10 @@ with` block is open, and tears both down -- releasing the lease, "left as found"
 `run_goal` submits one goal and polls until every one of its tasks reaches a terminal
 `hivemind.brood_chamber.TaskStatus`, or `timeout_s` elapses, forwarding trail events of interest to
 an optional `on_event` callback and syncing any answer `hive inbox answer` left in another process
-(`hivemind.queen.sync_answers_from_chamber`) on every poll.
+(`hivemind.queen.sync_answers_from_chamber`) on every poll. The zero-grant fix wires two things
+here: the Hive Stand's Queen-side link reads the Stand's capacity as it stands on every grant
+(`hivemind.queen.deps.WardenLink.live_capacity`), and the Queen gets `[forage]
+zero_grant_patience_s`, how long a fresh task may wait for that capacity to make room.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -17,8 +20,9 @@ Fits into the Hive:
     against a `hivemind.llm.FakeLLMProvider`. Calls into `hivemind.brood_chamber`, `hivemind.cell`,
     `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.common.secrets` (the
     Hive's persisted signing key, for the Virtual side, and the untrusted-content scanner's key),
-    `hivemind.guard.scanner`, `hivemind.pheromone`, `hivemind.queen`, `hivemind.wardens` and
-    waggle only.
+    `hivemind.forage` (ForageCapacity), `hivemind.guard.scanner`, `hivemind.pheromone`,
+    `hivemind.queen` (and `hivemind.queen.deps` for GrantWaits and LiveCapacity),
+    `hivemind.wardens` and waggle only.
 
 Key invariants:
     - `build_hive` never touches the network: every provider it constructs is lazy
@@ -84,13 +88,14 @@ from hivemind.cli.stores import build_forage_map
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.streams import TelemetryBoard
-from hivemind.forage import ForageMap
+from hivemind.forage import ForageCapacity, ForageMap
 from hivemind.guard import Enforcer
 from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
 from hivemind.queen import ForageLedger, Queen, QueenDeps, WardenLink, sync_answers_from_chamber
+from hivemind.queen.deps import GrantWaits, LiveCapacity
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
@@ -239,13 +244,32 @@ def build_hive(
 def _build_links(manifest: HiveManifest, source: HiveStandSource, clock: Clock) -> HiveLinks:
     """Probe the Hive Stand's one Cell and build the Queen<->Warden link around it.
 
+    The Queen-side link also carries the reader of the Hive Stand's capacity as it stands (the
+    zero-grant fix): the Cell probed here is a snapshot of this moment, while every grant the
+    Queen sizes for the Hive Stand must see its load and free memory as they are then.
+
     SAFETY: a fresh event loop for this one setup call, the seam where a sync composition-root
     function first reaches `HiveStandSource.cells` (an async `RealCellSource` method that here
     does no real I/O: it only reads this host's own already-probed capacity), mirroring
     `hivemind.cli.stores.open_trail`'s own `asyncio.run` seam (codingrules section 8.2).
     """
     cell = asyncio.run(source.cells())[0]
-    return build_hive_links(manifest.hive.id, manifest.hive.node_id, cell, clock)
+    links = build_hive_links(manifest.hive.id, manifest.hive.node_id, cell, clock)
+    queen_link = replace(links.queen_link, live_capacity=_hive_stand_capacity(source))
+    return replace(links, queen_link=queen_link)
+
+
+def _hive_stand_capacity(source: HiveStandSource) -> LiveCapacity:
+    """Return the reader of the Hive Stand's own capacity as it stands, for its Queen-side link."""
+
+    async def read() -> ForageCapacity:
+        """Read the Hive Stand's capacity now: static totals, live load and free figures."""
+        # HiveStandSource.cells() re-reads the load average, free memory and free disk on every
+        # call (hivemind.cell.local.probe.refresh_live): a handful of fast system reads, no I/O
+        # worth a timeout.
+        return (await source.cells())[0].capacity
+
+    return read
 
 
 def _hive_signer(manifest: HiveManifest) -> Ed25519Signer | None:
@@ -315,8 +339,14 @@ def _assemble_hive(
     # Roadmap step 10.5: Heartbeats never reach the trail, so the Entrance's telemetry view
     # follows them through this board, which the Queen feeds from her first tick.
     telemetry = TelemetryBoard()
+    # The zero-grant fix: how long a fresh task may wait for its Cell's live figures to make room.
+    waits = GrantWaits(patience_s=parts.manifest.forage.zero_grant_patience_s)
     queen_deps = replace(
-        queen_deps, scanner=scanner, human_channel=relay, on_heartbeat=telemetry.record
+        queen_deps,
+        scanner=scanner,
+        human_channel=relay,
+        on_heartbeat=telemetry.record,
+        grant_waits=waits,
     )
     queen = Queen(queen_deps)
     if extras.virtual_cells is not None:
