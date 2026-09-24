@@ -50,9 +50,10 @@ from hivemind.entrance.push import LivePush, PushDispatcher
 from hivemind.entrance.reducer import EntranceReducer
 from hivemind.guard import Enforcer
 from hivemind.queen import GoalRequest, HumanInbox
+from hivemind.queen.isolation import IsolationOutcome, LiftOutcome
 from hivemind.supervision import Alarm
 from waggle.clock import Clock
-from waggle.ids import DeviceId, MessageId, TaskId
+from waggle.ids import CellId, DeviceId, MessageId, TaskId
 
 if TYPE_CHECKING:
     # Type-only: the streams package imports this module's services, so a runtime import cycles.
@@ -125,6 +126,16 @@ class QueenDoor(Protocol):
 
     async def refuse_device_requests(self, device_id: DeviceId, reason: str) -> tuple[str, ...]:
         """Refuse a revoked device's unplanned requests; see ``Queen.refuse_device_requests``."""
+        ...
+
+    async def isolate_cell(
+        self, cell_id: CellId, device_id: DeviceId, reason: str, report_id: str | None = None
+    ) -> IsolationOutcome:
+        """Isolate a Cell on the human's order (roadmap 10.6a); see ``Queen.isolate_cell``."""
+        ...
+
+    async def lift_isolation(self, cell_id: CellId, device_id: DeviceId) -> LiftOutcome:
+        """Lift a Cell's isolation, the human's alone; see ``Queen.lift_isolation``."""
         ...
 
 

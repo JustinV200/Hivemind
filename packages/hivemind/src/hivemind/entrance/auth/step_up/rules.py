@@ -4,7 +4,8 @@ A step-up re-runs the device's factors and keeps a session stepped up for
 ``step_up_window_minutes`` (ADR-0033). It is required for: a goal whose budget exceeds
 ``step_up_spend``; a goal that would take the submitting device past its daily spend cap (the caller
 supplies what the device has spent today); key and capability changes; Supersedure; Sting Cut;
-Absconding; reopening a reduced Entrance; locking another device. The travel lock adds one more: a
+Absconding; reopening a reduced Entrance; locking another device; isolating a Cell or lifting an
+isolation (ADR-0035, roadmap step 10.6a: the human's own levers). The travel lock adds one more: a
 session opened from a network the device has not used before must step up before anything else.
 ``ActionKind`` names those actions (and ``NEW_NETWORK``, the travel lock's own, which a person
 confirms for a device that cannot step up); ``requires_step_up`` answers with the reason, or None.
@@ -58,6 +59,8 @@ class ActionKind(Enum):
     REOPEN = "reopen"  # Reopen a reduced Entrance (loopback only).
     LOCK_DEVICE = "lock_device"  # Lock another device, e.g. a lost phone.
     NEW_NETWORK = "new_network"  # Trust the network the travel lock flagged for a device.
+    ISOLATE_CELL = "isolate_cell"  # Isolate a Cell (the only way onto the Hive Stand's own lease).
+    LIFT_ISOLATION = "lift_isolation"  # Lift a Cell's isolation; the Queen never lifts on her own.
 
 
 class StepUpReason(Enum):

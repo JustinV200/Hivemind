@@ -31,6 +31,7 @@ from hivemind.entrance.routes.hive import (
     TRAIL_ROUTES,
     WARDEN_ROUTES,
 )
+from hivemind.entrance.routes.isolation import ROUTES as ISOLATION_ROUTES
 from hivemind.entrance.routes.later import HONEY_ROUTES, SWARM_ROUTES, TOOL_ROUTES
 
 __all__ = ["RESOURCE_ROUTES"]
@@ -57,4 +58,5 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     TOOL_ROUTES,
     HONEY_ROUTES,
     SWARM_ROUTES,
+    ISOLATION_ROUTES,  # Roadmap step 10.6a: the human's isolate and lift levers.
 )

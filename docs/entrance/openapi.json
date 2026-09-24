@@ -37,7 +37,9 @@
           "abscond",
           "reopen",
           "lock_device",
-          "new_network"
+          "new_network",
+          "isolate_cell",
+          "lift_isolation"
         ],
         "title": "ActionKind",
         "type": "string",
@@ -310,6 +312,99 @@
         "title": "CellFrame",
         "type": "object"
       },
+      "CellIsolationView": {
+        "description": "What isolating a Cell did: isolated it, or found it isolated already.",
+        "properties": {
+          "already_isolated": {
+            "description": "It was isolated before; nothing changed.",
+            "title": "Already Isolated",
+            "type": "boolean"
+          },
+          "cell_id": {
+            "description": "The Cell.",
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "egress": {
+            "description": "cut, unsupported, untracked (a Real Cell) or failed.",
+            "title": "Egress",
+            "type": "string"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cell.isolated event, when isolated now.",
+            "title": "Event Id"
+          },
+          "isolated": {
+            "description": "This order isolated it (cell.isolated recorded).",
+            "title": "Isolated",
+            "type": "boolean"
+          },
+          "paused_task_ids": {
+            "description": "The tasks paused on it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Paused Task Ids",
+            "type": "array"
+          },
+          "revoked_grant_ids": {
+            "description": "The Warden's grants revoked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Revoked Grant Ids",
+            "type": "array"
+          },
+          "tainted_count": {
+            "description": "Memory items newly tainted.",
+            "minimum": 0.0,
+            "title": "Tainted Count",
+            "type": "integer"
+          },
+          "unacknowledged_task_ids": {
+            "description": "Paused tasks whose bee did not answer within the bound.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unacknowledged Task Ids",
+            "type": "array"
+          },
+          "wax_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The BLOCK Cell Wax note that keeps placement off it.",
+            "title": "Wax Id"
+          }
+        },
+        "required": [
+          "cell_id",
+          "isolated",
+          "already_isolated",
+          "event_id",
+          "wax_id",
+          "revoked_grant_ids",
+          "paused_task_ids",
+          "unacknowledged_task_ids",
+          "egress",
+          "tainted_count"
+        ],
+        "title": "CellIsolationView",
+        "type": "object"
+      },
       "CellKind": {
         "description": "Whether a Cell is provisioned (Virtual) or borrowed (Real).\n\ncodingrules section 8.7: \"Branch on capabilities, never on kind.\" CellKind matters to exactly\ntwo callers outside this package: queen.placement (choose) and workers.roles.undertaker\n(destroy versus release); `scripts/check_no_kind_branches.py` enforces that everywhere else.",
         "enum": [
@@ -318,6 +413,66 @@
         ],
         "title": "CellKind",
         "type": "string"
+      },
+      "CellLiftView": {
+        "description": "What lifting a Cell did; tainted memory stays tainted until a judge clears it.",
+        "properties": {
+          "cell_id": {
+            "description": "The Cell.",
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "egress": {
+            "description": "restored, unsupported, untracked or failed.",
+            "title": "Egress",
+            "type": "string"
+          },
+          "event_id": {
+            "description": "The cell.isolation_lifted event.",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "isolated_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cell.isolated event it ended; null when only placement holds stood.",
+            "title": "Isolated Event Id"
+          },
+          "released_holds": {
+            "description": "The Queen's placement holds released.",
+            "minimum": 0.0,
+            "title": "Released Holds",
+            "type": "integer"
+          },
+          "wax_cleared": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The BLOCK Cell Wax note it cleared.",
+            "title": "Wax Cleared"
+          }
+        },
+        "required": [
+          "cell_id",
+          "event_id",
+          "isolated_event_id",
+          "wax_cleared",
+          "egress",
+          "released_holds"
+        ],
+        "title": "CellLiftView",
+        "type": "object"
       },
       "CellList": {
         "description": "Every Cell the Hive knows, Real and Virtual.",
@@ -2017,6 +2172,37 @@
           "expires_at"
         ],
         "title": "InviteView",
+        "type": "object"
+      },
+      "IsolateBody": {
+        "additionalProperties": false,
+        "description": "Isolate one Cell: why, and the Guard report the order answers, if any.",
+        "properties": {
+          "reason": {
+            "description": "Why, in a short phrase for the trail (ids, not content).",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "report_id": {
+            "anyOf": [
+              {
+                "pattern": "^guardrep_[0-9A-HJKMNP-TV-Z]{26}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A Guard report the Queen was sent; its first cited event dates the taint.",
+            "title": "Report Id"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "IsolateBody",
         "type": "object"
       },
       "Isolation": {
@@ -4607,6 +4793,230 @@
         "x-hive-c2": false,
         "x-hive-capability": "observe",
         "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/cells/{cell_id}/isolate": {
+      "post": {
+        "operationId": "isolate_v1_cells__cell_id__isolate_post",
+        "parameters": [
+          {
+            "description": "The Cell's id.",
+            "in": "path",
+            "name": "cell_id",
+            "required": true,
+            "schema": {
+              "description": "The Cell's id.",
+              "pattern": "^cell_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Cell Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IsolateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellIsolationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Isolate a Cell (interactive, after step-up); the only way onto the Hive Stand.",
+        "tags": [
+          "cells"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/cells/{cell_id}/lift": {
+      "post": {
+        "operationId": "lift_v1_cells__cell_id__lift_post",
+        "parameters": [
+          {
+            "description": "The Cell's id.",
+            "in": "path",
+            "name": "cell_id",
+            "required": true,
+            "schema": {
+              "description": "The Cell's id.",
+              "pattern": "^cell_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Cell Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellLiftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Lift a Cell's isolation (interactive, after step-up); taint stays until judged.",
+        "tags": [
+          "cells"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
         "x-hive-listeners": [
           "loopback",
           "remote"
