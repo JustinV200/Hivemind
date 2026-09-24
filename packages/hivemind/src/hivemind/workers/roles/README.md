@@ -28,8 +28,17 @@ Undertaker, Drone and HouseBee, each implementing the shared Worker protocol.
   never through a `TaskAssign` (she has no Cell of her own to spawn a Worker on). `SweepDeps.bound`
   /`.gate` are now optional (`None` when the caller could not resolve a `ModelSlot.RIPENER`
   binding): `_compact_closed_tasks` skips compaction alone for that sweep rather than failing the
-  whole thing, since demotion and Cell Wax expiry need no model call. See `hivemind.workers.roles.
-  house_bee`'s own docstring for the full shape.
+  whole thing, since demotion and Cell Wax expiry need no model call. `loop.py`
+  (`HouseBeeRipening`, roadmap 7.6) is the House Bee's ripening loop beside the Queen: every
+  `[honey.ripening] interval_s` one pass drains the operator's queued notes into Nectar, runs
+  `Ripener.run_pass()`, then runs ADR-0034's judge-reviewed label lowering -- files a proposal for
+  each newly ripened Hive Stand Nectar whose C2 only the Real Cell floor holds up and whose text
+  the Ripener read as less sensitive, then asks the clearance judge (the JUDGE slot) about waiting
+  proposals -- and reports it all as a `RipeningPass` (`drained`, the Ripener's `outcome`, `filed`
+  and the judge's `review` counts). With no judge bound it still files, and every proposal waits
+  for the human (`hive honey review`); a judge outage is a recoverable `LLMError` the loop backs
+  off from, like a down ripener. `hive honey ripen --now` runs the same whole pass. See
+  `hivemind.workers.roles.house_bee`'s own docstring for the full shape.
 
 - `undertaker/` -- `Undertaker` (roadmap step 5.8): the cleanup role. `role.py` (`Undertaker`, the
   `Worker`-protocol adapter, autopilot-only -- it never awaits a model or imports `hivemind.llm`)

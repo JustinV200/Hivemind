@@ -10,7 +10,10 @@ summary (docs/adr/0022, "one level"). A fourth phase (roadmap steps 7.6 and 7.9a
 Bee Bread and cleared or expired Cell Wax into the Honey Store (the cold tier, the Hive's
 searchable knowledge base) as Nectar, its raw material. Its **ripening loop** (`HouseBeeRipening`)
 runs beside the Queen, never inside her tick, and turns that Nectar into Honey on the ripener and
-embedder slots, draining the operator's proposed notes first. This package is split by
+embedder slots, draining the operator's proposed notes first; after ripening, the same pass files
+judge-reviewed label lowering proposals for Hive Stand Nectar the Ripener read as less sensitive
+than its C2 floor, and asks the clearance judge on the JUDGE slot about waiting ones (ADR-0034:
+the House Bee proposes and asks, it never lowers a label itself). This package is split by
 responsibility (codingrules section 5.2): `sweep.py` holds `run_sweep` and the pure
 counts/bundles it works over (`SweepDeps`/`SweepWindow`/`SweepOutcome`), decoupled from the Worker
 protocol so the Queen's own housekeeping tick calls it directly; `honey.py` holds the sweep's two
@@ -47,6 +50,8 @@ See Also:
     - hivemind.memory.compact and hivemind.memory.demote for this package's two memory-side
       collaborators.
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for where ripening runs and why.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for the lowering the
+      ripening pass files and reviews.
 
 Public API (roadmap 4.3):
     - HouseBee, HOUSE_BEE_HOT_WINDOW_S: the role itself, and its mirrored hot-window constant
@@ -61,7 +66,8 @@ Public API (roadmap 7.6, 7.9a):
       bee_or_none, BEE_BREAD_WATERMARK, BEE_BREAD_SOURCE_KEY_PREFIX, WAX_SOURCE_KEY_PREFIX: the
       sweep's Honey deposit duties and what they are attributed through
       (hivemind.workers.roles.house_bee.honey).
-    - HouseBeeRipening, RipeningPass, MAX_PROPOSALS_PER_PASS: the ripening loop beside the Queen
+    - HouseBeeRipening, RipeningPass, MAX_PROPOSALS_PER_PASS: the ripening loop beside the Queen,
+      whose pass also files and reviews label lowerings (ADR-0034)
       (hivemind.workers.roles.house_bee.loop).
 """
 
