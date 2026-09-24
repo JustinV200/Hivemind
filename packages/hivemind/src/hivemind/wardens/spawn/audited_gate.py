@@ -9,6 +9,12 @@ itself, and that module is outside this phase's own file list. `AuditingCappingG
 `CappingGate` and overrides `run` to call `super().run()` first, then `audit_completed` once the
 outcome is terminal -- the same "wrap, don't fork" shape `hivemind.wardens.spawn.spawn._build_
 capping_gate` already uses everywhere else in this package (a fresh `CappingGate` per sub-bee).
+Roadmap step 10.6: the rate a terminal proposal is sampled at is the higher of its tier's
+`TierSpec.audit_rate` and a live Guard Bee raise read back from the trail this gate records to
+(`hivemind.supervision.capping.raised_audit_rate`). On the Hive Stand that trail is the Queen's own,
+where the Guard Bee records every `guard.audit_rate_raised`, so a raise takes effect on the next
+proposal and survives a restart; a Virtual Cell's Warden records to its own segment, which no raise
+reaches in phase 10 (the Guard Bee's package README names what carries one there later).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's spawn
@@ -17,7 +23,7 @@ Fits into the Hive:
     `findings_sink` and `audit_rates` (`hivemind.wardens.deps.WardenDeps`, roadmap step 4.10's own
     additive fields). Calls into `hivemind.supervision.capping` (AuditDeps, AuditRates,
     AuditSampler, FindingsSink, GateDeps, GateOutcome, JudgeReviewer, JudgeRubric, ProposalState,
-    RiskTier, TierSpec, audit_completed) and waggle only.
+    RiskTier, TierSpec, audit_completed, raised_audit_rate) and waggle only.
 
 Key invariants:
     - `run` always returns exactly what `CappingGate.run` returned; auditing is a side effect that
@@ -26,6 +32,7 @@ Key invariants:
     - Auditing only ever runs for a terminal outcome with a configured tier: a proposal whose own
       `risk_tier` has no `TierSpec` at all (an unconfigured tier, already REJECTED by `_check_and_
       cap`) is never sampled, since there is no `audit_rate` to sample it at.
+    - A raise can only add sampling: the rate used is never below the tier table's own.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "what cannot be gated is sampled".
@@ -54,6 +61,7 @@ from hivemind.supervision.capping import (
     RiskTier,
     TierSpec,
     audit_completed,
+    raised_audit_rate,
 )
 from hivemind.supervision.capping.lease_view import LeaseView
 from hivemind.supervision.capping.leave import Asker
@@ -119,11 +127,19 @@ class AuditingCappingGate(CappingGate):
         outcome = await super().run(proposal_id, capabilities, lease, asker)
         if outcome.state not in _AUDITABLE_OUTCOMES:
             return outcome  # REJECTED: nothing completed to sample (module docstring).
-        tier = self._deps.tiers.tiers.get(self.get(proposal_id).risk_tier)
+        risk_tier = self.get(proposal_id).risk_tier
+        tier = self._deps.tiers.tiers.get(risk_tier)
         if tier is None:
             return outcome  # Defensive: an unconfigured tier never reaches a terminal outcome.
-        await self._audit_if_sampled(proposal_id, tier)
+        await self._audit_if_sampled(proposal_id, await self._with_live_raise(risk_tier, tier))
         return outcome
+
+    async def _with_live_raise(self, risk_tier: RiskTier, tier: TierSpec) -> TierSpec:
+        """Return `tier` sampled at the higher of its own rate and a live Guard Bee raise."""
+        raised = await raised_audit_rate(self._deps.trail, risk_tier, self._deps.clock.now())
+        if raised <= tier.audit_rate:
+            return tier  # No live raise, or one below the table's rate: the table's rate stands.
+        return tier.model_copy(update={"audit_rate": raised})
 
     async def _audit_if_sampled(self, proposal_id: MessageId, tier: TierSpec) -> None:
         """Run `audit_completed` for the now-terminal proposal named by `proposal_id`."""
