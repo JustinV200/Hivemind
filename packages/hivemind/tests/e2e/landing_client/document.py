@@ -27,7 +27,8 @@ from urllib.parse import quote, urlencode
 
 from e2e.landing_client.schema import SchemaError, validate
 
-JSON_MEDIA_TYPE = "application/json"  # The one media type the document's bodies use.
+JSON_MEDIA_TYPE = "application/json"  # The media type of every body but a raw one.
+RAW_BODY_EXTENSION = "x-hive-body"  # Marks an operation whose body is raw bytes, not JSON.
 _PARAMETER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")  # A path template's parameter.
 
 __all__ = ["JSON_MEDIA_TYPE", "LandingBoard", "Operation", "Stream", "as_object"]
@@ -239,11 +240,11 @@ class LandingBoard:
             operation: The operation being called.
 
         Returns:
-            The body schema, or None.
+            The body schema, or None: no body, or a raw one (``x-hive-body``, such as a clip).
         """
         body = operation.spec.get("requestBody")
-        # No requestBody member: the operation takes no body at all.
-        if body is None:
+        # No requestBody member, or a raw body labelled by its own media type: no JSON to check.
+        if body is None or RAW_BODY_EXTENSION in operation.spec:
             return None
         content = as_object(as_object(body, "requestBody").get("content"), "content")
         return as_object(as_object(content.get(JSON_MEDIA_TYPE), "media").get("schema"), "schema")

@@ -88,9 +88,10 @@ standard fields, it carries these extensions:
 | `x-hive-capability` | each operation, each stream | The capability the device must hold. Absent on an operation means any approved device's own session (or none, for a public one). |
 | `x-hive-c2` | each operation, each stream | `true`: the answer holds personal (`C2`) content, so the device must also hold `honey:clearance:c2`. |
 | `x-hive-effect` | each operation | What it changes: `read`, `session`, `inbox` (a write into the Queen's inbox), `push`, or `door` (the Entrance itself). |
-| `x-hive-switch` | some operations | Mounted only while that `[entrance]` switch is on; otherwise a `404`. Today only the steward approval route has one (`steward_devices`). |
+| `x-hive-switch` | some operations | Mounted only while that `[entrance]` switch is on; otherwise a `404`. Today two have one: the steward approval route (`steward_devices`) and `POST /v1/chat/audio` (`voice.enabled`). |
+| `x-hive-body` | some operations | The operation takes a raw body (audio, not JSON): the most bytes it takes (`max_bytes`) and how long its upload may take (`read_timeout_s`). |
 | `x-hive-signing` | top level | Every signed string, its fields, its encodings, the header names, and a worked example. |
-| `x-hive-streams` | top level | The WebSocket views: path, first frame, frame schema, capability and listeners. |
+| `x-hive-streams` | top level | The WebSocket views: path, first frame, frame schema, capability and listeners; a view that also takes frames from the client lists them in `client_frames`, and its answers in `reply_frames`. |
 
 An operation whose `security` is an empty list is public: enrolment and the login ceremony. Every
 other operation names `HiveSession`, a bearer token that is refused unless the request is also
@@ -482,6 +483,58 @@ curl -sS --fail-with-body --noproxy '*' "$HIVE_URL/v1/chat?limit=20" \
      -H @auth.header -H @signed.headers | jq -r '.entries[] | "\(.author) \(.kind): \(.text)"'
 ```
 
+### 8.4 Speak instead of typing
+
+`POST /v1/chat/audio` takes a recording as the raw request body, labelled by its `Content-Type`
+(`audio/wav`, `audio/ogg`, `audio/webm`, `audio/mpeg` or `audio/mp4`). The query's `intent` says
+what it is for:
+
+- `goal`: a goal, as `POST /v1/goals` takes one; its spend and step-up rules apply (section 7);
+- `answer:<question id>`: the answer to a question waiting in the inbox (this also needs
+  `entrance:answer`);
+- `chat`: a chat line to the Queen.
+
+A compressed clip also states its length in seconds as `duration_s`; a WAV's header is read
+instead. `language` is an optional hint. The operation needs `entrance:submit` and `C2`, since its
+answer holds what was heard, and takes up to `x-hive-body.max_bytes`. A clip longer than the Hive's
+`[entrance.voice] max_clip_seconds` is `413`; a device that has sent more audio than its seconds
+for the minute is `429` (`hivemind.entrance.audio_over_budget`). The clip is transcribed once, on
+the Hive Stand's own transcriber by default, and the answer is `202` with a `VoiceAccepted`: the
+`transcript`, and one of `goal`, `answered` or `chat`, as the typed call would have answered. Only
+the device that spoke ever receives the transcript.
+
+**A spoken goal is echoed back before anything is spent.** Its `goal.state` is
+`AWAITING_CONFIRMATION`, and the echo is in the chat too, until a person confirms it with
+`POST /v1/goals/{request_id}/confirm` or declines it with `.../decline`, from an interactive
+device (section 7): a misheard sentence never runs. Answers and chat go straight through. The
+operator can turn the echo off (`[entrance.voice] confirm_goals`), or voice altogether, in which
+case the operation is a `404`.
+
+<!-- run: speak -->
+```sh
+# clip.wav: what the human said, recorded as a WAV file.
+target='/v1/chat/audio?intent=goal'
+"$HIVE_SIGN" request device.pem POST "$target" clip.wav > signed.headers
+curl -sS --fail-with-body --noproxy '*' -X POST "$HIVE_URL$target" \
+     -H @auth.header -H @signed.headers -H 'Content-Type: audio/wav' \
+     --data-binary @clip.wav > spoken.json
+jq -r .goal.id spoken.json > spoken_goal
+jq -c '{transcript, state: .goal.state}' spoken.json
+```
+
+**Push-to-talk** sends the same thing over the chat socket, `/v1/chat/stream`. While the button is
+held, send `AudioChunkFrame`s in order, each carrying at most 512 KiB of audio in base64 (a
+compressed format adds each slice's `duration_s`), then one `AudioEndFrame` naming the intent:
+
+```json
+{"type": "audio_chunk", "media_type": "audio/wav", "data": "UklGRiQAAABXQVZF..."}
+{"type": "audio_end", "intent": "answer:msg_01M3AN9216QQX5JVNQHHWBFJR9"}
+```
+
+The socket answers the device that spoke, and no other, with a `VoiceFrame` (its `result` is the
+same `VoiceAccepted`) or a `VoiceRefusedFrame` (the `status` and `ErrorBody` the route would have
+answered). A hold whose next frame is more than 10 seconds late is dropped.
+
 ## 9. The push contract
 
 - **A notice says only that something is waiting, never what.** A `PushNotice` has four members:
@@ -520,8 +573,11 @@ Every refusal an operation declares carries an `ErrorBody`:
 | `403` | Refused: a capability, a step-up, or the device's standing. | `capability_denied` (with `capability`), `step_up_required` (with `reason`, and `pending_id` for a held request), `enrolment_refused`, `confirmation_refused` |
 | `404` | Not found, or not served on this listener. | `hivemind.entrance.not_found` for a route this listener does not serve |
 | `409` | The item moved on meanwhile, such as a question already answered. | varies |
+| `413` | A spoken clip is longer than the Hive takes. | `hivemind.entrance.clip_refused` |
+| `415` | A spoken clip's `Content-Type` is missing or not one the Hive takes. | `hivemind.entrance.clip_refused` |
 | `422` | A body or parameter is not valid. The detail names the fields, never their values. | `hivemind.entrance.invalid_request` |
-| `429` | Too many requests from this device or address. | `hivemind.entrance.rate_limited` |
+| `429` | Too many requests from this device or address, or too many seconds of audio. | `hivemind.entrance.rate_limited`, `hivemind.entrance.audio_over_budget` |
+| `503` | The transcriber could not hear a clip; send it again shortly. | `hivemind.entrance.transcription_failed` |
 
 The document does not enumerate the codes. The ones above are what the Entrance answers today. The
 `hivemind.entrance.` prefix is left off the table's `403` codes. Capability denials count toward a
@@ -533,8 +589,8 @@ Some refusals happen before routing and carry no body at all; the document lists
 
 - the loopback listener's `403` for a foreign `Host` or a forwarding header;
 - the per-address `429` (`[entrance] rate_limit_per_address`);
-- `413` for a body over 256 KiB;
-- `408` for a body that did not arrive within 30 seconds.
+- `413` for a body over 256 KiB, or over an operation's own `x-hive-body.max_bytes`;
+- `408` for a body that did not arrive within 30 seconds, or its own `x-hive-body.read_timeout_s`.
 
 A method a path does not take is `405`, with `hivemind.entrance.method_not_allowed` and an `Allow`
 header. A failure inside the Hive is `500` with a code and a fixed sentence.

@@ -5,8 +5,10 @@ helper, ``docs/entrance/examples/hive-sign.sh``, because curl cannot sign. A gui
 written drifts; this test proves it. It takes every block the guide marks ``<!-- run: NAME -->``
 and runs each named phase in a POSIX shell under ``sh -eu`` (the helper, OpenSSL 3, curl and jq),
 in the order a client would, against ``hive serve``'s own composition over real loopback sockets
-(``e2e.entrance_stand``), the operator approving at the Hive Stand between phases. The first frame
-the helper prints opens the live push stream, which receives the Queen's question. Two static
+(``e2e.entrance_stand``), the operator approving at the Hive Stand between phases. The spoken goal
+is a second of silence the Hive Stand's scripted transcriber hears as ``SPOKEN``; it is echoed back
+held, and the operator declines it, since a program cannot confirm its own. The first frame the
+helper prints opens the live push stream, which receives the Queen's question. Two static
 checks keep the guide honest: every ``curl`` example in it is one of the phases run here, and
 every path and ``X-Hive-*`` header it names is in the committed OpenAPI document.
 
@@ -30,11 +32,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from builders.audio import silent_wav
 from e2e.entrance_stand import CHAT, QUESTION, REPLY, Stand, build_served, standing
 from e2e.landing_client import LandingBoard, as_object
 from websockets.asyncio.client import ClientConnection, connect
 
 from hivemind.cli.compose.entrance import ServedHive
+from hivemind.llm.transcription import FakeTranscription
 from hivemind.manifest import HiveManifest
 
 pytestmark = pytest.mark.e2e
@@ -44,7 +48,19 @@ GUIDE = ROOT / "docs" / "entrance" / "landing-board.md"
 HELPER = ROOT / "docs" / "entrance" / "examples" / "hive-sign.sh"
 DOCUMENT = ROOT / "docs" / "entrance" / "openapi.json"
 # The guide's runnable phases, in the order this test runs them.
-PHASES = ("enrol", "login", "socket", "submit", "answer", "follow", "chat", "read-chat", "logout")
+PHASES = (
+    "enrol",
+    "login",
+    "speak",
+    "socket",
+    "submit",
+    "answer",
+    "follow",
+    "chat",
+    "read-chat",
+    "logout",
+)
+SPOKEN = "write a limerick about wasps"  # What the transcriber hears in the guide's clip.wav.
 TOOLS = ("sh", "curl", "openssl", "jq")  # What the guide's examples need on the PATH.
 PHASE_TIMEOUT_S = 60.0  # One phase's shell: a handful of local processes and loopback calls.
 FRAME_TIMEOUT_S = 20.0  # The question notice arrives once the Drone asks: seconds, locally.
@@ -91,6 +107,7 @@ def test_the_guides_curl_examples_run_against_a_live_entrance(tmp_path: Path) ->
     enrolled, login, submitted = outputs["enrol"], outputs["login"], outputs["submit"]
     assert enrolled.splitlines()[-1] == "401"  # Pending: no login until approved.
     assert json.loads(login)["listener"] == "loopback"
+    assert json.loads(outputs["speak"]) == {"transcript": SPOKEN, "state": "AWAITING_CONFIRMATION"}
     assert json.loads(submitted)["state"] == "RECEIVED"
     assert f": {QUESTION}" in outputs["answer"] and outputs["answer"].endswith("ANSWERED\n")
     followed = json.loads(outputs["follow"])
@@ -112,6 +129,7 @@ async def _walkthrough(manifest: HiveManifest, served: ServedHive, workdir: Path
         device_id = (workdir / "device_id").read_text(encoding="utf-8").strip()
         await stand.approve(device_id)
         outputs["login"] = await _run("login", env, workdir)
+        outputs["speak"] = await _speak(stand, env, workdir)
         hello = await _run("socket", env, workdir)
         async with _socket(stand, hello, device_id) as push:
             outputs["submit"] = await _run("submit", env, workdir)
@@ -138,6 +156,20 @@ def _environment(stand: Stand, code: str) -> dict[str, str]:
         "INVITE_CODE": code,
         "HIVE_PASSWORD": stand.password,
     }
+
+
+async def _speak(stand: Stand, env: Mapping[str, str], workdir: Path) -> str:
+    """Record the guide's ``clip.wav``, script what is heard, speak, then decline at the Stand."""
+    transcriber = stand.served.hive.registry.transcriber().provider  # Cached: the Entrance's own.
+    assert isinstance(transcriber, FakeTranscription)
+    transcriber.script(SPOKEN)
+    (workdir / "clip.wav").write_bytes(silent_wav(1.0))
+    spoken = await _run("speak", env, workdir)
+    # A person (the operator's console) declines the program's held goal: it never spends.
+    target = f"/v1/goals/{(workdir / 'spoken_goal').read_text(encoding='utf-8').strip()}/decline"
+    declined = await stand.console.call(stand.session, "POST", target, {"reason": "misheard"})
+    assert declined.status_code == 200 and declined.json()["state"] == "REFUSED", declined.text
+    return spoken
 
 
 async def _run(phase: str, env: Mapping[str, str], workdir: Path) -> str:
