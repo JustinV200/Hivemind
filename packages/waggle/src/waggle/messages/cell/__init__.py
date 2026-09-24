@@ -7,9 +7,11 @@ heartbeat, its needs report); ``leases`` the tenancy lifecycle (a Cell asked for
 teardown asked for, a lease released); ``wax`` the Cell Wax notes, Queen-written cautions about one
 Cell, proposed, written and cleared; ``snapshot`` (PROTOCOL_MINOR 5) the snapshot relay a Virtual
 Cell's own Warden uses to ask the Queen, the one side that can reach the host backend, to snapshot
-or roll back its Cell. This package is the family's face: a caller imports any of its messages,
-enums or value models from here without knowing which module defines them. The bounds each module
-names stay in that module, because the spec makes the number normative, not the name.
+or roll back its Cell; ``taint`` (PROTOCOL_MINOR 8) the Queen's order to an isolated Cell's Warden
+to taint the memory store it keeps inside the Cell. This package is the family's face: a caller
+imports any of its messages, enums or value models from here without knowing which module defines
+them. The bounds each module names stay in that module, because the spec makes the number
+normative, not the name.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -24,8 +26,8 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.5 for the family's normative fields and rules.
-    - waggle.messages.cell.status, waggle.messages.cell.leases, waggle.messages.cell.wax and
-      waggle.messages.cell.snapshot for the definitions.
+    - waggle.messages.cell.status, waggle.messages.cell.leases, waggle.messages.cell.wax,
+      waggle.messages.cell.snapshot and waggle.messages.cell.taint for the definitions.
 
 Public API:
     - Status (status): AttestationCheck, CellHeartbeat, CellMode, CellReady, IsolationNeed,
@@ -35,6 +37,7 @@ Public API:
       WaxOrigin, WaxSeverity.
     - Snapshot (snapshot): CellSnapshotRequest, CellSnapshotReply, CellRollbackRequest,
       CellRollbackReply.
+    - Taint (taint): CellTaintOrder.
 """
 
 from waggle.messages.cell.leases import CellRequest, CellTeardownRequest, LeaseOpened, LeaseReleased
@@ -53,6 +56,7 @@ from waggle.messages.cell.status import (
     ReleaseCause,
     TaskNeedsReport,
 )
+from waggle.messages.cell.taint import CellTaintOrder
 from waggle.messages.cell.wax import (
     CellWaxCleared,
     CellWaxProposed,
@@ -73,6 +77,7 @@ __all__ = [
     "CellRollbackRequest",
     "CellSnapshotReply",
     "CellSnapshotRequest",
+    "CellTaintOrder",
     "CellTeardownRequest",
     "CellWaxCleared",
     "CellWaxProposed",

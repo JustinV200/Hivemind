@@ -6,7 +6,8 @@ at the Guard's `isolation` enforcement point (`authority`). An isolation revokes
 grants and writes a BLOCK Cell Wax note (`access`), checkpoints and pauses every bee on it with a
 bounded wait for their answers (`pause`), cuts a Virtual Cell's egress to its Waggle link, records
 `cell.isolated` (`record`, where the Cell's two states live), taints its memory from the first
-cited event (`taint`) and tells the human (`site`). The lease and its scratch stay intact for
+cited event and orders its Warden to taint the store it keeps inside the Cell (`taint`), and tells
+the human (`site`). The lease and its scratch stay intact for
 forensics. The Hive Stand's own lease is isolated only by the human, and only the human lifts an
 isolation (`lift`), through the Queen's door (`door`); a lift leaves tainted memory tainted.
 
@@ -38,6 +39,8 @@ Public API:
     - IsolationState, IsolationRecord, TRANSITIONS, can_transition, read_isolation,
       ISOLATED_KIND, LIFTED_KIND: a Cell's two states, on the trail (record).
     - authorize_isolation, cell_capability, is_hive_stand: the enforcement point (authority).
+    - resend_taint_order: the Warden's taint order sent again when it attaches while its Cell's
+      isolation stands (taint).
 """
 
 from hivemind.queen.isolation.authority import authorize_isolation, cell_capability, is_hive_stand
@@ -63,6 +66,7 @@ from hivemind.queen.isolation.record import (
     read_isolation,
 )
 from hivemind.queen.isolation.site import IsolationSite, alert_human
+from hivemind.queen.isolation.taint import resend_taint_order
 
 __all__ = [
     "ISOLATED_KIND",
@@ -87,4 +91,5 @@ __all__ = [
     "isolate_cell",
     "lift_isolation",
     "read_isolation",
+    "resend_taint_order",
 ]

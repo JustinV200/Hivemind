@@ -7,16 +7,18 @@ checks that her own set holds `warden:spawn` through the Guard's `Enforcer` (a r
 `guard.denied` on the trail and a `WardenSpawnRefusedError` to the caller, and nothing is
 attached), starts the link's own reader task (`hivemind.queen.inbox.links.LinkReaders`, so
 everything the Warden sends is heard from now on, drained whole by her next tick), and records
-the declared `warden.spawned` event. `detach_warden` is its mirror, roadmap step 5.6's own new
-edge -- `hivemind.queen.cell_gate.CellListener` calls it once a Virtual Cell's accepted
-connection ends, so a dead link is never drained again on the next tick. Both are free functions
-taking `queen: Queen` rather than method bodies on `Queen` itself: `hivemind.queen.queen`'s own
-file sits near codingrules 5.1's 300-line file cap, and neither body (a Guard check and a trail
-row; reaping the Warden's reader task) fits there without pushing it over; `queen.py`'s own
-`_stop_queen`/`_send_intervene` already live as module-level delegates for the same class-size
-reason, these are one file further out for the same file-size reason. `CellListener` (and any
-test) calls `hivemind.queen.attach.detach_warden(queen, warden_id)` directly; `Queen.attach_warden`
-is a one-line delegator to `attach_warden`.
+the declared `warden.spawned` event, and (roadmap step 10.6a) sends the Warden its Cell's taint
+order again when an isolation stands on it (`hivemind.queen.isolation.resend_taint_order`: an order
+lost to a closed link reaches the Warden when its link comes back). `detach_warden` is its mirror,
+roadmap step 5.6's own new edge -- `hivemind.queen.cell_gate.CellListener` calls it once a Virtual
+Cell's accepted connection ends, so a dead link is never drained again on the next tick. Both are
+free functions taking `queen: Queen` rather than method bodies on `Queen` itself:
+`hivemind.queen.queen`'s own file sits near codingrules 5.1's 300-line file cap, and neither body
+(a Guard check and a trail row; reaping the Warden's reader task) fits there without pushing it
+over; `queen.py`'s own `_stop_queen`/`_send_intervene` already live as module-level delegates for
+the same class-size reason, these are one file further out for the same file-size reason.
+`CellListener` (and any test) calls `hivemind.queen.attach.detach_warden(queen, warden_id)`
+directly; `Queen.attach_warden` is a one-line delegator to `attach_warden`.
 
 Attaching is also the first moment the Queen hears a Night Veil Cell's own word about its tier
 (the `CellReady` it announced, carried on the link's Cell), often before the lifecycle has seen the
@@ -30,10 +32,10 @@ Fits into the Hive:
     CellListener` on every accepted connection's own close (detach). Calls into
     `hivemind.cell` (CombShieldLevel), `hivemind.guard` (EnforcementPoint), `hivemind.pheromone`
     (WardenEvent, segments_of: the Night Veil segments behind her trail),
-    `hivemind.queen.authority`, `.errors`, `.inbox.links` (through the Queen's own `_links`) and
-    `.ticks.liveness` only; reaches into `Queen`'s own private attributes directly, the same
-    cross-file access `hivemind.wardens.ticks.control` already takes on `Warden`'s private state
-    for the identical reason (module docstring there).
+    `hivemind.queen.authority`, `.errors`, `.inbox.links` (through the Queen's own `_links`),
+    `.isolation` (resend_taint_order) and `.ticks.liveness` only; reaches into `Queen`'s own
+    private attributes directly, the same cross-file access `hivemind.wardens.ticks.control`
+    already takes on `Warden`'s private state for the identical reason (module docstring there).
 
 Key invariants:
     - `attach_warden` attaches nothing when the Queen's set refuses `warden:spawn`: the refusal is
@@ -59,6 +61,7 @@ from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
 from hivemind.pheromone import WardenEvent, segments_of
 from hivemind.queen.authority import queen_held, request_for
 from hivemind.queen.errors import WardenSpawnRefusedError
+from hivemind.queen.isolation import resend_taint_order
 from hivemind.queen.ticks.liveness import WardenLiveness
 from waggle.ids import WardenId, new_event_id
 
@@ -107,6 +110,8 @@ async def attach_warden(queen: Queen, link: WardenLink) -> None:
     # Heard from now on, whether or not her tick is busy: one reader task for this link.
     await queen._links.add(link.warden_id, link.transport)
     await _record_spawned(queen, link)
+    # An isolation standing on its Cell: the taint order may have been lost with the old link.
+    await resend_taint_order(deps, link)
 
 
 async def detach_warden(queen: Queen, warden_id: WardenId) -> None:

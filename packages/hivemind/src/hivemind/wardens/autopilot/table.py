@@ -17,7 +17,8 @@ order that releases the lease but leaves this Warden running, decided ahead of t
 (roadmap step 10.6c: carried out here, never relayed to the bee it names); a `PolicyAction.
 QUARANTINE` row maps to `QUARANTINE` too, and to `ESCALATE` when the Alarm names no sub-bee this
 Warden still supervises; a `CellSnapshotReply`/`CellRollbackReply` (roadmap step
-5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`;
+5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`; a
+Queen-sent `CellTaintOrder` (roadmap step 10.6a) maps to `TAINT_MEMORY`;
 every other recognised kind maps to a fixed action; anything this table has never seen returns
 `NEEDS_JUDGEMENT`, the one signal that hands the item to `hivemind.wardens.awake` instead of
 silently dropping it.
@@ -57,6 +58,7 @@ from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
+from waggle.messages.cell import CellTaintOrder
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.control.protocol import Shutdown
@@ -196,6 +198,9 @@ def _decide_control_or_record(payload: object) -> WardenAction | None:
         # Roadmap step 5.10's own follow-up gap (the snapshot relay): resolved by this Warden's
         # own RelaySnapshotter, never a judgement call.
         return WardenAction.RECORD
+    if isinstance(payload, CellTaintOrder):
+        # Roadmap step 10.6a: the Queen isolated this Cell; labelling is never a judgement call.
+        return WardenAction.TAINT_MEMORY
     return None
 
 

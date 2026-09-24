@@ -84,7 +84,7 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.base import WaggleMessage
-from waggle.messages.cell import CellWaxWritten
+from waggle.messages.cell import CellTaintOrder, CellWaxWritten
 from waggle.messages.forage import (
     CeilingsSet,
     ForageReply,
@@ -122,6 +122,7 @@ __all__ = [
     "FORAGE_SOURCE_SEATS",
     "WardenEnd",
     "make_queen_deps",
+    "make_warden_link",
     "plan_responder",
     "with_guard_policy",
 ]
@@ -155,7 +156,7 @@ def make_queen_deps(
     warden_id = new_warden_id(active_clock)
     provider = fake_provider or FakeLLMProvider(name=_DEFAULT_PROVIDER_NAME)
     active_cell = cell if cell is not None else make_cell(kind=CellKind.REAL, clock=active_clock)
-    link, warden_end = _build_link(hive_id, warden_id, node_id, active_cell, active_clock)
+    link, warden_end = make_warden_link(hive_id, warden_id, node_id, active_cell, active_clock)
 
     fields = _build_fields(
         _FieldInputs(
@@ -336,10 +337,14 @@ def _build_bound(
     )
 
 
-def _build_link(
+def make_warden_link(
     hive_id: HiveId, warden_id: WardenId, node_id: NodeId, cell: Cell, clock: Clock
 ) -> tuple[WardenLink, WardenEnd]:
-    """Build one WardenLink (the Queen's own end) and the WardenEnd wrapping the other."""
+    """Build one WardenLink (the Queen's own end) and the WardenEnd wrapping the other.
+
+    Public so a test can reattach the same Warden over a fresh link (roadmap step 10.6a: the
+    Queen resends an isolated Cell's taint order when its Warden's link comes back).
+    """
     queen_transport, warden_transport = MemoryTransport.pair(Codec(), Codec())
     queen_hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
     warden_hop = Hop(sender=warden_id, recipient=hive_id, node_id=node_id)
@@ -380,6 +385,7 @@ class WardenEnd:
         self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
         self.task_cancels: list[TaskCancel] = []  # Roadmap step 10.5: a revocation's cancel.
         self.grant_revokes: list[GrantRevoked] = []  # Roadmap step 10.6a (isolation).
+        self.taint_orders: list[CellTaintOrder] = []  # Roadmap step 10.6a: the in-Cell taint.
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -488,6 +494,9 @@ class WardenEnd:
         elif isinstance(payload, CellWaxWritten):
             self.wax_written.append(payload)
             self.received_kinds.append("wax_written")
+        elif isinstance(payload, CellTaintOrder):
+            self.taint_orders.append(payload)
+            self.received_kinds.append("taint_order")
 
     def _sort_task_control(self, payload: object) -> bool:
         """Sort a task control order (TaskPause/TaskResume/TaskCancel); True if it matched."""

@@ -7,11 +7,14 @@ anywhere but the two functions allowed to: a `write_taint(...)` call or a `Taint
 outside `memory/taint/set.py` and `memory/taint/clear.py`; a `"tainted"` key set outside the stores
 that persist the label; a `tainted=` argument that is not a label read off another item; or a call
 to `taint_memory` from a module that is not one of the three setters. Each setter's module is in
-`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: the isolation package in `queen/`;
-10.6c: the quarantine path in `wardens/`). Both have landed, so each is also pinned as real and
-single: exactly one module in the whole tree calls `taint_memory` with `TaintSource.QUARANTINE`,
-the one quarantine path, and exactly one with `TaintSource.ISOLATION`, the isolation path's taint
-step; nothing else in `wardens/` or in the isolation package calls the setter at all.
+`_SETTER_CALLERS`, bound to its own `TaintSource` (10.6a: the isolation package in `queen/`, and
+its in-Cell half in `wardens/isolation/`; 10.6c: the quarantine path in `wardens/`). Both have
+landed, so each is also pinned as real and single: exactly one module in the whole tree calls
+`taint_memory` with `TaintSource.QUARANTINE`, the one quarantine path, and exactly two with
+`TaintSource.ISOLATION`: the isolation path's taint step on the Hive's tables, and the in-Cell
+setter call a Warden makes on its own store at the Queen's order (`wardens/isolation/taint.py`,
+roadmap step 10.6a: a Virtual Cell's store lives inside the Cell, where her label cannot reach).
+Nothing else in `wardens/` or in either isolation package calls the setter at all.
 
 Fits into the Hive:
     Mirrors src/hivemind/memory/taint/set.py's key invariant (codingrules section 3).
@@ -40,11 +43,14 @@ _LABEL_STORES = ("hivemind/memory/store/",)  # The stores that persist a label t
 # built; 10.6a lands the first, and the Queen's Guard-report path lands with phase 7.
 _SETTER_CALLERS: dict[str, str] = {
     "hivemind/queen/isolation/": "ISOLATION",
+    "hivemind/wardens/isolation/": "ISOLATION",
     "hivemind/wardens/quarantine": "QUARANTINE",
     "hivemind/queen/guard_reports": "GUARD_REPORT",
 }
 _QUARANTINE_PATH = "hivemind/wardens/quarantine/path.py"  # Roadmap 10.6c's one code path.
 _ISOLATION_TAINT = "hivemind/queen/isolation/taint.py"  # Roadmap 10.6a's one taint step.
+# Roadmap 10.6a's in-Cell half: the Warden runs the setter on its own store at the Queen's order.
+_IN_CELL_ISOLATION_TAINT = "hivemind/wardens/isolation/taint.py"
 
 
 @functools.cache
@@ -146,14 +152,20 @@ def test_the_one_quarantine_path_is_the_only_quarantine_setter() -> None:
 
     # Real, not vacuous: the path calls the setter, and names the source, and nothing else does.
     assert quarantining == [_QUARANTINE_PATH]
-    assert [path for path in callers if path.startswith("hivemind/wardens/")] == [_QUARANTINE_PATH]
+    # In wardens/, only the quarantine path and the in-Cell isolation setter call it.
+    wardens_callers = [path for path in callers if path.startswith("hivemind/wardens/")]
+    assert sorted(wardens_callers) == sorted([_QUARANTINE_PATH, _IN_CELL_ISOLATION_TAINT])
 
 
-def test_the_one_isolation_taint_step_is_the_only_isolation_setter() -> None:
+def test_the_two_isolation_taint_steps_are_the_only_isolation_setters() -> None:
     callers = [path for path, tree in _modules() if _calls(tree, "taint_memory")]
     isolating = [path for path, tree in _modules() if _names_source(tree, "ISOLATION")]
-    # Real, not vacuous: the step calls the setter and names the source, and nothing else does.
-    assert isolating == [_ISOLATION_TAINT]
+    # Real, not vacuous: each step calls the setter and names the source, and nothing else does:
+    # the Queen's on the Hive's tables, and the Warden's on the store it keeps inside its Cell.
+    assert sorted(isolating) == sorted([_ISOLATION_TAINT, _IN_CELL_ISOLATION_TAINT])
     assert [path for path in callers if path.startswith("hivemind/queen/isolation/")] == [
         _ISOLATION_TAINT
+    ]
+    assert [path for path in callers if path.startswith("hivemind/wardens/isolation/")] == [
+        _IN_CELL_ISOLATION_TAINT
     ]

@@ -246,21 +246,24 @@ async def drain(rounds: int = _DRAIN_ROUNDS) -> None:
         await asyncio.sleep(0)
 
 
-async def wait_for_event(trail: PheromoneTrail, kind: str) -> PheromoneEvent:
-    """Yield until an event of `kind` is on `trail`, and return the first one.
+async def wait_for_event(
+    trail: PheromoneTrail, kind: str, subject_id: str | None = None
+) -> PheromoneEvent:
+    """Yield until an event of `kind` (about `subject_id`, if given) is on `trail`; return it.
 
     Args:
         trail: The trail to read.
         kind: The event kind to wait for.
+        subject_id: The one subject to wait for (a labelled item's own id), or None for any.
 
     Returns:
-        The first event of that kind.
+        The first such event.
 
     Raises:
         AssertionError: None appeared within the settle budget.
     """
     for _ in range(_SETTLE_ROUNDS):
-        found = await trail.query(TrailQuery(kind=kind))
+        found = await trail.query(TrailQuery(kind=kind, subject_id=subject_id))
         if found:
             return found[0]
         await asyncio.sleep(0)

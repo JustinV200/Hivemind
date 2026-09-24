@@ -149,6 +149,8 @@ async def record_isolated(
         "paused_task_ids": list(outcome.paused_task_ids),
         "unacknowledged_task_ids": list(outcome.unacknowledged_task_ids),
         "egress": outcome.egress.value,
+        # Kept, so a taint order lost to a closed link can be sent again with the same scope.
+        "suspect_at": outcome.suspect_at.isoformat() if outcome.suspect_at else None,
     }
     return await _record(deps, ISOLATED_KIND, order.cell_id, payload)
 

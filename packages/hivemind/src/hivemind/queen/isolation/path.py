@@ -14,7 +14,9 @@ escalation policy and the human's lever at the Hive Entrance all end here, in th
 6. A Virtual Cell's egress is cut to its Waggle link alone (`hivemind.hive.CellEgress`); a
    backend that cannot says so, and a Real Cell is left exactly as found (never reconfigured).
 7. `cell.isolated` is recorded with the reason, the report, the evidence and every step's result.
-8. The Cell's memory is tainted from the first evidence on, caused by that event.
+8. The Cell's memory is tainted from the first evidence on, caused by that event: the Hive's own
+   tables here, and the store a Virtual Cell's Warden keeps inside the Cell by its order
+   (`CellTaintOrder`, which the Warden carries out with the same setter).
 9. The human is told by a CRITICAL SECURITY Alarm, pushed to every device.
 
 The lease and its scratch are kept intact for forensics: nothing here releases, tears down or
@@ -52,9 +54,9 @@ from hivemind.queen.isolation.order import IsolationOrder, IsolationOutcome
 from hivemind.queen.isolation.pause import pause_cell_bees
 from hivemind.queen.isolation.record import IsolationState, read_isolation, record_isolated
 from hivemind.queen.isolation.site import IsolationSite, alert_human
-from hivemind.queen.isolation.taint import taint_cell
+from hivemind.queen.isolation.taint import taint_cell, taint_reason
 from hivemind.supervision import AlarmSeverity
-from waggle.ids import CellId
+from waggle.ids import CellId, timestamp_of
 
 if TYPE_CHECKING:
     # Only for the type hints: every hivemind.queen sub-package keeps QueenDeps type-only.
@@ -88,11 +90,14 @@ async def isolate_cell(site: IsolationSite, order: IsolationOrder) -> IsolationO
     refusal = await authorize_isolation(deps, link, order)
     if refusal is not None:
         return IsolationOutcome(cell_id=order.cell_id, refusal=refusal)
-    began_at = deps.clock.now()
+    # Suspect from the first evidence on, or, citing none, from now: the pause's checkpoints too.
+    suspect_at = timestamp_of(order.evidence[0]) if order.evidence else deps.clock.now()
     outcome = await _cut_off(site, link, order)
+    outcome = outcome.model_copy(update={"suspect_at": suspect_at})
     # The state change is the event (Appendix C); the taint names it as its cause, so it is first.
     event_id = await record_isolated(deps, order, outcome)
-    tainted = await taint_cell(deps, link, order, event_id, began_at)
+    reason = taint_reason(order.cell_id, order.ordered_by.value, order.report_id)
+    tainted = await taint_cell(deps, link, reason, event_id, suspect_at)
     alert = SecurityAlert(
         severity=AlarmSeverity.CRITICAL,
         detail=_detail(order),

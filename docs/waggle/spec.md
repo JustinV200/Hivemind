@@ -21,7 +21,7 @@ This specification covers:
 - the envelope every message travels in (section 2) and the three message shapes (section 3);
 - how the protocol is versioned (section 4), framed and bounded (section 5) and signed (section 6);
 - the error message and its stable code table (section 7);
-- the complete message catalogue, ten families and seventy kinds (section 8);
+- the complete message catalogue, ten families and seventy-one kinds (section 8);
 - the transports (section 9), the offline outbox (section 10) and conformance (section 11);
 - the design questions the catalogue settled and why (section 12).
 
@@ -203,11 +203,17 @@ validates every message a newer one sends it, as long as the sender honours the 
   episode its memory is suspect from. A receiver that meets an `InterventionAction` it does not
   know refuses the whole frame (`waggle.codec.invalid_payload`); it never reads an unknown lever
   as a cancel, or as any other lever.
-- **1.8**: `GrantIssued.audit_raises` and its value model `RaisedAuditRate` (roadmap step 10.6,
-  ADR-0035): every Capping audit-rate raise the Guard Bee has in force when a grant is issued
-  travels on it, so the Warden holding the grant, a Virtual Cell's in-Cell Warden included, samples
-  that tier at the raised rate until the raise lapses. A tier travels by name, not as an enum, so
-  a receiver that does not know a tier ignores that raise rather than refusing the grant.
+- **1.8** (both additive, roadmap steps 10.6 and 10.6a, ADR-0035):
+  - `GrantIssued.audit_raises` and its value model `RaisedAuditRate`: every Capping audit-rate
+    raise the Guard Bee has in force when a grant is issued travels on it, so the Warden holding
+    the grant, a Virtual Cell's in-Cell Warden included, samples that tier at the raised rate
+    until the raise lapses. A tier travels by name, not as an enum, so a receiver that does not
+    know a tier ignores that raise rather than refusing the grant.
+  - `cell.taint_order` (`CellTaintOrder`): when the Queen isolates a Cell she orders its Warden
+    to run the taint setter on the memory store it keeps inside the Cell (the bees and tasks she
+    names, from the instant she names, caused by her `cell.isolated` event), which her own label
+    on the Hive's tables cannot reach; the Warden then refuses to resume a bee from a Handoff so
+    labelled.
 
 ## 5. Wire format and size limit
 
@@ -428,6 +434,7 @@ Warden).
 | `cell.snapshot_reply` | `CellSnapshotReply` | reply | `cell.snapshot_request` | Queen -> Warden | Return the new snapshot's id, or why it failed. |
 | `cell.rollback_request` | `CellRollbackRequest` | request | none | Warden -> Queen | Ask the Queen to roll the sender's own Cell back to a snapshot. |
 | `cell.rollback_reply` | `CellRollbackReply` | reply | `cell.rollback_request` | Queen -> Warden | Report whether the rollback succeeded. |
+| `cell.taint_order` | `CellTaintOrder` | event | none | Queen -> Warden | Order an isolated Cell's Warden to taint its own memory store. |
 | `session.open` | `SessionOpen` | request | none | Warden -> Pollen Packet | Open the terminal session for a lease. |
 | `session.exec` | `SessionExec` | request | none | Warden -> Pollen Packet | Run one program inside the session. |
 | `session.stdin` | `SessionStdin` | event | none | Warden -> Pollen Packet | Feed bytes or a signal to a running exec. |
@@ -1063,8 +1070,9 @@ a default chain for slots not named, with the reason.
 
 The life of a Cell and of the leases on it: a Cell reports ready and alive, a Warden asks the
 Queen for a Cell or to retire one, leases open and close (a lease is one Warden's tenancy on a
-Real Cell, with a scratch directory and the processes it started), and Cell Wax notes are
-proposed, written and cleared. A Real Cell is borrowed and left exactly as found.
+Real Cell, with a scratch directory and the processes it started), Cell Wax notes are
+proposed, written and cleared, and an isolated Cell's Warden is ordered to taint its own memory.
+A Real Cell is borrowed and left exactly as found.
 
 Family enums and value models:
 
@@ -1288,6 +1296,28 @@ Report whether the rollback succeeded.
 - `ok` (`bool`): whether the Cell was restored to the named snapshot.
 - `error` (`str | None`): why the rollback failed -- an unknown Cell, an unknown snapshot id, or a
   backend failure; set exactly when `ok` is False (validator). Min 1, max `MAX_REASON_CHARS`.
+
+#### CellTaintOrder (PROTOCOL_MINOR 8)
+
+The Queen has isolated the receiver's Cell (roadmap step 10.6a, ADR-0035) and orders its Warden to
+label the memory it keeps in its own store tainted, so no later prompt or resumed bee reads what
+was written under suspicion there: every Handoff, episode record and checkpoint deposit written at
+or after `suspect_at` by one of `authors` or about one of `task_ids`. The Warden runs the same
+setter the Queen runs on the Hive's tables, with `TaintSource.ISOLATION` and `cause_event_id` as
+every label's cause, and from then on refuses to resume a bee from a Handoff its store labels
+tainted until a judge clears it. The order only narrows: it labels and refuses, never widens.
+Idempotent: a label already standing is left as it is, so a Queen resends it when the Warden's
+link reattaches while the isolation stands.
+
+- `cell_id` (`CellId`): the isolated Cell; always the receiver's own (receiver rule: an order
+  naming another Cell is ignored).
+- `cause_event_id` (`EventId`): the Queen's `cell.isolated` event.
+- `suspect_at` (`datetime`): memory written at or after this instant is covered: the isolation's
+  first cited event, or when the isolation began when it cites none.
+- `authors` (`tuple[WorkerId | WardenId, ...]`): the bees that ran on the Cell. Max 256.
+- `task_ids` (`tuple[TaskId, ...]`): the tasks placed on the Cell. Max 1024. At least one of
+  `authors` and `task_ids` is non-empty (validator).
+- `reason` (`str`): why, naming ids only. Min 1, max `MAX_REASON_CHARS`.
 
 ### 8.6 session (`messages/session/`)
 

@@ -73,7 +73,9 @@ PROTOCOL_MINOR = 8  # Additive changes bump it; any minor of a known major is ac
 # steps 10.6 and 10.6c, ADR-0035: a security Alarm reaches the human, and a quarantine names the
 # episode from which the bee's memory is suspect); 8 for GrantIssued.audit_raises, a new optional
 # field (roadmap step 10.6: a Guard Bee raise of a Capping tier's audit rate reaches every Warden,
-# a Virtual Cell's in-Cell one included, on the grant it holds).
+# a Virtual Cell's in-Cell one included, on the grant it holds), and cell.taint_order (roadmap step
+# 10.6a, ADR-0035: the Queen orders an isolated Cell's Warden to taint the memory store it keeps
+# inside the Cell, which her own label cannot reach).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

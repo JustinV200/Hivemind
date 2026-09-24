@@ -24,7 +24,7 @@ Key invariants:
     - MESSAGE_SPECS is the catalogue row for row and in its order, so all_kinds() follows the
       spec's catalogue order; the catalogue is the only kind list in the code and the spec's
       table the only one in prose, and tests/test_spec_drift.py fails until the two list the
-      same sixty-six kinds with the same classes, shapes and replies.
+      same seventy-one kinds with the same classes, shapes and replies.
     - Every kind and every model class appears in MESSAGE_SPECS exactly once, and every
       replies_to names a registered kind; the module refuses to import otherwise.
     - The lookups are read-only once built; nothing registers a kind behind the tuple's back.

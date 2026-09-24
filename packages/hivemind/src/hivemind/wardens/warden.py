@@ -20,8 +20,8 @@ Fits into the Hive:
     composition root builds one -- the CLI (roadmap step 3.21) in production, `tests.builders.
     wardens.make_warden_deps` plus a `QueenEnd` in tests. Calls into `hivemind.cell`,
     `hivemind.guard`, `hivemind.memory` (TriggerEvent), `hivemind.pheromone` (WardenEvent),
-    `hivemind.supervision`, `hivemind.wardens.autopilot`, `.awake`, `.inbox`, `.spawn`, `.state`,
-    `.ticks` and waggle only.
+    `hivemind.supervision`, `hivemind.wardens.autopilot`, `.awake`, `.inbox`, `.isolation`,
+    `.quarantine`, `.spawn`, `.state`, `.ticks` and waggle only.
 
 Key invariants:
     - Every `WardenState` change goes through `hivemind.wardens.state.assert_transition` and is
@@ -80,6 +80,7 @@ from hivemind.wardens.awake import decide_awake
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
+from hivemind.wardens.isolation import admit_resume, taint_own_memory
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.quarantine import (
     QuarantineRecord,
@@ -99,6 +100,7 @@ from waggle.errors import (
 )
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
+from waggle.messages.cell import CellTaintOrder
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
 from waggle.messages.supervision import (
@@ -423,8 +425,9 @@ async def _act(
     """Carry out one decided WardenAction."""
     payload = item.payload
     if action is WardenAction.SPAWN and isinstance(payload, TaskAssign):
-        # Roadmap step 10.6c: a quarantined task spawns only by its one way out (the gate).
-        if await admit_respawn(warden, payload):
+        # Roadmap step 10.6c: a quarantined task spawns only by its one way out (the gate); 10.6a:
+        # nothing resumes from a Handoff this Cell's own store labels tainted.
+        if await admit_respawn(warden, payload) and await admit_resume(warden, payload):
             await ticks.assign.handle_assign(warden, payload)
     elif action is WardenAction.RECORD:
         await _record_routine(warden, item, payload)
@@ -443,7 +446,7 @@ async def _act(
 async def _act_on_order(
     warden: Warden, action: WardenAction, item: InboxItem, sub_bee: SubBee | None
 ) -> None:
-    """Carry out a control or supervisory order: relay, stop, release the lease or quarantine.
+    """Carry out a control or supervisory order: relay, stop, release, quarantine or taint.
 
     Split out of `_act` only to keep each within codingrules 5.1's complexity limit.
     """
@@ -466,6 +469,14 @@ async def _act_on_order(
         # Roadmap step 10.6c: the Queen's Intervene(QUARANTINE), or this Warden's own policy row
         # for a sub-bee's Alarm; either way the one code path in hivemind.wardens.quarantine.
         await carry_out(warden, payload, sub_bee)
+    elif (
+        action is WardenAction.TAINT_MEMORY
+        and isinstance(payload, CellTaintOrder)
+        and item.principal == _QUEEN_LINK
+    ):
+        # Roadmap step 10.6a: only the Queen isolates, so only her order labels this Cell's own
+        # store; one from anyone else is dropped here.
+        await taint_own_memory(warden, payload)
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:

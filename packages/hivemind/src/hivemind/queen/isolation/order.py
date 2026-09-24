@@ -35,7 +35,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.guard import GuardReportId
 from hivemind.hive import EgressOutcome
-from waggle.messages.base import CellIdField, DeviceIdField, EventIdField, GrantIdField, TaskIdField
+from waggle.messages.base import (
+    CellIdField,
+    DeviceIdField,
+    EventIdField,
+    GrantIdField,
+    TaskIdField,
+    UtcDatetime,
+)
 
 MAX_ISOLATION_REASON_CHARS = 300  # A sentence naming ids, like every trail reason in the Hive.
 MAX_EVIDENCE_EVENTS = 66  # A report's 64 cited events, plus the Alarm and the decision behind it.
@@ -123,6 +130,10 @@ class IsolationOutcome(BaseModel):
     )
     egress: EgressOutcome = Field(
         default=EgressOutcome.UNTRACKED, description="What happened to the Cell's egress."
+    )
+    suspect_at: UtcDatetime | None = Field(
+        default=None,
+        description="From when the Cell's memory is suspect: its first evidence, or the start.",
     )
     tainted_count: int = Field(default=0, ge=0, description="Memory items newly tainted.")
 
