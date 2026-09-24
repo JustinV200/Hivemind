@@ -77,12 +77,15 @@ def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False)
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        # print() only ever calls write and flush, which is all _Stderr provides.
-        logger_factory=structlog.PrintLoggerFactory(
-            file=cast(TextIO, _Stderr()) if to_stderr else None
-        ),
+        logger_factory=_logger_factory(to_stderr),
         cache_logger_on_first_use=True,
     )
+
+
+def _logger_factory(to_stderr: bool) -> structlog.PrintLoggerFactory:
+    """Print to standard output, or to whatever standard error is at each write."""
+    # print() only ever calls write and flush, which is all _Stderr provides.
+    return structlog.PrintLoggerFactory(file=cast(TextIO, _Stderr()) if to_stderr else None)
 
 
 class _Stderr:

@@ -14,6 +14,7 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from builders.capping import (
@@ -172,18 +173,21 @@ def _gui_proposal(tier: RiskTier) -> Proposal:
     return make_proposal(risk_tier=tier, action=action, postconditions=(_PAID,))
 
 
+@dataclass(frozen=True)
+class _Audit:
+    """The audit side of one `_run_gui` gate: who judges, how often, against what goal."""
+
+    reviewer: RepeatingJudgeReviewer = field(default_factory=RepeatingJudgeReviewer)
+    audit_rate: float = 0.0  # Rate 0 samples nothing: only an irreversible GUI action is judged.
+    goal: str | None = None
+
+
 async def _run_gui(
-    tmp_path: Path,
-    proposal: Proposal,
-    surface: ScriptedSurface,
-    *,
-    reviewer: RepeatingJudgeReviewer | None = None,
-    audit_rate: float = 0.0,
-    goal: str | None = None,
+    tmp_path: Path, proposal: Proposal, surface: ScriptedSurface, audit: _Audit | None = None
 ) -> tuple[GateOutcome, RepeatingJudgeReviewer, MemoryPheromoneTrail]:
     """Run `proposal` through an AuditingCappingGate whose GateDeps carry `surface`."""
-    reviewer = reviewer if reviewer is not None else RepeatingJudgeReviewer()
-    rate = audit_rate
+    audit = audit if audit is not None else _Audit()
+    reviewer, rate = audit.reviewer, audit.audit_rate
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
     tiers = TierTable(
@@ -209,7 +213,7 @@ async def _run_gui(
         sampler=AuditSampler(),
         sink=InMemoryFindingsSink(),
         rates=AuditRates(),
-        goal=goal,
+        goal=audit.goal,
     )
     gate = AuditingCappingGate(deps, wires)
     await gate.propose(proposal)
@@ -223,7 +227,7 @@ async def test_an_applied_irreversible_gui_action_is_judged_with_its_evidence(
     surface = ScriptedSurface(evidence=_EVIDENCE)
 
     outcome, reviewer, _ = await _run_gui(
-        tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), surface, goal="Pay invoice 42 only."
+        tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), surface, _Audit(goal="Pay invoice 42 only.")
     )
 
     # Rate 0 samples nothing, yet the judge ran: irreversible GUI work is always judged, and
@@ -243,7 +247,7 @@ async def test_a_rejected_irreversible_gui_action_comes_back_with_its_verdict(
     reviewer = RepeatingJudgeReviewer(verdict)
 
     outcome, _, trail = await _run_gui(
-        tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), ScriptedSurface(), reviewer=reviewer
+        tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), ScriptedSurface(), _Audit(reviewer)
     )
 
     # The state stays VERIFIED (nothing can undo it); the verdict tells the tool to stop, and the
@@ -271,7 +275,7 @@ async def test_a_sampled_gui_action_is_audited_with_the_same_evidence(tmp_path: 
     surface = ScriptedSurface(evidence=_EVIDENCE)
 
     outcome, reviewer, _ = await _run_gui(
-        tmp_path, _gui_proposal(RiskTier.SCRATCH_WRITE), surface, audit_rate=1.0
+        tmp_path, _gui_proposal(RiskTier.SCRATCH_WRITE), surface, _Audit(audit_rate=1.0)
     )
 
     assert outcome.review is None  # Sampled audits never hold the tool up.
