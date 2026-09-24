@@ -10,7 +10,9 @@ one place a provider's secret is read: never from the manifest file itself (codi
 forbids an `api_key` field entirely), always from an environment variable, held in a
 ``pydantic.SecretStr`` whose `repr` never shows the value; the Entrance's Web Push VAPID key
 (``HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY``, ADR-0034) is read the same way, by ``read_env``, beside
-its contact (``HIVEMIND_ENTRANCE_VAPID_SUBJECT``). ``read_in_cell_env`` is the same rule
+its contact (``HIVEMIND_ENTRANCE_VAPID_SUBJECT``), and so is every
+``HIVEMIND_ENTRANCE_TUNNEL_<NAME>`` variable, the tokens the Entrance hands its tunnel client
+(ADR-0033), collected under ``<NAME>``. ``read_in_cell_env`` is the same rule
 for a different composition root (roadmap step 5.5): the in-Cell Warden entry point
 (``hivemind.cli.in_cell``) has no Hive Manifest to load inside its Virtual Cell image, so every
 value it needs -- the Queen's Waggle URL, this Cell's own id and signing key, the Queen's verify
@@ -77,8 +79,12 @@ from hivemind.manifest.schema import HiveManifest, ProviderSpec
 _TRUE_BOOL_LITERALS = frozenset({"1", "true", "yes"})
 # The two [hive] env values; kept as a tuple so the validator's error message can list them.
 _ENV_LITERALS = ("dev", "prod")
+# Every variable with this prefix goes to the Entrance's tunnel child, renamed without it
+# (ADR-0033): HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN reaches cloudflared as TUNNEL_TOKEN.
+TUNNEL_VARIABLE_PREFIX = "HIVEMIND_ENTRANCE_TUNNEL_"
 
 __all__ = [
+    "TUNNEL_VARIABLE_PREFIX",
     "EnvOverrides",
     "InCellEnv",
     "apply_env",
@@ -125,6 +131,13 @@ class EnvOverrides(BaseModel):
         description="HIVEMIND_ENTRANCE_VAPID_SUBJECT: the VAPID contact push services may use, a "
         "mailto: or https: URI; no manifest field corresponds to it either.",
     )
+    entrance_tunnel_environ: Mapping[str, SecretStr] = Field(
+        default_factory=dict,
+        description="Every HIVEMIND_ENTRANCE_TUNNEL_<NAME> variable, keyed by <NAME>: the "
+        "environment the Entrance adds to its tunnel child's (ADR-0033), under the name the "
+        "tunnel client itself reads, since no shell expands variables in its argv. Secrets, so "
+        "SecretStr; handed to the child only, never to a manifest field.",
+    )
 
 
 def read_env(environ: Mapping[str, str]) -> EnvOverrides:
@@ -140,7 +153,8 @@ def read_env(environ: Mapping[str, str]) -> EnvOverrides:
 
     Raises:
         ManifestError: `HIVEMIND_LLM_OFFLINE` or `HIVEMIND_ENV` is set to a value this module does
-            not recognise.
+            not recognise, or a variable is named exactly `HIVEMIND_ENTRANCE_TUNNEL_` (no name
+            left to hand the tunnel child).
     """
     db = environ.get("HIVEMIND_DB")
     scratch_root = environ.get("HIVEMIND_HIVE_STAND_SCRATCH_ROOT")
@@ -154,6 +168,7 @@ def read_env(environ: Mapping[str, str]) -> EnvOverrides:
         env=_read_env_literal(environ),
         entrance_vapid_private_key=SecretStr(vapid_key) if vapid_key is not None else None,
         entrance_vapid_subject=environ.get("HIVEMIND_ENTRANCE_VAPID_SUBJECT"),
+        entrance_tunnel_environ=_read_tunnel_environ(environ),
     )
 
 
@@ -326,8 +341,9 @@ def _section_updates(manifest: HiveManifest, overrides: EnvOverrides) -> dict[st
         updates["hive_stand"] = manifest.hive_stand.model_copy(
             update={"scratch_root": overrides.hive_stand_scratch_root}
         )
-    # log_level and the two entrance_vapid_* values have no manifest field (see EnvOverrides'
-    # field descriptions): the Entrance's composition root reads them off the overrides instead.
+    # log_level, the two entrance_vapid_* values and entrance_tunnel_environ have no manifest
+    # field (see EnvOverrides' field descriptions): the Entrance's composition root reads them off
+    # the overrides instead.
     return updates
 
 
@@ -400,6 +416,25 @@ def _read_offline_flag(environ: Mapping[str, str]) -> bool | None:
         f"HIVEMIND_LLM_OFFLINE={raw!r} is not a recognised boolean "
         f"(expected one of {sorted(_TRUE_BOOL_LITERALS)}, case-insensitive)."
     )
+
+
+def _read_tunnel_environ(environ: Mapping[str, str]) -> dict[str, SecretStr]:
+    """Collect every HIVEMIND_ENTRANCE_TUNNEL_<NAME> variable as <NAME>, its value held secret."""
+    found: dict[str, SecretStr] = {}
+    # Every variable is looked at, since the names after the prefix are the operator's choice.
+    for name, value in environ.items():
+        if not name.startswith(TUNNEL_VARIABLE_PREFIX):
+            continue
+        child_name = name.removeprefix(TUNNEL_VARIABLE_PREFIX)
+        # The bare prefix names nothing the child could read; a typo worth surfacing. The
+        # message names the variable, never its value (a token).
+        if not child_name:
+            raise ManifestError(
+                f"{TUNNEL_VARIABLE_PREFIX} is set without a name after the prefix; use "
+                f"{TUNNEL_VARIABLE_PREFIX}<NAME> to hand the tunnel client <NAME>."
+            )
+        found[child_name] = SecretStr(value)
+    return found
 
 
 def _read_env_literal(environ: Mapping[str, str]) -> Literal["dev", "prod"] | None:

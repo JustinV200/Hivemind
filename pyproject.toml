@@ -44,6 +44,7 @@ dev = [
     "hypothesis",         # Property-based testing for the pure-core decision functions (section 8.3).
     "pre-commit",         # Runs ruff, mypy and import-linter locally before a commit lands.
     "pip-audit",          # Scans locked dependencies for known vulnerabilities.
+    "types-psutil",       # psutil ships no inline types; its typeshed stubs keep mypy --strict honest (roadmap 10.5a).
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -432,10 +433,11 @@ ignore_imports = ["hivemind.hive.backends.docker.sdk_client -> docker"]
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "subprocess... importable only from `hivemind.cell.*`...
-# `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`, `pollen.*`
-# and `scripts/`." pollen is deliberately not a source module of this contract -- it has no Cell
-# session of its own to delegate through, so it may use subprocess anywhere (section 4). waggle
-# never needs it and stays out of the source list too.
+# `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`,
+# `hivemind.entrance.expose.tunnel`..., `pollen.*` and `scripts/`." pollen is deliberately not a
+# source module of this contract -- it has no Cell session of its own to delegate through, so it
+# may use subprocess anywhere (section 4). waggle never needs it and stays out of the source list
+# too.
 name = "subprocess only from Cell sessions and hive backends"
 type = "forbidden"
 source_modules = ["hivemind"]
@@ -444,6 +446,9 @@ ignore_imports = [
     "hivemind.cell.** -> subprocess",
     "hivemind.hive.backends.** -> subprocess",
     "hivemind.royal_jelly.quarantine_comb.sandbox_subprocess -> subprocess",
+    # The tunnel client the Entrance supervises in `tunnel` mode (ADR-0033): the one Entrance
+    # module that starts a process, and only the argv the manifest's tunnel_command names.
+    "hivemind.entrance.expose.tunnel -> subprocess",
 ]
 # Same "warn" rationale as the vendor-SDK contract above: none of these carve-outs has real code
 # behind it yet, so the default "error" alerting would hard-fail every run before phase 3+ exists.

@@ -14,6 +14,7 @@ dependencies = [
     "uvicorn>=0.53,<1",   # Serves the Entrance's two listeners inside the Hive's own event loop (ADR-0032).
     "webauthn>=3,<4",     # Passkey registration and assertion verification for enrolled browsers (ADR-0033).
     "segno>=1.6,<2",      # The enrolment invite's QR code; pure Python, no dependencies (roadmap 10.5d).
+    "psutil>=7,<8",       # Local interface addresses for `vpn` and `lan` exposure; the standard library cannot list them portably across Windows and Linux (roadmap 10.5a).
 ]
 
 [project.optional-dependencies]

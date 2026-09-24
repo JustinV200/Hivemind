@@ -58,6 +58,7 @@ passes an `environ` mapping; nothing reads `os.environ` implicitly.
 | `HIVEMIND_ENV` | `[hive] env` | Must be `dev` or `prod`. |
 | `HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY` | Nothing in the manifest | The Entrance's Web Push VAPID private key: base64url of the raw 32-byte P-256 scalar (what `web-push generate-vapid-keys` prints as the private key). Used instead of the `entrance.vapid` key minted into the secret store; set it to keep browser subscriptions working across a reinstall. A secret: read into a `SecretStr`, never logged (ADR-0034). |
 | `HIVEMIND_ENTRANCE_VAPID_SUBJECT` | Nothing in the manifest | The VAPID contact a push service may use: a `mailto:` or `https:` URI (RFC 8292). |
+| `HIVEMIND_ENTRANCE_TUNNEL_<NAME>` | Nothing in the manifest | Handed to the tunnel client the Entrance runs in `expose = "tunnel"` mode, as `<NAME>`: the prefix is removed, so the client finds the variable it documents (`HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN` reaches cloudflared as `TUNNEL_TOKEN`). No shell expands variables in `[entrance] tunnel_command`, so this is how a token reaches the client without appearing in its argv or the manifest (ADR-0033). Any number may be set; the bare prefix with no name is an error. Secrets: read into `SecretStr`, never logged. The client's environment is the Hive's own minus every other `HIVEMIND_*` variable, plus these. |
 
 ## Secrets
 
@@ -87,6 +88,12 @@ file, flushed, then renamed over the old one):
   (ADR-0034).
 - `entrance.push_topic`: 32 random bytes keying the Web Push `Topic` header, so a push service
   cannot compute or correlate it (ADR-0034); minted on first use.
+- `entrance.ca_key` and `entrance.ca_cert`: the Hive's own certificate authority for mutual TLS
+  (ADR-0033): an EC P-256 private key (PKCS#8 DER) and its self-signed CA certificate (PEM, ten
+  years, `path_length=0`). It signs every device's client certificate (90 days) for the remote
+  listener in `lan` and `tunnel` mode, and in `vpn` mode with `mutual_tls = true`. Minted on first
+  use; never replaced: losing the key means minting a new authority (remove both) and re-issuing
+  every device's certificate. A lost certificate alone is re-derived from the key.
 
 On Linux and macOS the directory is `0700` and every file `0600` from the moment it is created;
 on Windows those modes cannot be expressed, and the user profile's ACL is what protects it. Back
