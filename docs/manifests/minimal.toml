@@ -47,6 +47,9 @@ model = "claude-sonnet-5"
 provider = "anthropic"
 model = "claude-sonnet-5"
 
+# Anthropic serves no embeddings, so this binding only keeps every slot bound: the Honey Store
+# degrades to full-text search and says so (ADR-0032). Bind an OpenAI-compatible embedding
+# server or a `sentence_transformers` provider here to turn vector search on.
 [llm.slots.embedder]
 provider = "anthropic"
 model = "claude-sonnet-5"
