@@ -37,6 +37,9 @@ token_counting = false
 provider = "local"
 model = "llama3.1:8b"
 
+# The judge clears what the ripener proposes (ADR-0034), so bind it to a different, stronger model
+# when the server hosts one: in phase 7's real runs a 3B judge rejected every lowering, a harmless
+# build log included, while a 7B one decided each probe correctly.
 [llm.slots.judge]
 provider = "local"
 model = "llama3.1:8b"
