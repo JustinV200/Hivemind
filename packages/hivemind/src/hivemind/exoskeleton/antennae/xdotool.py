@@ -2,7 +2,9 @@
 
 The Antennae are the Exoskeleton's input peripheral (`hivemind.exoskeleton.antennae.base`). This
 backend runs `xdotool` on the Cell, through its `CellSession`, against one X display: `mousemove
---sync` so a click lands only once the pointer is really there, `click` with the X button number
+--sync` so a click lands only once the pointer is really there (plain `mousemove` when the pointer
+is there already, since a synced move to its own position waits forever), `click` with the X button
+number
 (4 to 7 are the wheel, which is how X scrolls), `type` with a small per-key delay and `--` before
 the text so text starting with a dash is typed rather than parsed as an option, `key
 --clearmodifiers` for a chord, and `getmouselocation --shell` to read the pointer back. The display
@@ -17,6 +19,7 @@ Fits into the Hive:
 
 Key invariants:
     - A point off the screen is refused before any command runs.
+    - A move waits for the pointer to arrive, and never for a pointer that is already there.
     - Text is one argument after `--`, never shell-interpreted, and never appears in an error.
     - Every command runs with a timeout; typing's grows with the text so pacing never trips it.
 
@@ -65,14 +68,14 @@ class XdotoolAntennae:
     async def move(self, point: Point) -> None:
         """Move the pointer to `point`; see Antennae."""
         self._check_on_screen(point, "move")
-        await self._xdotool(("mousemove", "--sync", str(point.x), str(point.y)), "move")
+        await self._xdotool(await self._move_to(point), "move")
 
     async def click(self, point: Point, button: MouseButton, count: int = 1) -> None:
         """Move to `point` and click `button` there `count` times; see Antennae."""
         self._check_on_screen(point, "click")
         if count not in (1, 2):
             raise PeripheralError(_PERIPHERAL, "click", f"count must be 1 or 2, got {count}")
-        args: tuple[str, ...] = ("mousemove", "--sync", str(point.x), str(point.y), "click")
+        args = (*await self._move_to(point), "click")
         args += ("--repeat", str(count), "--delay", str(_CLICK_GAP_MS), _BUTTONS[button])
         await self._xdotool(args, "click")
 
@@ -107,6 +110,14 @@ class XdotoolAntennae:
         if "X" not in found or "Y" not in found:
             raise PeripheralError(_PERIPHERAL, "read the pointer", "no X= and Y= in its output")
         return Point(int(found["X"]), int(found["Y"]))
+
+    async def _move_to(self, point: Point) -> tuple[str, ...]:
+        """Return the `mousemove` arguments for `point`: synced unless the pointer is there."""
+        # WHY: `mousemove --sync` waits until the pointer has moved, and a move to where it already
+        # is never does: xdotool hung to its timeout on a second click at the same spot, or on a
+        # first one at the screen's centre, where Xvfb starts the pointer (checked 2026-09-24).
+        sync = () if await self.pointer() == point else ("--sync",)
+        return ("mousemove", *sync, str(point.x), str(point.y))
 
     def _check_on_screen(self, point: Point, operation: str) -> None:
         """Refuse a point off this display before any command is built from it."""

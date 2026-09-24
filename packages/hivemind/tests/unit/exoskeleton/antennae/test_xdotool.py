@@ -16,12 +16,20 @@ from waggle.clock import FakeClock
 from waggle.messages.capping import MouseButton
 
 _DISPLAY = X11Display(name=":2", authority=None, size=ScreenSize(100, 50))
+_ORIGIN = Point(0, 0)  # Where the pointer reads back unless a test puts it elsewhere.
 
 
-def _antennae(tmp_path: Path, seen: list[ExecSpec], stdout: bytes = b"") -> XdotoolAntennae:
+def _antennae(
+    tmp_path: Path, seen: list[ExecSpec], stdout: bytes = b"", at: Point = _ORIGIN
+) -> XdotoolAntennae:
+    """XdotoolAntennae over a FakeSession: every command prints `stdout`, or the pointer at `at`."""
+    location = f"X={at.x}\nY={at.y}\n".encode()
+
     def respond(spec: ExecSpec) -> CompletedCommand:
         seen.append(spec)
-        return CompletedCommand(exit_code=0, stdout=stdout, stderr=b"", duration_s=0.0)
+        # An explicit `stdout` is what every command prints, a pointer read's included.
+        printed = location if not stdout and "getmouselocation" in spec.argv else stdout
+        return CompletedCommand(exit_code=0, stdout=printed, stderr=b"", duration_s=0.0)
 
     session = FakeSession(tmp_path, FakeClock(), responder=respond)
     return XdotoolAntennae(session, _DISPLAY)
@@ -32,8 +40,23 @@ async def test_move_waits_for_the_pointer_to_arrive(tmp_path: Path) -> None:
 
     await _antennae(tmp_path, seen).move(Point(3, 4))
 
-    assert seen[0].argv == ("xdotool", "mousemove", "--sync", "3", "4")
-    assert seen[0].env == {"DISPLAY": ":2"}
+    assert seen[0].argv[1] == "getmouselocation"  # Where it is decides whether to wait.
+    assert seen[1].argv == ("xdotool", "mousemove", "--sync", "3", "4")
+    assert seen[1].env == {"DISPLAY": ":2"}
+
+
+async def test_a_move_or_click_where_the_pointer_already_is_never_waits(tmp_path: Path) -> None:
+    # A synced move to the pointer's own position hangs xdotool until its timeout.
+    seen: list[ExecSpec] = []
+    antennae = _antennae(tmp_path, seen, at=Point(9, 8))
+
+    await antennae.move(Point(9, 8))
+    await antennae.click(Point(9, 8), MouseButton.LEFT)
+
+    moves = [spec.argv for spec in seen if spec.argv[1] == "mousemove"]
+    assert moves[0] == ("xdotool", "mousemove", "9", "8")
+    assert moves[1][:4] == ("xdotool", "mousemove", "9", "8")
+    assert all("--sync" not in argv for argv in moves)
 
 
 @pytest.mark.parametrize(
@@ -47,7 +70,7 @@ async def test_click_moves_then_clicks_the_x_button(
 
     await _antennae(tmp_path, seen).click(Point(9, 8), button, count)
 
-    argv = seen[0].argv
+    argv = seen[1].argv
     assert argv[:5] == ("xdotool", "mousemove", "--sync", "9", "8")
     assert argv[5:8] == ("click", "--repeat", str(count))
     assert argv[-1] == number
