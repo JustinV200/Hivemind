@@ -58,6 +58,7 @@ from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import LLMRequest, LLMResponse
 from hivemind.manifest import HiveManifest, load_manifest
+from hivemind.queen import ChatKind, ChatQuery
 from waggle.clock import SystemClock
 
 GOAL = "write three haiku about bees to separate files"
@@ -69,6 +70,7 @@ FILES = ("haiku_1.txt", "haiku_2.txt", "haiku_3.txt")
 WAIT_S = 20.0  # Generous: a goal with one question finishes in about two seconds locally.
 _POLL_S = 0.02  # How often a wait re-reads the state it waits on.
 _PASSWORD_BYTES = 18  # A fresh operator password per run: 24 characters, above the 12 minimum.
+_CHAT_LINES = 50  # The newest chat lines a wait reads; a scripted run writes a handful.
 # The loopback listener on a port the system picks, and limits a scripted client never meets.
 _ENTRANCE = (
     '\n[entrance]\nbind = "127.0.0.1:0"\n'
@@ -162,9 +164,10 @@ class Stand:
                 await asyncio.sleep(_POLL_S)
 
     async def question_waiting(self) -> bool:
-        """Return whether the human's inbox holds a question (the console reads it)."""
-        inbox = await self.console.call(self.session, "GET", "/v1/inbox")
-        return bool(inbox.json()["questions"])
+        """Return whether a question waits on the human, read from the Brood Chamber."""
+        # The Hive's own state, not the console: the console holds no honey:clearance:c2.
+        hive = self.served.hive
+        return bool(await hive.queen.human_inbox.pending_questions(hive.stores.chamber))
 
     async def goal_finished(self, request_id: str) -> bool:
         """Return whether a goal request's goal has finished, from the Queen's own table."""
@@ -172,9 +175,9 @@ class Stand:
         return request.finished_at is not None
 
     async def replied(self) -> bool:
-        """Return whether the Queen has written a reply into the chat."""
-        chat = await self.console.call(self.session, "GET", "/v1/chat")
-        return any(line["author"] == "queen" for line in chat.json()["entries"])
+        """Return whether the Queen has written a reply into the chat, read from its log."""
+        lines = await self.served.hive.stores.chat.read(ChatQuery(limit=_CHAT_LINES))
+        return any(line.kind is ChatKind.REPLY for line in lines)
 
 
 @asynccontextmanager
