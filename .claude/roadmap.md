@@ -1237,8 +1237,9 @@ duty, `hive honey` CLI.
   `/cells/<cell>/...`, `/bees/<bee>/...`, `/tasks/<task>/...`, `/bee-bread/...`) with listing,
   reading and search per folder, so the Observation Hive and the CLI can walk the Hive's knowledge
   the way you walk a filesystem. Browsing never writes; every write to Honey goes through the
-  Queen (intake, ripening, pins), and the browser exposes "propose a note" as a message into her
-  inbox.
+  Queen's process (intake, ripening, pins). The browser's "propose a note" files a PROPOSED Cell
+  Wax from a Cell's folder, and from any other folder queues the note for the House Bee, which
+  runs beside the Queen, to drain into HUMAN Nectar (ADR-0031).
 - [x] **7.11 CLI.** `hive honey query|stats|ripen --now|reembed|ls <path>|cat <path>`.
 
 ### Exit criteria
@@ -1248,34 +1249,39 @@ duty, `hive honey` CLI.
 - A Handoff deposited in phase 4 is retrievable through Honey a day later with full provenance.
 - Ripening runs with `RIPENER` and `EMBEDDER` on local adapters in the `local_llm` job.
 
-**Met 2026-09-24, with two stand-ins** (branch `claude/vigilant-hawking-qf81zr`; the full record
-is `.claude/phase-7-handoff.md`). Phase 6 was not built first (the operator asked for phase 7), so
-a Drone stands in for the Forager: `tests/e2e/test_honey_compounds.py` runs one goal twice on the
-Hive Stand through `build_hive` (real lease, SQLite, Queen, Warden and Drones, scripted models) at
-C2. The second `TaskAssign` carries the first run's ripened outcome, `queen.honey_consulted` is on
-the trail, and the second Drone finishes in fewer model calls. At C1 nothing is attached, because
-everything gathered on the borrowed Hive Stand is C2. A real run (Hive Stand, a real subprocess,
-real WordLlama vectors over the OpenAI-compatible adapter, the House Bee ripening on its own
-interval) went from three Drone calls to two. Re-run this bullet with the Forager once phase 6
-lands. The Handoff bullet is
-`test_a_phase_four_handoff_is_retrievable_a_day_later_with_full_provenance`: a Handoff written by
-`memory.write_checkpoint` is deposited by the Queen's housekeeping sweep a day later, ripened, and
-returned with task, Worker, Cell and time. The `local_llm` bullet is
+**Met 2026-09-24, with one stand-in** (branch `claude/vigilant-hawking-qf81zr`; the full record is
+`.claude/phase-7-handoff.md`). Phase 6 was not built first (the operator asked for phase 7), so a
+Drone stands in for the Forager. `tests/e2e/test_honey_compounds.py` runs one goal twice on the Hive
+Stand through `build_hive` (real lease, SQLite, Queen, Warden and Drones, scripted models). At C2
+the second `TaskAssign` carries the first run's ripened outcome, `queen.honey_consulted` is on the
+trail, and the second Drone finishes in fewer model calls. At C1, the default, the outcome is C2 by
+the Real Cell floor and reaches the second run only once an independent judge lowers it (ADR-0034;
+cases (d) and (e)). A real run used three separate processes on one database, with the same Hive
+Stand Cell id in each, a real subprocess and the House Bee's own loop. RIPENER ran on
+qwen2.5-3B-Instruct, JUDGE on qwen2.5-7B-Instruct and EMBEDDER on nomic-embed-text v1.5, local GGUF
+models behind llama-cpp-python's OpenAI-compatible server. At C1 the first Drone needed four calls,
+and the second and third two each. Re-run this bullet with the Forager once phase 6 lands. The
+Handoff bullet is `test_a_phase_four_handoff_is_retrievable_a_day_later_with_full_provenance`: a
+Handoff written by `memory.write_checkpoint` is deposited by the Queen's housekeeping sweep a day
+later, ripened, and returned with task, Worker, Cell and time. The `local_llm` bullet is
 `tests/evals/honey/test_ripening_local.py`, which builds the store from `docs/manifests/local.toml`
-through the production builder. It passed against a loopback OpenAI-compatible server with real
-WordLlama embeddings and a deterministic extractive chat stand-in (this sandbox reaches no model
-hub), so it has not yet run against a real local chat model. Where the steps above differ from
-what was built: there is no `vec0` table (ADR-0031 measured it no faster); re-embedding is
-progressive and automatic rather than triggered (ADR-0032), and `hive honey reembed` drains the
-backlog on demand; lowering a label is wired for the operator (`hive honey relabel`, a HUMAN
-approver) but not as a judge-reviewed Capping proposal; "propose a note" files a PROPOSED Cell Wax
-from a Cell's folder and otherwise queues a note that the House Bee drains into Nectar, never a
-message in the Queen's inbox; `browse` and `house_bee` are packages, not single modules.
+through the production builder. It passed on that server with qwen2.5-3B-Instruct and
+nomic-embed-text v1.5, and with Qwen3-Embedding 0.6B in process through sentence-transformers. Where
+the steps above differ from what was built: there is no `vec0` table (ADR-0031 measured it no
+faster); re-embedding is progressive and automatic rather than triggered (ADR-0032),
+`hive honey reembed` drains the backlog on demand and `--prune` drops other models' vectors
+(ADR-0033); a deduplicated deposit keeps its own source (ADR-0033); lowering a label (7.3) is a
+proposal the House Bee files and the JUDGE slot or the operator (`hive honey review`) decides, with
+Capping's discipline but outside `CappingGate`, whose actions are Cell actions (ADR-0034); step 7.10
+now describes the note path as built, a queued note the House Bee drains rather than a message in
+the Queen's inbox; `browse` and `house_bee` are packages, not single modules.
 
 ### ADRs to write
 
 - `honey-store-sqlite-fts5-sqlite-vec.md` (written: `docs/adr/0031-*`).
 - `embedding-provider-and-reembedding-policy.md` (written: `docs/adr/0032-*`).
+- `honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md` (written: `docs/adr/0033-*`).
+- `honey-label-lowering-is-a-judge-reviewed-proposal.md` (written: `docs/adr/0034-*`).
 
 ---
 
@@ -1518,22 +1524,23 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   keeps its Ed25519 keypair as before. Secrets are hashed or in the secret store; nothing in the
   manifest.
 - [ ] **10.5 Hive Entrance.** `entrance/app.py` (composition root) running **two listeners**:
-  loopback on `[entrance] bind`, always on, and a remote listener on `remote_bind` only when
-  exposed (10.5a). `entrance/routes/` with one file per resource under `/v1/` (`goals`, `tasks`,
-  `cells`, `wardens`, `forage`, `inbox`, `chat`, `episodes`, `tools`, `honey`, `trail`, `swarm`,
-  `llm`, `devices`); every route declares which listeners serve it, and the loopback-only set
-  (approve, deny, unlock, widen capabilities, reopen, operator add) is asserted by the route test
-  from coding rules 8.11, where a loopback-only route on the remote listener is a 404 and not a
-  403. `entrance/streams/` with one live WebSocket stream per view: trail events, telemetry per
-  bee, Forage ledger deltas, task graph deltas per principal (the Queen and every Warden), episode
-  records, Cell status, Entrance security events. The **human inbox and chat**: free-text
-  messages from the human enter the Queen's inbox as `HumanMessage` items the Attendant scores;
-  the Queen's replies, her questions, and Alarms that reached her come back on the same channel,
-  so the chat is the human end of the inbox rather than a separate path into the system.
-  `entrance/landing_board.py` generates the OpenAPI document from the route models, marking
+  loopback on `[entrance] bind`, always on, and a remote listener on `remote_bind` only when exposed
+  (10.5a). `entrance/routes/` with one file per resource under `/v1/` (`goals`, `tasks`, `cells`,
+  `wardens`, `forage`, `inbox`, `chat`, `episodes`, `tools`, `honey`, `trail`, `swarm`, `llm`,
+  `devices`; `honey` serves 7.10's browser, and its "propose a note" queues the note the way
+  `hive honey propose` does rather than writing); every route declares which listeners serve it, and
+  the loopback-only set (approve, deny, unlock, widen capabilities, reopen, operator add) is
+  asserted by the route test from coding rules 8.11, where a loopback-only route on the remote
+  listener is a 404 and not a 403. `entrance/streams/` with one live WebSocket stream per view:
+  trail events, telemetry per bee, Forage ledger deltas, task graph deltas per principal (the Queen
+  and every Warden), episode records, Cell status, Entrance security events. The **human inbox and
+  chat**: free-text messages from the human enter the Queen's inbox as `HumanMessage` items the
+  Attendant scores; the Queen's replies, her questions, and Alarms that reached her come back on the
+  same channel, so the chat is the human end of the inbox rather than a separate path into the
+  system. `entrance/landing_board.py` generates the OpenAPI document from the route models, marking
   loopback-only routes; it is committed as `docs/entrance/openapi.json` and CI fails when the
-  generated document differs. The Entrance also serves `packages/observation-web/`'s build as
-  static files.
+  generated document differs. The Entrance also serves `packages/observation-web/`'s build as static
+  files.
 - [ ] **10.5a Remote exposure.** `entrance/expose.py` and the `[entrance]` manifest section
   (coding rules 13): `expose = "loopback" | "vpn" | "lan" | "tunnel"`, `remote_bind`,
   `public_url`, `tls`, `mutual_tls`, `rate_limit_per_device`. `loopback` is the default and the
@@ -2016,9 +2023,9 @@ in this phase adds a new write path.
   (7.10): the main store under `/hive`, then what each Cell and each bee can see under `/cells`
   and `/bees` (each Cell's folder includes its live Cell Wax), task folders, and Bee Bread.
   Read-only navigation, reading and search per folder, provenance and `HoneyClearance` on every
-  item, and a "propose a note" action that sends a message to the Queen rather than writing (a
-  Honey note, or Cell Wax when made from a Cell's folder). Scope and clearance filtering match the viewer's
-  capabilities.
+  item, and a "propose a note" action that queues the note for the House Bee rather than writing
+  (a Honey note, or Cell Wax when made from a Cell's folder; 7.10). Scope and clearance filtering
+  match the viewer's capabilities.
 - [ ] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
   save, from normalised `Usage` on the trail.
 - [ ] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
