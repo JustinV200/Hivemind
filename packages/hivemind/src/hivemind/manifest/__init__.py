@@ -37,7 +37,8 @@ Public API:
       QueenSection, HiveStandSection, HiveStandCapacityOverrides, BroodChamberSection,
       PheromoneSection, LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN, ForageSection, SupervisionSection, MemorySection, SecuritySection,
-      TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix.
+      TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix, EntranceSection,
+      EntranceExposure.
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -59,6 +60,8 @@ from hivemind.manifest.schema import (
     BroodChamberSection,
     CapabilityOverrides,
     ClearanceMatrix,
+    EntranceExposure,
+    EntranceSection,
     ForageSection,
     HiveManifest,
     HiveSection,
@@ -83,6 +86,8 @@ __all__ = [
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "EntranceExposure",
+    "EntranceSection",
     "EnvOverrides",
     "ForageSection",
     "HiveManifest",

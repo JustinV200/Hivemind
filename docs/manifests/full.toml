@@ -2,7 +2,7 @@
 #
 # A test in packages/hivemind/tests/unit/manifest/test_loader.py loads this file and round-trips
 # it through model_dump/model_validate, so it cannot silently drift from hivemind.manifest.schema.
-# [entrance] is not shown here: it is added in phase 10 (roadmap step 3.1).
+# [guard] is added by roadmap step 10.2.
 
 [hive]
 # This Hive's identity: minted once with waggle.ids.new_hive_id/new_node_id, never regenerated.
@@ -445,3 +445,65 @@ max_per_image = 2
 max_dormant_s = 3600.0
 # Disk, in megabytes, the manifest allots to the whole pool (8 GiB here).
 disk_budget_mb = 8192
+
+[entrance]
+# The Hive Entrance (roadmap phase 10, ADR-0032 and ADR-0033): the one door every client uses.
+# The loopback listener; always on, and always a loopback address. Approval of new devices,
+# unlocking, capability widening and reopening after a reduction exist only here.
+bind = "127.0.0.1:8710"
+# How the remote listener is exposed: "loopback" (no remote listener), "vpn" (bound to an overlay
+# address only; the recommended remote path), "lan" or "tunnel" (both need TLS and mutual TLS).
+# There is no public mode.
+expose = "vpn"
+# The remote listener's own address: a specific address, never a wildcard. In vpn mode it must be
+# assigned to this machine and fall inside vpn_cidrs (a Tailscale address here).
+remote_bind = "100.101.102.103:8711"
+# The https URL devices use; the invite links' base, the only CORS origin, and the WebAuthn
+# relying party for passkeys enrolled through it (Tailscale MagicDNS name and `tailscale cert`).
+public_url = "https://hivestand.example-tailnet.ts.net:8711"
+# Require a client certificate from the Hive's own authority on the remote listener; lan and
+# tunnel refuse to start with this false.
+mutual_tls = false
+# Brood 1.0 has exactly one operator.
+operators = 1
+# Let a device holding entrance:steward approve other devices after full step-up (off by default).
+steward_devices = false
+# Step up and notify every device when a known device appears from a new network.
+travel_lock = false
+session_ttl_hours = 12.0
+idle_timeout_minutes = 30.0
+step_up_window_minutes = 5.0
+# A goal budget, in USD, above which submitting it needs step-up.
+step_up_spend = 5.0
+# Failed logins (with a valid device proof) before the device is LOCKED until a loopback unlock.
+lockout_attempts = 5
+# Capability denials inside lockout_denial_window_s before the device is LOCKED.
+lockout_denials = 20
+lockout_denial_window_s = 60.0
+# Requests per minute, per device and per network address.
+rate_limit_per_device = 60
+rate_limit_per_address = 30
+# How far a signed request's timestamp may drift from the Hive Stand's clock, in seconds.
+request_skew_s = 60.0
+invite_ttl_minutes = 15.0
+pending_ttl_hours = 24.0
+# The overlay's ranges; Tailscale's by default.
+vpn_cidrs = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
+
+[entrance.tls]
+# Paths to the remote listener's certificate chain and key (here, `tailscale cert` output).
+cert = "tls/hivestand.example-tailnet.ts.net.crt"
+key = "tls/hivestand.example-tailnet.ts.net.key"
+
+[entrance.push]
+webhooks = true
+# VAPID keys come from HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY and HIVEMIND_ENTRANCE_VAPID_SUBJECT.
+web_push = true
+
+[entrance.voice]
+enabled = true
+# Echo a spoken goal back for confirmation before it becomes a task.
+confirm_goals = true
+# Discard audio after transcription; true keeps it as C2 Nectar with a retention window.
+keep_audio = false
+max_clip_seconds = 120.0

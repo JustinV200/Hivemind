@@ -30,6 +30,8 @@ Public API:
     - LLM (llm): LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN.
     - Forage (forage): ForageSection.
+    - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
+      EntrancePushSection, EntranceVoiceSection.
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
     - Security and clearance (security): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
@@ -45,6 +47,13 @@ from hivemind.manifest.schema.core import (
     HiveStandSection,
     PheromoneSection,
     QueenSection,
+)
+from hivemind.manifest.schema.entrance import (
+    EntranceExposure,
+    EntrancePushSection,
+    EntranceSection,
+    EntranceTlsSection,
+    EntranceVoiceSection,
 )
 from hivemind.manifest.schema.forage import ForageSection
 from hivemind.manifest.schema.llm import (
@@ -76,6 +85,11 @@ __all__ = [
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "EntranceExposure",
+    "EntrancePushSection",
+    "EntranceSection",
+    "EntranceTlsSection",
+    "EntranceVoiceSection",
     "ForageSection",
     "HiveManifest",
     "HiveSection",
