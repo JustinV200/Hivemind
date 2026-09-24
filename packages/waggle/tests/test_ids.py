@@ -26,10 +26,10 @@ from waggle.errors import InvalidIdError
 from waggle.ids import IdKind, new_id, parse_id, timestamp_of
 from waggle.ulid import ULID_LENGTH
 
-# The twelve kinds roadmap step 0.5 shipped plus MESSAGE (step 1.2a, the envelope's own id); a
-# new member must be added here on purpose, because every kind also needs a NewType, a wrapper in
-# waggle.ids and a row in the protocol spec.
-_EXPECTED_KIND_COUNT = 13
+# The twelve kinds roadmap step 0.5 shipped plus MESSAGE (step 1.2a, the envelope's own id), NECTAR
+# and HONEY (step 7.2, the Honey Store's own rows); a new member must be added here on purpose,
+# because every kind also needs a NewType, a wrapper in waggle.ids and a field alias.
+_EXPECTED_KIND_COUNT = 15
 
 
 def test_id_kind_has_thirteen_members_including_message() -> None:

@@ -4,7 +4,7 @@ Every Waggle message (the Hive's shared bee-to-bee wire protocol) carries an id,
 nearly everything else the Hive tracks -- one IdKind member per family, listed below. Each id is a
 lowercase prefix plus a 26-char ULID (``waggle.ulid``): self-describing in logs, sortable by
 creation time, and its own ``NewType`` so mypy catches a mismatched id type. This module holds the
-kinds, the types, the generic generator ``new_id``, the two parsers, and the thirteen typed
+kinds, the types, the generic generator ``new_id``, the two parsers, and the fifteen typed
 ``new_<kind>_id`` constructors callers actually reach for: each returns the ``NewType`` for its
 kind (a ``TaskId``, never a bare ``str``) so mypy catches an id handed to the wrong parameter,
 takes the injected Clock (the source of time every component reads instead of the system clock,
@@ -47,9 +47,11 @@ __all__ = [
     "EventId",
     "GrantId",
     "HiveId",
+    "HoneyId",
     "IdKind",
     "LeaseId",
     "MessageId",
+    "NectarId",
     "NodeId",
     "TaskId",
     "ToolId",
@@ -61,9 +63,11 @@ __all__ = [
     "new_event_id",
     "new_grant_id",
     "new_hive_id",
+    "new_honey_id",
     "new_id",
     "new_lease_id",
     "new_message_id",
+    "new_nectar_id",
     "new_node_id",
     "new_task_id",
     "new_tool_id",
@@ -90,6 +94,8 @@ class IdKind(Enum):
     EVENT = "event"
     DEVICE = "device"
     MESSAGE = "msg"  # The envelope's own id; "msg" is in codingrules 6.2's accepted abbreviations.
+    NECTAR = "nectar"  # One Nectar deposit at rest in the Honey Store (roadmap step 7.2).
+    HONEY = "honey"  # One ripened Honey row in the Honey Store (roadmap step 7.2).
 
 
 HiveId = NewType("HiveId", str)
@@ -105,6 +111,8 @@ NodeId = NewType("NodeId", str)
 EventId = NewType("EventId", str)
 DeviceId = NewType("DeviceId", str)
 MessageId = NewType("MessageId", str)
+NectarId = NewType("NectarId", str)
+HoneyId = NewType("HoneyId", str)
 
 
 def new_id(kind: IdKind, clock: Clock) -> str:
@@ -321,3 +329,25 @@ def new_message_id(clock: Clock) -> MessageId:
     Returns: A msg_-prefixed id.
     """
     return MessageId(new_id(IdKind.MESSAGE, clock))
+
+
+def new_nectar_id(clock: Clock) -> NectarId:
+    """Generate a new NectarId.
+
+    Args:
+        clock: Injected clock for a deterministic timestamp.
+
+    Returns: A nectar_-prefixed id.
+    """
+    return NectarId(new_id(IdKind.NECTAR, clock))
+
+
+def new_honey_id(clock: Clock) -> HoneyId:
+    """Generate a new HoneyId.
+
+    Args:
+        clock: Injected clock for a deterministic timestamp.
+
+    Returns: A honey_-prefixed id.
+    """
+    return HoneyId(new_id(IdKind.HONEY, clock))

@@ -58,9 +58,11 @@ from waggle.ids import (
     EventId,
     GrantId,
     HiveId,
+    HoneyId,
     IdKind,
     LeaseId,
     MessageId,
+    NectarId,
     NodeId,
     TaskId,
     ToolId,
@@ -104,9 +106,11 @@ __all__ = [
     "EventIdField",
     "GrantIdField",
     "HiveIdField",
+    "HoneyIdField",
     "LeaseIdField",
     "MessageIdField",
     "MessageShape",
+    "NectarIdField",
     "NodeIdField",
     "TaskIdField",
     "ToolIdField",
@@ -260,3 +264,5 @@ NodeIdField = Annotated[NodeId, id_validator(IdKind.NODE)]
 EventIdField = Annotated[EventId, id_validator(IdKind.EVENT)]
 DeviceIdField = Annotated[DeviceId, id_validator(IdKind.DEVICE)]
 MessageIdField = Annotated[MessageId, id_validator(IdKind.MESSAGE)]
+NectarIdField = Annotated[NectarId, id_validator(IdKind.NECTAR)]
+HoneyIdField = Annotated[HoneyId, id_validator(IdKind.HONEY)]
