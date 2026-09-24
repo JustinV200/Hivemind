@@ -17,7 +17,7 @@ Key invariants:
     - Reading never changes the chamber; the words of a task are answered only behind C2.
 
 See Also:
-    - hivemind.entrance.models.views.tasks for the per-field C2 decision.
+    - hivemind.observation.views.tasks for the per-field C2 decision.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from fastapi import Path, Query
 from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import (
+from hivemind.observation import (
     TaskBriefView,
     TaskPage,
     TaskView,

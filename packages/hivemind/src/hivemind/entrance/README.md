@@ -80,9 +80,10 @@ feed. The one feed not on the trail is telemetry: Heartbeats never reach it, so 
 root sets the Queen's `on_heartbeat` hook to a `TelemetryBoard`, which keeps each Warden's newest
 Heartbeat (the Wardens read counts its sub-bees from it) and fans every one out the same way.
 
-The view models live in `models/views/`, not in `hivemind.observation`: the import-linter layer
-table makes `entrance` and `observation` independent siblings, so the Entrance, which serves
-these models and publishes them in the OpenAPI document, could not import them from there.
+The view models live in `hivemind.observation.views` (codingrules 8.11), and the Entrance, which
+answers with them and publishes them in the OpenAPI document, imports them from the
+`hivemind.observation` face only: the import-linter ranks `entrance` over `observation` and holds
+the edge to the face (ADR-0032 lists it); nothing in `observation` imports the Entrance.
 
 ## When a listener fails
 
@@ -116,7 +117,8 @@ runtime are reached through their own modules, so importing the face never loads
 - `hivemind.entrance.landing_board`: `openapi_document`, `render_document`, `write_document`,
   `DOCUMENT_PATH`.
 - `hivemind.entrance.streams` (with `TelemetryBoard`), `hivemind.entrance.notify`,
-  `hivemind.entrance.reads`, `hivemind.entrance.models.views`: their faces list every name.
+  `hivemind.entrance.reads`: their faces list every name. The view models are
+  `hivemind.observation`'s.
 
 Nothing in the Entrance stores a password, an invite code, a session token or a private key in
 the clear, and no log line or trail event carries a code, a key, a token, a signature, a password

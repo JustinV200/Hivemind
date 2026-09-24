@@ -29,7 +29,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from hivemind.entrance.models.views import (
+from hivemind.observation import (
     DEFAULT_TRAIL_PAGE,
     TrailCursor,
     TrailFilters,

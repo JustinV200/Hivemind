@@ -16,15 +16,15 @@ Key invariants:
     - Read only; no telemetry text in the answer.
 
 See Also:
-    - hivemind.entrance.models.views.wardens for the view.
+    - hivemind.observation.views.wardens for the view.
 """
 
 from __future__ import annotations
 
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import WardenList
 from hivemind.entrance.reads import warden_views
+from hivemind.observation import WardenList
 
 OBSERVE = "observe"  # The supervision tree is a read-only view.
 

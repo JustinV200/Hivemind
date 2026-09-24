@@ -14,7 +14,7 @@ must be neither skipped nor read twice. ``TrailFilters`` is the read's query str
 the cursor and the page size, validated as one model (unknown parameters are refused).
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``.
     Answered by ``hivemind.entrance.routes.hive.trail`` (paged by
     ``hivemind.entrance.reads.trail``) and sent by the trail and Forage streams; published in
     the OpenAPI document. Calls into ``hivemind.pheromone`` and pydantic.

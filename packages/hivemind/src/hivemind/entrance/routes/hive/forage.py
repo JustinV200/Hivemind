@@ -15,14 +15,14 @@ Key invariants:
     - Read only; no grant reason and no model id in the answer.
 
 See Also:
-    - hivemind.entrance.models.views.forage for the view.
+    - hivemind.observation.views.forage for the view.
 """
 
 from __future__ import annotations
 
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import ForageView, forage_view
+from hivemind.observation import ForageView, forage_view
 
 OBSERVE = "observe"  # The Forage view is read-only.
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from builders.entrance.serving import ProgramGrant, RigOptions, serving
 
-from hivemind.entrance.models.views import NOT_BUILT_CODE
+from hivemind.observation import NOT_BUILT_CODE
 
 _PHASES = {"tools": 9, "honey": 7, "swarm": 11}  # Each resource, and the phase that fills it.
 

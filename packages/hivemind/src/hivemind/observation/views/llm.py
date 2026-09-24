@@ -9,7 +9,7 @@ read never probes a provider. A provider is shown by its manifest name and kind 
 URL (it may carry credentials) and never an API key or the variable that holds one.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``. Built
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Built
     by ``hivemind.entrance.reads.llm``; answered by ``hivemind.entrance.routes.hive.llm``;
     published in the OpenAPI document. Calls into the forage slot enums, the Queen's mode and
     pydantic.

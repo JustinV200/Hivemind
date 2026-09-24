@@ -330,8 +330,12 @@ layers = [
     # `hive run` builds, and `hive entrance ...` administers it, so cli may import entrance and
     # observation (codingrules section 4); neither ever imports cli.
     "cli",
-    # Layer 7, inner half: the HTTP and dashboard edges. Independent siblings.
-    "entrance | observation",
+    # Layer 7, inner half: the HTTP and dashboard edges, as ordered sub-ranks (the guard-over-cell
+    # pattern below): the Entrance answers its read routes and streams with the Observation Hive's
+    # read models (codingrules 8.11) and publishes them in the OpenAPI document, so it imports
+    # observation, the one same-layer edge ADR-0032 lists; observation never imports the Entrance.
+    "entrance",
+    "observation",
     "queen",  # Layer 6: the kernel; the only global view; divides Forage.
     "wardens",  # Layer 5: per-Cell supervisors; spawn and supervise Workers.
     "workers",  # Layer 4: roles that do the work.
@@ -363,6 +367,16 @@ layers = [
     "pheromone | forage",
     "common",  # Layer 0: primitives; imports nothing internal.
 ]
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "Two subsystems on the same layer may import each other only through their
+# `__init__` public API". The layers contract above allows the entrance -> observation edge; this
+# one holds it to the face. Indirect imports are allowed, since the face itself imports the views.
+name = "entrance reaches observation only through its face"
+type = "forbidden"
+source_modules = ["hivemind.entrance"]
+forbidden_modules = ["hivemind.observation.views"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "waggle... imports nothing from hivemind"; section 3 makes waggle the

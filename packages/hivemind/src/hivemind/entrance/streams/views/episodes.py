@@ -30,12 +30,12 @@ from starlette.websockets import WebSocket
 from hivemind.cell import HoneyClearance
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
-from hivemind.entrance.models.views import EpisodeFrame, episode_view
 from hivemind.entrance.streams.errors import CloseReason
 from hivemind.entrance.streams.socket import StreamContext, serve_socket
 from hivemind.entrance.streams.views.pump import pump, trail_subscription
 from hivemind.memory import EpisodeRecord, MemoryStore
 from hivemind.memory.episodes import MAX_PRINCIPAL_CHARS
+from hivemind.observation import EpisodeFrame, episode_view
 from hivemind.pheromone import PheromoneEvent
 
 EPISODE_KIND = "memory.episode"  # Recorded with every episode record, naming it as its subject.

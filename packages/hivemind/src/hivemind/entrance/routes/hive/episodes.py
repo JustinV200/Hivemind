@@ -27,8 +27,8 @@ from fastapi import Query
 from hivemind.cell import HoneyClearance
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import EpisodeList, episode_view
 from hivemind.memory.episodes import MAX_PRINCIPAL_CHARS
+from hivemind.observation import EpisodeList, episode_view
 
 THOUGHTS = "observe:thoughts"  # Reading a bee's thinking is its own capability (8.11).
 DEFAULT_EPISODE_PAGE = 50  # Records answered when the caller does not say.

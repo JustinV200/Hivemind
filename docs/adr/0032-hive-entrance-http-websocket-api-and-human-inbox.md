@@ -46,8 +46,11 @@ Entrance on top, until interrupted.
 
 **The Entrance lives in the Queen's process and every write goes through her.** It is Layer 7 and
 may import `queen`; a second process speaking Waggle to the Queen would add a message and a
-failure mode for every route. Reads go to the stores directly (Brood Chamber, trail, memory,
-Forage ledger), because reading never changes state. Every write goes to the Queen (codingrules
+failure mode for every route. It also imports its Layer-7 sibling `observation`, through that
+package's face only, for the read models its read routes and streams answer with (codingrules
+8.11 puts every view's model in `observation/views/`); `observation` never imports the Entrance.
+Reads go to the stores directly (Brood Chamber, trail, memory, Forage ledger), because reading
+never changes state. Every write goes to the Queen (codingrules
 8.11): a goal is submitted to her, an answer is handed to her, a chat message enters her inbox.
 
 **A goal is durable before it is acknowledged.** `POST /v1/goals` writes a `GoalRequest` row in the

@@ -17,13 +17,13 @@ Key invariants:
     - A not-built row is a READ answering 501; it never touches a store.
 
 See Also:
-    - hivemind.entrance.models.views.unbuilt for the answer.
+    - hivemind.observation.views.unbuilt for the answer.
 """
 
 from __future__ import annotations
 
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import NotBuiltView
+from hivemind.observation import NotBuiltView
 
 OBSERVE = "observe"  # What the read a later phase fills will need; the placeholder needs it too.
 NOT_IMPLEMENTED = 501  # The status every not-built resource answers with.

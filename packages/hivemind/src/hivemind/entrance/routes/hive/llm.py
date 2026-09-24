@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import LlmView
 from hivemind.entrance.reads import llm_view
+from hivemind.observation import LlmView
 
 OBSERVE = "observe"  # The LLM wiring is a read-only view.
 

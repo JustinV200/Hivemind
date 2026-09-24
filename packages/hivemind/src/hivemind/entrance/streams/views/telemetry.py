@@ -29,11 +29,11 @@ from starlette.websockets import WebSocket
 
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
-from hivemind.entrance.models.views import TelemetryFrame, telemetry_samples
 from hivemind.entrance.streams.errors import CloseReason
 from hivemind.entrance.streams.socket import StreamContext, serve_socket
 from hivemind.entrance.streams.telemetry import TelemetrySample
 from hivemind.entrance.streams.views.pump import pump, telemetry_subscription
+from hivemind.observation import TelemetryFrame, telemetry_samples
 from waggle.messages.base import WardenIdField
 
 _ACCESS = session_with("observe:thoughts", c2=True)  # A bee's own words: thoughts, and C2.

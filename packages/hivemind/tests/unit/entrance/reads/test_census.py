@@ -27,10 +27,10 @@ from builders.supervision import make_telemetry
 from hivemind.cell import AccessLevel, CellKind, CombShieldLevel, LeaseState
 from hivemind.entrance.errors import CellNotFoundError
 from hivemind.entrance.gate import HiveReads, LlmReads
-from hivemind.entrance.models.views import CellMode
 from hivemind.entrance.reads import cell_view, cell_views, warden_views
 from hivemind.entrance.streams import TelemetryBoard
 from hivemind.hive import LiveVirtualCell, VirtualCellStatus
+from hivemind.observation import CellMode
 from hivemind.pheromone import event_class_for
 from hivemind.queen import QueenDeps, WardenLink, WardenLiveness
 from waggle.clock import FakeClock

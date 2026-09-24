@@ -32,10 +32,10 @@ from starlette.websockets import WebSocket
 from hivemind.brood_chamber import BroodChamber, Task, TaskNotFoundError
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
-from hivemind.entrance.models.views import TaskGraphFrame, task_view
 from hivemind.entrance.streams.errors import CloseReason
 from hivemind.entrance.streams.socket import StreamContext, serve_socket
 from hivemind.entrance.streams.views.pump import pump, trail_subscription
+from hivemind.observation import TaskGraphFrame, task_view
 from hivemind.pheromone import PheromoneEvent
 from waggle.ids import TaskId
 

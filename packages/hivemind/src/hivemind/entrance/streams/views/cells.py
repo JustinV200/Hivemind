@@ -27,11 +27,11 @@ from starlette.websockets import WebSocket
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.reads import HiveReads
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
-from hivemind.entrance.models.views import CellFrame, CellView
 from hivemind.entrance.reads import cell_views
 from hivemind.entrance.streams.errors import CloseReason
 from hivemind.entrance.streams.socket import StreamContext, send_frame, serve_socket
 from hivemind.entrance.streams.views.pump import pump, trail_subscription
+from hivemind.observation import CellFrame, CellView
 from hivemind.pheromone import PheromoneEvent
 
 _ACCESS = session_with("observe")  # A Cell's status carries nothing personal.

@@ -27,10 +27,10 @@ from starlette.websockets import WebSocket
 
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
-from hivemind.entrance.models.views import MAX_FILTER_CHARS, TrailFrame, trail_event_view
 from hivemind.entrance.streams.errors import CloseReason
 from hivemind.entrance.streams.socket import StreamContext, serve_socket
 from hivemind.entrance.streams.views.pump import pump, trail_subscription
+from hivemind.observation import MAX_FILTER_CHARS, TrailFrame, trail_event_view
 from hivemind.pheromone import PheromoneEvent
 
 _ACCESS = session_with("observe")  # Trail events carry no content: observing is enough.

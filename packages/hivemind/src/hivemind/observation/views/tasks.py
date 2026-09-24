@@ -12,7 +12,7 @@ task's progress and learns none of its words. ``TaskPage`` pages the list by key
 is the cursor for the next page.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``. Used by
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Used by
     ``hivemind.entrance.routes.hive.tasks`` and the task-graph stream; published in the OpenAPI
     document. Calls into the Brood Chamber's task model and pydantic.
 

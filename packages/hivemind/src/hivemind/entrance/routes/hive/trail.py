@@ -28,8 +28,8 @@ from fastapi import Query
 
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import TrailFilters, TrailPage
 from hivemind.entrance.reads import TrailRead, read_trail
+from hivemind.observation import TrailFilters, TrailPage
 
 OBSERVE = "observe"  # The trail view is read-only.
 

@@ -11,7 +11,7 @@ present in the contract and null until it is. Nothing here is personal: names ar
 own labels and every other field an id, an enum, a flag or a time.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``. Built
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Built
     by ``hivemind.entrance.reads.census``; answered by ``hivemind.entrance.routes.hive.cells`` and
     sent by the cell-status stream; published in the OpenAPI document. Calls into the Cell, Virtual
     Cell and lease enums and pydantic.

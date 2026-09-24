@@ -11,7 +11,7 @@ last actions and blockers are the bee's own words, so its stream needs ``observe
 ``honey:clearance:c2``.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``. Sent by
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Sent by
     the views in ``hivemind.entrance.streams.views``; published in the OpenAPI document's
     ``x-hive-streams``. Calls into the view models beside it, the wire telemetry models and
     pydantic.
@@ -30,11 +30,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.entrance.models.views.cells import CellView
-from hivemind.entrance.models.views.episodes import EpisodeView
-from hivemind.entrance.models.views.forage import GrantView, HeadroomView
-from hivemind.entrance.models.views.tasks import TaskView
-from hivemind.entrance.models.views.trail import TrailEventView
+from hivemind.observation.views.cells import CellView
+from hivemind.observation.views.episodes import EpisodeView
+from hivemind.observation.views.forage import GrantView, HeadroomView
+from hivemind.observation.views.tasks import TaskView
+from hivemind.observation.views.trail import TrailEventView
 from waggle.messages.base import TaskIdField, WardenIdField, WorkerIdField
 from waggle.messages.supervision import ContextTelemetry, Heartbeat, WardenState, WorkerState
 

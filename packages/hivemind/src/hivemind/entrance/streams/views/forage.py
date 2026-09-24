@@ -26,15 +26,15 @@ from starlette.websockets import WebSocket
 
 from hivemind.entrance.gate.params import Here, Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
-from hivemind.entrance.models.views import (
+from hivemind.entrance.streams.errors import CloseReason
+from hivemind.entrance.streams.socket import StreamContext, serve_socket
+from hivemind.entrance.streams.views.pump import pump, trail_subscription
+from hivemind.observation import (
     ForageFrame,
     grant_view,
     headroom_view,
     trail_event_view,
 )
-from hivemind.entrance.streams.errors import CloseReason
-from hivemind.entrance.streams.socket import StreamContext, serve_socket
-from hivemind.entrance.streams.views.pump import pump, trail_subscription
 from hivemind.pheromone import PheromoneEvent
 from hivemind.queen import ForageLedger
 from waggle.ids import GrantId

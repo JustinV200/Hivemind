@@ -9,7 +9,7 @@ Forage grants it holds. Telemetry text (a bee's goal line, its last actions) is 
 ``observe:thoughts`` and ``C2``, on the telemetry stream.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``. Built
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Built
     by ``hivemind.entrance.reads.census``; answered by ``hivemind.entrance.routes.hive.wardens``;
     published in the OpenAPI document. Calls into the wire WardenState and pydantic.
 

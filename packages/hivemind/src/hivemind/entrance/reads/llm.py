@@ -24,8 +24,8 @@ See Also:
 from __future__ import annotations
 
 from hivemind.entrance.gate.reads import LlmReads
-from hivemind.entrance.models.views import LlmView, ProviderHealthView, ProviderView, SlotView
 from hivemind.forage import slot_for_binding
+from hivemind.observation import LlmView, ProviderHealthView, ProviderView, SlotView
 
 __all__ = ["llm_view"]
 

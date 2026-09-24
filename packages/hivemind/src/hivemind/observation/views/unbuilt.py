@@ -7,7 +7,7 @@ written against the whole of it. ``NotBuiltView`` is that answer; it shares ``er
 ``detail`` with every other refusal's body, so a client's error handling reads it unchanged.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``.
     Answered by ``hivemind.entrance.routes.later``; published in the OpenAPI document. Calls
     into pydantic only.
 

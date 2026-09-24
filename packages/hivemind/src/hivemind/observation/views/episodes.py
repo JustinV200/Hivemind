@@ -10,7 +10,7 @@ a tool result) stays in memory, since the chat and the task views already show w
 read of it. ``EpisodeView`` is also what the episode stream sends.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``.
     Answered by ``hivemind.entrance.routes.hive.episodes`` and sent by the episode stream;
     published in the OpenAPI document. Calls into memory's episode record and pydantic.
 

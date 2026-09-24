@@ -14,7 +14,7 @@ Key invariants:
     - Every row here is a READ answering 501.
 
 See Also:
-    - hivemind.entrance.models.views.unbuilt for the answer.
+    - hivemind.observation.views.unbuilt for the answer.
 
 Public API:
     - TOOL_ROUTES, TOOLS_PHASE: the tools resource (tools).

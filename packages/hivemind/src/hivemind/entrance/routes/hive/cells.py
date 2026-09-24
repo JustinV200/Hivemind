@@ -26,8 +26,8 @@ from fastapi import Path
 
 from hivemind.entrance.gate.params import Services
 from hivemind.entrance.gate.spec import BOTH_LISTENERS, RouteEffect, RouteSpec, session_with
-from hivemind.entrance.models.views import CellList, CellView
 from hivemind.entrance.reads import cell_view, cell_views
+from hivemind.observation import CellList, CellView
 from waggle.messages.base import CellIdField
 
 OBSERVE = "observe"  # The Fleet and the Cell pages are read-only views.

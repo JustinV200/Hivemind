@@ -20,7 +20,7 @@ Key invariants:
     - A Cell is listed once, by its attached Warden's link when it has one.
 
 See Also:
-    - hivemind.entrance.models.views.cells and .wardens for the views built here.
+    - hivemind.observation.views.cells and .wardens for the views built here.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import AccessLevel, Cell, CellKind, CombShieldLevel, LeaseState, OsFamily
 from hivemind.entrance.errors import CellNotFoundError
 from hivemind.entrance.gate.reads import HiveReads
-from hivemind.entrance.models.views import CellMode, CellView, WardenView
 from hivemind.hive import LiveVirtualCell
+from hivemind.observation import CellMode, CellView, WardenView
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.queen import ForageLedger, WardenLink, WardenLiveness
 from waggle.ids import CellId, TaskId, WardenId

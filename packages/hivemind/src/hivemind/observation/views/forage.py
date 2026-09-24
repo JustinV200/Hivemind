@@ -9,7 +9,7 @@ out: the reason is the allocator's prose and the bindings name model ids that be
 view. ``grant_view`` and ``headroom_view`` are also what the Forage delta stream sends.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``. Built
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Built
     by ``hivemind.entrance.reads.forage``; answered by ``hivemind.entrance.routes.hive.forage``
     and sent by the Forage delta stream; published in the OpenAPI document. Calls into the Forage
     models, the Queen's ``Headroom`` and pydantic.
