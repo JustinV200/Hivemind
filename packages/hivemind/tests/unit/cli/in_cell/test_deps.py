@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,7 @@ from hivemind.llm import text_response
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.manifest.env import read_in_cell_env
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.wardens import ModelJudgeReviewer
 from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
@@ -50,6 +52,7 @@ from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.ids import WardenId, new_grant_id, new_hive_id, new_node_id, new_task_id
+from waggle.messages.capping import CheckKind
 from waggle.messages.control.protocol import Shutdown
 from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
 from waggle.messages.forage.values import Effort as WireEffort
@@ -325,7 +328,53 @@ def test_the_in_cell_warden_is_equipped_with_the_exoskeleton_wiring(tmp_path: Pa
     # The Cell has no database file, so its recordings live in this process, with the Cell.
     assert isinstance(deps.recording_store, InMemoryRecordingStore)
     assert deps.exoskeleton_config.browser_sandbox is False
-    # No HIVEMIND_SLOTS table was sent: the fallback registry binds no transcriber to hear with.
+    # No HIVEMIND_SLOTS table was sent: the fallback registry binds no transcriber to hear with,
+    # and no judge, so every JUDGE tier fails closed at this Cell's gate as it always has.
     assert deps.ears is None
+    assert CheckKind.JUDGE not in deps.checks
     has_extra = importlib.util.find_spec("playwright") is not None
     assert (deps.browser_launcher is not None) is has_extra
+
+
+def test_a_cell_whose_table_binds_a_judge_gets_the_judge_rung_and_reviewer(
+    tmp_path: Path,
+) -> None:
+    # Arrange: the operator's table, as the Queen hands it to a Cell, binding a judge slot too.
+    clock = FakeClock()
+    environ = _environ(
+        "ws://127.0.0.1:9",
+        new_node_id(clock),
+        new_hive_id(clock),
+        Ed25519Signer.generate(),
+        tmp_path,
+    )
+    provider = {
+        "name": "local",
+        "kind": "openai_compat",
+        "base_url": "http://host.docker.internal:1234/v1",
+        "default_model": "local-test-model",
+        "capabilities": {},
+        "api_key_env": "HIVEMIND_LOCAL_API_KEY",
+    }
+    rows = [
+        {
+            "key": key,
+            "provider": "local",
+            "model": "local-test-model",
+            "fallback": None,
+            "effort": "MEDIUM",
+            "max_output_tokens": None,
+        }
+        for key in ("warden", "worker", "judge")
+    ]
+    environ |= {"HIVEMIND_PROVIDERS": json.dumps([provider]), "HIVEMIND_SLOTS": json.dumps(rows)}
+    config = build_runtime_config(read_in_cell_env(environ), clock)
+    trail = MemoryPheromoneTrail(clock)
+    identity = CellIdentity(hive_id=config.hive_id, node_id=config.node_id, actor="w")
+    source = InCellSpawnSource(config.spawn_config, identity, trail, clock)
+    queen_link, _queen_end = MemoryTransport.pair(Codec(), Codec())
+
+    deps = build_in_cell_warden_deps(config, source, queen_link, trail, clock)
+
+    assert CheckKind.JUDGE in deps.checks  # Irreversible GUI work can be judged, and land.
+    assert isinstance(deps.judge_reviewer, ModelJudgeReviewer)

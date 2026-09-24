@@ -28,6 +28,8 @@ Fits into the Hive:
 Key invariants:
     - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
       `hivemind.cli.compose.deps.build_warden_deps` wires for the Hive Stand.
+    - The gate has a JUDGE rung, and the Warden a model-backed judge, exactly when the Cell's slot
+      table binds `ModelSlot.JUDGE`; without one, every JUDGE tier fails closed.
     - `call_gate`/`lane_for_grant` are both unmetered (`DirectCallGate`): a single Virtual Cell has
       no Fanner of its own to share a seat meter across bees the way the Hive Stand's shared pool
       does (roadmap step 5.5 scope; a per-Cell Fanner is a later step, flagged in this dispatch's
@@ -43,15 +45,27 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from hivemind.cli.compose.exoskeleton import in_cell_exoskeleton
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
+from hivemind.common.logging import get_logger
+from hivemind.forage import Tempo
 from hivemind.forage.slots import ModelSlot
+from hivemind.llm import (
+    CallGate,
+    ProviderRegistry,
+    UnknownProviderError,
+    UnresolvableSlotError,
+)
 from hivemind.llm.ladders.gate import DirectCallGate
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision import load_policy
-from hivemind.supervision.capping import deterministic_checks, load_tiers
+from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
+from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
+from hivemind.wardens import ModelJudgeReviewer
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.spawn import InCellSpawnSource
@@ -74,6 +88,8 @@ DEFAULT_WORKER_HEARTBEAT_INTERVAL_S = 15.0
 DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED = 3
 # codingrules section 8.9: "two thirds of its window" is the documented default threshold.
 DEFAULT_HANDOFF_THRESHOLD = 2.0 / 3.0
+
+log = get_logger(__name__)
 
 __all__ = [
     "DEFAULT_HANDOFF_THRESHOLD",
@@ -119,7 +135,7 @@ def build_in_cell_warden_deps(
         clock=clock,
         policy=load_policy(None),  # No [supervision] section inside a Cell: the shipped default.
         tiers=load_tiers(None),  # Same reasoning: the shipped capping-tiers.toml.
-        checks=deterministic_checks(),  # No JudgeReviewer wired yet; see this dispatch's report.
+        checks=deterministic_checks(),  # The JUDGE rung joins below, when a judge is bound.
         bound=registry.bound(ModelSlot.WARDEN),
         call_gate=DirectCallGate(),  # No per-Cell Fanner yet (module docstring's own note).
         worker_factory=worker_for,
@@ -132,7 +148,32 @@ def build_in_cell_warden_deps(
         snapshotter=_build_snapshotter(config, queen_link, hop, clock),
     )
     # Roadmap steps 6.4-6.6: the Exoskeleton's screen, launcher, recorder and ears (module docs).
-    return in_cell_exoskeleton(registry, clock).apply(deps)
+    return in_cell_exoskeleton(registry, clock).apply(_with_judge(deps, registry))
+
+
+def _with_judge(deps: WardenDeps, registry: ProviderRegistry) -> WardenDeps:
+    """Give this Cell's gate the model-backed judge its slot table binds, as the Hive Stand's has.
+
+    Without one, every tier whose check ladder includes JUDGE (irreversible, device_command,
+    outside_scratch_write, spend) fails closed at the gate, so an irreversible GUI action on a
+    desktop Cell could never land, and every audit sampled the default, unscripted fake judge.
+    A table that binds no judge keeps exactly that fail-closed behaviour, and says so once.
+    """
+    try:
+        # Resolving a binding is bookkeeping only: no provider is contacted until a review runs.
+        bound = registry.bound(ModelSlot.JUDGE)
+    except (UnresolvableSlotError, UnknownProviderError) as error:
+        log.warning("in_cell.judge_unbound", reason=type(error).__name__)
+        return deps
+    reviewer = ModelJudgeReviewer(bound=bound, lane_for=_direct_lane)
+    rubrics = load_judge_rubrics()
+    checks = {**deps.checks, **judge_checks(reviewer, rubrics)}
+    return replace(deps, checks=checks, judge_reviewer=reviewer, judge_rubrics=rubrics)
+
+
+def _direct_lane(_tempo: Tempo) -> CallGate:
+    """Return one review's call gate: unmetered, like every call inside a Cell (module docs)."""
+    return DirectCallGate()
 
 
 def _build_snapshotter(
