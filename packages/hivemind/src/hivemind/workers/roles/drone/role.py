@@ -1,59 +1,45 @@
 """Define Drone: the generic Worker role that runs one bounded tool loop per attempt.
 
-`Drone.run` is one awake episode over hot state (codingrules 8.8, 8.9): it assembles its prompt
-from durable state through `hivemind.memory.assemble`, hands the model the tools the Worker's
-capabilities allow, and lets `hivemind.llm.run_tool_loop` drive the turns; every tool call
-that has a side effect goes through the Capping gate before it lands (codingrules 8.12). The
-class lives here rather than in the package face because a face only re-exports (codingrules
-5.4); the sibling modules hold the prompt assembly, the hot-state sources and the outcome
-builders this module composes. Roadmap step 4.4: the whole "assemble a prompt, then call the
-model" step runs through `hivemind.memory.run_with_overflow_retry`, so a provider's own
-`ContextTooLongError` shrinks `hivemind.workers.roles.drone.prompt.initial_drone_budget`'s own
-starting budget and retries, rather than crashing this attempt; past `MAX_OVERFLOWS` it raises
-`hivemind.memory.overflow.ContextOverflowError`, which this class lets propagate uncaught, exactly
-like any other role bug -- `hivemind.workers.runtime.attempt.AttemptManager`'s own existing
-crash-to-Alarm path is "the Drone's existing path" roadmap step 4.4 asks it to use.
+`Drone.run` delegates to `hivemind.workers.roles.bounded_loop.runner.run_bounded_loop` (roadmap
+step 6.9) with a `RoleProfile` built from this role's own knobs: `WorkerRole.DRONE`, `DRONE_ROLE`
+for hot-state packing, `PromptName.DRONE_SYSTEM`, `DRONE_MAX_ROUNDS`, and `hivemind.workers.tools.
+build_registry` for its tool selection -- every tool its capabilities allow, with no restriction
+and no per-call hook, exactly as before this factoring. The class lives here rather than in the
+package face because a face only re-exports (codingrules 5.4); `hivemind.workers.roles.drone.
+prompt` supplies this role's own constants to the shared prompt builders.
 
 Fits into the Hive:
-    Layer 4 (roles that do the work). Instantiated by a Warden's `worker_factory` (roadmap
-    3.19) and driven by `hivemind.workers.runtime.WorkerRuntime`. Calls into
-    `hivemind.workers.roles.drone.{prompt,sources,outcome}`, `hivemind.workers.tools`,
-    `hivemind.llm` (the tool loop and the trail observer) and `hivemind.memory`.
+    Layer 4 (roles that do the work). Instantiated by a Warden's `worker_factory`
+    (`hivemind.workers.roles.worker_for`) and driven by `hivemind.workers.runtime.WorkerRuntime`.
+    Calls into `hivemind.workers.roles.bounded_loop`, `hivemind.workers.roles.drone.prompt`,
+    `hivemind.workers.tools` and waggle only.
 
 Key invariants:
     - A Drone never marks its own work SUCCEEDED: it returns `WorkerOutcome(claimed=True)` and
       the Warden's acceptance decides (codingrules 8.12).
-    - It holds no conversation between attempts; a handoff carries what the next attempt needs.
-    - A `ContextTooLongError` never crashes this attempt (roadmap step 4.4): it is caught and
-      retried, with a shrunk budget, inside `run_with_overflow_retry`; only `ContextOverflowError`
-      (after `MAX_OVERFLOWS` retries) ever escapes `run`.
+    - Its round cap, prompt and tool selection are exactly what they were before roadmap step
+      6.9's factoring: `DRONE_MAX_ROUNDS`, `PromptName.DRONE_SYSTEM`, `build_registry`.
 
 See Also:
     - .claude/codingrules.md sections 5.4, 8.8, 8.9 and 8.12.
+    - hivemind.workers.roles.bounded_loop.runner for run_bounded_loop, this class's one delegate.
     - hivemind.workers.roles.drone for the package face this module is re-exported through.
     - hivemind.workers.base for the Worker protocol this class satisfies.
 """
 
 from __future__ import annotations
 
-from hivemind.llm import ToolLoopOptions, ToolLoopResult, TrailLadderObserver, run_tool_loop
-from hivemind.memory import Handoff, TokenBudget, run_with_overflow_retry
+from hivemind.llm import PromptName
+from hivemind.memory import Handoff
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
-from hivemind.workers.roles.drone.outcome import (
-    HandoffRequestedError,
-    build_claimed_outcome,
-    build_handoff_outcome,
-    collect_artifacts,
-)
-from hivemind.workers.roles.drone.outcome.executor import _RecordingExecutor
+from hivemind.workers.roles.bounded_loop import RoleProfile, run_bounded_loop
 from hivemind.workers.roles.drone.prompt import (
-    assemble_drone_prompt,
-    build_request,
-    initial_drone_budget,
+    DRONE_BUDGET_FRACTION,
+    DRONE_OUTPUT_RESERVE_TOKENS,
+    DRONE_ROLE,
 )
-from hivemind.workers.roles.drone.sources import DroneSources
-from hivemind.workers.tools import ToolInvocation, build_registry
+from hivemind.workers.tools import build_registry
 from waggle.messages.task import TaskAssign, WorkerRole
 
 DRONE_MAX_ROUNDS = 12  # Generous for a real task, small enough to bound a runaway loop.
@@ -66,7 +52,7 @@ class Drone:
 
     `role` is a fixed property (codingrules section 8.1: implements `hivemind.workers.base.Worker`
     structurally); a fresh `Drone` instance is built per attempt by whichever composition root
-    spawns it (a Warden, roadmap step 3.19).
+    spawns it (`hivemind.workers.roles.worker_for`).
     """
 
     def __init__(self, *, max_rounds: int = DRONE_MAX_ROUNDS) -> None:
@@ -76,7 +62,15 @@ class Drone:
             max_rounds: The most model turns one attempt's tool loop may take before it reports
                 exhaustion instead of a final answer; `DRONE_MAX_ROUNDS` by default.
         """
-        self._max_rounds = max_rounds
+        self._profile = RoleProfile(
+            role=WorkerRole.DRONE,
+            principal_role=DRONE_ROLE,
+            prompt_name=PromptName.DRONE_SYSTEM,
+            max_rounds=max_rounds,
+            build_tools=build_registry,
+            budget_fraction=DRONE_BUDGET_FRACTION,
+            output_reserve_tokens=DRONE_OUTPUT_RESERVE_TOKENS,
+        )
 
     @property
     def role(self) -> WorkerRole:
@@ -99,49 +93,4 @@ class Drone:
             `claimed=False` one carrying a Handoff once this attempt's own telemetry says to
             checkpoint instead.
         """
-        registry = build_registry(ctx)
-        sources = DroneSources(ctx, assignment, resume_from)
-        invocation = ToolInvocation(ctx=ctx, assignment=assignment)
-        executor = _RecordingExecutor(registry, invocation, ctx.telemetry, ctx.handoff_threshold)
-        observer = TrailLadderObserver(
-            ctx.trail, ctx.identity.hive_id, ctx.identity.node_id, ctx.identity.actor, ctx.clock
-        )
-        options = ToolLoopOptions(
-            max_rounds=self._max_rounds, gate=ctx.call_gate, observer=observer
-        )
-
-        async def _attempt(budget: TokenBudget) -> ToolLoopResult:
-            """Assemble this attempt's prompt at `budget` and run the tool loop once."""
-            prompt = await assemble_drone_prompt(ctx, assignment, sources, budget)
-            request = build_request(ctx, prompt, assignment, registry.definitions())
-            return await run_tool_loop(
-                ctx.bound, request, registry.definitions(), executor, options
-            )
-
-        try:
-            # A ContextTooLongError here is caught and retried, with a shrunk budget, inside
-            # run_with_overflow_retry (roadmap step 4.4); only ContextOverflowError (after
-            # MAX_OVERFLOWS retries) or HandoffRequestedError ever escape this try.
-            result = await run_with_overflow_retry(
-                _attempt, initial_drone_budget(ctx), ctx.trail, ctx.identity, ctx.clock
-            )
-        except HandoffRequestedError:
-            # This attempt's own telemetry asked to checkpoint; hand back a Handoff instead of a
-            # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it.
-            return await build_handoff_outcome(ctx, assignment, executor)
-        _record_usage(ctx, result)
-        artifacts = await collect_artifacts(ctx, executor.records)
-        return build_claimed_outcome(assignment, result, artifacts)
-
-
-def _record_usage(ctx: WorkerContext, result: ToolLoopResult) -> None:
-    """Record this attempt's aggregated tokens and spend on telemetry, once, after the loop ends.
-
-    `hivemind.llm.run_tool_loop` exposes no per-round hook a caller could record from between
-    turns (this package's own module docstring), so this records the loop's one summed `Usage`
-    instead of one entry per round.
-    """
-    used = result.usage.input_tokens + result.usage.output_tokens
-    ctx.telemetry.record_tokens(used, ctx.bound.context_window)
-    if result.usage.cost_usd is not None:
-        ctx.telemetry.add_spend(result.usage.cost_usd)
+        return await run_bounded_loop(ctx, assignment, resume_from, self._profile)
