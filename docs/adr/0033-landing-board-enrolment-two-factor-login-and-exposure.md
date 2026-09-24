@@ -24,7 +24,10 @@ because every client implements them.
 password hash in PHC string form, derived with `cryptography`'s `Argon2id` (RFC 9106's second
 recommended profile: 3 passes, 4 lanes, 64 MiB), so no password library is added. Hashing and
 verifying run in a worker thread behind a semaphore of two, so a burst of logins can neither
-block the Queen's event loop nor exhaust memory. `hive entrance operator password` sets it on the
+block the Queen's event loop nor exhaust memory. OpenSSL runs every derivation's four lanes on one
+thread pool per process, about one thread per core, which two derivations at once exhaust on a
+machine with fewer than eight cores (a deadlock, or a spurious `MemoryError`), so each derivation
+also takes one process-wide lock and runs alone. `hive entrance operator password` sets it on the
 Hive Stand the first time and afterwards changes it only on presentation of the current one;
 `--reset` works only while `hive serve` is stopped and revokes every device and session, because
 it means the password itself is lost. Roadmap 14.2's `hive init` will call the same function.

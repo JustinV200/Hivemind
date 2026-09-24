@@ -1,4 +1,4 @@
-"""Hash and verify the operator's password with Argon2id, off the event loop and two at a time.
+"""Hash and verify the operator's password with Argon2id, off the event loop and one at a time.
 
 Brood 1.0 has one operator and one password, the second factor of every login at the Hive Entrance
 (the Hive's one HTTP door; ADR-0033). The Entrance tables keep only its Argon2id hash, as the PHC
@@ -8,7 +8,11 @@ RFC 9106's second recommended profile: 3 passes over 64 MiB with 4 lanes, a 16-b
 a 32-byte output. Each derivation costs about a tenth of a second and 64 MiB, so ``PasswordHasher``
 runs every one in a worker thread (codingrules section 11: CPU-bound work never blocks the loop)
 behind its own semaphore of two: a burst of logins queues instead of exhausting memory or stalling
-the Queen (the orchestrator). The same hasher derives the key that wraps the private key of the
+the Queen (the orchestrator). OpenSSL runs a derivation's four lanes on one thread pool shared by
+the whole process (about one thread per core), and two derivations at once on a machine with fewer
+than eight cores exhaust it: OpenSSL then deadlocks both, or fails one with a spurious
+``MemoryError``. So every derivation in the process, whichever hasher asked for it, also takes one
+module-level lock, and runs alone. The same hasher derives the key that wraps the private key of the
 console on the Hive Stand (the Queen's machine) (``hivemind.entrance.auth.wrap``), because that
 costs exactly as much. A password is normalised to Unicode NFKC before anything else, so the same
 password typed on a phone and on a laptop (which may compose accented letters differently) hashes
@@ -21,8 +25,9 @@ Fits into the Hive:
     into ``cryptography`` and ``hivemind.entrance.errors`` only.
 
 Key invariants:
-    - No module-level state: the semaphore belongs to the hasher its caller built, so two
-      Entrances in one process (two tests) never share or starve each other's slots.
+    - The semaphore belongs to the hasher its caller built, so two Entrances in one process (two
+      tests) never share or starve each other's slots; the one module-level state is the lock
+      that keeps OpenSSL's process-wide thread pool to one derivation at a time.
     - A password shorter than ``MIN_PASSWORD_CHARS`` or longer than ``MAX_PASSWORD_CHARS`` is never
       hashed; ``verify`` of an over-long one is False without deriving anything.
     - Verification is ``Argon2id.verify_phc_encoded`` (constant time); only ``InvalidKey`` means
@@ -38,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import unicodedata
 from typing import Final
 
@@ -55,6 +61,10 @@ MIN_PASSWORD_CHARS = 12  # Below this an offline guess against a stolen hash get
 MAX_PASSWORD_CHARS = 1024  # Longer is a mistake or an attack, never a password someone types.
 DEFAULT_CONCURRENCY = 2  # ADR-0033: two derivations at once, 128 MiB ceiling, for any burst.
 _NORMAL_FORM: Final = "NFKC"  # NIST SP 800-63B: normalise before hashing so devices agree.
+# One derivation at a time in the whole process: OpenSSL draws every derivation's lanes from one
+# process-wide thread pool, which two 4-lane derivations at once can exhaust (a deadlock, or a
+# spurious MemoryError) on a machine with fewer than eight cores. Stricter than the semaphore.
+_ONE_AT_A_TIME = threading.Lock()
 
 __all__ = [
     "ARGON2_ITERATIONS",
@@ -71,7 +81,7 @@ __all__ = [
 
 
 class PasswordHasher:
-    """Run Argon2id derivations in worker threads, at most ``concurrency`` at a time.
+    """Run Argon2id derivations in worker threads: ``concurrency`` threads, one deriving at once.
 
     Owns one ``asyncio.Semaphore``; like every asyncio primitive it belongs to the event loop
     that first waits on it, so build one hasher per running Entrance (or per test).
@@ -107,7 +117,7 @@ class PasswordHasher:
         """
         normalised = _normalise(password)
         check_password_strength(normalised)
-        # Latency: about 0.1 s of CPU in a worker thread, after waiting for a free slot.
+        # Latency: about 0.1 s of CPU in a worker thread, after a free slot and the process's turn.
         async with self._slots:
             return await asyncio.to_thread(_derive_phc, normalised)
 
@@ -127,7 +137,7 @@ class PasswordHasher:
         # derivation keeps a flood of huge passwords from costing a thread each.
         if len(normalised) > MAX_PASSWORD_CHARS:
             return False
-        # Latency: about 0.1 s of CPU in a worker thread, after waiting for a free slot.
+        # Latency: about 0.1 s of CPU in a worker thread, after a free slot and the process's turn.
         async with self._slots:
             return await asyncio.to_thread(_matches_phc, normalised, encoded)
 
@@ -150,7 +160,7 @@ class PasswordHasher:
         if len(salt) != SALT_BYTES:
             raise ValueError(f"An Argon2id salt must be {SALT_BYTES} bytes, not {len(salt)}.")
         normalised = _normalise(password)
-        # Latency: about 0.1 s of CPU in a worker thread, after waiting for a free slot.
+        # Latency: about 0.1 s of CPU in a worker thread, after a free slot and the process's turn.
         async with self._slots:
             return await asyncio.to_thread(_derive_raw, normalised, salt)
 
@@ -194,7 +204,8 @@ def _argon2id(salt: bytes) -> Argon2id:
 
 def _derive_phc(password: str) -> str:
     """Hash ``password`` under a fresh salt into a PHC string; blocking, run in a thread."""
-    return _argon2id(os.urandom(SALT_BYTES)).derive_phc_encoded(password.encode("utf-8"))
+    with _ONE_AT_A_TIME:
+        return _argon2id(os.urandom(SALT_BYTES)).derive_phc_encoded(password.encode("utf-8"))
 
 
 def _matches_phc(password: str, encoded: str) -> bool:
@@ -202,7 +213,8 @@ def _matches_phc(password: str, encoded: str) -> bool:
     # verify_phc_encoded reads the parameters from the string itself and compares in constant
     # time; InvalidKey covers both a wrong password and a string that is not a PHC string.
     try:
-        Argon2id.verify_phc_encoded(password.encode("utf-8"), encoded)
+        with _ONE_AT_A_TIME:
+            Argon2id.verify_phc_encoded(password.encode("utf-8"), encoded)
     except InvalidKey:
         return False
     return True
@@ -210,4 +222,5 @@ def _matches_phc(password: str, encoded: str) -> bool:
 
 def _derive_raw(password: str, salt: bytes) -> bytes:
     """Derive raw key material from ``password`` and ``salt``; blocking, run in a thread."""
-    return _argon2id(salt).derive(password.encode("utf-8"))
+    with _ONE_AT_A_TIME:
+        return _argon2id(salt).derive(password.encode("utf-8"))

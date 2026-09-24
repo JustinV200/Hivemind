@@ -30,6 +30,7 @@ from hivemind.entrance.errors import WeakPasswordError
 
 _PASSWORD = "correct horse battery staple"  # noqa: S105 -- a test's password, not a credential
 _RELEASE_TIMEOUT_S = 5.0  # Bounds a blocked worker thread if the test itself fails midway.
+_CONCURRENT_TIMEOUT_S = 30.0  # Four real derivations in turn take about a second.
 
 
 async def test_hash_writes_an_argon2id_phc_string_with_the_rfc_9106_profile() -> None:
@@ -150,3 +151,17 @@ async def test_no_more_than_the_hashers_slots_derive_at_once(
         spy.release.set()
 
     assert spy.most_in_flight == 2
+
+
+async def test_derivations_asked_for_at_once_by_two_hashers_all_finish() -> None:
+    # OpenSSL draws each derivation's four lanes from one process-wide thread pool; two at once
+    # on a machine with fewer than eight cores exhausted it, and both derivations hung for good.
+    first, second = PasswordHasher(), PasswordHasher()
+    encoded = await first.hash(_PASSWORD)
+
+    async with asyncio.timeout(_CONCURRENT_TIMEOUT_S):
+        matched = await asyncio.gather(
+            *(hasher.verify(_PASSWORD, encoded) for hasher in (first, second, first, second))
+        )
+
+    assert matched == [True, True, True, True]
