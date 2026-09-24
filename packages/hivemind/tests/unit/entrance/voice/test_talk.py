@@ -3,9 +3,9 @@
 Over real listeners, a real Queen and a real chat socket: a hold's slices are joined in order and
 heard once, and the answer (a ``voice`` frame) reaches the socket that spoke and no other, while
 the chat line it made reaches every chat reader; a spoken goal is echoed back and held; a hold
-past its bounds, a frame that is not push-to-talk, and an answer from a device without
-``entrance:answer`` are refused on the socket before any model runs, and the socket stays open for
-the chat; with voice off a hold is refused as not served.
+past its bounds, a hold that goes quiet, a frame that is not push-to-talk, and an answer from a
+device without ``entrance:answer`` are refused on the socket before any model runs, and the socket
+stays open for the chat; with voice off a hold is refused as not served.
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/voice/talk.py (codingrules section 3).
@@ -16,9 +16,11 @@ Key invariants:
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
+import pytest
 from builders.audio import silent_wav
 from builders.entrance.serving import ProgramGrant, serving
 from builders.entrance.views import next_frame, open_view
@@ -113,6 +115,33 @@ async def test_a_hold_past_its_frame_bound_is_refused_once_and_dropped() -> None
 
     assert (refused["type"], refused["status"]) == ("voice_refused", 422)
     assert refused["refusal"]["error"] == "hivemind.entrance.push_to_talk_refused"
+    assert answer["type"] == "voice" and len(fake.calls) == 1
+
+
+async def test_a_hold_that_goes_quiet_is_refused_once_and_the_next_hold_is_heard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeTranscription()
+    fake.script(_HEARD)
+    # A hold is let go when its next frame is CHUNK_IDLE_S late: a moment here, not ten seconds.
+    monkeypatch.setattr("hivemind.entrance.voice.talk.CHUNK_IDLE_S", 0.2)
+    slice_ = {"type": "audio_chunk", "media_type": "audio/wav"}
+    async with serving(voice_rig(fake)) as rig:
+        client, session = await rig.program(SPEAKER)
+        socket = await open_view(rig, client, session, CHAT_STREAM)
+
+        # One slice of a hold, and then nothing: no more audio, no end frame.
+        data = base64.b64encode(_WAV[:4_096]).decode("ascii")
+        await socket.send(json.dumps({**slice_, "data": data}))
+        quiet = await voice_reply(socket)
+        await talk(socket, _WAV, "chat")
+        answer = await voice_reply(socket)
+        await socket.close()
+
+    assert (quiet["status"], quiet["refusal"]["error"]) == (
+        422,
+        "hivemind.entrance.push_to_talk_refused",
+    )
     assert answer["type"] == "voice" and len(fake.calls) == 1
 
 

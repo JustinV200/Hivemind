@@ -125,8 +125,11 @@ async def listen(talk: Talk) -> None:
         try:
             message = await _next_message(talk, hold)
         except TimeoutError:
-            # A hold that went quiet, or ran past its deadline: refused once, then dropped.
-            await _refuse(talk, PushToTalkError("the hold ended without its end frame in time"))
+            # A hold that went quiet, or ran past its deadline, is dropped; refused unless a
+            # broken bound already refused it, so a hold is refused once at most.
+            if not hold.refused:
+                late = PushToTalkError("the hold ended without its end frame in time")
+                await _refuse(talk, late)
             hold.reset()
             continue
         if message is None:
@@ -139,12 +142,18 @@ async def listen(talk: Talk) -> None:
 
 
 async def _next_message(talk: Talk, hold: _Hold) -> dict[str, object] | None:
-    """Wait for the next message: unbounded between holds, within the hold's limits during one."""
+    """Wait for the next message: unbounded between holds, within the hold's limits during one.
+
+    Raises:
+        TimeoutError: An open hold's next frame did not arrive in time.
+    """
     limit = _time_left(talk.services, hold)
     try:
         # External wait: the client's next frame; bounded only while a hold is open.
         async with asyncio.timeout(limit):
             message = await talk.websocket.receive()
+    except TimeoutError:
+        raise  # A TimeoutError is an OSError, but this one is the hold's bound, not a lost socket.
     except _GONE:
         return None
     if message.get("type") == "websocket.disconnect":
