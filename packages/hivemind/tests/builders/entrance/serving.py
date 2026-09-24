@@ -3,13 +3,14 @@
 ``serving`` builds what ``hive serve`` builds, over in-memory tables: a real Queen (not ticking) on
 ``make_queen_deps``'s fakes, her one Warden on the Hive Stand's Cell (so a device granted
 ``cell:hive_stand`` has its goals placed there, as in ``hive serve``), the Entrance's tables on her
-trail, the Hive's keys, and
-``build_entrance`` over a loopback socket on a port the system chooses; with ``remote`` it also
-serves a remote listener on another loopback port, plain HTTP (a test-only plan: every real remote
-mode speaks TLS), so a test can reach both applications. Every push delivery (webhook POSTs and Web
-Push requests alike) goes to one recording ``httpx.MockTransport``, the destination names resolving
-from a static table. The console device is recorded APPROVED and loopback-bound, its password
-hashed cheaply, so a test logs in with the real flow in milliseconds.
+trail, the Hive's keys, and ``build_entrance`` over a loopback socket on a port the system chooses;
+with ``remote`` it also serves a remote listener on another loopback port, plain HTTP (a test-only
+plan: every real remote mode speaks TLS), so a test can reach both applications. With a
+``transcriber`` (and ``[entrance.voice]`` on) it serves voice too, over the Queen's own scanner and
+an in-memory Nectar seam, as ``hive serve`` does with a bound TRANSCRIBER slot. Every push delivery
+(webhook POSTs and Web Push requests alike) goes to one recording ``httpx.MockTransport``, the
+destination names resolving from a static table. The console device is recorded APPROVED and
+loopback-bound, its password hashed cheaply, so a test logs in with the real flow in milliseconds.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the tests under
@@ -61,7 +62,8 @@ from hivemind.entrance.runtime import (
 )
 from hivemind.entrance.store import MemoryEntranceStore
 from hivemind.entrance.streams import DEFAULT_BACKLOG, TelemetryBoard
-from hivemind.llm import FakeLLMProvider
+from hivemind.entrance.voice import InMemoryAudioNectar, VoiceRules, VoiceServices
+from hivemind.llm import FakeLLMProvider, TranscriptionProvider
 from hivemind.manifest import EntranceExposure, EntranceSection
 from hivemind.queen import Queen
 from hivemind.queen.deps import QueenDeps
@@ -105,6 +107,7 @@ class RigOptions:
         hello_deadline_s: How long a socket may take to send its first frame.
         stream_backlog: How far a live view may fall behind before it is closed.
         seed: Run once the console is recorded and before the Entrance starts.
+        transcriber: What hears voice clips; None serves no voice (the route unmounted).
     """
 
     remote: bool = False
@@ -115,6 +118,7 @@ class RigOptions:
     hello_deadline_s: float = SOCKET_HELLO_DEADLINE_S
     stream_backlog: int = DEFAULT_BACKLOG
     seed: Seed | None = None
+    transcriber: TranscriptionProvider | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +288,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             http=push_http,
             own_addresses=frozenset({ipaddress.ip_address(OWN_ADDRESS)}),
             resolver=resolver,
+            voice=_voice(active, deps),
         )
         built = build_entrance(parts, bind_listener(LOOPBACK_HOST, 0))
         relay.bind(built.human_channel)
@@ -320,6 +325,19 @@ async def _queen(
     queen = Queen(deps)
     await queen.attach_warden(link)
     return queen, deps, warden_end
+
+
+def _voice(options: RigOptions, deps: QueenDeps) -> VoiceServices | None:
+    """Serve voice when the rig has a transcriber and ``[entrance.voice]`` is on."""
+    section = options.section.voice
+    if options.transcriber is None or not section.enabled:
+        return None
+    return VoiceServices(
+        transcriber=options.transcriber,
+        scanner=deps.scanner,
+        nectar=InMemoryAudioNectar(),
+        rules=VoiceRules.from_section(section),
+    )
 
 
 def _hive(queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard) -> EntranceHive:

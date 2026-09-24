@@ -16,6 +16,7 @@ import pytest
 
 from hivemind.entrance.auth import RateLimiter
 from hivemind.manifest import EntranceSection
+from hivemind.manifest.schema.entrance import EntranceVoiceSection
 from waggle.clock import FakeClock
 
 
@@ -73,3 +74,40 @@ def test_the_limits_come_from_the_manifest() -> None:
 def test_a_rate_or_capacity_below_one_is_refused(device: int, address: int, capacity: int) -> None:
     with pytest.raises(ValueError, match="at least 1"):
         RateLimiter(FakeClock(), device, address, capacity)
+
+
+def test_a_devices_audio_is_charged_in_seconds_whole_clips_or_nothing() -> None:
+    clock = FakeClock()
+    limiter = RateLimiter(clock, per_device=60, per_address=30, audio_s_per_device=120.0)
+
+    first = limiter.allow_audio("device-a", 100.0)
+    too_long = limiter.allow_audio("device-a", 30.0)  # Only 20 s left: refused whole.
+    fits = limiter.allow_audio("device-a", 20.0)
+    clock.advance(30)  # Half a minute refills 60 s of audio.
+    refilled = limiter.allow_audio("device-a", 60.0)
+
+    assert (first, too_long, fits, refilled) == (True, False, True, True)
+    assert limiter.allow_audio("device-b", 120.0)  # Every device has its own budget.
+
+
+def test_audio_seconds_are_a_budget_apart_from_the_request_rate() -> None:
+    limiter = RateLimiter(FakeClock(), per_device=1, per_address=1, audio_s_per_device=10.0)
+
+    spent_request = limiter.allow_device("device-a")
+    audio = limiter.allow_audio("device-a", 10.0)
+
+    assert spent_request and audio
+    assert not limiter.allow_device("device-a")
+    assert not limiter.allow_audio("device-a", 0.5)
+
+
+def test_the_audio_budget_comes_from_the_voice_section() -> None:
+    voice = EntranceVoiceSection(max_clip_seconds=5.0, audio_seconds_per_minute=6.0)
+    limiter = RateLimiter.from_section(EntranceSection(voice=voice), FakeClock())
+
+    assert [limiter.allow_audio("d", 3.0) for _ in range(3)] == [True, True, False]
+
+
+def test_an_audio_budget_that_is_not_positive_is_refused() -> None:
+    with pytest.raises(ValueError, match="audio budget"):
+        RateLimiter(FakeClock(), 1, 1, audio_s_per_device=0.0)
