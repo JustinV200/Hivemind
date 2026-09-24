@@ -28,9 +28,10 @@ Fits into the Hive:
     `hivemind.queen.trail` (record_forage_event) and waggle only.
 
 Key invariants:
-    - A wait records exactly one `forage.denied` (`deferred = true`) when it starts, or when the
-      limit it waits on changes, and nothing on any other pass; nothing is ever sent to a Warden
-      for a waiting task, and the chamber never moves it out of PENDING.
+    - A wait records exactly one `forage.denied` (`deferred = true`) when it starts, or when it
+      moves between the Cell's live figures and the goal's own allowance, and nothing on any other
+      pass; nothing is ever sent to a Warden for a waiting task, and the chamber never moves it
+      out of PENDING.
     - Only a limit whose figure can change while the task waits is waited out: `FREE_CORES` and
       `FREE_MEMORY` only on a Cell whose reading is live, `GOAL_BEES` always, `CELL_CAP` and
       `SEATS` never, and no limit at all that leaves no bee even at its best.
@@ -211,14 +212,14 @@ async def _note_wait(
     """Start or continue `task`'s wait on `bound`, recording the one event a new wait gets."""
     book = deps.grant_waits
     previous = book.waits.get(task.id)
-    if previous is not None and previous.bound is bound:
-        return previous  # Still waiting on the same limit: already said once, say nothing more.
-    # A wait on the Cell's live figures keeps its clock when the tightest of them changes (the
-    # host has been short all along); moving to or from the goal's own allowance starts afresh.
-    since = deps.clock.now()
-    if previous is not None and _is_timed(previous.bound) and _is_timed(bound):
-        since = previous.since
-    wait = GrantWait(bound=bound, since=since)
+    # Still waiting on the same kind of shortfall: already said once, so say nothing more and keep
+    # the clock. Which of the host's live figures is tightest may change from pass to pass (cores
+    # one pass, memory the next) without the host ever having had room, so that is one wait.
+    if previous is not None and _is_timed(previous.bound) == _is_timed(bound):
+        return previous
+    # A new wait, or one moving between the host's figures and the goal's own allowance: a
+    # different cause with a different end, so it is said once and runs its own clock.
+    wait = GrantWait(bound=bound, since=deps.clock.now())
     book.waits[task.id] = wait
     patience_s = book.patience_s if _is_timed(bound) else None
     await record_forage_event(

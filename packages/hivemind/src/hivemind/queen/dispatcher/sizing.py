@@ -1,15 +1,18 @@
-"""Define SizedGrant and size_grant: a fresh grant, sized from its Cell's figures as they stand.
+"""Define SizedGrant and size_grant: every grant the dispatcher sends, and the limits sizing it.
 
 Every grant the Queen's dispatcher sends -- a first dispatch, a retry, a resume -- is sized here,
-by `hivemind.forage.allocate.grant` (the pure Forage allocator), from the Cell's capacity as it
-stands right now when its link can read one (`WardenLink.live_capacity`: the Hive Stand re-reads
-its one-minute load and its free memory on every call), and from the attached link's own Cell
-otherwise (a Virtual Cell, whose resources its spec fixes for its whole life). Before this module
-the dispatcher always read the link's Cell, probed once when the Hive was built, so a load that
-had dropped since was never seen and one that had risen was never noticed. `SizedGrant` keeps the
-allocator's own limits (`hivemind.forage.SubBeeLimits`: each of the five limits, now and at best)
-beside the grant, and whether the reading was live, so `hivemind.queen.dispatcher.zero_grant` can
-tell a grant a passing shortfall zeroed from one no wait could ever lift.
+by `hivemind.forage.allocate.grant` (the pure Forage allocator). A fresh dispatch reads the Cell's
+capacity as it stands right now when its link can (`WardenLink.live_capacity`: the Hive Stand
+re-reads its one-minute load and its free memory on every call); otherwise, and always for a retry
+or a resume, the grant is sized from the attached link's own Cell, as probed (a Virtual Cell's
+figures are its spec, fixed for its whole life). Before this module every grant read the link's
+Cell, probed once when the Hive was built, so a load that had dropped since was never seen. A
+retry or a resume keeps that reading on purpose: a RUNNING task has no PENDING queue to wait in,
+so a live reading that zeroed its grant would only fail running work on a busy moment, the very
+defect a fresh dispatch's wait removes. `SizedGrant` keeps the allocator's own limits
+(`hivemind.forage.SubBeeLimits`: each of the five limits, now and at best) beside the grant, and
+whether the reading was live, so `hivemind.queen.dispatcher.zero_grant` can tell a grant a passing
+shortfall zeroed from one no wait could ever lift.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -24,8 +27,9 @@ Key invariants:
       but the one wait event `zero_grant` writes.
     - `SizedGrant.grant.max_sub_bees == SizedGrant.limits.max_sub_bees`: both come from the same
       inputs through the allocator's one computation.
-    - `SizedGrant.is_live` is True only when the link carries a live reader for its Cell
-      (`WardenLink.live_capacity`); it is never read off the Cell's kind (codingrules 8.7).
+    - `SizedGrant.is_live` is True only when the caller asked for a live reading and the link
+      carries a reader for its Cell (`WardenLink.live_capacity`); it is never read off the Cell's
+      kind (codingrules 8.7).
 
 See Also:
     - hivemind.forage.allocate for grant and sub_bee_limits, the pure computation this wraps.
@@ -76,21 +80,26 @@ class SizedGrant:
     waited_s: float | None = None
 
 
-async def size_grant(deps: QueenDeps, link: WardenLink, task: Task) -> SizedGrant:
-    """Size a fresh grant for `task` on `link`'s Cell, from the Cell's live figures when known.
+async def size_grant(
+    deps: QueenDeps, link: WardenLink, task: Task, *, read_live: bool = True
+) -> SizedGrant:
+    """Size a fresh grant for `task` on `link`'s Cell, from the Cell's live figures when asked.
 
     Args:
         deps: The Queen's collaborators.
         link: The Warden the grant is for, the Cell it runs, and that Cell's live reader if any.
         task: The task whose tempo and goal caps size the grant.
+        read_live: Read the Cell's capacity as it stands through the link's reader (a fresh
+            dispatch, which can wait out a passing shortfall); False sizes it from the link's own
+            Cell as probed (a retry or a resume, which cannot wait; module docstring).
 
     Returns:
         The grant, its inputs, its limits and whether its capacity reading was live.
     """
+    reader = link.live_capacity if read_live else None
     # Normally a handful of fast system reads on this host (the Hive Stand's load average, free
-    # memory and free disk); None means the Cell has no live reading, so its link's own Cell is
-    # the best figure there is.
-    live = await link.live_capacity() if link.live_capacity is not None else None
+    # memory and free disk); None means no live reading, so the link's own Cell is the figure.
+    live = await reader() if reader is not None else None
     capacity = live if live is not None else link.cell.capacity
     inputs = _grant_inputs(deps, link, capacity, task)
     return SizedGrant(

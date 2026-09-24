@@ -57,6 +57,18 @@ async def test_size_grant_falls_back_to_the_links_own_cell_without_a_reader() ->
     assert sized.grant.max_sub_bees == sized.limits.max_sub_bees >= 1
 
 
+async def test_size_grant_sizes_from_the_cell_as_probed_when_told_not_to_read_live() -> None:
+    # A retry or a resume, which cannot wait, never reads the live figures (sizing's docstring).
+    deps, link, _end = make_queen_deps()
+    live_link = dataclasses.replace(link, live_capacity=_busy_reading)
+
+    sized = await size_grant(deps, live_link, make_task(), read_live=False)
+
+    assert sized.is_live is False
+    assert sized.inputs.cell_capacity == link.cell.capacity
+    assert sized.grant.max_sub_bees >= 1
+
+
 async def test_size_grant_records_nothing() -> None:
     deps, link, _end = make_queen_deps()
 

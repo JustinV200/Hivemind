@@ -70,9 +70,10 @@ every assignment goes to a Warden, over Waggle.
   over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
   attached" means, so every later dispatch to the same Warden is a no-op here. The `TaskAssign` it
   builds carries `task.spec.leaves` unchanged (roadmap step 5.0b). Every grant is sized by
-  `dispatcher.sizing.size_grant`, from the Cell's capacity as it stands when its link carries a
-  live reader (`WardenLink.live_capacity`: the Hive Stand's, re-reading its load and free memory on
-  every pass) and from the link's own Cell otherwise (a Virtual Cell, fixed by its spec). A grant
+  `dispatcher.sizing.size_grant`; a fresh dispatch's from the Cell's capacity as it stands when its
+  link carries a live reader (`WardenLink.live_capacity`: the Hive Stand's, re-reading its load and
+  free memory on every pass), every other from the link's own Cell as probed (a Virtual Cell's is
+  fixed by its spec). A grant
   that runs no bee is never sent to the Warden (`.claude/phase-4-handoff.md` section 4.2 item 1 --
   a grant that empty used to be sent anyway, park the task RUNNING with a `GRANT_EXCEEDED`
   escalation, and time out silently), and `dispatcher.zero_grant` decides what happens instead.
@@ -85,8 +86,9 @@ every assignment goes to a Warden, over Waggle.
   figures only once `[forage] zero_grant_patience_s` has passed; a goal whose other running tasks
   hold its whole `max_sub_bees_per_goal` waits, before any Cell is chosen, until one of them
   finishes. One dispatch pass tries every ready task once, and a waiting one never holds up the
-  rest. `redispatch` (a RUNNING retry) and `resume_paused` (a `resume_from` resume) size their
-  grants the same way but fail at once on any zero: a RUNNING task has no queue to wait in.
+  rest. `redispatch` (a RUNNING retry) and `resume_paused` (a `resume_from` resume) fail at once
+  on any zero: a RUNNING task has no queue to wait in, which is also why they size their grants
+  from the link's own Cell as probed, as before, so a busy moment never fails running work.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules

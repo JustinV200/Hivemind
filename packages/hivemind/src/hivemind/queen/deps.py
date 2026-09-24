@@ -326,9 +326,10 @@ class GrantWait:
     """One fresh task's wait for a grant: the limit it waits on, and since when.
 
     Attributes:
-        bound: The limit that left its grant with no sub-bee (`hivemind.forage.GrantBound`).
-        since: When this wait began; a wait on the Cell's live figures keeps its clock when the
-            tightest of them changes, and a wait on the goal's allowance runs its own.
+        bound: The limit that left its grant with no sub-bee when this wait began
+            (`hivemind.forage.GrantBound`).
+        since: When this wait began; a wait on the Cell's live figures keeps its clock whichever
+            of them is tightest from pass to pass, and a wait on the goal's allowance runs its own.
     """
 
     bound: GrantBound

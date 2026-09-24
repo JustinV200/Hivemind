@@ -366,7 +366,8 @@ async def test_a_waiting_task_that_is_cancelled_waits_no_longer() -> None:
     assert stand.deps.grant_waits.waits == {}
 
 
-async def test_a_retry_under_a_busy_hive_stand_fails_at_once_having_no_queue_to_wait_in() -> None:
+async def test_a_retry_is_sized_from_the_cell_as_probed_so_a_busy_moment_never_fails_it() -> None:
+    # A RUNNING task cannot wait PENDING, so its retry never reads the live figures at all.
     reading = _Reading(_IDLE)
     stand = await _stand(reading)
     goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
@@ -375,7 +376,24 @@ async def test_a_retry_under_a_busy_hive_stand_fails_at_once_having_no_queue_to_
     reading.capacity = _BUSY
     await redispatch(stand.deps, [stand.link], goal_id, attempt=1)
 
-    assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.FAILED
-    [denial] = await _denials(stand.deps)
-    assert denial.payload["limited_by"] == "free_cores"
-    assert denial.payload["deferred"] is False
+    assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+    assert await _denials(stand.deps) == []
+    assert stand.recorder.kinds()[-2:] == ["GrantIssued", "TaskAssign"]
+
+
+async def test_a_wait_whose_tightest_host_figure_changes_is_still_one_wait_on_one_clock() -> None:
+    clock = FakeClock()
+    reading = _Reading(_BUSY)
+    stand = await _stand(reading, _Setup(clock=clock))
+    goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
+    started = stand.deps.grant_waits.waits[goal_id].since
+
+    # The cores free up but the memory fills: the host still has no room for a bee.
+    full = make_host_capacity(memory_free_bytes=600 * _MIB)
+    reading.capacity = make_capacity(host=full)
+    clock.advance(10.0)
+    await dispatch_ready(stand.deps, [stand.link])
+
+    assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.PENDING
+    assert len(await _denials(stand.deps)) == 1
+    assert stand.deps.grant_waits.waits[goal_id].since == started

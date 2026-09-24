@@ -43,9 +43,11 @@ later passes, one `forage.denied` with `deferred = true` saying so, and fails it
 only once `[forage] zero_grant_patience_s` has passed; a goal whose other running tasks hold its
 whole allowance waits, before any Cell is chosen, until one of them finishes; a lasting shortfall
 still fails the task at once (`hivemind.queen.dispatcher.zero_grant`'s docstring has the rule).
-`redispatch` and `resume_paused` (a RUNNING retry and a resumed PAUSED task) size their grants the
-same way but still fail at once on any zero: a RUNNING task has no edge back to PENDING, so it has
-no queue to wait in. A placement no Cell can bear at all never reaches this point:
+`redispatch` and `resume_paused` (a RUNNING retry and a resumed PAUSED task) still fail at once on
+any zero: a RUNNING task has no edge back to PENDING, so it has no queue to wait in, and for the
+same reason they size their grants from the link's own Cell as probed, exactly as before, never the
+live reading (which would only add a way for running work to fail on a busy moment). A placement
+no Cell can bear at all never reaches this point:
 `hivemind.queen.placement`'s own fit rule refuses the Cell first (roadmap step 5.7).
 
 One dispatch pass tries every ready task at most once, in `(created_at, id)` order, and a task
@@ -209,7 +211,8 @@ async def redispatch(
         None, once a fresh grant and assignment have been sent; silently if the task is somehow
         not placed or its Warden is no longer attached (nothing to resend to); or having instead
         denied the grant and failed the task if it runs no bee, at once whatever the cause: a
-        RUNNING task has no PENDING queue to wait in (module docstring).
+        RUNNING task has no PENDING queue to wait in, which is also why its grant is sized from
+        the link's own Cell as probed, never the live reading (module docstring).
     """
     task = await deps.chamber.get(task_id)
     if task.warden_id is None or task.cell_id is None:
@@ -217,7 +220,7 @@ async def redispatch(
     link = _link_for(wardens, task.warden_id)
     if link is None:
         return  # Its Warden is no longer attached; nothing to resend to.
-    sized = await size_grant(deps, link, task)
+    sized = await size_grant(deps, link, task, read_live=False)
     fresh_grant = await _send_grant_and_assign(
         deps, link, task, _AssignmentTerms(attempt=attempt), sized
     )
@@ -253,8 +256,9 @@ async def resume_paused(
     Returns:
         None, once resumed; silently if the task is somehow not placed or its Warden is no longer
         attached (nothing to resume it through); or having instead denied the grant and failed the
-        now-RUNNING task if it runs no bee, at once whatever the cause, exactly as `redispatch`
-        does (a resumed task, `resume_from` included, has no PENDING queue to wait in either).
+        now-RUNNING task if it runs no bee, at once whatever the cause, and sized from the link's
+        own Cell as probed, exactly as `redispatch` does (a resumed task, `resume_from` included,
+        has no PENDING queue to wait in either).
     """
     task = await deps.chamber.get(task_id)
     if task.warden_id is None or task.cell_id is None:
@@ -266,7 +270,7 @@ async def resume_paused(
     # A fresh bee (TaskAssign.resume_from's own field docstring: "a fresh one for a fresh bee");
     # the Queen owns the attempt number on every Queen-to-Warden hop.
     terms = _AssignmentTerms(attempt=task.attempt + 1, resume_from=resume_from)
-    sized = await size_grant(deps, link, task)
+    sized = await size_grant(deps, link, task, read_live=False)
     fresh_grant = await _send_grant_and_assign(deps, link, task, terms, sized)
     if fresh_grant is None:
         return  # Denied: _send_grant_and_assign already failed the task (module docstring).
