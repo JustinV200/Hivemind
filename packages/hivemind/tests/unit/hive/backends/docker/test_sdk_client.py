@@ -84,6 +84,8 @@ def test_recreate_spec_maps_network_volumes_and_resource_limits() -> None:
             "Memory": 1073741824,
             "PidsLimit": 256,
             "CapDrop": ["ALL"],
+            "CapAdd": ["NET_ADMIN"],
+            "ExtraHosts": ["host.docker.internal:host-gateway"],
             "SecurityOpt": ["no-new-privileges:true"],
             "ReadonlyRootfs": True,
             "Tmpfs": {"/tmp": ""},  # noqa: S108  # SAFETY: a container-internal path, not a host one.
@@ -103,12 +105,18 @@ def test_recreate_spec_maps_network_volumes_and_resource_limits() -> None:
     assert spec["nano_cpus"] == 1_000_000_000
     assert spec["mem_limit"] == 1073741824
     assert spec["read_only"] is True
+    # Every field the create path sets survives: without the host-gateway entry a Linux Cell
+    # could not dial the Queen after a rollback (found by the real-daemon rollback test).
+    assert spec["extra_hosts"] == ["host.docker.internal:host-gateway"]
+    assert spec["cap_add"] == ["NET_ADMIN"]
 
 
 def test_recreate_spec_tolerates_missing_optional_sections() -> None:
     spec = _recreate_spec({}, "hivemind-snapshot:abc")
 
     assert spec["network"] is None
+    assert spec["extra_hosts"] is None
+    assert spec["cap_add"] is None
     assert spec["volumes"] == {}
     assert spec["nano_cpus"] is None
     assert spec["read_only"] is False

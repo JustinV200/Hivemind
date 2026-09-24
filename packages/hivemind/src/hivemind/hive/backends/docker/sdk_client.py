@@ -334,10 +334,11 @@ def _sync_recreate_from_image(handle: _DockerHandle, name: str, image: str) -> N
 def _recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:
     """Build docker-py `containers.create` kwargs from an existing container's own inspect attrs.
 
-    Reads the container being replaced's own network, volumes and resource limits back (rather
-    than needing the original `ContainerSpec`, which `DockerClientPort.recreate_from_image`'s own
-    docstring documents this module never receives), so the recreated container keeps everything
-    about `name`'s own runtime shape except the image it boots from.
+    Reads the container being replaced's own network, extra hosts, volumes, capabilities and
+    resource limits back (rather than needing the original `ContainerSpec`, which
+    `DockerClientPort.recreate_from_image`'s own docstring documents this module never receives),
+    so the recreated container keeps everything `_sync_create_container` set except the image it
+    boots from.
     """
     host_config = attrs.get("HostConfig", {})
     config = attrs.get("Config", {})
@@ -354,11 +355,15 @@ def _recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:
         "environment": config.get("Env", []),
         "labels": config.get("Labels") or {},
         "network": network_name,
+        # The host-gateway entry is how a Linux Cell reaches the Queen: without it the recreated
+        # container cannot resolve host.docker.internal and never announces itself again.
+        "extra_hosts": host_config.get("ExtraHosts") or None,
         "volumes": volumes,
         "nano_cpus": host_config.get("NanoCpus") or None,
         "mem_limit": host_config.get("Memory") or None,
         "pids_limit": host_config.get("PidsLimit") or None,
         "cap_drop": host_config.get("CapDrop") or None,
+        "cap_add": host_config.get("CapAdd") or None,  # NET_ADMIN, for a VPN_TOR Cell.
         "security_opt": host_config.get("SecurityOpt") or None,
         "read_only": bool(host_config.get("ReadonlyRootfs", False)),
         "tmpfs": host_config.get("Tmpfs") or {},
