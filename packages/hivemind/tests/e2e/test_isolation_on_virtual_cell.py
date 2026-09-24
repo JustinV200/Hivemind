@@ -25,6 +25,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -102,6 +103,10 @@ def test_a_guard_request_isolates_a_virtual_cell_running_a_task(
     monkeypatch.setattr(
         "hivemind.cli.compose.virtual_cell_backends.FakeCellBackend", _LingeringCells
     )
+    # The in-process "containers" probe this very machine (hivemind.cell.local.probe), which the
+    # suite shares with other work: a one-minute load above half its cores leaves a Drone's grant
+    # at int(1 x 0.9) = 0 sub-bees, a capacity question this scenario is not about. An idle host.
+    monkeypatch.setattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))
     manifest_path = virtual_cells_manifest(tmp_path, tuning=VirtualCellsTuning(prefer="real"))
     script = HaikuScript(default_worker_turn, plan=single_haiku_plan("haiku_1.txt"))
     hive = build_hive(
