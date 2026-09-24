@@ -144,7 +144,7 @@ HiveMind/
 │   │   ├── src/hivemind/
 │   │   │   ├── common/           # Layer 0. errors, result, logging setup, sqlite (connect + transaction), migrations. Imports nothing internal except waggle (ids, clock, loop).
 │   │   │   ├── manifest/         # Hive Manifest loading, schema, validation
-│   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync. events/, trail/ (protocol, memory, sqlite, tail, migrations), retention.py
+│   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync. events/, trail/ (protocol, memory, sqlite, tail, migrations), retention/ (skeleton, segments, trail, purge: the Night Veil boundary)
 │   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders/, routing, fanner.py (seat meter), prompts/, providers/. Imports forage and pheromone (its own llm.* events); neither imports llm.
 │   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence. task/ (model, state, graph), store/ (protocol, memory, sqlite, migrations), chamber/ (facade)
