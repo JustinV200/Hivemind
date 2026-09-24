@@ -38,7 +38,7 @@ Public API:
       PheromoneSection, LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN, ForageSection, SupervisionSection, MemorySection, SecuritySection,
       TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix, EntranceSection,
-      EntranceExposure, GuardSection, GuardRoleSection.
+      EntranceExposure, GuardSection, GuardRoleSection, DEFAULT_DIRE_PATTERNS.
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -56,6 +56,7 @@ from hivemind.manifest.env import (
 from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.loader import load_manifest
 from hivemind.manifest.schema import (
+    DEFAULT_DIRE_PATTERNS,
     MANIFEST_KEY_PATTERN,
     BroodChamberSection,
     CapabilityOverrides,
@@ -84,6 +85,7 @@ from hivemind.manifest.schema import (
 )
 
 __all__ = [
+    "DEFAULT_DIRE_PATTERNS",
     "MANIFEST_KEY_PATTERN",
     "BroodChamberSection",
     "CapabilityOverrides",

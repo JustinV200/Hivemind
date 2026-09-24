@@ -31,7 +31,7 @@ Public API:
     - LLM (llm): LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN.
     - Forage (forage): ForageSection.
-    - Guard policy overrides (guard): GuardSection, GuardRoleSection.
+    - Guard policy overrides (guard): GuardSection, GuardRoleSection, DEFAULT_DIRE_PATTERNS.
     - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
       EntrancePushSection, EntranceVoiceSection.
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
@@ -58,7 +58,11 @@ from hivemind.manifest.schema.entrance import (
     EntranceVoiceSection,
 )
 from hivemind.manifest.schema.forage import ForageSection
-from hivemind.manifest.schema.guard import GuardRoleSection, GuardSection
+from hivemind.manifest.schema.guard import (
+    DEFAULT_DIRE_PATTERNS,
+    GuardRoleSection,
+    GuardSection,
+)
 from hivemind.manifest.schema.llm import (
     MANIFEST_KEY_PATTERN,
     CapabilityOverrides,
@@ -84,6 +88,7 @@ from hivemind.manifest.schema.security import (
 from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
 
 __all__ = [
+    "DEFAULT_DIRE_PATTERNS",
     "MANIFEST_KEY_PATTERN",
     "BroodChamberSection",
     "CapabilityOverrides",

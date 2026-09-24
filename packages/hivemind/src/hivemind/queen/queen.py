@@ -82,6 +82,7 @@ from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.errors import UnknownWardenError
+from hivemind.queen.guard_requests import GuardDoor
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import LinkReaders, queen_attendant
 from hivemind.queen.ticks.alarms import AlarmHandling
@@ -113,7 +114,7 @@ from waggle.messages.task import TaskProgress, TaskResult
 __all__ = ["Queen"]
 
 
-class Queen(ChatDoor, TickLoop):
+class Queen(ChatDoor, GuardDoor, TickLoop):
     """The Hive's single orchestrator: her own inbox, autopilot, awake mode, and Supervisor face.
 
     Owns her own mutable state in place (codingrules section 8.5), documented here: `_wardens`,

@@ -22,6 +22,9 @@ judge's bound, how far it raises a Capping tier's sampled-audit rate, and
 ``[guard.bee.rules.<key>]`` overrides of the rules it ships as data. Confidence and action names
 are spelled here as the literal values of ``hivemind.guard.GuardConfidence`` and ``GuardAction``,
 since this layer may not import them; a test holds the two spellings in step.
+``dire_patterns`` (roadmap step 10.6a, ADR-0035) names the Guard Bee's rule keys whose requests the
+Queen acts on by autopilot rule, with no awake episode: isolate the Cell (or, on the Hive Stand,
+quarantine the bee and hold its goal off it); every other request is judged awake.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -78,10 +81,17 @@ DEFAULT_AUDIT_RAISE_STEP = 0.25  # One raise samples a quarter more of a tier's 
 DEFAULT_AUDIT_RAISE_HOLD_S = 86_400.0  # A raise lasts a day, then the tier table's rate applies.
 MAX_GUARD_WINDOW_S = 604_800.0  # A week: the longest window any Guard Bee setting may name.
 
+# The rule keys the Queen acts on by rule (roadmap step 10.6a). Shipped: the correlation roadmap
+# step 10.6 singles out, a scanner flag then a denial in the same episode (a bee that read an
+# injection and then tried to act on it); every other rule's request is judged awake.
+DEFAULT_DIRE_PATTERNS = ("injection_then_denial",)
+MAX_DIRE_PATTERNS = 64  # Far more rules than the Guard Bee ships; a list is data, never unbounded.
+
 __all__ = [
     "DEFAULT_AUDIT_RAISE_HOLD_S",
     "DEFAULT_AUDIT_RAISE_STEP",
     "DEFAULT_COALESCE_WINDOW_S",
+    "DEFAULT_DIRE_PATTERNS",
     "DEFAULT_GUARD_BEE_INTERVAL_S",
     "DEFAULT_JUDGE_TIMEOUT_S",
     "DEFAULT_MAX_SCAN_CHARS",
@@ -102,6 +112,8 @@ __all__ = [
 # One capability string as the manifest holds it: non-empty with no whitespace. The grammar
 # itself is hivemind.guard's to check, one layer up (codingrules section 4).
 _CapabilitySpec = Annotated[str, Field(min_length=1, pattern=r"^\S+$")]
+# One Guard Bee rule key, in the shape a GuardReport's `rule` takes (hivemind.guard.report).
+_RuleKey = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_.]*$")]
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -353,4 +365,12 @@ class GuardSection(BaseModel):
         description="[guard.untrusted_content]: the untrusted-content scanner's input bound and "
         "its label and drop thresholds per Comb Shield tier (roadmap step 10.6b). Read from the "
         "manifest only: the Guard policy loader ignores a policy file's copy.",
+    )
+    dire_patterns: tuple[_RuleKey, ...] = Field(
+        default=DEFAULT_DIRE_PATTERNS,
+        max_length=MAX_DIRE_PATTERNS,
+        description="The Guard Bee rule keys whose requests the Queen decides by autopilot rule "
+        "(roadmap step 10.6a): isolate the Cell, or on the Hive Stand quarantine the bee and "
+        "hold its goal off it. A key naming no rule never fires; every other request is judged "
+        "by an awake episode.",
     )

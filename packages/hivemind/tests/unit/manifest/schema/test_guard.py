@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from hivemind.manifest.schema.guard import GuardRoleSection, GuardSection
+from hivemind.manifest.schema.guard import DEFAULT_DIRE_PATTERNS, GuardRoleSection, GuardSection
 
 
 def test_guard_section_defaults_to_the_shipped_policy_unchanged() -> None:
@@ -64,3 +64,15 @@ def test_a_role_table_must_give_its_allow_list() -> None:
 def test_an_unknown_field_is_refused() -> None:
     with pytest.raises(ValidationError, match="extra"):
         GuardSection.model_validate({"allow": ["observe"]})
+
+
+def test_dire_patterns_default_to_the_shipped_correlation_rule() -> None:
+    # Roadmap step 10.6a: the Queen acts by rule only on the keys listed here.
+    assert GuardSection().dire_patterns == DEFAULT_DIRE_PATTERNS == ("injection_then_denial",)
+    assert GuardSection(dire_patterns=()).dire_patterns == ()
+
+
+@pytest.mark.parametrize("key", ["Injection", "two words", "", "x" * 65])
+def test_a_dire_pattern_is_a_rule_key_or_it_is_refused(key: str) -> None:
+    with pytest.raises(ValidationError):
+        GuardSection(dire_patterns=(key,))

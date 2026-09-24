@@ -35,6 +35,8 @@ a `GrantWaits` holding `[forage] zero_grant_patience_s`), kept here beside `hous
 same reason, and to `WardenLink` the reader of its Cell's capacity as it stands right now
 (`live_capacity`, a `LiveCapacity`: the Hive Stand re-reads its load and free memory on every
 call; a Virtual Cell, whose resources its spec fixes, has none).
+Roadmap step 10.6a adds `guard`: her durable Guard requests, the dire patterns she
+decides by rule, and what isolating a Cell needs (`hivemind.queen.guard_requests.GuardDeps`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -44,7 +46,8 @@ Fits into the Hive:
     `hivemind.guard` (Enforcer, roadmap step 10.3), `hivemind.llm.ladders.gate`,
     `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen.chat`
     (ChatLog, HumanChannel, NullHumanChannel -- roadmap step 10.5), `hivemind.queen.intake`
-    (GoalRequestStore -- roadmap step 10.5), `hivemind.queen.cluster.health`/`.orders`
+    (GoalRequestStore -- roadmap step 10.5), `hivemind.queen.guard_requests` (GuardDeps --
+    roadmap step 10.6a), `hivemind.queen.cluster.health`/`.orders`
     (HealthPoller, OrderStore, InMemoryOrderStore -- roadmap step 4.9),
     `hivemind.queen.forage.ledger` (ForageLedger), `hivemind.queen.placement`
     (PlacementPolicy, VirtualBackendCandidate, DormantCandidate, Placement -- roadmap step 5.7),
@@ -100,6 +103,7 @@ from hivemind.queen.chat import ChatLog, HumanChannel, NullHumanChannel
 from hivemind.queen.cluster.health import HealthPoller
 from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
+from hivemind.queen.guard_requests import GuardDeps
 from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import (
     DormantCandidate,
@@ -491,6 +495,8 @@ class QueenDeps:
         intake_lock: Serialises her goal-request edges (`hivemind.queen.intake.writes`): intake, a
             plan landing beside her tick and a revocation each move the row as it stands.
         grant_waits: Fresh tasks waiting for a grant, and their patience (`GrantWaits`).
+        guard: Her Guard requests, dire patterns, egress seam and pause bound (roadmap step
+            10.6a, ADR-0035); an in-memory table and the shipped patterns by default.
     """
 
     chamber: BroodChamber
@@ -547,8 +553,7 @@ class QueenDeps:
     # provision inside resolve_link, the other call site could otherwise pick the same still-PENDING
     # task and lose the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
     dispatch_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # Roadmap step 5.0e (see the docstring): TaskAssign carries no keep_root, the planner does.
-    keep_root: Path | None = None
+    keep_root: Path | None = None  # Roadmap step 5.0e: the planner's, never TaskAssign's.
     # Roadmap step 10.5 (ADR-0032): the human end. Defaulted so a composition root that wires no
     # Hive Entrance (hive run, every test) tells nobody, and so the Queen's own mutable wake and
     # planning bookkeeping live here beside `housekeeping`, one per Queen.
@@ -564,3 +569,4 @@ class QueenDeps:
     intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
     grant_waits: GrantWaits = field(default_factory=GrantWaits)  # The zero-grant fix.
+    guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0035).

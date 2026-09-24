@@ -567,6 +567,16 @@ deny = ["exoskeleton:real_display", "net:*.internal.example"]
 # These are the defaults, written out.
 request_confidence = "high"
 requests_per_hour = 6
+# The Guard Bee rule keys whose requests the Queen acts on by autopilot rule, with no awake episode
+# (roadmap step 10.6a, ADR-0035): she isolates the Cell the report names (revokes its Warden's grant,
+# pauses its bees, writes a BLOCK Cell Wax, cuts a Virtual Cell's egress to its control link, taints
+# its memory from the report's first cited event on). On the Hive Stand, whose own lease only the
+# human may isolate, she quarantines the implicated bee, holds its goal off the Hive Stand and puts a
+# CRITICAL Alarm in front of the human instead. Every other request is judged by an awake episode;
+# when her awake mode is unavailable she isolates, since isolation only removes access. A key naming
+# no Guard Bee rule never fires. The shipped default, written out: a scanner flag followed by a
+# denial in the same episode.
+dire_patterns = ["injection_then_denial"]
 
 [guard.roles.drone]
 # Replaces the Drone role's whole default set (a Worker still keeps only what its Warden holds).
