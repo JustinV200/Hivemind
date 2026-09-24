@@ -54,6 +54,9 @@ Public API:
       the point decides itself, `refuse` (enforcer).
     - WatchObservation, WATCH_OBSERVATIONS, watch_permits: what watch mode may observe on a Real
       Cell, bounded by READ_ONLY and never the screen or the input (watch, roadmap step 10.7).
+    - GuardReport, GuardAction, GuardConfidence, GuardRequestDoor, REQUEST_ACTIONS,
+      new_guard_report_id, GuardReportId: what the Guard Bee found and asks the Queen to do,
+      and the one door a request reaches her by (report, roadmap steps 10.6 and 10.6a).
     - ContentScanner, ScanSite, ScanSource, ScanAction, ScanVerdict, ScanRecorder,
       ContentHasher, default_content_scanner, load_scan_patterns, score_text, decide,
       thresholds_for, INJECTION_SUSPECTED_KIND, SCANNER_KEY_NAME, HASH_PREFIX: the deterministic
@@ -119,6 +122,15 @@ from hivemind.guard.policy import (
     worker_principal,
     worker_role_name,
 )
+from hivemind.guard.report import (
+    REQUEST_ACTIONS,
+    GuardAction,
+    GuardConfidence,
+    GuardReport,
+    GuardReportId,
+    GuardRequestDoor,
+    new_guard_report_id,
+)
 from hivemind.guard.scanner import (
     HASH_PREFIX,
     INJECTION_SUSPECTED_KIND,
@@ -146,6 +158,7 @@ __all__ = [
     "NOT_ACTIONS",
     "PENDING_POINTS",
     "QUEEN_ROLE",
+    "REQUEST_ACTIONS",
     "SCANNER_KEY_NAME",
     "SCRATCH_PLACEHOLDER",
     "STATE_FLOOR_RULE",
@@ -163,9 +176,14 @@ __all__ = [
     "Enforcer",
     "EscalationAction",
     "GoalRequestFacts",
+    "GuardAction",
+    "GuardConfidence",
     "GuardError",
     "GuardPolicy",
     "GuardPolicyError",
+    "GuardReport",
+    "GuardReportId",
+    "GuardRequestDoor",
     "HiveState",
     "InvalidCapabilityError",
     "PolicyContext",
@@ -195,6 +213,7 @@ __all__ = [
     "governs",
     "load_guard_policy",
     "load_scan_patterns",
+    "new_guard_report_id",
     "proposed_set",
     "queen_principal",
     "role_set",

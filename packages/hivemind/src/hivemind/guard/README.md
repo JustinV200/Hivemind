@@ -37,6 +37,12 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   `watch_permits(level, observation)`: watch mode observes the process list, resource use, and
   logs and file-change events under the roots it may read, at every level exactly what
   `READ_ONLY` allows, and never the screen or the input (a separate, explicit grant).
+- **Reports** (`hivemind.guard.report`, roadmap 10.6 and 10.6a, ADR-0035): `GuardReport` is one
+  Guard Bee finding (the rule that fired, the trail events it cites, the Cell, bees, tasks and
+  grants it touches, the recommended `GuardAction` and a `GuardConfidence`), ids and counts only.
+  Only `REQUEST_ACTIONS` (isolate a Cell, quarantine a bee, Sting Cut) ask the Queen for anything,
+  and they reach her through `GuardRequestDoor.file_guard_request`, the one seam between the
+  Guard Bee and the Queen's inbox; the Guard Bee narrows the whole Hive alone.
 - **Scanner** (`hivemind.guard.scanner`, roadmap 10.6b, ADR-0035, `docs/guard/untrusted-content.md`):
   the deterministic, model-free untrusted-content scanner. `load_scan_patterns` reads
   `defaults/untrusted-content.toml` (six weighted families; every repetition bounded; each
