@@ -207,12 +207,7 @@ def build_hive(
         clock=clock,
         enforcer=build_enforcer(manifest, hive_stores.trail, clock),  # Roadmap step 10.3.
     )
-    extras = _AssemblyExtras(
-        forage_map=forage_map,
-        ledger=ledger,
-        virtual_cells=virtual_cells,
-        scanner=build_content_scanner(manifest),  # Roadmap step 10.6b.
-    )
+    extras = _AssemblyExtras(forage_map=forage_map, ledger=ledger, virtual_cells=virtual_cells)
     return _assemble_hive(parts, source, links, extras)
 
 
@@ -277,18 +272,19 @@ class _AssemblyExtras:
     forage_map: ForageMap
     ledger: ForageLedger
     virtual_cells: VirtualCellsParts | None
-    scanner: ContentScanner  # Roadmap step 10.6b: shared by the Queen and the Hive Stand's Warden.
 
 
 def _assemble_hive(
     parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
     """Build the Warden and Queen from `parts` and wrap them as a Hive; `run_hive` attaches."""
-    # The configured scanner replaces each deps bundle's shipped-default one (roadmap 10.6b).
-    warden_deps = replace(build_warden_deps(parts, source, links), scanner=extras.scanner)
+    # Roadmap 10.6b: one configured scanner, shared by the Queen and the Hive Stand's Warden,
+    # replaces each deps bundle's shipped-default one, so every flag here is hashed under one key.
+    scanner = build_content_scanner(parts.manifest)
+    warden_deps = replace(build_warden_deps(parts, source, links), scanner=scanner)
     warden = Warden(links.warden_id, warden_deps)
     queen_deps = build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells)
-    queen = Queen(replace(queen_deps, scanner=extras.scanner))
+    queen = Queen(replace(queen_deps, scanner=scanner))
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).

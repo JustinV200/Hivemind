@@ -112,7 +112,7 @@ def make_stamp(source: TaintSource = TaintSource.QUARANTINE, **overrides: object
     """
     fields: dict[str, object] = {"source": source, "reason": "Quarantined after a Guard report."}
     fields.update(overrides)
-    return TaintStamp(**fields)  # type: ignore[arg-type]  # a pydantic model; see builders/llm
+    return TaintStamp(**fields)
 
 
 def taint_verdict_response(judgement: str, reasons: tuple[str, ...] = ()) -> LLMResponse:

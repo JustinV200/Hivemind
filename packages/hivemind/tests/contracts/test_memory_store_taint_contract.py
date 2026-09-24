@@ -59,7 +59,15 @@ from hivemind.pheromone import (
     TrailQuery,
 )
 from waggle.clock import FakeClock
-from waggle.ids import new_event_id, new_hive_id, new_node_id, new_task_id, new_worker_id
+from waggle.ids import (
+    EventId,
+    TaskId,
+    new_event_id,
+    new_hive_id,
+    new_node_id,
+    new_task_id,
+    new_worker_id,
+)
 from waggle.messages import HandoffRef
 
 _C2 = HoneyClearance.C2
@@ -85,7 +93,7 @@ class _Seeded:
     """One bee's checkpoint (a Handoff and its Bee Bread index) and one episode record."""
 
     bee: str
-    task_id: str
+    task_id: TaskId
     ref: HandoffRef
     handoff: TaintTarget
     episode: TaintTarget
@@ -268,7 +276,7 @@ async def test_reads_that_could_feed_a_prompt_refuse_tainted_items(world: _World
     assert await world.store.list_bee_bread_by_task(seeded.task_id, _C2) == ()
     assert await world.store.list_bee_bread_between(world.clock.now(), world.clock.now(), _C2) == ()
     with pytest.raises(TaintedMemoryError):
-        await world.store.get_bee_bread_entry(seeded.entry.item_id, _C2)
+        await world.store.get_bee_bread_entry(EventId(seeded.entry.item_id), _C2)
     with pytest.raises(TaintedMemoryError):
         await read_handoff(world.store, seeded.ref, _C2)
 

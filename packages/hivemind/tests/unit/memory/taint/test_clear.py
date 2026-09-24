@@ -41,13 +41,14 @@ from hivemind.memory.taint import (
     taint_memory,
 )
 from hivemind.pheromone import TrailQuery
-from waggle.ids import new_worker_id
+from waggle.ids import EventId, new_worker_id
 
 
 async def _tainted_handoff(world: TaintWorld, **handoff_fields: object) -> TaintTarget:
     """Checkpoint one Handoff by a fresh bee and taint just it; return its target."""
     bee = new_worker_id(world.clock)
-    await write_checkpoint(make_handoff(written_by=bee, **handoff_fields), None, world.ctx)
+    handoff = make_handoff(world.clock, written_by=bee, **handoff_fields)
+    await write_checkpoint(handoff, None, world.ctx)
     # The FakeClock stands still, so "from now on" covers the checkpoint just written.
     scope = TaintScope(
         authors=frozenset({bee}), since=world.clock.now(), kinds=frozenset({TaintedKind.HANDOFF})
@@ -70,7 +71,7 @@ async def test_a_clear_verdict_clears_the_label_with_its_event() -> None:
         _request(world, target), TaintClearDeps(judge=judge, enforcer=world.enforcer, ctx=world.ctx)
     )
 
-    handoff, _clearance = await world.ctx.store.get_handoff(target.item_id)
+    handoff, _clearance = await world.ctx.store.get_handoff(EventId(target.item_id))
     [event] = await world.trail.query(TrailQuery(kind=TAINT_CLEARED_KIND))
     assert result.outcome is ClearOutcome.CLEARED
     assert handoff.tainted == result.marker
@@ -89,7 +90,7 @@ async def test_a_keep_verdict_changes_nothing() -> None:
         _request(world, target), TaintClearDeps(judge=judge, enforcer=world.enforcer, ctx=world.ctx)
     )
 
-    handoff, _clearance = await world.ctx.store.get_handoff(target.item_id)
+    handoff, _clearance = await world.ctx.store.get_handoff(EventId(target.item_id))
     assert result.outcome is ClearOutcome.KEPT and result.reasons == ("Judged KEEP.",)
     assert handoff.tainted is not None and handoff.tainted.state is TaintState.TAINTED
     assert await world.trail.query(TrailQuery(kind=TAINT_CLEARED_KIND)) == ()
@@ -127,7 +128,7 @@ async def test_a_judge_that_cannot_answer_leaves_the_item_tainted() -> None:
     )
 
     assert result.outcome is ClearOutcome.UNREVIEWABLE
-    handoff, _clearance = await world.ctx.store.get_handoff(target.item_id)
+    handoff, _clearance = await world.ctx.store.get_handoff(EventId(target.item_id))
     assert handoff.tainted is not None and handoff.tainted.refuses
 
 

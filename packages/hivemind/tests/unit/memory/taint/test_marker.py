@@ -39,7 +39,7 @@ def _marker(state: TaintState = TaintState.TAINTED, **overrides: object) -> Tain
         "at": clock.now(),
     }
     fields.update(overrides)
-    return TaintMarker(**fields)  # type: ignore[arg-type]
+    return TaintMarker(**fields)
 
 
 def test_only_a_tainted_marker_refuses_its_item() -> None:

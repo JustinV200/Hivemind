@@ -30,7 +30,7 @@ from hivemind.memory.taint import (
     taint_memory,
 )
 from hivemind.pheromone import TrailQuery
-from waggle.ids import new_event_id, new_task_id, new_worker_id
+from waggle.ids import EventId, new_event_id, new_task_id, new_worker_id
 
 
 async def test_every_covered_item_is_labelled_with_its_own_memory_tainted_event() -> None:
@@ -77,7 +77,7 @@ async def test_an_item_already_tainted_is_never_relabelled() -> None:
 
     assert len(first.tainted) == 1 and second.tainted == ()
     [target] = first.tainted
-    handoff, _clearance = await world.ctx.store.get_handoff(target.item_id)
+    handoff, _clearance = await world.ctx.store.get_handoff(EventId(target.item_id))
     assert handoff.tainted is not None and handoff.tainted.source is TaintSource.ISOLATION
 
 

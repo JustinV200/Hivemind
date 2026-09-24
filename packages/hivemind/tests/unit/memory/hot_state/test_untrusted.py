@@ -114,7 +114,7 @@ def _retrieved(clock: FakeClock, **overrides: object) -> RetrievedItem:
         "clearance": HoneyClearance.C1,
     }
     fields.update(overrides)
-    return RetrievedItem(**fields)  # type: ignore[arg-type]
+    return RetrievedItem(**fields)
 
 
 def test_retrieved_items_render_unless_tainted_or_above_the_readers_clearance() -> None:

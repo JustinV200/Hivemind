@@ -62,15 +62,16 @@ async def test_the_judge_is_shown_the_rubric_and_the_item_and_nothing_else() -> 
     await judge.review(_review())
 
     [request] = provider.calls
-    assert request.slot is ModelSlot.JUDGE
-    assert request.system.startswith(load_prompt(PromptName.TAINT_REVIEW).rstrip("\n"))
-    assert f"<<<{SectionLabel.RETRIEVED.value}>>>" in request.system
-    assert _CONTENT in request.system and "quarantine" in request.system
+    system = request.system
+    assert request.slot is ModelSlot.JUDGE and system is not None
+    assert system.startswith(load_prompt(PromptName.TAINT_REVIEW).rstrip("\n"))
+    assert f"<<<{SectionLabel.RETRIEVED.value}>>>" in system
+    assert _CONTENT in system and "quarantine" in system
     # No shared context: the turns are the one-line instruction (plus the ladder's own schema
     # note), never a transcript, and nothing names the bee or the task behind the item.
     assert all(message.role is Role.USER for message in request.messages)
     assert request.messages[0].parts[0] == TextPart(text=_INSTRUCTION)
-    assert "worker_" not in request.system and "task_" not in request.system
+    assert "worker_" not in system and "task_" not in system
 
 
 async def test_an_item_cannot_close_its_own_section_to_speak_to_the_judge() -> None:
@@ -80,7 +81,7 @@ async def test_an_item_cannot_close_its_own_section_to_speak_to_the_judge() -> N
     await judge.review(_review(hostile))
 
     [request] = provider.calls
-    assert request.system.count("<<<end retrieved>>>") == 1
+    assert request.system is not None and request.system.count("<<<end retrieved>>>") == 1
 
 
 async def test_a_judge_that_never_answers_raises_rather_than_clearing() -> None:

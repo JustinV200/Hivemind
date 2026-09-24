@@ -30,11 +30,10 @@ keep this class inside codingrules 5.1's size limits.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Constructed by `hivemind.wardens.spawn` (roadmap step 3.19)
-    once per sub-bee it starts, inside a `TaskGroup` it owns. Calls into `hivemind.memory`
-    (`read_handoff`, `Handoff`), `hivemind.cell` (`HoneyClearance`), `hivemind.supervision` (the
-    Intervention levers only, never `hivemind.supervision.capping`), `hivemind.workers.base`,
-    `.context`, `.errors`, `.state`, this package's own `attempt`, `deps`, `mailbox` and
-    `reporter`, and waggle.
+    once per sub-bee it starts, inside a `TaskGroup` it owns. Calls into `hivemind.supervision`
+    (the Intervention levers only, never `hivemind.supervision.capping`), `hivemind.workers.base`,
+    `.context`, `.errors`, `.state`, this package's own `attempt` (which loads a resume Handoff,
+    `begin_attempt`), `deps`, `mailbox` and `reporter`, and waggle.
 
 Key invariants:
     - Every WorkerState change and every outgoing message goes through `_reporter`
@@ -72,17 +71,15 @@ import asyncio
 import dataclasses
 from typing import Any
 
-from hivemind.cell import HoneyClearance
 from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reaping
-from hivemind.memory import ClearanceError, Handoff, TaintedMemoryError, read_handoff
 from hivemind.supervision.intervention import Checkpoint, Compact, Rebind, Takeover
 from hivemind.supervision.intervention import Handoff as HandoffLever
 from hivemind.supervision.intervention import from_wire as intervention_from_wire
 from hivemind.workers.base import Worker
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.errors import InvalidWorkerTransitionError
-from hivemind.workers.runtime.attempt import AttemptManager
+from hivemind.workers.runtime.attempt import AttemptManager, begin_attempt
 from hivemind.workers.runtime.deps import RuntimeDeps
 from hivemind.workers.runtime.mailbox import Mailbox
 from hivemind.workers.runtime.reporter import Reporter
@@ -256,25 +253,12 @@ class WorkerRuntime(TickLoop):
     # ──────────────────────────────────────────────────────────────────────────
 
     async def _handle_assign(self, assign: TaskAssign) -> None:
-        """Move SPAWNED -> RUNNING, resolve any resume_from, and start the role.
-
-        A Handoff the loader refuses (tainted, roadmap 10.6d, or above this attempt's clearance)
-        is never resumed from: the attempt fails with an Alarm before the role starts, so its
-        Warden's policy decides what follows, instead of the refusal ending this runtime.
-        """
+        """Move SPAWNED -> RUNNING and start the role, resuming from any Handoff it names."""
         self._reporter.transition(WorkerState.RUNNING)
         self._reporter.set_assignment(assign)
         await self._reporter.record_event("worker.started", task_id=assign.task_id)
-        resume_from: Handoff | None = None
-        if assign.resume_from is not None:
-            allowance = HoneyClearance.from_wire(assign.clearance)
-            try:
-                resume_from = await read_handoff(self._ctx.memory, assign.resume_from, allowance)
-            except (TaintedMemoryError, ClearanceError) as refusal:
-                await self._attempt.refuse_resume(refusal)
-                return
-        await self._reporter.send_progress(TaskStage.STARTED, "Started.")
-        self._attempt.start(resume_from)
+        # A refused resume Handoff (tainted, roadmap 10.6d) fails the attempt there instead.
+        await begin_attempt(self, assign)
 
     async def _handle_pause(self, pause: TaskPause) -> None:
         """Move RUNNING -> PAUSED and hold the role at its own next `wait_if_paused()` call."""

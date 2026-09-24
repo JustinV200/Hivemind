@@ -138,4 +138,5 @@ async def test_a_hostile_message_is_recorded_by_hash_and_withheld_from_the_episo
     assert event.payload["content_hash"] == verdict.content_hash
     # Neither the trail nor the episode ever sees the words themselves.
     assert "Ignore all previous" not in event.model_dump_json()
+    assert verdict.content_hash is not None
     assert "Ignore all previous" not in shown and verdict.content_hash in shown

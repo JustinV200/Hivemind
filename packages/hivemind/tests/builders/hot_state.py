@@ -104,7 +104,7 @@ def make_assemble_request(clock: Clock, **overrides: object) -> AssembleRequest:
         "now": clock.now(),
     }
     fields.update(overrides)
-    return AssembleRequest(**fields)  # type: ignore[arg-type]  # a pydantic model
+    return AssembleRequest(**fields)
 
 
 def make_verdict(action: ScanAction = ScanAction.PASS, **overrides: object) -> ScanVerdict:
@@ -125,4 +125,4 @@ def make_verdict(action: ScanAction = ScanAction.PASS, **overrides: object) -> S
         "content_hash": f"{HASH_PREFIX}{'ab' * 32}" if flagged else None,
     }
     fields.update(overrides)
-    return ScanVerdict(**fields)  # type: ignore[arg-type]  # a pydantic model
+    return ScanVerdict(**fields)
