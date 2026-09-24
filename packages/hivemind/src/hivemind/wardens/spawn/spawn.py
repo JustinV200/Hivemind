@@ -373,6 +373,7 @@ def _build_capping_gate(
             sampler=deps.audit_sampler,
             sink=deps.findings_sink,
             rates=deps.audit_rates,
+            goal=assignment.objective,
         ),
     )
 

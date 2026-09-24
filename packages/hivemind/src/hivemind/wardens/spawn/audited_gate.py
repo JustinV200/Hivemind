@@ -91,6 +91,7 @@ class AuditWiring:
     sampler: AuditSampler  # WardenDeps.audit_sampler.
     sink: FindingsSink  # WardenDeps.findings_sink.
     rates: AuditRates  # WardenDeps.audit_rates.
+    goal: str | None = None  # The sub-bee's TaskAssign.objective, what its work is judged against.
 
 
 class AuditingCappingGate(CappingGate):
@@ -112,6 +113,7 @@ class AuditingCappingGate(CappingGate):
             trail=deps.trail,
             identity=deps.identity,
             clock=deps.clock,
+            goal=wiring.goal,
         )
         self._rates = wiring.rates
 

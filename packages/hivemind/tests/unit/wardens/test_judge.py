@@ -182,3 +182,18 @@ async def test_review_withholds_the_screens_when_a_fallback_cannot_see() -> None
     sent = await _sent_for_evidence(FakeLLMProvider(name="judge"), fallback=blind)
 
     assert all(isinstance(part, TextPart) for part in sent.messages[0].parts)
+
+
+async def test_review_names_the_task_goal_before_anything_else() -> None:
+    provider = FakeLLMProvider(name="judge")
+    provider.script(_verdict_response("APPROVE"))
+    reviewer = ModelJudgeReviewer(
+        bound=make_bound(slot=ModelSlot.JUDGE, provider=provider),
+        lane_for=lambda _tempo: DirectCallGate(),
+    )
+
+    await reviewer.review(make_judge_request(goal="Pay invoice 42 only."))
+
+    system = provider.calls[0].system or ""
+    assert "Task goal: Pay invoice 42 only." in system
+    assert system.index("Task goal:") < system.index("Risk tier:")

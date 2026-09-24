@@ -80,10 +80,12 @@ MAX_JUDGE_NOTES_CHARS = 2_000  # Capped free text: a paragraph, never a transcri
 
 MAX_EVIDENCE_CHARS = 30_000  # Steps, two URLs, two bounded snapshots and the postconditions.
 MAX_EVIDENCE_FRAMES = 2  # Before and after.
+MAX_GOAL_CHARS = 4_000  # A task's objective, cut to this when judged: the brief, not a document.
 
 __all__ = [
     "MAX_EVIDENCE_CHARS",
     "MAX_EVIDENCE_FRAMES",
+    "MAX_GOAL_CHARS",
     "JudgeCheck",
     "JudgeEvidence",
     "JudgeOutcome",
@@ -179,6 +181,12 @@ class JudgeRequest(BaseModel):
         description="What the action did once applied (roadmap step 6.6): set when an applied "
         "irreversible GUI action is judged before the bee's next step; None for a review that "
         "happens before applying.",
+    )
+    goal: str | None = Field(
+        default=None,
+        max_length=MAX_GOAL_CHARS,
+        description="The task's objective as the Queen planned it, so an applied action can be "
+        "judged against what the task asked for; never the proposer's own reasoning.",
     )
 
 

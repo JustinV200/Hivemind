@@ -70,7 +70,8 @@ def test_judge_request_carries_no_proposer_or_transcript_field() -> None:
     # smuggles in a proposer id or transcript fails this test. `tempo` is the task's own
     # speed-against-accuracy setting (it orders the judge's call in the Fanner's queues), never
     # anything the proposing bee thought or did. `evidence` is what the Warden's flight recorder
-    # observed of an applied action (ADR-0032), recorded by the gate, not told by the bee.
+    # observed of an applied action (ADR-0032), recorded by the gate, not told by the bee; `goal`
+    # is the task's objective as the Queen planned it, never anything the bee wrote.
     assert set(JudgeRequest.model_fields) == {
         "risk_tier",
         "action",
@@ -78,6 +79,7 @@ def test_judge_request_carries_no_proposer_or_transcript_field() -> None:
         "rubric",
         "tempo",
         "evidence",
+        "goal",
     }
 
 

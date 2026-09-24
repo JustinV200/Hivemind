@@ -67,6 +67,7 @@ from hivemind.pheromone import CappingEvent, PheromoneTrail
 from hivemind.supervision.alarm import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from hivemind.supervision.alarm_trail import record_alarm_event
 from hivemind.supervision.capping.checks.judge import (
+    MAX_GOAL_CHARS,
     MAX_JUDGE_REASON_CHARS,
     JudgeEvidence,
     JudgeOutcome,
@@ -226,6 +227,9 @@ class AuditDeps:
     trail: PheromoneTrail  # Where capping.audited and alarm.raised land.
     identity: CellIdentity  # hive_id/node_id/actor stamped on every event this module records.
     clock: Clock  # Source of every minted id and timestamp.
+    # The objective of the task every proposal through this gate serves, so a recording is
+    # judged against what the task asked for (roadmap step 6.6); None where no task is known.
+    goal: str | None = None
 
 
 async def audit_completed(
@@ -338,6 +342,7 @@ async def _review(
         rubric=rubric,
         tempo=proposal.tempo,
         evidence=evidence,
+        goal=deps.goal[:MAX_GOAL_CHARS] if deps.goal is not None else None,
     )
     # Latency class: one model call, typically seconds to tens of seconds; audit sampling runs
     # after a proposal's own terminal state, so this await never blocks the gate itself.

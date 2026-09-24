@@ -179,6 +179,7 @@ async def _run_gui(
     *,
     reviewer: RepeatingJudgeReviewer | None = None,
     audit_rate: float = 0.0,
+    goal: str | None = None,
 ) -> tuple[GateOutcome, RepeatingJudgeReviewer, MemoryPheromoneTrail]:
     """Run `proposal` through an AuditingCappingGate whose GateDeps carry `surface`."""
     reviewer = reviewer if reviewer is not None else RepeatingJudgeReviewer()
@@ -208,6 +209,7 @@ async def _run_gui(
         sampler=AuditSampler(),
         sink=InMemoryFindingsSink(),
         rates=AuditRates(),
+        goal=goal,
     )
     gate = AuditingCappingGate(deps, wires)
     await gate.propose(proposal)
@@ -220,12 +222,16 @@ async def test_an_applied_irreversible_gui_action_is_judged_with_its_evidence(
 ) -> None:
     surface = ScriptedSurface(evidence=_EVIDENCE)
 
-    outcome, reviewer, _ = await _run_gui(tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), surface)
+    outcome, reviewer, _ = await _run_gui(
+        tmp_path, _gui_proposal(RiskTier.IRREVERSIBLE), surface, goal="Pay invoice 42 only."
+    )
 
-    # Rate 0 samples nothing, yet the judge ran: irreversible GUI work is always judged.
+    # Rate 0 samples nothing, yet the judge ran: irreversible GUI work is always judged, and
+    # against the task's own goal.
     assert outcome.state is ProposalState.VERIFIED
     assert outcome.review is not None and outcome.review.outcome is JudgeOutcome.APPROVE
     assert reviewer.calls[0].evidence == _EVIDENCE
+    assert reviewer.calls[0].goal == "Pay invoice 42 only."
     assert reviewer.calls[0].rubric.rubric_id == "irreversible-v1"
     assert surface.calls[-2:] == ["finish VERIFIED None", "evidence"]  # Recorded, then judged.
 

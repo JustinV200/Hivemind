@@ -208,6 +208,8 @@ def _user_message(bound: BoundModel, request: JudgeRequest) -> Message:
 def _render_request(request: JudgeRequest) -> str:
     """Render `request`'s own tier, action, postconditions and rubric as one RETRIEVED section."""
     lines = [
+        # The task's goal first, when known: an applied action is judged against it.
+        *((f"Task goal: {request.goal}",) if request.goal is not None else ()),
         f"Risk tier: {request.risk_tier.value}",
         f"Rubric ({request.rubric.rubric_id}): {request.rubric.text}",
         _render_action(request.action),
