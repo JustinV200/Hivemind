@@ -26,7 +26,10 @@ See Also:
     - docs/entrance/openapi.json for the contract these calls follow.
 
 Public API:
-    - LandingClient, LandingSession, SignedIn, signed_in: the device's calls (client).
+    - LandingClient, LandingSession, SignedIn, signed_in, read_hive_id: the device's calls
+      (client).
+    - ClientCertificate, CertificateFacts, certificate_request, certificate_facts, present: a
+      device's mutual-TLS client certificate (certificate).
     - DeviceKey, Credential, OutgoingRequest, Stamp, sign, enrol_signature, login_signature,
       request_headers, first_frame: the signatures (signing).
     - View, ViewClosedError, open_view, FELL_BEHIND, FORBIDDEN, SESSION_ENDED: live views (stream).
@@ -42,7 +45,20 @@ Public API:
     - shown, describe, MAX_SHOWN_CHARS: foreign text and failures, safe on a terminal (text).
 """
 
-from hivemind.cli.landing.client import LandingClient, LandingSession, SignedIn, signed_in
+from hivemind.cli.landing.certificate import (
+    CertificateFacts,
+    ClientCertificate,
+    certificate_facts,
+    certificate_request,
+    present,
+)
+from hivemind.cli.landing.client import (
+    LandingClient,
+    LandingSession,
+    SignedIn,
+    read_hive_id,
+    signed_in,
+)
 from hivemind.cli.landing.errors import (
     AUTHENTICATION_CODE,
     CAPABILITY_CODE,
@@ -105,6 +121,8 @@ __all__ = [
     "SESSION_ENDED",
     "STEP_UP_CODE",
     "CarriedOption",
+    "CertificateFacts",
+    "ClientCertificate",
     "Credential",
     "DeviceKey",
     "EntranceAddress",
@@ -124,6 +142,8 @@ __all__ = [
     "carried_group",
     "carried_path",
     "carried_text",
+    "certificate_facts",
+    "certificate_request",
     "describe",
     "enrol_signature",
     "entrance_address",
@@ -131,6 +151,8 @@ __all__ = [
     "login_signature",
     "open_http",
     "open_view",
+    "present",
+    "read_hive_id",
     "read_new_password",
     "read_password",
     "request_headers",

@@ -27,7 +27,8 @@ Public API:
       commands (commands).
     - RemoteProfile, ProfileStore, DEFAULT_PROFILE, check_profile_name: profiles and their keys
       (profiles).
-    - EnrolmentOrder, InviteLink, enrol_device, read_invite_link: enrolment (enrol).
+    - EnrolmentOrder, InviteLink, OfflineEnrolment, enrol_device, enrol_offline,
+      read_invite_link: enrolment, online or offline (enrol).
     - remote_session, run_remote, REMOTE, PROFILE: logging in as the device (session).
     - GoalAsk, FollowPace, FollowOutcome, Follower, submit_and_follow, follow_goal: a goal followed
       to its end (goals).
@@ -43,7 +44,14 @@ from hivemind.cli.remote.commands import (
     remote_inbox,
     remote_run,
 )
-from hivemind.cli.remote.enrol import EnrolmentOrder, InviteLink, enrol_device, read_invite_link
+from hivemind.cli.remote.enrol import (
+    EnrolmentOrder,
+    InviteLink,
+    OfflineEnrolment,
+    enrol_device,
+    enrol_offline,
+    read_invite_link,
+)
 from hivemind.cli.remote.goals import (
     Follower,
     FollowOutcome,
@@ -72,6 +80,7 @@ __all__ = [
     "Follower",
     "GoalAsk",
     "InviteLink",
+    "OfflineEnrolment",
     "ProfileStore",
     "RemoteProfile",
     "RemoteRun",
@@ -79,6 +88,7 @@ __all__ = [
     "chat_lines",
     "check_profile_name",
     "enrol_device",
+    "enrol_offline",
     "follow_goal",
     "inbox_lines",
     "outcome_line",

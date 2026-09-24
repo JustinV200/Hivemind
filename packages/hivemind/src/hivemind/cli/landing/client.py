@@ -58,6 +58,7 @@ from hivemind.common.logging import get_logger
 from hivemind.entrance.enrol import DeviceDescription
 from hivemind.entrance.models import (
     ChallengeView,
+    HiveView,
     OpenedSessionView,
     RedemptionView,
     SteppedUpView,
@@ -69,7 +70,7 @@ JSON_TYPE = "application/json"  # Every Landing Board body.
 
 log = get_logger(__name__)
 
-__all__ = ["LandingClient", "LandingSession", "SignedIn", "signed_in"]
+__all__ = ["LandingClient", "LandingSession", "SignedIn", "read_hive_id", "signed_in"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +108,11 @@ class LandingClient:
         self.clock = clock
 
     async def redeem(
-        self, code: str, signer: Ed25519Signer, description: DeviceDescription
+        self,
+        code: str,
+        signer: Ed25519Signer,
+        description: DeviceDescription,
+        certificate_request: str | None = None,
     ) -> RedemptionView:
         """Redeem an invite with a new Ed25519 key; the device then waits, PENDING, for approval.
 
@@ -115,6 +120,8 @@ class LandingClient:
             code: The invite code, as the operator read it out.
             signer: The device's freshly minted key.
             description: What the device says about itself (display text only).
+            certificate_request: A PEM request for the key's mutual-TLS client certificate,
+                signed at approval when the Hive runs its own authority; None for none.
 
         Returns:
             The device's id, its key's fingerprint and the Hive's public key.
@@ -124,12 +131,15 @@ class LandingClient:
             LandingRefusedError: The Entrance refused it (it never says why).
             EntranceUnreachableError: Nothing answered.
         """
-        body = {
+        body: dict[str, object] = {
             "code": code,
             "public_key_hex": signer.public_key_bytes.hex(),
             "signature": enrol_signature(self.hive_id, code, signer),
             "description": description.model_dump(mode="json"),
         }
+        # Sent only when there is one: an older Entrance refuses a field it does not know.
+        if certificate_request is not None:
+            body["certificate_request"] = certificate_request
         response = await self._public("/v1/enrol/ed25519", body)
         return _parsed(response, RedemptionView)
 
@@ -232,18 +242,7 @@ class LandingClient:
 
     async def _exchange(self, request: httpx.Request) -> httpx.Response:
         """Send ``request``; turn a refusal or a transport failure into the CLI's own errors."""
-        try:
-            # Latency: one round trip, a login's Argon2id check included; httpx's timeout
-            # (transport.REQUEST_TIMEOUT_S) bounds it and a timeout is a transport failure.
-            response = await self._http.send(request)
-        except httpx.TransportError as exc:
-            raise EntranceUnreachableError(
-                f"The Entrance at {self.address.origin} did not answer ({type(exc).__name__}: "
-                f"{exc})."
-            ) from exc
-        if response.is_success:
-            return response
-        raise LandingRefusedError.from_response(response)
+        return await _exchange(self._http, self.address, request)
 
 
 class SignedIn:
@@ -333,6 +332,67 @@ async def signed_in(
         yield board
     finally:
         await _logout(client, session.credential)
+
+
+async def read_hive_id(http: httpx.AsyncClient, address: EntranceAddress) -> str:
+    """Ask an Entrance which Hive it serves (``GET /v1/enrol/hive``: no session, not a secret).
+
+    Asked over the same verified TLS a redemption then uses, so the answer is the Hive at that
+    address, not whatever a link said.
+
+    Args:
+        http: A client for ``address`` (``transport.open_http``).
+        address: The Entrance.
+
+    Returns:
+        The Hive's id.
+
+    Raises:
+        LandingRefusedError: The Entrance refused (an older one answers 404: no such route).
+        EntranceUnreachableError: Nothing answered.
+        LandingProtocolError: The answer is not a Hive id.
+    """
+    response = await _exchange(http, address, http.build_request("GET", "/v1/enrol/hive"))
+    return _parsed(response, HiveView).hive_id
+
+
+async def _exchange(
+    http: httpx.AsyncClient, address: EntranceAddress, request: httpx.Request
+) -> httpx.Response:
+    """Send ``request``; turn a refusal or a transport failure into the CLI's own errors."""
+    try:
+        # Latency: one round trip, a login's Argon2id check included; httpx's timeout
+        # (transport.REQUEST_TIMEOUT_S) bounds it and a timeout is a transport failure.
+        response = await http.send(request)
+    except httpx.TransportError as exc:
+        raise EntranceUnreachableError(
+            f"The Entrance at {address.origin} did not answer ({type(exc).__name__}: {exc})"
+            f"{_handshake_hint(address, exc)}."
+        ) from exc
+    if response.is_success:
+        return response
+    raise LandingRefusedError.from_response(response)
+
+
+def _handshake_hint(address: EntranceAddress, error: httpx.TransportError) -> str:
+    """Say what a connection an HTTPS listener dropped may mean for this device, or nothing."""
+    if not address.origin.startswith("https://"):
+        return ""
+    text = str(error).lower()
+    # A refused client certificate reads as a TLS alert, or (TLS 1.3 finishes the client's side
+    # of the handshake first) as a server that hung up before answering.
+    dropped = isinstance(error, httpx.RemoteProtocolError | httpx.ReadError)
+    if not (dropped or "ssl" in text or "tls" in text):
+        return ""
+    if address.client is None:
+        return (
+            "; a listener that demands client certificates refuses a device without one: "
+            "hive remote certificate fetch (or import)"
+        )
+    return (
+        "; if it demands client certificates, this device's may have been refused (revoked, "
+        "expired, or from another Hive)"
+    )
 
 
 async def _logout(client: LandingClient, credential: Credential) -> None:

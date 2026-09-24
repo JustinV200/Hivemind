@@ -11,7 +11,10 @@ user's config directory (``typer.get_app_dir``: ``$XDG_CONFIG_HOME`` or ``~/.con
 The device's **private key is never in the profile**: it lives beside it in a
 ``hivemind.common.secrets.FileSecretStore`` (owner-only files in an owner-only directory), under
 ``<profile>.ed25519``, and is written before the profile, so a profile never names a key that is
-not there.
+not there. A device's mutual-TLS client certificate (public) is kept beside its profile, as
+``<profile>.crt``; the key it certifies is the same device key, still only in the secret store. A
+profile enrolled offline (``hive remote enrol --offline``) knows its Hive and its key but not yet
+its device id, which its certificate brings (``hive remote certificate import``).
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.remote``. Written by ``hive remote enrol``;
@@ -46,11 +49,13 @@ APP_NAME = "hivemind"  # The user's config directory is named for the package.
 DEFAULT_PROFILE = "default"  # The profile a command uses when none is named.
 KEY_SUFFIX = ".ed25519"  # A profile's key in the secret store: <profile>.ed25519.
 PROFILE_SUFFIX = ".json"  # A profile's file: <profile>.json.
+CERTIFICATE_SUFFIX = ".crt"  # A profile's client certificate, beside it: <profile>.crt.
 # A profile's name: short, lower case, and a safe file and secret name on every platform.
 PROFILE_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 
 __all__ = [
     "APP_NAME",
+    "CERTIFICATE_SUFFIX",
     "DEFAULT_PROFILE",
     "KEY_SUFFIX",
     "PROFILE_NAME",
@@ -75,13 +80,19 @@ class RemoteProfile(BaseModel):
         default=None, description="The only CA the Entrance's TLS may chain to; None: the system's."
     )
     hive_id: HiveIdField = Field(description="The Hive every login signature names.")
-    device_id: DeviceIdField = Field(description="This laptop's device at that Hive.")
+    device_id: DeviceIdField | None = Field(
+        default=None,
+        description="This laptop's device at that Hive; None until an offline enrolment's "
+        "certificate names it.",
+    )
     device_name: str = Field(max_length=64, description="What the laptop called itself.")
     fingerprint: str = Field(description="The device key's fingerprint, as the Hive Stand saw it.")
-    hive_public_key_hex: str = Field(
-        pattern=r"^[0-9a-f]{64}$", description="The Hive's Ed25519 key, pinned at enrolment."
+    hive_public_key_hex: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="The Hive's Ed25519 key, pinned at enrolment; None when enrolled offline.",
     )
-    enrolled_at: UtcDatetime = Field(description="When the invite was redeemed.")
+    enrolled_at: UtcDatetime = Field(description="When the invite was redeemed (or the key made).")
 
     @field_validator("name")
     @classmethod
@@ -163,6 +174,47 @@ class ProfileStore:
         await self._keys.put(profile.name + KEY_SUFFIX, signer.private_key_bytes)
         _write_atomically(self._path(profile.name), profile.model_dump_json(indent=2))
 
+    def update(self, profile: RemoteProfile) -> None:
+        """Rewrite an existing profile (a new address, a device id); its key stays as it is.
+
+        Args:
+            profile: The profile, changed.
+
+        Raises:
+            LandingError: No such profile to update.
+        """
+        if profile.name not in self.names():
+            raise LandingError(f"No remote profile {profile.name!r} to update.")
+        _write_atomically(self._path(profile.name), profile.model_dump_json(indent=2))
+
+    def save_certificate(self, name: str, pem: bytes) -> Path:
+        """Keep a profile's client certificate beside it (public; its key stays in the store).
+
+        Args:
+            name: The profile's name.
+            pem: The certificate, PEM, already checked against the profile's key.
+
+        Returns:
+            Where it was written.
+        """
+        path = self._certificate_path(check_profile_name(name))
+        _write_atomically(path, pem.decode("ascii"))
+        return path
+
+    def certificate(self, name: str) -> bytes | None:
+        """Read a profile's client certificate.
+
+        Args:
+            name: The profile's name.
+
+        Returns:
+            The certificate, PEM; None when the profile holds none.
+        """
+        try:
+            return self._certificate_path(check_profile_name(name)).read_bytes()
+        except FileNotFoundError:
+            return None
+
     async def signer(self, profile: RemoteProfile) -> Ed25519Signer:
         """Read a profile's device key.
 
@@ -196,12 +248,17 @@ class ProfileStore:
         path = self._path(check_profile_name(name))
         existed = path.exists()
         path.unlink(missing_ok=True)
+        self._certificate_path(name).unlink(missing_ok=True)
         await self._keys.delete(name + KEY_SUFFIX)
         return existed
 
     def _path(self, name: str) -> Path:
         """Where the profile ``name`` is kept."""
         return self.root / "profiles" / f"{name}{PROFILE_SUFFIX}"
+
+    def _certificate_path(self, name: str) -> Path:
+        """Where the profile ``name``'s client certificate is kept."""
+        return self.root / "profiles" / f"{name}{CERTIFICATE_SUFFIX}"
 
 
 def check_profile_name(name: str) -> str:

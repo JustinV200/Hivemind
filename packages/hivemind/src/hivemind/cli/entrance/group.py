@@ -2,13 +2,13 @@
 
 The Hive Entrance is the Hive's one HTTP door (ADR-0032), and on the Hive Stand (the machine the
 Queen, the orchestrator, runs on) ``hive entrance`` is how the operator keeps it: the password
-(``operator``), who may come in (``invite``, ``pending``, ``approve``, ``deny``, ``devices``,
-``revoke``, ``steward``, ``unlock``) and how wide the door is (``reduce``, ``open``, ``status``,
-``expose``). Every command that decides something acts as the console device over the loopback
-listener of a running ``hive serve`` (``hivemind.cli.entrance.console``); only ``operator
-password`` and ``unlock --console`` touch the Entrance tables directly, and ``--reset`` and
-``unlock --console`` only while ``hive serve`` is stopped. This module only registers the
-commands; each lives in the module named for what it keeps.
+(``operator``), who may come in (``invite``, ``register``, ``pending``, ``approve``, ``deny``,
+``devices``, ``revoke``, ``steward``, ``unlock``) and how wide the door is (``reduce``, ``open``,
+``status``, ``expose``). Every command that decides something acts as the console device over the
+loopback listener of a running ``hive serve`` (``hivemind.cli.entrance.console``); only ``operator
+password`` and ``unlock --console`` touch the Entrance tables directly, and ``--reset`` and ``unlock
+--console`` only while ``hive serve`` is stopped. This module only registers the commands; each
+lives in the module named for what it keeps.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.entrance``. Its ``app`` is added to the root
@@ -45,6 +45,7 @@ from hivemind.cli.entrance.enrolments import (
     deny_command,
     invite_command,
     pending_command,
+    register_command,
 )
 from hivemind.cli.entrance.operators import app as operator_app
 
@@ -61,6 +62,7 @@ app.add_typer(operator_app, name="operator")
 
 # Who may come in: every decision is the console device on the loopback listener.
 app.command("invite", cls=ConsoleCommand)(invite_command)
+app.command("register", cls=ConsoleCommand)(register_command)
 app.command("pending", cls=ConsoleCommand)(pending_command)
 app.command("approve", cls=ApproveCommand)(approve_command)
 app.command("deny", cls=ConsoleCommand)(deny_command)

@@ -1,10 +1,16 @@
-"""Provide ``hive remote enrol|profiles|forget``, and the remote halves of ``run`` and ``inbox``.
+"""Provide ``hive remote enrol|profiles|set-url|forget|certificate``, and remote ``run``, ``inbox``.
 
 A laptop's ``hive`` is an enrolled device like any other client of the Hive Entrance (ADR-0033).
 ``hive remote enrol URL --name NAME [--code CODE] [--hive HIVE]`` mints its key and redeems the
-invite the operator read out, then says what the operator must do: approve it on the Hive Stand,
-comparing the key fingerprint printed here. ``profiles`` lists the Hives this laptop is enrolled
-with; ``forget`` drops one (and its key). ``remote_run`` is ``hive run --remote "goal"``: the goal
+invite the operator read out (with a certificate request for the same key), then says what the
+operator must do: approve it on the Hive Stand, comparing the key fingerprint printed here. With
+``--offline`` nothing is sent: the key and its certificate request are made here, for the operator
+to register at the Hive Stand (``hive entrance register``), and the certificate they hand back is
+imported (``hive remote certificate import``). ``profiles`` lists the Hives this laptop is
+enrolled with and whether it holds a certificate there; ``set-url`` points a profile at another
+listener of the same Hive (the mutual-TLS one, once the certificate is kept); ``forget`` drops one
+(its key and certificate too); ``certificate`` fetches or imports a certificate
+(``hivemind.cli.remote.certificates``). ``remote_run`` is ``hive run --remote "goal"``: the goal
 submitted through the Entrance and followed to its end, the Queen's lines printed as they come,
 exit 0 when it finished, 1 when it was refused, 2 when the timeout ended the follow first.
 ``remote_inbox``, ``remote_answer`` and ``remote_acknowledge`` are ``hive inbox --remote``: what
@@ -28,8 +34,10 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import shlex
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
@@ -37,14 +45,18 @@ from pydantic import ValidationError
 
 from hivemind.cli.landing import (
     CarriedOption,
+    LandingError,
     SignedIn,
     carried_command,
+    carried_flag,
     carried_path,
     carried_text,
     describe,
+    entrance_address,
     shown,
 )
-from hivemind.cli.remote.enrol import EnrolmentOrder, enrol_device
+from hivemind.cli.remote.certificates import app as certificate_app
+from hivemind.cli.remote.enrol import EnrolmentOrder, enrol_device, enrol_offline
 from hivemind.cli.remote.goals import FollowOutcome, FollowPace, GoalAsk, submit_and_follow
 from hivemind.cli.remote.profiles import DEFAULT_PROFILE, ProfileStore
 from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line
@@ -66,16 +78,32 @@ CA_FILE = CarriedOption(
     help="A PEM file of the only CA the Entrance's TLS may chain to (a Hive's own authority); "
     "omitted, the system's trust store.",
 )
-EnrolCommand = carried_command(PROFILE, CA_FILE)
+OFFLINE = CarriedOption(
+    key="hivemind.cli.remote.offline",
+    decls=("--offline",),
+    help="Reach nothing: write a certificate request for the operator to register at the Hive "
+    "Stand (hive entrance register), then import the certificate they hand back.",
+    is_flag=True,
+)
+REQUEST_OUT = CarriedOption(
+    key="hivemind.cli.remote.csr_out",
+    decls=("--csr-out",),
+    help="Where --offline writes the certificate request (default: ./<profile>.csr).",
+)
+EnrolCommand = carried_command(PROFILE, CA_FILE, OFFLINE, REQUEST_OUT)
+SetUrlCommand = carried_command(PROFILE, CA_FILE)
 
 app = typer.Typer(
     name="remote",
     help="Enrol this device with a remote Hive, and keep its profiles.",
     no_args_is_help=True,
 )
+app.add_typer(certificate_app, name="certificate")
 
 __all__ = [
     "CA_FILE",
+    "OFFLINE",
+    "REQUEST_OUT",
     "RemoteRun",
     "app",
     "remote_acknowledge",
@@ -125,6 +153,9 @@ def enrol_command(
         profile=carried_text(ctx, PROFILE) or DEFAULT_PROFILE,
         ca_file=carried_path(ctx, CA_FILE),
     )
+    if carried_flag(ctx, OFFLINE):
+        _enrol_offline(order, carried_path(ctx, REQUEST_OUT))
+        return
     try:
         profile = asyncio.run(enrol_device(ProfileStore.for_user(), order, SystemClock()))
     except (HiveMindError, ValidationError, OSError, sqlite3.Error) as exc:
@@ -134,6 +165,26 @@ def enrol_command(
     typer.echo("It waits for approval. On the Hive Stand the operator compares this fingerprint:")
     typer.echo(f"  hive entrance approve {profile.device_id} --spend-cap 5 --interactive")
     typer.echo('Once approved: hive run --remote "your goal"')
+    typer.echo("Where the Hive demands client certificates: hive remote certificate fetch")
+
+
+def _enrol_offline(order: EnrolmentOrder, request_path: Path | None) -> None:
+    """Make the key and its certificate request here, and say what the operator runs."""
+    path = request_path or Path(f"{order.profile}.csr")
+    if order.code is not None:
+        _refuse("remote enrol", LandingError("--offline needs no invite code; leave --code out."))
+    try:
+        store = ProfileStore.for_user()
+        made = asyncio.run(enrol_offline(store, order, path, SystemClock()))
+    except (HiveMindError, ValidationError, OSError) as exc:
+        _refuse("remote enrol", exc)
+    typer.echo(f"Made this device's key for Hive {made.profile.hive_id}; nothing was sent.")
+    typer.echo(f"  (profile {made.profile.name!r}; key fingerprint {made.profile.fingerprint})")
+    typer.echo(f"Its certificate request is in {path}. On the Hive Stand the operator runs:")
+    command = f"hive entrance register --name {shlex.quote(order.name)}"
+    typer.echo(f"  {command} --public-key {made.public_key_hex} --csr {path.name}")
+    typer.echo("  hive entrance approve DEVICE --spend-cap 5 --certificate-out DEVICE.crt")
+    typer.echo("and hands the certificate back: hive remote certificate import DEVICE.crt")
 
 
 @app.command("profiles")
@@ -149,10 +200,32 @@ def profiles_command() -> None:
         except HiveMindError as exc:
             typer.echo(f"{name}: {describe(exc)}")
             continue
+        held = "a client certificate" if store.certificate(name) else "no client certificate"
+        device = profile.device_id or "(waits for its certificate)"
         typer.echo(
-            f"{profile.name}: {profile.entrance_url} Hive {profile.hive_id} device "
-            f"{profile.device_id} ({profile.fingerprint})"
+            f"{profile.name}: {profile.entrance_url} Hive {profile.hive_id} device {device} "
+            f"({profile.fingerprint}); {held}"
         )
+
+
+@app.command("set-url", cls=SetUrlCommand)
+def set_url_command(
+    ctx: typer.Context,
+    url: Annotated[str, typer.Argument(help="Where to reach the same Hive from now on.")],
+) -> None:
+    """Reach this profile's Hive at another address (the mutual-TLS listener, say)."""
+    name = carried_text(ctx, PROFILE) or DEFAULT_PROFILE
+    ca_file = carried_path(ctx, CA_FILE)
+    store = ProfileStore.for_user()
+    try:
+        profile = store.load(name)
+        address = entrance_address(url, ca_file)
+        # The CA file is kept by absolute path, as enrolment keeps it; omitted, the old one stays.
+        kept = str(ca_file.resolve()) if ca_file is not None else profile.ca_file
+        store.update(profile.model_copy(update={"entrance_url": address.origin, "ca_file": kept}))
+    except (HiveMindError, ValidationError, OSError) as exc:
+        _refuse("remote set-url", exc)
+    typer.echo(f"Profile {name!r} reaches its Hive at {address.origin} from now on.")
 
 
 @app.command("forget")

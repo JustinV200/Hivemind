@@ -5,7 +5,10 @@ Hive Stand (``http://localhost:<port>``) or a remote listener on a VPN overlay (
 DNS name, ADR-0033). ``EntranceAddress`` is that choice, validated once: plain ``http`` only for a
 loopback host (the one place TLS is not needed, because the traffic never leaves the machine), and
 ``https`` everywhere else, verified either against the system's trust store or, for a Hive that
-runs its own certificate authority, against only the CA file the operator named. Nothing here
+runs its own certificate authority, against only the CA file the operator named. A device holding
+a mutual-TLS client certificate carries it in its address, and every HTTPS request and WebSocket
+presents it (``hivemind.cli.landing.certificate``); plain loopback ``http`` has no TLS to present
+it in. Nothing here
 consults the environment's proxy settings: the Entrance is reached directly (on loopback, or on the
 overlay's own address), and a proxy in the path is exactly what the loopback listener refuses.
 
@@ -30,12 +33,13 @@ from __future__ import annotations
 import ssl
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 
+from hivemind.cli.landing.certificate import ClientCertificate, present
 from hivemind.cli.landing.errors import LandingError
 from waggle.uris import is_loopback_host
 
@@ -55,10 +59,13 @@ class EntranceAddress:
         origin: ``scheme://host[:port]``, nothing more.
         ca_file: A PEM file of the only authorities trusted for this Entrance (a Hive's own CA),
             or None to trust the system's store; unused for plain loopback ``http``.
+        client: The device's mutual-TLS client certificate, presented on every handshake; None
+            for a device holding none. Unused for plain loopback ``http``.
     """
 
     origin: str
     ca_file: Path | None = None
+    client: ClientCertificate | None = field(default=None, repr=False)
 
     @property
     def socket_origin(self) -> str:
@@ -71,21 +78,26 @@ class EntranceAddress:
 
         Returns:
             A verifying client context: the CA file alone when one was named, else the system
-            store; hostname checking on. None when the origin is plain ``http``.
+            store; hostname checking on; the device's client certificate when it holds one. None
+            when the origin is plain ``http``.
 
         Raises:
-            LandingError: The CA file cannot be read as PEM certificates.
+            LandingError: The CA file cannot be read as PEM certificates, or the client
+                certificate does not match its key.
         """
         if self.origin.startswith(f"{_PLAIN}://"):
             return None
         try:
             # create_default_context verifies the chain and the host name; with a cafile it trusts
             # that file alone, which is what pinning a Hive's own authority means.
-            return ssl.create_default_context(cafile=self.ca_file)
+            context = ssl.create_default_context(cafile=self.ca_file)
         except (OSError, ssl.SSLError) as exc:
             raise LandingError(
                 f"The CA file {self.ca_file} could not be read as PEM certificates ({exc})."
             ) from exc
+        if self.client is not None:
+            present(context, self.client)
+        return context
 
 
 def entrance_address(url: str, ca_file: Path | None = None) -> EntranceAddress:

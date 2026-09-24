@@ -3,7 +3,9 @@
 ``hive run --remote`` and ``hive inbox --remote`` act as the laptop's enrolled device (ADR-0033):
 ``remote_session`` reads the profile, opens its device key from the laptop's secret store,
 connects to the profile's Entrance (TLS verified against the system's store or the profile's own
-CA), and logs in with the key plus the operator's password, logging out however the block ends.
+CA, presenting the device's client certificate when it holds one, which a listener under mutual
+TLS demands), and logs in with the key plus the operator's password, logging out however the
+block ends.
 ``run_remote`` wraps a command's work in it: the password from a hidden prompt or
 ``--password-stdin``, the whole conversation in one event loop, and every refusal as one stderr
 line and exit 1 (a device pending approval, locked or revoked, a wrong password, a request held
@@ -26,6 +28,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import sqlite3
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -36,17 +39,21 @@ from pydantic import SecretStr, ValidationError
 
 from hivemind.cli.landing import (
     CarriedOption,
+    ClientCertificate,
     DeviceKey,
+    EntranceAddress,
     LandingClient,
+    LandingError,
     SignedIn,
     describe,
     open_http,
     read_password,
     signed_in,
 )
-from hivemind.cli.remote.profiles import DEFAULT_PROFILE, ProfileStore
+from hivemind.cli.remote.profiles import DEFAULT_PROFILE, ProfileStore, RemoteProfile
 from hivemind.common.errors import HiveMindError
 from waggle.clock import Clock, SystemClock
+from waggle.signing import Ed25519Signer
 
 REMOTE = CarriedOption(
     key="hivemind.cli.remote",
@@ -80,15 +87,30 @@ async def remote_session(
         The device, logged in.
 
     Raises:
-        LandingError: No such profile or key, or the Entrance refused or did not answer.
+        LandingError: No such profile or key, a profile still waiting for its certificate, or
+            the Entrance refused or did not answer.
     """
     profile = store.load(profile_name)
+    if profile.device_id is None:
+        raise LandingError(
+            f"Profile {profile_name!r} was enrolled offline and waits for its certificate: "
+            f"hive remote certificate import FILE --profile {profile_name}."
+        )
     signer = await store.signer(profile)
-    address = profile.address()
+    address = _address(store, profile, signer)
     async with open_http(address) as http:
         client = LandingClient(http, address, profile.hive_id, clock)
         async with signed_in(client, DeviceKey(profile.device_id, signer), password) as board:
             yield board
+
+
+def _address(store: ProfileStore, profile: RemoteProfile, signer: Ed25519Signer) -> EntranceAddress:
+    """The profile's Entrance, presenting the device's client certificate when it holds one."""
+    address = profile.address()
+    pem = store.certificate(profile.name)
+    if pem is None:
+        return address
+    return dataclasses.replace(address, client=ClientCertificate(pem, signer))
 
 
 def run_remote[T](

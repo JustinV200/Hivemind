@@ -91,6 +91,13 @@ def device_lines(device: DeviceView) -> list[str]:
         lines.append(f"  platform: {shown(description.platform)}")
         lines.append(f"  user agent: {shown(description.user_agent)}")
     lines.append(f"  asked at: {stamp(device.created_at)}; expires: {stamp(device.expires_at)}")
+    if device.certificate_serial is not None:
+        lines.append(
+            f"  client certificate: serial {device.certificate_serial}, until "
+            f"{stamp(device.certificate_not_after)}"
+        )
+    elif device.certificate_requested:
+        lines.append("  client certificate: requested (signed at approval under a Hive authority)")
     return lines
 
 

@@ -91,10 +91,10 @@ async def _laptop(stand: Stand, root: Path, *capabilities: str) -> AsyncIterator
     invite = json_of(await stand.entrance("invite", "--device", "laptop", "--json"))
     store = ProfileStore(root)
     order = EnrolmentOrder(invite["url"], None, invite["hive_id"], "laptop", "default")
-    profile = await enrol_device(store, order, SystemClock())
+    await enrol_device(store, order, SystemClock())
     granted = ("--capabilities", *capabilities) if capabilities else ()
     approved = await stand.entrance(
-        *("approve", profile.device_id, "--spend-cap", "20", "--interactive", "--yes"), *granted
+        *("approve", invite["device_id"], "--spend-cap", "20", "--interactive", "--yes"), *granted
     )
     assert approved.exit_code == 0, approved.output
     async with remote_session(store, "default", SecretStr(PASSWORD), SystemClock()) as board:

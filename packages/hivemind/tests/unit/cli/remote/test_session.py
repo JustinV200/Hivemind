@@ -44,8 +44,8 @@ async def test_a_wrong_password_is_refused_without_naming_the_factor(tmp_path: P
     async with serving_stand(path) as (stand, _entrance):
         invite = json_of(await stand.entrance("invite", "--device", "laptop", "--json"))
         order = EnrolmentOrder(invite["url"], None, invite["hive_id"], "laptop", "default")
-        profile = await enrol_device(store, order, SystemClock())
-        await stand.entrance("approve", profile.device_id, "--spend-cap", "5", "--yes")
+        await enrol_device(store, order, SystemClock())
+        await stand.entrance("approve", invite["device_id"], "--spend-cap", "5", "--yes")
         with pytest.raises(LandingRefusedError) as refused:
             wrong = SecretStr(WRONG_PASSWORD)
             async with remote_session(store, "default", wrong, SystemClock()):

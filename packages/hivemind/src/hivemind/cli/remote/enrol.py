@@ -1,16 +1,24 @@
 """Enrol this laptop with a Hive: mint its key, redeem the invite, and keep the profile.
 
 ``hive remote enrol`` is the device's side of ADR-0033's enrolment. The operator ran ``hive
-entrance invite`` on the Hive Stand and read out (or pasted) the Entrance's URL, the single-use
-code and the Hive's id; the invite link itself (``<origin>/enrol#code=...``) is accepted in place
-of the URL and the code, and a ``hive=`` beside the code in its fragment in place of ``--hive``.
-The laptop mints a fresh Ed25519 key, proves it holds it by signing ``hive-enrol-v1`` over the
-Hive id, the code's hash and the key, and redeems the invite; the Entrance answers with the key's
-fingerprint (checked against the one computed here, so a mangled key is caught before anything is
-kept) and the Hive's public key, which the profile pins. The device is PENDING until the operator
-approves it at the Hive Stand, comparing the fingerprint printed here with the one ``hive entrance
-approve`` shows. Nothing is written unless the redemption succeeded; a profile name already in use
-is refused rather than overwritten, since its key is the only way back into that Hive.
+entrance invite`` on the Hive Stand and read out (or pasted) the Entrance's URL and the single-use
+code; the invite link itself (``<origin>/enrol#code=...``) is accepted in place of the URL and the
+code. The Hive's id, which every signature names, is asked of the Entrance itself (``GET
+/v1/enrol/hive``, over the same verified TLS the redemption then uses); a ``--hive`` (or a
+``hive=`` in the link) is checked against that answer, and a disagreement refuses. The laptop
+mints a fresh Ed25519 key, proves it holds it by signing ``hive-enrol-v1`` over the Hive id, the
+code's hash and the key, sends a certificate signing request for the same key (the Hive signs its
+mutual-TLS client certificate from it at approval, when it runs its own authority), and redeems
+the invite; the Entrance answers with the key's fingerprint (checked against the one computed
+here, so a mangled key is caught before anything is kept) and the Hive's public key, which the
+profile pins. The device is PENDING until the operator approves it at the Hive Stand, comparing
+the fingerprint printed here with the one ``hive entrance approve`` shows. Nothing is written
+unless the redemption succeeded; a profile name already in use is refused rather than
+overwritten, since its key is the only way back into that Hive. ``enrol_offline`` is the way in
+for a laptop that can reach no enrolment listener (a Hive in ``lan`` or ``tunnel`` mode, where
+nothing passes the remote listener without a certificate): it touches no network, mints the key
+and writes the certificate request to a file the operator registers at the Hive Stand, and keeps
+a profile whose device id the certificate the operator hands back will name.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.remote``. Called by ``hive remote enrol``
@@ -29,17 +37,24 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import platform
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
+
 from hivemind.cli.landing import (
+    EntranceAddress,
     LandingClient,
     LandingError,
     LandingProtocolError,
+    LandingRefusedError,
+    certificate_request,
     entrance_address,
     open_http,
+    read_hive_id,
 )
 from hivemind.cli.remote.profiles import ProfileStore, RemoteProfile, check_profile_name
 from hivemind.cli.version import collect_version_info
@@ -51,8 +66,16 @@ from waggle.ids import IdKind, parse_id
 from waggle.signing import Ed25519Signer
 
 MAX_PLATFORM_CHARS = 64  # The Entrance's own bound on a device's platform string.
+_NOT_FOUND = 404  # An Entrance from before GET /v1/enrol/hive answers its path this way.
 
-__all__ = ["EnrolmentOrder", "InviteLink", "enrol_device", "read_invite_link"]
+__all__ = [
+    "EnrolmentOrder",
+    "InviteLink",
+    "OfflineEnrolment",
+    "enrol_device",
+    "enrol_offline",
+    "read_invite_link",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +114,21 @@ class EnrolmentOrder:
     ca_file: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class OfflineEnrolment:
+    """What an offline enrolment made, for the operator to register at the Hive Stand.
+
+    Attributes:
+        profile: The kept profile, without a device id until its certificate is imported.
+        public_key_hex: The device key's public half, hex: ``--public-key`` at the Hive Stand.
+        request_path: Where the certificate signing request was written: ``--csr`` there.
+    """
+
+    profile: RemoteProfile
+    public_key_hex: str
+    request_path: Path
+
+
 def read_invite_link(url: str) -> InviteLink:
     """Read an Entrance URL or invite link, taking the code and Hive id from its fragment.
 
@@ -122,19 +160,18 @@ async def enrol_device(store: ProfileStore, order: EnrolmentOrder, clock: Clock)
             refused (``LandingRefusedError``) or did not answer.
     """
     link = read_invite_link(order.link)
-    name = check_profile_name(order.profile)
-    if name in store.names():
-        raise LandingError(
-            f"Profile {name!r} already holds a device; forget it first (hive remote forget "
-            f"{name}) or choose another with --profile."
-        )
-    code, hive_id = _code(order.code or link.code), _hive_id(order.hive_id or link.hive_id)
+    name = _free_name(store, order.profile)
+    code = _code(order.code or link.code)
+    named = order.hive_id or link.hive_id
+    named_id = _hive_id(named) if named is not None else None
     address = entrance_address(order.link, order.ca_file)
     signer = Ed25519Signer.generate()
-    # Latency: one round trip to the Entrance, bounded by the client's own timeout.
+    request = certificate_request(signer, order.name)
+    # Latency: two round trips to the Entrance, each bounded by the client's own timeout.
     async with open_http(address) as http:
+        hive_id = await _served_hive(http, address, named_id)
         client = LandingClient(http, address, hive_id, clock)
-        redemption = await client.redeem(code, signer, _description(order.name))
+        redemption = await client.redeem(code, signer, _description(order.name), request)
     # The Entrance fingerprints the key it stored; a mismatch means it is not the key sent.
     if redemption.fingerprint != key_fingerprint(signer.public_key_bytes):
         raise LandingProtocolError("The Entrance recorded a different key than this device sent.")
@@ -153,6 +190,73 @@ async def enrol_device(store: ProfileStore, order: EnrolmentOrder, clock: Clock)
     return profile
 
 
+async def enrol_offline(
+    store: ProfileStore, order: EnrolmentOrder, request_path: Path, clock: Clock
+) -> OfflineEnrolment:
+    """Mint the key and its certificate request for an operator to register; no network.
+
+    Args:
+        store: This user's remote profiles.
+        order: What the user was told; the code is not needed (the Hive Stand mints its own).
+        request_path: Where to write the certificate signing request.
+        clock: Stamps the profile.
+
+    Returns:
+        The kept profile, the public key and where the request is.
+
+    Raises:
+        LandingError: The Hive id is missing or malformed, the URL is not an Entrance's, or the
+            profile exists.
+    """
+    link = read_invite_link(order.link)
+    name = _free_name(store, order.profile)
+    hive_id = _hive_id(order.hive_id or link.hive_id)
+    address = entrance_address(order.link, order.ca_file)
+    signer = Ed25519Signer.generate()
+    # The request is public (a key and a signature): written for the operator to carry across.
+    # Latency: one small local write, off the event loop.
+    await asyncio.to_thread(request_path.write_text, certificate_request(signer, order.name))
+    profile = RemoteProfile(
+        name=name,
+        entrance_url=address.origin,
+        ca_file=str(order.ca_file.resolve()) if order.ca_file is not None else None,
+        hive_id=hive_id,
+        device_name=order.name,
+        fingerprint=key_fingerprint(signer.public_key_bytes),
+        enrolled_at=clock.now(),
+    )
+    await store.save(profile, signer)
+    return OfflineEnrolment(profile, signer.public_key_bytes.hex(), request_path)
+
+
+def _free_name(store: ProfileStore, profile: str) -> str:
+    """The profile name to enrol as, refused when it already holds a device."""
+    name = check_profile_name(profile)
+    if name in store.names():
+        raise LandingError(
+            f"Profile {name!r} already holds a device; forget it first (hive remote forget "
+            f"{name}) or choose another with --profile."
+        )
+    return name
+
+
+async def _served_hive(http: httpx.AsyncClient, address: EntranceAddress, named: str | None) -> str:
+    """The Hive the Entrance says it serves; a named id must agree with it."""
+    try:
+        served = await read_hive_id(http, address)
+    except LandingRefusedError as refusal:
+        # An Entrance from before the route cannot say: only an id named here will do then.
+        if refusal.status != _NOT_FOUND or named is None:
+            raise
+        return named
+    if named is not None and named != served:
+        raise LandingError(
+            f"The Entrance at {address.origin} serves Hive {served}, not {named}; check the "
+            "invite link or --hive."
+        )
+    return served
+
+
 def _code(code: str | None) -> str:
     """The invite code in its grouped form; refused without repeating it."""
     if code is None:
@@ -167,7 +271,8 @@ def _hive_id(hive_id: str | None) -> str:
     """The Hive's id, checked; hive entrance invite prints it beside the code."""
     if hive_id is None:
         raise LandingError(
-            "No Hive id: pass --hive (hive entrance invite prints it beside the code)."
+            "No Hive id: pass --hive (hive entrance invite prints it beside the code); offline, "
+            "the Entrance cannot be asked."
         )
     try:
         return parse_id(hive_id, IdKind.HIVE)
