@@ -1,7 +1,9 @@
 """Serve a Hive Entrance in-process over a real Queen: uvicorn on loopback, push to a fake service.
 
 ``serving`` builds what ``hive serve`` builds, over in-memory tables: a real Queen (not ticking) on
-``make_queen_deps``'s fakes, the Entrance's tables on her trail, the Hive's keys, and
+``make_queen_deps``'s fakes, her one Warden on the Hive Stand's Cell (so a device granted
+``cell:hive_stand`` has its goals placed there, as in ``hive serve``), the Entrance's tables on her
+trail, the Hive's keys, and
 ``build_entrance`` over a loopback socket on a port the system chooses; with ``remote`` it also
 serves a remote listener on another loopback port, plain HTTP (a test-only plan: every real remote
 mode speaks TLS), so a test can reach both applications. Every push delivery (webhook POSTs and Web
@@ -21,17 +23,19 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import httpx
+from builders.cells import make_cell
 from builders.entrance.auth import PASSWORD, cheap_password_hash
 from builders.entrance.landing import DeviceKey, LandingClient, LandingSession
 from builders.entrance.records import ed25519_public_key, entry_event, make_device
 from builders.queen import WardenEnd, make_queen_deps
 from unit.entrance.push.support import OWN_ADDRESS, Recorder, StaticResolver
 
+from hivemind.cell import CellKind
 from hivemind.common.secrets import MemorySecretStore
 from hivemind.entrance.auth import SoftPasskey
 from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
@@ -69,8 +73,11 @@ PUBLIC_ORIGIN = "https://hive.example.ts.net"  # The remote listener's public_ur
 REMOTE_RP_ID = "hive.example.ts.net"  # Its relying party.
 VAPID_SUBJECT = "mailto:ops@example.net"  # The Web Push contact every rig signs with.
 GOAL_SPEND_CAP_USD = 2.0  # [forage] spend_cap_per_goal_usd for every rig.
+HIVE_STAND_SOURCE = "hive_stand"  # The source the Queen's placement knows the Hive Stand by.
 # Generous limits: a test makes many requests from one address, and limits have their own tests.
 RIG_SECTION = EntranceSection(rate_limit_per_device=10_000, rate_limit_per_address=10_000)
+# Writes what a restart would find into the fresh Entrance tables and Queen tables, before start.
+Seed = Callable[[MemoryEntranceStore, QueenDeps], Awaitable[None]]
 
 __all__ = [
     "GOAL_SPEND_CAP_USD",
@@ -79,6 +86,7 @@ __all__ = [
     "VAPID_SUBJECT",
     "ProgramGrant",
     "RigOptions",
+    "Seed",
     "ServingRig",
     "serving",
 ]
@@ -96,6 +104,7 @@ class RigOptions:
         remote_host: Where the remote listener binds (an address this host lacks fails).
         hello_deadline_s: How long a socket may take to send its first frame.
         stream_backlog: How far a live view may fall behind before it is closed.
+        seed: Run once the console is recorded and before the Entrance starts.
     """
 
     remote: bool = False
@@ -105,6 +114,7 @@ class RigOptions:
     remote_host: str = LOOPBACK_HOST
     hello_deadline_s: float = SOCKET_HELLO_DEADLINE_S
     stream_backlog: int = DEFAULT_BACKLOG
+    seed: Seed | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,13 +267,12 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
     active = options if options is not None else RigOptions()
     clock = SystemClock()
     relay, telemetry = HumanChannelRelay(), TelemetryBoard()
-    deps, link, warden_end = make_queen_deps(
-        clock, fake_provider=active.provider, human_channel=relay, on_heartbeat=telemetry.record
-    )
-    queen = Queen(deps)
-    await queen.attach_warden(link)
+    queen, deps, warden_end = await _queen(clock, active.provider, relay, telemetry)
     store, push_store = MemoryEntranceStore(deps.trail), MemorySubscriptionStore()
     console = await _console(store, clock)
+    if active.seed is not None:
+        # What an earlier run left behind, found by the Entrance as it settles on start.
+        await active.seed(store, deps)
     recorder, resolver = Recorder(*active.push_statuses), StaticResolver()
     async with recorder.client() as push_http:
         parts = EntranceParts(
@@ -291,6 +300,26 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
         )
         async with _running(rig):
             yield rig
+
+
+async def _queen(
+    clock: SystemClock,
+    provider: FakeLLMProvider | None,
+    relay: HumanChannelRelay,
+    telemetry: TelemetryBoard,
+) -> tuple[Queen, QueenDeps, WardenEnd]:
+    """Build the Queen, telling devices through ``relay``, her Warden attached on the Hive Stand."""
+    stand = make_cell(CellKind.REAL, clock, name="hive-stand", source=HIVE_STAND_SOURCE)
+    deps, link, warden_end = make_queen_deps(
+        clock,
+        fake_provider=provider,
+        cell=stand,
+        human_channel=relay,
+        on_heartbeat=telemetry.record,
+    )
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    return queen, deps, warden_end
 
 
 def _hive(queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard) -> EntranceHive:

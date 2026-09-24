@@ -31,7 +31,8 @@ Public API:
       grant_view, headroom_view, reserve_view: the Forage ledger (forage).
     - EpisodeView, EpisodeList, episode_view: thoughts (episodes).
     - TrailEventView, TrailUsageView, TrailCursor, TrailPage, TrailFilters, trail_event_view,
-      MAX_TRAIL_PAGE, MAX_TRAIL_SKIP, DEFAULT_TRAIL_PAGE, MAX_FILTER_CHARS: the trail (trail).
+      MAX_TRAIL_PAGE, MAX_TRAIL_SKIP, DEFAULT_TRAIL_PAGE, MAX_FILTER_CHARS, WORDS_FIELDS: the
+      trail (trail).
     - LlmView, ProviderView, ProviderHealthView, SlotView: providers and slots (llm).
     - NotBuiltView, NOT_BUILT_CODE: a resource a later phase fills (unbuilt).
     - TrailFrame, TelemetryFrame, TelemetrySampleView, ForageFrame, TaskGraphFrame, EpisodeFrame,
@@ -81,6 +82,7 @@ from hivemind.entrance.models.views.trail import (
     MAX_FILTER_CHARS,
     MAX_TRAIL_PAGE,
     MAX_TRAIL_SKIP,
+    WORDS_FIELDS,
     TrailCursor,
     TrailEventView,
     TrailFilters,
@@ -97,6 +99,7 @@ __all__ = [
     "MAX_TRAIL_PAGE",
     "MAX_TRAIL_SKIP",
     "NOT_BUILT_CODE",
+    "WORDS_FIELDS",
     "CapacityView",
     "CellFrame",
     "CellList",

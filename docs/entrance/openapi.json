@@ -3629,7 +3629,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"
             },
-            "description": "Ids, counts and reason codes only.",
+            "description": "Ids, counts and reason codes only; a task's title is left out (C2).",
             "title": "Payload",
             "type": "object"
           },

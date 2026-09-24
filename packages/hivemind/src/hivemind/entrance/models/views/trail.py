@@ -5,11 +5,13 @@ construction: every event is who did what to what and when, with a bounded paylo
 and reason codes that the event model itself refuses to let hold prompt or completion text. So
 ``TrailEventView`` shows an event as the trail holds it, under ``observe``: its kind, subject,
 actor, node, time and payload, plus the slot, provider and normalised usage an ``llm.call`` event
-carries (never a model id or a key). A page is read in trail order from a cursor, not an offset:
-``TrailCursor`` is where the next page starts (an instant and how many events at exactly that
-instant were already read), because events at one instant are common and must be neither skipped
-nor read twice. ``TrailFilters`` is the read's query string: the filters, the cursor and the page
-size, validated as one model (unknown parameters are refused).
+carries (never a model id or a key). One payload field is left out: the title ``task.submitted``
+records is the task's own words, C2 like everything else written from a goal, so it is read
+through the task's brief and never through the trail. A page is read in trail order from a
+cursor, not an offset: ``TrailCursor`` is where the next page starts (an instant and how many
+events at exactly that instant were already read), because events at one instant are common and
+must be neither skipped nor read twice. ``TrailFilters`` is the read's query string: the filters,
+the cursor and the page size, validated as one model (unknown parameters are refused).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models.views``.
@@ -18,7 +20,7 @@ Fits into the Hive:
     the OpenAPI document. Calls into ``hivemind.pheromone`` and pydantic.
 
 Key invariants:
-    - A view carries what the trail carries and nothing more.
+    - A view carries what the trail carries and nothing more, less a task's title.
 
 See Also:
     - hivemind.pheromone.events for what an event may hold.
@@ -37,6 +39,8 @@ MAX_TRAIL_PAGE = 500  # Most events one page answers: a screenful, and bounded f
 MAX_TRAIL_SKIP = MAX_QUERY_LIMIT - MAX_TRAIL_PAGE  # So skip + limit fits one store query.
 DEFAULT_TRAIL_PAGE = 100  # What a page holds when the caller does not say.
 MAX_FILTER_CHARS = 128  # A family, a kind or a subject id: short identifiers, never text.
+# Payload fields holding a task's words (task.submitted records its title): C2, read in its brief.
+WORDS_FIELDS = frozenset({"title"})
 
 _CONFIG = ConfigDict(frozen=True, extra="forbid")  # Every view here: immutable, no strays.
 
@@ -45,6 +49,7 @@ __all__ = [
     "MAX_FILTER_CHARS",
     "MAX_TRAIL_PAGE",
     "MAX_TRAIL_SKIP",
+    "WORDS_FIELDS",
     "TrailCursor",
     "TrailEventView",
     "TrailFilters",
@@ -109,7 +114,9 @@ class TrailEventView(BaseModel):
     actor: str = Field(description="Who did it: a bee's or device's id, human or system.")
     node_id: str = Field(description="The node (Queen or Warden) whose segment recorded it.")
     at: datetime = Field(description="When it happened.")
-    payload: dict[str, JsonValue] = Field(description="Ids, counts and reason codes only.")
+    payload: dict[str, JsonValue] = Field(
+        description="Ids, counts and reason codes only; a task's title is left out (C2)."
+    )
     slot: str | None = Field(default=None, description="llm.*: the model slot a call served.")
     provider: str | None = Field(default=None, description="llm.*: the provider's manifest name.")
     usage: TrailUsageView | None = Field(default=None, description="llm.call: its usage.")
@@ -151,7 +158,8 @@ def trail_event_view(event: PheromoneEvent) -> TrailEventView:
         actor=event.actor,
         node_id=event.node_id,
         at=event.at,
-        payload=dict(event.payload),
+        # A task's words stay behind honey:clearance:c2, in its brief (module docstring).
+        payload={key: value for key, value in event.payload.items() if key not in WORDS_FIELDS},
     )
     # Only an llm event carries its routing and usage beside the base fields.
     if not isinstance(event, LlmEvent):

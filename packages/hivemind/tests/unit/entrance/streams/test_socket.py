@@ -2,8 +2,9 @@
 
 ADR-0033 over a real listener: the first frame is the session's token and a signature over the
 socket's opening; anything else closes the socket as unauthenticated, a browser's socket from a
-foreign origin too, a device without the view's capability is closed as forbidden, and ending the
-session (a logout) closes its sockets with that reason.
+foreign origin too, and so does sending nothing until the first-frame deadline (shortened here
+through the Entrance's settings), a device without the view's capability is closed as forbidden,
+and ending the session (a logout) closes its sockets with that reason.
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/streams/socket.py (codingrules section 3).
@@ -16,8 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
-from builders.entrance.serving import ProgramGrant, ServingRig, serving
+from builders.entrance.serving import ProgramGrant, RigOptions, ServingRig, serving
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 from websockets.typing import Origin
@@ -26,6 +28,7 @@ from hivemind.entrance.streams import CloseReason
 
 _SECURITY = "/v1/entrance/stream"  # Any observing device may open it.
 _WAIT_S = 3.0  # Generous: every close here is immediate.
+_SHORT_DEADLINE_S = 0.2  # The first-frame deadline a test waits out, instead of ADR-0033's 5 s.
 
 
 async def _close_code(socket: ClientConnection) -> int | None:
@@ -52,6 +55,23 @@ async def test_a_first_frame_that_is_not_a_signed_hello_closes_the_socket() -> N
         code = await _close_code(socket)
 
     assert code == CloseReason.AUTHENTICATION_FAILED.code
+
+
+async def test_a_socket_that_sends_nothing_is_closed_at_the_first_frame_deadline() -> None:
+    async with (
+        serving(RigOptions(hello_deadline_s=_SHORT_DEADLINE_S)) as rig,
+        connect(_url(rig, _SECURITY)) as socket,
+    ):
+        opened = time.monotonic()
+
+        code = await _close_code(socket)
+        waited = time.monotonic() - opened
+        admitted = rig.entrance.services.streams.sockets.count()
+
+    assert code == CloseReason.AUTHENTICATION_FAILED.code
+    # Not at once (the server's clock started at accept, a moment before ours), and not at 5 s.
+    assert _SHORT_DEADLINE_S / 2 <= waited < _WAIT_S
+    assert admitted == 0
 
 
 async def test_a_browser_socket_from_a_foreign_origin_is_refused() -> None:

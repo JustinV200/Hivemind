@@ -26,8 +26,9 @@ See Also:
 
 Public API:
     - VIEWS: every view's row, in the order the document lists them (registry).
-    - CHAT_RESYNC_S, chat_stream, push_stream, security_stream, LANDING_VIEWS: the Landing
-      Board's own views (landing).
+    - CHAT_RESYNC_S, chat_stream, push_stream, security_stream, LANDING_VIEWS, live_sender: the
+      Landing Board's own views, and the live push sender that detaches a socket its client has
+      left (landing).
     - TRAIL_VIEW, trail_stream; TELEMETRY_VIEW, telemetry_stream; FORAGE_VIEW, forage_stream;
       TASKS_VIEW, task_stream, QUEEN_PRINCIPAL; EPISODES_VIEW, episode_stream; CELLS_VIEW,
       cell_stream: the Hive's views (trail, telemetry, forage, tasks, episodes, cells).
@@ -41,6 +42,7 @@ from hivemind.entrance.streams.views.landing import (
     CHAT_RESYNC_S,
     LANDING_VIEWS,
     chat_stream,
+    live_sender,
     push_stream,
     security_stream,
 )
@@ -71,6 +73,7 @@ __all__ = [
     "chat_stream",
     "episode_stream",
     "forage_stream",
+    "live_sender",
     "pump",
     "push_stream",
     "security_stream",
