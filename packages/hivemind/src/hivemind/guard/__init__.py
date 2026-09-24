@@ -2,14 +2,15 @@
 
 `CapabilitySet` is what one bee is currently allowed to do, built from `Capability` grants across
 the families in `hivemind.guard.capabilities` (tool, filesystem read/write, network, exec, device,
-spend). `hivemind.guard.access` says what each `AccessLevel` (a Real Cell's READ_ONLY/SCRATCH/FULL
-tier) permits, as data: `ceiling_for` builds the widest set a level ever allows, and
-`cap_to_access` narrows a requested set down to what that ceiling allows. The security tier enums
-themselves (`AccessLevel`, `CombShieldLevel`, `HoneyClearance`) live in `hivemind.cell.tiers`;
-guard only interprets `AccessLevel` here. Phase 3 step 3.13a builds this pure core -- the families
-and rules 3.15 (worker capabilities) and 3.16 (the Drone's tools) already gate on -- and phase 10
-step 10.1 extends the family list and adds the policy engine proper (`[guard]` manifest section,
-enforcement points) once the Entrance, Honey and Exoskeleton subsystems exist.
+spend, Honey read). `hivemind.guard.access` says what each `AccessLevel` (a Real Cell's
+READ_ONLY/SCRATCH/FULL tier) permits, as data: `ceiling_for` builds the widest set a level ever
+allows, and `cap_to_access` narrows a requested set down to what that ceiling allows. The security
+tier enums themselves (`AccessLevel`, `CombShieldLevel`, `HoneyClearance`) live in
+`hivemind.cell.tiers`; guard only interprets `AccessLevel` here. Phase 3 step 3.13a builds this
+pure core -- the families and rules 3.15 (worker capabilities) and 3.16 (the Drone's tools) already
+gate on -- roadmap phase 7 step 7.10 adds `HONEY_READ` for the Honey Store's scoping rules, and
+phase 10 step 10.1 adds the remaining family list and the policy engine proper (`[guard]` manifest
+section, enforcement points) once the Entrance and Exoskeleton subsystems exist.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by every layer above it, before

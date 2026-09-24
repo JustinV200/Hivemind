@@ -45,3 +45,15 @@ def test_cell_real_never_night_veil_but_meadow_is_accepted() -> None:
     cell = make_cell(kind=CellKind.REAL, comb_shield=CombShieldLevel.MEADOW)
 
     assert cell.comb_shield is CombShieldLevel.MEADOW
+
+
+def test_cell_is_borrowed_true_for_real() -> None:
+    cell = make_cell(kind=CellKind.REAL, comb_shield=CombShieldLevel.MEADOW)
+
+    assert cell.is_borrowed is True
+
+
+def test_cell_is_borrowed_false_for_virtual() -> None:
+    cell = make_cell(kind=CellKind.VIRTUAL, access_level=AccessLevel.FULL)
+
+    assert cell.is_borrowed is False

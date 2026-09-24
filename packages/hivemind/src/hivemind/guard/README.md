@@ -7,12 +7,14 @@ in `cell/tiers.py`; guard only interprets them. This package is pure: no I/O.
 ## Public API (roadmap step 3.13a)
 
 - **Capabilities** (`hivemind.guard.capabilities`): `CapabilityFamily` (`TOOL`, `FS_READ`,
-  `FS_WRITE`, `NET`, `EXEC`, `DEVICE`, `SPEND`), the seven families this step builds -- phase 10
-  step 10.1 adds the rest (Entrance, Honey, Exoskeleton scopes). `Capability`, a frozen
-  `family` + `scope` pair with a `"family:scope"` string form (`Capability.parse` /
-  `str(capability)` round-trip) and `matches(needed)`: glob-aware (`fnmatch.fnmatchcase` on
-  POSIX-style paths, so Windows backslash paths still match) for `tool`/`fs:read`/`fs:write`/
-  `exec`; exact-or-trailing-`*` for `net`/`device`; numeric `held >= needed` for `spend`.
+  `FS_WRITE`, `NET`, `EXEC`, `DEVICE`, `SPEND`), the seven families phase 3 step 3.13a builds,
+  plus `HONEY_READ` (roadmap phase 7 step 7.10, a glob over a Honey Store scope string such as
+  `"honey:read:hive"` or `"honey:read:task:*"`) -- phase 10 step 10.1 adds the rest (Entrance,
+  Exoskeleton scopes). `Capability`, a frozen `family` + `scope` pair with a `"family:scope"`
+  string form (`Capability.parse` / `str(capability)` round-trip) and `matches(needed)`:
+  glob-aware (`fnmatch.fnmatchcase` on POSIX-style paths, so Windows backslash paths still match)
+  for `tool`/`fs:read`/`fs:write`/`exec`/`honey:read`; exact-or-trailing-`*` for `net`/`device`;
+  numeric `held >= needed` for `spend`.
   `CapabilitySet`, the frozenset of every `Capability` one bee holds, with `allows(needed)`,
   `attenuate(subset)` (raises `CapabilityWideningError` rather than ever widening),
   `issubset(other)`, `CapabilitySet.parse(*strings)`, `CapabilitySet.empty()`, `len()` and

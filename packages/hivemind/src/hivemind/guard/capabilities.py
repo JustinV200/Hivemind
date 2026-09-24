@@ -10,11 +10,13 @@ Entrance, Honey and Exoskeleton scopes once those subsystems exist; only the fam
 declares are legal until then.
 
 Scope grammar, by family (`CapabilityFamily`):
-    - `tool`, `fs:read`, `fs:write`, `exec`: a glob pattern. Matched with `fnmatch.fnmatchcase`
-      against a POSIX-style (forward-slash) form of the scope, on both sides, so a scope written
-      with Windows backslashes still matches a POSIX-style one and vice versa. `fnmatch`'s `*`
-      already matches across `/`, so `**` behaves exactly like `*` here; it is written that way in
-      examples because it reads better over a directory tree (`"fs:write:/scratch/**"`).
+    - `tool`, `fs:read`, `fs:write`, `exec`, `honey:read`: a glob pattern. Matched with
+      `fnmatch.fnmatchcase` against a POSIX-style (forward-slash) form of the scope, on both
+      sides, so a scope written with Windows backslashes still matches a POSIX-style one and vice
+      versa. `fnmatch`'s `*` already matches across `/`, so `**` behaves exactly like `*` here; it
+      is written that way in examples because it reads better over a directory tree
+      (`"fs:write:/scratch/**"`). `honey:read` globs a Honey Store scope string (roadmap 7.10):
+      `"honey:read:hive"`, `"honey:read:task:*"` or `"honey:read:*"` for everything.
     - `net`, `device`: an exact string, or a scope ending in `*` that matches any needed scope
       sharing its prefix (`"net:*.example.com"` is written without the trailing `*` convention
       used elsewhere in this grammar -- see `Capability.matches` for the precise rule).
@@ -70,8 +72,9 @@ _SPEND_WILDCARD = "*"  # A spend scope of "*" means no ceiling: every needed amo
 class CapabilityFamily(Enum):
     """The kind of thing one Capability grants; also its string prefix up to (not including) ":".
 
-    Phase 3 step 3.13a's set; phase 10 step 10.1 adds the Entrance, Honey and Exoskeleton
-    families once those subsystems exist (roadmap phase 3 step 3.13a note).
+    Phase 3 step 3.13a's set, plus `HONEY_READ` added by roadmap phase 7 step 7.10 for the Honey
+    Store's scoping rules; phase 10 step 10.1 adds the remaining Entrance and Exoskeleton families
+    once those subsystems exist (roadmap phase 3 step 3.13a note).
     """
 
     TOOL = "tool"  # Calling a named tool a Worker's registry offers.
@@ -81,6 +84,7 @@ class CapabilityFamily(Enum):
     EXEC = "exec"  # Running a command (argv[0]) in the Cell's session.
     DEVICE = "device"  # Touching a specific device (Exoskeleton attachment, Swarm node, ...).
     SPEND = "spend"  # Spending up to a USD ceiling.
+    HONEY_READ = "honey:read"  # Reading Honey (the cold knowledge tier) at a scope glob (7.10).
 
 
 class Capability(BaseModel):
@@ -156,8 +160,9 @@ class Capability(BaseModel):
             return self.scope == needed.scope or (
                 self.scope.endswith("*") and needed.scope.startswith(self.scope[:-1])
             )
-        # Remaining families (tool, fs:read, fs:write, exec) are glob patterns over POSIX-style
-        # paths/names; fnmatch's "*" already matches across "/", so no separate "**" handling.
+        # Remaining families (tool, fs:read, fs:write, exec, honey:read) are glob patterns over
+        # POSIX-style paths/names; fnmatch's "*" already matches across "/", so no separate "**"
+        # handling.
         return fnmatch.fnmatchcase(_to_posix(needed.scope), _to_posix(self.scope))
 
 

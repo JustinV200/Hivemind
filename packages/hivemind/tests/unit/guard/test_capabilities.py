@@ -35,6 +35,9 @@ _VALID_SPECS = [
     "spend:5.00",
     "spend:0",
     "spend:*",
+    "honey:read:hive",
+    "honey:read:cell:*",
+    "honey:read:*",
 ]
 
 
@@ -51,6 +54,7 @@ def test_capability_family_values_are_the_family_prefixes() -> None:
     assert CapabilityFamily.EXEC.value == "exec"
     assert CapabilityFamily.DEVICE.value == "device"
     assert CapabilityFamily.SPEND.value == "spend"
+    assert CapabilityFamily.HONEY_READ.value == "honey:read"
 
 
 @pytest.mark.parametrize("spec", _VALID_SPECS)
@@ -134,6 +138,8 @@ def test_capability_matches_requires_the_same_family() -> None:
         ("fs:write:/scratch/**", "fs:write:/scratch/sub/dir/out.txt"),
         ("tool:*", "tool:read_file"),
         ("exec:*", "exec:ls"),
+        ("honey:read:*", "honey:read:hive"),
+        ("honey:read:cell:*", "honey:read:cell:c_123"),
     ],
 )
 def test_capability_matches_glob_families_when_covered(held_spec: str, needed_spec: str) -> None:
@@ -141,6 +147,12 @@ def test_capability_matches_glob_families_when_covered(held_spec: str, needed_sp
     needed = Capability.parse(needed_spec)
 
     assert held.matches(needed) is True
+
+
+def test_capability_matches_honey_read_rejects_an_uncovered_scope() -> None:
+    held = Capability.parse("honey:read:hive")
+
+    assert held.matches(Capability.parse("honey:read:task:t_1")) is False
 
 
 def test_capability_matches_glob_families_normalises_windows_backslashes() -> None:
