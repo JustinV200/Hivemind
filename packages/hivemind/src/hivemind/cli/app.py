@@ -69,6 +69,9 @@ app = typer.Typer(
     # invoke_without_command lets `hive --version` and a bare `hive` both reach the callback
     # below instead of typer demanding a subcommand first.
     invoke_without_command=True,
+    # Help text is plain: Rich markup read `[hive]`, `[entrance]` and `[llm.providers]`, the
+    # manifest sections the help names, as style tags and printed nothing in their place.
+    rich_markup_mode=None,
 )
 
 # Roadmap step 2.9: submit and inspect tasks in the Brood Chamber, and read the Pheromone Trail.
