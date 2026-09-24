@@ -493,8 +493,11 @@ remote_bind = "100.101.102.103:8711"
 # The https URL devices use; the invite links' base, the only CORS origin, and the WebAuthn
 # relying party for passkeys enrolled through it (Tailscale MagicDNS name and `tailscale cert`).
 public_url = "https://hivestand.example-tailnet.ts.net:8711"
-# Require a client certificate from the Hive's own authority on the remote listener; lan and
-# tunnel refuse to start with this false.
+# Require a client certificate from the Hive's own authority on the remote listener. Omitted, it
+# follows expose: true for lan and tunnel (which refuse to start with it false), false for vpn,
+# where the overlay already authenticates every packet and a phone enrols by QR code with a
+# passkey, never a certificate. Written out here to show it; true in vpn mode demands a
+# certificate from every remote device too (each gets one at approval).
 mutual_tls = false
 # Brood 1.0 has exactly one operator.
 operators = 1

@@ -73,8 +73,9 @@ def test_loopback_never_reads_the_remote_settings() -> None:
     assert plan.remote is None
 
 
-def test_vpn_plans_the_overlay_address_behind_mutual_tls_by_default() -> None:
-    plan = plan_exposure(section(VPN), host_facts())
+def test_vpn_plans_the_overlay_address_behind_mutual_tls_when_asked() -> None:
+    # Omitted, mutual_tls is off in vpn mode (the overlay authenticates); here it is turned on.
+    plan = plan_exposure(section(VPN, mutual_tls=True), host_facts())
 
     assert plan.remote == ListenerPlan(
         host=TAILSCALE_V4,
@@ -91,6 +92,13 @@ def test_vpn_plans_the_overlay_address_behind_mutual_tls_by_default() -> None:
     assert plan.public_origin == f"https://{PUBLIC_HOST}:8711"
     assert plan.rp_id == PUBLIC_HOST
     assert plan.tunnel_argv == ()
+
+
+def test_vpn_asks_for_no_client_certificate_by_default() -> None:
+    plan = plan_exposure(section(VPN), host_facts())
+
+    assert plan.remote is not None and plan.remote.tls is not None
+    assert plan.remote.tls.client_certificate_required is False
 
 
 def test_vpn_without_mutual_tls_serves_tls_from_version_1_2() -> None:

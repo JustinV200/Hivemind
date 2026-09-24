@@ -11,7 +11,11 @@ what a value is: a loopback ``bind``, a specific (never wildcard) ``remote_bind`
 ranges. Whether a mode's prerequisites are all present (TLS and mutual TLS for ``lan`` and
 ``tunnel``, a ``remote_bind`` inside ``vpn_cidrs`` for ``vpn``) is decided when the Entrance
 starts, by ``hivemind.entrance.expose``, so a manifest with a half-configured remote mode still
-loads for every other command and ``hive serve`` refuses with the precise reason.
+loads for every other command and ``hive serve`` refuses with the precise reason. One default
+follows another field: ``mutual_tls``, when the manifest leaves it out, is true for ``lan`` and
+``tunnel`` (which require it) and false for ``vpn`` (the overlay already authenticates every
+packet, and a phone joining over it enrols by QR code with a passkey, never a certificate) and
+``loopback`` (no remote listener at all); written out, it is taken as written.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -20,6 +24,8 @@ Fits into the Hive:
 
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
+    - ``mutual_tls`` is always a plain bool once a section is built: an omitted value is filled
+      from ``expose`` before validation, so every reader sees what the mode asks for.
     - ``EntranceExposure`` has no public member, and ``remote_bind`` is never a wildcard address,
       so no manifest can put the Entrance on every interface (codingrules 8.15, ADR-0033); it may
       be a loopback address, because tunnel mode binds it there for the local tunnel client.
@@ -40,6 +46,7 @@ See Also:
 from __future__ import annotations
 
 import ipaddress
+from collections.abc import Mapping
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -69,6 +76,9 @@ _MAX_WEBHOOK_ALLOWLIST = 64  # Extra webhook destinations; a real Hive lists a h
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+# The modes whose remote listener faces a network nobody vouches for, so an omitted mutual_tls
+# means true there (and false everywhere else): the expose values, as the manifest spells them.
+_MUTUAL_TLS_BY_DEFAULT = frozenset({"lan", "tunnel"})
 
 
 class EntranceExposure(Enum):
@@ -196,9 +206,12 @@ class EntranceSection(BaseModel):
         default_factory=EntranceTlsSection, description="The remote listener's certificate."
     )
     mutual_tls: bool = Field(
-        default=True,
+        default=False,
         description="Require a client certificate from the Hive's own authority on the remote "
-        "listener; lan and tunnel refuse to start with this false.",
+        "listener. Omitted, it follows expose: true for lan and tunnel, which refuse to start "
+        "with it false; false for vpn, where the overlay already authenticates every packet "
+        "(turn it on to demand certificates there too); false for loopback, which has no "
+        "remote listener.",
     )
     operators: int = Field(
         default=1,
@@ -294,6 +307,17 @@ class EntranceSection(BaseModel):
     voice: EntranceVoiceSection = Field(
         default_factory=EntranceVoiceSection, description="Audio in at the chat route."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mutual_tls_follows_the_mode(cls, data: object) -> object:
+        """Fill an omitted ``mutual_tls`` from ``expose``: on for lan and tunnel, off otherwise."""
+        if not isinstance(data, Mapping) or data.get("mutual_tls") is not None:
+            return data
+        expose = data.get("expose", EntranceExposure.LOOPBACK)
+        # The enum, or the manifest's own spelling; anything else is left for the field to refuse.
+        mode = expose.value if isinstance(expose, EntranceExposure) else expose
+        return {**data, "mutual_tls": mode in _MUTUAL_TLS_BY_DEFAULT}
 
     @field_validator("bind")
     @classmethod

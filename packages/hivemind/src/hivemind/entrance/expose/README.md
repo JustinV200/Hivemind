@@ -8,9 +8,9 @@ value, and every remote mode is TLS on a DNS name.
 | `expose` | Remote listener | Also required |
 |---|---|---|
 | `loopback` (default) | none | nothing |
-| `vpn` (recommended) | `remote_bind`: a specific, not globally routable address inside `vpn_cidrs` **and** assigned to the overlay's own interface (`vpn_interface`; empty means `tailscale0` on Linux, `Tailscale` on Windows; macOS names its `utun`) | TLS; mutual TLS when `mutual_tls` (the default) |
-| `lan` | `remote_bind`: a private-network address this host has (RFC 1918, link-local, or an IPv6 unique local address; never a global one or carrier-grade NAT space) | TLS and mutual TLS |
-| `tunnel` | `remote_bind` on loopback (another port than `bind`), reached by the supervised `tunnel_command` | TLS and mutual TLS |
+| `vpn` (recommended) | `remote_bind`: a specific, not globally routable address inside `vpn_cidrs` **and** assigned to the overlay's own interface (`vpn_interface`; empty means `tailscale0` on Linux, `Tailscale` on Windows; macOS names its `utun`) | TLS; mutual TLS only when `mutual_tls = true` (omitted, it is off: the overlay already authenticates every packet) |
+| `lan` | `remote_bind`: a private-network address this host has (RFC 1918, link-local, or an IPv6 unique local address; never a global one or carrier-grade NAT space) | TLS and mutual TLS (`mutual_tls` omitted means true; false is refused) |
+| `tunnel` | `remote_bind` on loopback (another port than `bind`), reached by the supervised `tunnel_command` | TLS and mutual TLS (`mutual_tls` omitted means true; false is refused) |
 
 "TLS" means `public_url` names a DNS host (never an IP, never `localhost`), the `[entrance.tls]`
 certificate and key are readable, unencrypted PEM, belong together, are valid now, and the

@@ -43,7 +43,7 @@ def test_entrance_section_defaults_to_loopback_only() -> None:
     assert section.expose is EntranceExposure.LOOPBACK
     assert section.remote_bind == ""
     assert section.vpn_cidrs == DEFAULT_VPN_CIDRS
-    assert section.mutual_tls is True
+    assert section.mutual_tls is False
     assert section.operators == 1
     assert section.steward_devices is False
 
@@ -123,6 +123,38 @@ def test_entrance_exposure_has_no_public_mode() -> None:
     assert {mode.value for mode in EntranceExposure} == {"loopback", "vpn", "lan", "tunnel"}
     with pytest.raises(ValidationError):
         EntranceSection.model_validate({"expose": "public"})
+
+
+@pytest.mark.parametrize(
+    ("expose", "required"),
+    [("loopback", False), ("vpn", False), ("lan", True), ("tunnel", True)],
+)
+def test_an_omitted_mutual_tls_follows_the_mode(expose: str, required: bool) -> None:
+    # lan and tunnel face a network nobody vouches for; the vpn overlay authenticates packets.
+    from_manifest = EntranceSection.model_validate({"expose": expose})
+    from_code = EntranceSection(expose=EntranceExposure(expose))
+
+    assert from_manifest.mutual_tls is required
+    assert from_code.mutual_tls is required
+
+
+@pytest.mark.parametrize("expose", ["loopback", "vpn", "lan", "tunnel"])
+@pytest.mark.parametrize("written", [True, False])
+def test_a_written_mutual_tls_is_taken_as_written(expose: str, written: bool) -> None:
+    # lan and tunnel with false still load: hive serve refuses them, naming the rule.
+    section = EntranceSection.model_validate({"expose": expose, "mutual_tls": written})
+
+    assert section.mutual_tls is written
+
+
+def test_a_manifest_with_vpn_and_no_mutual_tls_line_asks_for_no_certificates(
+    tmp_path: Path,
+) -> None:
+    text = MINIMAL_MANIFEST.read_text(encoding="utf-8")
+    path = tmp_path / "hive.toml"
+    path.write_text(text + f'\n[entrance]\nexpose = "vpn"\nremote_bind = "{TAILSCALE_V4}"\n')
+
+    assert load_manifest(path, {}).entrance.mutual_tls is False
 
 
 def test_entrance_vpn_cidrs_reject_a_range_with_host_bits_set() -> None:
