@@ -15,9 +15,10 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.brood_chamber`,
     `hivemind.cell.leavings` (roadmap step 5.0a), `hivemind.cell.local`, `hivemind.cli.stores`,
-    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`,
-    `hivemind.queen` (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`,
-    `hivemind.wardens`, `hivemind.workers` and waggle only.
+    `hivemind.forage`, `hivemind.guard` (the Guard policy, roadmap step 10.2), `hivemind.llm`,
+    `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen`
+    (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`, `hivemind.wardens`,
+    `hivemind.workers` and waggle only.
 
 Key invariants:
     - Every identity this module builds (`MemoryIdentity`, `ChamberIdentity`, `CellIdentity`)
@@ -66,6 +67,7 @@ from hivemind.cli.stores import (
     slot_bindings,
 )
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
+from hivemind.guard import GuardPolicy, load_guard_policy
 from hivemind.llm import (
     CallGate,
     CompositeLlmEventRecorder,
@@ -330,7 +332,19 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         # Roadmap step 5.0e: resolved the same way build_queen_deps resolves scratch_root.
         keep_root=_keep_root(manifest),
         disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
+        guard=_guard_policy(manifest),  # Roadmap step 10.2: every set this Warden builds.
     )
+
+
+def _guard_policy(manifest: HiveManifest) -> GuardPolicy:
+    """Build the Guard policy from `[guard]`: its policy file (or the shipped one), overlaid.
+
+    `policy_file` resolves against the manifest's own directory like every other manifest path
+    (`_supervision_file`); an empty one means the policy shipped in `hivemind.guard.defaults`.
+    """
+    section = manifest.guard
+    path = manifest.resolve_path(Path(section.policy_file)) if section.policy_file else None
+    return load_guard_policy(path, section)
 
 
 def _keep_root(manifest: HiveManifest) -> Path | None:

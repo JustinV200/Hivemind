@@ -29,6 +29,8 @@ from builders.workers import ScriptedWorker, make_assignment, make_outcome
 from hivemind.cell import CellKind
 from hivemind.cell.lease import LeaseRequest
 from hivemind.cell.tiers import AccessLevel
+from hivemind.guard import load_guard_policy, warden_set
+from hivemind.manifest import GuardSection
 from hivemind.pheromone.trail import TrailQuery
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
@@ -79,6 +81,25 @@ async def test_start_leases_its_cell_and_moves_to_active() -> None:
 
     assert warden.state is WardenState.ACTIVE
     assert warden.lease is not None
+
+
+async def test_start_builds_its_set_from_the_guard_policy_narrowed_to_its_cell() -> None:
+    # Roadmap step 10.2: the warden role default, narrowed to the lease's access level, less the
+    # policy's deny list -- not the bare access-level ceiling phase 3 used.
+    cell = make_cell(kind=CellKind.REAL, access_level=AccessLevel.SCRATCH)
+    guard = load_guard_policy(None, GuardSection(deny=("tactic:*",)))
+    deps, _queen_end, warden_id = make_warden_deps(cells=(cell,), guard=guard)
+    warden = Warden(warden_id, deps)
+
+    await warden.start()
+
+    lease = warden.lease
+    assert lease is not None
+    assert warden._ceiling == warden_set(guard, AccessLevel.SCRATCH, lease.scratch_root)
+    held = warden._ceiling.as_strings()
+    assert "question:human" in held  # Not a Cell effect: kept at SCRATCH.
+    assert "net:*" not in held  # A Cell effect SCRATCH never permits.
+    assert "tactic:*" not in held  # Removed by the deny list.
 
 
 async def test_start_moves_to_watch_when_the_source_has_no_cell_at_all() -> None:

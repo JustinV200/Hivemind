@@ -26,7 +26,8 @@ Fits into the Hive:
     cancel-without-reaping shape on its own respawn path and would want this same helper, but that
     module sat outside this dispatch's own file list. Calls into
     `hivemind.cell` (CellIdentity, TaskNeeds), `hivemind.common.tasks` (reap),
-    `hivemind.forage.slots` (ModelSlot), `hivemind.pheromone` (WorkerEvent),
+    `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (the role default a sub-bee's slice
+    starts from, roadmap step 10.2), `hivemind.pheromone` (WorkerEvent),
     `hivemind.supervision.capping` (CappingGate, GateDeps), `hivemind.workers` (everything a
     Worker's role may use) and waggle only.
 
@@ -72,7 +73,7 @@ from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.forage.slots import ModelSlot
 from hivemind.forage.tempo import Tempo
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, role_set, worker_role_name
 from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
@@ -114,7 +115,8 @@ class WardenCellContext:
     Attributes:
         warden_id: This Warden's own id; every sub-bee's own Hop addresses replies back here.
         deps: This Warden's collaborators.
-        ceiling: This Warden's own CapabilitySet, the widest anything it spawns may ever hold.
+        ceiling: This Warden's own CapabilitySet (`hivemind.guard.warden_set`), the widest
+            anything it spawns may ever hold.
         cell: The Cell this Warden owns.
         lease: This Warden's OPEN lease on `cell`.
         session: This Warden's own open CellSession on `cell`, shared with every sub-bee it
@@ -254,14 +256,20 @@ def _prepare_capabilities(
 ) -> tuple[CapabilitySet, tuple[Path, ...]]:
     """Compute this sub-bee's own CapabilitySet slice, and the declared write roots it shares.
 
-    Roadmap step 5.0e: `write_roots` feeds both this slice's own `fs:write` candidates and
-    `_widen_lease_reachability`'s own lease widening -- an outside-scratch write needs both to
-    actually land (`hivemind.workers.capabilities.worker_capabilities`'s own module docstring).
+    Roadmap step 10.2: the slice starts from the assignment's role default in this Warden's own
+    Guard policy (`role_set`, `{scratch}` filled with the lease's scratch root), kept only where
+    the Warden's own set allows it. Roadmap step 5.0e: `write_roots` feeds both this slice's own
+    `fs:write` candidates and `_widen_lease_reachability`'s own lease widening -- an
+    outside-scratch write needs both to actually land (`hivemind.workers.capabilities.
+    worker_capabilities`'s own module docstring).
     """
     needs = TaskNeeds(tempo=Tempo.from_wire(assignment.tempo))
     write_roots = _declared_write_roots(ctx.deps, assignment)
+    role_default = role_set(
+        ctx.deps.guard, worker_role_name(assignment.role), ctx.lease.scratch_root
+    )
     capabilities = worker_capabilities(
-        ctx.ceiling, needs, ctx.lease.scratch_root, extra_write_roots=write_roots
+        ctx.ceiling, role_default, needs, extra_write_roots=write_roots
     )
     return capabilities, write_roots
 

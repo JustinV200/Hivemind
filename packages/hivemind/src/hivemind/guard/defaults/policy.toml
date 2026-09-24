@@ -1,0 +1,328 @@
+# The Guard policy every Hive starts from (ADR-0031, roadmap step 10.2).
+#
+# One table per policy role gives that role's default capability set; `deny` lists capabilities no
+# principal may exercise whatever it holds; `[escalation]` says what a denial at each enforcement
+# point leads to. A manifest's [guard] table overlays this file (a role table there replaces the
+# role's `allow` here, its `deny` adds to this one, its `escalation` entries win), and
+# `[guard] policy_file` replaces this file outright with one of the same shape.
+#
+# Capabilities are `family` or `family:scope` (hivemind.guard.capabilities). `{scratch}` is the one
+# placeholder: it becomes the lease's POSIX scratch root when a Warden's or a Worker's set is
+# built. Sets only narrow below the two roots: a Warden's set is its default here narrowed by its
+# Cell's access level, and a Worker's is its role default kept only where its Warden's set allows.
+
+# Nothing is denied hive-wide by default: every role below is already written narrow, and a deny
+# entry is for an operator who wants a capability gone whatever a role or a device was granted.
+deny = []
+
+# Every enforcement point refuses by default (the refusal goes back to the bee and onto the trail
+# as guard.denied); an operator raises a point to "alarm" or "ask_human" in [guard.escalation].
+[escalation]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The two roots
+# ──────────────────────────────────────────────────────────────────────────────
+
+# The human. Every family at its widest, including the ones only a person may exercise
+# (Supersedure, remote device stewardship) and the device families every approval is cut from.
+[roles.operator]
+allow = [
+    # Work: every tool, path, command, host, device and model, with no spend ceiling.
+    "tool:*",
+    "tool:scope:*",
+    "tool:request",
+    "fs:read:**",
+    "fs:write:**",
+    "exec:*",
+    "cell:outside_scratch:**",
+    "net:*",
+    "device:*",
+    "llm:*",
+    "spend:*",
+    # Placement: any Cell at any tier.
+    "cell:virtual",
+    "cell:hive_stand",
+    "cell:real:*",
+    "cell:comb_shield:*",
+    # The Exoskeleton, the Pheromone Mask tactics, and the location and host facts.
+    "exoskeleton",
+    "exoskeleton:real_display",
+    "tactic:*",
+    "geo:*",
+    "wifi:scan",
+    "host:metadata",
+    "watch:*",
+    # Memory: all Honey at every clearance, and Cell Wax.
+    "honey:read:*",
+    "honey:write",
+    "honey:clearance:c2",
+    "wax:propose",
+    # Supervision: Wardens, Forage and questions.
+    "warden:spawn",
+    "forage:request",
+    "question:human",
+    # The device families: the Observation Hive and the Entrance routes an approval draws from.
+    "observe",
+    "observe:thoughts",
+    "observe:honey:*",
+    "entrance:submit",
+    "entrance:answer",
+    "entrance:push",
+    "entrance:steward",
+    # Human-only actions (codingrules 8.16 and 13.4a): moving the Hive Stand, cutting a Cell off.
+    "supersede",
+    "sting_cut",
+]
+
+# The orchestrator: every work family at its widest, so every bee's set can be cut from hers.
+# Not `supersede` (codingrules 8.16: Supersedure is never a Queen decision) and none of the device
+# families (`entrance:*`, `observe*`), which belong to the operator and approved devices alone.
+[roles.queen]
+allow = [
+    # Work: every tool, path, command, host, device and model, with no spend ceiling.
+    "tool:*",
+    "tool:scope:*",
+    "tool:request",
+    "fs:read:**",
+    "fs:write:**",
+    "exec:*",
+    "cell:outside_scratch:**",
+    "net:*",
+    "device:*",
+    "llm:*",
+    "spend:*",
+    # Placement: she places work on any Cell at any tier (floors still apply per task).
+    "cell:virtual",
+    "cell:hive_stand",
+    "cell:real:*",
+    "cell:comb_shield:*",
+    # The Exoskeleton, the Pheromone Mask tactics, and the location and host facts.
+    "exoskeleton",
+    "exoskeleton:real_display",
+    "tactic:*",
+    "geo:*",
+    "wifi:scan",
+    "host:metadata",
+    "watch:*",
+    # Memory: she ripens and reads all Honey, and writes Cell Wax.
+    "honey:read:*",
+    "honey:write",
+    "honey:clearance:c2",
+    "wax:propose",
+    # Supervision: she spawns Wardens, divides Forage and escalates to the human.
+    "warden:spawn",
+    "forage:request",
+    "question:human",
+    # Roadmap 13.4a: she may Sting Cut a Cell, by rule for the dire patterns only.
+    "sting_cut",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The Warden
+# ──────────────────────────────────────────────────────────────────────────────
+
+# A per-Cell supervisor. Its Cell's access level narrows this further (hivemind.guard.access);
+# it never holds the display, location or host facts, never spawns Wardens, and holds nothing
+# human-only or device-only.
+[roles.warden]
+allow = [
+    # Its sub-bees' tools, and asking the Queen for one the Comb Registry lacks.
+    "tool:*",
+    "tool:scope:*",
+    "tool:request",
+    # The Cell itself, as far as its access level allows: scratch writes survive a SCRATCH level
+    # (where the unconfined write below is dropped), everything else needs FULL.
+    "fs:read:**",
+    "fs:write:{scratch}/**",
+    "fs:write:**",
+    "exec:*",
+    "net:*",
+    "device:*",
+    "cell:outside_scratch:**",
+    "exoskeleton",
+    # Every slot its sub-bees may be bound to, its own awake episodes included.
+    "llm:*",
+    "spend:*",
+    # Supervision: questions up to the human, more Forage for its own grant, Cell Wax.
+    "question:human",
+    "forage:request",
+    "wax:propose",
+    # Memory its sub-bees read and deposit.
+    "honey:read:*",
+    "honey:write",
+    "honey:clearance:c2",
+    # A Warden may invoke Pheromone Mask tactics for a bounded task segment (codingrules 8.8).
+    "tactic:*",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Worker roles (the lowercase wire WorkerRole names)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# The generic, disposable Worker: phase 3's baseline, unchanged in effect.
+[roles.drone]
+allow = [
+    # Its own scratch directory, reads anywhere its Cell allows, commands, and its role's tools.
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    # The one slot it runs on, and spend within its grant.
+    "llm:worker",
+    "spend:*",
+    # Asking up the chain, proposing a caution about its Cell, and reading Honey it may see.
+    "question:human",
+    "wax:propose",
+    "honey:read:*",
+    "honey:clearance:c2",
+]
+
+# Gathers data from the outside world. Its network reach comes from each task's needs, never from
+# the role; its tactics need an explicit opt-in (roadmap 6.13). So: the Drone's set, nothing more.
+[roles.forager]
+allow = [
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "llm:worker",
+    "spend:*",
+    "question:human",
+    "wax:propose",
+    "honey:read:*",
+    "honey:clearance:c2",
+]
+
+# Explores a target before real resources are committed: reads, probes and reports, which is the
+# Drone's set; any network scope it needs comes from its task.
+[roles.scout]
+allow = [
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "llm:worker",
+    "spend:*",
+    "question:human",
+    "wax:propose",
+    "honey:read:*",
+    "honey:clearance:c2",
+]
+
+# Watches from the Queen's process and never touches a Cell (roadmap 10.6, ADR-0035): no writes,
+# no commands, no Cell Wax. It reads the trail in-process, which no capability gates, so it holds
+# no device family either. Its awake episodes run on the judge slot, never the worker one.
+[roles.guard_bee]
+allow = [
+    "fs:read:**",
+    "tool:*",
+    "llm:judge",
+    "spend:*",
+    "question:human",
+    "honey:read:*",
+    "honey:clearance:c2",
+]
+
+# Tears down, releases and cleans up. Its teardown runs through the Cell backend and the lease,
+# not through anything it holds, and it is autopilot-only, so it needs no slot beyond the one its
+# assignment names: the Drone's set.
+[roles.undertaker]
+allow = [
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "llm:worker",
+    "spend:*",
+    "question:human",
+    "wax:propose",
+    "honey:read:*",
+    "honey:clearance:c2",
+]
+
+# Keeps memory tidy: sweeps hot state, compacts Bee Bread and ripens Nectar into Honey. It runs on
+# the ripener and embedder slots instead of the worker one, and it is the Worker that deposits
+# Honey, so it adds `honey:write`.
+[roles.house_bee]
+allow = [
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "llm:ripener",
+    "llm:embedder",
+    "spend:*",
+    "question:human",
+    "wax:propose",
+    "honey:read:*",
+    "honey:write",
+    "honey:clearance:c2",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Devices
+# ──────────────────────────────────────────────────────────────────────────────
+
+# An enrolled client device (a phone, a laptop, a program). `allow` is the ceiling no approval may
+# exceed; `proposed` is what an approval grants when the operator names nothing. A device's set
+# has two halves: access families gate the Landing Board routes it may call, and work families
+# bound every goal it submits (a task's set is its role default within the goal's set and its
+# Warden's). No `spend`: a device's spend control is its daily cap, stored with the device.
+[roles.device]
+allow = [
+    # Access: the Entrance routes and the Observation Hive's read-only views.
+    "entrance:submit",
+    "entrance:answer",
+    "entrance:push",
+    "entrance:steward",
+    "observe",
+    "observe:thoughts",
+    "observe:honey:*",
+    # Placement: the Cells and tiers its goals may land on.
+    "cell:virtual",
+    "cell:hive_stand",
+    "cell:comb_shield:*",
+    # Work its goals may do.
+    "tool:*",
+    "net:*",
+    "fs:read:**",
+    "fs:write:**",
+    "exec:*",
+    "llm:*",
+    "cell:outside_scratch:**",
+    "honey:read:*",
+    "honey:write",
+    "honey:clearance:c2",
+    "wax:propose",
+    "question:human",
+]
+# The ceiling less what must always be granted explicitly: stewardship (approving other devices)
+# and Night Veil (only the two lower tiers are proposed).
+proposed = [
+    "entrance:submit",
+    "entrance:answer",
+    "entrance:push",
+    "observe",
+    "observe:thoughts",
+    "observe:honey:*",
+    "cell:virtual",
+    "cell:hive_stand",
+    "cell:comb_shield:meadow",
+    "cell:comb_shield:propolis",
+    "tool:*",
+    "net:*",
+    "fs:read:**",
+    "fs:write:**",
+    "exec:*",
+    "llm:*",
+    "cell:outside_scratch:**",
+    "honey:read:*",
+    "honey:write",
+    "honey:clearance:c2",
+    "wax:propose",
+    "question:human",
+]
+
+# A Real Cell enrolled through a Pollen Packet. Nothing until phase 11 says what one may do.
+[roles.swarm_device]
+allow = []

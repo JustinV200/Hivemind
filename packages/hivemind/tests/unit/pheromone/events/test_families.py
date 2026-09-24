@@ -1,4 +1,4 @@
-"""Tests for hivemind.pheromone.events.families: the twelve event families and the JSON codec.
+"""Tests for hivemind.pheromone.events.families: the thirteen event families and the JSON codec.
 
 Fits into the Hive:
     Mirrors src/hivemind/pheromone/events/families.py (codingrules section 3: tests/unit mirrors
@@ -26,6 +26,7 @@ from hivemind.pheromone.events.families import (
     CappingEvent,
     CellEvent,
     ForageEvent,
+    GuardEvent,
     LlmEvent,
     MemoryEvent,
     QueenEvent,
@@ -43,7 +44,7 @@ from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 
 # Every family but LlmEvent: LlmEvent's extra required-together fields need their own kwargs
-# builder, so it is tested separately below rather than parametrised alongside these eleven.
+# builder, so it is tested separately below rather than parametrised alongside these twelve.
 _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -56,6 +57,7 @@ _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     SwarmEvent,
     CappingEvent,
     WorkerEvent,
+    GuardEvent,
 )
 _ALL_FAMILIES: tuple[type[PheromoneEvent], ...] = (*_NON_LLM_FAMILIES, LlmEvent)
 
@@ -224,7 +226,34 @@ def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
     } == WorkerEvent.KINDS
 
 
-def test_event_families_covers_exactly_the_twelve_families() -> None:
+def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> None:
+    # Roadmap step 10.2 records guard.denied; the rest are declared now so later phase 10 steps
+    # never race on this file. The documents' guard.entrance.* is spelled guard.entrance_*
+    # because a kind has exactly one dot (KIND_PATTERN).
+    edges = {
+        "invited",
+        "pending",
+        "approved",
+        "denied",
+        "expired",
+        "locked",
+        "unlocked",
+        "revoked",
+        "login_failed",
+        "step_up",
+        "travel_lock",
+    }
+    assert {
+        "guard.denied",
+        "guard.alert",
+        "guard.injection_suspected",
+        "guard.audit_rate_raised",
+        "guard.reduced",
+        "guard.reopened",
+    } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
+
+
+def test_event_families_covers_exactly_the_thirteen_families() -> None:
     assert set(EVENT_FAMILIES) == {
         "cell",
         "task",
@@ -238,8 +267,9 @@ def test_event_families_covers_exactly_the_twelve_families() -> None:
         "capping",
         "llm",
         "worker",
+        "guard",
     }
-    assert len(EVENT_FAMILIES) == 12
+    assert len(EVENT_FAMILIES) == 13
 
 
 @pytest.mark.parametrize("event_cls", _ALL_FAMILIES)

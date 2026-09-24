@@ -5,14 +5,15 @@ and the shipped default supervision data: a `hivemind.cell.fake.FakeCellSource` 
 REAL Cell (so `Warden.start()` has something to lease), an unsigned `waggle.transport.memory.
 MemoryTransport` pair for the Queen link, `hivemind.memory.InMemoryMemoryStore`,
 `hivemind.pheromone.trail.memory.MemoryPheromoneTrail`, a `FakeClock` shared by every collaborator,
-`supervision/defaults/default-policy.toml` and `capping-tiers.toml` loaded for real (the same tables
-production loads), a `worker_factory` returning a `builders.workers.ScriptedWorker` (so a test's
-own Worker never depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate`
-(no metering), and a `hivemind.llm.BoundModel` on `ModelSlot.WARDEN` over a scriptable
-`FakeLLMProvider`. `QueenEnd` is the Queen-side mirror of `builders.workers.WardenEnd`: it wraps
-the Queen's own end of the pair, `send`s an order (`TaskAssign`/`GrantIssued`/`TaskCancel`/
-`Intervene`) or an `answer` to a pending `Question`, and sorts every report the Warden sends back
-into `heartbeats`/`results`/`alarms`/`questions`/`forage_requests`.
+`supervision/defaults/default-policy.toml`, `capping-tiers.toml` and the Guard's shipped
+`guard/defaults/policy.toml` loaded for real (the same tables production loads), a
+`worker_factory` returning a `builders.workers.ScriptedWorker` (so a test's own Worker never
+depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate` (no metering), and a
+`hivemind.llm.BoundModel` on `ModelSlot.WARDEN` over a scriptable `FakeLLMProvider`. `QueenEnd`
+is the Queen-side mirror of `builders.workers.WardenEnd`: it wraps the Queen's own end of the
+pair, `send`s an order (`TaskAssign`/`GrantIssued`/`TaskCancel`/`Intervene`) or an `answer` to a
+pending `Question`, and sorts every report the Warden sends back into `heartbeats`/`results`/
+`alarms`/`questions`/`forage_requests`.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -49,6 +50,7 @@ from hivemind.cell import Cell, CellKind
 from hivemind.cell.fake import FakeCellSource
 from hivemind.cell.source import CellIdentity
 from hivemind.forage.slots import Effort, ModelSlot
+from hivemind.guard import load_guard_policy
 from hivemind.llm import BoundModel, DirectCallGate, FakeLLMProvider
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -225,6 +227,8 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         "missed_heartbeats_before_stalled": 3,
         "judge_reviewer": judge_reviewer,
         "judge_rubrics": judge_rubrics,
+        # Roadmap step 10.2: the shipped Guard policy, the same one production loads by default.
+        "guard": load_guard_policy(),
     }
 
 

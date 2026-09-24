@@ -79,7 +79,8 @@ after full step-up, granting at most its own set intersected with the device cei
 `entrance:steward` itself; nothing else approves remotely. The state machine is
 `entrance/enrol/state.py`: `INVITED → PENDING → APPROVED`, `INVITED → EXPIRED | REVOKED`,
 `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`, `APPROVED | LOCKED → EXPIRED | REVOKED`; every
-edge is a `guard.entrance.*` trail event, and leaving `APPROVED` ends the device's sessions and
+edge is a `guard.entrance_*` trail event (a trail kind has exactly one dot), and leaving
+`APPROVED` ends the device's sessions and
 deletes its push subscriptions in the same step.
 
 **Login is the device key plus the password, the key proof first.** A device asks for a login

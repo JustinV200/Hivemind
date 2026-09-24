@@ -1452,7 +1452,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
 
 ### Steps
 
-- [ ] **10.1 Capability model.** Extends the `CapabilitySet` from 3.13a with every family:
+- [x] **10.1 Capability model.** Extends the `CapabilitySet` from 3.13a with every family:
   `tool:<name>`, `tool:scope:cell`,
   `net:<scope>`, `cell:virtual`, `cell:hive_stand`, `cell:real:<node>`, `cell:outside_scratch:<path>`,
   `cell:comb_shield:<tier>`, `exoskeleton`, `exoskeleton:real_display`,
@@ -1463,7 +1463,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   `observe`, `observe:thoughts`, `observe:honey:<scope>`, `entrance:submit`, `entrance:answer`,
   `entrance:push`, `entrance:steward`, `supersede`, `sting_cut`. `CapabilitySet` with `allows()`
   and `attenuate(subset)`; pure.
-- [ ] **10.2 Policy engine.** `[guard]` manifest section (per-role default sets, deny lists,
+- [x] **10.2 Policy engine.** `[guard]` manifest section (per-role default sets, deny lists,
   escalation rules), pure `evaluate` with a reason; denials are `guard.*` events.
 - [ ] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
   invocation, session calls outside scratch, Exoskeleton attach on a real display, Honey access,
@@ -1550,7 +1550,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   `entrance:steward` approve after full step-up, and nothing else can. The device state machine
   (`INVITED → PENDING → APPROVED`, `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`,
   `→ REVOKED`) lives in `entrance/enrol/state.py` (Appendix C); every edge is a
-  `guard.entrance.*` event.
+  `guard.entrance_*` event (a trail kind has exactly one dot).
 - [ ] **10.5e Login, sessions, step-up and the Entrance Reducer.** `entrance/auth/`: login is
   the device key (a passkey assertion with user verification, or a signed challenge) plus the
   operator password; sessions carry `session_ttl_hours` and `idle_timeout_minutes` and are bound
@@ -1666,6 +1666,8 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   bound what watch mode (11.10) may observe: `read_only` allows process list, resource use, logs
   in allowed roots and file-change events in allowed roots; screen or input capture is never part
   of watch mode and needs an explicit, separately granted capability.
+  *Data half landed with 10.1 (`guard/access.py`: the Cell-effect families and each level's
+  ceiling); storage with the node and the lease, the UI and the Pollen Packet's request remain.*
 - [ ] **10.8 CLI.** `hive entrance invite|pending|approve|deny|devices|revoke|steward|
   reduce|open|status|expose|operator add`; `hive keys create|revoke|list` for Waggle-side
   principals; `hive run --remote`, `hive inbox --remote` (the CLI on a laptop is an enrolled

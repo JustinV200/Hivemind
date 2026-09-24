@@ -44,6 +44,17 @@ async def test_http_request_with_a_net_capability_is_rejected_by_v0s_gate() -> N
     assert "network egress is not cappable in v0" in result
 
 
+@pytest.mark.parametrize("url", ["https:///no-host", "https://exa mple.com/x", "not a url"])
+async def test_http_request_with_no_valid_host_is_refused_without_raising(url: str) -> None:
+    # Roadmap step 10.1: a net scope is a host or an address; a model's malformed URL gets a
+    # readable refusal instead of an exception out of the tool.
+    invocation = _invocation_with_net_capability()
+
+    result = await http_request(invocation, {"method": "GET", "url": url})
+
+    assert "names no valid host" in result
+
+
 async def test_http_request_rejects_an_unsupported_method() -> None:
     invocation = _invocation_with_net_capability()
 

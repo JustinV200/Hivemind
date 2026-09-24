@@ -37,6 +37,7 @@ from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
 from hivemind.cli.in_cell.link import CellLinkDeps, announce
+from hivemind.guard import load_guard_policy
 from hivemind.llm import text_response
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.manifest.env import read_in_cell_env
@@ -209,6 +210,7 @@ async def _build_scenario(
     provider = deps.bound.provider
     assert isinstance(provider, FakeLLMProvider)
     provider.script(text_response("Done."))  # A trivial, tool-free completion.
+    assert deps.guard == load_guard_policy()  # No [guard] inside a Cell: the shipped policy.
 
     warden = Warden(config.warden_id, deps)
     await warden.start()

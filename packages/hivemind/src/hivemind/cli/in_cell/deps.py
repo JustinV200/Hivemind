@@ -5,12 +5,14 @@ loaded Hive Manifest (codingrules section 13); a Virtual Cell boots from `HIVEMI
 variables alone (`hivemind.manifest.env.InCellEnv`), so this module is the same conversion with no
 manifest to read from. It reaches for the same shipped defaults `build_warden_deps` falls back to
 when an operator has not overridden them (`hivemind.supervision.load_policy(None)`,
-`hivemind.supervision.capping.load_tiers(None)`), since a Virtual Cell image carries no
-`[supervision]` section to name an override file with in the first place.
+`hivemind.supervision.capping.load_tiers(None)`, `hivemind.guard.load_guard_policy()`), since a
+Virtual Cell image carries no `[supervision]` or `[guard]` section to name an override with in the
+first place.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
-    `hivemind.forage.slots` (ModelSlot), `hivemind.llm.ladders.gate` (DirectCallGate),
+    `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (load_guard_policy),
+    `hivemind.llm.ladders.gate` (DirectCallGate),
     `hivemind.memory` (InMemoryMemoryStore, MemoryIdentity), `hivemind.pheromone` (PheromoneTrail),
     `hivemind.supervision` (load_policy), `hivemind.supervision.capping` (deterministic_checks,
     load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
@@ -39,6 +41,7 @@ from __future__ import annotations
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
 from hivemind.forage.slots import ModelSlot
+from hivemind.guard import load_guard_policy
 from hivemind.llm.ladders.gate import DirectCallGate
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
@@ -113,6 +116,7 @@ def build_in_cell_warden_deps(
         clock=clock,
         policy=load_policy(None),  # No [supervision] section inside a Cell: the shipped default.
         tiers=load_tiers(None),  # Same reasoning: the shipped capping-tiers.toml.
+        guard=load_guard_policy(),  # And the shipped Guard policy: no [guard] inside a Cell.
         checks=deterministic_checks(),  # No JudgeReviewer wired yet; see this dispatch's report.
         bound=registry.bound(ModelSlot.WARDEN),
         call_gate=DirectCallGate(),  # No per-Cell Fanner yet (module docstring's own note).

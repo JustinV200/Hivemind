@@ -5,7 +5,7 @@ model providers it may call, how Forage divides capacity, what its escalation po
 budgets are, and its security posture. Codingrules section 13 fixes the shape: "all configuration
 is a Hive Manifest... validated into HiveManifest (pydantic)... environment variables are read in
 exactly one place... secrets are never in the manifest file." This package is that whole pipeline:
-``schema`` (the fourteen-section model tree, ``HiveManifest`` at its root), ``loader``
+``schema`` (the fifteen-section model tree, ``HiveManifest`` at its root), ``loader``
 (``load_manifest``, TOML file to validated model), ``env`` (``read_env``/``apply_env``/
 ``provider_api_key``, the one place `HIVEMIND_*` is read), and ``errors`` (``ManifestError``, the
 one exception every failure in this package raises).
@@ -38,7 +38,7 @@ Public API:
       PheromoneSection, LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN, ForageSection, SupervisionSection, MemorySection, SecuritySection,
       TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix, EntranceSection,
-      EntranceExposure.
+      EntranceExposure, GuardSection, GuardRoleSection.
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -63,6 +63,8 @@ from hivemind.manifest.schema import (
     EntranceExposure,
     EntranceSection,
     ForageSection,
+    GuardRoleSection,
+    GuardSection,
     HiveManifest,
     HiveSection,
     HiveStandCapacityOverrides,
@@ -90,6 +92,8 @@ __all__ = [
     "EntranceSection",
     "EnvOverrides",
     "ForageSection",
+    "GuardRoleSection",
+    "GuardSection",
     "HiveManifest",
     "HiveSection",
     "HiveStandCapacityOverrides",

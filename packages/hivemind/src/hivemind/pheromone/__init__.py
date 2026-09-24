@@ -1,12 +1,12 @@
 """Provide the Pheromone Trail: the Hive's append-only audit log, event model and Night Veil purge.
 
 Every state-changing action anywhere in the Hive leaves a `PheromoneEvent` here before the action
-counts as complete (codingrules section 12). `events` defines the eleven event families and the
-JSON codec; `trail` groups the `PheromoneTrail` protocol, its two implementations and live-tail
-follow behind its own face (codingrules 5.6: at most ten modules per directory); `retention` is
-the Night Veil boundary, the package's one deletion path. This face re-exports every module's
-public names so a caller writes `from hivemind.pheromone import SqlitePheromoneTrail` without
-knowing the split (codingrules 5.2).
+counts as complete (codingrules section 12). `events` defines the thirteen event families and
+the JSON codec; `trail` groups the `PheromoneTrail` protocol, its two implementations and
+live-tail follow behind its own face (codingrules 5.6: at most ten modules per directory);
+`retention` is the Night Veil boundary, the package's one deletion path. This face re-exports
+every module's public names so a caller writes `from hivemind.pheromone import
+SqlitePheromoneTrail` without knowing the split (codingrules 5.2).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by every layer above it, each time
@@ -28,11 +28,12 @@ See Also:
       modules and packages behind this package's public API.
 
 Public API:
-    - PheromoneEvent, LlmUsage and the twelve event families (CellEvent, TaskEvent, AlarmEvent,
-      ForageEvent, MemoryEvent, QueenEvent, WardenEvent, ToolEvent, SwarmEvent, CappingEvent,
-      LlmEvent, WorkerEvent), plus EVENT_FAMILIES, event_class_for, parse_event, parse_event_json
-      and the vocabulary/validation bounds: KIND_PATTERN, ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS,
-      MAX_ACTOR_CHARS, MAX_PAYLOAD_STRING_CHARS, MAX_PAYLOAD_BYTES, MAX_PROVIDER_CHARS.
+    - PheromoneEvent, LlmUsage and the thirteen event families (CellEvent, TaskEvent,
+      AlarmEvent, ForageEvent, MemoryEvent, QueenEvent, WardenEvent, ToolEvent, SwarmEvent,
+      CappingEvent, LlmEvent, WorkerEvent, GuardEvent), plus EVENT_FAMILIES, event_class_for,
+      parse_event, parse_event_json and the vocabulary/validation bounds: KIND_PATTERN,
+      ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS, MAX_ACTOR_CHARS, MAX_PAYLOAD_STRING_CHARS,
+      MAX_PAYLOAD_BYTES, MAX_PROVIDER_CHARS.
     - PheromoneTrail: the protocol every trail store implements. TrailQuery, TrailSegment,
       TRAIL_ORDER_KEY, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT: its query and segment shapes.
     - MemoryPheromoneTrail: an in-process PheromoneTrail for tests and demos.
@@ -64,6 +65,7 @@ from hivemind.pheromone.events import (
     CappingEvent,
     CellEvent,
     ForageEvent,
+    GuardEvent,
     LlmEvent,
     LlmUsage,
     MemoryEvent,
@@ -124,6 +126,7 @@ __all__ = [
     "CellEvent",
     "DuplicateEventError",
     "ForageEvent",
+    "GuardEvent",
     "LlmEvent",
     "LlmUsage",
     "MemoryEvent",

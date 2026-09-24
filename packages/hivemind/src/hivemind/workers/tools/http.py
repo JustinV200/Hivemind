@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
-from hivemind.guard import Capability, CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, InvalidCapabilityError
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping import GateOutcome, ProposalState, RiskTier
 from hivemind.workers.tools.proposals import ProposalRequest, cap, describe, make_proposal
@@ -91,7 +91,12 @@ async def http_request(invocation: ToolInvocation, arguments: JsonObject) -> str
         return "url must be a non-empty string."
     ctx = invocation.ctx
     host = urlsplit(url).hostname or ""
-    needed = Capability(family=CapabilityFamily.NET, scope=host)
+    # A model wrote this URL, so its host is untrusted text: one that is not a host or an address
+    # in the `net` grammar (roadmap step 10.1) is refused here, never raised out of the tool.
+    try:
+        needed = Capability.parse(f"{CapabilityFamily.NET.value}:{host}")
+    except InvalidCapabilityError:
+        return f"url {url!r} names no valid host; the request was never sent."
     if not ctx.capabilities.allows(needed):
         return f"no net capability covers host {host!r}; the request was never sent."
     body = arguments.get("body")

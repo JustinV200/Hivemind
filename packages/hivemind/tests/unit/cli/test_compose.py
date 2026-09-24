@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -212,6 +213,22 @@ def test_build_hive_wires_the_registry_warden_and_queen(tmp_path: Path) -> None:
     assert hive.warden.lease is None  # start() has not run yet.
     assert hive.queen.wardens == (hive.warden_link,)
     assert hive.warden_link.cell.source == "hive_stand"
+
+
+def test_build_hive_builds_the_wardens_guard_policy_from_the_manifest(tmp_path: Path) -> None:
+    # Roadmap step 10.2: [guard] policy_file resolves against the manifest's own directory, and
+    # the table's own entries apply on top of that file.
+    clock = FakeClock()
+    path = fake_manifest(tmp_path, clock=clock)
+    shipped = (files("hivemind.guard.defaults") / "policy.toml").read_text(encoding="utf-8")
+    (tmp_path / "guard.toml").write_text(shipped.replace("deny = []", 'deny = ["geo:*"]', 1))
+    with path.open("a", encoding="utf-8") as manifest_file:
+        manifest_file.write('\n[guard]\npolicy_file = "guard.toml"\ndeny = ["wifi:scan"]\n')
+    manifest = load_manifest(path, {})
+
+    hive = build_hive(manifest, environ={}, clock=clock, stores=_in_memory_stores(clock, manifest))
+
+    assert hive.warden._deps.guard.deny.as_strings() == ("geo:*", "wifi:scan")
 
 
 def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_path: Path) -> None:

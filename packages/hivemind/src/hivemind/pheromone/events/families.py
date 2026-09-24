@@ -1,4 +1,4 @@
-"""Define the eleven Pheromone event families and the JSON codec built on them.
+"""Define the thirteen Pheromone event families and the JSON codec built on them.
 
 Every state-changing action in the Hive writes a `PheromoneEvent` (`hivemind.pheromone.events.
 base`) whose `kind` is one of the strings documented below. This module is the normative
@@ -8,7 +8,7 @@ family is a `PheromoneEvent` subclass that fixes `FAMILY` (the prefix before the
 (every kind string that family accepts); the base class's validators refuse anything outside a
 subclass's own `KINDS` or `FAMILY`, so this module is also the one place `lint`/`mypy`/tests can
 prove the vocabulary is exhaustive and non-overlapping (`test_event_families_covers_exactly_the_
-eleven_families`).
+thirteen_families`).
 
 Vocabulary (family -> kind -> when it is recorded):
     cell: provisioned (a Virtual Cell backend created it); attested (Night Veil attestation ran,
@@ -104,6 +104,22 @@ Vocabulary (family -> kind -> when it is recorded):
         (-> DONE, the role claimed the work done or the runtime stopped after a handoff); failed
         (-> FAILED, the role's own coroutine raised); killed (-> KILLED, TaskCancel or an
         Intervene(CANCEL) ended the attempt).
+    guard: denied (an enforcement point refused an action; carries the principal's kind, id and
+        role, the point, the capability, the rule, the reason and the escalation, never content,
+        ADR-0031). Reserved, declared now so the later phase 10 steps that record them never race
+        on this file: alert (a Guard Bee report, roadmap step 10.6); injection_suspected (the
+        untrusted-content scanner flagged outside text, 10.6b); audit_rate_raised (a Guard Bee
+        rule raised a Capping tier's sampled-audit rate, 10.6); reduced (the Entrance Reducer
+        dropped the Entrance to loopback only, 10.5e); reopened (loopback reopened it after a
+        reduction, 10.5e); entrance_invited, entrance_pending, entrance_approved, entrance_denied,
+        entrance_expired, entrance_locked, entrance_unlocked, entrance_revoked (one per edge of
+        the enrolled-device state machine, 10.5d-e: an invite minted, a request waiting, approved,
+        denied, expired unredeemed or unapproved, locked out, unlocked on loopback, revoked);
+        entrance_login_failed (a login failed its device proof or password, 10.5e);
+        entrance_step_up (a step-up re-ran both factors, 10.5e); entrance_travel_lock (a known
+        device appeared from a new network with travel_lock on, 10.5e). The design documents'
+        `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
+        (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Every layer above Layer 1 constructs one
@@ -150,6 +166,7 @@ __all__ = [
     "CappingEvent",
     "CellEvent",
     "ForageEvent",
+    "GuardEvent",
     "LlmEvent",
     "MemoryEvent",
     "QueenEvent",
@@ -439,8 +456,35 @@ class WorkerEvent(PheromoneEvent):
     )
 
 
+class GuardEvent(PheromoneEvent):
+    """A Guard decision or an Entrance security edge; see the module docstring's `guard` entry."""
+
+    FAMILY: ClassVar[str] = "guard"
+    KINDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "guard.denied",
+            "guard.alert",
+            "guard.injection_suspected",
+            "guard.audit_rate_raised",
+            "guard.reduced",
+            "guard.reopened",
+            "guard.entrance_invited",
+            "guard.entrance_pending",
+            "guard.entrance_approved",
+            "guard.entrance_denied",
+            "guard.entrance_expired",
+            "guard.entrance_locked",
+            "guard.entrance_unlocked",
+            "guard.entrance_revoked",
+            "guard.entrance_login_failed",
+            "guard.entrance_step_up",
+            "guard.entrance_travel_lock",
+        }
+    )
+
+
 # Every family class, in the order the vocabulary is documented above; the tuple, not the mapping
-# built from it, is the single place a thirteenth family would be added.
+# built from it, is the single place a fourteenth family would be added.
 _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -454,6 +498,7 @@ _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     CappingEvent,
     LlmEvent,
     WorkerEvent,
+    GuardEvent,
 )
 
 

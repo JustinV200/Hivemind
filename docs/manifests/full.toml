@@ -517,3 +517,38 @@ confirm_goals = true
 # Discard audio after transcription; true keeps it as C2 Nectar with a retention window.
 keep_audio = false
 max_clip_seconds = 120.0
+
+[guard]
+# The Guard policy's overrides (roadmap step 10.2, ADR-0031). Every Hive starts from the policy
+# shipped in hivemind.guard.defaults: each role's default capability set, a hive-wide deny list
+# and what a denial at each enforcement point escalates to. `policy_file` replaces it outright
+# with a file of the same shape, resolved relative to this file's own directory; left unset here
+# on purpose, like [supervision]'s files, since any path written here would only exist in this
+# repository. Shown as a comment so the shape is still on record.
+# policy_file = "guard/my-policy.toml"
+# Capabilities no principal may exercise, whatever it holds; added to the policy's own deny list
+# and removed from every Warden's set. Here: no Exoskeleton on a Real Cell's own display, and no
+# host under one internal domain.
+deny = ["exoskeleton:real_display", "net:*.internal.example"]
+
+[guard.roles.drone]
+# Replaces the Drone role's whole default set (a Worker still keeps only what its Warden holds).
+# `{scratch}` becomes the lease's scratch root. This one is the shipped Drone set without Cell Wax
+# proposals and with Honey capped at the internal clearance.
+allow = [
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "llm:worker",
+    "spend:*",
+    "question:human",
+    "honey:read:*",
+    "honey:clearance:c1",
+]
+
+[guard.escalation]
+# What a denial at an enforcement point leads to: "refuse" (hand the refusal back, the default
+# everywhere), "alarm" (also raise an Alarm to the principal's supervisor) or "ask_human".
+tool_invocation = "alarm"
+question_routing = "ask_human"

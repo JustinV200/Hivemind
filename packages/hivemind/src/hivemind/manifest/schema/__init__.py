@@ -1,14 +1,15 @@
 """Re-export the Hive Manifest schema: every TOML section, as one frozen pydantic model tree.
 
-Fourteen documented sections is more than one module can hold under codingrules section 5.1's
+Fifteen documented sections is more than one module can hold under codingrules section 5.1's
 300-line limit, so the schema is a package: ``core`` (identity and lifecycle: ``[hive]``,
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
 ``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (``[security]`` and
 ``[honey.clearance]``), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
-and ``manifest`` (``HiveManifest``, the root that gathers all of the above). This file is the
-schema's face: a caller imports any section model from here without knowing which module defines
-it.
+``entrance`` (``[entrance]``, phase 10), ``guard`` (``[guard]``, the Guard policy's overrides,
+roadmap step 10.2), and ``manifest`` (``HiveManifest``, the root that gathers all of the above).
+This file is the schema's face: a caller imports any section model from here without knowing
+which module defines it.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Imported by ``hivemind.manifest.loader``
@@ -30,6 +31,7 @@ Public API:
     - LLM (llm): LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN.
     - Forage (forage): ForageSection.
+    - Guard policy overrides (guard): GuardSection, GuardRoleSection.
     - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
       EntrancePushSection, EntranceVoiceSection.
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
@@ -56,6 +58,7 @@ from hivemind.manifest.schema.entrance import (
     EntranceVoiceSection,
 )
 from hivemind.manifest.schema.forage import ForageSection
+from hivemind.manifest.schema.guard import GuardRoleSection, GuardSection
 from hivemind.manifest.schema.llm import (
     MANIFEST_KEY_PATTERN,
     CapabilityOverrides,
@@ -91,6 +94,8 @@ __all__ = [
     "EntranceTlsSection",
     "EntranceVoiceSection",
     "ForageSection",
+    "GuardRoleSection",
+    "GuardSection",
     "HiveManifest",
     "HiveSection",
     "HiveStandCapacityOverrides",

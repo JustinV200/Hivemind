@@ -9,9 +9,10 @@ trail on reconnection.
 
 ## Public API
 
-- **Events** (`hivemind.pheromone.events`): `PheromoneEvent` and its eleven family subclasses
+- **Events** (`hivemind.pheromone.events`): `PheromoneEvent` and its thirteen family subclasses
   (`CellEvent`, `TaskEvent`, `AlarmEvent`, `ForageEvent`, `MemoryEvent`, `QueenEvent`,
-  `WardenEvent`, `ToolEvent`, `SwarmEvent`, `CappingEvent`, `LlmEvent`), the normative `kind`
+  `WardenEvent`, `ToolEvent`, `SwarmEvent`, `CappingEvent`, `LlmEvent`, `WorkerEvent`,
+  `GuardEvent`), the normative `kind`
   vocabulary documented in `events/families.py`, and the JSON codec `parse_event`/
   `parse_event_json`. No event ever carries prompt or completion text; `payload`'s own validator
   enforces that.

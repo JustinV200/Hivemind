@@ -69,7 +69,7 @@ from hivemind.cell import Cell, CellSession, LeaseRefusedError, LeaseRequest, Re
 from hivemind.cell import HoneyClearance as _HoneyClearance
 from hivemind.common.tasks import reap, reap_all, reaping
 from hivemind.forage import Ceilings, HostingPlan
-from hivemind.guard import CapabilitySet, ceiling_for
+from hivemind.guard import CapabilitySet, warden_set
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import ChildKind, ChildRef, Intervention
@@ -208,7 +208,7 @@ class Warden(TickLoop):
         self._lease = lease
         self._cell = cell
         self._session = await self._deps.source.open_session(lease)
-        self._ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+        self._ceiling = warden_set(self._deps.guard, lease.access_level, lease.scratch_root)
         assert_transition(self._state, WardenState.ACTIVE, warden_id=self._warden_id)
         self._state = WardenState.ACTIVE
         await _record_event(self, "warden.started")
