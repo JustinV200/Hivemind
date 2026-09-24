@@ -21,69 +21,34 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from builders.cli import fake_manifest
-from builders.forage import make_capacity, make_grant
+from builders.forage import make_grant
+from builders.night_veil import night_veil_manifest, tier_spec
 
 from hivemind.cell import CombShieldLevel
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.readback.virtual_abscond import AbscondDeps, run_abscond
 from hivemind.forage.grant_state import GrantState
-from hivemind.hive import NetworkPolicy, VirtualCellSpec
-from hivemind.hive.night_veil import with_tier_label
-from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.pheromone import MemoryPheromoneTrail, TrailQuery
 from hivemind.queen import ForageLedger
 from hivemind.queen.cluster import InMemoryOrderStore
 from waggle.clock import FakeClock
 from waggle.ids import CellId
 
-_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710"  # A valid v3 one.
 _CLEANUP_COUNTS = {"grants_revoked": 1, "wax_retired": 0, "leavings_removed": 0}
-
-
-def _manifest(tmp_path: Path) -> HiveManifest:
-    """A `fake_manifest` with the fake Virtual backend and a complete Night Veil tier profile."""
-    manifest_path = fake_manifest(tmp_path)
-    with manifest_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            '\n[virtual_cells]\nbackend = "fake"\n'
-            "\n[security.tiers.NIGHT_VEIL]\n"
-            'egress_profile = "vpn_tor"\ncontrol_channel = "tor_hidden_service"\n'
-            f'hidden_service_address = "{_ONION}"\ntor_socks = "127.0.0.1:9050"\n'
-            'locale_profile = "C.UTF-8"\n'
-        )
-    return load_manifest(manifest_path)
-
-
-def _spec(manifest: HiveManifest, tier: CombShieldLevel) -> VirtualCellSpec:
-    """A spec at `tier`, labelled with it as the lifecycle labels every Cell it provisions."""
-    night_veil = tier is CombShieldLevel.NIGHT_VEIL
-    return with_tier_label(
-        VirtualCellSpec(
-            image="night-veil-ubuntu" if night_veil else "base-ubuntu",
-            cpu_cores=1,
-            memory_bytes=512 * 1024 * 1024,
-            disk_bytes=1024 * 1024 * 1024,
-            network_policy=NetworkPolicy.VPN_TOR if night_veil else NetworkPolicy.EGRESS_ONLY,
-            capacity=make_capacity(),
-            hive_id=manifest.hive.id,
-            comb_shield=tier,
-        )
-    )
 
 
 async def _abscond_one_cell(
     tmp_path: Path, tier: CombShieldLevel
 ) -> tuple[VirtualCellsParts, CellId, MemoryPheromoneTrail]:
     """Leave one Cell at `tier` with one live grant behind, then run a fresh process's pass."""
-    manifest = _manifest(tmp_path)
+    manifest = night_veil_manifest(tmp_path)
     clock = FakeClock()
     durable = MemoryPheromoneTrail(clock)
     # Built over the plain trail, as the command builds it: a boundary holding nothing yet.
     parts = build_virtual_cells(manifest, durable, clock)
     assert parts is not None
-    cell = await parts.registry.get("fake").provision(_spec(manifest, tier))
+    cell = await parts.registry.get("fake").provision(tier_spec(manifest, tier))
     ledger = ForageLedger()
     await ledger.record_grant(make_grant(GrantState.ACTIVE, clock, cell_id=cell.id))
 

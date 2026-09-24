@@ -334,7 +334,10 @@ more than one Cell).
       Cell id with a clear message); goes through a plain `Undertaker` built over the manifest's
       own backend (`hivemind.cli.compose.virtual_cells.build_virtual_cells`) and a `ForageLedger`-
       backed `GrantRevoker`; idempotent (an unknown id is a clean no-op, `CellBackend.destroy`'s
-      own contract), printing the `cell.destroyed` trail event id.
+      own contract), printing the `cell.destroyed` trail event id. A Night Veil Cell (by its tier
+      label, or by the trail's skeleton once no backend lists it) is destroyed behind its
+      boundary and purged once gone (`virtual_offline.destroy_virtual_cell`, shared with
+      `abscond`; codingrules 12): its grants' revocations never reach the durable trail.
     - `hive cells release LEASE_ID [--manifest]`: writes a durable
       `hivemind.queen.cluster.ClusterOrder(kind=RELEASE, lease_id=...)` row, exactly like `hive
       cluster`/`hive wake` (docs/adr/0024), for a running Queen's own tick

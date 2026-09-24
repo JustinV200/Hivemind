@@ -5,7 +5,9 @@ the Hive's SQLite trail. A unit test of the lifecycle, the Queen's attach or the
 wants the same parts over a `MemoryPheromoneTrail` instead: `make_night_veil` wires them exactly
 as the composition root does (the ephemeral segments, the `VeiledTrail` every writer records
 through, and the purge that records past the boundary on the durable trail), with no side
-channels, which is also what production registers today.
+channels. A test of an offline `hive cells` command builds the real boundary from a manifest
+instead: `night_veil_manifest` is one with the fake Virtual backend and a complete Night Veil tier
+profile, and `tier_spec` a Cell spec at a tier, labelled as the lifecycle labels every Cell.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped.
@@ -20,8 +22,15 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.cell import CellIdentity
-from hivemind.hive.night_veil import NightVeilBoundary
+from pathlib import Path
+
+from builders.cli import fake_manifest
+from builders.forage import make_capacity
+
+from hivemind.cell import CellIdentity, CombShieldLevel
+from hivemind.hive import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.night_veil import NightVeilBoundary, with_tier_label
+from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.pheromone import (
     EphemeralSegments,
     MemoryPheromoneTrail,
@@ -32,7 +41,9 @@ from hivemind.pheromone import (
 )
 from waggle.clock import Clock
 
-__all__ = ["make_night_veil"]
+_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710"  # A valid v3 one.
+
+__all__ = ["make_night_veil", "night_veil_manifest", "tier_spec"]
 
 
 def make_night_veil(
@@ -58,4 +69,50 @@ def make_night_veil(
         veiled=VeiledTrail(durable, segments),
         purge=purge,
         recorder=recorder,
+    )
+
+
+def night_veil_manifest(tmp_path: Path) -> HiveManifest:
+    """Return a `fake_manifest` with the fake Virtual backend and a complete Night Veil profile.
+
+    Args:
+        tmp_path: The test's own directory; the manifest and its `[hive] db` live under it.
+
+    Returns:
+        The loaded manifest: `build_virtual_cells` builds a Virtual side, boundary and all, from it.
+    """
+    manifest_path = fake_manifest(tmp_path)
+    with manifest_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            '\n[virtual_cells]\nbackend = "fake"\n'
+            "\n[security.tiers.NIGHT_VEIL]\n"
+            'egress_profile = "vpn_tor"\ncontrol_channel = "tor_hidden_service"\n'
+            f'hidden_service_address = "{_ONION}"\ntor_socks = "127.0.0.1:9050"\n'
+            'locale_profile = "C.UTF-8"\n'
+        )
+    return load_manifest(manifest_path)
+
+
+def tier_spec(manifest: HiveManifest, tier: CombShieldLevel) -> VirtualCellSpec:
+    """Return a Cell spec at `tier`, labelled with it as the lifecycle labels every Cell.
+
+    Args:
+        manifest: Names the Hive the Cell is provisioned for.
+        tier: The Comb Shield level the Cell runs at.
+
+    Returns:
+        A spec a backend provisions as-is: Night Veil's image and network policy for that tier.
+    """
+    night_veil = tier is CombShieldLevel.NIGHT_VEIL
+    return with_tier_label(
+        VirtualCellSpec(
+            image="night-veil-ubuntu" if night_veil else "base-ubuntu",
+            cpu_cores=1,
+            memory_bytes=512 * 1024 * 1024,
+            disk_bytes=1024 * 1024 * 1024,
+            network_policy=NetworkPolicy.VPN_TOR if night_veil else NetworkPolicy.EGRESS_ONLY,
+            capacity=make_capacity(),
+            hive_id=manifest.hive.id,
+            comb_shield=tier,
+        )
     )
