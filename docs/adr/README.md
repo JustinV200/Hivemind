@@ -154,3 +154,11 @@ ADRs that exist today, in numeric order:
   `EMBEDDER` slot with an OpenAI-compatible, an in-process `sentence-transformers` and a fake
   adapter, metered by the Fanner; every vector names its model, and changing the embedder
   re-embeds progressively while retrieval degrades to full text.
+- `0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md`: a deposit that
+  deduplicates by content from a new source keeps that source's provenance, index folders list
+  scopes with one query under the reader's filter, and an old embedder's vectors are dropped only
+  by `hive honey reembed --prune` once the bound model covers every row.
+- `0034-honey-label-lowering-is-a-judge-reviewed-proposal.md`: a Nectar held at `C2` only by the
+  Real Cell floor, whose text the Ripener reads as less sensitive, gets one lowering proposal; an
+  independent judge on `JUDGE` or the human decides it, and the lowering, its proposal and its
+  event commit in one transaction; `hive honey review` shows and decides what waits.
