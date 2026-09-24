@@ -26,13 +26,16 @@ Write, for this one deposit:
   is worth reading in full;
 - up to eight key facts worth finding again on their own, one line each: names of tools, paths,
   settings, error messages, versions, results;
-- a clearance label with a one-line reason. `C0` is public and non-sensitive; `C1` is internal
-  but not personal; `C2` is personal or sensitive: anything about a person (a name, a habit,
-  contact details), a credential, or the operator's own machine and accounts.
+- a clearance label for the content itself, with a one-line reason. `C0` is public and
+  non-sensitive; `C1` is internal but not personal; `C2` is personal or sensitive: anything about
+  a person (a name, a habit, contact details), a credential, or the operator's own machine and
+  accounts.
 
-You may judge the deposit more sensitive than its current label says. A label lower than the
-current one is ignored, so when the deposit is no more sensitive than its label, repeat the
-current label.
+Label what the deposit itself says, independently of its current label: that label may come only
+from where the deposit was gathered, so do not copy it. A label higher than the current one raises
+it at once. A label lower than the current one is recorded and never lowers anything by itself: an
+independent reviewer decides whether the deposit may carry it. When you are unsure between two
+labels, give the higher one.
 
 ## Hard rules
 

@@ -37,7 +37,11 @@ text can always tell durable state and retrieved content apart from an instructi
   `JUDGE_REVIEW` -- roadmap step 4.10, `hivemind.wardens.judge.ModelJudgeReviewer`'s one
   structured call, built from a tier's rubric and the `JudgeRequest` alone, no proposer transcript
   or hot state; `RIPEN_NECTAR` -- roadmap step 7.5, `hivemind.honey_store.ripening.summarise`'s one
-  structured call on the `RIPENER` slot, the deposit shown only as untrusted EVENT data).
+  structured call on the `RIPENER` slot, the deposit shown only as untrusted EVENT data, labelled
+  for its own content whatever its current label; `JUDGE_CLEARANCE` -- ADR-0034,
+  `hivemind.honey_store.lowering.judge.ModelClearanceJudge`'s one structured call on the `JUDGE`
+  slot, whether one deposit's title and text may carry a lower label, the deposit shown only as
+  untrusted RETRIEVED data and never the proposer's reason or any id).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works
