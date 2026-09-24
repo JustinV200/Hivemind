@@ -1582,7 +1582,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   retention window; `max_clip_seconds` caps a clip and the rate limiter counts audio seconds per
   device. Tests with fixture clips through `FakeTranscription`; a clip from a pending or revoked
   device is refused before any model runs.
-- [ ] **10.6 Guard Bee role.** `workers/roles/guard_bee.py`, run in the Queen's process on the
+- [x] **10.6 Guard Bee role.** `workers/roles/guard_bee.py`, run in the Queen's process on the
   Hive Stand like the House Bee (7.6), so no Cell action can take it down and it always reads the
   central trail. Deterministic rules first; its awake episodes run on `ModelSlot.JUDGE`, so the
   manifest can pin them to a different provider than `WORKER` and blind spots do not correlate.
@@ -1607,6 +1607,13 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   gains `SECURITY` and the wire's `InterventionAction` gains `QUARANTINE` (10.6c), a waggle minor
   bump since both are wire enums; the Hive-side `PolicyAction` gains `ISOLATE` and `QUARANTINE`,
   which no wire enum mirrors (ADR-0035).
+  *Landed as `hivemind.workers.roles.guard_bee`, composed into every Hive `hive run` and `hive
+  serve` build (`hivemind.cli.compose.guard`) and filing through the Queen's own door; C2
+  deposits are a named seam (`GuardReportSink`, in memory until then) that phase 7's Nectar
+  intake fills. Node integrity counts what the Hive records today (a forged Entrance request, and
+  a forged frame or an unmerged segment at the Cell gate); Waggle replay refusal (11.3b),
+  frame-ceiling closes (11.3a), key-verified merges (11.9) and capability reports (13.4a) each
+  become one rule when their step records its kind.*
 - [x] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
   never a Guard Bee's or a Warden's: revoke the Warden's grant, checkpoint and pause every bee on
   the Cell, write a `BLOCK` Cell Wax so nothing is placed there, set a Virtual Cell's network
