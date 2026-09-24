@@ -7,7 +7,10 @@ this is now a package: `ready` (the public `dispatch_ready`/`redispatch`/`resume
 plus the grant-and-assign wire send both share), `snapshot` (the pure `Inventory`/`ForageView` I/O
 helper `hivemind.queen.placement.decide` reads) and `acquire` (`resolve_link`, the seam that turns
 a Virtual `Placement` into a `WardenLink` through `QueenDeps.virtual_provider`, with the
-retry-once-with-zeroed-headroom path ADR-0028's own Consequences call for). This file is the
+retry-once-with-zeroed-headroom path ADR-0028's own Consequences call for). The zero-grant fix adds
+`sizing` (`size_grant`: every grant sized from the Cell's capacity as it stands, when its link can
+read it live) and `zero_grant` (what a grant that runs no bee does: wait PENDING for a passing
+shortfall to pass, within `[forage] zero_grant_patience_s`, or be denied at once). This file is the
 package's face: every name below is exactly what `hivemind.queen.dispatcher.py` used to export, so
 every existing caller (`hivemind.queen.queen`, `hivemind.queen.ticks.results`, `hivemind.queen.
 cluster.protocol`) imports it unchanged.
@@ -25,6 +28,8 @@ Key invariants:
       task, whether from a fresh dispatch or a retry (`ready._send_grant_and_assign`'s own order).
     - A Virtual `Placement` is acquired through `acquire.resolve_link` before any chamber
       transition or wire send: a failed acquire never leaves a task half-assigned.
+    - A fresh task's grant is sized before its chamber transition, and nothing is sent to its
+      Warden before that transition: a task left waiting for a grant stays PENDING, unsent.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Placement union this package

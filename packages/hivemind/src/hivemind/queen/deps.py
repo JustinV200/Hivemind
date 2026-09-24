@@ -30,6 +30,11 @@ a Heartbeat never reaches the trail), and `intake_lock`, which serialises every 
 a revocation from the Entrance and her own intake never move one request from a stale value.
 Roadmap step 10.6 adds the Guard Bee (the Hive's security watcher) she runs on her own tick beside
 the House Bee's sweep (`guard_bee`), optional until the composition root builds one.
+The zero-grant fix adds her book of fresh tasks waiting for a grant (`grant_waits`,
+a `GrantWaits` holding `[forage] zero_grant_patience_s`), kept here beside `housekeeping` for the
+same reason, and to `WardenLink` the reader of its Cell's capacity as it stands right now
+(`live_capacity`, a `LiveCapacity`: the Hive Stand re-reads its load and free memory on every
+call; a Virtual Cell, whose resources its spec fixes, has none).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -77,8 +82,10 @@ from typing import Protocol
 from hivemind.brood_chamber import BroodChamber, Task, TaskOutcome
 from hivemind.cell import Cell
 from hivemind.forage import (
+    ForageCapacity,
     ForageMap,
     GoalBudgets,
+    GrantBound,
     ModelSlot,
     RoleFootprint,
     RoyalReserve,
@@ -105,7 +112,7 @@ from hivemind.supervision import EscalationPolicy
 from hivemind.workers.roles.guard_bee import GuardBee
 from waggle.clock import Clock
 from waggle.envelope import Hop
-from waggle.ids import CellId, GrantId, WardenId
+from waggle.ids import CellId, GrantId, TaskId, WardenId
 from waggle.messages.supervision import Heartbeat
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
@@ -135,10 +142,16 @@ _DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT
 # (every pre-housekeeping test) still runs a House Bee sweep on a sensible cadence.
 _DEFAULT_SWEEP_INTERVAL_S = 3_600.0  # One hour.
 _DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
+# Matches the manifest's own [forage] zero_grant_patience_s default, so a QueenDeps built without
+# naming it (every test that never waits) bounds a wait exactly as a default manifest does.
+_DEFAULT_ZERO_GRANT_PATIENCE_S = 300.0
 
 __all__ = [
     "DormantCellSource",
+    "GrantWait",
+    "GrantWaits",
     "Housekeeping",
+    "LiveCapacity",
     "MemoryBudget",
     "OnCellGranted",
     "OnHeartbeat",
@@ -172,6 +185,12 @@ OnCellGranted = Callable[[CellId, GrantId], Awaitable[None]]
 # she has recorded it. Synchronous and cheap by contract: it runs inside her tick, so it may only
 # hand the sample on (the Hive Entrance's telemetry board fans it out to its live views).
 OnHeartbeat = Callable[[WardenId, Heartbeat, datetime], None]
+# The zero-grant fix: a link's Cell's capacity as it stands right now, for a Cell whose capacity
+# is refreshed live (the Hive Stand re-reads its load, free memory and free disk on every call).
+# The dispatcher sizes every grant from it, and waits out only a shortfall in a figure it reads,
+# since only such a figure can change while a task waits (a fact about the link, never a branch
+# on the Cell's kind). The composition root sets it on the Hive Stand's own link.
+LiveCapacity = Callable[[], Awaitable[ForageCapacity]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,12 +207,16 @@ class WardenLink:
         hop: This Queen's own address (`sender`, `"hive_<id>"`), this Warden's address
             (`recipient`, `"warden_<id>"`) and the sending node id, stamped on every envelope the
             Queen wraps and sends to this Warden.
+        live_capacity: Reads `cell`'s capacity as it stands right now, for a Cell whose capacity
+            is refreshed live (the Hive Stand); None (the default) for one whose capacity is fixed
+            for its life (a Virtual Cell's spec), whose grants are sized from `cell` itself.
     """
 
     warden_id: WardenId
     cell: Cell
     transport: Transport
     hop: Hop
+    live_capacity: LiveCapacity | None = None
 
 
 class VirtualCellProvider(Protocol):
@@ -298,6 +321,44 @@ class PlanningLane:
     task: asyncio.Task[None] | None = field(default=None)
 
 
+@dataclass(frozen=True, slots=True)
+class GrantWait:
+    """One fresh task's wait for a grant: the limit it waits on, and since when.
+
+    Attributes:
+        bound: The limit that left its grant with no sub-bee (`hivemind.forage.GrantBound`).
+        since: When this wait began; a wait on the Cell's live figures keeps its clock when the
+            tightest of them changes, and a wait on the goal's allowance runs its own.
+    """
+
+    bound: GrantBound
+    since: datetime
+
+
+@dataclass(slots=True)
+class GrantWaits:
+    """The Queen's book of fresh tasks waiting for a grant, and how long such a wait may last.
+
+    A fresh task whose grant a passing shortfall zeroes stays PENDING and is tried again on every
+    later dispatch pass (`hivemind.queen.dispatcher.zero_grant`); this is where each such wait's
+    start is kept, so the first pass records the one `forage.denied` that says so, later passes
+    record nothing, and a wait on the Cell's live figures past `patience_s` fails the task with
+    the figures instead of waiting for ever. Held on `QueenDeps` like `Housekeeping`, for the same
+    reason. Owns its own mutable state in place (codingrules section 8.5): `waits` changes on
+    every dispatch pass that starts, changes or ends a wait. In memory only: a restarted Queen
+    starts each wait afresh (and says so on the trail) rather than trusting a clock it did not
+    keep.
+
+    Attributes:
+        patience_s: `[forage] zero_grant_patience_s`: the longest a task waits on its Cell's live
+            figures, in seconds.
+        waits: Every fresh task waiting for a grant right now, by task id.
+    """
+
+    patience_s: float = _DEFAULT_ZERO_GRANT_PATIENCE_S
+    waits: dict[TaskId, GrantWait] = field(default_factory=dict)
+
+
 def _set_event() -> asyncio.Event:
     """Build the Queen's wake signal already set, so her first tick drains what a crash left."""
     event = asyncio.Event()
@@ -368,8 +429,7 @@ class QueenDeps:
             module's own default `ClusterBackoff`.
         provider_lookup: Resolves a `[llm.providers.<name>]` key to a live `LLMProvider`, for
             `HealthPoller.probe`; `ProviderRegistry.provider` bound to an instance in production.
-            None (the default) skips health probing entirely rather than raising, since a caller
-            that never names this field has no registry to probe with in the first place.
+            None (the default) skips health probing.
         housekeeping: The Queen's own `last_sweep_at` bookkeeping (roadmap step 4.3's own wiring
             step); read and advanced by `hivemind.queen.ticks.housekeeping.run_housekeeping`.
             Defaults to a fresh `Housekeeping()` (no sweep run yet), matching every field here.
@@ -381,14 +441,11 @@ class QueenDeps:
             value (four hours).
         placement_policy: The `[placement]`/`[virtual_cells]`-derived value `hivemind.queen.
             placement.decide.decide` reads (roadmap step 5.7, ADR-0028). Defaults to
-            `PlacementPolicy()` (`prefer="real"`, `allow_hive_stand=True`, no template), matching
-            v0's own Real-only behaviour.
+            `PlacementPolicy()` (`prefer="real"`, `allow_hive_stand=True`, no template).
         virtual_backends: Every registered Virtual backend with room to provision, read by
             `hivemind.queen.dispatcher`'s snapshot helper to build `decide`'s own `Inventory`.
-            Empty until roadmap step 5.6 gives a composition root something to populate it with.
         dormant_cells: Every Overwintered Virtual Cell available to resume instead of a fresh
-            provision (`docs/adr/0029`). Empty until roadmap step 5.9 (the Overwintering pool)
-            gives a composition root something to populate it with.
+            provision (`docs/adr/0029`).
         virtual_provider: The seam `hivemind.queen.dispatcher` calls to turn a `ProvisionVirtual`/
             `ReuseDormant` Placement into a `WardenLink` (`VirtualCellProvider`, defined above).
             `None` (the default) means a Virtual Placement is a `PlacementError` instead of being
@@ -397,8 +454,7 @@ class QueenDeps:
             lifecycle.CellLifecycle` instead of the static tuple above, when set.
             `hivemind.queen.dispatcher.snapshot.build_inventory` calls this (converting the
             hive-layer candidates it returns into `queen.placement.inventory` ones) instead of
-            reading `virtual_backends` directly, whenever it is not `None`. `None` (the default)
-            keeps every pre-5.6 test's own static-tuple behaviour.
+            reading `virtual_backends` directly, whenever it is not `None` (the default).
         dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for
             `dormant_cells`.
         on_task_finished: Told about every finished task's own Cell (`CellId`, its
@@ -433,6 +489,7 @@ class QueenDeps:
             trail): the Hive Entrance's telemetry board in `hive serve`; None (nobody) by default.
         intake_lock: Serialises her goal-request edges (`hivemind.queen.intake.writes`): intake, a
             plan landing beside her tick and a revocation each move the row as it stands.
+        grant_waits: Fresh tasks waiting for a grant, and their patience (`GrantWaits`).
     """
 
     chamber: BroodChamber
@@ -505,3 +562,4 @@ class QueenDeps:
     on_heartbeat: OnHeartbeat | None = None
     intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
+    grant_waits: GrantWaits = field(default_factory=GrantWaits)  # The zero-grant fix.

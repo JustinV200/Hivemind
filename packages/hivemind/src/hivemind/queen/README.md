@@ -69,13 +69,24 @@ every assignment goes to a Warden, over Waggle.
   Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
   over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
   attached" means, so every later dispatch to the same Warden is a no-op here. The `TaskAssign` it
-  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b). A fresh grant that computes to
-  `max_sub_bees < 1` is never sent to the Warden: `_send_grant_and_assign` records `forage.denied`
-  (the allocator's own reason plus the free-memory/reserve/seat figures that produced zero) and
-  fails the task at once instead (`.claude/phase-4-handoff.md` section 4.2 item 1 -- a grant that
-  empty used to be sent anyway, park the task RUNNING with a `GRANT_EXCEEDED` escalation, and time
-  out silently). `redispatch` (a RUNNING retry) and `resume_paused` (a `resume_from` resume) both
-  funnel through the same `_send_grant_and_assign` and fail the same way.
+  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b). Every grant is sized by
+  `dispatcher.sizing.size_grant`, from the Cell's capacity as it stands when its link carries a
+  live reader (`WardenLink.live_capacity`: the Hive Stand's, re-reading its load and free memory on
+  every pass) and from the link's own Cell otherwise (a Virtual Cell, fixed by its spec). A grant
+  that runs no bee is never sent to the Warden (`.claude/phase-4-handoff.md` section 4.2 item 1 --
+  a grant that empty used to be sent anyway, park the task RUNNING with a `GRANT_EXCEEDED`
+  escalation, and time out silently), and `dispatcher.zero_grant` decides what happens instead.
+  A lasting shortfall (the Guard removed every binding, the Cell's own cap is zero, its whole
+  memory or all its cores could never hold one bee, no allowed source offers a seat past the
+  reserve, or any shortfall on a Cell whose capacity is fixed) records `forage.denied` with the
+  figures and fails the task at once. A passing one (the Hive Stand's free cores or free memory
+  right now) is sized before the chamber moves, so the task stays PENDING, one `forage.denied` with
+  `deferred = true` says so, every later pass tries again quietly, and the task fails with the
+  figures only once `[forage] zero_grant_patience_s` has passed; a goal whose other running tasks
+  hold its whole `max_sub_bees_per_goal` waits, before any Cell is chosen, until one of them
+  finishes. One dispatch pass tries every ready task once, and a waiting one never holds up the
+  rest. `redispatch` (a RUNNING retry) and `resume_paused` (a `resume_from` resume) size their
+  grants the same way but fail at once on any zero: a RUNNING task has no queue to wait in.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules
