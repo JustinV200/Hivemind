@@ -35,8 +35,8 @@ Key invariants:
       Exoskeleton and respawns a fresh sub-bee, whatever the bee's own scripted turn already
       did; `login_container_script`'s own `wrong_click=True` branch queues a second, clean
       attempt right after the first so the task still reaches `task.succeeded`.
-    - `WORKER_ROLE` is the one place the plan's `role` field is named, so switching the scripted
-      plan to the Forager role (the roadmap's own "Later" note) is a one-line change here.
+    - `WORKER_ROLE` is the one place the plan's `role` field is named: the Forager, whose tool
+      loop, brief and Nectar deposits the login exercises.
 
 See Also:
     - .claude/roadmap.md phase 6 "Exit criteria" for the three bullets this module supports.
@@ -76,9 +76,9 @@ from hivemind.pheromone import PheromoneEvent
 
 SITE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "sites" / "login"
 
-# roadmap "Later": the orchestrator switches this to "FORAGER" once that role lands; every
-# scenario below reads the plan's role from here, so that switch is this one line.
-WORKER_ROLE = "DRONE"
+# The role the login is planned as: the Forager (roadmap 6.9), the bounded see/act loop for web
+# and GUI work. Every scenario below reads the plan's role from here.
+WORKER_ROLE = "FORAGER"
 
 # Mirrors hivemind.exoskeleton.browser.fake.login's own fixture names (that module's docstring:
 # "every name, title and text here matches the real fixture site's").
