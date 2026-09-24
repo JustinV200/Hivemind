@@ -5,8 +5,9 @@ Entrance tables and the Pheromone Trail (audit log) it records on, the Guard pol
 ``device`` role bounds every approval, the ``[entrance]`` lifetimes of an invite and of a waiting
 request, the base URL an invite link starts with, the Hive's own public key (returned to a
 redeeming program so it pins it, ADR-0034), the WebAuthn relying party and the challenge book a
-passkey is registered against, and three seams later steps implement (who is told, who is cut off,
-whose goals are cancelled). A constructor stays within five parameters (codingrules 5.1), so these
+passkey is registered against, three seams later steps implement (who is told, who is cut off,
+whose goals are cancelled), and the certifier that issues a device's mutual-TLS certificate at
+approval. A constructor stays within five parameters (codingrules 5.1), so these
 are four bundles grouped by what they are for, each frozen, each checked where a value could be
 wrong, and one ``EnrolmentDeps`` holding them. The composition root builds it once.
 
@@ -39,6 +40,7 @@ from urllib.parse import urlsplit
 from hivemind.entrance.auth.challenges import ChallengeBook
 from hivemind.entrance.auth.keys import ED25519_PUBLIC_KEY_BYTES
 from hivemind.entrance.auth.passkeys import RelyingParty
+from hivemind.entrance.enrol.certificates import DeviceCertifier
 from hivemind.entrance.enrol.deps.goals import GoalLedger, NullGoalLedger
 from hivemind.entrance.enrol.deps.identity import EntranceIdentity
 from hivemind.entrance.enrol.deps.notifier import NullSecurityNotifier, SecurityNotifier
@@ -141,18 +143,21 @@ class EnrolmentCeremony:
 
 @dataclass(frozen=True, slots=True)
 class EnrolmentSeams:
-    """The three collaborators later steps provide; each defaults to its documented no-op.
+    """The collaborators later steps provide; each defaults to its documented no-op.
 
     Attributes:
         notifier: Tells every other approved device that a security event happened (10.5b).
         offboarder: Ends a device's sessions and push subscriptions when it leaves APPROVED
             (10.5e and 10.5b).
         goals: Lists and cancels a device's open goals at revocation (the Queen's goal table).
+        certifier: Issues a device's client certificate at approval; the default has no
+            authority (a loopback-only Hive) and issues nothing.
     """
 
     notifier: SecurityNotifier = field(default_factory=NullSecurityNotifier)
     offboarder: DeviceOffboarder = field(default_factory=NullDeviceOffboarder)
     goals: GoalLedger = field(default_factory=NullGoalLedger)
+    certifier: DeviceCertifier = field(default_factory=DeviceCertifier)
 
 
 @dataclass(frozen=True, slots=True)

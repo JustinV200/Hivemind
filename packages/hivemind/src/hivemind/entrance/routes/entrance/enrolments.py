@@ -1,11 +1,14 @@
 """Serve enrolment's decisions: mint invites, list who asks to join, approve or deny them.
 
 Devices are enrolled, then approved at the Hive Stand (ADR-0033). Minting and cancelling invites,
-approving and denying pending requests exist only on the loopback listener: the remote application
-never mounts them, so they answer 404 there, not 403. The pending list is readable from either
-listener by a steward, because a steward device may approve remotely through its own route, which
-is mounted only when ``[entrance] steward_devices`` is on and only acts after full step-up, granting
-at most its own set within the device ceiling and never stewardship itself.
+registering a device offline (its public key and certificate request, copied off a device that can
+reach no enrolment listener), approving and denying pending requests exist only on the loopback
+listener: the remote application never mounts them, so they answer 404 there, not 403. The loopback
+approval answers the certificate issued from the device's request and, under mutual TLS, a browser's
+PKCS#12 bundle with its passphrase, to the approving operator this once. The pending list is
+readable from either listener by a steward, because a steward device may approve remotely through
+its own route, which is mounted only when ``[entrance] steward_devices`` is on and only acts after
+full step-up, granting at most its own set within the device ceiling and never stewardship itself.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes.entrance``.
@@ -13,6 +16,7 @@ Fits into the Hive:
 
 Key invariants:
     - The invite code is answered once, to the loopback session that minted it.
+    - A bundle is answered once, to the loopback session that approved it, and stored nowhere.
     - The steward route is mounted only under its switch, and never grants ``entrance:steward``.
 
 See Also:
@@ -29,11 +33,14 @@ from hivemind.entrance.auth.step_up import ActionKind
 from hivemind.entrance.enrol import (
     ApprovalRequest,
     DeviceStatus,
+    OfflineRegistration,
     approve,
+    approve_with_bundle,
     cancel_invite,
     deny,
     device_ceiling,
     mint_invite,
+    register_offline,
     steward_grant,
     steward_terms,
 )
@@ -49,11 +56,15 @@ from hivemind.entrance.gate.spec import (
 from hivemind.entrance.gate.step_up import require_step_up
 from hivemind.entrance.models import (
     ApprovalBody,
+    ApprovedDeviceView,
     DenyBody,
     DeviceList,
     DeviceView,
     InviteRequest,
     InviteView,
+    RedemptionView,
+    RegistrationBody,
+    approved_view,
     device_view,
 )
 from hivemind.guard import CapabilitySet, proposed_set
@@ -87,6 +98,32 @@ async def mint(body: InviteRequest, caller: CallerParam, services: Services) -> 
     )
 
 
+async def register(
+    body: RegistrationBody, caller: CallerParam, services: Services
+) -> RedemptionView:
+    """Register a device offline from its public key and certificate request (loopback only).
+
+    Args:
+        body: Its name, its Ed25519 public key and its certificate signing request.
+        caller: The admitted caller, whose device is the registration's actor.
+        services: The Entrance's services.
+
+    Returns:
+        The PENDING device, its fingerprint and the Hive's public key.
+    """
+    registration = OfflineRegistration(
+        name=body.name,
+        public_key_hex=body.public_key_hex,
+        certificate_request=body.certificate_request,
+    )
+    redemption = await register_offline(services.enrolment, registration, caller.device.id)
+    return RedemptionView(
+        device_id=redemption.device_id,
+        fingerprint=redemption.fingerprint,
+        hive_public_key_hex=redemption.hive_public_key_hex,
+    )
+
+
 async def cancel(device_id: DeviceIdPath, caller: CallerParam, services: Services) -> DeviceView:
     """Withdraw an unredeemed invite (loopback only).
 
@@ -117,8 +154,8 @@ async def list_pending(services: Services) -> DeviceList:
 
 async def approve_pending(
     device_id: DeviceIdPath, body: ApprovalBody, caller: CallerParam, services: Services
-) -> DeviceView:
-    """Approve a pending device (loopback only).
+) -> ApprovedDeviceView:
+    """Approve a pending device (loopback only), with the certificate or bundle issued for it.
 
     Args:
         device_id: The PENDING device.
@@ -127,10 +164,11 @@ async def approve_pending(
         services: The Entrance's services.
 
     Returns:
-        The device, APPROVED.
+        The device, APPROVED; its certificate's PEM when one was issued from its request, and a
+        browser's bundle when one was sealed (answered this once).
     """
     request = _approval(body, None, caller.device.id)
-    return device_view(await approve(services.enrolment, device_id, request))
+    return approved_view(await approve_with_bundle(services.enrolment, device_id, request))
 
 
 async def deny_pending(
@@ -213,6 +251,18 @@ ROUTES: tuple[RouteSpec, ...] = (
         response_model=InviteView,
     ),
     RouteSpec(
+        method="POST",
+        path="/v1/entrance/register",
+        listeners=LOOPBACK_ONLY,
+        access=_STEWARD,
+        effect=RouteEffect.DOOR,
+        endpoint=register,
+        summary="Register a device offline from its public key and certificate request "
+        "(loopback only); it then waits for approval like any other.",
+        status_code=201,
+        response_model=RedemptionView,
+    ),
+    RouteSpec(
         method="DELETE",
         path="/v1/entrance/invites/{device_id}",
         listeners=LOOPBACK_ONLY,
@@ -239,8 +289,9 @@ ROUTES: tuple[RouteSpec, ...] = (
         access=_STEWARD,
         effect=RouteEffect.DOOR,
         endpoint=approve_pending,
-        summary="Approve a device asking to join (loopback only).",
-        response_model=DeviceView,
+        summary="Approve a device asking to join (loopback only), issuing its client "
+        "certificate when the Hive runs its own authority.",
+        response_model=ApprovedDeviceView,
     ),
     RouteSpec(
         method="POST",

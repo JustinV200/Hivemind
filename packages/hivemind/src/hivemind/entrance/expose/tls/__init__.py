@@ -28,8 +28,8 @@ See Also:
 Public API:
     - HiveAuthority, load_or_create_authority, CA_KEY_NAME, CA_CERT_NAME, CA_VALIDITY,
       NOT_BEFORE_SKEW: the authority and where it is kept.
-    - issue_client_certificate, issue_pkcs12, DeviceCertificate, DeviceBundle,
-      CLIENT_CERT_VALIDITY, MIN_PASSPHRASE_CHARS, MIN_RSA_BITS, MAX_CSR_BYTES,
+    - issue_client_certificate, issue_pkcs12, check_certificate_request, DeviceCertificate,
+      DeviceBundle, CLIENT_CERT_VALIDITY, MIN_PASSPHRASE_CHARS, MIN_RSA_BITS, MAX_CSR_BYTES,
       PKCS12_KDF_ROUNDS: device certificates.
     - build_crl, RevokedSerial: the revocation list.
     - server_context: the remote listener's TLS context.
@@ -53,6 +53,7 @@ from hivemind.entrance.expose.tls.issue import (
     PKCS12_KDF_ROUNDS,
     DeviceBundle,
     DeviceCertificate,
+    check_certificate_request,
     issue_client_certificate,
     issue_pkcs12,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "HiveAuthority",
     "RevokedSerial",
     "build_crl",
+    "check_certificate_request",
     "issue_client_certificate",
     "issue_pkcs12",
     "load_or_create_authority",

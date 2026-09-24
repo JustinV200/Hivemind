@@ -5,7 +5,9 @@ codingrules Appendix C: "operator credential, enrolled devices", password hash a
 only). ``EnrolledDevice`` is one client of the Hive Entrance: its status in the
 ``hivemind.entrance.enrol.state`` machine, the public key it proves itself with (raw Ed25519, or a
 passkey's COSE key and credential), what the operator bound at approval (name, capabilities, daily
-spend cap, expiry, interactivity), and when it was last seen and from which network.
+spend cap, expiry, interactivity), when it was last seen and from which network, and its
+mutual-TLS side: the certificate signing request a program sent (or the operator registered) and
+the client certificate issued from it at approval (``hivemind.entrance.enrol.certificates``).
 ``DeviceDescription`` is what an unauthenticated device says about itself when it redeems an invite,
 so every string in it is display text the model refuses to carry control characters in.
 ``DeviceInvite`` is the single-use invite, stored only as its code's SHA-256. ``OperatorCredential``
@@ -44,6 +46,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 from hivemind.entrance.auth.canonical import b64url_decode
 from hivemind.entrance.auth.keys import ED25519_PUBLIC_KEY_BYTES, KeyKind, key_fingerprint
 from hivemind.entrance.auth.network import is_device_network
+from hivemind.entrance.enrol.certificates import MAX_CERTIFICATE_REQUEST_CHARS, CertificateRecord
 from hivemind.entrance.enrol.state import DeviceStatus
 from waggle.messages.base import DeviceIdField, UtcDatetime
 
@@ -238,6 +241,17 @@ class EnrolledDevice(BaseModel):
         "of an IPv6 one as CIDR text, or derp:<region> when tailscaled reported the peer as "
         "relayed (hivemind.entrance.auth.network).",
     )
+    certificate_request: str | None = Field(
+        default=None,
+        max_length=MAX_CERTIFICATE_REQUEST_CHARS,
+        description="The PEM certificate signing request a program sent with its key (or the "
+        "operator registered for it offline): its client certificate is signed from it at "
+        "approval. Public; None when it sent none.",
+    )
+    certificate: CertificateRecord | None = Field(
+        default=None,
+        description="Its mutual-TLS client certificate, issued at approval; None when none was.",
+    )
 
     @property
     def fingerprint(self) -> str | None:
@@ -294,6 +308,11 @@ class EnrolledDevice(BaseModel):
             raise ValueError("approved_at cannot precede created_at.")
         if self.loopback_bound and not self.interactive:
             raise ValueError("The loopback-bound console is always interactive.")
+        # A certificate is issued at approval, and only a program key sends a request for one.
+        if self.certificate is not None and self.approved_at is None:
+            raise ValueError("A device carrying a certificate must carry approved_at.")
+        if self.certificate_request is not None and self.key_kind is not KeyKind.ED25519:
+            raise ValueError("Only a program's Ed25519 key comes with a certificate request.")
         return self
 
 

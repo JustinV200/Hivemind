@@ -43,8 +43,8 @@ Public API:
     - loopback_request_allowed: the loopback listener's Host and forwarding-header check.
     - TunnelSupervisor, tunnel_environment: the supervised tunnel client.
     - HiveAuthority, load_or_create_authority, issue_client_certificate, issue_pkcs12,
-      DeviceCertificate, DeviceBundle, build_crl, RevokedSerial, server_context, ContextSwitch:
-      mutual TLS (the rest via hivemind.entrance.expose.tls).
+      check_certificate_request, DeviceCertificate, DeviceBundle, build_crl, RevokedSerial,
+      server_context, ContextSwitch: mutual TLS (the rest via hivemind.entrance.expose.tls).
     - ExposeError, ExposureRefusedError, CertificateAuthorityError, CertificateRequestError,
       CertificateIssueError: every refusal this package makes on purpose.
 """
@@ -98,6 +98,7 @@ from hivemind.entrance.expose.tls import (
     HiveAuthority,
     RevokedSerial,
     build_crl,
+    check_certificate_request,
     issue_client_certificate,
     issue_pkcs12,
     load_or_create_authority,
@@ -134,6 +135,7 @@ __all__ = [
     "TunnelSupervisor",
     "build_crl",
     "certificate_covers",
+    "check_certificate_request",
     "gather_facts",
     "host_platform",
     "is_dns_name",

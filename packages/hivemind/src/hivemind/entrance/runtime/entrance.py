@@ -162,7 +162,9 @@ class HiveEntrance:
         while True:
             # External wait: the sweep interval, on the Entrance's clock.
             await services.clock.sleep(SWEEP_INTERVAL_S)
-            await expire_due(enrolment)
+            # An approval that lapsed withdraws its certificate: the next handshake must know.
+            if await expire_due(enrolment):
+                await self._listeners.certificates_changed()
             await expire_pending(enrolment.records)
             # A kept clip lives no longer than its retention window (and one sweep interval).
             if services.voice is not None:

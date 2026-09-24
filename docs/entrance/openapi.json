@@ -222,6 +222,231 @@
         "title": "ApprovalBody",
         "type": "object"
       },
+      "ApprovedDeviceView": {
+        "description": "An approval's answer: the device, and the certificate or bundle issued with it.",
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the operator approved it.",
+            "title": "Approved At"
+          },
+          "backup_eligible": {
+            "description": "A passkey that may be synced elsewhere.",
+            "title": "Backup Eligible",
+            "type": "boolean"
+          },
+          "backup_state": {
+            "description": "A passkey that was synced when registered.",
+            "title": "Backup State",
+            "type": "boolean"
+          },
+          "bundle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BundleView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A passkey device's PKCS#12 bundle, sealed under mutual TLS; answered once, stored nowhere; null otherwise."
+          },
+          "capabilities": {
+            "description": "What it may do, as capability strings.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "certificate_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of its client certificate, lowercase hex; compare it on the device.",
+            "title": "Certificate Fingerprint"
+          },
+          "certificate_not_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its client certificate expires.",
+            "title": "Certificate Not After"
+          },
+          "certificate_pem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The client certificate issued from the device's request, PEM (public: the device can also fetch it); null when none was issued.",
+            "title": "Certificate Pem"
+          },
+          "certificate_requested": {
+            "default": false,
+            "description": "It sent (or was registered with) a certificate signing request: a client certificate is signed from it at approval when the Hive runs its own authority.",
+            "title": "Certificate Requested",
+            "type": "boolean"
+          },
+          "certificate_serial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its client certificate's serial, lowercase hex; null: none.",
+            "title": "Certificate Serial"
+          },
+          "created_at": {
+            "description": "When its record was created (invite minted).",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceDescription"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it said about itself at redemption (display text; escape it)."
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its current standing lapses.",
+            "title": "Expires At"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its key's fingerprint; null before redemption.",
+            "title": "Fingerprint"
+          },
+          "id": {
+            "description": "The device's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "interactive": {
+            "description": "A person types at it, so it may step up.",
+            "title": "Interactive",
+            "type": "boolean"
+          },
+          "key_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ed25519 or passkey; null before redemption.",
+            "title": "Key Kind"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it last authenticated.",
+            "title": "Last Seen At"
+          },
+          "loopback_bound": {
+            "description": "The Hive Stand console: loopback sessions only.",
+            "title": "Loopback Bound",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Its name, as the operator bound it at approval.",
+            "title": "Name",
+            "type": "string"
+          },
+          "spend_cap_usd_per_day": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its daily cap; null: uncapped.",
+            "title": "Spend Cap Usd Per Day"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceStatus",
+            "description": "INVITED, PENDING, APPROVED, LOCKED, DENIED, ..."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "key_kind",
+          "fingerprint",
+          "interactive",
+          "capabilities",
+          "spend_cap_usd_per_day",
+          "expires_at",
+          "loopback_bound",
+          "backup_eligible",
+          "backup_state",
+          "description",
+          "created_at",
+          "approved_at",
+          "last_seen_at"
+        ],
+        "title": "ApprovedDeviceView",
+        "type": "object"
+      },
       "AudioChunkFrame": {
         "additionalProperties": false,
         "description": "One slice of a push-to-talk recording, sent on the chat socket in order.",
@@ -309,6 +534,27 @@
           "intent"
         ],
         "title": "AudioEndFrame",
+        "type": "object"
+      },
+      "BundleView": {
+        "description": "A browser's PKCS#12 bundle, answered to the approving operator once and stored nowhere.",
+        "properties": {
+          "passphrase": {
+            "description": "What seals it; the operator types it on the device.",
+            "title": "Passphrase",
+            "type": "string"
+          },
+          "pkcs12_base64": {
+            "description": "The bundle (a fresh key and its certificate, no authority), standard base64.",
+            "title": "Pkcs12 Base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pkcs12_base64",
+          "passphrase"
+        ],
+        "title": "BundleView",
         "type": "object"
       },
       "CapacityView": {
@@ -762,6 +1008,40 @@
           "can_host_model"
         ],
         "title": "CellView",
+        "type": "object"
+      },
+      "CertificateView": {
+        "description": "A device's own mutual-TLS client certificate, as it fetches it after approval.",
+        "properties": {
+          "certificate_pem": {
+            "description": "The certificate, PEM: present it with the device's own key on every connection to a remote listener that demands client certificates.",
+            "title": "Certificate Pem",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "SHA-256 of the certificate (DER), lowercase hex.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "not_after": {
+            "description": "When it expires; the device enrols again after.",
+            "format": "date-time",
+            "title": "Not After",
+            "type": "string"
+          },
+          "serial": {
+            "description": "Its serial number, lowercase hex.",
+            "title": "Serial",
+            "type": "string"
+          }
+        },
+        "required": [
+          "serial",
+          "fingerprint",
+          "not_after",
+          "certificate_pem"
+        ],
+        "title": "CertificateView",
         "type": "object"
       },
       "ChallengeRequest": {
@@ -1299,6 +1579,49 @@
             "title": "Capabilities",
             "type": "array"
           },
+          "certificate_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of its client certificate, lowercase hex; compare it on the device.",
+            "title": "Certificate Fingerprint"
+          },
+          "certificate_not_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its client certificate expires.",
+            "title": "Certificate Not After"
+          },
+          "certificate_requested": {
+            "default": false,
+            "description": "It sent (or was registered with) a certificate signing request: a client certificate is signed from it at approval when the Hive runs its own authority.",
+            "title": "Certificate Requested",
+            "type": "boolean"
+          },
+          "certificate_serial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its client certificate's serial, lowercase hex; null: none.",
+            "title": "Certificate Serial"
+          },
           "created_at": {
             "description": "When its record was created (invite minted).",
             "format": "date-time",
@@ -1428,6 +1751,19 @@
         "additionalProperties": false,
         "description": "Redeem an invite with a program's Ed25519 key.",
         "properties": {
+          "certificate_request": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A PEM PKCS#10 certificate signing request (Ed25519, P-256, P-384 or RSA of at least 2048 bits; its subject is ignored): when the Hive runs its own authority, the device's mutual-TLS client certificate is signed from it at approval and fetched from GET /v1/devices/me/certificate. Omit it for no certificate.",
+            "title": "Certificate Request"
+          },
           "code": {
             "description": "The invite code.",
             "maxLength": 64,
@@ -2882,6 +3218,39 @@
           "hive_public_key_hex"
         ],
         "title": "RedemptionView",
+        "type": "object"
+      },
+      "RegistrationBody": {
+        "additionalProperties": false,
+        "description": "Register a device offline, from what the operator copied off it (loopback only).",
+        "properties": {
+          "certificate_request": {
+            "description": "Its PEM certificate signing request, for its mutual-TLS client certificate.",
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Certificate Request",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the device is called.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "public_key_hex": {
+            "description": "Its raw 32-byte Ed25519 public key, 64 lowercase hex: what it logs in with.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Public Key Hex",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "public_key_hex",
+          "certificate_request"
+        ],
+        "title": "RegistrationBody",
         "type": "object"
       },
       "RequestOrigin": {
@@ -5895,6 +6264,98 @@
         ]
       }
     },
+    "/v1/devices/me/certificate": {
+      "get": {
+        "operationId": "read_own_certificate_v1_devices_me_certificate_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the calling device's own mutual-TLS client certificate.",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
     "/v1/devices/{device_id}/capabilities": {
       "post": {
         "operationId": "regrant_device_v1_devices__device_id__capabilities_post",
@@ -7626,7 +8087,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeviceView"
+                  "$ref": "#/components/schemas/ApprovedDeviceView"
                 }
               }
             },
@@ -7698,7 +8159,7 @@
             "HiveSession": []
           }
         ],
-        "summary": "Approve a device asking to join (loopback only).",
+        "summary": "Approve a device asking to join (loopback only), issuing its client certificate when the Hive runs its own authority.",
         "tags": [
           "entrance"
         ],
@@ -7915,6 +8376,108 @@
         "x-hive-listeners": [
           "loopback",
           "remote"
+        ]
+      }
+    },
+    "/v1/entrance/register": {
+      "post": {
+        "operationId": "register_v1_entrance_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Register a device offline from its public key and certificate request (loopback only); it then waits for approval like any other.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
         ]
       }
     },

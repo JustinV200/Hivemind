@@ -9,7 +9,9 @@ narrows it (a lockout after failed logins, a burst of capability denials, or ano
 locking a lost one) and ``unlock`` reopens it, on loopback only. ``expire_due`` is the sweep the
 Entrance runs on a timer: every invite, request or approval whose ``expires_at`` has passed moves
 to EXPIRED. Leaving APPROVED always ends the device's
-sessions and push subscriptions (``hivemind.entrance.enrol.record``). The Hive Stand's own console
+sessions and push subscriptions (``hivemind.entrance.enrol.record``), and a revocation or an
+expiry marks the device's client certificate withdrawn in the same step, which puts it on the
+remote listener's revocation list. The Hive Stand's own console
 can be locked and unlocked like any other device, but nothing here revokes or expires it: losing
 it means ``hive entrance operator password --reset``.
 
@@ -37,16 +39,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from pydantic import JsonValue
 
 from hivemind.common.logging import get_logger
+from hivemind.entrance.enrol.certificates import withdrawn
 from hivemind.entrance.enrol.deps import EnrolmentDeps
 from hivemind.entrance.enrol.models import EnrolledDevice
 from hivemind.entrance.enrol.record import Transition, apply_transition, iso, named_ids
 from hivemind.entrance.enrol.state import DeviceStatus
 from hivemind.entrance.errors import ConsoleProtectedError, DeviceStatusConflictError
 from waggle.ids import DeviceId, TaskId
+
+if TYPE_CHECKING:
+    # Type-only: hivemind.entrance.store imports this package's models (see deps.bundle).
+    from hivemind.entrance.store.protocol import DeviceChanges
 
 OPERATOR_REVOKED = "operator"  # The reason a revocation by the operator records.
 # The statuses whose expires_at the sweep enforces: an invite, a request and an approval (held
@@ -146,7 +154,7 @@ async def revoke(
         "goals_left_running_count": len(left_running),
     }
     transition = Transition(device.id, device.status, DeviceStatus.REVOKED, actor, payload)
-    revoked = await apply_transition(deps, transition)
+    revoked = await apply_transition(deps, transition, **_withdrawal(deps, device))
     return Revocation(revoked, cancelled, left_running, refused)
 
 
@@ -249,9 +257,18 @@ async def _expire(deps: EnrolmentDeps, device: EnrolledDevice) -> int:
     actor = deps.records.identity.actor
     transition = Transition(device.id, device.status, DeviceStatus.EXPIRED, actor, payload)
     try:
-        await apply_transition(deps, transition)
+        await apply_transition(deps, transition, **_withdrawal(deps, device))
     except DeviceStatusConflictError:
         # An approval, a denial or a revocation won the race; that decision stands.
         log.debug("entrance.expiry_superseded", device_id=device.id)
         return 0
     return 1
+
+
+def _withdrawal(deps: EnrolmentDeps, device: EnrolledDevice) -> DeviceChanges:
+    """The change that withdraws the device's certificate as it leaves; none without one."""
+    changes: DeviceChanges = {}
+    # Withdrawn in the leaving step itself, so the revocation list can never miss it.
+    if device.certificate is not None:
+        changes["certificate"] = withdrawn(device.certificate, deps.records.clock.now())
+    return changes

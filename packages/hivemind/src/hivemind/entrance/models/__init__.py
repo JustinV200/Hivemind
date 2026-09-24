@@ -24,10 +24,11 @@ Public API:
     - ChallengeRequest, ChallengeView, LoginRequest, OpenedSessionView, StepUpRequest,
       SteppedUpView: login and step-up (auth).
     - HiveView, PasskeyOptionsRequest, PasskeyOptionsView, Ed25519Redemption,
-      PasskeyRedemption, RedemptionView: enrolment (enrol).
+      PasskeyRedemption, RedemptionView, RegistrationBody: enrolment (enrol).
     - ModeView, ChangedView, InviteRequest, InviteView, ApprovalBody, DenyBody,
       ConfirmationView, ConfirmationList, ConfirmedView, confirmation_view: the door (door).
-    - DeviceView, DeviceList, RevokeBody, RevocationView, WidenBody, device_view: devices.
+    - DeviceView, DeviceList, RevokeBody, RevocationView, WidenBody, device_view,
+      CertificateView, ApprovedDeviceView, BundleView, approved_view: devices.
     - GoalSubmission, GoalAccepted, GoalView, DeclineBody, goal_view: goals.
     - ChatLine, ChatPage, ChatPost, ChatAccepted, chat_line: the chat.
     - QuestionView, AlarmView, InboxView, AnswerBody, AnsweredView, AcknowledgedView,
@@ -46,11 +47,15 @@ from hivemind.entrance.models.auth import (
 )
 from hivemind.entrance.models.chat import ChatAccepted, ChatLine, ChatPage, ChatPost, chat_line
 from hivemind.entrance.models.devices import (
+    ApprovedDeviceView,
+    BundleView,
+    CertificateView,
     DeviceList,
     DeviceView,
     RevocationView,
     RevokeBody,
     WidenBody,
+    approved_view,
     device_view,
 )
 from hivemind.entrance.models.door import (
@@ -72,6 +77,7 @@ from hivemind.entrance.models.enrol import (
     PasskeyOptionsView,
     PasskeyRedemption,
     RedemptionView,
+    RegistrationBody,
 )
 from hivemind.entrance.models.goals import (
     DeclineBody,
@@ -110,6 +116,9 @@ __all__ = [
     "AnswerBody",
     "AnsweredView",
     "ApprovalBody",
+    "ApprovedDeviceView",
+    "BundleView",
+    "CertificateView",
     "ChallengeRequest",
     "ChallengeView",
     "ChangedView",
@@ -142,6 +151,7 @@ __all__ = [
     "PasskeyRedemption",
     "QuestionView",
     "RedemptionView",
+    "RegistrationBody",
     "RevocationView",
     "RevokeBody",
     "SecurityEventView",
@@ -153,6 +163,7 @@ __all__ = [
     "VapidKeyView",
     "WidenBody",
     "alarm_view",
+    "approved_view",
     "chat_line",
     "confirmation_view",
     "device_view",

@@ -68,6 +68,7 @@ from hivemind.entrance.auth.keys import KeyKind
 from hivemind.entrance.auth.password import PasswordHasher, check_password_strength
 from hivemind.entrance.auth.session.models import EndReason
 from hivemind.entrance.auth.wrap import unwrap_private_key, wrap_private_key
+from hivemind.entrance.enrol.certificates import withdrawn
 from hivemind.entrance.enrol.deps import EntranceIdentity
 from hivemind.entrance.enrol.models import DeviceDescription, EnrolledDevice
 from hivemind.entrance.enrol.state import ENTRY_TRAIL_KINDS, DeviceStatus, trail_kind
@@ -360,7 +361,14 @@ async def _dismiss_every_device(deps: ConsoleDeps) -> None:
             continue
         kind = trail_kind(device.status, target)
         event = deps.identity.event(deps.clock, kind, device.id, {"reason": OPERATOR_RESET})
-        await deps.store.update_device_status(device.id, device.status, target, event)
+        if device.certificate is None:
+            await deps.store.update_device_status(device.id, device.status, target, event)
+        else:
+            # Its client certificate goes on the revocation list the next serve starts with.
+            certificate = withdrawn(device.certificate, deps.clock.now())
+            await deps.store.update_device_status(
+                device.id, device.status, target, event, certificate=certificate
+            )
         # Console sessions lived only in the stopped process; any other device's persisted ones
         # end here too, so nothing waits for the next start's re-validation.
         await deps.store.sessions.end_for_device(device.id, deps.clock.now(), EndReason.REVOKED)

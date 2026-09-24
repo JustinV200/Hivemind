@@ -1,18 +1,20 @@
 """Issue device client certificates from the Hive's authority: from a CSR, or as a PKCS#12 bundle.
 
 A device that will reach the remote listener under mutual TLS receives its client certificate at
-approval (ADR-0033). A program (the CLI, a script) holds its own key and sends a certificate
-signing request: ``issue_client_certificate`` checks the request's signature, which proves the
-sender holds the key, and signs a certificate for that key alone. A browser cannot make a request,
-so ``issue_pkcs12`` generates a fresh P-256 key, certifies it and seals key and certificate into a
-PKCS#12 bundle under a passphrase, for the operator to import on the device. WHY not the
-authority's certificate too: a phone installs a CA found in a bundle as a trusted root, and then
-whoever held the authority's key (it sits in the secret store) could impersonate any site to it;
-the server holds the authority, the device never needs it. Either way the certificate is the Hive's
-own design, never the request's: subject common name the device id, ``CLIENT_CERT_VALIDITY`` long
-(and never past the authority's own end), ``clientAuth`` extended key usage, digital signature key
-usage, and basic constraints with no CA bit; the request's own subject and extensions are ignored,
-so a request asking to be an authority gets a plain device certificate.
+approval (ADR-0033). A program (the CLI, a script) holds its own key and sends a certificate signing
+request: ``issue_client_certificate`` checks the request's signature, which proves the sender holds
+the key, and signs a certificate for that key alone. ``check_certificate_request`` runs the same
+checks without signing anything, so a request is refused when it arrives (at redemption, or at an
+offline registration), not days later at approval. A browser cannot make a request, so
+``issue_pkcs12`` generates a fresh P-256 key, certifies it and seals key and certificate into a
+PKCS#12 bundle under a passphrase, for the operator to import on the device. WHY not the authority's
+certificate too: a phone installs a CA found in a bundle as a trusted root, and then whoever held
+the authority's key (it sits in the secret store) could impersonate any site to it; the server holds
+the authority, the device never needs it. Either way the certificate is the Hive's own design, never
+the request's: subject common name the device id, ``CLIENT_CERT_VALIDITY`` long (and never past the
+authority's own end), ``clientAuth`` extended key usage, digital signature key usage, and basic
+constraints with no CA bit; the request's own subject and extensions are ignored, so a request
+asking to be an authority gets a plain device certificate.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.expose.tls``. Called by
@@ -81,6 +83,7 @@ __all__ = [
     "PKCS12_KDF_ROUNDS",
     "DeviceBundle",
     "DeviceCertificate",
+    "check_certificate_request",
     "issue_client_certificate",
     "issue_pkcs12",
 ]
@@ -102,6 +105,11 @@ class DeviceCertificate:
     not_after: datetime
     pem: bytes
 
+    @property
+    def fingerprint(self) -> str:
+        """The certificate's SHA-256 fingerprint, lowercase hex: what an operator compares."""
+        return x509.load_pem_x509_certificate(self.pem).fingerprint(hashes.SHA256()).hex()
+
 
 @dataclass(frozen=True, slots=True)
 class DeviceBundle:
@@ -114,6 +122,21 @@ class DeviceBundle:
 
     certificate: DeviceCertificate
     pkcs12: bytes = field(repr=False)
+
+
+def check_certificate_request(csr_pem: bytes, device_id: str) -> None:
+    """Check a device's certificate signing request the way issuing will, signing nothing.
+
+    Args:
+        csr_pem: The device's PKCS#10 request, PEM.
+        device_id: The device it was sent for, or its name before it has an id (named in a
+            refusal, nowhere else).
+
+    Raises:
+        CertificateRequestError: The request is too large, does not parse, its signature does not
+            verify, or its key is not a kind and size the Hive certifies.
+    """
+    _requested_key(csr_pem, device_id)
 
 
 def issue_client_certificate(
@@ -201,7 +224,7 @@ def _check_device_id(device_id: str) -> None:
         ) from exc
 
 
-def _requested_key(csr_pem: bytes, device_id: DeviceId) -> CertificatePublicKeyTypes:
+def _requested_key(csr_pem: bytes, device_id: str) -> CertificatePublicKeyTypes:
     """Parse a request and return its key once its signature and key kind are acceptable."""
     if len(csr_pem) > MAX_CSR_BYTES:
         raise CertificateRequestError(device_id, f"it is larger than {MAX_CSR_BYTES} bytes")

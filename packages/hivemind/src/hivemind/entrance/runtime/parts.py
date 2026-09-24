@@ -33,7 +33,6 @@ from hivemind.entrance.enrol import EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, HiveAuthority
 from hivemind.entrance.gate import HiveReads, QueenDoor
 from hivemind.entrance.push import Resolver, SubscriptionStore, VapidSigner, system_resolver
-from hivemind.entrance.runtime.tls import NoCertificates, RevokedSerials
 from hivemind.entrance.store import EntranceStore
 from hivemind.entrance.streams import DEFAULT_BACKLOG
 from hivemind.entrance.voice import VoiceServices
@@ -123,15 +122,15 @@ class EntranceKeys:
         hive_signer: The Hive's own Ed25519 key: webhooks, and the key programs pin.
         vapid: The Web Push VAPID signer; None when ``[entrance.push] web_push`` is off.
         topic_key: The key a Web Push ``Topic`` is derived under.
-        authority: The Hive's certificate authority; None when no mutual TLS is asked for.
-        serials: The revoked device certificates, for every revocation list.
+        authority: The Hive's certificate authority, in every remote mode; None on loopback.
+            The revoked device certificates every revocation list names are read from the
+            Entrance tables, where each device's certificate is recorded.
     """
 
     hive_signer: Ed25519Signer = field(repr=False)
     vapid: VapidSigner | None = field(repr=False)
     topic_key: bytes = field(repr=False)
     authority: HiveAuthority | None = field(default=None, repr=False)
-    serials: RevokedSerials = field(default_factory=NoCertificates)
 
 
 @dataclass(frozen=True, slots=True)

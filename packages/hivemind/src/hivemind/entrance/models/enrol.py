@@ -2,12 +2,14 @@
 
 A device joins by redeeming the single-use invite the operator minted on loopback (ADR-0033): a
 program sends its Ed25519 public key with a signature over ``enrol_string`` (``hive-enrol-v1``, the
-Hive id, the code's SHA-256, the key in hex); a browser first asks for WebAuthn creation options
-for the code, then sends the registration. Either way it describes itself (display text only) and
-learns its key's fingerprint and the Hive's public key, which a program pins to verify webhooks.
-A program first reads the Hive's id (``HiveView``), because its enrolment and login signatures
-name it and the invite code does not carry it. These routes are unauthenticated; every string is
-bounded and the code never comes back.
+Hive id, the code's SHA-256, the key in hex), and may send a certificate signing request for its
+mutual-TLS client certificate; a browser first asks for WebAuthn creation options for the code, then
+sends the registration. Either way it describes itself (display text only) and learns its key's
+fingerprint and the Hive's public key, which a program pins to verify webhooks. A program first
+reads the Hive's id (``HiveView``), because its enrolment and login signatures name it and the
+invite code does not carry it. These routes are unauthenticated; every string is bounded and the
+code never comes back. ``RegistrationBody`` is the operator's offline registration of a device that
+can reach no enrolment listener (loopback only).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models``. Used by
@@ -25,7 +27,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from hivemind.entrance.enrol.models import DeviceDescription
+from hivemind.entrance.enrol.certificates import MAX_CERTIFICATE_REQUEST_CHARS
+from hivemind.entrance.enrol.models import MAX_DEVICE_NAME_CHARS, DeviceDescription, DisplayText
 from waggle.messages.base import DeviceIdField, HiveIdField
 
 MAX_CODE_CHARS = 64  # An invite code is 26 base32 characters; room for dashes and spaces.
@@ -40,6 +43,7 @@ __all__ = [
     "PasskeyOptionsView",
     "PasskeyRedemption",
     "RedemptionView",
+    "RegistrationBody",
 ]
 
 
@@ -90,6 +94,33 @@ class Ed25519Redemption(BaseModel):
         "code's SHA-256 in hex, the key in hex), unpadded base64url.",
     )
     description: DeviceDescription = Field(description="What the device says about itself.")
+    certificate_request: str | None = Field(
+        default=None,
+        max_length=MAX_CERTIFICATE_REQUEST_CHARS,
+        description="A PEM PKCS#10 certificate signing request (Ed25519, P-256, P-384 or RSA of "
+        "at least 2048 bits; its subject is ignored): when the Hive runs its own authority, the "
+        "device's mutual-TLS client certificate is signed from it at approval and fetched from "
+        "GET /v1/devices/me/certificate. Omit it for no certificate.",
+    )
+
+
+class RegistrationBody(BaseModel):
+    """Register a device offline, from what the operator copied off it (loopback only)."""
+
+    model_config = _CONFIG
+
+    name: DisplayText = Field(
+        min_length=1, max_length=MAX_DEVICE_NAME_CHARS, description="What the device is called."
+    )
+    public_key_hex: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="Its raw 32-byte Ed25519 public key, 64 lowercase hex: what it logs in with.",
+    )
+    certificate_request: str = Field(
+        min_length=1,
+        max_length=MAX_CERTIFICATE_REQUEST_CHARS,
+        description="Its PEM certificate signing request, for its mutual-TLS client certificate.",
+    )
 
 
 class PasskeyRedemption(BaseModel):

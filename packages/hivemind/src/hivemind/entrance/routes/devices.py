@@ -1,13 +1,15 @@
 """Serve the devices resource: list devices, read your own, lock, unlock, revoke, re-grant.
 
-Every client is an enrolled device (ADR-0033). ``GET /v1/devices`` lists them (``observe``);
-``GET /v1/devices/me`` is any session's own record. Locking is narrowing, so an interactive device
-may lock another from either listener after step-up (a lost phone), and only loopback unlocks.
-Unlocking, revoking (refusing the device's unplanned goal requests and, optionally, cancelling its
-open goals in the same step, the rest named in the answer) and re-granting what an approved device
-may do (after step-up: a capability change) exist only on the loopback listener, so the remote
-application never mounts them. A revocation also rebuilds the remote listener's mutual-TLS
-revocation list.
+Every client is an enrolled device (ADR-0033). ``GET /v1/devices`` lists them (``observe``); ``GET
+/v1/devices/me`` is any session's own record, and ``GET /v1/devices/me/certificate`` its own
+mutual-TLS client certificate, issued at approval, which a device fetches over the listener it
+enrolled on and presents on every connection to a remote listener demanding one. Locking is
+narrowing, so an interactive device may lock another from either listener after step-up (a lost
+phone), and only loopback unlocks. Unlocking, revoking (refusing the device's unplanned goal
+requests and, optionally, cancelling its open goals in the same step, the rest named in the answer)
+and re-granting what an approved device may do (after step-up: a capability change) exist only on
+the loopback listener, so the remote application never mounts them. A revocation also rebuilds the
+remote listener's mutual-TLS revocation list.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Registered in
@@ -31,6 +33,7 @@ from fastapi import Path
 
 from hivemind.entrance.auth.step_up import ActionKind
 from hivemind.entrance.enrol import GrantChange, LockReason, lock, regrant, revoke, unlock
+from hivemind.entrance.errors import CertificateNotIssuedError
 from hivemind.entrance.gate.params import CallerParam, Services
 from hivemind.entrance.gate.spec import (
     BOTH_LISTENERS,
@@ -42,6 +45,7 @@ from hivemind.entrance.gate.spec import (
 )
 from hivemind.entrance.gate.step_up import require_step_up
 from hivemind.entrance.models import (
+    CertificateView,
     DeviceList,
     DeviceView,
     RevocationView,
@@ -102,6 +106,30 @@ async def lock_device(
     await require_step_up(services, caller, ActionKind.LOCK_DEVICE)
     locked = await lock(services.enrolment, device_id, caller.device.id, LockReason.REMOTE_LOCK)
     return device_view(locked)
+
+
+async def read_own_certificate(caller: CallerParam) -> CertificateView:
+    """Read the calling device's own client certificate (public; issued at approval).
+
+    Args:
+        caller: The admitted caller.
+
+    Returns:
+        The certificate and its serial, fingerprint and expiry.
+
+    Raises:
+        CertificateNotIssuedError: The device holds no certificate.
+    """
+    certificate = caller.device.certificate
+    # A withdrawn certificate is not the device's any more: the listener refuses it already.
+    if certificate is None or certificate.revoked_at is not None:
+        raise CertificateNotIssuedError(caller.device.id)
+    return CertificateView(
+        serial=certificate.serial,
+        fingerprint=certificate.fingerprint,
+        not_after=certificate.not_after,
+        certificate_pem=certificate.pem,
+    )
 
 
 async def unlock_device(
@@ -191,6 +219,16 @@ ROUTES: tuple[RouteSpec, ...] = (
         endpoint=read_own_device,
         summary="Read the calling device's own record.",
         response_model=DeviceView,
+    ),
+    RouteSpec(
+        method="GET",
+        path="/v1/devices/me/certificate",
+        listeners=BOTH_LISTENERS,
+        access=Access(authenticated=True, capability=None),
+        effect=RouteEffect.READ,
+        endpoint=read_own_certificate,
+        summary="Read the calling device's own mutual-TLS client certificate.",
+        response_model=CertificateView,
     ),
     RouteSpec(
         method="POST",

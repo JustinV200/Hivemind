@@ -32,7 +32,7 @@ Public API:
       LOOPBACK_RESTART_MAX_S: the listeners (listeners).
     - ListenerServer, bind_listener, GRACEFUL_SHUTDOWN_S, STOP_TIMEOUT_S, LOOPBACK_NAME: one
       server on one socket (server).
-    - RemoteTls, RevokedSerials, NoCertificates: the remote listener's TLS (tls).
+    - RemoteTls, RevokedSerials, StoredSerials, revoked_serial: the remote listener's TLS (tls).
     - EntranceOffboarder, QueenGoalLedger: enrolment's seams (seams).
     - submit_confirmed_goals: what a crash interrupted, carried out on start (recovery).
 """
@@ -69,7 +69,7 @@ from hivemind.entrance.runtime.server import (
     ListenerServer,
     bind_listener,
 )
-from hivemind.entrance.runtime.tls import NoCertificates, RemoteTls, RevokedSerials
+from hivemind.entrance.runtime.tls import RemoteTls, RevokedSerials, StoredSerials, revoked_serial
 
 __all__ = [
     "GRACEFUL_SHUTDOWN_S",
@@ -93,13 +93,14 @@ __all__ = [
     "HiveEntrance",
     "IPAddress",
     "ListenerServer",
-    "NoCertificates",
     "QueenGoalLedger",
     "RemoteSetup",
     "RemoteTls",
     "RevokedSerials",
+    "StoredSerials",
     "TunnelLaunch",
     "bind_listener",
     "build_entrance",
+    "revoked_serial",
     "submit_confirmed_goals",
 ]

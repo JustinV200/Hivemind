@@ -48,6 +48,7 @@ from typing import Protocol, TypedDict, Unpack
 
 from hivemind.common.errors import InvariantViolationError
 from hivemind.entrance.auth.keys import KeyKind
+from hivemind.entrance.enrol.certificates import CertificateRecord
 from hivemind.entrance.enrol.models import (
     DeviceDescription,
     DeviceInvite,
@@ -90,10 +91,12 @@ __all__ = [
 class DeviceChanges(TypedDict, total=False):
     """The fields a status change may set alongside the new status; every other field is kept.
 
-    Redemption (INVITED to PENDING) sets the key fields, the description and the request's
-    expiry; approval sets the name, capabilities, spend cap, expiry, interactivity and
-    ``approved_at``. ``id``, ``status``, ``created_at``, ``loopback_bound``, ``last_seen_at`` and
-    ``last_network`` are deliberately absent: they are fixed at creation or kept by login.
+    Redemption (INVITED to PENDING) sets the key fields, the description, the request's expiry
+    and a program's certificate request; approval sets the name, capabilities, spend cap, expiry,
+    interactivity, ``approved_at`` and the client certificate issued; revocation and expiry mark
+    that certificate no longer honoured. ``id``, ``status``, ``created_at``, ``loopback_bound``,
+    ``last_seen_at`` and ``last_network`` are deliberately absent: they are fixed at creation or
+    kept by login.
     """
 
     name: str
@@ -110,6 +113,8 @@ class DeviceChanges(TypedDict, total=False):
     spend_cap_usd_per_day: float | None
     expires_at: datetime | None
     approved_at: datetime
+    certificate_request: str
+    certificate: CertificateRecord
 
 
 class GrantChanges(TypedDict, total=False):

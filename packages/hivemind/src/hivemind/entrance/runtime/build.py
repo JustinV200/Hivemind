@@ -46,6 +46,7 @@ from hivemind.entrance.auth.session import Listener, SessionBook, SessionRules
 from hivemind.entrance.auth.travel import open_travel_lock
 from hivemind.entrance.enrol import (
     ENROLMENT_CHALLENGE_TTL,
+    DeviceCertifier,
     EnrolmentCeremony,
     EnrolmentDeps,
     EnrolmentRecords,
@@ -80,7 +81,7 @@ from hivemind.entrance.runtime.entrance import EntranceWorkers, HiveEntrance
 from hivemind.entrance.runtime.listeners import EntranceListeners, RemoteSetup, TunnelLaunch
 from hivemind.entrance.runtime.parts import EntranceParts
 from hivemind.entrance.runtime.seams import EntranceOffboarder, QueenGoalLedger
-from hivemind.entrance.runtime.tls import RemoteTls
+from hivemind.entrance.runtime.tls import RemoteTls, StoredSerials
 from hivemind.entrance.store import MemorySessionTable, SplitSessionTable
 from hivemind.entrance.streams import ReduceOrderFollower, SocketRegistry, StreamHub
 
@@ -182,10 +183,20 @@ def _shared(parts: EntranceParts, push: _Push, sockets: SocketRegistry, port: in
         notifier=PushSecurityNotifier(push.outbox),
         offboarder=EntranceOffboarder(book, push.dispatcher, sockets),
         goals=QueenGoalLedger(parts.hive.reads.goal_requests, parts.hive.queen),
+        certifier=_certifier(parts),
     )
     # Requests per device and per address, and each device's seconds of audio a minute.
     limiter = RateLimiter.from_section(settings.section, clock)
     return _Shared(records, book, seams, limiter, PasswordHasher())
+
+
+def _certifier(parts: EntranceParts) -> DeviceCertifier:
+    """Issue from the Hive's authority (every remote mode); bundles only under mutual TLS."""
+    remote = parts.settings.plan.remote
+    demanded = (
+        remote is not None and remote.tls is not None and remote.tls.client_certificate_required
+    )
+    return DeviceCertifier(parts.keys.authority, bundles=demanded)
 
 
 def _rules(parts: EntranceParts) -> EntranceRules:
@@ -314,7 +325,8 @@ def _remote_setup(parts: EntranceParts) -> RemoteSetup | None:
     if plan.remote.tls is not None:
         if keys.authority is None:
             raise InvariantViolationError("A TLS listener needs the Hive's certificate authority.")
-        tls = RemoteTls(plan.remote.tls, keys.authority, keys.serials, parts.clock)
+        serials = StoredSerials(parts.tables.store)
+        tls = RemoteTls(plan.remote.tls, keys.authority, serials, parts.clock)
     tunnel = None
     if plan.tunnel_argv:
         env = parts.settings.tunnel_env if parts.settings.tunnel_env is not None else {}

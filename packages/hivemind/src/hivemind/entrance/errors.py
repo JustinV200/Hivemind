@@ -58,6 +58,7 @@ __all__ = [
     "BreakGlassRefusedError",
     "CapabilityCeilingError",
     "CellNotFoundError",
+    "CertificateNotIssuedError",
     "ChallengeRejectedError",
     "ConfirmationRefusedError",
     "ConsoleProtectedError",
@@ -200,6 +201,27 @@ class DeviceNotFoundError(EntranceError, NotFoundError):
             device_id: The id that was looked up.
         """
         super().__init__(f"No enrolled device {device_id} exists in the Entrance tables.")
+        self.device_id = device_id
+
+
+class CertificateNotIssuedError(EntranceError, NotFoundError):
+    """Raise when a device asks for its client certificate and holds none.
+
+    Nothing was issued (it sent no certificate request, the Hive runs no authority, or it is a
+    browser whose bundle went to the operator), or it was withdrawn when the device left.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.certificate_not_issued"
+
+    def __init__(self, device_id: str) -> None:
+        """Build the error for one device.
+
+        Args:
+            device_id: The device that asked.
+        """
+        super().__init__(
+            f"Device {device_id} holds no client certificate: none was issued at its approval."
+        )
         self.device_id = device_id
 
 

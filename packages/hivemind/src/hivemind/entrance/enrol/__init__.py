@@ -7,8 +7,11 @@ machine, one table, each edge carrying its ``guard.entrance_*`` trail kind), ``m
 records) and ``console`` (the operator bootstrap that records the Hive Stand's own loopback-bound
 console). The behaviour half (roadmap 10.5d): ``invite`` mints a single-use code shown as text and
 QR codes; ``redeem`` lets a device present it with a new Ed25519 key or passkey, becoming a PENDING
-request; ``decisions`` approves (binding name, capabilities within the ``device`` ceiling, spend
-cap, expiry, interactivity) or denies it; ``standing`` revokes, locks, unlocks and expires;
+request (a program may send a certificate signing request with its key, and ``register_offline``
+lets the operator register a device that can reach no enrolment listener); ``decisions`` approves
+(binding name, capabilities within the ``device`` ceiling, spend cap, expiry, interactivity, and
+issuing the device's mutual-TLS certificate through ``certificates``) or denies it; ``standing``
+revokes, locks, unlocks and expires;
 ``grants`` holds the pure ceiling and steward rules. Every flow takes one ``EnrolmentDeps``
 (``deps``) and records each state change through ``record``, with its trail event in the same step,
 before telling every other device and cutting off a device that left its approval.
@@ -47,14 +50,24 @@ Public API:
     - MintedInvite, InviteQr, mint_invite, cancel_invite, new_invite_code,
       canonical_invite_code, invite_code_hash, invite_url, INVITE_PATH: invites.
     - Ed25519Proof, Redemption, RedeemFailure, RedeemStep, passkey_options, redeem_ed25519,
-      redeem_passkey, ENROLMENT_CHALLENGE_TTL, REDEEM_FAILED_KIND: redemption.
-    - ApprovalRequest, approve, deny, GrantChange, regrant: decisions on a pending request, and
-      re-granting an approved device.
+      redeem_passkey, OfflineRegistration, register_offline, ENROLMENT_CHALLENGE_TTL,
+      REDEEM_FAILED_KIND: redemption, and the operator's offline registration.
+    - ApprovalRequest, Approval, approve, approve_with_bundle, deny, GrantChange, regrant:
+      decisions on a pending request, and re-granting an approved device.
+    - CertificateRecord, DeviceCertifier, IssuedBundle, withdrawn, new_bundle_passphrase: a
+      device's mutual-TLS client certificate, issued at approval.
     - LockReason, Revocation, revoke, lock, unlock, expire_due: an admitted device's standing.
     - approval_grant, device_ceiling, steward_grant, steward_terms: what an approval may grant.
     - OPERATOR_ACTOR: the trail's actor for the operator at the Hive Stand.
 """
 
+from hivemind.entrance.enrol.certificates import (
+    CertificateRecord,
+    DeviceCertifier,
+    IssuedBundle,
+    new_bundle_passphrase,
+    withdrawn,
+)
 from hivemind.entrance.enrol.console import (
     CONSOLE_CAPABILITIES,
     CONSOLE_DEVICE_NAME,
@@ -68,7 +81,15 @@ from hivemind.entrance.enrol.console import (
     unlock_console,
     unlock_console_key,
 )
-from hivemind.entrance.enrol.decisions import ApprovalRequest, GrantChange, approve, deny, regrant
+from hivemind.entrance.enrol.decisions import (
+    Approval,
+    ApprovalRequest,
+    GrantChange,
+    approve,
+    approve_with_bundle,
+    deny,
+    regrant,
+)
 from hivemind.entrance.enrol.deps import (
     DeviceOffboarder,
     EnrolmentCeremony,
@@ -115,12 +136,14 @@ from hivemind.entrance.enrol.redeem import (
     ENROLMENT_CHALLENGE_TTL,
     REDEEM_FAILED_KIND,
     Ed25519Proof,
+    OfflineRegistration,
     RedeemFailure,
     RedeemStep,
     Redemption,
     passkey_options,
     redeem_ed25519,
     redeem_passkey,
+    register_offline,
 )
 from hivemind.entrance.enrol.standing import (
     LockReason,
@@ -157,8 +180,11 @@ __all__ = [
     "REDEEM_FAILED_KIND",
     "TERMINAL_STATUSES",
     "TRANSITIONS",
+    "Approval",
     "ApprovalRequest",
+    "CertificateRecord",
     "ConsoleDeps",
+    "DeviceCertifier",
     "DeviceDescription",
     "DeviceInvite",
     "DeviceOffboarder",
@@ -175,11 +201,13 @@ __all__ = [
     "GoalLedger",
     "GrantChange",
     "InviteQr",
+    "IssuedBundle",
     "LockReason",
     "MintedInvite",
     "NullDeviceOffboarder",
     "NullGoalLedger",
     "NullSecurityNotifier",
+    "OfflineRegistration",
     "OperatorCredential",
     "RecordingDeviceOffboarder",
     "RecordingSecurityNotifier",
@@ -191,6 +219,7 @@ __all__ = [
     "SecurityNotifier",
     "approval_grant",
     "approve",
+    "approve_with_bundle",
     "assert_transition",
     "bootstrap_operator",
     "can_transition",
@@ -206,10 +235,12 @@ __all__ = [
     "is_terminal",
     "lock",
     "mint_invite",
+    "new_bundle_passphrase",
     "new_invite_code",
     "passkey_options",
     "redeem_ed25519",
     "redeem_passkey",
+    "register_offline",
     "regrant",
     "reset_operator",
     "revoke",
@@ -219,4 +250,5 @@ __all__ = [
     "unlock",
     "unlock_console",
     "unlock_console_key",
+    "withdrawn",
 ]

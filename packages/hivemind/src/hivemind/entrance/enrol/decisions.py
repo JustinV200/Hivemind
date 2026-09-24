@@ -4,13 +4,16 @@ A redeemed invite leaves a PENDING request that only the operator decides, on th
 (ADR-0033; the steward route is the one remote exception, and it grants through
 ``hivemind.entrance.enrol.grants.steward_grant``). ``approve`` binds, in one step, everything the
 device will be held to: its name, its ``CapabilitySet`` (never wider than the ``device`` role's
-ceiling; the role's ``proposed`` set when the operator names none), its daily spend cap, its
-expiry, and whether it is interactive (a person types the password at it: always for a passkey,
-for a program key only when the operator says so). ``deny`` refuses the request with the
-operator's reason. Each is one edge of the state machine, recorded as its ``guard.entrance_*``
-event with the change and pushed to every other device. ``ApprovalRequest`` is what an approval
-names; it crosses from ``hive entrance approve`` or the Observation Hive, so it is a validated
-model.
+ceiling; the role's ``proposed`` set when the operator names none), its daily spend cap, its expiry,
+and whether it is interactive (a person types the password at it: always for a passkey, for a
+program key only when the operator says so), and, when the Hive runs its own certificate authority,
+the device's mutual-TLS client certificate: signed from the request a program sent, recorded with
+the approval in the same step. ``approve_with_bundle`` (the loopback route's) also seals a passkey
+device's PKCS#12 bundle when the remote listener demands certificates, and hands it back once, never
+storing it. ``deny`` refuses the request with the operator's reason. Each is one edge of the state
+machine, recorded as its ``guard.entrance_*`` event with the change and pushed to every other
+device. ``ApprovalRequest`` is what an approval names; it crosses from ``hive entrance approve`` or
+the Observation Hive, so it is a validated model.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol``. Called by
@@ -33,11 +36,15 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from hivemind.entrance.auth.keys import KeyKind
+from hivemind.entrance.enrol.certificates import CertificateRecord, IssuedBundle
 from hivemind.entrance.enrol.deps import EnrolmentDeps
 from hivemind.entrance.enrol.grants import approval_grant
 from hivemind.entrance.enrol.models import (
@@ -61,7 +68,19 @@ from waggle.errors import InvalidIdError
 from waggle.ids import DeviceId, IdKind, parse_id
 from waggle.messages.base import UtcDatetime
 
-__all__ = ["ApprovalRequest", "GrantChange", "approve", "deny", "regrant"]
+if TYPE_CHECKING:
+    # Type-only: hivemind.entrance.store imports this package's models (see deps.bundle).
+    from hivemind.entrance.store.protocol import DeviceChanges
+
+__all__ = [
+    "Approval",
+    "ApprovalRequest",
+    "GrantChange",
+    "approve",
+    "approve_with_bundle",
+    "deny",
+    "regrant",
+]
 
 
 class ApprovalRequest(BaseModel):
@@ -109,10 +128,27 @@ class ApprovalRequest(BaseModel):
         return _person_or_device(value)
 
 
+@dataclass(frozen=True, slots=True)
+class Approval:
+    """What an approval produced: the device, and a browser's bundle when one was sealed.
+
+    Attributes:
+        device: The device as stored, APPROVED (with its certificate, when one was issued).
+        bundle: A passkey device's PKCS#12 bundle and passphrase, for the operator this once;
+            None when none was sealed.
+    """
+
+    device: EnrolledDevice
+    bundle: IssuedBundle | None = None
+
+
 async def approve(
     deps: EnrolmentDeps, device_id: DeviceId, request: ApprovalRequest
 ) -> EnrolledDevice:
     """Approve a PENDING device, binding its name, capabilities, spend cap, expiry and mode.
+
+    When the Hive runs its own certificate authority and the device sent a certificate request,
+    its client certificate is issued and recorded in the same step; no bundle is ever sealed.
 
     Args:
         deps: The enrolment dependencies.
@@ -128,7 +164,38 @@ async def approve(
         CapabilityCeilingError: A named capability is beyond the device ceiling.
         InvalidApprovalError: The expiry is not in the future.
         DeviceStatusConflictError: The device is not (or no longer) PENDING.
+        CertificateAuthorityError: A certificate was due but the authority cannot sign now.
     """
+    return (await _approve(deps, device_id, request, sealed=False)).device
+
+
+async def approve_with_bundle(
+    deps: EnrolmentDeps, device_id: DeviceId, request: ApprovalRequest
+) -> Approval:
+    """Approve as ``approve`` does, also sealing a passkey device's bundle under mutual TLS.
+
+    Only the loopback route calls this: the bundle holds a private key, and it goes back to the
+    operator at the Hive Stand in the answer, once.
+
+    Args:
+        deps: The enrolment dependencies.
+        device_id: The PENDING device.
+        request: What the operator binds.
+
+    Returns:
+        The device as stored, and the bundle when one was sealed.
+
+    Raises:
+        DeviceNotFoundError, InvalidCapabilityError, CapabilityCeilingError, InvalidApprovalError,
+        DeviceStatusConflictError, CertificateAuthorityError: as ``approve``.
+    """
+    return await _approve(deps, device_id, request, sealed=True)
+
+
+async def _approve(
+    deps: EnrolmentDeps, device_id: DeviceId, request: ApprovalRequest, *, sealed: bool
+) -> Approval:
+    """Approve the device, issuing its certificate (and, when ``sealed``, a browser's bundle)."""
     # Latency: one local primary-key read, for the key kind and the fingerprint the event shows.
     device = await deps.records.store.get_device(device_id)
     granted = approval_grant(deps.rules.policy, request.capabilities)
@@ -137,6 +204,7 @@ async def approve(
     # A passkey ceremony always had a person there (user verification); a program key only
     # counts as interactive when the operator says a person types the password at it.
     interactive = device.key_kind is KeyKind.PASSKEY or request.interactive
+    certificate, bundle = await _certificate(deps, device, now, sealed=sealed)
     payload: dict[str, JsonValue] = {
         "fingerprint": device.fingerprint,
         "capability_count": len(granted),
@@ -144,18 +212,39 @@ async def approve(
         "expires_at": iso(request.expires_at),
         "interactive": interactive,
     }
+    changes: DeviceChanges = {
+        "name": request.name,
+        "capabilities": granted.as_strings(),
+        "spend_cap_usd_per_day": request.spend_cap_usd_per_day,
+        "expires_at": request.expires_at,
+        "interactive": interactive,
+        "approved_at": now,
+    }
+    if certificate is not None:
+        # The trail names the certificate by serial and fingerprint, never its bytes.
+        payload["certificate_serial"] = certificate.serial
+        payload["certificate_fingerprint"] = certificate.fingerprint
+        changes["certificate"] = certificate
     edge = (DeviceStatus.PENDING, DeviceStatus.APPROVED)
     transition = Transition(device_id, *edge, request.actor, payload)
-    return await apply_transition(
-        deps,
-        transition,
-        name=request.name,
-        capabilities=granted.as_strings(),
-        spend_cap_usd_per_day=request.spend_cap_usd_per_day,
-        expires_at=request.expires_at,
-        interactive=interactive,
-        approved_at=now,
-    )
+    return Approval(await apply_transition(deps, transition, **changes), bundle)
+
+
+async def _certificate(
+    deps: EnrolmentDeps, device: EnrolledDevice, now: datetime, *, sealed: bool
+) -> tuple[CertificateRecord | None, IssuedBundle | None]:
+    """Issue the device's certificate if one is due: from its request, or as a sealed bundle."""
+    certifier = deps.seams.certifier
+    if not certifier.issues:
+        return None, None
+    if device.certificate_request is not None:
+        return certifier.certify(device.id, device.certificate_request, now), None
+    # A browser cannot make a request: its key is generated and sealed for it, under mutual TLS.
+    if sealed and device.key_kind is KeyKind.PASSKEY and certifier.bundles:
+        # Latency: about 0.1 s of key generation and PBKDF2 sealing, off the event loop.
+        record, bundle = await asyncio.to_thread(certifier.bundle, device.id, now)
+        return record, bundle
+    return None, None
 
 
 async def deny(deps: EnrolmentDeps, device_id: DeviceId, actor: str, reason: str) -> EnrolledDevice:

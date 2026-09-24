@@ -3,8 +3,9 @@
 A device joins the Hive by redeeming the single-use invite the operator minted on loopback
 (ADR-0033). These routes need no session, on either listener: a program first reads the Hive's id
 (its enrolment and login signatures name the Hive, and the invite code does not carry it; the id
-is not a secret), then sends its Ed25519 public key and a signature over ``enrol_string``; a
-browser first asks for WebAuthn creation options for the code, then sends its registration. The
+is not a secret), then sends its Ed25519 public key and a signature over ``enrol_string``, and
+may send a certificate signing request for its mutual-TLS client certificate; a browser first asks
+for WebAuthn creation options for the code, then sends its registration. The
 request then waits, PENDING, for the operator at the Hive Stand, and every approved device is told
 that a device is asking to join. Every refusal is the same answer (an unknown, used or expired
 code and a bad proof read alike), recorded on the trail by reason; the per-address rate limit is
@@ -90,7 +91,7 @@ async def redeem_ed25519(
     Returns:
         The pending device, its fingerprint and the Hive's public key.
     """
-    proof = Ed25519Proof(body.public_key_hex, body.signature)
+    proof = Ed25519Proof(body.public_key_hex, body.signature, body.certificate_request)
     redemption = await redeem_ed25519_flow(
         here.enrolment, body.code, proof, body.description, arrival.address
     )
