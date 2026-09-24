@@ -8,11 +8,16 @@ signed for ``PUBLIC_NAME`` (the DNS name the exposure check requires public_url 
 that address (the laptop connects by address: nothing here edits a trust store or a hosts file);
 ``mtls_manifest`` writes the stand's manifest for ``lan`` or ``vpn`` exposure over those files.
 The laptop pins the throwaway authority with ``--ca-file`` and reaches the listener at
-``https://<address>:<port>``, the certificate's IP subject-alternative name.
+``https://<address>:<port>``, the certificate's IP subject-alternative name. ``self_signed_tls``
+makes the plainer kind an operator may bring, a self-signed certificate on a DNS name alone (or an
+expired one, for the refusal that names it), and ``served_exposed`` composes ``hive serve``'s Hive
+over an ``[entrance]`` section and a fake interface table, for tests that enter ``serve_hive``
+themselves.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the CLI's certificate
-    tests and the end-to-end mutual-TLS test, beside ``builders.entrance.stand``.
+    tests, the ``serve_hive`` start and refusal tests, and the end-to-end mutual-TLS test, beside
+    ``builders.entrance.stand``.
 
 Key invariants:
     - Every key here is generated for one test and written only under its tmp_path.
@@ -22,16 +27,23 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import psutil
+from builders.cli import fake_manifest
 from builders.entrance.stand import stand_manifest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+from hivemind.cli.compose.entrance import ServedHive, build_served_hive
+from hivemind.entrance.expose import FakeInterfaces
+from hivemind.manifest import load_manifest
+from waggle.clock import SystemClock
 
 PUBLIC_NAME = "hive.test"  # public_url's host: a DNS name, as every remote mode requires.
 # Container and VM bridges: real private addresses too, but a LAN's own interface is preferred.
@@ -45,6 +57,8 @@ __all__ = [
     "ServerTls",
     "mtls_manifest",
     "private_address",
+    "self_signed_tls",
+    "served_exposed",
     "server_tls",
 ]
 
@@ -132,14 +146,65 @@ def server_tls(directory: Path, address: str) -> ServerTls:
     directory.mkdir(parents=True, exist_ok=True)
     files.ca_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     files.cert_path.write_bytes(server.public_bytes(serialization.Encoding.PEM))
-    files.key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
+    files.key_path.write_bytes(_private_pem(key))
     return files
+
+
+def self_signed_tls(
+    directory: Path, name: str = PUBLIC_NAME, *, expired: bool = False
+) -> ServerTls:
+    """Write a self-signed server certificate on the DNS name ``name`` alone, and its key.
+
+    Args:
+        directory: Where the two files go (created if missing).
+        name: The certificate's one DNS subject-alternative name.
+        expired: Make it one that ended an hour ago, a month after it began.
+
+    Returns:
+        The files; ``ca_path`` is the certificate itself, since a client pins it directly.
+    """
+    now = datetime.now(UTC)
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+    start, end = (now - _LIFETIME, now - _SKEW) if expired else (now - _SKEW, now + _LIFETIME)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(start)
+        .not_valid_after(end)
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName(name)]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    cert_path, key_path = directory / "self-signed.pem", directory / "self-signed.key"
+    cert_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(_private_pem(key))
+    return ServerTls(ca_path=cert_path, cert_path=cert_path, key_path=key_path)
+
+
+def served_exposed(
+    root: Path, entrance: str, interfaces: Mapping[str, Sequence[str]]
+) -> ServedHive:
+    """Compose ``hive serve``'s Hive over a fake manifest, not yet started.
+
+    Args:
+        root: The Hive's directory (its manifest, SQLite file and secrets go under it).
+        entrance: The ``[entrance]`` section's body, sub-tables (``[entrance.tls]``) included.
+        interfaces: What the host's interface table says, by interface name.
+
+    Returns:
+        The Hive, its interfaces replaced by the fake table.
+    """
+    path = fake_manifest(root)
+    path.write_text(
+        path.read_text(encoding="utf-8") + f"\n[entrance]\n{entrance}", encoding="utf-8"
+    )
+    served = build_served_hive(load_manifest(path, {}), environ={}, clock=SystemClock())
+    return replace(served, interfaces=FakeInterfaces(interfaces))
 
 
 def mtls_manifest(
@@ -201,3 +266,12 @@ def _authority(key: ec.EllipticCurvePrivateKey, name: x509.Name, now: datetime) 
 def _is_bridge(name: str) -> bool:
     """Whether an interface is a container or VM bridge rather than the machine's own link."""
     return name.startswith(_BRIDGE_PREFIXES)
+
+
+def _private_pem(key: ec.EllipticCurvePrivateKey) -> bytes:
+    """A server key as the exposure check reads one: unencrypted PKCS#8 PEM."""
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
