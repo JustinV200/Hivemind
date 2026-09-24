@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import socket
 
 import pytest
 
@@ -87,6 +88,19 @@ async def test_start_binds_loopback_on_an_os_assigned_port(plain_codec: Codec) -
         await server.close()
 
 
+def _ipv6_loopback_available() -> bool:
+    """Return whether this host can bind a socket on the IPv6 loopback at all."""
+    # Some containers and sandboxes run with IPv6 disabled, where ::1 cannot be bound by anything;
+    # the test below is about how the URI is written, not about the host's network stack.
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
+            probe.bind((IPV6_LOOPBACK, 0))
+    except OSError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(not _ipv6_loopback_available(), reason="this host has no IPv6 loopback")
 async def test_uri_brackets_an_ipv6_host(plain_codec: Codec) -> None:
     server = WebSocketServer(plain_codec, host=IPV6_LOOPBACK)
 
