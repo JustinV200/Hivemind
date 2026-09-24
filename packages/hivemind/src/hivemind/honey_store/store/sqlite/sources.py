@@ -76,7 +76,9 @@ def insert_source_if_new(
             received_at.isoformat(),
             draft.origin.value,
             draft.origin_tier.value,
-            draft.clearance.value,
+            # What this source declared (ADR-0033), not its floor-raised label; a draft built
+            # outside intake records no declared fact, so its own label stands in for one.
+            (draft.declared_clearance or draft.clearance).value,
             draft.event_id,
         ),
     )

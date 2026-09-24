@@ -480,6 +480,8 @@ async def test_a_lowering_holds_when_a_real_cell_repeats_the_same_text(harness: 
 
     assert (added.nectar.id, added.is_new, added.raised_from) == (nectar.id, False, None)
     assert (await harness.store.get_nectar(nectar.id)).clearance is HoneyClearance.C1
+    (source,) = await harness.store.nectar_sources(nectar.id)
+    assert source.clearance is HoneyClearance.C1  # What it declared, never the floor's C2.
     assert {row.clearance for row in await harness.store.honey_for_nectar(nectar.id)} == {
         HoneyClearance.C1
     }
