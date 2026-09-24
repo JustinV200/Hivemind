@@ -145,3 +145,22 @@ ADRs that exist today, in numeric order:
 - `0030-night-veil-retention-and-clearance-boundary.md`: readiness is attestation of an image,
   placement is Virtual-only, human-originated and local-model-only, only the lifecycle skeleton
   survives teardown, and C0/C1 Honey labelled with its origin tier is the one export.
+- `0031-capability-model-attenuation-and-enforcement-points.md`: one capability grammar with six
+  scope kinds and longest-prefix parsing, role default sets that only attenuate down the tree,
+  access levels that narrow only what touches the Cell, a pure `evaluate` with a rule and a
+  reason, and a named enforcement point for every trail event kind that records an action.
+- `0032-hive-entrance-http-websocket-api-and-human-inbox.md`: FastAPI on uvicorn, two listeners
+  built as two applications from one route table, the Entrance in the Queen's process calling her
+  public API, and the chat as the human end of her inbox.
+- `0033-landing-board-enrolment-two-factor-login-and-exposure.md`: devices enrol with their own
+  key and are approved only on loopback, log in with it plus the operator's Argon2id password,
+  sign every request with a session-bound key, step up for anything sensitive, and reach the
+  Entrance over a Tailscale overlay by default, with mutual TLS for LAN and tunnel and no public
+  mode.
+- `0034-landing-board-versioning-and-push.md`: `/v1/` changes only additively and the committed
+  OpenAPI document is checked in CI; push notices carry no content, over WebSocket, signed
+  webhooks and hand-rolled RFC 8291 Web Push, and an answered question is withdrawn everywhere.
+- `0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md`: the Guard Bee watches from
+  the Queen's process and can only request; only the Queen isolates a Cell; quarantine is one
+  intervention; taint is one label that nothing assembles until a judge clears it; the injection
+  signal comes from one deterministic scanner over pattern data.
