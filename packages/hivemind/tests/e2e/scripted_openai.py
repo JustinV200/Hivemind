@@ -21,6 +21,8 @@ Key invariants:
     - Every answer is a pure function of the request and the scenario: nothing is remembered
       between calls, exactly like a stateless model server.
     - Never records or prints a request body: a scenario may carry C2-shaped test words.
+    - Every manifest `write_manifest` writes pins the Hive Stand's cores, so the grant a goal gets
+      never depends on how busy the machine running the tests is.
 
 See Also:
     - tests/e2e/kernel_helpers.py for the in-process FakeLLMProvider scripts this mirrors.
@@ -52,6 +54,12 @@ SERVER_START_S = 10.0  # A loopback uvicorn starts in milliseconds; this bound i
 # The API root every route hangs under; composed, like the adapter's own paths, so no provider URL
 # literal appears outside a manifest (scripts/check_no_model_ids.py, codingrules 8.6).
 _API_ROOT = "/v1"
+# The Hive Stand's cores, pinned in every manifest `write_manifest` writes: Forage grants a Drone
+# the free cores (cores less the one-minute load average) over its footprint, so a busy test host
+# near its own core count would leave none; 64 keeps a whole grant under any load a test host
+# sees. Mirrors builders.cli.HIVE_STAND_CORES, restated because this module also runs as its own
+# process, where the tests' builders are not importable.
+_HIVE_STAND_CORES = 64
 
 # Every ModelSlot's manifest key, and the scripted model each is bound to (the routing key).
 _SLOT_MODELS = {
@@ -81,6 +89,9 @@ heartbeat_interval_s = 0.5
 [hive_stand]
 enabled = true
 scratch_root = "{scratch}"
+
+[hive_stand.capacity]
+cores = {cores}
 
 [llm.providers.scripted]
 kind = "openai_compat"
@@ -269,6 +280,8 @@ def write_manifest(directory: Path, base_url: str, hive_ids: tuple[str, str]) ->
         scratch=(directory / "scratch").as_posix(),
         base_url=base_url,
         slots=slots,
+        # Pinned, never the host's own count: a busy test host must never zero a Drone's grant.
+        cores=_HIVE_STAND_CORES,
     )
     path = directory / "hive.toml"
     path.write_text(text, encoding="utf-8")

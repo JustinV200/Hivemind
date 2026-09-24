@@ -17,7 +17,8 @@ Fits into the Hive:
 
 Key invariants:
     - The operator password is minted per run, never written to a committed file.
-    - The Hive Stand's capacity is pinned, so the host's load average cannot zero a Drone's grant.
+    - The Hive Stand's capacity is pinned (`builders.cli.fake_manifest` pins its cores), so the
+      host's load average cannot zero a Drone's grant.
     - The Entrance and every HTTP client are closed when the block exits.
 """
 
@@ -77,12 +78,6 @@ _ENTRANCE = (
     '\n[entrance]\nbind = "127.0.0.1:0"\n'
     "rate_limit_per_address = 1000\nrate_limit_per_device = 1000\n"
 )
-# The Hive Stand's cores, pinned. Forage grants a Drone the free cores (cores less the one-minute
-# load average) over its footprint, less a headroom margin, and a zero grant fails the goal at once;
-# on a shared test host whose load average nears its real core count, the goal would fail for a
-# reason that has nothing to do with the Landing Board. 64 keeps the grant whole under any load
-# a test host sees; the allocator's own rule is Forage's tests' business.
-_HIVE_STAND = "\n[hive_stand.capacity]\ncores = 64\n"
 
 __all__ = [
     "ANSWER",
@@ -108,8 +103,7 @@ def build_served(tmp_path: Path) -> tuple[HiveManifest, ServedHive]:
         The manifest and the Hive, not yet started.
     """
     path = fake_manifest(tmp_path)
-    written = path.read_text(encoding="utf-8")
-    path.write_text(written + _ENTRANCE + _HIVE_STAND, encoding="utf-8")
+    path.write_text(path.read_text(encoding="utf-8") + _ENTRANCE, encoding="utf-8")
     manifest = load_manifest(path, {})
     served = build_served_hive(
         manifest, environ={}, clock=SystemClock(), responders={"fake": _responder}
