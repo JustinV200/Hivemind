@@ -13,6 +13,10 @@ every `ToolRunner` receives: a Worker's tools need the current `TaskAssign` (for
 and clearance, when they build a Capping `Proposal`) as well as `WorkerContext`, and codingrules
 section 8.7's "never a provider, a subprocess handle" pattern for `WorkerContext` itself argues
 against stashing one task's assignment onto that shared value, so it travels alongside instead.
+Roadmap step 10.6b (ADR-0035): every result a tool returns is outside text, so `execute` hands it
+to the untrusted-content scanner (`hivemind.workers.tools.screen`) before the model sees it; a
+`ToolSpec` names where its text comes from (`scan_source`: the Cell's own session, or any other
+tool result), and a flagged result comes back labelled harder or withheld.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Built and read by
@@ -32,6 +36,9 @@ Key invariants:
     - `build_registry` offers every built-in tool, `http_request` included, whatever the Worker
       holds (roadmap step 10.3): a capability decides at invocation, where a refusal is visible
       on the trail, rather than by silently leaving a tool out of the offer.
+    - Every result a runner returns is scanned before it is returned (roadmap 10.6b); only the
+      registry's own messages (an unknown tool, a refusal, a schema error) are not, being the
+      Hive's own words.
 
 See Also:
     - .claude/codingrules.md section 15 for "LLM output is untrusted input" and least privilege.
@@ -48,10 +55,12 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
+from hivemind.guard.scanner import ScanSource
 from hivemind.llm import JsonObject, ToolCall, ToolDefinition, validate_arguments
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.tools.authorize import authorize, refusal_text
 from hivemind.workers.tools.errors import ToolError
+from hivemind.workers.tools.screen import screen_tool_result
 from waggle.messages.task import TaskAssign
 
 __all__ = ["ToolInvocation", "ToolRegistry", "ToolRunner", "ToolSpec", "build_registry"]
@@ -84,6 +93,9 @@ class ToolSpec:
 
     definition: ToolDefinition  # Name, description and JSON-schema parameters (hivemind.llm).
     run: ToolRunner  # How to actually run a validated call.
+    # Where this tool's result text comes from, for the untrusted-content scanner (10.6b): the
+    # Cell's own session for run_command/read_file, any other tool result otherwise.
+    scan_source: ScanSource = ScanSource.TOOL_RESULT
 
 
 def _zero_spend_estimate() -> float:
@@ -150,7 +162,8 @@ class ToolRegistry:
                 whether the caller (a degradation ladder, or a test) already validated it.
 
         Returns:
-            The tool's result text on success; a readable error string for an unknown tool, a
+            The tool's result text on success, screened by the untrusted-content scanner (as it
+            was, labelled harder, or withheld); a readable error string for an unknown tool, a
             refusal at the `tool_invocation` point, a schema violation, or a `ToolError` the
             runner raised.
 
@@ -174,11 +187,14 @@ class ToolRegistry:
         if errors:
             return "; ".join(errors)
         try:
-            return await spec.run(invocation, call.arguments)
+            result = await spec.run(invocation, call.arguments)
         except ToolError as exc:
             # A runner's own deliberate stop becomes its message; every other exception (a control
             # exception such as HandoffRequestedError or WorkerCancelledError included) propagates.
             return str(exc)
+        # Roadmap 10.6b: outside text is scanned before any model reads it; a flag is recorded
+        # and the result labelled harder or withheld, and the bee carries on either way.
+        return await screen_tool_result(invocation, call.name, spec.scan_source, result)
 
 
 def build_registry(ctx: WorkerContext) -> ToolRegistry:

@@ -16,8 +16,9 @@ Fits into the Hive:
     `hivemind.cli.run` (roadmap step 3.21) and by every test that drives the kernel end to end
     against a `hivemind.llm.FakeLLMProvider`. Calls into `hivemind.brood_chamber`, `hivemind.cell`,
     `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.common.secrets` (the
-    Hive's persisted signing key, for the Virtual side), `hivemind.pheromone`, `hivemind.queen`,
-    `hivemind.wardens` and waggle only.
+    Hive's persisted signing key, for the Virtual side, and the untrusted-content scanner's key),
+    `hivemind.guard.scanner`, `hivemind.pheromone`, `hivemind.queen`, `hivemind.wardens` and
+    waggle only.
 
 Key invariants:
     - `build_hive` never touches the network: every provider it constructs is lazy
@@ -36,6 +37,9 @@ Key invariants:
     - `run_goal` never blocks past `timeout_s`: `GoalReport.timed_out` is True whenever the goal's
       own tasks are not all terminal by then, and `succeeded` is False in that case regardless of
       how far the goal got.
+    - The Queen and the Hive Stand's Warden share one untrusted-content scanner (roadmap 10.6b),
+      built from `[guard.untrusted_content]` and keyed from the secret store at `[hive]
+      secrets_dir`; its key is minted on the first flag, never at build time.
 
 See Also:
     - .claude/codingrules.md section 13 for "the composition root is the only place a HiveManifest
@@ -55,7 +59,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal
@@ -78,6 +82,7 @@ from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_
 from hivemind.cli.stores import build_forage_map
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.forage import ForageMap
+from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
@@ -87,7 +92,7 @@ from waggle.clock import Clock
 from waggle.ids import TaskId
 from waggle.signing import Ed25519Signer
 
-__all__ = ["GoalReport", "Hive", "build_hive", "run_goal", "run_hive"]
+__all__ = ["GoalReport", "Hive", "build_content_scanner", "build_hive", "run_goal", "run_hive"]
 
 # run_goal's own polling cadence, on the injected Clock: short enough that a FakeClock-driven unit
 # test (codingrules 14.5) finishes in a handful of iterations, gentle enough to be a real interval
@@ -202,7 +207,12 @@ def build_hive(
         clock=clock,
         enforcer=build_enforcer(manifest, hive_stores.trail, clock),  # Roadmap step 10.3.
     )
-    extras = _AssemblyExtras(forage_map=forage_map, ledger=ledger, virtual_cells=virtual_cells)
+    extras = _AssemblyExtras(
+        forage_map=forage_map,
+        ledger=ledger,
+        virtual_cells=virtual_cells,
+        scanner=build_content_scanner(manifest),  # Roadmap step 10.6b.
+    )
     return _assemble_hive(parts, source, links, extras)
 
 
@@ -237,6 +247,29 @@ def _hive_signer(manifest: HiveManifest) -> Ed25519Signer | None:
     return asyncio.run(load_or_mint_hive_signer(store))
 
 
+def build_content_scanner(manifest: HiveManifest) -> ContentScanner:
+    """Build the Hive's untrusted-content scanner: the shipped patterns, `[guard]`'s thresholds.
+
+    Roadmap step 10.6b: the Queen (chat messages) and the Hive Stand's Warden (its sub-bees' tool
+    results) share this one scanner, so every flag on this node is hashed under one key. The key
+    lives in the secret store at the manifest's resolved `[hive] secrets_dir`, beside the Hive's
+    signing key, and is minted on the first flag, so building the scanner touches no disk.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
+
+    Returns:
+        A ContentScanner over `load_scan_patterns()` and `[guard.untrusted_content]`.
+
+    Raises:
+        hivemind.guard.GuardPolicyError: The shipped pattern file is unreadable or invalid.
+    """
+    store = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
+    return ContentScanner(
+        load_scan_patterns(), manifest.guard.untrusted_content, ContentHasher(store)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _AssemblyExtras:
     """Builder outputs `_assemble_hive` needs beyond `parts`/`source`/`links` (codingrules 5.1)."""
@@ -244,14 +277,18 @@ class _AssemblyExtras:
     forage_map: ForageMap
     ledger: ForageLedger
     virtual_cells: VirtualCellsParts | None
+    scanner: ContentScanner  # Roadmap step 10.6b: shared by the Queen and the Hive Stand's Warden.
 
 
 def _assemble_hive(
     parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
     """Build the Warden and Queen from `parts` and wrap them as a Hive; `run_hive` attaches."""
-    warden = Warden(links.warden_id, build_warden_deps(parts, source, links))
-    queen = Queen(build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells))
+    # The configured scanner replaces each deps bundle's shipped-default one (roadmap 10.6b).
+    warden_deps = replace(build_warden_deps(parts, source, links), scanner=extras.scanner)
+    warden = Warden(links.warden_id, warden_deps)
+    queen_deps = build_queen_deps(parts, extras.forage_map, extras.ledger, extras.virtual_cells)
+    queen = Queen(replace(queen_deps, scanner=extras.scanner))
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
         # after both are running (hivemind.queen.cell_gate.provider's own module docstring).

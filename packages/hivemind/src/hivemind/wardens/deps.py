@@ -15,7 +15,8 @@ and threshold constants its tick handlers read (`handoff_threshold`, `heartbeat_
 capability set and every sub-bee's role default are built from (`guard`), and (roadmap step 10.3,
 ADR-0031) the Guard's `Enforcer` its enforcement points and its sub-bees' tools call
 (`enforcer`), the capability its own Cell's lease needs (`lease_capability`) and the `[llm.slots]`
-rows a rebind's target is resolved to a slot against (`bindings`).
+rows a rebind's target is resolved to a slot against (`bindings`), and (roadmap step 10.6b) the
+untrusted-content scanner its sub-bees' tool results pass through (`scanner`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built once per Warden by whichever
@@ -57,6 +58,7 @@ from hivemind.forage.map import SlotBinding
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import Capability, Enforcer
 from hivemind.guard.policy import GuardPolicy, load_guard_policy
+from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.memory import MemoryIdentity, MemoryStore
@@ -196,6 +198,10 @@ class WardenDeps:
             (`local_worker`) resolves to the slot whose fallback chain names it before its
             `llm:<slot>` is checked (`hivemind.forage.map.slot_for_binding`). Defaults to empty:
             only a slot's own key then resolves, and any named binding is refused.
+        scanner: The untrusted-content scanner (roadmap step 10.6b) every sub-bee's tool results
+            pass through (`WorkerContext.scanner`): the Hive Stand's composition root builds it
+            from `[guard.untrusted_content]` and the Hive's secret store; a Virtual Cell's Warden
+            gets the shipped patterns and thresholds with a key that lives and dies with the Cell.
     """
 
     source: RealCellSource
@@ -257,6 +263,9 @@ class WardenDeps:
     # Roadmap step 10.3: additive and defaulted to no rows, so a WardenDeps built without a slot
     # table still builds; every composition root passes its own `[llm.slots]` rows.
     bindings: tuple[SlotBinding, ...] = ()
+    # Roadmap step 10.6b: additive and defaulted to the shipped patterns and thresholds with an
+    # in-memory key, so a WardenDeps built without one (every test, a Virtual Cell) still scans.
+    scanner: ContentScanner = field(default_factory=default_content_scanner)
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

@@ -22,7 +22,9 @@ exact same pair. Roadmap step 10.5 (ADR-0032) adds her human end: the durable go
 (`goal_requests`), the chat log (`chat`), the seam that tells the human's devices something is
 waiting (`human_channel`), and two small pieces of her own runtime bookkeeping kept here beside
 `housekeeping`: the in-process `wake` signal her tick awaits beside her Warden links, and the
-`planning` lane her one in-flight goal plan runs in (`PlanningLane`).
+`planning` lane her one in-flight goal plan runs in (`PlanningLane`). Roadmap step 10.6b adds the
+untrusted-content scanner a human's chat message passes through before her episode reads it
+(`scanner`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -77,6 +79,7 @@ from hivemind.forage import (
     SlotBinding,
 )
 from hivemind.guard import Enforcer
+from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -407,6 +410,10 @@ class QueenDeps:
             goal request, a human message or a finished plan; it starts set, so her first tick
             drains whatever rows a crash left behind.
         planning: Her one in-flight goal plan (`PlanningLane`).
+        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0035) a human's chat
+            words pass through before her awake episode reads them (`hivemind.queen.ticks.awake.
+            scan_human_text`); the composition root's, keyed from the Hive's secret store. Defaults
+            to the shipped patterns and thresholds with an in-memory key.
     """
 
     chamber: BroodChamber
@@ -481,3 +488,5 @@ class QueenDeps:
     human_channel: HumanChannel = field(default_factory=NullHumanChannel)
     wake: asyncio.Event = field(default_factory=_set_event)
     planning: PlanningLane = field(default_factory=PlanningLane)
+    # Roadmap step 10.6b: defaulted so every QueenDeps built without one still scans chat words.
+    scanner: ContentScanner = field(default_factory=default_content_scanner)

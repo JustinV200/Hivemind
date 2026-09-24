@@ -47,6 +47,7 @@ from pathlib import Path
 
 from hivemind.cell import PathNotAllowedError
 from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
+from hivemind.guard.scanner import ScanSource
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping import RiskTier
 from hivemind.workers.context import WorkerContext
@@ -244,8 +245,13 @@ async def write_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
     return describe(await cap(invocation, proposal))
 
 
-RUN_COMMAND_SPEC = ToolSpec(definition=RUN_COMMAND_DEFINITION, run=run_command)
-READ_FILE_SPEC = ToolSpec(definition=READ_FILE_DEFINITION, run=read_file)
+# Both read what the Cell's own session produced: the scanner records them as session output.
+RUN_COMMAND_SPEC = ToolSpec(
+    definition=RUN_COMMAND_DEFINITION, run=run_command, scan_source=ScanSource.SESSION_OUTPUT
+)
+READ_FILE_SPEC = ToolSpec(
+    definition=READ_FILE_DEFINITION, run=read_file, scan_source=ScanSource.SESSION_OUTPUT
+)
 WRITE_FILE_SPEC = ToolSpec(definition=WRITE_FILE_DEFINITION, run=write_file)
 
 

@@ -447,6 +447,7 @@ def _build_worker_context(
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
         enforcer=deps.enforcer,
+        scanner=deps.scanner,  # Roadmap 10.6b: every tool result is scanned on this node's key.
     )
 
 
