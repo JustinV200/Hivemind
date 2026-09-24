@@ -14,3 +14,10 @@ path; see the root `pyproject.toml`'s `pythonpath`/`mypy_path` comments for road
 an optional `clock: waggle.clock.Clock` (default a fresh `FakeClock`) so minted ids and timestamps
 are deterministic; `make_task(status=...)` fills in whatever placement, outcome or pending-question
 fields that status requires, so any `TaskStatus` is valid on its own with no further overrides.
+
+## `audio.py` (roadmap step 6.5a, the transcription subset 10.5f needs)
+
+`silent_wav`, `make_clip`, `make_transcript`: build transcription fixtures on the fly. A clip is a
+real 16-bit mono PCM WAV of silence written by the standard library's `wave` module, so no binary
+fixture is committed and a test names the exact length it needs; `make_clip` passes it through
+`AudioClip.from_upload`, the same door a device's upload takes.

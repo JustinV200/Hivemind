@@ -72,6 +72,7 @@ __all__ = [
     "UnresolvableSlotError",
     "resolve",
     "resolve_key",
+    "walk_chain",
 ]
 
 
@@ -221,6 +222,26 @@ def resolve_key(
         UnknownProviderError: A row in the chain names a provider `providers` does not know.
     """
     return _resolve(key, slot, _index(bindings), providers, map)
+
+
+def walk_chain(start: str, bindings: Iterable[SlotBinding]) -> tuple[SlotBinding, ...]:
+    """Return the rows a fallback chain visits from `start`, in order, guarded against a cycle.
+
+    The walk `resolve`/`resolve_key` bind a `BoundModel` chain from, exposed so a binding of
+    another shape (`hivemind.llm.transcription.BoundTranscriber`, whose provider is not an
+    `LLMProvider`) follows exactly the same rules rather than a second copy of them.
+
+    Args:
+        start: The `[llm.slots]` key the chain starts from: a slot's own key or a named binding.
+        bindings: Every `[llm.slots]` row, forage-side. Consumed once.
+
+    Returns:
+        The rows from `start` to the end of its chain; never empty.
+
+    Raises:
+        UnresolvableSlotError: `bindings` has no row for `start`, or the chain cycles.
+    """
+    return tuple(_walk_chain(start, _index(bindings)))
 
 
 def _index(bindings: Iterable[SlotBinding]) -> dict[str, SlotBinding]:

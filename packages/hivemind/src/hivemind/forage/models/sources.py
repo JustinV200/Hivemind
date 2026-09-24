@@ -25,7 +25,7 @@ Key invariants:
     - ModelSourceSpec.grade is between MIN_MODEL_GRADE and MAX_MODEL_GRADE (1 to 5), the same
       bounds `waggle.messages.forage.values` names for the wire form, imported rather than
       repeated so the two can never drift apart.
-    - ModelCost's three rates default to 0.0 and are never negative, so a manifest entry that
+    - ModelCost's four rates default to 0.0 and are never negative, so a manifest entry that
       leaves a rate unset is free rather than invalid.
     - ModelSource.source_ref() never reads its own `distance` or `abundance`: a SourceRef is the
       wire's *stable* reference to a source, and the receiver resolves live figures from its own
@@ -82,7 +82,7 @@ _Grade = Annotated[int, Field(ge=MIN_MODEL_GRADE, le=MAX_MODEL_GRADE)]
 
 
 class ModelCost(BaseModel):
-    """What one source charges: per-token rates, or a per-seat-hour rate for an occupied seat.
+    """What one source charges: per-token, per-seat-hour or per-audio-minute rates.
 
     Every rate defaults to 0.0, so a manifest entry that leaves a field unset costs nothing rather
     than failing validation -- the common case for a local, self-hosted model.
@@ -106,6 +106,13 @@ class ModelCost(BaseModel):
         ge=0,
         description="US dollars per seat held for an hour, for a source billed by occupancy "
         "rather than by token; 0.0 when the source has no such charge.",
+    )
+    cost_per_audio_minute_usd: float = Field(
+        default=0.0,
+        ge=0,
+        description="US dollars per minute of audio transcribed, for a TRANSCRIBER source "
+        "(hosted speech-to-text is billed by audio length, not by token); 0.0 for a free or "
+        "local source, or one that transcribes nothing.",
     )
 
 
