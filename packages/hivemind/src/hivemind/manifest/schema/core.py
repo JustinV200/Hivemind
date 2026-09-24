@@ -229,6 +229,14 @@ class HiveStandSection(BaseModel):
         "the manifest's own directory, like scratch_root. None (the default) means the Hive "
         "keeps nothing past a lease's release.",
     )
+    exoskeleton_real_display: bool = Field(
+        default=False,
+        description="Roadmap step 6.3: whether the Hive may drive this machine's own running "
+        "display (the operator's screen) when a task needs a desktop. False (the default) means "
+        "the Exoskeleton (the optional display, input, audio and browser attachment) starts a "
+        "private virtual display owned by the lease instead, where the host can start one; the "
+        "operator's screen is never seen or driven unless this is set (codingrules section 15).",
+    )
 
     @field_validator("address")
     @classmethod

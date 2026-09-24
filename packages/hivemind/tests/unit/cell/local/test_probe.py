@@ -14,13 +14,21 @@ See Also:
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 from pathlib import Path
 
 import pytest
 from builders.cells import make_hive_stand_config
 
 from hivemind.cell.errors import ProbeError
-from hivemind.cell.local.probe import probe_host, refresh_live
+from hivemind.cell.local.probe import (
+    AUDIO_PROGRAMS,
+    WINDOW_MANAGERS,
+    X11_DISPLAY_PROGRAMS,
+    probe_host,
+    refresh_live,
+)
 
 
 def test_probe_host_raises_probe_error_when_no_cores_can_be_determined(
@@ -54,15 +62,57 @@ def test_probe_host_config_overrides_win_over_the_probed_figures(tmp_path: Path)
     assert result.capacity.max_sub_bees == 1
 
 
-def test_probe_host_exoskeleton_and_model_hosting_capabilities_are_false_in_v0(
-    tmp_path: Path,
+def _only_on_path(monkeypatch: pytest.MonkeyPatch, programs: set[str]) -> None:
+    """Make `shutil.which` find exactly `programs`, so the probe sees a controlled PATH."""
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name, *args, **kwargs: f"/usr/bin/{name}" if name in programs else None,
+    )
+
+
+_X11 = {*X11_DISPLAY_PROGRAMS, WINDOW_MANAGERS[0]}
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the X11 display is Linux-only")
+def test_probe_host_can_start_a_display_only_with_every_x11_program_and_a_window_manager(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = make_hive_stand_config(tmp_path)
 
-    result = probe_host(config)
+    _only_on_path(monkeypatch, _X11)
+    assert probe_host(config).capabilities.can_start_display is True
 
-    assert result.capabilities.can_start_display is False
-    assert result.capabilities.can_host_model is False
+    # Any one program missing, or no window manager at all (xdotool's pointer moves are ignored
+    # by a bare Xvfb), and the Hive cannot start a usable display.
+    for missing in _X11:
+        _only_on_path(monkeypatch, _X11 - {missing})
+        assert probe_host(config).capabilities.can_start_display is False, missing
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the PulseAudio server is Linux-only here")
+def test_probe_host_has_audio_only_with_every_sound_server_program(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = make_hive_stand_config(tmp_path)
+
+    _only_on_path(monkeypatch, set(AUDIO_PROGRAMS))
+    assert probe_host(config).capabilities.has_audio is True
+    _only_on_path(monkeypatch, set(AUDIO_PROGRAMS) - {"parec"})
+    assert probe_host(config).capabilities.has_audio is False
+
+
+def test_probe_host_real_display_allowed_is_the_operators_opt_in_alone(tmp_path: Path) -> None:
+    denied = make_hive_stand_config(tmp_path)
+    allowed = denied.model_copy(update={"real_display_allowed": True})
+
+    # Never inferred from a display being present: only the manifest's own opt-in sets it.
+    assert probe_host(denied).capabilities.real_display_allowed is False
+    assert probe_host(allowed).capabilities.real_display_allowed is True
+
+
+def test_probe_host_model_hosting_is_false_until_its_phase(tmp_path: Path) -> None:
+    assert probe_host(make_hive_stand_config(tmp_path)).capabilities.can_host_model is False
 
 
 def test_refresh_live_keeps_static_totals_and_only_recomputes_live_figures(

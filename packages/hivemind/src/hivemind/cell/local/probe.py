@@ -24,8 +24,14 @@ Key invariants:
       count at all; every other figure degrades to a conservative value instead of raising.
     - `HiveStandConfig.cores`, `.memory_bytes` and `.max_sub_bees` (the manifest's own overrides)
       always win over whatever this module would otherwise probe.
-    - `can_start_display` and `can_host_model` are always False: neither capability exists yet
-      (roadmap steps for the Exoskeleton and local model hosting land in later phases).
+    - `can_start_display` is True only where every program the Exoskeleton's X11 display needs
+      is on PATH (`X11_DISPLAY_PROGRAMS` plus one of `WINDOW_MANAGERS`), `has_audio` only where
+      the PulseAudio programs its sound server needs are (`AUDIO_PROGRAMS`): a capability is
+      what the Hive can actually use, not what the hardware might have (roadmap steps 6.1, 6.3).
+      Both are always False on Windows, where the Exoskeleton is the browser alone.
+    - `real_display_allowed` is exactly `HiveStandConfig.real_display_allowed`, the operator's
+      own opt-in, never inferred from a display being present (codingrules section 15).
+    - `can_host_model` is always False: local model hosting lands in a later phase.
 
 See Also:
     - .claude/roadmap.md step 3.11 for "probe.py (platform, arch, cores, memory, GPU, display,
@@ -58,8 +64,29 @@ DEFAULT_MAX_SUB_BEES = 4  # Conservative absent an override: don't overrun the o
 _MAX_DISK_PROBE_ANCESTORS = 32  # A generous bound; a filesystem root always terminates the walk.
 _POSIX_BROWSERS = ("firefox", "google-chrome", "chromium", "chromium-browser")
 _POSIX_PACKAGE_MANAGERS = ("apt", "dnf", "yum", "pacman", "apk", "brew")
+# What the Exoskeleton's X11 display needs (roadmap step 6.3, ADR-0031): the virtual framebuffer,
+# pointer and keyboard input, ImageMagick's screen capture and an X authority cookie tool. Kept in
+# step with hivemind.exoskeleton's own launcher (a test holds the two together).
+X11_DISPLAY_PROGRAMS = ("Xvfb", "xdotool", "import", "xauth")
+# The light window managers the Exoskeleton can start; one is required, because xdotool's pointer
+# moves are silently ignored by a bare Xvfb (found on Xvfb 21.1, recorded in ADR-0031).
+WINDOW_MANAGERS = ("openbox", "fluxbox", "twm")
+# What the Exoskeleton's per-lease sound server needs: the daemon, its control tool, and the
+# record and play clients `listen` and `say` run (roadmap step 6.3).
+AUDIO_PROGRAMS = ("pulseaudio", "pactl", "parec", "paplay")
+# Where Playwright keeps the Chromium builds it manages when PLAYWRIGHT_BROWSERS_PATH is unset,
+# relative to the home directory; a build there is a browser as good as one on PATH.
+_PLAYWRIGHT_CACHE = Path(".cache") / "ms-playwright"
 
-__all__ = ["DEFAULT_MAX_SUB_BEES", "ProbeResult", "probe_host", "refresh_live"]
+__all__ = [
+    "AUDIO_PROGRAMS",
+    "DEFAULT_MAX_SUB_BEES",
+    "WINDOW_MANAGERS",
+    "X11_DISPLAY_PROGRAMS",
+    "ProbeResult",
+    "probe_host",
+    "refresh_live",
+]
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -109,7 +136,10 @@ def probe_host(config: HiveStandConfig) -> ProbeResult:
         local_seats=(),  # v0: the Hive Stand hosts no model server (can_host_model=False above).
         max_sub_bees=max_sub_bees,
     )
-    return ProbeResult(capabilities=_probe_capabilities(), capacity=capacity)
+    capabilities = _probe_capabilities().model_copy(
+        update={"real_display_allowed": config.real_display_allowed}
+    )
+    return ProbeResult(capabilities=capabilities, capacity=capacity)
 
 
 def refresh_live(config: HiveStandConfig, capacity: ForageCapacity) -> ForageCapacity:
@@ -188,12 +218,41 @@ def _capabilities_posix() -> CellCapabilities:
         package_manager=next((p for p in _POSIX_PACKAGE_MANAGERS if shutil.which(p)), None),
         python_version=platform.python_version(),
         has_display=bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")),
-        has_audio=Path("/dev/snd").exists() if system == "Linux" else False,
-        has_browser=any(shutil.which(name) for name in _POSIX_BROWSERS),
-        can_start_display=False,  # v0: the Exoskeleton starts one on demand in a later phase.
+        # The Hive hears and speaks through its own per-lease sound server, so audio is usable
+        # exactly when that server's programs are installed, whatever sound card exists.
+        has_audio=system == "Linux" and _all_on_path(AUDIO_PROGRAMS),
+        has_browser=any(shutil.which(name) for name in _POSIX_BROWSERS)
+        or _has_playwright_chromium(),
+        can_start_display=system == "Linux" and _can_start_x11_display(),
         can_host_model=False,  # v0: local model hosting is a later phase.
         network_scopes=(),
     )
+
+
+def _all_on_path(programs: tuple[str, ...]) -> bool:
+    """Return whether every one of `programs` resolves on PATH."""
+    return all(shutil.which(program) for program in programs)
+
+
+def _can_start_x11_display() -> bool:
+    """Return whether the Exoskeleton's X11 display can start: its programs and a window manager."""
+    return _all_on_path(X11_DISPLAY_PROGRAMS) and any(
+        shutil.which(manager) for manager in WINDOW_MANAGERS
+    )
+
+
+def _has_playwright_chromium() -> bool:
+    """Return whether a Playwright-managed Chromium build is installed for this user.
+
+    PLAYWRIGHT_BROWSERS_PATH is read here as a platform fact, the way DISPLAY and SHELL are, never
+    as Hive configuration; unset, Playwright's own default cache under the home directory applies.
+    """
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    root = Path(configured) if configured else Path.home() / _PLAYWRIGHT_CACHE
+    try:
+        return any(root.glob("chromium-*"))
+    except OSError:
+        return False  # An unreadable cache is no browser, never an exception from a probe.
 
 
 def _posix_distribution(system: str) -> str | None:

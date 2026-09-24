@@ -8,11 +8,15 @@ beyond the standard library.
 
 - **Config** (`hivemind.cell.local.config`): `HiveStandConfig` -- the Hive Stand's own settings
   (`enabled`, `scratch_root`, `scratch_quota_mb`, `disk_reserve_mb`, the `cores`/`memory_bytes`/
-  `max_sub_bees` probe overrides, `access_level`, `comb_shield`), resolved once from the
+  `max_sub_bees` probe overrides, `access_level`, `comb_shield`, and since roadmap step 6.3
+  `real_display_allowed`, the operator's opt-in to let the Hive drive this machine's own screen),
+  resolved once from the
   manifest's `[hive_stand]` section by `HiveStandConfig.from_section(section, manifest_dir)`.
 - **Probe** (`hivemind.cell.local.probe`): `probe_host(config) -> ProbeResult` -- this host's
   `CellCapabilities` and `ForageCapacity`, POSIX and Windows shims side by side, best effort
-  everywhere except zero usable cores (`ProbeError`); `refresh_live(config, capacity)` -- recomputes
+  everywhere except zero usable cores (`ProbeError`); `can_start_display` and `has_audio` report
+  whether the Exoskeleton's own toolchain is installed (`X11_DISPLAY_PROGRAMS` plus one of
+  `WINDOW_MANAGERS`; `AUDIO_PROGRAMS`), and `has_browser` also counts a Playwright-managed Chromium; `refresh_live(config, capacity)` -- recomputes
   only the figures that change moment to moment (free memory, free disk, load) between calls.
 - **Quota** (`hivemind.cell.local.quota`): `ScratchQuota` (the byte cap plus a `sizer:
   DirectorySizer`, real by default), `QUOTA_SAMPLE_INTERVAL_S` (the watchdog's tick, 0.25s) and
@@ -25,6 +29,13 @@ beyond the standard library.
   real `asyncio.create_subprocess_exec` child, one process group per command, a watchdog that
   kills the whole tree on a timeout or a scratch-quota breach, and on POSIX an `RLIMIT_FSIZE`
   set via `preexec_fn` as a second line of defence between watchdog samples.
+- **Background** (`hivemind.cell.local.background`, roadmap step 6.4): `BackgroundTable` -- the
+  background processes one session started: each spawned in its own process group (a new session
+  on POSIX, a new process group on Windows) with stdin closed and stdout/stderr to one log file in
+  scratch or nowhere, its pid reported to the lease before `start` returns, and `stop`/`stop_all`
+  killing the whole group (a daemon a launcher forked included) and reaping the child, so no
+  process outlives its session unreaped. Shared by `LocalProcessSession` and
+  `hivemind.cell.in_cell.InCellSession`, like `process.py`.
 - **Releaser** (`hivemind.cell.local.releaser`): `HiveStandLeaseReleaser` -- kills every process a
   lease started, then groups its `RestoreRecord`s by resolved path (so a path noted more than
   once this lease, persisted or not, resolves to exactly one outcome) and either restores each

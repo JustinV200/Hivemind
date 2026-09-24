@@ -29,6 +29,9 @@ Key invariants:
     - Every field is defaulted, so TaskNeeds() is the plain case: preferred isolation, no
       Exoskeleton, any OS, no network scopes, a disposable Cell, the MEADOW shield, and
       NORMAL-accuracy Tempo with no latency budget.
+    - `browser_only` and `audio` (roadmap step 6.12) refine an Exoskeleton need and so require
+      `exoskeleton`; they are never both set, because audio needs the desktop's sound server,
+      which a browser-only attachment never starts.
     - comb_shield == CombShieldLevel.NIGHT_VEIL requires isolation == Isolation.REQUIRED: Night
       Veil is virtual-only (codingrules section 8.7), so a task that would accept a Real Cell can
       never demand it.
@@ -53,6 +56,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.cell.tiers import CombShieldLevel
 from hivemind.forage.tempo import Tempo
+from waggle.messages.task import ExoskeletonNeed
 
 MAX_NETWORK_SCOPES = 32  # Generous for one task; broader network policy belongs in the manifest.
 MAX_SCOPE_CHARS = 253  # RFC 1035's hostname length limit; the longest one scope entry can be.
@@ -124,6 +128,17 @@ class TaskNeeds(BaseModel):
         description="Whether the task needs an Exoskeleton (a display, input or audio "
         "attachment) rather than the Cell's plain terminal session.",
     )
+    browser_only: bool = Field(
+        default=False,
+        description="Whether the browser fast path alone meets the Exoskeleton need: no desktop "
+        "display, pointer or keyboard beyond the page. A Real Cell with a browser then "
+        "qualifies without a display (roadmap step 6.12). Requires exoskeleton.",
+    )
+    audio: bool = Field(
+        default=False,
+        description="Whether the task needs to hear or speak through the Cell's audio. Requires "
+        "exoskeleton; never together with browser_only.",
+    )
     os: OsFamily | None = Field(
         default=None,
         description="The operating-system family the Cell must run, or None when any family "
@@ -152,6 +167,41 @@ class TaskNeeds(BaseModel):
         description="The task's speed-against-accuracy setting; read by routing, Forage "
         "allocation and Capping.",
     )
+
+    def exoskeleton_need(self) -> ExoskeletonNeed | None:
+        """Return the wire form of this task's Exoskeleton need, for its task.assign.
+
+        Returns:
+            None for a terminal-only task, else the need its Warden must attach (protocol 1.6).
+        """
+        if not self.exoskeleton:
+            return None
+        return ExoskeletonNeed(browser_only=self.browser_only, audio=self.audio)
+
+    @model_validator(mode="after")
+    def _peripherals_refine_an_exoskeleton_need(self) -> TaskNeeds:
+        """Reject browser_only or audio without exoskeleton, and the two together.
+
+        Returns:
+            This TaskNeeds unchanged, once the combination is confirmed valid.
+
+        Raises:
+            ValueError: browser_only or audio is set without exoskeleton, or both are set.
+        """
+        # Both refine an Exoskeleton need; alone they would ask placement for a browser or a
+        # sound server on a task that never attaches either.
+        if (self.browser_only or self.audio) and not self.exoskeleton:
+            raise ValueError(
+                "TaskNeeds.browser_only and TaskNeeds.audio refine an Exoskeleton need; set "
+                "exoskeleton=True too."
+            )
+        # Audio runs through the desktop's own sound server, which a browser-only attachment
+        # never starts, so asking for both promises what no Cell's attach plan can deliver.
+        if self.browser_only and self.audio:
+            raise ValueError(
+                "TaskNeeds cannot be browser_only and need audio: audio needs the desktop."
+            )
+        return self
 
     @model_validator(mode="after")
     def _night_veil_requires_required_isolation(self) -> TaskNeeds:

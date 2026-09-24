@@ -18,15 +18,20 @@ here; `swarm` for enrolled devices, a later phase).
 - **Models** (`hivemind.cell.models`): `CellKind` (`REAL`, `VIRTUAL`); `CellCapabilities`
   (platform facts -- `os`, `arch`, `distribution`, `shell`, `package_manager`, `python_version`
   -- plus capability flags -- `has_display`, `has_audio`, `has_browser`, `can_start_display`,
-  `can_host_model`, `network_scopes` -- with `to_wire()`/`from_wire()` converting to and from the
+  `can_host_model`, `real_display_allowed` (roadmap step 6.3: the operator's own opt-in to let the
+  Hive drive the display already running there), `network_scopes` -- with `to_wire()`/`from_wire()`
+  converting to and from the
   waggle `PlatformReport`/`CellCapabilitiesReport` pair); `Cell` (id, kind, name, source,
   capabilities, capacity, access_level, comb_shield), whose validator refuses a REAL Cell at
   `NIGHT_VEIL` and a VIRTUAL Cell below `FULL` access.
-- **Session** (`hivemind.cell.session`): `CellSession` (the terminal Protocol: `exec`, `put_file`, `delete_file`,
-  `get_file`, `scratch_dir`, `is_open`, `close`), `ExecSpec`, `ExecEvent` (`OutputChunk |
-  ExitStatus`), `CompletedCommand`, `run(session, spec)` (drives `exec` to completion), and
-  `resolve_scratch_path` (the shared relative-path-under-scratch, `..`/symlink-safe resolution
-  every concrete session's `put_file`/`get_file` uses).
+- **Session** (`hivemind.cell.session`): `CellSession` (the terminal Protocol: `exec`, `put_file`,
+  `delete_file`, `get_file`, `scratch_dir`, `is_open`, `close`, and since roadmap step 6.4
+  (ADR-0031) `start`/`stop`/`is_running` for long-running background processes: a display, a sound
+  server, a browser, later a model server), `ExecSpec`, `ExecEvent` (`OutputChunk | ExitStatus`),
+  `BackgroundSpec`/`BackgroundProcess` (what `start` takes and returns), `CompletedCommand`,
+  `run(session, spec)` (drives `exec` to completion), and `resolve_scratch_path` (the shared
+  relative-path-under-scratch, `..`/symlink-safe resolution every concrete session's
+  `put_file`/`get_file` uses).
 - **Lease** (`hivemind.cell.lease_state`, `hivemind.cell.lease`): `LeaseState`
   (`REQUESTED -> OPEN -> RELEASING -> RELEASED`; `OPEN -> ORPHANED -> RELEASING`; `RELEASING ->
   ORPHANED -> RELEASING`, a release() whose delegate raised, retried) with

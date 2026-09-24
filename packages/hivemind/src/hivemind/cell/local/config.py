@@ -87,6 +87,11 @@ class HiveStandConfig(BaseModel):
         description="Roadmap step 5.0e: an absolute directory outside scratch_root that outlives "
         "every lease; None means the Hive keeps nothing past a lease's release.",
     )
+    real_display_allowed: bool = Field(
+        default=False,
+        description="Roadmap step 6.3: whether the operator lets the Hive drive this machine's "
+        "own running display; reported as CellCapabilities.real_display_allowed.",
+    )
 
     @classmethod
     def from_section(cls, section: HiveStandSection, manifest_dir: Path) -> HiveStandConfig:
@@ -115,6 +120,7 @@ class HiveStandConfig(BaseModel):
             access_level=AccessLevel.from_wire(section.access_level),
             keep_scratch=section.keep_scratch,
             keep_root=keep_root,
+            real_display_allowed=section.exoskeleton_real_display,
         )
 
 

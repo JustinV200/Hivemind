@@ -5,12 +5,12 @@ provisions and later destroys) or Real (an existing device: the Hive Stand or a 
 borrowed for a task and returned unchanged) -- `CellKind`. `CellCapabilities` is the one place
 platform facts (what the machine is: its OS family, architecture, distribution, shell, package
 manager, Python) and capability flags (what it can do: has_display, has_audio, has_browser,
-can_start_display, can_host_model, network_scopes) live together, so placement and Worker tool
-code branch on what a Cell can actually do rather than on its kind (codingrules section 8.7,
-"Branch on capabilities, never on kind"). `Cell` ties a `CellId`, its `kind`, `capabilities`,
-`capacity` (`hivemind.forage.ForageCapacity`, capacity as data), `access_level` and `comb_shield`
-together as the one record every layer above `cell` reads to decide anything about where a task
-runs.
+can_start_display, can_host_model, real_display_allowed, network_scopes) live together, so
+placement and Worker tool code branch on what a Cell can actually do rather than on its kind
+(codingrules section 8.7, "Branch on capabilities, never on kind"). `Cell` ties a `CellId`, its
+`kind`, `capabilities`, `capacity` (`hivemind.forage.ForageCapacity`, capacity as data),
+`access_level` and `comb_shield` together as the one record every layer above `cell` reads to
+decide anything about where a task runs.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read by queen.placement (Layer 6, which
@@ -126,6 +126,11 @@ class CellCapabilities(BaseModel):
     can_host_model: bool = Field(
         description="Whether the Cell can run a local model server (a Nuc candidate)."
     )
+    real_display_allowed: bool = Field(
+        default=False,
+        description="Whether the operator allows the Hive to drive the display already running "
+        "on this Cell (their own screen); never implied by has_display (roadmap step 6.3).",
+    )
     network_scopes: tuple[str, ...] = Field(
         max_length=MAX_NETWORK_SCOPES,
         description="Network scopes reachable from the Cell, in capability syntax.",
@@ -156,6 +161,7 @@ class CellCapabilities(BaseModel):
             has_browser=report.has_browser,
             can_start_display=report.can_start_display,
             can_host_model=report.can_host_model,
+            real_display_allowed=report.real_display_allowed,
             network_scopes=report.network_scopes,
         )
 
@@ -180,6 +186,7 @@ class CellCapabilities(BaseModel):
             has_browser=self.has_browser,
             can_start_display=self.can_start_display,
             can_host_model=self.can_host_model,
+            real_display_allowed=self.real_display_allowed,
             network_scopes=self.network_scopes,
         )
         return platform, report

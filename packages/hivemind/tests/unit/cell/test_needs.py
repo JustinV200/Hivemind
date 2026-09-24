@@ -113,3 +113,35 @@ def test_task_needs_json_round_trips() -> None:
     restored = TaskNeeds.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_task_needs_browser_only_and_audio_default_off() -> None:
+    needs = TaskNeeds()
+
+    assert not needs.browser_only
+    assert not needs.audio
+    assert needs.exoskeleton_need() is None
+
+
+@pytest.mark.parametrize("field", ["browser_only", "audio"])
+def test_task_needs_peripheral_refinements_require_an_exoskeleton(field: str) -> None:
+    with pytest.raises(ValidationError, match="set exoskeleton=True too"):
+        TaskNeeds.model_validate({field: True})
+
+
+def test_task_needs_refuses_a_browser_only_need_that_also_wants_audio() -> None:
+    # Audio needs the desktop's sound server, which a browser-only attachment never starts.
+    with pytest.raises(ValidationError, match="audio needs the desktop"):
+        TaskNeeds(exoskeleton=True, browser_only=True, audio=True)
+
+
+@pytest.mark.parametrize(("browser_only", "audio"), [(False, False), (True, False), (False, True)])
+def test_task_needs_exoskeleton_need_is_the_wire_form_of_its_refinements(
+    browser_only: bool, audio: bool
+) -> None:
+    needs = TaskNeeds(exoskeleton=True, browser_only=browser_only, audio=audio)
+
+    wire = needs.exoskeleton_need()
+
+    assert wire is not None
+    assert (wire.browser_only, wire.audio) == (browser_only, audio)
