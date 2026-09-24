@@ -323,10 +323,16 @@ async def _tasks(run: _Run) -> tuple[Task, ...]:
     return tuple(await run.hive.stores.chamber.list(TaskFilter()))
 
 
-async def _finished(run: _Run) -> bool:
-    """Whether every task of the goal has reached a terminal status."""
+async def _succeeded(run: _Run) -> bool:
+    """Whether every task of the goal succeeded; fails at once, naming why, if one ended otherwise.
+
+    Failing fast turns a task that ended early (a grant a loaded host denies, say) into its own
+    outcome in the report, rather than a timeout further on that names nothing.
+    """
     tasks = await _tasks(run)
-    return bool(tasks) and all(is_terminal(task.status) for task in tasks)
+    for task in tasks:
+        assert task.status is TaskStatus.SUCCEEDED or not is_terminal(task.status), task.outcome
+    return bool(tasks) and all(task.status is TaskStatus.SUCCEEDED for task in tasks)
 
 
 async def _durable(run: _Run) -> tuple[PheromoneEvent, ...]:
@@ -341,7 +347,9 @@ async def _counted(run: _Run, kind: str, expected: int) -> bool:
 
 
 async def _working(run: _Run) -> bool:
-    """Whether a held segment already shows its Cell's Worker at work."""
+    """Whether a held segment shows its Cell's Worker at work; fails fast if it never can."""
+    for task in await _tasks(run):
+        assert not is_terminal(task.status), task.outcome  # Ended before its Worker could hold.
     segments = run.night_veil.segments
     for cell_id in segments.held_cells():
         if await segments.query(cell_id, TrailQuery(kind="worker.started")):
@@ -427,7 +435,7 @@ async def test_a_released_night_veil_cell_leaves_only_its_skeleton(
         at_teardown = _watch_teardown(run, monkeypatch)
         async with _running(run):
             await _request(run)
-            await wait_until(lambda: _finished(run), timeout_s=_TIMEOUT_S)
+            await wait_until(lambda: _succeeded(run), timeout_s=_TIMEOUT_S)
             await wait_until(lambda: _counted(run, _PURGED, 1), timeout_s=_TIMEOUT_S)
 
     events = await _assert_only_the_skeleton_is_left(run)
@@ -461,7 +469,7 @@ async def test_a_failed_attestation_purges_the_night_veil_cell_it_had_provisione
 ) -> None:
     async with _hive(tmp_path, monkeypatch, probes=_red_then_green()) as run, _running(run):
         await _request(run)
-        await wait_until(lambda: _finished(run), timeout_s=_TIMEOUT_S)
+        await wait_until(lambda: _succeeded(run), timeout_s=_TIMEOUT_S)
         await wait_until(lambda: _counted(run, _PURGED, 2), timeout_s=_TIMEOUT_S)
 
     events = await _assert_only_the_skeleton_is_left(run)
@@ -530,7 +538,7 @@ async def test_a_meadow_cells_whole_local_trail_still_merges_as_recorded(
     tuning = VirtualCellsTuning(overwinter_enabled=False)  # Torn down at once, like Night Veil.
     async with _hive(tmp_path, monkeypatch, tuning=tuning) as run, _running(run):
         await _request(run, CombShieldLevel.MEADOW)
-        await wait_until(lambda: _finished(run), timeout_s=_TIMEOUT_S)
+        await wait_until(lambda: _succeeded(run), timeout_s=_TIMEOUT_S)
         await wait_until(lambda: _counted(run, "cell.destroyed", 1), timeout_s=_TIMEOUT_S)
 
     events = await _durable(run)

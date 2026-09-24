@@ -81,10 +81,10 @@ Fits into the Hive:
     `QueenDeps.virtual_provider` must exist before `Queen(deps)` can be constructed at all). Calls
     into `hivemind.brood_chamber` (Task), `hivemind.hive` (CellProvisionError, VirtualCellSpec),
     `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.night_veil` (NightVeilProbe,
-    attest_cell), `hivemind.pheromone` (TrailRecorder, EphemeralSegments), `hivemind.queen.
-    cell_gate.gate`
-    (QueenReadinessGate), `hivemind.queen.deps` (WardenLink), `hivemind.queen.placement`
-    (Placement, ProvisionVirtual, ReuseDormant), `hivemind.queen.queen` (Queen) and waggle only.
+    attest_cell), `hivemind.pheromone` (TrailRecorder, EphemeralSegments),
+    `hivemind.queen.cell_gate.gate` (QueenReadinessGate), `hivemind.queen.deps` (WardenLink),
+    `hivemind.queen.placement` (Placement, ProvisionVirtual, ReuseDormant), `hivemind.queen.queen`
+    (Queen) and waggle only.
 
 Key invariants:
     - `acquire` never returns a `WardenLink` for a Cell `lifecycle.mark_ready`/`.resume` has not
