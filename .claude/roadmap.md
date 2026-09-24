@@ -1198,6 +1198,8 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   require explicit capability and policy opt-in. Add a Queen-controlled Cell-scope override path (`QUEEN_FORCED`) with explicit
   reason, expiry and clear semantics that the Warden must enforce while active.
   More detailed writing instructions for pheromone mask be given will be given at time of implementation, ask me (user) for more info when you go to implement
+  Not built on this branch (2026-09-24); where it stands is in `.claude/phase-6-handoff.md`
+  section 4.1.
 
 ### Exit criteria
 
@@ -1209,6 +1211,20 @@ applications that have no API; it is not a stealth layer (coding rules section 1
 - The login scenario's recording plays back in the Observation Hive with before and after frames
   per action, and a deliberately wrong click fails its declared postcondition, is rolled back on
   the Virtual Cell, and raises an Alarm.
+
+**Met 2026-09-24 on real peripherals in a Linux sandbox, all but the Windows leg**:
+`tests/e2e/test_phase6_exit_criteria.py` runs the fixture login, planned as a Forager, through the
+real Queen, Warden, Capping gate, flight recorder and Forager: on the Hive Stand with a
+lease-started Xvfb, openbox and Chromium; on a `desktop-ubuntu` Virtual Cell (the in-Cell Warden
+in process on the same peripherals), where a deliberately wrong click fails its `expect`, is
+rolled back by GUI checkpoint and raises `POSTCONDITION_FAILED`; and browser-only with no X11, the
+path the Windows Hive Stand takes. After each Real Cell run no lease-started process is alive, the
+left-as-found snapshot holds, and neither the captured logs nor any trail payload holds PNG bytes
+or their base64 prefix; the recording exports with both frames for every action (`hive recordings
+export`, until the Observation Hive's step 12.4). **Met on real Docker 2026-09-24**: the same login
+in a real `desktop-ubuntu` container against a scripted OpenAI-compatible server, the container's
+own Warden running the Forager and judging a sampled audit (11.6 s, no container left). The
+Windows leg is the operator's to run: `docs/runbooks/phase6-windows-exit-check.md`.
 
 ### ADRs to write
 
