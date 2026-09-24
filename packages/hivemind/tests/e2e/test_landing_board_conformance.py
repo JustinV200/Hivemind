@@ -9,12 +9,13 @@ reply only when its status is declared and its body matches the declared schema.
 Warden and Drone over a scripted provider, the operator at the Hive Stand), the client reads the
 Hive's id, redeems an invite (a second redemption is refused) and is refused while pending, logs
 in once approved, subscribes to the live push stream with a signed first frame, submits a goal
-(202), answers the question the Queen routed to the human, sees it withdrawn and the goal completed
-by push, reads the goal back, chats with the Queen and reads the chat and its stream, then logs
-out. Refusals are checked the same way: a bad signature, a replayed nonce, a stale timestamp, a
-bare token and a capability the device lacks. Against the builders' serving rig, whose remote
-listener runs a ``vpn`` plan on a test address and whose push service records deliveries, every
-loopback-only operation is a 404 on the remote listener, and a webhook verifies under the Hive key.
+(202), answers the question the Queen routed to the human (a second answer is a 409), sees it
+withdrawn and the goal completed by push, reads the goal back, chats with the Queen and reads the
+chat and its stream, then logs out. Refusals are checked the same way: a bad signature, a replayed
+nonce, a stale timestamp, a bare token and a capability the device lacks. Against the builders'
+serving rig, whose remote listener runs a ``vpn`` plan on a test address and whose push service
+records deliveries, every loopback-only operation is a 404 on the remote listener, and a webhook
+verifies under the Hive key.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -194,12 +195,14 @@ async def _submit_subscribe_answer(client: GenericClient, stand: Stand, session:
             "POST", "/v1/inbox/questions/{question_id}/answer", path, body={"text": ANSWER}
         )
         answered = await client.call(answer, session)
+        twice = await client.call(answer, session)
         withdrawn = await push.until("withdrawn", str(asked["ref"]))
         completed = await push.until("goal_completed", str(accepted.data["id"]))
 
     assert accepted.status == 202 and accepted.data["state"] == "RECEIVED"
     assert (question["text"], question["options"]) == (QUESTION, [])
     assert answered.data["question_status"] == "ANSWERED"
+    assert twice.status == 409  # Answered already: the item moved on.
     assert withdrawn["ref"] == asked["ref"] and completed["ref"] == accepted.data["id"]
     return str(accepted.data["id"])
 
