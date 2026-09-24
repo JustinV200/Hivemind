@@ -43,13 +43,15 @@ class _Connector:
 
     def __init__(self, fails: bool = False) -> None:
         self.endpoints: list[str] = []
+        self.roots: list[tuple[Path, ...]] = []
         self._fails = fails
 
-    async def __call__(self, endpoint: str) -> Browser:
+    async def __call__(self, endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
         self.endpoints.append(endpoint)
+        self.roots.append(file_roots)
         if self._fails:
             raise AttachError("could not attach to the browser over CDP: refused")
-        return FakeBrowser(login_site(), FakeClock())
+        return FakeBrowser(login_site(), FakeClock(), file_roots=file_roots)
 
 
 def _session(scratch: Path, *, browser: bool = True) -> FakeSession:
@@ -66,7 +68,13 @@ def _session(scratch: Path, *, browser: bool = True) -> FakeSession:
 def _request(scratch: Path, *, headed: bool = False, sandbox: bool = True) -> BrowserLaunch:
     layout = ScratchLayout.under(scratch)
     environment = {**layout.home_environment(), "DISPLAY": ":7"}
-    return BrowserLaunch(layout=layout, headed=headed, sandbox=sandbox, environment=environment)
+    return BrowserLaunch(
+        layout=layout,
+        headed=headed,
+        sandbox=sandbox,
+        environment=environment,
+        file_roots=(scratch,),
+    )
 
 
 def _launcher(clock: FakeClock, scratch: Path, connector: _Connector | None) -> ChromiumLauncher:
@@ -169,6 +177,7 @@ async def test_launch_starts_chromium_and_connects_to_the_port_it_wrote(tmp_path
     launched = await launch
 
     assert connector.endpoints == ["http://127.0.0.1:9222"]
+    assert connector.roots == [(tmp_path,)]  # The request's file roots reach the connection.
     assert isinstance(launched.browser, FakeBrowser)
     assert [process.argv[0] for process in launched.processes] == [_CHROMIUM]
     assert session.running_pids == tuple(process.pid for process in launched.processes)

@@ -434,7 +434,7 @@ ignore_imports = ["hivemind.hive.backends.docker.sdk_client -> docker"]
 # ADR-0031 and roadmap step 6.11, the Docker SDK's confinement pattern above applied to Playwright:
 # the Exoskeleton's browser fast path drives Chromium with Playwright over CDP, an optional
 # dependency (the `hivemind[browser]` extra) imported only inside the
-# hivemind.exoskeleton.browser.playwright package (calls, connect, page, storage), which
+# hivemind.exoskeleton.browser.playwright package (calls, connect, guard, page, storage), which
 # hivemind.exoskeleton.browser.launch imports lazily, at launch. So the rest of the workspace, extra
 # installed or not, never needs Playwright to import cleanly. The package's own __init__ imports
 # only its modules, which is why the carve-out names its descendants.

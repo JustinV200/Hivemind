@@ -52,6 +52,7 @@ from hivemind.exoskeleton.browser.fake import (
     WELCOME_HEADING,
     WRONG_CREDENTIALS,
 )
+from hivemind.exoskeleton.browser.files import OUTSIDE_FILE_ROOTS
 from hivemind.exoskeleton.errors import AttachError, ElementNotFoundError, PeripheralError
 from hivemind.exoskeleton.frames import PNG_SIGNATURE
 from waggle.messages.capping import ElementTarget
@@ -131,6 +132,23 @@ async def test_navigating_to_a_missing_page_fails_and_the_next_navigation_works(
     await opened.browser.navigate(opened.url("login"))
 
     assert await opened.browser.title() == LOGIN_TITLE
+
+
+async def test_a_file_url_outside_the_roots_is_refused_and_the_page_stays(
+    site: tuple[BrowserHarness, OpenBrowser],
+) -> None:
+    # Arrange: a page is showing, and a file sits beside scratch, never inside it.
+    _, opened = site
+    await opened.browser.navigate(opened.url("login"))
+    shown = await opened.browser.url()
+    outside = (opened.session.scratch_dir.parent / "not-the-lease" / "secret.txt").as_uri()
+
+    with pytest.raises(PeripheralError) as refused:
+        await opened.browser.navigate(outside)
+
+    assert refused.value.reason == OUTSIDE_FILE_ROOTS
+    assert "secret" not in str(refused.value)  # The refusal never names the file.
+    assert await opened.browser.url() == shown
 
 
 async def test_page_text_is_the_visible_text_only(site: tuple[BrowserHarness, OpenBrowser]) -> None:

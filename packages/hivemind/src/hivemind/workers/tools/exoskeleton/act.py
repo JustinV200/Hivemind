@@ -6,23 +6,27 @@ turns them into one `ProposedAction` of kind GUI with the postconditions the cal
 states, and runs it through the Capping gate (the quality gate every side effect passes), which
 checks, applies it through the attached Exoskeleton, verifies it, rolls it back and records it
 (ADR-0032). The tool declares the tier from what the action reaches: input on a display the lease
-started is `scratch_write` and on the operator's running display `device_command`; a page on the
-Cell (file://, about:blank, a loopback host) is `scratch_write` and any other web page
-`network_egress`; `irreversible: true` makes it `irreversible`, which a judge reviews before the
-bee's next step. The gate's checks may raise a tier, never lower one. This module also finds the
-attached handle and peripheral each tool needs, for the read-only tools as much as the actions.
+started is `scratch_write` and on the operator's running display `device_command`; a page that
+stays in the lease (a file inside its scratch, about:blank, a loopback host) is `scratch_write`, a
+file anywhere else on the Cell `outside_scratch_write` (which the gate's allowlist rung refuses; the
+navigate tool refuses it before that) and any other web page `network_egress`;
+`irreversible: true` makes it `irreversible`, which a judge reviews before the bee's next step.
+The gate's checks may raise a tier, never lower one. This module also finds the attached handle
+and peripheral each tool needs, for the read-only tools as much as the actions.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools.exoskeleton`. Called by the
     package's desktop, browser, look and audio tools. Calls into `hivemind.common.logging`,
-    `hivemind.exoskeleton`, `hivemind.supervision.capping` (RiskTier), `hivemind.workers.tools.
+    `hivemind.exoskeleton`, `hivemind.guard` (the file URL rule), `hivemind.supervision.capping`
+    (RiskTier), `hivemind.workers.tools.
     proposals` and `.registry`, this package's `arguments`, `errors` and `expect`, and waggle.
 
 Key invariants:
     - Every GUI action is one proposal through `hivemind.workers.tools.proposals.cap`; nothing here
       touches a peripheral to act, and a failed, rolled-back one raises its Alarm there at once.
     - A reach the tool cannot establish is never assumed to be local: an unreadable page URL, a
-      display the lease did not start, a file URL naming a remote host all take the higher tier.
+      display the lease did not start, a file URL outside scratch or naming a remote host all
+      take the higher tier.
 
 See Also:
     - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md for "the
@@ -35,10 +39,12 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from hivemind.common.logging import get_logger
 from hivemind.exoskeleton import Browser, DisplaySource, ExoskeletonHandle, PeripheralError
+from hivemind.guard import file_url_escapes, is_file_url
 from hivemind.llm import JsonObject
 from hivemind.supervision.capping import RiskTier
 from hivemind.workers.tools.exoskeleton.arguments import flag
@@ -56,8 +62,6 @@ _DISPLAY_TIERS: dict[DisplaySource, RiskTier] = {
     DisplaySource.RUNNING: RiskTier.DEVICE_COMMAND,
 }
 _WEB_SCHEMES = frozenset({"http", "https"})  # A page served from a host, near or far.
-# The hosts a file URL may name and still stay on the Cell: file:///x and file://localhost/x.
-_LOCAL_FILE_HOSTS = frozenset({"", "localhost"})
 _BLANK_PAGE = "about:blank"  # The one about: page a GUI step may load; it holds nothing.
 
 log = get_logger(__name__)
@@ -173,33 +177,38 @@ def desktop_reach(handle: ExoskeletonHandle) -> RiskTier:
     return _DISPLAY_TIERS.get(handle.plan.display, RiskTier.DEVICE_COMMAND)
 
 
-def page_reach(url: str) -> RiskTier:
+def page_reach(url: str, scratch: Path) -> RiskTier:
     """Return the tier of acting on (or loading) the page at `url`.
 
     Args:
         url: The page's URL.
+        scratch: The lease's scratch directory: the only place a file URL stays in the lease.
 
     Returns:
-        `scratch_write` for a page that stays on the Cell (a local file, the blank page, a
-        loopback host); `network_egress` for every other page, known scheme or not.
+        `scratch_write` for a page that stays in the lease (a file inside `scratch`, the blank
+        page, a loopback host); `outside_scratch_write` for any other file URL, a read of the
+        Cell's disk the gate's allowlist rung refuses; `network_egress` for every other page,
+        known scheme or not.
     """
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
     if url.lower() == _BLANK_PAGE:
         return RiskTier.SCRATCH_WRITE
-    # A file URL naming a host reaches a share on the network (file://server/x), not the Cell.
-    if scheme == "file" and (parts.hostname or "") in _LOCAL_FILE_HOSTS:
-        return RiskTier.SCRATCH_WRITE
+    # A file outside scratch, or on a share another host serves, is not the lease's to read.
+    if is_file_url(url):
+        escapes = file_url_escapes(url, (scratch,))
+        return RiskTier.OUTSIDE_SCRATCH_WRITE if escapes else RiskTier.SCRATCH_WRITE
     if scheme in _WEB_SCHEMES and _is_loopback(parts.hostname):
         return RiskTier.SCRATCH_WRITE
     return RiskTier.NETWORK_EGRESS
 
 
-async def current_page_reach(browser: Browser) -> RiskTier:
+async def current_page_reach(browser: Browser, scratch: Path) -> RiskTier:
     """Return the tier of acting on the page the browser shows now.
 
     Args:
         browser: The attached browser.
+        scratch: The lease's scratch directory, as for `page_reach`.
 
     Returns:
         `page_reach` of its current URL; `network_egress` when the URL cannot be read.
@@ -211,7 +220,7 @@ async def current_page_reach(browser: Browser) -> RiskTier:
         # A page the tool cannot read is treated as off the Cell (module docstring).
         log.debug("exoskeleton_tools.page_url_unreadable", reason=error.reason)
         return RiskTier.NETWORK_EGRESS
-    return page_reach(url)
+    return page_reach(url, scratch)
 
 
 def _summary(steps: tuple[GuiStep, ...]) -> str:

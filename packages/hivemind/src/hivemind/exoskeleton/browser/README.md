@@ -21,9 +21,10 @@ without it fails with an `AttachError` naming the extra.
 | `base.py` | The protocols: `Browser`, `BrowserCheckpoint`, `BrowserLauncher`, `BrowserLaunch`, `LaunchedBrowser`. |
 | `locate.py` | `ChromiumLocator`: finds a browser on the Cell and verifies it through the session; `HostPlatform`, the host facts it reads (read once, injectable). |
 | `launch.py` | `ChromiumLauncher`: starts Chromium through the session, waits for its DevTools port, connects; `ChromiumSettings`; `chromium_spec`, the exact command. |
-| `playwright/` | The Playwright backend: `calls` (every call bounded, every error mapped), `connect` (attach over CDP), `storage` (what a checkpoint covers), `page` (`PlaywrightBrowser`). |
+| `playwright/` | The Playwright backend: `calls` (every call bounded, every error mapped), `connect` (attach over CDP), `guard` (`FileGuard`, the route every file request passes), `storage` (what a checkpoint covers), `page` (`PlaywrightBrowser`). |
 | `fake/` | `FakeSite` (a site as data), `FakeBrowser`, `FakeBrowserLauncher`, and `login_site()`, the fixture login site as a FakeSite. |
 | `targets.py` | The rule both browsers share: a target names exactly one visible element. |
+| `files.py` | `refuse_outside_roots`: the one refusal both browsers give a file URL outside `BrowserLaunch.file_roots` (the lease's scratch). |
 | `keys.py` | `browser_chord`: a GUI step's chord ("ctrl+a", "Return") in the browser's spelling. |
 | `excerpts.py` | The caps every read obeys (`MAX_SNAPSHOT_CHARS`, `MAX_PAGE_TEXT_CHARS`, `MAX_ELEMENT_TEXT_CHARS`) and one-line, URL-free error details. |
 | `state.py` | `BrowserState`, the cookies and per-origin local storage a checkpoint carries, and `storage_origin`. |
@@ -44,8 +45,18 @@ attach ──BrowserLaunch──▶ ChromiumLauncher.launch(session, request)
    4. poll <profile>/DevToolsActivePort    on the injected clock; a crash fails at once with the
                                            end of its log (one line, URLs masked)
    5. connect_over_cdp(http://127.0.0.1:<port>) ──▶ PlaywrightBrowser on the default page
+   6. FileGuard(request.file_roots).install  a route on file://**, before the first page loads
    any failure after 3: session.stop(process), then the AttachError (or the cancellation)
 ```
+
+A file URL reads the Cell's disk without the path rules a session applies, so a browser loads one
+only from its file roots (`BrowserLaunch.file_roots`, the lease's scratch; empty refuses every file
+URL). Both browsers refuse a navigation outside them with the same `PeripheralError`
+(`files.OUTSIDE_FILE_ROOTS`). The real one also routes every file request Chromium makes, a
+link's, a frame's, an image's, through `playwright/guard.py`: continued only when the path is
+inside the roots as written and once symlinks are resolved, aborted as blocked otherwise, so
+nothing outside is ever read. A hard link planted in scratch is indistinguishable from a file
+there; making one needs a command, which the Capping gate tiers by its own rules.
 
 The browser is a lease-started process like the display and the sound server: detach stops it,
 the lease's release kills it as a backstop, and `Browser.close()` only disconnects Playwright.

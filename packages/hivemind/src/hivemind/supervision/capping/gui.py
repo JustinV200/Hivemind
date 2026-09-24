@@ -22,7 +22,8 @@ Fits into the Hive:
 Key invariants:
     - The gate never applies a GUI proposal without a surface; it rejects it before any check.
     - Every step names the capabilities it needs; a NAVIGATE also needs `net:<host>` for any
-      URL that leaves the Cell (http and https; file and about:blank stay on it).
+      URL that leaves the Cell (http and https; file and about:blank stay on it). A file URL
+      must also stay inside the lease's scratch, which the allowlist rung checks separately.
 
 See Also:
     - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md.

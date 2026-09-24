@@ -8,6 +8,7 @@ looks like, the frames it draws, and every operation refused once it is closed.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 import pytest
 
@@ -22,10 +23,12 @@ from hivemind.exoskeleton.browser.fake import (
     FakeElement,
     FakePage,
     FakeSite,
+    Navigate,
     SetCookie,
     SetStorage,
     login_site,
 )
+from hivemind.exoskeleton.browser.files import OUTSIDE_FILE_ROOTS
 from hivemind.exoskeleton.browser.state import BrowserState
 from hivemind.exoskeleton.errors import ElementNotFoundError, PeripheralError
 from waggle.clock import FakeClock
@@ -35,8 +38,8 @@ _LOGIN = f"{FIXTURE_ORIGIN}/login"
 _WELCOME = f"{FIXTURE_ORIGIN}/welcome"
 
 
-def _browser(site: FakeSite | None = None) -> FakeBrowser:
-    return FakeBrowser(site or login_site(), FakeClock())
+def _browser(site: FakeSite | None = None, file_roots: tuple[Path, ...] = ()) -> FakeBrowser:
+    return FakeBrowser(site or login_site(), FakeClock(), file_roots=file_roots)
 
 
 async def _log_in(browser: FakeBrowser) -> None:
@@ -76,7 +79,7 @@ async def test_a_file_page_takes_no_cookie_and_about_blank_no_storage() -> None:
         title="A",
         elements=(FakeElement("go", role="button", name="Go", on_click=click),),
     )
-    browser = _browser(FakeSite(pages=(page,)))
+    browser = _browser(FakeSite(pages=(page,)), file_roots=(Path("/site"),))
     await browser.navigate(page.url)
 
     await browser.click(ElementTarget(role="button", name="Go"))
@@ -84,6 +87,42 @@ async def test_a_file_page_takes_no_cookie_and_about_blank_no_storage() -> None:
     state = _state(await browser.checkpoint())
     assert state.cookies == ()
     assert state.local_storage == {"file://": {"k": "v"}}
+
+
+async def test_a_file_page_loads_only_inside_the_file_roots() -> None:
+    # Arrange: two file pages the site serves, only one of them under the browser's roots.
+    inside = FakePage(url="file:///srv/scratch/a.html", title="A", elements=())
+    outside = FakePage(url="file:///srv/b.html", title="B", elements=())
+    browser = _browser(FakeSite(pages=(inside, outside)), file_roots=(Path("/srv/scratch"),))
+
+    await browser.navigate(inside.url)
+    with pytest.raises(PeripheralError) as refused:
+        await browser.navigate(outside.url)
+
+    assert refused.value.reason == OUTSIDE_FILE_ROOTS
+    assert await browser.url() == inside.url  # The refusal left the page where it was.
+
+
+async def test_a_link_to_a_file_outside_the_roots_is_refused_like_a_navigation() -> None:
+    # Arrange: a page in scratch whose button follows a link out of it.
+    link = FakeElement("out", role="link", name="Out", on_click=(Navigate("file:///etc/x"),))
+    page = FakePage(url="file:///srv/scratch/a.html", title="A", elements=(link,))
+    target = FakePage(url="file:///etc/x", title="X", elements=())
+    browser = _browser(FakeSite(pages=(page, target)), file_roots=(Path("/srv/scratch"),))
+    await browser.navigate(page.url)
+
+    with pytest.raises(PeripheralError, match="outside the lease's scratch"):
+        await browser.click(ElementTarget(role="link", name="Out"))
+
+    assert await browser.url() == page.url
+
+
+async def test_a_browser_with_no_file_roots_loads_no_file_url_at_all() -> None:
+    page = FakePage(url="file:///srv/scratch/a.html", title="A", elements=())
+    browser = _browser(FakeSite(pages=(page,)))
+
+    with pytest.raises(PeripheralError, match="outside the lease's scratch"):
+        await browser.navigate(page.url)
 
 
 async def test_guards_that_send_a_visitor_round_in_a_loop_are_an_error() -> None:

@@ -31,6 +31,8 @@ Public API:
     - CapabilityFamily, Capability, CapabilitySet, EXOSKELETON_SCOPES: the capability model
       (capabilities).
     - ceiling_for, cap_to_access: what each AccessLevel permits, as data (access).
+    - file_url_escapes, file_url_path, is_file_url, is_within, FILE_SCHEME, LOCAL_FILE_HOSTS:
+      whether a file URL stays inside the directories a lease lets its browser read (file_urls).
     - GuardError, InvalidCapabilityError, CapabilityWideningError: this package's error tree
       (errors).
 """
@@ -43,9 +45,19 @@ from hivemind.guard.capabilities import (
     CapabilitySet,
 )
 from hivemind.guard.errors import CapabilityWideningError, GuardError, InvalidCapabilityError
+from hivemind.guard.file_urls import (
+    FILE_SCHEME,
+    LOCAL_FILE_HOSTS,
+    file_url_escapes,
+    file_url_path,
+    is_file_url,
+    is_within,
+)
 
 __all__ = [
     "EXOSKELETON_SCOPES",
+    "FILE_SCHEME",
+    "LOCAL_FILE_HOSTS",
     "Capability",
     "CapabilityFamily",
     "CapabilitySet",
@@ -54,4 +66,8 @@ __all__ = [
     "InvalidCapabilityError",
     "cap_to_access",
     "ceiling_for",
+    "file_url_escapes",
+    "file_url_path",
+    "is_file_url",
+    "is_within",
 ]

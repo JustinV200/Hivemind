@@ -42,11 +42,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
-from hivemind.guard import Capability, CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, file_url_escapes
 from hivemind.supervision.capping.checks.base import Check, CheckContext, CheckResultRecord
 from hivemind.supervision.capping.gui import required_capabilities
 from hivemind.supervision.capping.tiers import RiskTier
-from waggle.messages.capping import ActionKind, CheckKind, CheckOutcome, ProposedAction
+from waggle.messages.capping import (
+    ActionKind,
+    CheckKind,
+    CheckOutcome,
+    GuiOp,
+    GuiStep,
+    ProposedAction,
+)
 
 # ActionKind.ACTION_SEQUENCE has no applier yet (roadmap 3.17: "ACTION_SEQUENCE -> REJECTED with
 # reason 'unsupported in v0'"); SchemaCheck is where that rejection actually happens, before the
@@ -160,14 +167,22 @@ class GuiAllowlistCheck:
 
     `required_capabilities` names what each step needs (roadmap step 6.5, ADR-0032): the display
     for desktop input, the browser for a page action (plus `net:<host>` for a navigation that
-    leaves the Cell), audio for speech.
+    leaves the Cell), audio for speech. A navigation to a file URL must also stay inside the
+    lease's scratch (`hivemind.guard.file_urls`): a file URL reads the Cell's disk without the path
+    rules a session applies, so no capability makes a file elsewhere the browser's to open.
     """
 
     kind: ClassVar[CheckKind] = CheckKind.ALLOWLIST
 
     async def run(self, context: CheckContext) -> CheckResultRecord:
-        """Pass trivially for a non-GUI action; else check every step's capabilities."""
+        """Pass trivially for a non-GUI action; else check every step's reach and capabilities."""
         for step in context.proposal.action.gui:
+            if _opens_file_outside(step, context.scratch_root):
+                return CheckResultRecord(
+                    kind=CheckKind.ALLOWLIST,
+                    outcome=CheckOutcome.FAILED,
+                    reason="a file URL outside scratch is never loaded",
+                )
             for needed in required_capabilities(step):
                 if not context.capabilities.allows(needed):
                     return CheckResultRecord(
@@ -293,6 +308,11 @@ def _check_copy_size(action: ProposedAction, cap: int | None) -> CheckResultReco
         outcome=CheckOutcome.PASSED,
         reason=f"copy source is {size} bytes, within the {cap}-byte cap",
     )
+
+
+def _opens_file_outside(step: GuiStep, scratch_root: Path) -> bool:
+    """Return whether `step` navigates to a file URL outside the lease's scratch."""
+    return step.op is GuiOp.NAVIGATE and file_url_escapes(step.url or "", (scratch_root,))
 
 
 def _normalise(scratch_root: Path, path: Path) -> Path:

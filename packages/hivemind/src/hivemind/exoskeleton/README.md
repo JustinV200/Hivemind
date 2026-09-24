@@ -40,6 +40,9 @@ that have no API; it is not a stealth layer (codingrules 15; the Pheromone Mask 
 - **Left as found.** HOME and the XDG directories of every started process point into scratch, so
   no dotfile, cache or cookie lands in the operator's home. A failed attach stops everything it
   started before raising; `detach` stops exactly those processes and verifies they are gone.
+- **The browser reads only scratch.** Attach names the lease's scratch as the browser's only file
+  root (`BrowserLaunch.file_roots`): a `file://` URL anywhere else, typed, clicked or framed, is
+  refused, and the real browser resolves symlinks before it loads a file (`browser/README.md`).
 - **On the trail.** `cell.exoskeleton_attached` and `cell.exoskeleton_detached`, with peripheral
   names and counts, never a frame.
 

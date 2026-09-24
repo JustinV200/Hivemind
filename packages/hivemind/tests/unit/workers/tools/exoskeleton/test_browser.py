@@ -17,8 +17,11 @@ See Also:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from builders.workers import make_gui_context, proposals_of, run_tool
 
+from hivemind.cell.fake import FakeSession
 from hivemind.exoskeleton import Peripherals
 from hivemind.exoskeleton.browser.fake import (
     FIXTURE_ORIGIN,
@@ -83,6 +86,32 @@ async def test_navigate_to_a_loopback_page_is_a_scratch_write_navigate_step() ->
     assert proposal.action.gui == (GuiStep(op=GuiOp.NAVIGATE, url=f"{_LOOPBACK}/login"),)
     assert proposal.risk_tier is RiskTier.SCRATCH_WRITE
     assert await session.browser.url() == f"{_LOOPBACK}/login"
+
+
+async def test_navigate_to_a_file_outside_scratch_is_refused_before_any_proposal() -> None:
+    session = _Session()
+
+    result = await session.call("browser_navigate", {"url": "file:///home/bee/.ssh/id_rsa"})
+
+    assert "inside this task's scratch directory" in result.text
+    assert "id_rsa" not in result.text  # The refusal never repeats the path back.
+    assert not await proposals_of(session.ctx)
+    assert await session.browser.url() == "about:blank"
+
+
+async def test_navigate_to_a_page_in_scratch_is_a_scratch_write_navigate_step() -> None:
+    # Arrange: the fixture site written into an absolute scratch, and the browser rooted there.
+    clock, scratch = FakeClock(), Path("/srv/lease/scratch")
+    origin = scratch.as_uri()
+    browser = FakeBrowser(login_site(origin), clock, file_roots=(scratch,))
+    fake_session = FakeSession(scratch_dir=scratch, clock=clock)
+    ctx = make_gui_context(Peripherals(browser=browser), clock, session=fake_session)
+
+    result = await run_tool(ctx, "browser_navigate", {"url": f"{origin}/login"})
+
+    assert result.text.startswith("state=VERIFIED")
+    assert (await proposals_of(ctx))[-1].risk_tier is RiskTier.SCRATCH_WRITE
+    assert await browser.url() == f"{origin}/login"
 
 
 async def test_navigate_to_a_remote_page_is_network_egress_and_needs_its_net_grant() -> None:

@@ -31,6 +31,7 @@ See Also:
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from hivemind.exoskeleton.browser.base import BrowserCheckpoint
@@ -54,6 +55,7 @@ from hivemind.exoskeleton.browser.fake.site import (
     SetStorage,
     Submit,
 )
+from hivemind.exoskeleton.browser.files import refuse_outside_roots
 from hivemind.exoskeleton.browser.keys import ENTER, browser_chord
 from hivemind.exoskeleton.browser.state import BrowserState, StoredCookie, storage_origin
 from hivemind.exoskeleton.browser.targets import PERIPHERAL, ambiguity, normalised
@@ -77,17 +79,26 @@ class FakeBrowser:
     closed, and every chord pressed (in the browser's spelling, for a test to read).
     """
 
-    def __init__(self, site: FakeSite, clock: Clock, viewport: ScreenSize = FAKE_VIEWPORT) -> None:
+    def __init__(
+        self,
+        site: FakeSite,
+        clock: Clock,
+        viewport: ScreenSize = FAKE_VIEWPORT,
+        file_roots: tuple[Path, ...] = (),
+    ) -> None:
         """Open a fake browser on about:blank.
 
         Args:
             site: The pages it serves.
             clock: Stamps every screenshot.
             viewport: The size of every screenshot.
+            file_roots: The only directories a file URL may load from, as for the real browser
+                (`BrowserLaunch.file_roots`); empty refuses every file URL.
         """
         self._site = site
         self._clock = clock
         self._viewport = viewport
+        self._file_roots = file_roots
         self._page = BLANK_PAGE
         self._values: dict[str, str] = {}
         self._revealed: set[str] = set()
@@ -221,16 +232,10 @@ class FakeBrowser:
 
     def _load(self, url: str, operation: str) -> None:
         """Show the page at `url`, following guards, with its fields and reveals reset."""
-        page = self._site.page(url)
-        # A guard may send the visitor on, and that page may have a guard of its own.
-        for _ in range(MAX_GUARD_HOPS):
-            if page is None:
-                raise PeripheralError(PERIPHERAL, operation, f"the site has no page at {URL_MASK}")
-            if page.requires is None or page.otherwise is None or _holds(self._storage, page):
-                break
-            page = self._site.page(page.otherwise)
-        else:
-            raise PeripheralError(PERIPHERAL, operation, "the page's guards redirect in a loop")
+        # Every load passes here (a navigation, a link's click, a restore), so one check keeps
+        # every file URL outside the roots away, exactly where the real browser's route does.
+        refuse_outside_roots(url, self._file_roots, operation)
+        page = _landing(self._site, self._storage, url, operation)
         self._page = page
         self._values = {e.key: e.value for e in page.elements if e.value is not None}
         self._revealed = set()
@@ -262,6 +267,21 @@ class FakeBrowser:
     def _accepts(self, submit: Submit) -> bool:
         """Return whether every field a Submit checks holds its expected value."""
         return all(self._values.get(key) == value for key, value in submit.expected)
+
+
+def _landing(
+    site: FakeSite, storage: dict[str, dict[str, str]], url: str, operation: str
+) -> FakePage:
+    """Return the page a visit to `url` lands on once every guard has sent the visitor on."""
+    page = site.page(url)
+    # A guard may send the visitor on, and that page may have a guard of its own.
+    for _ in range(MAX_GUARD_HOPS):
+        if page is None:
+            raise PeripheralError(PERIPHERAL, operation, f"the site has no page at {URL_MASK}")
+        if page.requires is None or page.otherwise is None or _holds(storage, page):
+            return page
+        page = site.page(page.otherwise)
+    raise PeripheralError(PERIPHERAL, operation, "the page's guards redirect in a loop")
 
 
 def _names(target: ElementTarget, element: FakeElement) -> bool:

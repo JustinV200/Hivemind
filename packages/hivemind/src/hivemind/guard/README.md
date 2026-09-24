@@ -22,6 +22,13 @@ in `cell/tiers.py`; guard only interprets them. This package is pure: no I/O.
   permits on one Cell; `cap_to_access(requested, level, scratch_root)` narrows a requested set
   down to what that ceiling allows, so a `READ_ONLY` device can never receive a write capability
   however `requested` is built.
+- **File URLs** (`hivemind.guard.file_urls`, phase 6): `file_url_escapes(url, roots)` says
+  whether a `file://` URL reaches outside the directories a lease lets its browser read (normally
+  just its scratch), comparing lexically the way Chromium canonicalises the URL: backslashes as
+  separators, percent-escapes decoded, dot segments collapsed. A remote, relative or unreadable
+  file URL always escapes; any other scheme never does. `file_url_path` and `is_within` are its
+  two halves. The Worker's browser tool, the Capping gate's allowlist rung and both browsers ask
+  it; the real browser also resolves symlinks before it loads a file.
 - **Errors** (`hivemind.guard.errors`): `GuardError` (root), `InvalidCapabilityError` (a
   capability string does not parse), `CapabilityWideningError` (`attenuate` was asked for
   something wider than the attenuating set allows).

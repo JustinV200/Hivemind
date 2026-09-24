@@ -11,12 +11,20 @@ from hivemind.supervision.capping.checks.base import CheckContext
 from hivemind.supervision.capping.checks.deterministic import (
     CommandAllowlistCheck,
     DiffSizeCapCheck,
+    GuiAllowlistCheck,
     PathAllowlistCheck,
     SchemaCheck,
     deterministic_checks,
 )
 from hivemind.supervision.capping.tiers import RiskTier
-from waggle.messages.capping import ActionKind, CheckKind, CheckOutcome, ProposedAction
+from waggle.messages.capping import (
+    ActionKind,
+    CheckKind,
+    CheckOutcome,
+    GuiOp,
+    GuiStep,
+    ProposedAction,
+)
 
 
 def _context(
@@ -273,3 +281,65 @@ async def test_deterministic_checks_allowlist_entry_runs_both_path_and_command(
     # from the command half -- proving both halves actually ran under the one ALLOWLIST slot.
     assert result.outcome is CheckOutcome.FAILED
     assert "no exec capability" in result.reason
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GuiAllowlistCheck: a file URL must stay inside scratch
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _navigate(url: str) -> ProposedAction:
+    """A GUI proposal's action: one browser navigation to `url`."""
+    return ProposedAction(
+        kind=ActionKind.GUI,
+        summary=f"navigate to {url}",
+        diff=None,
+        diff_sha256=None,
+        command=(),
+        cwd=None,
+        paths=(),
+        steps=(),
+        gui=(GuiStep(op=GuiOp.NAVIGATE, url=url),),
+    )
+
+
+async def test_gui_allowlist_refuses_a_file_url_outside_scratch_whatever_is_granted(
+    tmp_path: Path,
+) -> None:
+    # Arrange: every grant a browser read could plausibly lean on, the disk included.
+    outside = (tmp_path / "elsewhere" / "id_rsa").as_uri()
+    granted = CapabilitySet.parse("exoskeleton:browser", f"fs:read:{tmp_path.as_posix()}/**")
+    context = _context(
+        tmp_path,
+        action=_navigate(outside),
+        capabilities=granted,
+        risk_tier=RiskTier.OUTSIDE_SCRATCH_WRITE,
+    )
+
+    result = await GuiAllowlistCheck().run(context)
+
+    assert result.outcome is CheckOutcome.FAILED
+    assert result.reason == "a file URL outside scratch is never loaded"
+
+
+async def test_gui_allowlist_passes_a_file_url_inside_scratch_with_the_browser_grant(
+    tmp_path: Path,
+) -> None:
+    inside = (tmp_path / "scratch" / "site" / "login.html").as_uri()
+    granted = CapabilitySet.parse("exoskeleton:browser")
+
+    result = await GuiAllowlistCheck().run(
+        _context(tmp_path, action=_navigate(inside), capabilities=granted)
+    )
+
+    assert result.outcome is CheckOutcome.PASSED
+
+
+async def test_the_allowlist_slot_runs_the_file_url_rule_too(tmp_path: Path) -> None:
+    escaping = f"{(tmp_path / 'scratch').as_uri()}/%2E%2E/elsewhere/id_rsa"
+    granted = CapabilitySet.parse("exoskeleton:browser")
+    context = _context(tmp_path, action=_navigate(escaping), capabilities=granted)
+
+    result = await deterministic_checks()[CheckKind.ALLOWLIST].run(context)
+
+    assert result.outcome is CheckOutcome.FAILED

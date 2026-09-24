@@ -126,8 +126,11 @@ class ChromiumSettings:
 class CdpConnector(Protocol):
     """Connect a Browser to the Chromium serving DevTools at `endpoint`."""
 
-    async def __call__(self, endpoint: str) -> Browser:
-        """Connect and return the Browser; raise AttachError when that fails."""
+    async def __call__(self, endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
+        """Connect and return the Browser, loading file URLs only inside `file_roots`.
+
+        Raises AttachError when connecting, or guarding the browser's file access, fails.
+        """
         ...
 
 
@@ -173,7 +176,7 @@ class ChromiumLauncher:
         launched = False
         try:
             port = await self._wait_for_port(session, process, port_file)
-            browser = await connect(f"http://127.0.0.1:{port}")
+            browser = await connect(f"http://127.0.0.1:{port}", request.file_roots)
             launched = True
         finally:
             # Any failure, a cancellation included: the lease must not keep a half-started browser.
@@ -273,9 +276,9 @@ def _playwright_connector(clock: Clock, settings: ChromiumSettings) -> CdpConnec
         navigation_s=settings.navigation_timeout_s, element_s=settings.element_timeout_s
     )
 
-    async def connect(endpoint: str) -> Browser:
+    async def connect(endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
         """Attach Playwright to the browser at `endpoint` (seconds at most; see its timeouts)."""
-        return await driver.connect_browser(endpoint, clock, timeouts)
+        return await driver.connect_browser(endpoint, clock, timeouts, file_roots)
 
     return connect
 

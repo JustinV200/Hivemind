@@ -28,7 +28,7 @@ model call ──> tool ──> GuiStep(s) + expect ──> proposals.cap ──
 | `type` | `text`, `secret?` | TYPE | as `click` |
 | `press` | `keys` ("ctrl+s", "Return") | PRESS | as `click` |
 | `scroll` | `dx?`, `dy?`, `x?`+`y?` | SCROLL | as `click` |
-| `browser_navigate` | `url` (http, https, file, about:blank) | NAVIGATE | the destination: file://, about:blank or a loopback host is `scratch_write`; any other page `network_egress` (and the gate wants `net:<host>`) |
+| `browser_navigate` | `url` (http, https, about:blank, or a file inside scratch) | NAVIGATE | the destination: a file inside the lease's scratch, about:blank or a loopback host is `scratch_write`; any other page `network_egress` (and the gate wants `net:<host>`); a file URL anywhere else is refused before it is proposed |
 | `browser_click` | `target` | BROWSER_CLICK | the page shown now, by the same rule |
 | `browser_fill` | `target`, `text`, `secret?` | BROWSER_FILL | the page shown now |
 | `browser_press` | `keys`, `target?` | BROWSER_PRESS | the page shown now |
@@ -48,8 +48,16 @@ Every action tool also takes `expect` and `irreversible`:
   screen) is refused before anything is proposed.
 - `irreversible: true` raises the tier to `irreversible`, which a judge reviews before the bee's
   next step. The gate's checks may raise a tier; nothing lowers one. A reach the tool cannot
-  establish (an unreadable page URL, a display the lease did not start, a `file://` URL naming a
-  remote host) takes the higher tier.
+  establish (an unreadable page URL, a display the lease did not start, a `file://` URL outside
+  scratch or naming a remote host) takes the higher tier.
+
+A `file://` URL reads the Cell's disk without the path rules `read_file` applies, so the browser
+may open only files inside the lease's scratch (the bee's own pages). Three layers hold that line,
+all asking `hivemind.guard.file_urls` the same lexical question: `browser_navigate` refuses any
+other file URL before proposing it; the gate's allowlist rung refuses one that reaches it anyway
+(it is tiered `outside_scratch_write`, so the rung runs); and the browser itself refuses it, the
+real one through a route that also resolves symlinks and covers links, frames and every other file
+request a page makes (`hivemind.exoskeleton.browser.playwright.guard`).
 
 A `target` names one element exactly one way: `{"role", "name"?}` (preferred: what
 `browser_snapshot` shows), `{"label"}`, `{"text"}` or `{"selector"}`.

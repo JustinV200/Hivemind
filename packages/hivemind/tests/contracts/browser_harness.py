@@ -276,12 +276,18 @@ def _request(scratch: Path) -> BrowserLaunch:
     The sandbox is off for the same reason a composition root turns it off: Chromium's own
     sandbox cannot start as root, nor where unprivileged user namespaces are blocked, which
     covers this suite's containers and CI runners; the flag's handling is unit-tested instead.
+    The file roots are scratch, as attach names them, plus the fixture site's directory, which
+    this harness opens as file:// URLs in place of pages a bee wrote into scratch.
     """
     layout = ScratchLayout.under(scratch)
     for directory in layout.directories():
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     return BrowserLaunch(
-        layout=layout, headed=False, sandbox=False, environment=layout.home_environment()
+        layout=layout,
+        headed=False,
+        sandbox=False,
+        environment=layout.home_environment(),
+        file_roots=(scratch, SITE_DIR),
     )
 
 

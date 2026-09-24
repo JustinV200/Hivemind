@@ -92,4 +92,5 @@ class FakeBrowserLauncher:
             # As the real launcher does: nothing half-started outlives a failed launch.
             await session.stop(process)
             raise AttachError(f"{FAKE_BROWSER_PROGRAM} never became ready (scripted)")
-        return LaunchedBrowser(browser=FakeBrowser(self._site, self._clock), processes=(process,))
+        browser = FakeBrowser(self._site, self._clock, file_roots=request.file_roots)
+        return LaunchedBrowser(browser=browser, processes=(process,))

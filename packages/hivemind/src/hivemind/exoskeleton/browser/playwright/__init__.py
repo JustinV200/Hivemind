@@ -25,10 +25,12 @@ Public API:
     - connect_browser: attach to a lease's Chromium and return a Browser on its page (page).
     - PlaywrightBrowser: the Browser over one Chromium page (page).
     - PlaywrightTimeouts: how long loads, element waits and the attach may take (connect).
+    - FileGuard: the route that keeps every file request inside the lease's roots (guard).
     - redact_field_values: keep password values out of an aria snapshot (page).
 """
 
 from hivemind.exoskeleton.browser.playwright.connect import PlaywrightTimeouts
+from hivemind.exoskeleton.browser.playwright.guard import FileGuard
 from hivemind.exoskeleton.browser.playwright.page import (
     PlaywrightBrowser,
     connect_browser,
@@ -36,6 +38,7 @@ from hivemind.exoskeleton.browser.playwright.page import (
 )
 
 __all__ = [
+    "FileGuard",
     "PlaywrightBrowser",
     "PlaywrightTimeouts",
     "connect_browser",

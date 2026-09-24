@@ -14,6 +14,7 @@ import http.server
 import threading
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
@@ -57,9 +58,9 @@ class _Capture:
     def __init__(self) -> None:
         self.connection: CdpConnection | None = None
 
-    async def __call__(self, endpoint: str) -> Browser:
+    async def __call__(self, endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
         self.connection = await attach_cdp(endpoint, _TIMEOUTS)
-        return PlaywrightBrowser(self.connection, SystemClock(), _TIMEOUTS)
+        return PlaywrightBrowser(self.connection, SystemClock(), _TIMEOUTS, file_roots)
 
 
 @pytest.fixture

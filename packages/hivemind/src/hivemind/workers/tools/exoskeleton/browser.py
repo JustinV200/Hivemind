@@ -6,19 +6,24 @@ browser work: it reads the page with `browser_snapshot` (read-only, `look`) and 
 named by role and name, label, visible text or CSS selector. Each tool here turns one call into
 one typed waggle `GuiStep` and proposes it through `act` (ADR-0032), where the Capping gate applies
 it, verifies the call's `expect`, and rolls the page back (URL, cookies, local storage) and raises
-an Alarm when that fails. The tier comes from the page: one that stays on the Cell (file://,
-about:blank, a loopback host) is `scratch_write`, any other `network_egress`; a navigation takes
-its destination's, every other action the page shown now. Filled text travels only in its step.
+an Alarm when that fails. The tier comes from the page: one that stays in the lease (a file inside
+its scratch, about:blank, a loopback host) is `scratch_write`, any other `network_egress`; a
+navigation takes its destination's, every other action the page shown now. A file URL anywhere
+else on the Cell is refused before it is proposed: a file URL reads the Cell's disk without the
+path rules `read_file` applies, so the browser may open only the bee's own pages in scratch, and
+the gate and the browser itself refuse the rest again. Filled text travels only in its step.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools.exoskeleton`. Offered by
     `offer.exoskeleton_specs` whenever a browser is attached. Calls into `hivemind.exoskeleton`
-    (Browser), `hivemind.llm`, this package's `act` and `arguments`,
+    (Browser), `hivemind.guard` (the file URL rule), `hivemind.llm`, this package's `act`,
+    `arguments` and `errors`,
     `hivemind.workers.tools.registry` and waggle's GUI step models only.
 
 Key invariants:
     - Every call proposes exactly one GUI step; nothing here drives the browser directly (it is
       only read, for the URL that decides the tier).
+    - No navigation to a file URL outside the lease's scratch is ever proposed.
     - A result never contains filled text: it is the gate's outcome, rendered by
       `hivemind.workers.tools.proposals.tool_output`.
 
@@ -31,6 +36,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.exoskeleton import Browser
+from hivemind.guard import file_url_escapes
 from hivemind.llm import JsonObject
 from hivemind.workers.tools.exoskeleton.act import (
     GuiAction,
@@ -48,15 +54,22 @@ from hivemind.workers.tools.exoskeleton.arguments import (
     required_text,
     target_from,
 )
+from hivemind.workers.tools.exoskeleton.errors import GuiArgumentError
 from hivemind.workers.tools.registry import ToolInvocation, ToolOutput, ToolSpec
 from waggle.messages.capping import GuiOp
 
 # The sentence every browser action's description ends with: who applies it, and what follows.
 _GATED = "Proposed through the Capping gate, which applies it and then checks expect."
+# The refusal a file URL outside scratch gets: the rule, and where to go instead.
+_OUTSIDE_SCRATCH = (
+    "url: a file URL may only open a page inside this task's scratch directory; "
+    "read any other file with read_file"
+)
 
 BROWSER_NAVIGATE_DEFINITION = action_definition(
     "browser_navigate",
-    f"Load a URL (http, https, file or about:blank) in this task's browser. {_GATED}",
+    "Load a URL (http, https, about:blank, or a file inside this task's scratch directory) in "
+    f"this task's browser. {_GATED}",
     {"url": {"type": "string"}},
     ("url",),
 )
@@ -111,20 +124,26 @@ async def browser_navigate(invocation: ToolInvocation, arguments: JsonObject) ->
         `net:<host>` capability, which the gate's allowlist rung checks.
 
     Raises:
-        GuiArgumentError: A malformed argument, or a scheme a GUI step may not load.
+        GuiArgumentError: A malformed argument, a scheme a GUI step may not load, or a file URL
+            outside the lease's scratch (or naming another host).
         PeripheralMissingError: No browser is attached.
     """
     _browser(invocation)
     url = required_text(arguments, "url")
+    scratch = invocation.ctx.session.scratch_dir
+    # Refused before any proposal exists: the browser would read a file the lease never lent.
+    if file_url_escapes(url, (scratch,)):
+        raise GuiArgumentError(_OUTSIDE_SCRATCH)
     step = build_step({"op": GuiOp.NAVIGATE, "url": url})
-    return await act(invocation, GuiAction("browser_navigate", (step,), page_reach(url), arguments))
+    reach = page_reach(url, scratch)
+    return await act(invocation, GuiAction("browser_navigate", (step,), reach, arguments))
 
 
 async def browser_click(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput:
     """Propose clicking the element `target` names; see `browser_navigate` for the rest."""
     browser = _browser(invocation)
     step = build_step({"op": GuiOp.BROWSER_CLICK, "target": target_from(arguments.get("target"))})
-    reach = await current_page_reach(browser)
+    reach = await current_page_reach(browser, invocation.ctx.session.scratch_dir)
     return await act(invocation, GuiAction("browser_click", (step,), reach, arguments))
 
 
@@ -138,7 +157,7 @@ async def browser_fill(invocation: ToolInvocation, arguments: JsonObject) -> Too
         "secret": flag(arguments, "secret"),
     }
     step = build_step(fields)
-    reach = await current_page_reach(browser)
+    reach = await current_page_reach(browser, invocation.ctx.session.scratch_dir)
     return await act(invocation, GuiAction("browser_fill", (step,), reach, arguments))
 
 
@@ -149,7 +168,7 @@ async def browser_press(invocation: ToolInvocation, arguments: JsonObject) -> To
     target = None if raw_target is None else target_from(raw_target)
     keys = required_text(arguments, "keys")
     step = build_step({"op": GuiOp.BROWSER_PRESS, "keys": keys, "target": target})
-    reach = await current_page_reach(browser)
+    reach = await current_page_reach(browser, invocation.ctx.session.scratch_dir)
     return await act(invocation, GuiAction("browser_press", (step,), reach, arguments))
 
 

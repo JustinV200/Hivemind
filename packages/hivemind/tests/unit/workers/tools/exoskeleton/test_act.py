@@ -12,6 +12,8 @@ See Also:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from builders.workers import make_assignment, make_context, make_gui_context, proposals_of
 
@@ -32,6 +34,7 @@ from waggle.clock import FakeClock
 from waggle.messages.capping import GuiOp, GuiStep
 
 _SECRET = "tr0ub4dor&3"  # noqa: S105 -- a probe value, never a real credential.
+_SCRATCH = Path("/home/bee/scratch")  # The lease scratch every file URL here is measured against.
 
 
 @pytest.mark.parametrize(
@@ -39,7 +42,7 @@ _SECRET = "tr0ub4dor&3"  # noqa: S105 -- a probe value, never a real credential.
     [
         ("about:blank", RiskTier.SCRATCH_WRITE),
         ("file:///home/bee/scratch/site/login.html", RiskTier.SCRATCH_WRITE),
-        ("file://localhost/site/login.html", RiskTier.SCRATCH_WRITE),
+        ("file://localhost/home/bee/scratch/site/login.html", RiskTier.SCRATCH_WRITE),
         ("http://127.0.0.1:8000/login", RiskTier.SCRATCH_WRITE),
         ("http://127.8.9.10/", RiskTier.SCRATCH_WRITE),
         ("https://localhost:8443/", RiskTier.SCRATCH_WRITE),
@@ -47,13 +50,17 @@ _SECRET = "tr0ub4dor&3"  # noqa: S105 -- a probe value, never a real credential.
         ("http://[::1]:8000/", RiskTier.SCRATCH_WRITE),
         ("https://fixture.test/login", RiskTier.NETWORK_EGRESS),
         ("http://10.0.0.7/", RiskTier.NETWORK_EGRESS),
-        ("file://fileserver/share/page.html", RiskTier.NETWORK_EGRESS),
+        ("file:///home/bee/.ssh/id_rsa", RiskTier.OUTSIDE_SCRATCH_WRITE),
+        ("file:///home/bee/scratch/../.ssh/id_rsa", RiskTier.OUTSIDE_SCRATCH_WRITE),
+        ("file://fileserver/share/page.html", RiskTier.OUTSIDE_SCRATCH_WRITE),
         ("about:config", RiskTier.NETWORK_EGRESS),
         ("chrome://settings", RiskTier.NETWORK_EGRESS),
     ],
 )
-def test_page_reach_keeps_only_pages_on_the_cell_at_scratch_write(url: str, tier: RiskTier) -> None:
-    assert page_reach(url) is tier
+def test_page_reach_keeps_only_pages_in_the_lease_at_scratch_write(
+    url: str, tier: RiskTier
+) -> None:
+    assert page_reach(url, _SCRATCH) is tier
 
 
 @pytest.mark.parametrize(
@@ -77,7 +84,7 @@ async def test_a_page_whose_url_cannot_be_read_is_treated_as_off_the_cell() -> N
     browser = FakeBrowser(login_site(), FakeClock())
     await browser.close()  # Every later read fails, as a crashed browser's would.
 
-    assert await current_page_reach(browser) is RiskTier.NETWORK_EGRESS
+    assert await current_page_reach(browser, _SCRATCH) is RiskTier.NETWORK_EGRESS
 
 
 async def test_act_proposes_one_gui_action_whose_summary_redacts_a_secret() -> None:

@@ -215,6 +215,9 @@ async def _attach_browser(work: _Attaching, *, headed: bool) -> Browser:
         headed=headed,
         sandbox=work.deps.config.browser_sandbox,
         environment=dict(work.environment),
+        # The lease's scratch is the only place a file URL may read from: a bee's own pages live
+        # there, and everything else on the Cell's disk is outside what the lease lent it.
+        file_roots=(work.session.scratch_dir,),
     )
     launched = await launcher.launch(work.session, request)
     work.started.extend(launched.processes)

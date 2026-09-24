@@ -11,20 +11,23 @@ password's. A navigation waits for the document to commit and then to load, so a
 redirects itself on load (a login guard) is followed rather than reported as interrupted; a failed
 navigation waits for the error page Chromium commits a moment after the failure is reported, so it
 cannot overlap (and drop) the next navigation, and a navigation an error page still displaced is
-asked for once more. Checkpoint
-and restore are `.storage`'s; restore then reloads the checkpoint's URL.
+asked for once more. Checkpoint and restore are `.storage`'s; restore then reloads the checkpoint's
+URL. Every file request goes through `.guard.FileGuard`, installed before the first page loads, and
+a navigation to a file URL outside the lease's file roots is refused before it starts.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
     `hivemind.exoskeleton.browser.playwright`. Built by `connect_browser`, which
     `browser.launch.ChromiumLauncher` calls; driven by attach's handle, the Capping gate's GUI
-    surface and the `browser_*` tools. Calls into Playwright, `.calls`, `.connect`, `.storage`,
-    `browser.targets`, `.keys`, `.excerpts`, `.state`, `.base`, `hivemind.exoskeleton.frames`.
+    surface and the `browser_*` tools. Calls into Playwright, `.calls`, `.connect`, `.guard`,
+    `.storage`, `browser.targets`, `.keys`, `.excerpts`, `.files`, `.state`, `.base`,
+    `hivemind.exoskeleton.frames`.
 
 Key invariants:
     - Every Playwright call goes through `PlaywrightCalls.run`: bounded, mapped, refused after
       `close`.
     - `close` only disconnects: the browser process belongs to the lease, and detach stops it.
+    - No file outside the lease's file roots is ever loaded, by a navigation or by the page.
     - Neither `snapshot` nor `element_text` ever returns a password field's value.
 
 See Also:
@@ -38,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any, cast
 
 from playwright.async_api import Error as PlaywrightError
@@ -52,6 +56,7 @@ from hivemind.exoskeleton.browser.excerpts import (
     REDACTED,
     bounded,
 )
+from hivemind.exoskeleton.browser.files import refuse_outside_roots
 from hivemind.exoskeleton.browser.keys import browser_chord
 from hivemind.exoskeleton.browser.playwright.calls import PlaywrightCalls, close_quietly
 from hivemind.exoskeleton.browser.playwright.connect import (
@@ -59,10 +64,11 @@ from hivemind.exoskeleton.browser.playwright.connect import (
     PlaywrightTimeouts,
     attach_cdp,
 )
+from hivemind.exoskeleton.browser.playwright.guard import FileGuard
 from hivemind.exoskeleton.browser.playwright.storage import CheckpointStorage
 from hivemind.exoskeleton.browser.state import BrowserState
 from hivemind.exoskeleton.browser.targets import PERIPHERAL, ambiguity, normalised
-from hivemind.exoskeleton.errors import PeripheralError
+from hivemind.exoskeleton.errors import AttachError, PeripheralError
 from hivemind.exoskeleton.frames import Frame
 from waggle.clock import Clock
 from waggle.messages.capping import ElementTarget
@@ -94,7 +100,10 @@ __all__ = ["MIN_ANYWHERE_CHARS", "PlaywrightBrowser", "connect_browser", "redact
 
 
 async def connect_browser(
-    endpoint: str, clock: Clock, timeouts: PlaywrightTimeouts
+    endpoint: str,
+    clock: Clock,
+    timeouts: PlaywrightTimeouts,
+    file_roots: tuple[Path, ...] = (),
 ) -> PlaywrightBrowser:
     """Attach to the Chromium serving DevTools at `endpoint` and return a Browser on its page.
 
@@ -102,21 +111,37 @@ async def connect_browser(
         endpoint: "http://127.0.0.1:<port>", the port the browser wrote to DevToolsActivePort.
         clock: Stamps every screenshot.
         timeouts: How long attaching, loading and waiting for elements may take.
+        file_roots: The only directories a file URL may load from (`BrowserLaunch.file_roots`);
+            empty refuses every file URL.
 
     Returns:
-        The connected browser, on the page Chromium opened (about:blank).
+        The connected browser, on the page Chromium opened (about:blank), with every file request
+        routed through a `FileGuard` over `file_roots`.
 
     Raises:
-        AttachError: Playwright's driver would not start or the browser could not be attached.
+        AttachError: Playwright's driver would not start, the browser could not be attached, or
+            the file guard could not be installed (the connection is closed first).
     """
-    return PlaywrightBrowser(await attach_cdp(endpoint, timeouts), clock, timeouts)
+    connection = await attach_cdp(endpoint, timeouts)
+    try:
+        # WHY: installed before the bee's first navigation, so no page ever loads unguarded.
+        await FileGuard(file_roots).install(connection.context)
+    except (PlaywrightError, TimeoutError) as error:
+        await close_quietly(connection.browser)
+        await close_quietly(connection.driver)
+        raise AttachError(f"could not guard the browser's file access: {error}") from error
+    return PlaywrightBrowser(connection, clock, timeouts, file_roots)
 
 
 class PlaywrightBrowser:
     """Drive one Chromium page over CDP; see Browser for each operation's contract."""
 
     def __init__(
-        self, connection: CdpConnection, clock: Clock, timeouts: PlaywrightTimeouts
+        self,
+        connection: CdpConnection,
+        clock: Clock,
+        timeouts: PlaywrightTimeouts,
+        file_roots: tuple[Path, ...] = (),
     ) -> None:
         """Wrap an attached page.
 
@@ -124,8 +149,11 @@ class PlaywrightBrowser:
             connection: Playwright's handles on the browser, from `attach_cdp`.
             clock: Stamps every screenshot.
             timeouts: How long each kind of call may take.
+            file_roots: The directories a navigation may open a file URL in; `connect_browser`
+                also routes every other file request through the same roots.
         """
         self._connection = connection
+        self._file_roots = file_roots
         self._page = connection.page
         self._clock = clock
         self._navigation_ms = timeouts.navigation_s * 1e3
@@ -137,6 +165,10 @@ class PlaywrightBrowser:
 
     async def navigate(self, url: str) -> None:
         """Load `url` and wait for it (and any redirect it starts) to load; see Browser."""
+        self._calls.check_open("navigate")
+        # The route would block it too, but only after Chromium committed an error page; refusing
+        # first gives the bee the reason and leaves the page it was on.
+        refuse_outside_roots(url, self._file_roots, "navigate")
         await self._calls.run("navigate", lambda: self._load(url))
 
     async def click(self, target: ElementTarget) -> None:
@@ -182,7 +214,7 @@ class PlaywrightBrowser:
         # Every attached frame's password fields: a snapshot shows an iframe's fields too.
         for frame in self._page.frames:
             if not frame.is_detached():
-                passwords.extend(await self._passwords(frame))
+                passwords.extend(await _passwords(self._calls, frame))
         return bounded(redact_field_values(tree, passwords), MAX_SNAPSHOT_CHARS)
 
     async def element_text(self, target: ElementTarget) -> str | None:
@@ -289,26 +321,11 @@ class PlaywrightBrowser:
                 # Overlapped, not cancelled: let the navigation that overlapped ours land.
                 await self._page.wait_for_load_state("load", timeout=self._navigation_ms)
                 return False
-            await self._settle(landed)
+            await _settle(self._page, landed, self._navigation_ms)
             raise
         finally:
             self._page.remove_listener("framenavigated", on_navigated)
         return True
-
-    async def _settle(self, landed: asyncio.Future[None]) -> None:
-        """Wait, briefly, for a failed load's error page to commit and load; never raise."""
-        # A failure without an error page (a timeout, a closed page) simply runs out the bound.
-        with contextlib.suppress(TimeoutError, PlaywrightError):
-            async with asyncio.timeout(ERROR_PAGE_WAIT_S):
-                await landed
-                await self._page.wait_for_load_state("load", timeout=self._navigation_ms)
-
-    async def _passwords(self, frame: PageFrame) -> list[str]:
-        """Return the non-empty values of one frame's password fields."""
-        values = await self._calls.run("snapshot", lambda: frame.evaluate(_PASSWORDS_JS))
-        if not isinstance(values, list):
-            return []
-        return [value for value in values if isinstance(value, str)]
 
 
 def redact_field_values(snapshot: str, values: Iterable[str]) -> str:
@@ -345,6 +362,23 @@ def redact_field_values(snapshot: str, values: Iterable[str]) -> str:
         if len(form) >= MIN_ANYWHERE_CHARS:
             redacted = redacted.replace(form, REDACTED)
     return redacted
+
+
+async def _settle(page: Page, landed: asyncio.Future[None], navigation_ms: float) -> None:
+    """Wait, briefly, for a failed load's error page to commit and load; never raise."""
+    # A failure without an error page (a timeout, a closed page) simply runs out the bound.
+    with contextlib.suppress(TimeoutError, PlaywrightError):
+        async with asyncio.timeout(ERROR_PAGE_WAIT_S):
+            await landed
+            await page.wait_for_load_state("load", timeout=navigation_ms)
+
+
+async def _passwords(calls: PlaywrightCalls, frame: PageFrame) -> list[str]:
+    """Return the non-empty values of one frame's password fields."""
+    values = await calls.run("snapshot", lambda: frame.evaluate(_PASSWORDS_JS))
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, str)]
 
 
 def _locator(page: Page, target: ElementTarget) -> Locator:

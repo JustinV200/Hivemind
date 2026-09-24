@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -79,7 +80,8 @@ class Browser(Protocol):
             url: Where to go; the caller has already checked the scheme and the network grant.
 
         Raises:
-            PeripheralError: Navigation failed.
+            PeripheralError: Navigation failed, or `url` is a file URL outside the browser's file
+                roots (`BrowserLaunch.file_roots`), which is refused before anything loads.
         """
         ...
 
@@ -207,12 +209,16 @@ class BrowserLaunch:
             the sandbox cannot start under (ADR-0031).
         environment: HOME and the XDG directories (`ScratchLayout.home_environment`), plus the
             display's and sound server's variables when the lease has them.
+        file_roots: The only directories a file URL may load from, a link or a frame's included:
+            the lease's scratch (`hivemind.guard.file_urls`). Empty, the default, refuses every
+            file URL, so a request that names no roots can never read the Cell's disk.
     """
 
     layout: ScratchLayout
     headed: bool
     sandbox: bool
     environment: Mapping[str, str] = field(default_factory=dict)
+    file_roots: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
