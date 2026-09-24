@@ -67,23 +67,57 @@ def test_network_scope_is_withheld_when_the_warden_lacks_it_even_if_needs_asks()
     assert not any(str(cap).startswith("net:") for cap in slice_)
 
 
-def test_exoskeleton_need_grants_device_only_when_the_warden_has_it() -> None:
-    warden_caps_with_device = CapabilitySet.parse(
-        "fs:write:/scratch/**", "fs:read:**", "exec:*", "tool:*", "device:*"
-    )
-    warden_caps_without_device = CapabilitySet.parse(
-        "fs:write:/scratch/**", "fs:read:**", "exec:*", "tool:*"
+_BASE = ("fs:write:/scratch/**", "fs:read:**", "exec:*", "tool:*")
+
+
+def _exoskeleton_scopes(slice_: CapabilitySet) -> set[str]:
+    """The exoskeleton scopes a Worker's slice grants, as strings."""
+    return {str(cap) for cap in slice_ if str(cap).startswith("exoskeleton:")}
+
+
+def test_a_desktop_need_grants_display_and_browser_where_the_warden_has_them() -> None:
+    warden_caps = CapabilitySet.parse(*_BASE, "exoskeleton:display", "exoskeleton:browser")
+
+    slice_ = worker_capabilities(warden_caps, _needs(exoskeleton=True), Path("/scratch"))
+
+    # real_display is asked for too, but this Warden was never granted it, so it is dropped.
+    assert _exoskeleton_scopes(slice_) == {"exoskeleton:display", "exoskeleton:browser"}
+
+
+def test_the_operators_real_display_reaches_a_worker_only_through_its_wardens_grant() -> None:
+    warden_caps = CapabilitySet.parse(*_BASE, "exoskeleton:*")
+
+    slice_ = worker_capabilities(warden_caps, _needs(exoskeleton=True), Path("/scratch"))
+
+    assert "exoskeleton:real_display" in _exoskeleton_scopes(slice_)
+
+
+def test_a_browser_only_need_grants_the_browser_alone() -> None:
+    warden_caps = CapabilitySet.parse(*_BASE, "exoskeleton:*")
+
+    slice_ = worker_capabilities(
+        warden_caps, _needs(exoskeleton=True, browser_only=True), Path("/scratch")
     )
 
-    slice_with = worker_capabilities(
-        warden_caps_with_device, _needs(exoskeleton=True), Path("/scratch")
-    )
-    slice_without = worker_capabilities(
-        warden_caps_without_device, _needs(exoskeleton=True), Path("/scratch")
+    assert _exoskeleton_scopes(slice_) == {"exoskeleton:browser"}
+
+
+def test_an_audio_need_adds_audio() -> None:
+    warden_caps = CapabilitySet.parse(*_BASE, "exoskeleton:*")
+
+    slice_ = worker_capabilities(
+        warden_caps, _needs(exoskeleton=True, audio=True), Path("/scratch")
     )
 
-    assert "device:*" in {str(cap) for cap in slice_with}
-    assert not any(str(cap).startswith("device:") for cap in slice_without)
+    assert "exoskeleton:audio" in _exoskeleton_scopes(slice_)
+
+
+def test_no_exoskeleton_need_grants_no_peripheral_even_to_a_warden_holding_all_of_them() -> None:
+    warden_caps = CapabilitySet.parse(*_BASE, "exoskeleton:*")
+
+    slice_ = worker_capabilities(warden_caps, _needs(), Path("/scratch"))
+
+    assert _exoskeleton_scopes(slice_) == set()
 
 
 def test_a_warden_with_read_only_style_capabilities_yields_no_write_slice() -> None:

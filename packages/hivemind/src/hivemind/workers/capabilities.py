@@ -155,10 +155,21 @@ def _needs_specs(needs: TaskNeeds) -> list[str]:
         needs: The task's TaskNeeds.
 
     Returns:
-        One `net:<scope>` entry per `needs.network_scopes`, plus `device:*` when
-        `needs.exoskeleton` is set; empty when the task asks for neither.
+        One `net:<scope>` entry per `needs.network_scopes`, plus the Exoskeleton peripherals
+        `needs` asks for (roadmap phase 6, ADR-0031): the browser for any Exoskeleton need; a
+        display, and the operator's running display where the Warden itself was granted it, for
+        a desktop need; audio for an audio need. Empty when the task asks for none of these.
     """
     specs = [f"net:{scope}" for scope in needs.network_scopes]
-    if needs.exoskeleton:
-        specs.append("device:*")
+    if not needs.exoskeleton:
+        return specs
+    # A desktop need includes the browser: a page on the desktop is still best driven through
+    # the fast path's accessibility tree.
+    specs.append("exoskeleton:browser")
+    if not needs.browser_only:
+        # real_display is a candidate like any other: worker_capabilities keeps it only where the
+        # Warden holds it, which is only where the Cell's operator allowed it.
+        specs.extend(["exoskeleton:display", "exoskeleton:real_display"])
+    if needs.audio:
+        specs.append("exoskeleton:audio")
     return specs

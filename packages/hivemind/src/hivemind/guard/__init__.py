@@ -28,17 +28,24 @@ See Also:
       policy engine and remaining Capability families this package leaves for later.
 
 Public API:
-    - CapabilityFamily, Capability, CapabilitySet: the capability model (capabilities).
+    - CapabilityFamily, Capability, CapabilitySet, EXOSKELETON_SCOPES: the capability model
+      (capabilities).
     - ceiling_for, cap_to_access: what each AccessLevel permits, as data (access).
     - GuardError, InvalidCapabilityError, CapabilityWideningError: this package's error tree
       (errors).
 """
 
 from hivemind.guard.access import cap_to_access, ceiling_for
-from hivemind.guard.capabilities import Capability, CapabilityFamily, CapabilitySet
+from hivemind.guard.capabilities import (
+    EXOSKELETON_SCOPES,
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+)
 from hivemind.guard.errors import CapabilityWideningError, GuardError, InvalidCapabilityError
 
 __all__ = [
+    "EXOSKELETON_SCOPES",
     "Capability",
     "CapabilityFamily",
     "CapabilitySet",

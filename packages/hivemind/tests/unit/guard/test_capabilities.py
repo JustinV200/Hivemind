@@ -286,3 +286,28 @@ def test_capability_set_json_round_trips() -> None:
     restored = CapabilitySet.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+@pytest.mark.parametrize("scope", ["display", "real_display", "audio", "browser", "*"])
+def test_exoskeleton_capabilities_parse_every_known_peripheral_and_round_trip(scope: str) -> None:
+    capability = Capability.parse(f"exoskeleton:{scope}")
+
+    assert capability.family is CapabilityFamily.EXOSKELETON
+    assert str(capability) == f"exoskeleton:{scope}"
+
+
+@pytest.mark.parametrize("scope", ["screen", "Display", "display,audio", "browser*"])
+def test_an_unknown_exoskeleton_scope_is_refused_rather_than_granting_nothing(scope: str) -> None:
+    with pytest.raises(InvalidCapabilityError):
+        Capability.parse(f"exoskeleton:{scope}")
+
+
+def test_exoskeleton_capabilities_match_exactly_and_the_wildcard_covers_every_peripheral() -> None:
+    display = Capability.parse("exoskeleton:display")
+    everything = Capability.parse("exoskeleton:*")
+
+    assert display.matches(Capability.parse("exoskeleton:display"))
+    # A lease-started display is not the operator's own screen: holding one never grants the other.
+    assert not display.matches(Capability.parse("exoskeleton:real_display"))
+    assert everything.matches(Capability.parse("exoskeleton:real_display"))
+    assert not everything.matches(Capability.parse("device:display"))

@@ -2,12 +2,13 @@
 
 A `Capability` is one grant in one family -- a tool it may call, a path it may read or write, a
 network scope it may reach, a command it may execute, a device it may touch, or a spend ceiling in
-USD -- written as a single string, `"<family>:<scope>"` (`"fs:write:/scratch/**"`,
-`"net:api.example.com"`, `"spend:5.00"`). A `CapabilitySet` is the frozenset of every `Capability`
-one bee currently holds. Phase 3 step 3.13a builds the pure core -- the families a Worker's tools
-and a Cell's access level already need -- and phase 10 step 10.1 extends the family list with the
-Entrance, Honey and Exoskeleton scopes once those subsystems exist; only the families this module
-declares are legal until then.
+USD, or an Exoskeleton peripheral it may drive -- written as a single string, `"<family>:<scope>"`
+(`"fs:write:/scratch/**"`, `"net:api.example.com"`, `"spend:5.00"`, `"exoskeleton:browser"`). A
+`CapabilitySet` is the frozenset of every `Capability` one bee currently holds. Phase 3 step 3.13a
+built the pure core; phase 6 (ADR-0031) adds the `exoskeleton` family, whose four scopes name the
+peripherals of the Exoskeleton (the optional display, input, audio and browser attachment of a
+Cell); phase 10 step 10.1 extends the list with the Entrance and Honey scopes once those
+subsystems exist. Only the families this module declares are legal until then.
 
 Scope grammar, by family (`CapabilityFamily`):
     - `tool`, `fs:read`, `fs:write`, `exec`: a glob pattern. Matched with `fnmatch.fnmatchcase`
@@ -18,6 +19,10 @@ Scope grammar, by family (`CapabilityFamily`):
     - `net`, `device`: an exact string, or a scope ending in `*` that matches any needed scope
       sharing its prefix (`"net:*.example.com"` is written without the trailing `*` convention
       used elsewhere in this grammar -- see `Capability.matches` for the precise rule).
+    - `exoskeleton`: one of `EXOSKELETON_SCOPES` -- `display` (drive a display the lease starts),
+      `real_display` (drive the display already running on the Cell, the operator's own screen),
+      `audio`, `browser` -- or `*`; matched exactly, with `*` covering all four. Any other scope
+      is refused at parse time, so a misspelt grant can never silently grant nothing.
     - `spend`: a non-negative decimal amount in USD, or `*` for no ceiling. A held `spend`
       capability matches a needed one when the held amount is `>=` the needed amount.
 
@@ -62,9 +67,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.guard.errors import CapabilityWideningError, InvalidCapabilityError
 
-__all__ = ["Capability", "CapabilityFamily", "CapabilitySet"]
+__all__ = ["EXOSKELETON_SCOPES", "Capability", "CapabilityFamily", "CapabilitySet"]
 
 _SPEND_WILDCARD = "*"  # A spend scope of "*" means no ceiling: every needed amount satisfies it.
+# The peripherals an exoskeleton capability may name (ADR-0031); "*" covers all four.
+EXOSKELETON_SCOPES = frozenset({"display", "real_display", "audio", "browser"})
 
 
 class CapabilityFamily(Enum):
@@ -79,8 +86,9 @@ class CapabilityFamily(Enum):
     FS_WRITE = "fs:write"  # Writing a path on the Cell's filesystem.
     NET = "net"  # Reaching a network host or scope.
     EXEC = "exec"  # Running a command (argv[0]) in the Cell's session.
-    DEVICE = "device"  # Touching a specific device (Exoskeleton attachment, Swarm node, ...).
+    DEVICE = "device"  # Touching a specific device (a Swarm node, ...).
     SPEND = "spend"  # Spending up to a USD ceiling.
+    EXOSKELETON = "exoskeleton"  # Driving one Exoskeleton peripheral (roadmap phase 6, ADR-0031).
 
 
 class Capability(BaseModel):
@@ -151,7 +159,11 @@ class Capability(BaseModel):
         if self.family is CapabilityFamily.SPEND:
             # A spend ceiling is satisfied when what is held covers what is needed.
             return _spend_amount(self.scope) >= _spend_amount(needed.scope)
-        if self.family in (CapabilityFamily.NET, CapabilityFamily.DEVICE):
+        if self.family in (
+            CapabilityFamily.NET,
+            CapabilityFamily.DEVICE,
+            CapabilityFamily.EXOSKELETON,
+        ):
             # Exact match, or this scope ends in a wildcard that covers the needed scope's prefix.
             return self.scope == needed.scope or (
                 self.scope.endswith("*") and needed.scope.startswith(self.scope[:-1])
@@ -291,10 +303,16 @@ def _validate_scope(family: CapabilityFamily, scope: str, spec: str) -> None:
 
     Raises:
         InvalidCapabilityError: `family` is SPEND and `scope` is neither `*` nor a non-negative
-            number.
+            number, or `family` is EXOSKELETON and `scope` is neither `*` nor a known peripheral.
     """
-    # Only `spend` has a grammar narrower than "any non-empty string"; every other family's scope
-    # is a glob, an exact-or-wildcard string, or a device id, all of which accept any text.
+    # An exoskeleton scope names one of four peripherals; anything else is a typo that would
+    # otherwise grant nothing without anyone noticing (ADR-0031).
+    if family is CapabilityFamily.EXOSKELETON:
+        if scope != "*" and scope not in EXOSKELETON_SCOPES:
+            raise InvalidCapabilityError(spec)
+        return
+    # Only `spend` and `exoskeleton` have a grammar narrower than "any non-empty string"; every
+    # other family's scope is a glob, an exact-or-wildcard string, or a device id.
     if family is not CapabilityFamily.SPEND or scope == _SPEND_WILDCARD:
         return
     try:

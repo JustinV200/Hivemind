@@ -208,7 +208,9 @@ class Warden(TickLoop):
         self._lease = lease
         self._cell = cell
         self._session = await self._deps.source.open_session(lease)
-        self._ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+        # The operator's real-display opt-in rides on the Cell's own report (roadmap step 6.3).
+        allowed = cell.capabilities.real_display_allowed
+        self._ceiling = ceiling_for(lease.access_level, lease.scratch_root, real_display=allowed)
         assert_transition(self._state, WardenState.ACTIVE, warden_id=self._warden_id)
         self._state = WardenState.ACTIVE
         await _record_event(self, "warden.started")

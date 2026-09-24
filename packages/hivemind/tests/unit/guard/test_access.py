@@ -190,3 +190,27 @@ def test_cap_to_access_never_exceeds_the_ceiling(
     granted = cap_to_access(requested, level, _SCRATCH_ROOT)
 
     assert granted.issubset(ceiling_for(level, _SCRATCH_ROOT))
+
+
+def _peripherals(level: AccessLevel, *, real_display: bool = False) -> set[str]:
+    """The exoskeleton scopes the ceiling for `level` grants."""
+    ceiling = ceiling_for(level, Path("/scratch"), real_display=real_display)
+    return {str(cap) for cap in ceiling if cap.family is CapabilityFamily.EXOSKELETON}
+
+
+def test_exoskeleton_peripherals_by_access_level() -> None:
+    assert _peripherals(AccessLevel.READ_ONLY) == set()
+    # The browser keeps its profile in scratch; a display or sound server reaches outside it.
+    assert _peripherals(AccessLevel.SCRATCH) == {"exoskeleton:browser"}
+    assert _peripherals(AccessLevel.FULL) == {
+        "exoskeleton:browser",
+        "exoskeleton:display",
+        "exoskeleton:audio",
+    }
+
+
+def test_the_operators_real_display_is_granted_only_at_full_and_only_when_allowed() -> None:
+    assert "exoskeleton:real_display" not in _peripherals(AccessLevel.FULL)
+    assert "exoskeleton:real_display" in _peripherals(AccessLevel.FULL, real_display=True)
+    for level in (AccessLevel.READ_ONLY, AccessLevel.SCRATCH):
+        assert "exoskeleton:real_display" not in _peripherals(level, real_display=True)

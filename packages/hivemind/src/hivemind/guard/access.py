@@ -41,10 +41,29 @@ from pathlib import Path
 from hivemind.cell.tiers import AccessLevel
 from hivemind.guard.capabilities import CapabilitySet
 
+# SCRATCH adds commands and tools, since Capping still gates their effects, and the browser fast
+# path, which keeps its profile and home inside the lease's scratch (ADR-0031); a display or a
+# sound server touches the host outside scratch, so neither is here.
+_SCRATCH_EXTRAS = ("exec:*", "tool:*", "exoskeleton:browser")
+# FULL unlocks writes outside scratch, network, device, spend, and the lease's own display and
+# sound server. `exoskeleton:real_display` (the operator's own screen) is deliberately in no
+# level's list: it is issued only where a Cell's capability report says the operator allowed it
+# (codingrules section 15, "never issued implicitly").
+_FULL_EXTRAS = (
+    "fs:write:**",
+    "net:*",
+    "device:*",
+    "spend:*",
+    "exoskeleton:display",
+    "exoskeleton:audio",
+)
+
 __all__ = ["cap_to_access", "ceiling_for"]
 
 
-def ceiling_for(level: AccessLevel, scratch_root: Path) -> CapabilitySet:
+def ceiling_for(
+    level: AccessLevel, scratch_root: Path, *, real_display: bool = False
+) -> CapabilitySet:
     """Build the widest CapabilitySet an AccessLevel ever permits on one Cell.
 
     The three levels nest (READ_ONLY < SCRATCH < FULL, `AccessLevel.rank`): each ceiling below
@@ -54,6 +73,9 @@ def ceiling_for(level: AccessLevel, scratch_root: Path) -> CapabilitySet:
         level: The Real Cell's access level (Virtual Cells are always FULL).
         scratch_root: The lease's scratch directory. Only used to build the SCRATCH/FULL
             `fs:write` scope; READ_ONLY never reads it.
+        real_display: Whether the Cell's operator allowed the Hive to drive the display
+            already running there (`CellCapabilities.real_display_allowed`, roadmap step 6.3).
+            Adds `exoskeleton:real_display` at FULL only; ignored below FULL, and never implied.
 
     Returns:
         The CapabilitySet no capability set issued for a Cell at `level` may exceed.
@@ -68,14 +90,16 @@ def ceiling_for(level: AccessLevel, scratch_root: Path) -> CapabilitySet:
     # "Writes stay inside the lease's own scratch directory"); commands and tools may run, since
     # Capping (supervision.capping) still gates their effects before anything lands.
     specs.append(_scratch_write_scope(scratch_root))
-    specs.append("exec:*")
-    specs.append("tool:*")
+    specs.extend(_SCRATCH_EXTRAS)
     if level is AccessLevel.SCRATCH:
         return CapabilitySet.parse(*specs)
 
-    # FULL: "the whole Cell is reachable, within the Cell's other controls" (codingrules 8.7),
-    # so writes are no longer confined to scratch, and network, device and spend are unlocked.
-    specs.extend(["fs:write:**", "net:*", "device:*", "spend:*"])
+    # FULL: "the whole Cell is reachable, within the Cell's other controls" (codingrules 8.7).
+    specs.extend(_FULL_EXTRAS)
+    if real_display:
+        # The operator's own opt-in for this Cell, and only at FULL: driving someone's screen
+        # reaches far outside any lease's scratch.
+        specs.append("exoskeleton:real_display")
     return CapabilitySet.parse(*specs)
 
 
