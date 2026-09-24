@@ -131,6 +131,34 @@ async def test_run_tool_loop_sums_usage_across_rounds() -> None:
     assert result.usage == Usage(input_tokens=30, output_tokens=3)
 
 
+@pytest.mark.parametrize(
+    "capabilities",
+    [ProviderCapabilities.full(), ProviderCapabilities.none()],
+    ids=["native", "prompted"],
+)
+async def test_run_tool_loop_sums_cost_across_priced_rounds(
+    capabilities: ProviderCapabilities,
+) -> None:
+    provider = FakeLLMProvider(capabilities=capabilities)
+    fenced = '```tool\n{"name": "lookup", "arguments": {"query": "bees"}}\n```'
+    first = (
+        tool_call_response(make_tool_call(name="lookup", arguments={"query": "bees"}))
+        if capabilities.native_tool_calls
+        else text_response(fenced)
+    )
+    provider.script(
+        first.model_copy(update={"usage": Usage(input_tokens=10, output_tokens=1, cost_usd=0.25)}),
+        text_response("done", usage=Usage(input_tokens=20, output_tokens=2, cost_usd=0.5)),
+    )
+
+    result = await run_tool_loop(
+        make_bound(provider=provider), make_request(), (_TOOL,), _RecordingExecutor()
+    )
+
+    # Summed from Usage.zero(): an unpriced starting total would have dropped the cost.
+    assert result.usage.cost_usd == 0.75
+
+
 async def test_run_tool_loop_raises_refused_error_on_a_refusal_stop_reason() -> None:
     provider = FakeLLMProvider(capabilities=ProviderCapabilities.full())
     provider.script(text_response("no.", stop=StopReason.REFUSAL))

@@ -266,6 +266,15 @@ class Usage(BaseModel):
         "price for the model that served it.",
     )
 
+    @classmethod
+    def zero(cls) -> Usage:
+        """Return the Usage of no calls at all: where every running total starts.
+
+        Priced at exactly 0.0, not None: `__add__` keeps a total unpriced once any addend is, so
+        a total that started unpriced could never carry a cost, however priced its calls were.
+        """
+        return cls(input_tokens=0, output_tokens=0, cost_usd=0.0)
+
     def __add__(self, other: Usage) -> Usage:
         """Sum two Usages: token counts add; cost is None if either addend's cost is None.
 

@@ -14,7 +14,13 @@ import pytest
 from builders.llm import make_bound, make_tool_call
 from builders.workers import make_assignment, make_context
 
-from hivemind.llm import FakeLLMProvider, ProviderCapabilities, text_response, tool_call_response
+from hivemind.llm import (
+    FakeLLMProvider,
+    ProviderCapabilities,
+    Usage,
+    text_response,
+    tool_call_response,
+)
 from hivemind.llm.errors import ContextTooLongError
 from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
 from hivemind.pheromone import TrailQuery
@@ -67,6 +73,23 @@ async def test_drone_happy_path_records_capping_events_on_the_trail() -> None:
     events = await ctx.trail.query(TrailQuery(family="capping", limit=100))
     assert events  # at least capping.proposed/checked/capped/applied/verified were recorded
     assert any(event.kind == "capping.verified" for event in events)
+
+
+async def test_drone_outcome_and_telemetry_carry_what_its_priced_rounds_cost() -> None:
+    provider = FakeLLMProvider()
+    ctx = make_context(bound=make_bound(provider=provider))
+    call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
+    provider.script(
+        tool_call_response(call).model_copy(
+            update={"usage": Usage(input_tokens=10, output_tokens=1, cost_usd=0.25)}
+        ),
+        text_response("Done.", usage=Usage(input_tokens=20, output_tokens=2, cost_usd=0.5)),
+    )
+
+    outcome = await Drone().run(ctx, make_assignment(), resume_from=None)
+
+    assert outcome.spend_usd == 0.75
+    assert ctx.telemetry.snapshot().spend == 0.75
 
 
 async def test_drone_completes_via_the_prompted_rung_at_zero_capabilities() -> None:

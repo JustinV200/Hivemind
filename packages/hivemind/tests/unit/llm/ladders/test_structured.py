@@ -207,6 +207,21 @@ async def test_complete_structured_sums_usage_across_retries() -> None:
     assert result.usage == Usage(input_tokens=30, output_tokens=3)
 
 
+async def test_complete_structured_sums_cost_across_priced_retries() -> None:
+    provider = _native()
+    provider.script(
+        text_response("bad", usage=Usage(input_tokens=10, output_tokens=1, cost_usd=0.25)),
+        text_response(
+            '{"choice": "a"}', usage=Usage(input_tokens=2, output_tokens=2, cost_usd=0.5)
+        ),
+    )
+    bound = make_bound(provider=provider)
+
+    result = await complete_structured(bound, make_request(), _Decision)
+
+    assert result.usage.cost_usd == 0.75  # Summed from Usage.zero(), priced at 0.0.
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Step-down
 # ──────────────────────────────────────────────────────────────────────────────

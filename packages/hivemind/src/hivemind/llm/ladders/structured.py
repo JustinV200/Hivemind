@@ -240,7 +240,7 @@ async def _run_ladder[ModelT: BaseModel](
     attempts = 0
     correction: str | None = None
     last_raw = ""
-    total_usage = Usage(input_tokens=0, output_tokens=0)
+    total_usage = Usage.zero()  # Priced at 0.0, so priced attempts sum to a cost (Usage.zero).
     while True:
         for _ in range(_retry_budget(rung) + 1):
             attempt_request = _build_request_for_rung(request, rung, schema, correction)

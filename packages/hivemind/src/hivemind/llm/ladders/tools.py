@@ -225,7 +225,7 @@ async def _native_protocol(
     forbids anyway.
     """
     conversation = request.messages
-    usage = Usage(input_tokens=0, output_tokens=0)
+    usage = Usage.zero()  # Priced at 0.0, so priced rounds sum to a cost (Usage.zero).
     calls: list[ToolCall] = []
     parallel = state.current.provider.capabilities.parallel_tool_calls
     round_number = 0
@@ -262,7 +262,7 @@ async def _prompted_protocol(
     """
     preamble = Message.text(Role.USER, render_tool_preamble(state.tools))
     conversation = (*request.messages, preamble)
-    usage = Usage(input_tokens=0, output_tokens=0)
+    usage = Usage.zero()  # Priced at 0.0, so priced rounds sum to a cost (Usage.zero).
     calls: list[ToolCall] = []
     call_counter = 0
     round_number = 0

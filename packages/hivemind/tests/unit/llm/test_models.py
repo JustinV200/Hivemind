@@ -230,6 +230,19 @@ def test_usage_add_is_none_aware_on_cost() -> None:
     assert total.input_tokens == 13
 
 
+def test_usage_zero_is_priced_so_a_sum_of_priced_calls_keeps_its_cost() -> None:
+    total = Usage.zero() + Usage(input_tokens=10, output_tokens=5, cost_usd=0.25)
+
+    assert total == Usage(input_tokens=10, output_tokens=5, cost_usd=0.25)
+
+
+def test_usage_zero_still_yields_an_unpriced_sum_for_an_unpriced_call() -> None:
+    total = Usage.zero() + Usage(input_tokens=3, output_tokens=1)
+
+    assert total.cost_usd is None
+    assert total.input_tokens == 3
+
+
 def test_usage_round_trips_through_json() -> None:
     usage = Usage(input_tokens=10, output_tokens=5, cached_tokens=1, cost_usd=0.5)
 

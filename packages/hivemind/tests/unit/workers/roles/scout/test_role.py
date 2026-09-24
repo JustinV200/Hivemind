@@ -17,7 +17,7 @@ from pathlib import Path
 from builders.llm import make_bound, make_tool_call
 from builders.workers import make_assignment, make_context
 
-from hivemind.llm import FakeLLMProvider, tool_call_response
+from hivemind.llm import FakeLLMProvider, Usage, tool_call_response
 from hivemind.workers.roles.scout import Scout
 from waggle.clock import FakeClock
 from waggle.messages.task import SCOUT_REPORT_FILE, WorkerRole
@@ -51,6 +51,30 @@ async def test_scout_happy_path_files_a_report_and_ends_the_loop_at_once() -> No
     # Written through the same capped path write_file uses, so acceptance's FILE_EXISTS holds.
     data = await ctx.session.get_file(Path(SCOUT_REPORT_FILE))
     assert b"username field" in data
+
+
+async def test_scout_report_records_what_it_spent_though_its_loop_never_finished() -> None:
+    clock = FakeClock()
+    provider = FakeLLMProvider()
+    ctx = make_context(clock=clock, bound=make_bound(provider=provider))
+    assignment = make_assignment(clock=clock, role=WorkerRole.SCOUT)
+    report = make_tool_call(
+        name="report_findings",
+        arguments={
+            "feasible": True,
+            "summary": "A plain login form.",
+            "targets": ["https://fixture.test/login"],
+            "suggested_steps": ["Log in"],
+        },
+    )
+    priced = Usage(input_tokens=40, output_tokens=8, cost_usd=0.25)
+    provider.script(tool_call_response(report).model_copy(update={"usage": priced}))
+
+    outcome = await Scout().run(ctx, assignment, resume_from=None)
+
+    # report_findings ended the loop before run_tool_loop could sum it; the gate's tally did.
+    assert outcome.spend_usd == 0.25
+    assert ctx.telemetry.snapshot().tokens_used == 48
 
 
 async def test_scout_falls_back_to_an_infeasible_report_when_rounds_run_out() -> None:

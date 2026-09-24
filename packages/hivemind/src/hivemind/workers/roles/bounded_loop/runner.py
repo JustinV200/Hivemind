@@ -16,7 +16,8 @@ uncaught, exactly like any other role bug. Two ways an attempt ends early instea
 loop: `HandoffRequestedError` (this attempt's own telemetry crossed the handoff threshold) becomes
 a `claimed=False` outcome carrying a Handoff; `LoopStoppedError` (a tool, the Scout's
 `report_findings`, ended the loop itself with an already-built outcome) is returned with this
-attempt's own telemetry spend overlaid on it.
+attempt's own telemetry spend overlaid on it, after `_UsageTally` (the gate every call of the
+attempt goes through) records what the unfinished loop never got to sum.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Called once
@@ -42,9 +43,19 @@ See Also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from hivemind.llm import ToolLoopOptions, ToolLoopResult, TrailLadderObserver, run_tool_loop
+from hivemind.llm import (
+    BoundModel,
+    CallGate,
+    LLMRequest,
+    LLMResponse,
+    ToolLoopOptions,
+    ToolLoopResult,
+    TrailLadderObserver,
+    Usage,
+    run_tool_loop,
+)
 from hivemind.memory import Handoff, TokenBudget, run_with_overflow_retry
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
@@ -68,6 +79,25 @@ from waggle.messages.task import TaskAssign
 __all__ = ["run_bounded_loop"]
 
 
+@dataclass(slots=True)
+class _UsageTally:
+    """Pass each of an attempt's calls to `gate`, keeping a running total of their Usage.
+
+    `run_tool_loop` hands back its summed Usage only once the loop finishes; a tool that ends the
+    loop itself (`LoopStoppedError`) leaves no ToolLoopResult behind, so without this tally the
+    Scout's every report would record neither its tokens nor its spend.
+    """
+
+    gate: CallGate
+    usage: Usage = field(default_factory=Usage.zero)
+
+    async def complete(self, bound: BoundModel, request: LLMRequest) -> LLMResponse:
+        """Make the call through `gate`, then add its Usage to the total; see `CallGate`."""
+        response = await self.gate.complete(bound, request)
+        self.usage = self.usage + response.usage
+        return response
+
+
 @dataclass(frozen=True, slots=True)
 class _Attempt:
     """One attempt's fixed collaborators, built once by `_build_attempt` (module docstring)."""
@@ -79,6 +109,7 @@ class _Attempt:
     sources: RoleSources
     executor: LoopExecutor
     options: ToolLoopOptions
+    tally: _UsageTally
 
 
 async def run_bounded_loop(
@@ -118,11 +149,13 @@ async def run_bounded_loop(
         # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it.
         return await build_handoff_outcome(ctx, assignment, attempt.executor)
     except LoopStoppedError as stopped:
-        # A tool (the Scout's report_findings) already built the outcome; overlay this attempt's
-        # own telemetry spend the same way build_handoff_outcome does, so a raiser never has to
-        # read ctx.telemetry itself (LoopStoppedError's own docstring).
+        # A tool (the Scout's report_findings) already built the outcome, and ended the loop
+        # before it could sum its usage: record the gate's tally instead, then overlay this
+        # attempt's own telemetry spend the same way build_handoff_outcome does, so a raiser
+        # never has to read ctx.telemetry itself (LoopStoppedError's own docstring).
+        _record_usage(ctx, attempt.tally.usage)
         return stopped.outcome.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
-    _record_usage(ctx, result)
+    _record_usage(ctx, result.usage)
     artifacts = await collect_artifacts(ctx, attempt.executor.records)
     return build_claimed_outcome(assignment, result, artifacts)
 
@@ -140,8 +173,9 @@ def _build_attempt(
     observer = TrailLadderObserver(
         ctx.trail, ctx.identity.hive_id, ctx.identity.node_id, ctx.identity.actor, ctx.clock
     )
-    options = ToolLoopOptions(max_rounds=profile.max_rounds, gate=ctx.call_gate, observer=observer)
-    return _Attempt(ctx, assignment, profile, registry, sources, executor, options)
+    tally = _UsageTally(ctx.call_gate)  # Every call still goes through ctx.call_gate itself.
+    options = ToolLoopOptions(max_rounds=profile.max_rounds, gate=tally, observer=observer)
+    return _Attempt(ctx, assignment, profile, registry, sources, executor, options, tally)
 
 
 async def _run_once(attempt: _Attempt, budget: TokenBudget) -> ToolLoopResult:
@@ -154,13 +188,13 @@ async def _run_once(attempt: _Attempt, budget: TokenBudget) -> ToolLoopResult:
     return await run_tool_loop(attempt.ctx.bound, request, tools, attempt.executor, attempt.options)
 
 
-def _record_usage(ctx: WorkerContext, result: ToolLoopResult) -> None:
+def _record_usage(ctx: WorkerContext, usage: Usage) -> None:
     """Record this attempt's aggregated tokens and spend on telemetry, once, after the loop ends.
 
-    `hivemind.llm.run_tool_loop` exposes no per-round hook a caller could record from between
-    turns, so this records the loop's one summed `Usage` instead of one entry per round.
+    One summed `Usage`, not one entry per round: the loop's own total when it finished, or
+    `_UsageTally`'s when a tool ended it early.
     """
-    used = result.usage.input_tokens + result.usage.output_tokens
+    used = usage.input_tokens + usage.output_tokens
     ctx.telemetry.record_tokens(used, ctx.bound.context_window)
-    if result.usage.cost_usd is not None:
-        ctx.telemetry.add_spend(result.usage.cost_usd)
+    if usage.cost_usd is not None:
+        ctx.telemetry.add_spend(usage.cost_usd)
