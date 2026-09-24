@@ -19,6 +19,8 @@ import itertools
 import pytest
 
 from hivemind.entrance.enrol.state import (
+    APPROVED_TRAIL_KIND,
+    ENTRY_TRAIL_KINDS,
     INVITED_TRAIL_KIND,
     TERMINAL_STATUSES,
     TRANSITIONS,
@@ -92,8 +94,16 @@ def test_a_device_record_is_created_with_the_invited_kind() -> None:
     assert INVITED_TRAIL_KIND == "guard.entrance_invited"
 
 
+def test_the_two_entries_are_an_invite_and_the_consoles_approval() -> None:
+    assert dict(ENTRY_TRAIL_KINDS) == {
+        _S.INVITED: "guard.entrance_invited",
+        _S.APPROVED: "guard.entrance_approved",
+    }
+    assert trail_kind(_S.PENDING, _S.APPROVED) == APPROVED_TRAIL_KIND
+
+
 def test_every_kind_the_machine_records_is_declared_by_the_guard_event_family() -> None:
-    kinds = {INVITED_TRAIL_KIND} | {
+    kinds = set(ENTRY_TRAIL_KINDS.values()) | {
         kind for targets in TRANSITIONS.values() for kind in targets.values()
     }
 

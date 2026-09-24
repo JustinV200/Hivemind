@@ -13,15 +13,17 @@ makes.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol``. Read by the
-    Entrance tables (``hivemind.entrance.store``) before every status change and, later, by the
-    enrolment, lockout and revocation routes for the event kind each change records. Calls into
-    ``hivemind.entrance.errors`` only.
+    Entrance tables (``hivemind.entrance.store``) before every status change, and by the
+    enrolment flows (``hivemind.entrance.enrol.record`` and the console bootstrap) for the event
+    kind each change records. Calls into ``hivemind.entrance.errors`` only.
 
 Key invariants:
     - ``TRANSITIONS`` has exactly one entry per ``DeviceStatus``; the terminal statuses (DENIED,
       EXPIRED, REVOKED) map to no edges, so a device that leaves for good never comes back.
     - Every edge names its ``guard.entrance_*`` trail kind: the new status lowercased, except
       LOCKED to APPROVED, which is ``guard.entrance_unlocked``.
+    - ``ENTRY_TRAIL_KINDS`` names the kind of each of the two entries: ``guard.entrance_invited``
+      for a minted invite, ``guard.entrance_approved`` for the console's bootstrap.
     - Approval, denial, unlock and revocation are loopback-only decisions (Appendix C, ADR-0033);
       the routes enforce that, and the table records it in the edge comments.
     - The trail kinds are referenced as strings: the ``guard`` event family that declares them is
@@ -41,8 +43,11 @@ from enum import Enum
 from hivemind.entrance.errors import InvalidDeviceTransitionError
 
 INVITED_TRAIL_KIND = "guard.entrance_invited"  # Recorded when a device record is first created.
+APPROVED_TRAIL_KIND = "guard.entrance_approved"  # An approval, or the console's own entry.
 
 __all__ = [
+    "APPROVED_TRAIL_KIND",
+    "ENTRY_TRAIL_KINDS",
     "INVITED_TRAIL_KIND",
     "TERMINAL_STATUSES",
     "TRANSITIONS",
@@ -86,7 +91,7 @@ TRANSITIONS: Mapping[DeviceStatus, Mapping[DeviceStatus, str]] = {
     DeviceStatus.PENDING: {
         # The operator approved it on loopback (or a steward device after full step-up),
         # binding name, capabilities, spend cap, expiry and interactivity.
-        DeviceStatus.APPROVED: "guard.entrance_approved",
+        DeviceStatus.APPROVED: APPROVED_TRAIL_KIND,
         # The operator refused it on loopback.
         DeviceStatus.DENIED: "guard.entrance_denied",
         # Nobody decided within pending_ttl_hours; the expiry sweep takes this edge.
@@ -112,6 +117,15 @@ TRANSITIONS: Mapping[DeviceStatus, Mapping[DeviceStatus, str]] = {
     DeviceStatus.DENIED: {},  # Terminal: a denied device enrols again only with a new invite.
     DeviceStatus.EXPIRED: {},  # Terminal: an expired device enrols again only with a new invite.
     DeviceStatus.REVOKED: {},  # Terminal: a revoked device enrols again only with a new invite.
+}
+
+# The two ways into the machine and the kind each creation is recorded as: a device enters
+# INVITED when an invite is minted on loopback, and only the loopback-bound console enters
+# APPROVED, recorded as approved by the operator bootstrap (hivemind.entrance.store.protocol.
+# check_new_device refuses every other entry).
+ENTRY_TRAIL_KINDS: Mapping[DeviceStatus, str] = {
+    DeviceStatus.INVITED: INVITED_TRAIL_KIND,
+    DeviceStatus.APPROVED: APPROVED_TRAIL_KIND,
 }
 
 

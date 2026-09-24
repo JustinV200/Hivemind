@@ -7,21 +7,25 @@ door) state moves with the other stores on Supersedure (moving the Hive Stand, t
 elsewhere). Every operation is one hop to the store's own ``ConnectionThread`` (codingrules section
 11); every write runs in one ``BEGIN IMMEDIATE`` transaction that re-reads the row it guards,
 applies the protocol's rule (``check_new_device``, ``transition_device``, ``use_invite``) and writes
-the result, so the state machine and the single-use rule see the row as it is, even against another
-process writing the same file.
+the result together with its ``guard.entrance_*`` event (``hivemind.pheromone.insert_event``, on
+this store's own connection to the same file), so the state machine and the single-use rule see the
+row as it is, even against another process writing the same file, and the state change and its
+Pheromone Trail (audit log) event commit together or not at all (codingrules Appendix C).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store``. Constructed by
     a composition root (the Entrance app, a CLI command) once the manifest names the database.
     Calls into ``hivemind.common`` (connect, transaction, migrations, the connection thread),
-    ``hivemind.entrance.enrol`` and ``hivemind.entrance.errors``.
+    ``hivemind.entrance.enrol``, ``hivemind.entrance.errors`` and ``hivemind.pheromone``
+    (``insert_event``).
 
 Key invariants:
     - Every SQLite call runs on this store's ConnectionThread, serialised by its own lock.
     - A row's ``body`` (the record's JSON) is the source of truth; ``status`` and ``created_at``
       are copies kept for filtering and ordering, written in the same statement as the body.
-    - The store needs no Pheromone Trail table yet: it writes no events until the behaviour half
-      of roadmap 10.5d adds them (``hivemind.entrance.store.protocol``'s docstring).
+    - The database already holds the Pheromone Trail's ``pheromone_events`` table: ``create``
+      refuses a file without it, because every entry and status change writes its event there in
+      the same transaction.
 
 See Also:
     - hivemind.cell.leavings.store_sqlite and hivemind.brood_chamber.store.sqlite for the pattern.
@@ -36,6 +40,7 @@ import sqlite3
 from datetime import datetime
 from typing import Unpack
 
+from hivemind.common.errors import MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.entrance.enrol.models import DeviceInvite, EnrolledDevice, OperatorCredential
@@ -50,9 +55,11 @@ from hivemind.entrance.errors import (
 from hivemind.entrance.store.protocol import (
     DeviceChanges,
     check_new_device,
+    check_status_change,
     transition_device,
     use_invite,
 )
+from hivemind.pheromone import GuardEvent, insert_event
 from waggle.clock import Clock
 from waggle.ids import DeviceId
 
@@ -60,6 +67,11 @@ SUBSYSTEM = "entrance"  # Keys this store's rows in the shared schema_migrations
 # The dotted package importlib.resources reads the numbered .sql files from; a string, not an
 # import, so this module has no import-time dependency on that package.
 MIGRATIONS_PACKAGE = "hivemind.entrance.store.migrations"
+# create()'s loud-failure check: every write here also writes its trail event, so the Pheromone
+# Trail's own table must exist in this file before the Entrance's tables are created.
+_PHEROMONE_TABLE_CHECK_SQL = (
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pheromone_events'"
+)
 
 _SELECT_OPERATOR_SQL = "SELECT password_hash, created_at, changed_at FROM entrance_operator"
 _UPSERT_OPERATOR_SQL = """
@@ -119,16 +131,28 @@ class SqliteEntranceStore:
 
     @classmethod
     async def create(cls, connection: sqlite3.Connection, clock: Clock) -> SqliteEntranceStore:
-        """Apply the Entrance's migrations on ``connection`` and wrap it.
+        """Check for the Pheromone Trail's table, apply the Entrance's migrations, and wrap.
 
         Args:
             connection: An open connection from ``hivemind.common.sqlite.connect``, normally to
-                the manifest's resolved ``[hive] db``.
+                the manifest's resolved ``[hive] db``. A composition root applies the Pheromone
+                Trail's migrations to the same file first (``SqlitePheromoneTrail.create``).
             clock: Stamps migration records.
 
         Returns:
             A store whose tables exist and are current.
+
+        Raises:
+            MigrationError: The file has no ``pheromone_events`` table yet, so no change could
+                be recorded with its event.
         """
+        # Blocking, sub-millisecond: one lookup in sqlite_master.
+        if not await asyncio.to_thread(_pheromone_table_exists, connection):
+            raise MigrationError(
+                "cannot apply entrance migrations: no pheromone_events table on this connection; "
+                "run hivemind.pheromone.apply_pheromone_migrations (or SqlitePheromoneTrail."
+                "create) on this database file first."
+            )
         # Blocking: at most one transaction per pending migration, usually none once current.
         await asyncio.to_thread(apply_entrance_migrations, connection, clock)
         return cls(connection)
@@ -152,12 +176,12 @@ class SqliteEntranceStore:
             # Blocking: one read and one upsert in one transaction.
             await self._thread.run(_set_operator, self._connection, password_hash, at)
 
-    async def put_device(self, device: EnrolledDevice) -> None:
-        """Record a new device at its entry; see EntranceStore.put_device."""
-        check_new_device(device)
+    async def put_device(self, device: EnrolledDevice, event: GuardEvent) -> None:
+        """Record a new device and its entry event; see EntranceStore.put_device."""
+        check_new_device(device, event)
         async with self._lock:
-            # Blocking: one existence check and one insert in one transaction.
-            await self._thread.run(_insert_device, self._connection, device)
+            # Blocking: one existence check, one insert and one event insert, one transaction.
+            await self._thread.run(_insert_device, self._connection, device, event)
 
     async def get_device(self, device_id: DeviceId) -> EnrolledDevice:
         """Return one device; see EntranceStore.get_device."""
@@ -186,13 +210,15 @@ class SqliteEntranceStore:
         device_id: DeviceId,
         expected: DeviceStatus,
         new: DeviceStatus,
+        event: GuardEvent,
         **changes: Unpack[DeviceChanges],
     ) -> EnrolledDevice:
         """Move a device along the state machine; see EntranceStore.update_device_status."""
+        check_status_change(device_id, expected, new, event)
         async with self._lock:
-            # Blocking: one read and one write in one transaction.
+            # Blocking: one read, one write and one event insert in one transaction.
             return await self._thread.run(
-                _transition, self._connection, device_id, expected, new, changes
+                _transition, self._connection, device_id, (expected, new), changes, event
             )
 
     async def put_invite(self, invite: DeviceInvite) -> None:
@@ -212,11 +238,19 @@ class SqliteEntranceStore:
             raise InviteNotFoundError(code_hash)
         return DeviceInvite.model_validate_json(row["body"])
 
-    async def mark_invite_used(self, code_hash: str, used_at: datetime) -> DeviceInvite:
-        """Spend an invite once; see EntranceStore.mark_invite_used."""
+    async def redeem_invite(
+        self,
+        code_hash: str,
+        used_at: datetime,
+        event: GuardEvent,
+        **changes: Unpack[DeviceChanges],
+    ) -> EnrolledDevice:
+        """Spend an invite and move its device to PENDING; see EntranceStore.redeem_invite."""
         async with self._lock:
-            # Blocking: one read and one write in one transaction.
-            return await self._thread.run(_use_invite, self._connection, code_hash, used_at)
+            # Blocking: two reads, two writes and one event insert in one transaction.
+            return await self._thread.run(
+                _redeem, self._connection, code_hash, used_at, changes, event
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -259,8 +293,15 @@ def _set_operator(connection: sqlite3.Connection, password_hash: str, at: dateti
         )
 
 
-def _insert_device(connection: sqlite3.Connection, device: EnrolledDevice) -> None:
-    """Insert a new device row unless its id is taken, in one transaction."""
+def _pheromone_table_exists(connection: sqlite3.Connection) -> bool:
+    """Return whether ``connection``'s database already has the ``pheromone_events`` table."""
+    return connection.execute(_PHEROMONE_TABLE_CHECK_SQL).fetchone() is not None
+
+
+def _insert_device(
+    connection: sqlite3.Connection, device: EnrolledDevice, event: GuardEvent
+) -> None:
+    """Insert a new device row and its entry event unless the id is taken, in one transaction."""
     with transaction(connection):
         if connection.execute(_SELECT_DEVICE_SQL, (device.id,)).fetchone() is not None:
             raise DeviceAlreadyExistsError(device.id)
@@ -268,16 +309,18 @@ def _insert_device(connection: sqlite3.Connection, device: EnrolledDevice) -> No
             _INSERT_DEVICE_SQL,
             (device.id, device.status.value, device.created_at.isoformat(), _body(device)),
         )
+        insert_event(connection, event)
 
 
 def _transition(
     connection: sqlite3.Connection,
     device_id: DeviceId,
-    expected: DeviceStatus,
-    new: DeviceStatus,
+    edge: tuple[DeviceStatus, DeviceStatus],
     changes: DeviceChanges,
+    event: GuardEvent,
 ) -> EnrolledDevice:
-    """Re-read the device, apply the one transition rule, and write the result."""
+    """Re-read the device, apply the one transition rule, write the result and its event."""
+    expected, new = edge
     with transaction(connection):
         row = connection.execute(_SELECT_DEVICE_SQL, (device_id,)).fetchone()
         if row is None:
@@ -285,6 +328,7 @@ def _transition(
         current = EnrolledDevice.model_validate_json(row["body"])
         updated = transition_device(current, expected, new, changes)
         connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), device_id))
+        insert_event(connection, event)
         return updated
 
 
@@ -308,15 +352,33 @@ def _insert_invite(connection: sqlite3.Connection, invite: DeviceInvite) -> None
         connection.execute(_INSERT_INVITE_SQL, (invite.code_hash, invite.device_id, _body(invite)))
 
 
-def _use_invite(connection: sqlite3.Connection, code_hash: str, used_at: datetime) -> DeviceInvite:
-    """Re-read the invite, apply the single-use rule, and write the result."""
+def _redeem(
+    connection: sqlite3.Connection,
+    code_hash: str,
+    used_at: datetime,
+    changes: DeviceChanges,
+    event: GuardEvent,
+) -> EnrolledDevice:
+    """Re-read the invite and its device, spend one and move the other, write both and the event."""
+    pending = (DeviceStatus.INVITED, DeviceStatus.PENDING)
     with transaction(connection):
         row = connection.execute(_SELECT_INVITE_SQL, (code_hash,)).fetchone()
         if row is None:
             raise InviteNotFoundError(code_hash)
+        # The invite's own rules first (single use, expiry), then its device's edge and event.
         used = use_invite(DeviceInvite.model_validate_json(row["body"]), used_at)
+        check_status_change(used.device_id, *pending, event)
+        # An invite is only ever written for an existing device, and device rows are never
+        # deleted; a missing one would be a damaged file, refused like any unknown device.
+        device_row = connection.execute(_SELECT_DEVICE_SQL, (used.device_id,)).fetchone()
+        if device_row is None:
+            raise DeviceNotFoundError(used.device_id)
+        current = EnrolledDevice.model_validate_json(device_row["body"])
+        updated = transition_device(current, *pending, changes)
         connection.execute(_UPDATE_INVITE_SQL, (_body(used), code_hash))
-        return used
+        connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), updated.id))
+        insert_event(connection, event)
+        return updated
 
 
 def _body(record: EnrolledDevice | DeviceInvite) -> str:

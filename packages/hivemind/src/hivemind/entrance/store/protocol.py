@@ -4,31 +4,34 @@ The Entrance tables (the Hive Entrance's own SQLite tables; the Entrance is the 
 door) hold the operator's password hash, the enrolled devices and their invites
 (codingrules Appendix C: password hash and public keys only). ``EntranceStore`` is their seam
 (codingrules 8.1), implemented by ``hivemind.entrance.store.sqlite.SqliteEntranceStore`` (the
-Hive's own ``[hive] db`` file) and ``hivemind.entrance.store.memory.MemoryEntranceStore``. Three
+Hive's own ``[hive] db`` file) and ``hivemind.entrance.store.memory.MemoryEntranceStore``. The
 pure functions here are the rules both implementations apply inside their own atomic step, so
 the two can never disagree: ``check_new_device`` lets a device enter only where the state
 machine starts (INVITED, or APPROVED for the loopback-bound console), ``transition_device`` is
 the only way a status changes (it calls ``assert_transition`` and checks the caller's expected
-status), and ``use_invite`` makes an invite single-use and refuses it once expired. A status
-change's other field updates travel as ``DeviceChanges``, keyword arguments typed per field;
-the id, the creation time, the console flag and the login bookkeeping cannot be among them.
+status), ``use_invite`` makes an invite single-use and refuses it once expired, and
+``check_device_event`` makes sure the Pheromone Trail (audit log) event written with a change is
+the one that change records. A status change's other field updates travel as ``DeviceChanges``,
+keyword arguments typed per field; the id, the creation time, the console flag and the login
+bookkeeping cannot be among them.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store``. Used by
-    ``hivemind.entrance.enrol.console`` and, later, the enrolment, login and revocation routes.
-    Calls into ``hivemind.entrance.enrol`` (models, state) and ``hivemind.entrance.errors``.
+    ``hivemind.entrance.enrol`` (the console bootstrap and every enrolment flow) and, later, the
+    login and session routes. Calls into ``hivemind.entrance.enrol`` (models, state),
+    ``hivemind.entrance.errors``, ``hivemind.common.errors`` and ``hivemind.pheromone``.
 
 Key invariants:
     - No caller can skip the state machine: ``put_device`` accepts only an entry status, and
       ``update_device_status`` is the only status change, with the expected current status as an
       argument (so of two racing decisions, the second fails instead of overwriting the first).
-    - An invite admits one INVITED device, once, before it expires.
-    - Every transition is a ``guard.entrance_*`` trail event (Appendix C rule 3), declared by
-      ``hivemind.pheromone.GuardEvent``; this data half of roadmap 10.5d writes the state change
-      only, and the behaviour half adds the event write in the same transaction.
+    - An invite admits one INVITED device, once, before it expires; ``redeem_invite`` spends it
+      and moves its device to PENDING in one atomic step, so neither happens without the other.
+    - Every entry and every transition carries its ``guard.entrance_*`` trail event, written in
+      the same atomic step as the state change (codingrules Appendix C): both commit, or neither.
 
 See Also:
-    - hivemind.entrance.enrol.state for the transition table these guards apply.
+    - hivemind.entrance.enrol.state for the transition table and the kinds these guards apply.
     - packages/hivemind/tests/contracts/test_entrance_store_contract.py for the shared contract.
 """
 
@@ -38,6 +41,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Protocol, TypedDict, Unpack
 
+from hivemind.common.errors import InvariantViolationError
 from hivemind.entrance.auth.keys import KeyKind
 from hivemind.entrance.enrol.models import (
     DeviceDescription,
@@ -45,19 +49,27 @@ from hivemind.entrance.enrol.models import (
     EnrolledDevice,
     OperatorCredential,
 )
-from hivemind.entrance.enrol.state import DeviceStatus, assert_transition
+from hivemind.entrance.enrol.state import (
+    ENTRY_TRAIL_KINDS,
+    DeviceStatus,
+    assert_transition,
+    trail_kind,
+)
 from hivemind.entrance.errors import (
     DeviceStatusConflictError,
     InvalidDeviceEntryError,
     InviteAlreadyUsedError,
     InviteExpiredError,
 )
+from hivemind.pheromone import GuardEvent
 from waggle.ids import DeviceId
 
 __all__ = [
     "DeviceChanges",
     "EntranceStore",
+    "check_device_event",
     "check_new_device",
+    "check_status_change",
     "transition_device",
     "use_invite",
 ]
@@ -96,8 +108,8 @@ class EntranceStore(Protocol):
     """Persist the operator row, enrolled devices and invites; apply the enrolment rules.
 
     Implementations serialise their own operations (one lock or one connection thread) and apply
-    ``check_new_device``, ``transition_device`` and ``use_invite`` inside the same atomic step as
-    the write they guard.
+    ``check_new_device``, ``check_status_change``, ``transition_device`` and ``use_invite`` inside
+    the same atomic step as the write they guard, writing the change's trail event in that step.
     """
 
     async def get_operator(self) -> OperatorCredential | None:
@@ -120,15 +132,18 @@ class EntranceStore(Protocol):
         """
         ...
 
-    async def put_device(self, device: EnrolledDevice) -> None:
-        """Record a new device at the state machine's entry.
+    async def put_device(self, device: EnrolledDevice, event: GuardEvent) -> None:
+        """Record a new device at the state machine's entry, and its entry event, atomically.
 
         Args:
             device: The new record, INVITED (or APPROVED and loopback-bound, the console).
+            event: Its ``ENTRY_TRAIL_KINDS`` event, about ``device.id``.
 
         Raises:
             DeviceAlreadyExistsError: A device with this id exists.
             InvalidDeviceEntryError: The status is not an entry status for this device.
+            InvariantViolationError: ``event`` is not this entry's event.
+            DuplicateEventError: ``event``'s id is already on the trail.
         """
         ...
 
@@ -162,14 +177,16 @@ class EntranceStore(Protocol):
         device_id: DeviceId,
         expected: DeviceStatus,
         new: DeviceStatus,
+        event: GuardEvent,
         **changes: Unpack[DeviceChanges],
     ) -> EnrolledDevice:
-        """Move a device from ``expected`` to ``new`` along the state machine, applying ``changes``.
+        """Move a device along one edge, applying ``changes`` and recording ``event`` atomically.
 
         Args:
             device_id: The device to move.
             expected: The status the caller decided from; the stored one must still be it.
             new: The status to move to; ``expected`` to ``new`` must be an edge.
+            event: The edge's ``guard.entrance_*`` event (``trail_kind``), about ``device_id``.
             **changes: Fields to set in the same step (``DeviceChanges``).
 
         Returns:
@@ -178,7 +195,9 @@ class EntranceStore(Protocol):
         Raises:
             DeviceNotFoundError: No such device.
             InvalidDeviceTransitionError: ``expected`` to ``new`` is not an edge.
+            InvariantViolationError: ``event`` is not this edge's event about this device.
             DeviceStatusConflictError: The stored status is not ``expected``.
+            DuplicateEventError: ``event``'s id is already on the trail.
             pydantic.ValidationError: The changed record breaks a model rule (an approval
                 without ``approved_at``, a redemption without a key).
         """
@@ -211,33 +230,48 @@ class EntranceStore(Protocol):
         """
         ...
 
-    async def mark_invite_used(self, code_hash: str, used_at: datetime) -> DeviceInvite:
-        """Spend the invite: the first call before its expiry succeeds, every later one fails.
+    async def redeem_invite(
+        self,
+        code_hash: str,
+        used_at: datetime,
+        event: GuardEvent,
+        **changes: Unpack[DeviceChanges],
+    ) -> EnrolledDevice:
+        """Spend the invite and move its device INVITED to PENDING with ``changes``, atomically.
 
         Args:
             code_hash: SHA-256 of the presented code.
             used_at: When it is being redeemed.
+            event: The ``guard.entrance_pending`` event about the invite's device.
+            **changes: The redemption's fields: the key, the description, the request's expiry.
 
         Returns:
-            The invite as stored, ``used_at`` set.
+            The device as stored, PENDING.
 
         Raises:
             InviteNotFoundError: No such invite.
             InviteAlreadyUsedError: It was used before.
             InviteExpiredError: ``used_at`` is at or past its expiry.
+            InvariantViolationError: ``event`` is not the pending event about its device.
+            DeviceStatusConflictError: Its device is no longer INVITED (cancelled, expired).
+            DuplicateEventError: ``event``'s id is already on the trail.
+            pydantic.ValidationError: The PENDING record breaks a model rule.
         """
         ...
 
 
-def check_new_device(device: EnrolledDevice) -> None:
-    """Refuse a new record anywhere but the state machine's entry.
+def check_new_device(device: EnrolledDevice, event: GuardEvent) -> None:
+    """Refuse a new record anywhere but the state machine's entry, or without its entry event.
 
     Args:
         device: The record ``put_device`` was given.
+        event: The event it was given with.
 
     Raises:
         InvalidDeviceEntryError: Not INVITED (and not loopback-bound), and not the loopback-bound
             console entering APPROVED.
+        InvariantViolationError: ``event`` is not the entry's ``ENTRY_TRAIL_KINDS`` event about
+            this device.
     """
     # The two entries ADR-0033 allows: a remote device through an invite, and the console,
     # recorded approved by the operator bootstrap on the Hive Stand itself.
@@ -245,6 +279,45 @@ def check_new_device(device: EnrolledDevice) -> None:
     is_console = device.status is DeviceStatus.APPROVED and device.loopback_bound
     if not (is_invited or is_console):
         raise InvalidDeviceEntryError(device.id, device.status)
+    check_device_event(device.id, ENTRY_TRAIL_KINDS[device.status], event)
+
+
+def check_status_change(
+    device_id: DeviceId, expected: DeviceStatus, new: DeviceStatus, event: GuardEvent
+) -> None:
+    """Refuse a status change that is no edge, or whose event is not that edge's.
+
+    Args:
+        device_id: The device being moved.
+        expected: The status the caller decided from.
+        new: The status it asked for.
+        event: The event it gave.
+
+    Raises:
+        InvalidDeviceTransitionError: ``expected`` to ``new`` is not an edge.
+        InvariantViolationError: ``event`` is not the edge's event about ``device_id``.
+    """
+    # The edge first: asking for an impossible move is a bug whatever event came with it.
+    assert_transition(expected, new, device_id)
+    check_device_event(device_id, trail_kind(expected, new), event)
+
+
+def check_device_event(device_id: DeviceId, kind: str, event: GuardEvent) -> None:
+    """Require ``event`` to be the ``kind`` event about ``device_id``, so the trail never lies.
+
+    Args:
+        device_id: The device the state change is about.
+        kind: The ``guard.entrance_*`` kind that change is recorded as.
+        event: The event about to be written with it.
+
+    Raises:
+        InvariantViolationError: ``event`` is about another subject or of another kind.
+    """
+    if event.subject_id != device_id or event.kind != kind:
+        raise InvariantViolationError(
+            f"Event {event.id} is {event.kind} about {event.subject_id}; a change of device "
+            f"{device_id} must record {kind} about that device."
+        )
 
 
 def transition_device(

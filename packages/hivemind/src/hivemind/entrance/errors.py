@@ -2,7 +2,8 @@
 
 The Hive Entrance (the only door into the Hive, codingrules 8.15) refuses a lot, by design: a weak
 password, a passkey ceremony that does not verify, a wrapped key the password does not open, a
-device status change its state machine forbids, an invite used twice. Every such refusal is one
+device status change its state machine forbids, an invite used twice, an approval wider than the
+device ceiling, a revocation of the Hive Stand's own console. Every such refusal is one
 class here, rooted at ``EntranceError`` so a caller can catch the whole family, and each also
 subclasses the ``hivemind.common.errors`` category it belongs to (``NotFoundError``,
 ``ConflictError``, ``PermissionDeniedError``) so a generic handler (an HTTP status mapper, the CLI)
@@ -12,9 +13,10 @@ Entrance's versioned API).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Raised by
-    ``hivemind.entrance.auth`` (passwords, keys, passkeys, wrapped keys),
-    ``hivemind.entrance.enrol`` (the device state machine, the console bootstrap) and
-    ``hivemind.entrance.store`` (the Entrance tables). Imports only ``hivemind.common.errors``.
+    ``hivemind.entrance.auth`` (passwords, keys, passkeys, wrapped keys, challenges),
+    ``hivemind.entrance.enrol`` (the device state machine, the console bootstrap, invites,
+    redemption, approval and the operator's other decisions) and ``hivemind.entrance.store`` (the
+    Entrance tables). Imports only ``hivemind.common.errors``.
 
 Key invariants:
     - Every class sets its own ``code``; no two share one (a test walks them all).
@@ -23,6 +25,9 @@ Key invariants:
     - ``PasskeyRejectedError`` and ``KeyUnwrapError`` never say which check failed beyond what the
       verifying library reports about the ceremony itself: a wrong password and a tampered blob
       read the same (ADR-0033: a failure never says which factor failed).
+    - ``EnrolmentRefusedError`` and ``ChallengeRejectedError`` carry one fixed message each, so a
+      device that is refused learns nothing about why (an unknown, used or expired code and a bad
+      proof all read the same); the reason goes to the Pheromone Trail instead.
     - Statuses are typed as ``Enum`` here, not ``DeviceStatus``, so this module never imports
       ``hivemind.entrance.enrol.state``, which imports it.
 
@@ -44,10 +49,15 @@ from hivemind.common.errors import (
 )
 
 __all__ = [
+    "CapabilityCeilingError",
+    "ChallengeRejectedError",
+    "ConsoleProtectedError",
     "DeviceAlreadyExistsError",
     "DeviceNotFoundError",
     "DeviceStatusConflictError",
+    "EnrolmentRefusedError",
     "EntranceError",
+    "InvalidApprovalError",
     "InvalidDeviceEntryError",
     "InvalidDeviceTransitionError",
     "InviteAlreadyExistsError",
@@ -59,6 +69,7 @@ __all__ = [
     "OperatorNotInitialisedError",
     "OperatorPasswordMismatchError",
     "PasskeyRejectedError",
+    "StewardGrantError",
     "WeakPasswordError",
 ]
 
@@ -106,6 +117,23 @@ class KeyUnwrapError(EntranceError, PermissionDeniedError):
         """
         super().__init__(f"The wrapped key {name!r} could not be opened with this password.")
         self.name = name
+
+
+class ChallengeRejectedError(EntranceError, PermissionDeniedError):
+    """Raise when a ceremony answers a challenge the Entrance cannot accept, whatever the reason.
+
+    Unknown, already spent, expired, or issued for another subject or binding key: all read the
+    same, so the error is never an oracle for which it was.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.challenge_rejected"
+
+    def __init__(self) -> None:
+        """Build the error; it has one fixed message on purpose (see the class docstring)."""
+        super().__init__(
+            "The challenge is unknown, spent, expired or was issued for another ceremony; ask "
+            "for a new one."
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -294,3 +322,94 @@ class InviteExpiredError(EntranceError, ConflictError):
         """
         super().__init__(f"Invite {code_hash[:12]}... has expired; mint a new one on loopback.")
         self.code_hash = code_hash
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Enrolment: redemption, approval and the operator's other decisions
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class EnrolmentRefusedError(EntranceError, PermissionDeniedError):
+    """Raise when an invite cannot be redeemed, whatever the reason.
+
+    An unknown, used or expired code, a device no longer waiting for its key, and a bad key proof
+    all raise this with one fixed message: the redeeming device is unauthenticated, and telling it
+    which check failed would let it probe invites. The reason is recorded on the Pheromone Trail
+    as ``guard.entrance_redeem_failed`` instead.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.enrolment_refused"
+
+    def __init__(self) -> None:
+        """Build the error; it has one fixed message on purpose (see the class docstring)."""
+        super().__init__(
+            "The invite could not be redeemed; ask the operator for a new one at the Hive Stand."
+        )
+
+
+class CapabilityCeilingError(EntranceError, PermissionDeniedError):
+    """Raise when an approval names a capability the ``device`` role's ceiling does not allow."""
+
+    code: ClassVar[str] = "hivemind.entrance.capability_beyond_ceiling"
+
+    def __init__(self, capability: str) -> None:
+        """Build the error for the first capability beyond the ceiling.
+
+        Args:
+            capability: The offending capability string, as the approval named it.
+        """
+        super().__init__(
+            f"The capability {capability!r} is beyond the device ceiling ([guard] roles.device "
+            "allow); an approval can never grant it."
+        )
+        self.capability = capability
+
+
+class InvalidApprovalError(EntranceError, ConflictError):
+    """Raise when an approval cannot bind what it asks for, for instance an expiry already past."""
+
+    code: ClassVar[str] = "hivemind.entrance.invalid_approval"
+
+
+class StewardGrantError(EntranceError, PermissionDeniedError):
+    """Raise when a steward device asks to grant more than it may (ADR-0033's steward rule)."""
+
+    code: ClassVar[str] = "hivemind.entrance.steward_grant_refused"
+
+    def __init__(self, steward_id: str, capability: str | None, reason: str) -> None:
+        """Build the error for one refused steward grant.
+
+        Args:
+            steward_id: The steward device's id.
+            capability: The offending capability string, or None when the steward itself may
+                not approve at all.
+            reason: Why, as a clause, e.g. ``"the steward does not hold it"``.
+        """
+        subject = f"grant {capability!r}" if capability is not None else "approve devices"
+        super().__init__(f"Steward device {steward_id} may not {subject}: {reason}.")
+        self.steward_id = steward_id
+        self.capability = capability
+
+
+class ConsoleProtectedError(EntranceError, PermissionDeniedError):
+    """Raise when an operation would revoke or expire the Hive Stand's own console.
+
+    The console can be locked and unlocked like any other device, but losing it means resetting
+    the operator password with ``hive entrance operator password --reset`` (ADR-0033), so nothing
+    else may take it away.
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.console_protected"
+
+    def __init__(self, device_id: str, action: str) -> None:
+        """Build the error for a protected console.
+
+        Args:
+            device_id: The console's device id.
+            action: What was refused, as a past participle, e.g. ``"revoked"``.
+        """
+        super().__init__(
+            f"Device {device_id} is the Hive Stand console and cannot be {action}; replacing it "
+            "means `hive entrance operator password --reset` while `hive serve` is stopped."
+        )
+        self.device_id = device_id

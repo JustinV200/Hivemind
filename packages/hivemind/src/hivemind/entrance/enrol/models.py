@@ -79,8 +79,10 @@ __all__ = [
     "MAX_DEVICE_NAME_CHARS",
     "MAX_PLATFORM_CHARS",
     "MAX_USER_AGENT_CHARS",
+    "CapabilityText",
     "DeviceDescription",
     "DeviceInvite",
+    "DisplayText",
     "EnrolledDevice",
     "OperatorCredential",
 ]

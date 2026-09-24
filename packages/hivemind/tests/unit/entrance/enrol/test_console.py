@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import pytest
+from builders.entrance import entry_event, make_identity
 
 from hivemind.common.secrets import MemorySecretStore
 from hivemind.entrance.auth import KeyKind, PasswordHasher, b64url_encode, wrap_private_key
@@ -37,6 +38,7 @@ from hivemind.entrance.errors import (
     WeakPasswordError,
 )
 from hivemind.entrance.store import MemoryEntranceStore
+from hivemind.pheromone import MemoryPheromoneTrail, PheromoneTrail, TrailQuery
 from waggle.clock import FakeClock
 
 _PASSWORD = "correct horse battery staple"  # noqa: S105 -- a test's password, not a credential
@@ -44,13 +46,28 @@ _NEW_PASSWORD = "a longer and entirely new password"  # noqa: S105 -- a test's p
 
 
 @pytest.fixture
-def deps() -> ConsoleDeps:
+def trail() -> PheromoneTrail:
+    """The trail the Hive Stand's Entrance tables record on."""
+    return MemoryPheromoneTrail(FakeClock())
+
+
+@pytest.fixture
+def deps(trail: PheromoneTrail) -> ConsoleDeps:
     """A fresh Hive Stand: empty Entrance tables, an empty secret store, one hasher."""
+    clock = FakeClock()
     return ConsoleDeps(
-        store=MemoryEntranceStore(),
+        store=MemoryEntranceStore(trail),
         secrets=MemorySecretStore(),
         hasher=PasswordHasher(),
-        clock=FakeClock(),
+        clock=clock,
+        identity=make_identity(clock, actor="human"),
+    )
+
+
+def _fresh(deps: ConsoleDeps, trail: PheromoneTrail) -> ConsoleDeps:
+    """The same Hive Stand's secret store over empty tables, as after an interrupted bootstrap."""
+    return ConsoleDeps(
+        MemoryEntranceStore(trail), deps.secrets, deps.hasher, deps.clock, deps.identity
     )
 
 
@@ -117,8 +134,8 @@ async def test_an_interrupted_bootstrap_reuses_the_key_and_record_it_left(
 ) -> None:
     # An earlier run wrapped a key and recorded the console, then died before the password row.
     first = await bootstrap_operator(deps, _PASSWORD)
-    fresh = ConsoleDeps(MemoryEntranceStore(), deps.secrets, deps.hasher, deps.clock)
-    await fresh.store.put_device(first)
+    fresh = _fresh(deps, MemoryPheromoneTrail(deps.clock))
+    await fresh.store.put_device(first, entry_event(first))
 
     again = await bootstrap_operator(fresh, _PASSWORD)
 
@@ -132,8 +149,9 @@ async def test_a_bootstrap_retried_with_another_password_replaces_the_key_it_can
     # The interrupted run used another password: its key cannot be opened, so it is replaced,
     # and the console record holding the old key is revoked rather than left live.
     stale = await bootstrap_operator(deps, _PASSWORD)
-    fresh = ConsoleDeps(MemoryEntranceStore(), deps.secrets, deps.hasher, deps.clock)
-    await fresh.store.put_device(stale)
+    fresh_trail = MemoryPheromoneTrail(deps.clock)
+    fresh = _fresh(deps, fresh_trail)
+    await fresh.store.put_device(stale, entry_event(stale))
 
     console = await bootstrap_operator(fresh, _NEW_PASSWORD)
 
@@ -141,6 +159,29 @@ async def test_a_bootstrap_retried_with_another_password_replaces_the_key_it_can
     assert (await fresh.store.get_device(stale.id)).status is DeviceStatus.REVOKED
     assert await fresh.store.list_devices(DeviceStatus.APPROVED) == (console,)
     await unlock_console_key(fresh.secrets, fresh.hasher, _NEW_PASSWORD)
+    revoked = await fresh_trail.query(TrailQuery(kind="guard.entrance_revoked"))
+    assert [(event.subject_id, event.payload) for event in revoked] == [
+        (stale.id, {"reason": "console_replaced"})
+    ]
+
+
+async def test_bootstrap_records_the_consoles_entry_on_the_trail_without_a_secret(
+    deps: ConsoleDeps, trail: PheromoneTrail
+) -> None:
+    console = await bootstrap_operator(deps, _PASSWORD)
+
+    (event,) = await trail.query(TrailQuery())
+
+    assert (event.kind, event.subject_id, event.actor) == (
+        "guard.entrance_approved",
+        console.id,
+        "human",
+    )
+    assert event.payload["console"] is True
+    assert event.payload["fingerprint"] == console.fingerprint
+    assert event.payload["spend_cap_usd_per_day"] is None
+    assert _PASSWORD not in event.model_dump_json()
+    assert str(console.public_key) not in event.model_dump_json()
 
 
 async def test_unlock_before_any_bootstrap_says_there_is_no_console(deps: ConsoleDeps) -> None:

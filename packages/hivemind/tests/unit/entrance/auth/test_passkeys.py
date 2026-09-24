@@ -29,6 +29,7 @@ from hivemind.entrance.auth.passkeys import (
     RelyingParty,
     StoredPasskey,
     authentication_options,
+    registration_challenge,
     registration_options,
     verify_authentication,
     verify_registration,
@@ -161,6 +162,35 @@ def test_a_registration_is_refused_for_another_challenge_or_as_garbage() -> None
         verify_registration(_RP, os.urandom(32), response)
     with pytest.raises(PasskeyRejectedError):
         verify_registration(_RP, os.urandom(32), "{not json")
+
+
+def test_a_registration_names_the_challenge_it_answers() -> None:
+    challenge, response = _register(SoftPasskey(_ORIGIN))
+
+    assert registration_challenge(response) == challenge
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        "not json",
+        "[]",
+        json.dumps({"id": "x", "rawId": "x", "response": {}}),
+        "[" * 100_000,  # Nested deep enough to exhaust the JSON parser's recursion.
+    ],
+)
+def test_a_registration_naming_no_readable_challenge_is_refused(response: str) -> None:
+    with pytest.raises(PasskeyRejectedError, match="no readable challenge"):
+        registration_challenge(response)
+
+
+def test_a_registration_whose_client_data_is_not_json_is_refused() -> None:
+    _, response = _register(SoftPasskey(_ORIGIN))
+    credential = json.loads(response)
+    credential["response"]["clientDataJSON"] = b64url_encode(b"not json")
+
+    with pytest.raises(PasskeyRejectedError):
+        registration_challenge(json.dumps(credential))
 
 
 # ──────────────────────────────────────────────────────────────────────────────

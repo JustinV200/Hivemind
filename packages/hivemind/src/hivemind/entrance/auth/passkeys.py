@@ -3,20 +3,21 @@
 The Hive Entrance is the Hive's one HTTP door. A browser enrols with a passkey and logs in by
 asserting it (ADR-0033). This module is a thin, fixed-policy wrapper over the ``webauthn`` library:
 registration options for an invite (user verification REQUIRED, ``none`` attestation, a resident key
-PREFERRED, EdDSA, ES256 and RS256), authentication options for one stored credential, and the two
+PREFERRED, EdDSA, ES256 and RS256), authentication options for one stored credential, the two
 verifications, each refusing a ceremony without user verification and turning every library failure
-into one ``PasskeyRejectedError``. Two platform rules shape where this can run at all: WebAuthn
-refuses an IP address as a relying party, and browsers offer it only in a secure context. So the
-Hive Stand's (the Queen's machine) own browser uses ``http://localhost`` (secure by definition,
-relying party ``localhost``) and a remote browser uses an https DNS name (``public_url``'s host);
-``RelyingParty`` refuses an IP address outright. The relying party and its expected origins are
-arguments here: the Entrance derives them from ``[entrance] bind`` and ``public_url`` (or
-``rp_id``).
+into one ``PasskeyRejectedError``, and ``registration_challenge``, which reads the challenge a
+registration claims to answer so the Entrance can find the one it issued before verifying. Two
+platform rules shape where this can run at all: WebAuthn refuses an IP address as a relying
+party, and browsers offer it only in a secure context. So the Hive Stand's (the Queen's machine)
+own browser uses ``http://localhost`` (secure by definition, relying party ``localhost``) and a
+remote browser uses an https DNS name (``public_url``'s host); ``RelyingParty`` refuses an IP
+address outright. The relying party and its expected origins are arguments here: the Entrance
+derives them from ``[entrance] bind`` and ``public_url`` (or ``rp_id``).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.auth``. Called by the
-    Entrance's enrolment and login routes (later steps) and exercised end to end by
-    ``hivemind.entrance.auth.fake.SoftPasskey``. Calls into ``webauthn`` only.
+    Entrance's enrolment (``hivemind.entrance.enrol.redeem``) and, later, login, and exercised
+    end to end by ``hivemind.entrance.auth.fake.SoftPasskey``. Calls into ``webauthn`` only.
 
 Key invariants:
     - Every verification requires user verification, checks the challenge, the relying party's id
@@ -43,6 +44,7 @@ from webauthn import (
     verify_authentication_response,
     verify_registration_response,
 )
+from webauthn.helpers import parse_client_data_json, parse_registration_credential_json
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.exceptions import WebAuthnException
 from webauthn.helpers.structs import (
@@ -68,7 +70,9 @@ SUPPORTED_ALGORITHMS = (
 )
 # What malformed input can make the library raise besides its own WebAuthnException: a COSE key
 # missing a label (KeyError), an empty key (IndexError), a bad curve point (ValueError), a field
-# of the wrong type (TypeError), and a signature check that escapes its own wrapper.
+# of the wrong type (TypeError), a signature check that escapes its own wrapper, and JSON nested
+# deep enough to exhaust the parser's recursion (RecursionError), which an unauthenticated
+# redeeming device can send.
 _LIBRARY_FAILURES = (
     WebAuthnException,
     KeyError,
@@ -76,6 +80,7 @@ _LIBRARY_FAILURES = (
     ValueError,
     TypeError,
     InvalidSignature,
+    RecursionError,
 )
 
 __all__ = [
@@ -87,6 +92,7 @@ __all__ = [
     "RelyingParty",
     "StoredPasskey",
     "authentication_options",
+    "registration_challenge",
     "registration_options",
     "verify_authentication",
     "verify_registration",
@@ -261,6 +267,32 @@ def verify_registration(
         backup_eligible=verified.credential_device_type is CredentialDeviceType.MULTI_DEVICE,
         backup_state=verified.credential_backed_up,
     )
+
+
+def registration_challenge(response_json: str) -> bytes:
+    """Return the challenge a browser's registration response says it answers, unverified.
+
+    Only a lookup key: the Entrance finds the challenge it issued under these bytes (the
+    ``ChallengeBook``), then ``verify_registration`` checks the whole ceremony against it, so a
+    response naming a challenge the Entrance never issued, or one issued for another invite, is
+    refused before any verification runs.
+
+    Args:
+        response_json: ``PublicKeyCredential.toJSON()`` of the new credential, as sent.
+
+    Returns:
+        The challenge bytes from the response's ``clientDataJSON``.
+
+    Raises:
+        PasskeyRejectedError: The response or its client data is malformed.
+    """
+    try:
+        credential = parse_registration_credential_json(response_json)
+        return parse_client_data_json(credential.response.client_data_json).challenge
+    except _LIBRARY_FAILURES as exc:
+        raise PasskeyRejectedError(
+            f"The passkey registration names no readable challenge: {exc}"
+        ) from exc
 
 
 def verify_authentication(

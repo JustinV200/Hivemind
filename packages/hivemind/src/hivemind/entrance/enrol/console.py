@@ -10,17 +10,20 @@ anything, mints the console key and stores it in the secret store **wrapped** un
 operating-system user, so a key kept in the clear would be theirs too), records the console device,
 and writes the password hash **last**, because that row is what marks the operator as initialised:
 an interrupted bootstrap is simply run again, reusing a console key it can open and replacing a
-record that key does not match. ``change_operator_password`` proves the current password and
-re-wraps the console key under the new one in the same operation; ``unlock_console_key`` opens it
-for a console login. Console sessions are never persisted by anything: the console's session lives
-in the memory of the process that opened it, and the unwrapped key only as long as that session
-does.
+record that key does not match. The console's entry is recorded on the Pheromone Trail (the Hive's
+audit log) as ``guard.entrance_approved`` and a replaced record's revocation as
+``guard.entrance_revoked``, each in the same step as the record itself (codingrules Appendix C).
+``change_operator_password`` proves the current password and re-wraps the console key under the
+new one in the same operation; ``unlock_console_key`` opens it for a console login. Console
+sessions are never persisted by anything: the console's session lives in the memory of the process
+that opened it, and the unwrapped key only as long as that session does.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol``. Called by
     ``hive entrance operator password`` (and later ``hive init``, roadmap 14.2) and by the
     console's login. Calls into ``hivemind.entrance.auth`` (password hashing, key wrapping),
-    ``hivemind.common.secrets`` and the Entrance tables through ``EntranceStore``.
+    ``hivemind.common.secrets``, ``hivemind.entrance.enrol.deps`` (the identity events carry) and
+    the Entrance tables through ``EntranceStore``.
 
 Key invariants:
     - The password hash is written last; its presence means a bootstrap completed, so a second
@@ -44,20 +47,24 @@ import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pydantic import JsonValue
+
 from hivemind.common.logging import get_logger
 from hivemind.common.secrets import SecretStore
 from hivemind.entrance.auth.canonical import b64url_encode
 from hivemind.entrance.auth.keys import KeyKind
 from hivemind.entrance.auth.password import PasswordHasher, check_password_strength
 from hivemind.entrance.auth.wrap import unwrap_private_key, wrap_private_key
+from hivemind.entrance.enrol.deps import EntranceIdentity
 from hivemind.entrance.enrol.models import DeviceDescription, EnrolledDevice
-from hivemind.entrance.enrol.state import DeviceStatus
+from hivemind.entrance.enrol.state import ENTRY_TRAIL_KINDS, DeviceStatus, trail_kind
 from hivemind.entrance.errors import (
     KeyUnwrapError,
     OperatorAlreadyInitialisedError,
     OperatorNotInitialisedError,
     OperatorPasswordMismatchError,
 )
+from hivemind.pheromone import GuardEvent
 from waggle.clock import Clock
 from waggle.ids import new_device_id
 from waggle.signing import Ed25519Signer
@@ -70,6 +77,7 @@ if TYPE_CHECKING:
 CONSOLE_KEY_NAME = "console.ed25519"  # The secret store name of the console's wrapped key.
 CONSOLE_DEVICE_NAME = "Hive Stand console"  # How the console appears in every device list.
 CONSOLE_USER_AGENT = "hivemind"  # The console is the Hive's own code, not a browser.
+CONSOLE_REPLACED = "console_replaced"  # Why a stale console record is revoked, on the trail.
 # Everything the operator does at the Hive Stand, as capability strings (hivemind.guard's grammar,
 # not imported here): submit and answer, push, steward, every observation, both Cell kinds, every
 # Comb Shield tier and any spend.
@@ -93,6 +101,7 @@ __all__ = [
     "CONSOLE_CAPABILITIES",
     "CONSOLE_DEVICE_NAME",
     "CONSOLE_KEY_NAME",
+    "CONSOLE_REPLACED",
     "ConsoleDeps",
     "bootstrap_operator",
     "change_operator_password",
@@ -108,13 +117,16 @@ class ConsoleDeps:
         store: The Entrance tables.
         secrets: The Hive's secret store (``[hive] secrets_dir``), where the wrapped key lives.
         hasher: The Entrance's one PasswordHasher, whose semaphore bounds every derivation.
-        clock: Stamps the operator row and the console record.
+        clock: Stamps the operator row, the console record and their trail events.
+        identity: The Hive, node and actor the console's trail events carry (``"human"`` when
+            ``hive entrance operator password`` runs at the Hive Stand).
     """
 
     store: EntranceStore
     secrets: SecretStore
     hasher: PasswordHasher
     clock: Clock
+    identity: EntranceIdentity
 
 
 async def bootstrap_operator(deps: ConsoleDeps, password: str) -> EnrolledDevice:
@@ -249,12 +261,28 @@ async def _record_console(deps: ConsoleDeps, signer: Ed25519Signer) -> EnrolledD
             return existing
         # A console whose key is not the one in the secret store can never log in; revoking it
         # keeps exactly one live console.
+        revoked = trail_kind(DeviceStatus.APPROVED, DeviceStatus.REVOKED)
+        event = deps.identity.event(deps.clock, revoked, existing.id, {"reason": CONSOLE_REPLACED})
         await deps.store.update_device_status(
-            existing.id, DeviceStatus.APPROVED, DeviceStatus.REVOKED
+            existing.id, DeviceStatus.APPROVED, DeviceStatus.REVOKED, event
         )
     device = _console_device(deps.clock, public_key)
-    await deps.store.put_device(device)
+    await deps.store.put_device(device, _console_event(deps, device))
     return device
+
+
+def _console_event(deps: ConsoleDeps, console: EnrolledDevice) -> GuardEvent:
+    """Build the console's entry event: approved at bootstrap, with what it holds, never its key."""
+    payload: dict[str, JsonValue] = {
+        "console": True,
+        "fingerprint": console.fingerprint,
+        "capability_count": len(console.capabilities),
+        "spend_cap_usd_per_day": console.spend_cap_usd_per_day,
+        "expires_at": None,
+        "interactive": console.interactive,
+    }
+    kind = ENTRY_TRAIL_KINDS[DeviceStatus.APPROVED]
+    return deps.identity.event(deps.clock, kind, console.id, payload)
 
 
 def _console_device(clock: Clock, public_key: str) -> EnrolledDevice:
