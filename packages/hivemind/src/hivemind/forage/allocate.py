@@ -27,6 +27,15 @@ rather than reused. `GoalBudgets` is the small slice of the manifest's `[forage]
 cap, token budget, sub-bee cap per goal) `grant` needs, defined here rather than imported from
 `hivemind.manifest` because Layer 1 may not import Layer 2 (codingrules section 4).
 
+The five limits are data as well as a number (the zero-grant fix): `sub_bee_limits` returns a
+`SubBeeLimits` naming each limit (`GrantBound`) with its value as the figures stand and its value
+at their best (an idle host, all of its memory free, every seat free, none of the goal's allowance
+held elsewhere), so the Queen's dispatcher can tell a grant that a passing shortfall zeroed (the
+Hive Stand's load right now) from one no wait can ever lift (a reserve that claims every seat)
+without parsing `ForageGrant.reason`. `grant` reads the very same computation, so the two can never
+disagree, and its reason now names the tightest limit too. `goal_limit` is the goal's own allowance
+alone, for a caller that must know whether a goal has room before any Cell is chosen.
+
 Fits into the Hive:
     Layer 1 (forage; foundational services, capacity as data). Called by the Queen's dispatcher
     (`hivemind.queen.dispatcher`) and by `hivemind.queen.forage.requests` when it answers a
@@ -43,6 +52,11 @@ Key invariants:
     - Every AllowedBinding grant() returns names a source whose grade is at least
       `grade_floor(inputs.tempo.accuracy)` and, when `inputs.reachable_source_ids` is not None,
       whose id is a member of it.
+    - `grant(inputs).max_sub_bees == sub_bee_limits(inputs).max_sub_bees` for every input: both
+      read one computation (`_limits`), so a caller's reading of why a grant is zero is always
+      about the grant it actually got.
+    - Every value in `SubBeeLimits.at_best` is at least its value in `.now`: a figure at its best
+      never allows fewer bees than it does as it stands.
     - v0 names every allowed binding under `ModelSlot.WORKER`; per-role slot mapping and per-slot
       hosting plans (`hivemind.forage.models.pools.HostingPlan`) are the Queen's job, a later
       phase this allocator does not attempt.
@@ -61,9 +75,10 @@ See Also:
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 
 from hivemind.forage.errors import AllocationError
 from hivemind.forage.grant_state import GrantState
@@ -111,7 +126,16 @@ _URGENT_HEADROOM_RELIEF_FACTOR = 0.5
 _THOROUGH_ACCURACY_BARS = frozenset({AccuracyBar.HIGH, AccuracyBar.CRITICAL})
 _THOROUGH_HEADROOM_RELIEF_FACTOR = 0.5
 
-__all__ = ["GoalBudgets", "GrantInputs", "grant", "should_recompute"]
+__all__ = [
+    "GoalBudgets",
+    "GrantBound",
+    "GrantInputs",
+    "SubBeeLimits",
+    "goal_limit",
+    "grant",
+    "should_recompute",
+    "sub_bee_limits",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +208,70 @@ class GrantInputs:
     reachable_source_ids: frozenset[str] | None = None
 
 
+class GrantBound(Enum):
+    """Name one of the five limits a grant's `max_sub_bees` is the minimum of (roadmap 3.12).
+
+    Carried as data (`SubBeeLimits`) so a caller can tell which limit left a grant with no bee
+    without parsing `ForageGrant.reason`; the value is the label the Pheromone Trail carries.
+    Declaration order breaks ties wherever one limit has to be named for several.
+    """
+
+    CELL_CAP = "cell_cap"  # The Cell's own reported max_sub_bees.
+    FREE_CORES = "free_cores"  # Cores less the one-minute load, over the footprint's cpu.
+    FREE_MEMORY = "free_memory"  # Free memory less the Royal Reserve, over the footprint's.
+    SEATS = "seats"  # Free seats on every allowed source, less the Royal Reserve's seats.
+    GOAL_BEES = "goal_bees"  # What is left of the goal's own sub-bee allowance.
+
+
+@dataclass(frozen=True, slots=True)
+class SubBeeLimits:
+    """Each limit on a grant's sub-bees as the figures stand now, and at their best.
+
+    A limit that leaves no whole bee even at its best never lifts by waiting (a reserve that
+    claims every seat, a Cell whose whole memory cannot hold one footprint); one that leaves a bee
+    at its best but not now is a passing shortfall, which a caller may choose to wait out when it
+    knows the figure behind it is refreshed.
+
+    Attributes:
+        now: Each limit from the figures as given, in `GrantBound` order: the values `grant`
+            takes the minimum of.
+        at_best: Each limit with every figure that moves on its own at its best: an idle host
+            (no load, all of its memory free), every seat on the allowed sources free, and none
+            of the goal's allowance held by its other work. Never below the matching `now`.
+        margin: The share of the tightest limit a grant keeps once the headroom margin is taken
+            (0.9 at the default 10% margin; urgent work keeps more).
+    """
+
+    now: Mapping[GrantBound, int]
+    at_best: Mapping[GrantBound, int]
+    margin: float
+
+    @property
+    def max_sub_bees(self) -> int:
+        """Return the sub-bee ceiling these limits allow: the tightest now, less the margin."""
+        return _whole_bees(min(self.now.values()), self.margin)
+
+    @property
+    def limited_by(self) -> GrantBound:
+        """Return the tightest limit now; the first in `GrantBound` order among equals."""
+        # min() keeps the first of equal keys, and `now` is built in GrantBound order.
+        return min(self.now, key=lambda bound: self.now[bound])
+
+    @property
+    def lasting(self) -> GrantBound | None:
+        """Return the first limit, in `GrantBound` order, that no wait lifts; None if none."""
+        stuck = self.never_lifts()
+        return next((bound for bound in GrantBound if bound in stuck), None)
+
+    def short(self) -> frozenset[GrantBound]:
+        """Return every limit that on its own leaves no whole bee as the figures stand now."""
+        return _short_of_one(self.now, self.margin)
+
+    def never_lifts(self) -> frozenset[GrantBound]:
+        """Return every limit that leaves no whole bee even with every figure at its best."""
+        return _short_of_one(self.at_best, self.margin)
+
+
 def grant(inputs: GrantInputs) -> ForageGrant:
     """Compute a fresh, ISSUED ForageGrant from `inputs`.
 
@@ -201,15 +289,15 @@ def grant(inputs: GrantInputs) -> ForageGrant:
     if inputs.ttl_s <= 0:
         raise AllocationError(f"GrantInputs.ttl_s must be positive, got {inputs.ttl_s}.")
 
-    # v1: the goal's own caps become *remaining* caps once what its other live grants already hold
-    # is subtracted (roadmap step 4.7); clamped at zero so a goal already at or past its cap never
-    # goes negative and turns a min() below into a false "unbounded" reading.
-    remaining_bees = max(0, inputs.budgets.max_sub_bees - inputs.goal_sub_bees_used)
+    # v1: the goal's spend cap becomes a *remaining* cap once what its other live grants already
+    # spent is subtracted (roadmap step 4.7); clamped at zero so a goal already past its cap never
+    # goes negative. The bee cap gets the same treatment inside _limits.
     remaining_spend = max(0.0, inputs.budgets.spend_cap_usd - inputs.goal_spend_used)
 
     floor = grade_floor(inputs.tempo.accuracy)
     allowed_sources = _sources_clearing_floor(inputs, floor, remaining_spend)
-    max_sub_bees = _max_sub_bees(inputs, allowed_sources, remaining_bees)
+    limits = _limits(inputs, allowed_sources)
+    max_sub_bees = limits.max_sub_bees
     max_effort = _EFFORT_CEILINGS[inputs.tempo.accuracy]
     # v1: a thorough task (HIGH/CRITICAL accuracy) keeps a smaller spend margin, so more of what
     # remains of the goal's own cap is actually usable; every other bar keeps v0's full margin.
@@ -229,8 +317,54 @@ def grant(inputs: GrantInputs) -> ForageGrant:
         spend_budget=remaining_spend * spend_usable,
         max_sub_bees=max_sub_bees,
         expires_at=inputs.now + timedelta(seconds=inputs.ttl_s),
-        reason=_reason(inputs, allowed_sources, max_sub_bees, floor),
+        reason=_reason(inputs, allowed_sources, limits, floor),
         state=GrantState.ISSUED,
+    )
+
+
+def sub_bee_limits(inputs: GrantInputs) -> SubBeeLimits:
+    """Return each of the five limits `grant(inputs)` sizes `max_sub_bees` from, now and at best.
+
+    Args:
+        inputs: The same inputs `grant` reads; see `GrantInputs`.
+
+    Returns:
+        The limits, whose `max_sub_bees` always equals `grant(inputs).max_sub_bees`.
+
+    Example:
+        >>> limits = sub_bee_limits(inputs)  # doctest: +SKIP
+        >>> limits.limited_by, limits.never_lifts()  # doctest: +SKIP
+        (<GrantBound.FREE_CORES: 'free_cores'>, frozenset())
+    """
+    # The same allowed sources `grant` draws its seats from, so SEATS is read off the same set.
+    remaining_spend = max(0.0, inputs.budgets.spend_cap_usd - inputs.goal_spend_used)
+    floor = grade_floor(inputs.tempo.accuracy)
+    return _limits(inputs, _sources_clearing_floor(inputs, floor, remaining_spend))
+
+
+def goal_limit(
+    budgets: GoalBudgets, sub_bees_used: int, reserve: RoyalReserve, tempo: Tempo
+) -> SubBeeLimits:
+    """Return a goal's own sub-bee allowance alone, as limits with only `GOAL_BEES` in them.
+
+    For a caller that must know whether a goal has room for one more bee before any Cell (and so
+    any `GrantInputs`) exists: the same arithmetic `grant` applies to `GOAL_BEES`, the same margin.
+
+    Args:
+        budgets: The goal's caps; `max_sub_bees` is its whole allowance.
+        sub_bees_used: Sub-bees the goal's other work already holds; clamped so the allowance
+            left is never negative.
+        reserve: The Royal Reserve whose headroom margin applies.
+        tempo: The task's tempo; an urgent one keeps more of the margin, exactly as in `grant`.
+
+    Returns:
+        Limits whose `now` is what is left of the allowance and whose `at_best` is all of it.
+    """
+    left = max(0, budgets.max_sub_bees - sub_bees_used)
+    return SubBeeLimits(
+        now={GrantBound.GOAL_BEES: left},
+        at_best={GrantBound.GOAL_BEES: max(budgets.max_sub_bees, left)},
+        margin=_margin(reserve, tempo),
     )
 
 
@@ -281,30 +415,65 @@ def _sources_clearing_floor(
     )
 
 
-def _max_sub_bees(
-    inputs: GrantInputs, allowed_sources: Sequence[ModelSource], remaining_bees: int
-) -> int:
-    """Compute the sub-bee ceiling: the tightest of five limits, less the headroom margin."""
+def _limits(inputs: GrantInputs, allowed_sources: Sequence[ModelSource]) -> SubBeeLimits:
+    """Compute the five sub-bee limits, as they stand and at their best, and the margin."""
     host = inputs.cell_capacity.host
-    by_cpu = _bound_by_rate(_free_cores(host), inputs.footprint.cpu_cores)
-    memory_after_reserve = max(0, host.memory_free_bytes - inputs.reserve.memory_bytes)
-    by_memory = _bound_by_rate(float(memory_after_reserve), float(inputs.footprint.memory_bytes))
-    reachable_seats = _reachable_seats(allowed_sources, inputs.reserve.seats)
-
+    cap = inputs.cell_capacity.max_sub_bees
+    # v1: the goal's own bee cap is what is left of it (roadmap step 4.7), clamped at zero so a
+    # goal already at or past its cap never goes negative and turns the min() into a false
+    # "unbounded" reading.
+    goal_left = max(0, inputs.budgets.max_sub_bees - inputs.goal_sub_bees_used)
     # roadmap step 3.12: "the minimum of the Cell's cap, free memory over the footprint's memory,
-    # free cores over its cpu, reachable seats, and the goal's remaining bee cap" -- v1 passes the
-    # already-reduced remaining_bees in place of the goal's whole allowance.
-    raw = min(inputs.cell_capacity.max_sub_bees, by_cpu, by_memory, reachable_seats, remaining_bees)
-    # v1: an urgent task (a tight latency budget) keeps only half the usual headroom margin here,
-    # trading some safety buffer for parallelism; every other task keeps v0's full margin. Either
-    # way the margin is never negative, so this can never exceed `raw` itself.
-    urgent_factor = _URGENT_HEADROOM_RELIEF_FACTOR if _is_urgent(inputs) else 1.0
-    return int(raw * (1 - inputs.reserve.headroom_fraction * urgent_factor))
+    # free cores over its cpu, reachable seats, and the goal's remaining bee cap", as they stand.
+    now = {
+        GrantBound.CELL_CAP: cap,
+        GrantBound.FREE_CORES: _bound_by_rate(_free_cores(host), inputs.footprint.cpu_cores),
+        GrantBound.FREE_MEMORY: _bound_by_memory(host.memory_free_bytes, inputs),
+        GrantBound.SEATS: _reachable_seats(allowed_sources, inputs.reserve.seats),
+        GrantBound.GOAL_BEES: goal_left,
+    }
+    # At best: no load on any core, all of the host's memory free, every seat on the same allowed
+    # sources free, and none of the goal's allowance held; the Cell's own cap never moves.
+    at_best = {
+        GrantBound.CELL_CAP: cap,
+        GrantBound.FREE_CORES: _bound_by_rate(float(host.cores), inputs.footprint.cpu_cores),
+        GrantBound.FREE_MEMORY: _bound_by_memory(host.memory_bytes, inputs),
+        GrantBound.SEATS: _reachable_seats_at_best(allowed_sources, inputs.reserve.seats),
+        GrantBound.GOAL_BEES: max(inputs.budgets.max_sub_bees, goal_left),
+    }
+    return SubBeeLimits(now=now, at_best=at_best, margin=_margin(inputs.reserve, inputs.tempo))
 
 
-def _is_urgent(inputs: GrantInputs) -> bool:
-    """Return whether `inputs.tempo` counts as urgent for parallelism relief (module docstring)."""
-    budget = inputs.tempo.latency_budget_s
+def _margin(reserve: RoyalReserve, tempo: Tempo) -> float:
+    """Return the share of the tightest limit a grant keeps once the headroom margin is taken.
+
+    v1: an urgent task (a tight latency budget) keeps only half the usual headroom margin,
+    trading some safety buffer for parallelism; every other task keeps v0's full margin. Either
+    way the margin is never negative, so a grant can never exceed its tightest limit.
+    """
+    urgent_factor = _URGENT_HEADROOM_RELIEF_FACTOR if _is_urgent(tempo) else 1.0
+    return 1 - reserve.headroom_fraction * urgent_factor
+
+
+def _whole_bees(limit: int, margin: float) -> int:
+    """Return how many whole sub-bees `limit` allows once `margin` is taken."""
+    return int(limit * margin)
+
+
+def _short_of_one(limits: Mapping[GrantBound, int], margin: float) -> frozenset[GrantBound]:
+    """Return every limit in `limits` that leaves no whole sub-bee once `margin` is taken."""
+    return frozenset(bound for bound, value in limits.items() if _whole_bees(value, margin) < 1)
+
+
+def _bound_by_memory(free_bytes: int, inputs: GrantInputs) -> int:
+    """Return how many footprints fit in `free_bytes` once the Royal Reserve's memory is held."""
+    after_reserve = max(0, free_bytes - inputs.reserve.memory_bytes)
+    return _bound_by_rate(float(after_reserve), float(inputs.footprint.memory_bytes))
+
+
+def _is_urgent(tempo: Tempo) -> bool:
+    """Return whether `tempo` counts as urgent for parallelism relief (module docstring)."""
+    budget = tempo.latency_budget_s
     return budget is not None and budget <= _URGENT_LATENCY_THRESHOLD_S
 
 
@@ -346,6 +515,11 @@ def _reachable_seats(sources: Sequence[ModelSource], reserve_seats: int) -> int:
     return max(0, total_free - reserve_seats)
 
 
+def _reachable_seats_at_best(sources: Sequence[ModelSource], reserve_seats: int) -> int:
+    """Sum every seat `sources` offer, all free, less the reserve's: the most seats can allow."""
+    return max(0, sum(source.spec.seats for source in sources) - reserve_seats)
+
+
 def _allowed_bindings(
     sources: Sequence[ModelSource], max_effort: Effort
 ) -> tuple[AllowedBinding, ...]:
@@ -372,13 +546,13 @@ def _seat_reservations(
 
 
 def _reason(
-    inputs: GrantInputs, allowed_sources: Sequence[ModelSource], max_sub_bees: int, floor: int
+    inputs: GrantInputs, allowed_sources: Sequence[ModelSource], limits: SubBeeLimits, floor: int
 ) -> str:
     """Explain how `max_sub_bees` and the allowed sources were derived, for the trail."""
     return (
-        f"role={inputs.role.value}: max_sub_bees={max_sub_bees} within cell cap "
+        f"role={inputs.role.value}: max_sub_bees={limits.max_sub_bees} within cell cap "
         f"{inputs.cell_capacity.max_sub_bees} and goal cap {inputs.budgets.max_sub_bees}, "
-        f"{inputs.reserve.headroom_fraction:.0%} headroom applied; {len(allowed_sources)}/"
-        f"{len(inputs.map.sources())} map sources cleared grade floor {floor} at tempo "
-        f"{inputs.tempo.accuracy.name}."
+        f"{inputs.reserve.headroom_fraction:.0%} headroom applied, limited by "
+        f"{limits.limited_by.value}; {len(allowed_sources)}/{len(inputs.map.sources())} map "
+        f"sources cleared grade floor {floor} at tempo {inputs.tempo.accuracy.name}."
     )

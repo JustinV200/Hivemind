@@ -56,13 +56,25 @@ Public API:
     - GrantInputs, GoalBudgets, grant, should_recompute: the pure allocator, v0 plus roadmap step
       4.7's v1 (remaining goal caps, tempo headroom relief, reachability, drift recomputation)
       (hivemind.forage.allocate).
+    - GrantBound, SubBeeLimits, sub_bee_limits, goal_limit: the five limits a grant's sub-bees
+      are the minimum of, as data, now and at their best, so a caller can tell a passing
+      shortfall from a lasting one (hivemind.forage.allocate).
     - GrantState, can_transition, assert_transition, is_terminal: the Forage grant state machine
       (hivemind.forage.grant_state).
     - ForageError, UnknownSourceError, AllocationError, InvalidGrantTransitionError: this
       package's error tree (hivemind.forage.errors).
 """
 
-from hivemind.forage.allocate import GoalBudgets, GrantInputs, grant, should_recompute
+from hivemind.forage.allocate import (
+    GoalBudgets,
+    GrantBound,
+    GrantInputs,
+    SubBeeLimits,
+    goal_limit,
+    grant,
+    should_recompute,
+    sub_bee_limits,
+)
 from hivemind.forage.errors import (
     AllocationError,
     ForageError,
@@ -113,6 +125,7 @@ __all__ = [
     "ForageRequestKind",
     "GoalBudgets",
     "GpuInfo",
+    "GrantBound",
     "GrantInputs",
     "GrantState",
     "HostCapacity",
@@ -130,13 +143,16 @@ __all__ = [
     "SlotBinding",
     "SlotPlan",
     "SourceChain",
+    "SubBeeLimits",
     "Tempo",
     "UnknownSourceError",
     "assert_transition",
     "can_transition",
+    "goal_limit",
     "grade_floor",
     "grant",
     "is_terminal",
     "should_recompute",
     "slot_for_binding",
+    "sub_bee_limits",
 ]
