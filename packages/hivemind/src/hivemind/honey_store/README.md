@@ -27,20 +27,24 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
   move a label on its own; `reader_ceiling`, the highest label a request may see; `check_lowering`,
   the one gate between a lowering and `LabelLoweringError`.
 - **Models** (`models/`): `Nectar`/`NectarDraft`/`NectarOrigin`/`NectarState` (raw findings before
-  ripening); `Honey`/`HoneyDraft`/`HoneyPart` (ripened, retrievable knowledge, with `Honey.path`
-  and `Honey.to_hit`); `ReadFilter`/`TextCandidate`/`VectorCandidate`/`HoneyStats` (the shapes a
-  search and `HoneyStore.stats` pass around).
+  ripening); `NectarSource` (a content duplicate's extra provenance -- task, Cell, bee, when,
+  never content -- ADR-0033); `Honey`/`HoneyDraft`/`HoneyPart` (ripened, retrievable knowledge,
+  with `Honey.path` and `Honey.to_hit`); `ReadFilter`/`TextCandidate`/`VectorCandidate`/
+  `HoneyStats` (the shapes a search and `HoneyStore.stats` pass around).
 - **Schema** (`schema/`): `apply_honey_store_migrations` applies `migrations/
   0001_create_honey_store.sql` -- `honey_nectar`, `honey`, `honey_vectors`, `honey_watermarks`,
-  `honey_proposals`, the external-content FTS5 index `honey_fts` and its three sync triggers.
+  `honey_proposals`, the external-content FTS5 index `honey_fts` and its three sync triggers --
+  then `migrations/0002_nectar_sources.sql` -- `honey_nectar_sources` (ADR-0033).
 - **Store** (`store/`): `HoneyStore`, the persistence protocol every implementation honours (and
-  the contract later dispatches code against), plus its own `NectarAdded`/`HoneyProposal` return
-  shapes and `NectarEvents` (how `add_nectar` builds its trail events from what it found: a new
-  row, a duplicate, a raised label, or nothing for a Night Veil deposit); `build_match`, a safe
-  FTS5 MATCH string from arbitrary text; `SqliteHoneyStore`, the durable implementation, split by
-  table responsibility under `store/sqlite/` (`nectar.py`,
-  `honey.py`, `vectors.py`, `search.py`, `stats.py`, `vec.py` for the sqlite-vec extension load
-  and float32 codec, `filters.py` for `ReadFilter`'s shared SQL).
+  the contract later dispatches code against), plus its own `NectarAdded`/`HoneyProposal`/
+  `PruneResult` return shapes and `NectarEvents`/`PruneEvents` (how `add_nectar`/`prune_vectors`
+  build their trail events from what they found: a new row, a duplicate, a raised label or
+  nothing for a Night Veil deposit; a prune's per-model counts, or nothing for a refusal);
+  `has_source` and the new `nectar_sources`, `scope_counts` reads (ADR-0033); `build_match`, a
+  safe FTS5 MATCH string from arbitrary text; `SqliteHoneyStore`, the durable implementation,
+  split by table responsibility under `store/sqlite/` (`nectar.py`, `honey.py`, `vectors.py`,
+  `sources.py` for `honey_nectar_sources`, `search.py`, `stats.py`, `vec.py` for the sqlite-vec
+  extension load and float32 codec, `filters.py` for `ReadFilter`'s shared SQL).
 
 - **Identity** (`identity.py`): `HoneyIdentity` and `honey_event`, the one place a `HoneyEvent` is
   minted (ids, counts, enum values and booleans only in a payload, never content or query text).
@@ -49,7 +53,9 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
   `NectarSubmission`, `DepositSource`, `IntakeResult`, `handoff_source_key`. See its README.
 - **Ripening** (`ripening/`, roadmap 7.5): `Ripener.run_pass` (decode, chunk, summarise on
   `RIPENER`, embed on `EMBEDDER`, dedupe, index; then `embed_pending` for rows still lacking a
-  vector for the current model), `RipenerDeps`, `PassOutcome`, `RipenOutcome`. See its README.
+  vector for the current model), `RipenerDeps`, `PassOutcome`, `RipenOutcome`; `prune_vectors`,
+  `PruneOutcome` (drop a superseded model's vectors on the operator's own word, ADR-0033, never
+  automatically). See its README.
 - **Retrieval** (`honey/`, roadmap 7.7): `HoneyRetriever` (hybrid full-text and vector search under
   a `HoneyReader`'s scope, clearance and budget), `HoneySearch`, `RetrieverDeps`, `SearchOutcome`.
   See its README.
@@ -59,7 +65,9 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
   `/bee-bread`; listing, reading and search per folder, every entry filtered by the reader's
   `honey:read` capabilities and clearance ceiling), `BrowserDeps`, the `LiveWaxSource` and
   `BeeBreadSource` seams a caller implements over memory, and `HoneyRelabeller` (the operator's
-  own raise or lowering, approver HUMAN, recorded on the trail). Proposing a note from a folder queues it for the House
+  own raise or lowering, approver HUMAN, recorded on the trail). `cat` returns a `HoneyDocument`
+  for a Honey row: `Honey` plus its Nectar's extra sources (ADR-0033), so `hive honey cat` can
+  list who else deposited the same text. Proposing a note from a folder queues it for the House
   Bee (a Honey note) or files Cell Wax (from a Cell's folder). See its README.
 - **Access** (`access.py`): `HoneyAccess`, one Hive's store, intake, retriever and Ripener with
   their policy, built only by `hivemind.cli.compose.honey.build_honey_access`.

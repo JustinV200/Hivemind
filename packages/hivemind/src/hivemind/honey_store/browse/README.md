@@ -37,12 +37,14 @@ retrievable knowledge) the way one walks a filesystem, so the operator's CLI (`h
   `honey_visible` (live, readable scope, label within the ceiling: retrieval's own filter per
   row), `wax_visible` (unexpired too), `bee_bread_visible` over `bee_bread_scope` (`task:<id>` or
   `hive`, the scope its ripened Honey would carry), `visible_honey` and `live_wax_notes`. Anything
-  hidden is reported exactly as a missing item (`BrowseNotFoundError`).
+  hidden is reported exactly as a missing item (`BrowseNotFoundError`). A Honey row's own document
+  is a `HoneyDocument` (a `Honey` plus `sources: tuple[NectarSource, ...]`, its Nectar's other
+  distinctly-provenanced deposits, ADR-0033), fetched only for `read_document`'s HONEY path, never
+  for a plain listing entry.
 - `folders.py` -- `list_folder` (`ls`) for every folder kind, one `Page` at a time (default 50,
-  at most 500), and `search_scopes`. The store has no "distinct scopes" read, so `/cells`,
-  `/bees` and `/tasks` are derived from `list_honey` pages under the reader's own filter,
-  bounded by `MAX_SCAN_ROWS` (the listing says when it stopped); `/cells` also lists Cells whose
-  only visible content is live wax.
+  at most 500), and `search_scopes`. `/cells`, `/bees` and `/tasks` are derived from
+  `HoneyStore.scope_counts`'s own `GROUP BY` under the reader's own filter (ADR-0033), so they are
+  complete at any store size; `/cells` also lists Cells whose only visible content is live wax.
 - `notes.py` -- `propose_note`: from a Cell's folder a `CellWaxProposal` the caller files through
   `hivemind.memory.propose_wax` (nothing written here); anywhere else a `QueuedHoneyNote`, queued
   with `HoneyStore.add_proposal` and a `honey.note_proposed` event (scope and lengths only) for the
@@ -66,5 +68,5 @@ uv run --frozen pytest packages/hivemind/tests/unit/honey_store/browse
 
 Every test runs over a real SQLite Honey Store with rows ripened as the Ripener stores them and
 the shipped fake sources (`tests/unit/honey_store/browse/harness.py`): every path kind, filtering
-by capabilities, ceiling, taint, retirement and expiry, paging and the scan bound, a search
-limited to a folder's scopes, propose both ways, and relabel both ways with its events.
+by capabilities, ceiling, taint, retirement and expiry, paging, a `cat` document's extra sources,
+a search limited to a folder's scopes, propose both ways, and relabel both ways with its events.

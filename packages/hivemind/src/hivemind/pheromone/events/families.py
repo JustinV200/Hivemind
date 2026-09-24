@@ -111,10 +111,15 @@ Vocabulary (family -> kind -> when it is recorded):
         approver); retired (a Honey row was superseded and no longer returned); queried (a Honey
         query was answered, with hit, withheld and token counts, never the query or hit text);
         note_proposed (the human proposed a note from a Honey folder, queued for the Queen,
-        roadmap step 7.10). Every honey.* kind is recorded on the Queen's own node and survives a
-        Night Veil teardown carrying ids and counts only; a Night Veil Cell's ephemeral Nectar and
-        a Night Veil reader's query are never recorded at all, so nothing about either can outlive
-        the teardown (ADR-0031).
+        roadmap step 7.10); vectors_pruned (`hive honey reembed --prune` dropped every other
+        embedding model's vectors once every live row had one for the kept model, ADR-0033;
+        payload the kept model plus how many other models were dropped and their combined row
+        count -- the exact per-model breakdown lives only in the caller's own returned
+        `PruneOutcome`, never on the trail, so this vocabulary's payloads stay flat like every
+        other honey.* kind's). Every honey.* kind is recorded on the Queen's own node and survives
+        a Night Veil teardown carrying ids and counts only; a Night Veil Cell's ephemeral Nectar
+        and a Night Veil reader's query are never recorded at all, so nothing about either can
+        outlive the teardown (ADR-0031).
     worker: spawned (a Warden started a sub-bee, roadmap step 3.19); started (SPAWNED -> RUNNING,
         its first TaskAssign arrived); handing_off (RUNNING/PAUSED -> HANDING_OFF, writing a
         Handoff before a reset, rebind, takeover or stop); paused (RUNNING -> PAUSED, TaskPause);
@@ -483,6 +488,8 @@ class HoneyEvent(PheromoneEvent):
             "honey.retired",
             "honey.queried",
             "honey.note_proposed",
+            # ADR-0033: the operator's own word, never automatic.
+            "honey.vectors_pruned",
         }
     )
 

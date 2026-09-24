@@ -37,13 +37,14 @@ Public API:
       scope strings, folders and the default `honey:read` capability sets.
     - LabelApprover, intake_floor, intake_label, raise_label, reader_ceiling, check_lowering
       (clearance): the pure label rules.
-    - Nectar, NectarDraft, NectarOrigin, NectarState, Honey, HoneyDraft, HoneyPart, ReadFilter,
-      TextCandidate, VectorCandidate, HoneyStats (models): the value models the store persists.
+    - Nectar, NectarDraft, NectarOrigin, NectarSource, NectarState, Honey, HoneyDraft, HoneyPart,
+      ReadFilter, TextCandidate, VectorCandidate, HoneyStats (models): the value models the store
+      persists.
     - apply_honey_store_migrations, MIGRATIONS_PACKAGE, SUBSYSTEM (schema): this subsystem's
       numbered migration series.
-    - HoneyStore, NectarAdded, NectarEvents, HoneyProposal, build_match, MAX_MATCH_TOKENS,
-      SqliteHoneyStore (store): the persistence protocol, its SQL builder and its durable
-      implementation.
+    - HoneyStore, NectarAdded, NectarEvents, HoneyProposal, PruneResult, PruneEvents,
+      build_match, MAX_MATCH_TOKENS, SqliteHoneyStore (store): the persistence protocol, its SQL
+      builder and its durable implementation.
     - HoneyIdentity, honey_event (identity): the one place a HoneyEvent is minted.
     - HoneyAccess (access): one Hive's store, intake, retriever and Ripener, bundled.
     - HoneyBrowser, BrowserDeps, LiveWaxSource, BeeBreadSource, HoneyRelabeller, BrowseError
@@ -51,7 +52,8 @@ Public API:
       sub-package's own face exports the rest.
     - NectarIntake, NectarSubmission, DepositSource, IntakeResult, handoff_source_key (nectar):
       the one door every deposit comes in through.
-    - Ripener, RipenerDeps, PassOutcome, RipenOutcome (ripening): Nectar into Honey.
+    - Ripener, RipenerDeps, PassOutcome, RipenOutcome, PruneOutcome, prune_vectors (ripening):
+      Nectar into Honey, and a superseded model's vectors dropped on request (ADR-0033).
     - HoneyRetriever, RetrieverDeps, HoneyReader, HoneySearch, SearchOutcome (honey): hybrid
       retrieval under a reader's scope, clearance and budget.
 """
@@ -108,6 +110,7 @@ from hivemind.honey_store.models import (
     Nectar,
     NectarDraft,
     NectarOrigin,
+    NectarSource,
     NectarState,
     ReadFilter,
     TextCandidate,
@@ -120,7 +123,14 @@ from hivemind.honey_store.nectar import (
     NectarSubmission,
     handoff_source_key,
 )
-from hivemind.honey_store.ripening import PassOutcome, Ripener, RipenerDeps, RipenOutcome
+from hivemind.honey_store.ripening import (
+    PassOutcome,
+    PruneOutcome,
+    Ripener,
+    RipenerDeps,
+    RipenOutcome,
+    prune_vectors,
+)
 from hivemind.honey_store.schema import MIGRATIONS_PACKAGE, SUBSYSTEM, apply_honey_store_migrations
 from hivemind.honey_store.scope import (
     HIVE_SCOPE,
@@ -145,6 +155,8 @@ from hivemind.honey_store.store import (
     HoneyStore,
     NectarAdded,
     NectarEvents,
+    PruneEvents,
+    PruneResult,
     SqliteHoneyStore,
     build_match,
 )
@@ -193,12 +205,16 @@ __all__ = [
     "NectarOrigin",
     "NectarProvenance",
     "NectarRejectedError",
+    "NectarSource",
     "NectarState",
     "NectarSubmission",
     "NectarTooLargeError",
     "NightVeilRefusedError",
     "OffsetMismatchError",
     "PassOutcome",
+    "PruneEvents",
+    "PruneOutcome",
+    "PruneResult",
     "ReadFilter",
     "RetrieverDeps",
     "RipenOutcome",
@@ -223,6 +239,7 @@ __all__ = [
     "intake_label",
     "is_readable",
     "parse_honey_ref",
+    "prune_vectors",
     "queen_read_capabilities",
     "raise_label",
     "readable_globs",

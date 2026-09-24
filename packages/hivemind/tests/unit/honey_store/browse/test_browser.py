@@ -24,6 +24,7 @@ from unit.honey_store.browse.harness import BrowseHive, open_browse_hive, reader
 
 from hivemind.cell import HoneyClearance
 from hivemind.honey_store.browse.browser import EMPTY_INDEX_REASON, operator_reader
+from hivemind.honey_store.browse.documents import HoneyDocument
 from hivemind.honey_store.browse.errors import BrowseError, BrowsePathError
 from hivemind.honey_store.browse.notes import QueuedHoneyNote
 from hivemind.honey_store.scope import is_readable, task_scope
@@ -89,7 +90,7 @@ async def test_browser_lists_reads_and_proposes_by_path(hive: BrowseHive) -> Non
     proposal = await browser.propose_note("/hive", "Title", "Text.")
 
     assert [entry.path for entry in listing.entries] == [row.path]
-    assert document == row
+    assert document == HoneyDocument(**row.model_dump(), sources=())
     assert isinstance(proposal, QueuedHoneyNote)
 
 

@@ -79,6 +79,7 @@ _SELECT_LIST_SQL = "SELECT * FROM honey"
 _ORDER_LIST_BY = " ORDER BY created_at DESC, honey_seq DESC LIMIT ? OFFSET ?"
 _UPDATE_CLEARANCE_SQL = "UPDATE honey SET clearance = ?, clearance_rank = ? WHERE id = ?"
 _UPDATE_RETIRE_SQL = "UPDATE honey SET retired_at = ? WHERE id = ?"
+_SELECT_SCOPE_COUNTS_SQL = "SELECT scope, COUNT(*) AS n FROM honey"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,23 @@ def select_honey_list(
     sql = f"{_SELECT_LIST_SQL} WHERE {' AND '.join(clauses)}{_ORDER_LIST_BY}"
     rows = connection.execute(sql, [*params, limit, offset]).fetchall()
     return tuple(_row_to_honey(row) for row in rows)
+
+
+def select_scope_counts(
+    connection: sqlite3.Connection, scope_kind: str, filter_: ReadFilter
+) -> dict[str, int]:
+    """Count live rows per scope of `scope_kind` within `filter_`.
+
+    ADR-0033: one `GROUP BY`, no scan bound, so `/cells`, `/bees` and `/tasks` are complete at
+    any store size.
+    """
+    clauses, params = read_filter_clauses(filter_)
+    # Scoped to one kind's own scopes: "cell:*" matches "cell:<id>" but never "hive" or "bee:<id>".
+    clauses.append("scope GLOB ?")
+    params.append(f"{scope_kind}:*")
+    sql = f"{_SELECT_SCOPE_COUNTS_SQL} WHERE {' AND '.join(clauses)} GROUP BY scope"
+    rows = connection.execute(sql, params).fetchall()
+    return {row["scope"]: row["n"] for row in rows}
 
 
 def raise_clearance_transaction(

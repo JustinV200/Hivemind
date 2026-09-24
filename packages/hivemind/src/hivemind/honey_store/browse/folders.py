@@ -7,10 +7,10 @@ under `/cells`, every Cell with live wax it may see, so a Cell with no Honey yet
 a scope's own Honey rows (a Cell's folder also offers its `wax` sub-folder); a Cell's live Cell
 Wax (the Queen's standing cautions about it); recent Bee Bread (the warm memory tier). Every read
 goes through the reader's own `ReadFilter` or the visibility rules in `.documents`, so a listing
-never shows what a query by the same reader could not return. The store has no "distinct scopes"
-read, so the three index folders are derived from `list_honey` pages, bounded by `MAX_SCAN_ROWS`;
-`search_scopes` reuses that scan, so a search in `/cells` covers every listed folder that holds
-Honey.
+never shows what a query by the same reader could not return. The three index folders are derived
+from `HoneyStore.scope_counts`'s own `GROUP BY` (ADR-0033), so they are complete at any store
+size, with no scan to bound; `search_scopes` reuses the same read, so a search in `/cells` covers
+every listed folder that holds Honey.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package's
@@ -26,14 +26,17 @@ Key invariants:
     - Listing never writes anything, not even a trail event.
 
 See Also:
-    - hivemind.honey_store.store.protocol.HoneyStore.list_honey for the paged read used here.
+    - hivemind.honey_store.store.protocol.HoneyStore.list_honey and .scope_counts for the paged
+      and grouped reads used here.
     - hivemind.honey_store.browse.documents for the per-item visibility rules.
+    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+      scope_counts read that replaced the bounded scan.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 
 from hivemind.honey_store.browse.documents import (
@@ -68,10 +71,6 @@ from hivemind.honey_store.store import HoneyStore
 
 DEFAULT_PAGE_ROWS = 50  # A screenful: enough to see a folder's shape, short enough to read.
 MAX_PAGE_ROWS = 500  # One page never carries more rows than a reader could scan by eye.
-SCAN_PAGE_ROWS = 200  # Rows per `list_honey` call while deriving an index folder's scopes.
-# The most rows an index folder's scan reads (about 25 pages); past it the listing says it
-# stopped. A store method returning distinct scopes would make this bound unnecessary.
-MAX_SCAN_ROWS = 5_000
 RECENT_BEE_BREAD = timedelta(days=7)  # "Recent" warm memory: older entries have ripened by now.
 MAX_BEE_BREAD_ROWS = 1_000  # Newest entries fetched per listing, before the scope filter pages.
 # What the root lists under each of its five folders, in TOP_FOLDERS order.
@@ -89,11 +88,8 @@ __all__ = [
     "FIRST_PAGE",
     "MAX_BEE_BREAD_ROWS",
     "MAX_PAGE_ROWS",
-    "MAX_SCAN_ROWS",
     "RECENT_BEE_BREAD",
-    "SCAN_PAGE_ROWS",
     "Page",
-    "ScopeScan",
     "list_folder",
     "reader_filter",
     "scan_scopes",
@@ -118,14 +114,6 @@ class Page:
 
 # The first page of any folder, the default every `ls` starts from.
 FIRST_PAGE = Page()
-
-
-@dataclass(frozen=True, slots=True)
-class ScopeScan:
-    """The scopes of one kind holding live rows a reader may see, from a bounded scan."""
-
-    counts: dict[str, int] = field(default_factory=dict)  # Scope -> visible rows seen for it.
-    is_complete: bool = True  # False when the scan stopped at MAX_SCAN_ROWS.
 
 
 async def list_folder(
@@ -172,7 +160,7 @@ def reader_filter(reader: HoneyReader, requested: tuple[str, ...] = ()) -> ReadF
     )
 
 
-async def scan_scopes(store: HoneyStore, reader: HoneyReader, scope_kind: str) -> ScopeScan:
+async def scan_scopes(store: HoneyStore, reader: HoneyReader, scope_kind: str) -> dict[str, int]:
     """Find the scopes of one kind holding at least one live row `reader` may see.
 
     Args:
@@ -181,25 +169,10 @@ async def scan_scopes(store: HoneyStore, reader: HoneyReader, scope_kind: str) -
         scope_kind: "cell", "bee" or "task".
 
     Returns:
-        Each such scope with how many visible rows the scan saw in it, and whether the scan read
-        every visible row of that kind or stopped at MAX_SCAN_ROWS.
+        Each such scope mapped to how many visible rows it holds; complete at any store size
+        (`HoneyStore.scope_counts`'s own `GROUP BY`, under the reader's own filter, ADR-0033).
     """
-    counts: dict[str, int] = {}
-    filter_ = reader_filter(reader)
-    offset = 0
-    # Page through the kind's visible rows, newest first, counting rows per scope; a short page
-    # means the last one. Counts are approximate while ripening writes concurrently (a new row
-    # shifts later pages by one), but which scopes appear is not.
-    while offset < MAX_SCAN_ROWS:
-        rows = await store.list_honey(
-            filter_, scope_prefix=f"{scope_kind}:", limit=SCAN_PAGE_ROWS, offset=offset
-        )
-        for honey in rows:
-            counts[honey.scope] = counts.get(honey.scope, 0) + 1
-        if len(rows) < SCAN_PAGE_ROWS:
-            return ScopeScan(counts=counts, is_complete=True)
-        offset += len(rows)
-    return ScopeScan(counts=counts, is_complete=False)
+    return await store.scope_counts(scope_kind, reader_filter(reader))
 
 
 async def search_scopes(
@@ -208,7 +181,7 @@ async def search_scopes(
     """Return the scopes a search in `target` covers.
 
     Args:
-        deps: The store to scan an index folder with.
+        deps: The store to count an index folder's scopes with.
         target: The folder searched.
         reader: Its `honey:read` capabilities and clearance ceiling.
 
@@ -226,8 +199,8 @@ async def search_scopes(
     if target.kind is PathKind.SCOPE and target.scope is not None:
         return (target.scope,)
     if target.kind is PathKind.SCOPE_INDEX and target.scope_kind is not None:
-        scan = await scan_scopes(deps.store, reader, target.scope_kind)
-        return tuple(sorted(scan.counts)) or None
+        counts = await scan_scopes(deps.store, reader, target.scope_kind)
+        return tuple(sorted(counts)) or None
     raise BrowsePathError(
         target.path, "only a folder that holds Honey can be searched; wax and Bee Bread cannot"
     )
@@ -249,23 +222,18 @@ async def _list_index(
 ) -> BrowseListing:
     """List `/cells`, `/bees` or `/tasks`: one folder per scope with something the reader sees."""
     scope_kind = target.scope_kind or ""
-    scan = await scan_scopes(deps.store, reader, scope_kind)
+    counts = await scan_scopes(deps.store, reader, scope_kind)
     # A Cell whose only content so far is its live wax still has a folder worth walking into.
     wax = await _wax_counts(deps, reader) if scope_kind == CELL_SCOPE_KIND else {}
     entries = tuple(
         folder_entry(
-            folder_for_scope(scope),
-            scope,
-            _folder_detail(scan.counts.get(scope, 0), wax.get(scope, 0)),
+            folder_for_scope(scope), scope, _folder_detail(counts.get(scope, 0), wax.get(scope, 0))
         )
-        for scope in sorted(scan.counts.keys() | wax.keys())
+        for scope in sorted(counts.keys() | wax.keys())
     )
-    listing = _paged(target.path, entries, page)
-    if scan.is_complete:
-        return listing
-    # The scan stopped at its bound: say so, and mark the listing incomplete.
-    note = f"Only the newest {MAX_SCAN_ROWS} visible rows were scanned for folders."
-    return listing.model_copy(update={"is_truncated": True, "note": note})
+    # scope_counts' own GROUP BY has no scan bound to stop at (ADR-0033), so this listing is
+    # always complete: only the page cut below can ever leave more entries beyond it.
+    return _paged(target.path, entries, page)
 
 
 async def _list_scope(

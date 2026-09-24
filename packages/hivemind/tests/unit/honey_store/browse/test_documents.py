@@ -13,16 +13,19 @@ See Also:
 
 from __future__ import annotations
 
+import hashlib
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from builders.honey import make_honey_draft, make_nectar_draft
 from unit.honey_store.browse.harness import BrowseHive, open_browse_hive, reader
 
 from hivemind.cell import HoneyClearance
 from hivemind.guard import CapabilitySet
 from hivemind.honey_store import honey_event
 from hivemind.honey_store.browse.documents import (
+    HoneyDocument,
     bee_bread_scope,
     bee_bread_visible,
     honey_visible,
@@ -40,12 +43,30 @@ async def hive(tmp_path: Path) -> BrowseHive:
     return await open_browse_hive(tmp_path)
 
 
-async def test_cat_returns_a_visible_honey_row(hive: BrowseHive) -> None:
+async def test_cat_returns_a_visible_honey_row_with_its_extra_sources(hive: BrowseHive) -> None:
     (row,) = await hive.ripen("The staging config lives at /etc/widgets.")
 
     document = await hive.browser().cat(row.path, reader())
 
-    assert document == row
+    # A HoneyDocument is a Honey (ADR-0033) with the row's own fields unchanged, plus its Nectar's
+    # extra sources -- none here, since nothing deduplicated onto this fresh row.
+    assert document == HoneyDocument(**row.model_dump(), sources=())
+
+
+async def test_cat_lists_a_honey_rows_extra_sources(hive: BrowseHive) -> None:
+    draft = make_nectar_draft(clock=hive.clock, content=b"shared content")
+    digest = hashlib.sha256(draft.content).hexdigest()
+    added = await hive.store.add_nectar(draft, digest, lambda _added: ())
+    event = honey_event(hive.identity, hive.clock, "honey.ripened", added.nectar.id)
+    (row,) = await hive.store.ripen(added.nectar.id, (make_honey_draft(),), event)
+    second_task = new_task_id(hive.clock)
+    duplicate = draft.model_copy(update={"task_id": second_task, "source_key": "dup"})
+    await hive.store.add_nectar(duplicate, digest, lambda _added: ())
+
+    document = await hive.browser().cat(row.path, reader())
+
+    assert isinstance(document, HoneyDocument)
+    assert [source.task_id for source in document.sources] == [second_task]
 
 
 async def test_cat_hides_a_row_above_the_ceiling_like_a_missing_one(hive: BrowseHive) -> None:

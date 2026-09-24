@@ -243,6 +243,7 @@ def test_honey_family_kinds_match_the_documented_vocabulary() -> None:
         "honey.retired",
         "honey.queried",
         "honey.note_proposed",
+        "honey.vectors_pruned",
     } == HoneyEvent.KINDS
 
 

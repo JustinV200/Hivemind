@@ -122,19 +122,17 @@ async def test_ls_cells_lists_cells_with_honey_and_cells_with_only_live_wax(
     assert details == {f"/cells/{with_honey}": "1 rows", f"/cells/{with_wax}": "1 wax"}
 
 
-async def test_ls_index_says_when_its_scan_stopped_at_the_bound(
-    hive: BrowseHive, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_ls_index_lists_every_scope_with_no_scan_bound(hive: BrowseHive) -> None:
+    # ADR-0033: scope_counts' own GROUP BY replaced the old bounded scan, so an index folder
+    # lists every scope the reader may see, however many there are, with no truncation note.
     for _ in range(3):
         await hive.ripen("Task row.", scope=task_scope(new_task_id(hive.clock)))
-    monkeypatch.setattr(folders, "SCAN_PAGE_ROWS", 1)
-    monkeypatch.setattr(folders, "MAX_SCAN_ROWS", 2)
 
     listing = await hive.browser().ls("/tasks", reader())
 
-    assert len(listing.entries) == 2
-    assert listing.is_truncated
-    assert "2" in listing.note
+    assert len(listing.entries) == 3
+    assert not listing.is_truncated
+    assert listing.note == ""
 
 
 async def test_ls_a_cell_folder_offers_its_wax_folder_first(hive: BrowseHive) -> None:

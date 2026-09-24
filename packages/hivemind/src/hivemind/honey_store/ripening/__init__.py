@@ -39,6 +39,8 @@ Public API:
       batches.
     - NearDuplicateCheck, drop_exact_duplicates, drop_near_duplicates (dedupe): duplicate parts.
     - RipenedNectar, IndexResult, index_ripened (index): one Nectar's rows, vectors and events.
+    - prune_vectors, PruneOutcome (prune): drop a superseded model's vectors on request
+      (ADR-0033), never automatically.
 """
 
 from hivemind.honey_store.ripening.chunk import TextChunk, chunk_text, decode_text, normalise_text
@@ -57,6 +59,7 @@ from hivemind.honey_store.ripening.embed import (
 )
 from hivemind.honey_store.ripening.index import IndexResult, RipenedNectar, index_ripened
 from hivemind.honey_store.ripening.pipeline import PassOutcome, Ripener, RipenOutcome
+from hivemind.honey_store.ripening.prune import PruneOutcome, prune_vectors
 from hivemind.honey_store.ripening.summarise import (
     RipenedSummary,
     SummaryOutcome,
@@ -69,6 +72,7 @@ __all__ = [
     "NearDuplicateCheck",
     "PassOutcome",
     "PreparedPart",
+    "PruneOutcome",
     "RipenOutcome",
     "RipenedNectar",
     "RipenedSummary",
@@ -88,6 +92,7 @@ __all__ = [
     "is_zero_vector",
     "metadata_draft",
     "normalise_text",
+    "prune_vectors",
     "ripened_drafts",
     "summarise",
 ]

@@ -9,7 +9,10 @@ ripening, cleared Cell Wax, the human, watch mode); `NectarKind`
 caller builds before calling `HoneyStore.add_nectar`; `Nectar` is the stored row `add_nectar`
 returns, carrying every draft field but the content bytes, which the store serves separately
 (`HoneyStore.nectar_content`) so a caller listing pending Nectar never pulls megabytes of content
-it does not need.
+it does not need. `NectarSource` is one extra provenance record: when a later deposit deduplicates
+onto an existing `Nectar` row by content rather than by `source_key`, and its provenance differs
+from the stored row's own, the store keeps this record of who else sent it (ADR-0033), returned by
+`HoneyStore.nectar_sources`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Built
@@ -77,6 +80,7 @@ __all__ = [
     "Nectar",
     "NectarDraft",
     "NectarOrigin",
+    "NectarSource",
     "NectarState",
 ]
 
@@ -205,3 +209,36 @@ class Nectar(BaseModel):
     state: NectarState = Field(description="This row's place in the Nectar -> Honey pipeline.")
     ripen_attempts: int = Field(ge=0, description="How many ripening passes have tried and failed.")
     tainted: bool = Field(description="Reserved for phase 10's taint marker (codingrules 10.6d).")
+
+
+class NectarSource(BaseModel):
+    """One extra source whose deposit deduplicated onto `nectar_id` by content (ADR-0033).
+
+    Recorded once per distinct provenance: a duplicate found by `source_key` (the same source
+    delivered again) or whose (source_key, task, Cell, bee) already equals the stored Nectar row's
+    own never adds a row (`HoneyStore.add_nectar`'s own uniqueness rule), so this table grows with
+    distinct sources, never with retries. `has_source` answers true for a key recorded here just as
+    it does for `Nectar.source_key`.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    nectar_id: NectarIdField = Field(description="The Nectar row this source deduplicated onto.")
+    source_key: str | None = Field(
+        default=None,
+        max_length=MAX_SOURCE_KEY_CHARS,
+        description="This source's own internal dedupe key, if it had one.",
+    )
+    task_id: TaskId | None = Field(description="The task this source came from, if any.")
+    cell_id: CellId = Field(description="The Cell where this source was gathered.")
+    bee: _BeeIdField | None = Field(
+        default=None, description="The Worker or Warden that gathered this source."
+    )
+    observed_at: UtcDatetime = Field(description="When this source's finding was observed.")
+    received_at: UtcDatetime = Field(description="When this source's deposit reached intake.")
+    origin: NectarOrigin = Field(description="How this source's deposit reached the store.")
+    origin_tier: CombShieldLevel = Field(description="The Comb Shield tier this source came from.")
+    clearance: HoneyClearance = Field(description="The label this source declared on arrival.")
+    event_id: EventId | None = Field(
+        default=None, description="For a HANDOFF, the memory.checkpoint event id it came from."
+    )

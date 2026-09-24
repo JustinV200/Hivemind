@@ -7,7 +7,10 @@ rules beside it decide, for every kind, whether a reader may see an item at all:
 tests retrieval applies -- a `honey:read` capability whose glob matches the item's scope, and a
 label at or below the reader's clearance ceiling -- plus liveness (a Honey row neither tainted nor
 retired, a wax note not past its expiry). An item that fails any test is reported exactly as a
-missing one, so a reader cannot probe for what it may not read.
+missing one, so a reader cannot probe for what it may not read. A Honey row's document is a
+`HoneyDocument`: `Honey` itself plus the row's Nectar's extra sources (ADR-0033: who else deposited
+the same content, never the content), so `hive honey cat` can show them; a `HoneyDocument` is a
+`Honey`, so every existing `isinstance(document, Honey)` check still recognises it.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package's
@@ -22,11 +25,16 @@ Key invariants:
     - A Bee Bread entry's scope is what ripening would file it under (`task:<id>` for an entry
       about a task, `hive` otherwise, ADR-0031's scoping table), so browsing it before it ripens
       is filtered exactly as querying it after.
-    - Reading never writes anything, not even a trail event.
+    - Reading never writes anything, not even a trail event: fetching a row's extra sources for
+      `cat` is one more store read, not a write.
+    - `visible_honey` (used by `.relabel`, which never needs a row's extra sources) returns the
+      plain `Honey`; only `read_document`'s own HONEY path builds a `HoneyDocument`.
 
 See Also:
     - hivemind.honey_store.honey.retrieve for the retrieval filter these tests restate.
     - hivemind.honey_store.scope.scope_for_nectar for the BEE_BREAD row `bee_bread_scope` mirrors.
+    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for
+      HoneyDocument.sources.
 """
 
 from __future__ import annotations
@@ -34,22 +42,22 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 
+from pydantic import Field
+
 from hivemind.cell import HoneyClearance
 from hivemind.honey_store.browse.errors import BrowseNotFoundError, BrowsePathError
 from hivemind.honey_store.browse.paths import CELL_SCOPE_PREFIX, BrowsePath, PathKind
 from hivemind.honey_store.browse.sources import BeeBreadNote, BrowserDeps, WaxNote
 from hivemind.honey_store.errors import HoneyNotFoundError
 from hivemind.honey_store.honey import HoneyReader
-from hivemind.honey_store.models import Honey
+from hivemind.honey_store.models import Honey, NectarSource
 from hivemind.honey_store.scope import HIVE_SCOPE, cell_scope, is_readable, task_scope
 from hivemind.honey_store.store import HoneyStore
 from waggle.ids import CellId, HoneyId
 
-# One document, whichever folder it lives in: a Honey row, a live wax note or a Bee Bread entry.
-type BrowseDocument = Honey | WaxNote | BeeBreadNote
-
 __all__ = [
     "BrowseDocument",
+    "HoneyDocument",
     "bee_bread_scope",
     "bee_bread_visible",
     "honey_visible",
@@ -58,6 +66,30 @@ __all__ = [
     "visible_honey",
     "wax_visible",
 ]
+
+
+class HoneyDocument(Honey):
+    """One Honey row as `cat` returns it: the row itself, plus its Nectar's extra sources.
+
+    A subclass of `Honey`, not a wrapper, so it carries every field `honey_entry` and `render.py`
+    already read from a plain `Honey` and every existing `isinstance(document, Honey)` check still
+    recognises it; `sources` is the one field `cat` adds over what `ls` already shows. Never built
+    by ripening, `list_honey`, search or any store read but `read_document`'s own HONEY path.
+    """
+
+    sources: tuple[NectarSource, ...] = Field(
+        default=(),
+        description="This row's Nectar's other, distinctly-provenanced deposits (ADR-0033): "
+        "task, Cell, bee and when, never content.",
+    )
+
+
+# One document, whichever folder it lives in: a Honey row, a live wax note or a Bee Bread entry.
+# HoneyDocument (a Honey subclass) fits the Honey member of this union by ordinary subtyping, so
+# read_document's HONEY path can return the narrower HoneyDocument without widening this alias --
+# which stays exactly what it was before ADR-0033, so a caller (a test, a fake) that still builds
+# a plain Honey for this union keeps type-checking.
+type BrowseDocument = Honey | WaxNote | BeeBreadNote
 
 
 async def read_document(
@@ -200,9 +232,12 @@ def _allowed(scope: str, clearance: HoneyClearance, reader: HoneyReader) -> bool
     return is_readable(scope, reader.capabilities) and clearance.rank <= reader.ceiling.rank
 
 
-async def _read_honey(deps: BrowserDeps, target: BrowsePath, reader: HoneyReader) -> Honey:
-    """Return the Honey row a HONEY path names, if the reader may see it."""
-    return await visible_honey(deps.store, target, reader)
+async def _read_honey(deps: BrowserDeps, target: BrowsePath, reader: HoneyReader) -> HoneyDocument:
+    """Return the Honey row a HONEY path names, with its Nectar's extra sources, if visible."""
+    honey = await visible_honey(deps.store, target, reader)
+    # Local SQLite, on the store's own thread: milliseconds, like every other store read here.
+    sources = await deps.store.nectar_sources(honey.nectar_id)
+    return HoneyDocument(**honey.model_dump(), sources=sources)
 
 
 async def _read_wax_note(deps: BrowserDeps, target: BrowsePath, reader: HoneyReader) -> WaxNote:

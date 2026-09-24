@@ -37,7 +37,8 @@ Public API:
     - FakeLiveWaxSource, FakeBeeBreadSource (fake): in-memory sources.
     - BrowsePath, PathKind, parse_path, ROOT_PATH, TOP_FOLDERS (paths): the path grammar.
     - BrowseEntry, BrowseListing, EntryKind (listing): what `ls` returns.
-    - BrowseDocument, honey_visible (documents): what `cat` returns, and the row visibility rule.
+    - BrowseDocument, HoneyDocument, honey_visible (documents): what `cat` returns (a Honey row's
+      own document also carries its Nectar's extra sources, ADR-0033), and the row visibility rule.
     - Page, FIRST_PAGE, DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS (folders): listing pages.
     - NoteProposal, CellWaxProposal, QueuedHoneyNote, NOTE_CLEARANCE (notes): a proposed note.
     - HoneyRelabeller, RelabelRequest, RelabelOutcome, RelabelDirection (relabel): the human's
@@ -51,7 +52,7 @@ from hivemind.honey_store.browse.browser import (
     HoneyBrowser,
     operator_reader,
 )
-from hivemind.honey_store.browse.documents import BrowseDocument, honey_visible
+from hivemind.honey_store.browse.documents import BrowseDocument, HoneyDocument, honey_visible
 from hivemind.honey_store.browse.errors import (
     BrowseError,
     BrowseInputError,
@@ -115,6 +116,7 @@ __all__ = [
     "FakeBeeBreadSource",
     "FakeLiveWaxSource",
     "HoneyBrowser",
+    "HoneyDocument",
     "HoneyRelabeller",
     "LiveWaxSource",
     "NoteProposal",

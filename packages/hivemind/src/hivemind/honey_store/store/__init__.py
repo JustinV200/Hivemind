@@ -22,8 +22,8 @@ See Also:
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the decisions this package encodes.
 
 Public API:
-    - HoneyStore, NectarAdded, HoneyProposal (protocol): the persistence protocol and its own
-      small return shapes.
+    - HoneyStore, NectarAdded, HoneyProposal, PruneResult, PruneEvents (protocol): the
+      persistence protocol and its own small return shapes.
     - build_match, MAX_MATCH_TOKENS (fts): a safe FTS5 MATCH string from arbitrary text.
     - SqliteHoneyStore (sqlite): the durable implementation.
 """
@@ -34,6 +34,8 @@ from hivemind.honey_store.store.protocol import (
     HoneyStore,
     NectarAdded,
     NectarEvents,
+    PruneEvents,
+    PruneResult,
 )
 from hivemind.honey_store.store.sqlite import SqliteHoneyStore
 
@@ -43,6 +45,8 @@ __all__ = [
     "HoneyStore",
     "NectarAdded",
     "NectarEvents",
+    "PruneEvents",
+    "PruneResult",
     "SqliteHoneyStore",
     "build_match",
 ]

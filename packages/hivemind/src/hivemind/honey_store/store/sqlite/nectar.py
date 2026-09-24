@@ -6,7 +6,10 @@ Every write here runs inside one `hivemind.common.sqlite.transaction` block alon
 `draft.source_key` first, then by `content_sha256` on the draft's own side of the Night Veil
 boundary, builds its events from the outcome, and on a duplicate only ever raises the stored
 label, never lowers it (`hivemind.honey_store.clearance.raise_label`'s own rule, re-applied here
-directly since this module already holds both rows' clearances in hand).
+directly since this module already holds both rows' clearances in hand). A duplicate found by
+content rather than by `source_key`, whose provenance differs from the stored row's own, also
+records an extra source (`hivemind.honey_store.store.sqlite.sources`, ADR-0033) in the same
+transaction, so the second sender's own provenance survives the merge.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
@@ -14,11 +17,12 @@ Fits into the Hive:
     Calls into `hivemind.cell` (HoneyClearance, CombShieldLevel), `hivemind.common.sqlite`
     (transaction), `hivemind.honey_store.errors` (NectarNotFoundError), `hivemind.honey_store.
     models` (Nectar, NectarDraft, NectarOrigin, NectarState), `hivemind.honey_store.store.protocol`
-    (NectarAdded, NectarEvents), `hivemind.pheromone` (insert_event) and `waggle` only.
+    (NectarAdded, NectarEvents), `.sources` (insert_source_if_new), `hivemind.pheromone`
+    (insert_event) and `waggle` only.
 
 Key invariants:
-    - `add_nectar_transaction` writes its row (or its merge) and its events inside one
-      transaction (codingrules section 12); a failing write leaves neither behind.
+    - `add_nectar_transaction` writes its row (or its merge, and any extra source) and its events
+      inside one transaction (codingrules section 12); a failing write leaves neither behind.
     - An ordinary deposit never dedupes onto an EPHEMERAL row, nor an ephemeral one onto another
       Cell's or an ordinary row: a teardown purge can never take an ordinary deposit with it.
     - A duplicate deposit's label is only ever raised, never lowered, and only the Honey rows
@@ -26,11 +30,17 @@ Key invariants:
       clearance_rank < ?`).
     - A fresh row's `state` is `EPHEMERAL` when `draft.ephemeral_cell_id` is set, `RECEIVED`
       otherwise (ADR-0031: a Night Veil Cell's own side channel is never ripened).
+    - An extra source is recorded only for a duplicate matched by content, and only when its
+      (source_key, task, Cell, bee) differs from the stored row's own; `sources.
+      insert_source_if_new`'s own unique indexes make a retried or already-known one a no-op.
 
 See Also:
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
+    - hivemind.honey_store.store.sqlite.sources for insert_source_if_new, this module's own callee.
     - hivemind.honey_store.clearance for raise_label, the rule this module re-applies inline.
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the dedupe-and-merge rule.
+    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+      extra-source rule this module adds to it.
 """
 
 from __future__ import annotations
@@ -44,6 +54,7 @@ from hivemind.common.sqlite import transaction
 from hivemind.honey_store.errors import NectarNotFoundError
 from hivemind.honey_store.models import Nectar, NectarDraft, NectarOrigin, NectarState
 from hivemind.honey_store.store.protocol import NectarAdded, NectarEvents
+from hivemind.honey_store.store.sqlite import sources as sources_sql
 from hivemind.pheromone import HoneyEvent, insert_event
 from waggle.clock import Clock
 from waggle.ids import CellId, EventId, NectarId, TaskId, new_nectar_id
@@ -88,11 +99,14 @@ def add_nectar_transaction(
 ) -> NectarAdded:
     """Insert `draft` as a new row, or merge it onto a duplicate, then its events; one txn."""
     with transaction(connection):
-        existing_row = _select_duplicate_row(connection, draft, content_sha256)
+        # Read once: a new row's received_at, and a duplicate's own extra-source received_at,
+        # are the same "now" either way.
+        received_at = clock.now()
+        existing_row, by_key = _select_duplicate_row(connection, draft, content_sha256)
         if existing_row is not None:
-            result = _merge_duplicate(connection, existing_row, draft)
+            result = _merge_duplicate(connection, existing_row, draft, by_key, received_at)
         else:
-            nectar = _draft_to_nectar(draft, content_sha256, clock.now(), clock)
+            nectar = _draft_to_nectar(draft, content_sha256, received_at, clock)
             connection.execute(_INSERT_SQL, _nectar_insert_params(nectar, draft.content))
             result = NectarAdded(nectar=nectar, is_new=True, raised_from=None)
         # The caller's events depend on the outcome (a new id, a duplicate, a raised label, or
@@ -158,12 +172,16 @@ def purge_ephemeral_transaction(connection: sqlite3.Connection, cell_id: CellId)
 
 def _select_duplicate_row(
     connection: sqlite3.Connection, draft: NectarDraft, sha256: str
-) -> sqlite3.Row | None:
+) -> tuple[sqlite3.Row | None, bool]:
     """Find an existing row by `source_key` first, then by `sha256` (ADR-0031's dedupe order).
 
     The sha256 match stays on `draft`'s own side of the Night Veil boundary: an ordinary deposit
     merged onto an ephemeral row would be deleted by that Cell's teardown purge, and an ephemeral
     deposit merged onto an ordinary row would let a Night Veil Cell change persistent state.
+
+    Returns:
+        `(row, True)` when found by `source_key` (the same source delivered again, ADR-0033);
+        `(row, False)` when found by `sha256` instead; `(None, False)` when neither matches.
     """
     if draft.source_key is not None:
         # sqlite3.Cursor.fetchone() is typed Any by typeshed; the explicit annotation is what lets
@@ -172,18 +190,28 @@ def _select_duplicate_row(
             _SELECT_BY_SOURCE_KEY_SQL, (draft.source_key,)
         ).fetchone()
         if by_source_key is not None:
-            return by_source_key
+            return by_source_key, True
     by_sha256: sqlite3.Row | None = connection.execute(
         _SELECT_BY_SHA256_SQL, (sha256, draft.ephemeral_cell_id)
     ).fetchone()
-    return by_sha256
+    return by_sha256, False
 
 
 def _merge_duplicate(
-    connection: sqlite3.Connection, existing_row: sqlite3.Row, draft: NectarDraft
+    connection: sqlite3.Connection,
+    existing_row: sqlite3.Row,
+    draft: NectarDraft,
+    matched_by_source_key: bool,
+    received_at: datetime,
 ) -> NectarAdded:
-    """Raise the stored row's (and its Honey rows') label when `draft` outranks it; else no-op."""
+    """Raise the stored row's (and its Honey rows') label when `draft` outranks it; else no-op.
+
+    A content match (not the same `source_key`) whose provenance differs from the stored row's
+    own also records an extra source (ADR-0033), whichever way the label moves.
+    """
     existing = _row_to_nectar(existing_row)
+    if not matched_by_source_key and _provenance_differs(existing, draft):
+        sources_sql.insert_source_if_new(connection, existing.id, draft, received_at)
     if draft.clearance.rank <= existing.clearance.rank:
         # Not a raise: the stored label already covers the new deposit's own.
         return NectarAdded(nectar=existing, is_new=False, raised_from=None)
@@ -196,6 +224,17 @@ def _merge_duplicate(
         (draft.clearance.value, draft.clearance.rank, existing.id, draft.clearance.rank),
     )
     return NectarAdded(nectar=raised, is_new=False, raised_from=existing.clearance)
+
+
+def _provenance_differs(existing: Nectar, draft: NectarDraft) -> bool:
+    """Return whether `draft`'s (source_key, task, Cell, bee) differs from the stored row's own.
+
+    ADR-0033: a duplicate whose whole provenance already equals the first depositor's own would
+    otherwise record a source that only repeats what `honey_nectar` already says.
+    """
+    stored = (existing.source_key, existing.task_id, existing.cell_id, existing.bee)
+    incoming = (draft.source_key, draft.task_id, draft.cell_id, draft.bee)
+    return stored != incoming
 
 
 def _draft_to_nectar(

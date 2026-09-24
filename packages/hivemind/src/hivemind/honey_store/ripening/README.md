@@ -19,6 +19,12 @@ honey ripen --now` and `hive honey reembed` run the same passes on demand.
   `embed_texts`/`embedding_text`/`embed_pending_rows` (`embed.py`),
   `drop_exact_duplicates`/`drop_near_duplicates` (`dedupe.py`) and `index_ripened`
   (`index.py`).
+- **`prune_vectors(deps, kept_model) -> PruneOutcome`** (`prune.py`): on the operator's own word
+  only (`hive honey reembed --prune`, never the House Bee's timer), drops every embedding model's
+  vectors but `kept_model`'s -- but only once every live Honey row already has one for it.
+  Refuses (and changes nothing) otherwise; `PruneOutcome.missing`/`.refused` say why, and
+  `.dropped` gives the per-model counts on success. One `honey.vectors_pruned` event on success,
+  none on a refusal (ADR-0033).
 
 ## One Nectar, stage by stage
 
@@ -50,4 +56,6 @@ uv run --frozen pytest packages/hivemind/tests/unit/honey_store/ripening
 `test_chunk.py` property-tests the chunker with hypothesis; `test_summarise.py` scripts a
 `FakeLLMProvider` (a good reply, a malformed one, an outage); `test_pipeline.py` ripens a long
 text, a short text, a binary blob and a duplicate on a real SQLite store with `FakeEmbedding` and
-checks rows, full-text findability, vectors, deduplication and events.
+checks rows, full-text findability, vectors, deduplication and events. `test_prune.py` covers a
+refusal while a row is missing a vector, a clean prune that leaves the kept model's vectors
+intact and drops the others, and the one event each outcome does or does not record.

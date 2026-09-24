@@ -6,11 +6,11 @@ codingrules 5.1's size limit): acquire this instance's lock, run the real work o
 `ConnectionThread`, return the result. `SqliteHoneyStore` itself is composed from five private
 mixins (`_NectarMethods`, `_HoneyMethods`, `_VectorMethods`, `_SearchMethods`,
 `_MaintenanceMethods`), one per responsibility, purely so each mixin's own class body stays under
-codingrules 5.1's 200-line class limit -- `HoneyStore`'s 27 methods do not fit in one class body
-otherwise, the same reason `hivemind.honey_store.store.protocol.HoneyStore` itself is composed
-from five private Protocols. This module owns only the mixins, the composed class, `create`
-(which checks for the Pheromone Trail's table, applies migrations, and picks the vector backend)
-and nothing else.
+codingrules 5.1's 200-line class limit -- `HoneyStore`'s thirty methods do not fit in one class
+body otherwise, the same reason `hivemind.honey_store.store.protocol.HoneyStore` itself is
+composed from five private Protocols. This module owns only the mixins, the composed class,
+`create` (which checks for the Pheromone Trail's table, applies migrations, and picks the vector
+backend) and nothing else.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Constructed by a composition root once
@@ -36,8 +36,8 @@ See Also:
     - hivemind.common.sqlite and hivemind.honey_store.schema for the connection/transaction and
       migration runner this module builds on.
     - hivemind.honey_store.store.protocol for the HoneyStore protocol this class implements.
-    - hivemind.honey_store.store.sqlite.nectar/.honey/.vectors/.search/.stats for the SQL each
-      method delegates to, and .vec for the vector backend `create` picks.
+    - hivemind.honey_store.store.sqlite.nectar/.honey/.vectors/.search/.stats/.sources for the SQL
+      each method delegates to, and .vec for the vector backend `create` picks.
 """
 
 from __future__ import annotations
@@ -55,15 +55,23 @@ from hivemind.honey_store.models import (
     HoneyStats,
     Nectar,
     NectarDraft,
+    NectarSource,
     ReadFilter,
     TextCandidate,
     VectorCandidate,
 )
 from hivemind.honey_store.schema import apply_honey_store_migrations
-from hivemind.honey_store.store.protocol import HoneyProposal, NectarAdded, NectarEvents
+from hivemind.honey_store.store.protocol import (
+    HoneyProposal,
+    NectarAdded,
+    NectarEvents,
+    PruneEvents,
+    PruneResult,
+)
 from hivemind.honey_store.store.sqlite import honey as honey_sql
 from hivemind.honey_store.store.sqlite import nectar as nectar_sql
 from hivemind.honey_store.store.sqlite import search as search_sql
+from hivemind.honey_store.store.sqlite import sources as sources_sql
 from hivemind.honey_store.store.sqlite import stats as stats_sql
 from hivemind.honey_store.store.sqlite import vectors as vectors_sql
 from hivemind.honey_store.store.sqlite.search import _VectorQuery
@@ -125,10 +133,22 @@ class _NectarMethods:
             return await self._thread.run(nectar_sql.select_pending_nectar, self._connection, limit)
 
     async def has_source(self, source_key: str) -> bool:
-        """Return whether a row with this source_key exists; see `HoneyStore.has_source`."""
+        """Return whether a row or an extra source carries this source_key.
+
+        See `HoneyStore.has_source`.
+        """
+        async with self._lock:
+            if await self._thread.run(nectar_sql.select_has_source, self._connection, source_key):
+                return True
+            return await self._thread.run(
+                sources_sql.select_has_source, self._connection, source_key
+            )
+
+    async def nectar_sources(self, nectar_id: NectarId) -> tuple[NectarSource, ...]:
+        """Return `nectar_id`'s extra sources; see `HoneyStore.nectar_sources`."""
         async with self._lock:
             return await self._thread.run(
-                nectar_sql.select_has_source, self._connection, source_key
+                sources_sql.select_sources_for_nectar, self._connection, nectar_id
             )
 
     async def mark_nectar_failed(
@@ -195,6 +215,16 @@ class _HoneyMethods:
                 honey_sql.select_honey_list, self._connection, filter, scope_prefix, limit, offset
             )
 
+    async def scope_counts(self, scope_kind: str, filter: ReadFilter) -> dict[str, int]:
+        """Count live rows per scope of `scope_kind` within `filter`.
+
+        See `HoneyStore.scope_counts`.
+        """
+        async with self._lock:
+            return await self._thread.run(
+                honey_sql.select_scope_counts, self._connection, scope_kind, filter
+            )
+
     async def raise_clearance(
         self, honey_id: HoneyId, to: HoneyClearance, event: HoneyEvent
     ) -> Honey:
@@ -245,6 +275,13 @@ class _VectorMethods:
         async with self._lock:
             return await self._thread.run(
                 vectors_sql.select_pending_vectors, self._connection, model, limit
+            )
+
+    async def prune_vectors(self, kept_model: str, events: PruneEvents) -> PruneResult:
+        """Drop every other model's vectors, if it is safe to; see `HoneyStore.prune_vectors`."""
+        async with self._lock:
+            return await self._thread.run(
+                vectors_sql.prune_vectors_transaction, self._connection, kept_model, events
             )
 
 
