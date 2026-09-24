@@ -160,3 +160,39 @@ def test_every_close_code_and_bare_refusal_is_published() -> None:
         413,
         429,
     }
+
+
+def test_the_voice_route_is_described_with_its_raw_body_switch_and_refusals() -> None:
+    operation = _document()["paths"]["/v1/chat/audio"]["post"]
+
+    assert set(operation["requestBody"]["content"]) == {
+        "audio/wav",
+        "audio/ogg",
+        "audio/webm",
+        "audio/mpeg",
+        "audio/mp4",
+    }
+    assert operation["x-hive-body"]["max_bytes"] > 262_144
+    assert operation["x-hive-switch"] == "voice.enabled"
+    assert (operation["x-hive-capability"], operation["x-hive-c2"]) == ("entrance:submit", True)
+    assert {"413", "415", "429", "503"} <= set(operation["responses"])
+    assert {parameter["name"] for parameter in operation["parameters"]} == {
+        "intent",
+        "duration_s",
+        "language",
+    }
+
+
+def test_the_chat_stream_publishes_push_to_talk_frames_sent_closed_and_answers_read_open() -> None:
+    document = _document()
+    schemas = document["components"]["schemas"]
+    [chat] = [view for view in document["x-hive-streams"] if view["path"] == "/v1/chat/stream"]
+
+    sent = [ref["$ref"].rsplit("/", 1)[1] for ref in chat["client_frames"]]
+    answers = [ref["$ref"].rsplit("/", 1)[1] for ref in chat["reply_frames"]]
+
+    assert sent == ["AudioChunkFrame", "AudioEndFrame"]
+    assert answers == ["VoiceFrame", "VoiceRefusedFrame"]
+    assert all(schemas[name].get("additionalProperties") is False for name in sent)
+    assert all(schemas[name].get("additionalProperties") is not False for name in answers)
+    assert schemas["VoiceAccepted"].get("additionalProperties") is not False
