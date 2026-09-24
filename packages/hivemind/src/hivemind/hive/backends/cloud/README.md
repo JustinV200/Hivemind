@@ -48,6 +48,11 @@ provisioning, idempotent destroy):
    docker`" convention, and made an optional extra in `packages/hivemind/pyproject.toml`.
 6. **Pass the contract suite.** `packages/hivemind/tests/contracts/test_cell_backend_contract.py`
    must pass with a new harness before the backend is registered anywhere else (codingrules 14.3).
+7. **Declare `can_cut_egress` only if the cut leaves the link.** Roadmap step 10.6a's egress lever
+   must never take the Waggle link down with it: Docker's control network is the model (the link
+   on a path that reaches the Queen's listener and nothing else, the default route on a second
+   interface the cut detaches; `hivemind.hive.backends.docker.network`). A provider that cannot
+   split them leaves the capability undeclared, and an isolation records the egress `unsupported`.
 
 ## How to test this
 

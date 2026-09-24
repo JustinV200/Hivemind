@@ -137,8 +137,10 @@ way to the Queen; without a control subnet such a Cell has no route to docker0 o
 
 Proved against a real daemon by `tests/integration/test_docker_egress.py`: from inside the
 container an outside host and docker0 answer before the cut and not after it, the control
-gateway's listener answers throughout, heartbeats keep arriving with no re-attach, the lift
-restores both, and the container is gone at teardown.
+gateway's listener answers throughout, a stand-in for another Cell on the control network never
+does, heartbeats keep arriving with no re-attach, the Cell's own Warden labels its store, the lift
+restores both, a resume from the tainted Handoff is refused inside the Cell, and the container is
+gone at teardown.
 
 ### QEMU: what a cut would need
 

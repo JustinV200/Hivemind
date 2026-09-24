@@ -7,7 +7,8 @@ may not take lands on a real container, whose Drone runs a command round after r
 checkpointed inside the Cell; then a Guard request under the shipped dire pattern, filed through
 the Queen's real door, isolates the Cell. From inside the container: an outside host is reachable
 before the cut and not after it, and neither is the host's docker0 (where the model server
-answers), while the control gateway's listener still is. The Waggle link lives on: heartbeats keep
+answers), while the control gateway's listener still is; another container on the control network
+is never reachable at all. The Waggle link lives on: heartbeats keep
 arriving, no CELL_UNREACHABLE, and the Warden never re-attaches. The Cell's own Warden taints the
 store it keeps (its `memory.tainted` rows, caused by `cell.isolated`, reach the Queen's trail),
 the human's lift restores the egress, and a resume from the tainted Handoff is refused inside the
@@ -51,6 +52,7 @@ from integration.docker_helpers import ALL_INTERFACES, IMAGE, daemon_reachable, 
 from hivemind.brood_chamber import Task, TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import Hive, build_hive, run_hive
+from hivemind.hive.backends.docker import control_network
 from hivemind.hive.backends.docker.backend import container_name
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import PheromoneEvent, TrailQuery
@@ -78,6 +80,18 @@ _HEARTBEAT_WAIT_S = 45.0  # The in-Cell Warden beats every 15 s; three beats is 
 _VIRTUAL_ONLY = ("cell:virtual", "cell:comb_shield:*", "llm:*", "tool:*", "fs:read:**")
 _VIRTUAL_ONLY_TOOLS = (*_VIRTUAL_ONLY, "fs:write:**", "exec:*", "question:human")
 _TAINTED_HANDOFF = "guard.scope.tainted_handoff"
+_PEER_LABEL = "hivemind.test_peer"  # A stand-in for another Cell on the control network.
+_PEER_PORT = 9999  # Where the stand-in listens.
+# Run as the stand-in: accept and close connections, for as long as the test needs it.
+_LISTEN = f"""
+import socket
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("0.0.0.0", {_PEER_PORT}))
+server.listen()
+while True:
+    server.accept()[0].close()
+"""
 # Run inside the Cell: resolve the outside host, then try each "label,host,port" target.
 _PROBE = """
 import json, socket, sys
@@ -140,16 +154,19 @@ async def _scenario(hive: Hive, client: DockerClient, rig: _Rig) -> None:
     async with run_hive(hive):
         task, cell_id = await _a_busy_docker_cell(hive)
         container = container_name(cell_id)
-        before = await _probe(client, container, rig, resolved=None)
+        control = control_network(hive.manifest.hive.id, rig.subnet).name
+        peer = await asyncio.to_thread(_start_peer, client, control, hive.manifest.hive.id)
+        before = await _probe(client, container, rig, peer, resolved=None)
         if before.get("http_ip") != "open":
             pytest.skip(f"{_OUTSIDE} is not reachable from a container on this runner: {before}")
         checkpoint = await _checkpoint(hive, task)
         isolated, cut_at = await _isolate(hive, task, cell_id)
-        cut = await _probe(client, container, rig, resolved=str(before["resolved"]))
+        resolved = str(before["resolved"])
+        cut = await _probe(client, container, rig, peer, resolved=resolved)
         tainted = await _in_cell_labels(hive, isolated.id)
         await _link_lived_through(hive, task, cut_at)
         await hive.queen.lift_isolation(cell_id, new_device_id(hive.clock))
-        lifted = await _probe(client, container, rig, resolved=str(before["resolved"]))
+        lifted = await _probe(client, container, rig, peer, resolved=resolved)
         refusal = await _resume_is_refused(hive, task, checkpoint)
         log.info("before cut: %s | after cut: %s | after lift: %s", before, cut, lifted)
         log.info(
@@ -161,6 +178,8 @@ async def _scenario(hive: Hive, client: DockerClient, rig: _Rig) -> None:
     assert cut["listener"] == "open"  # The link's own address: the control gateway.
     assert cut["http_ip"] != "open" and cut["model"] != "open" and cut["resolved"] is None
     assert (lifted["http_ip"], lifted["model"]) == ("open", "open")
+    # Another container on the control network is out of reach whatever the egress is.
+    assert "open" not in (before["peer"], cut["peer"], lifted["peer"])
     assert tainted and refusal.payload["rule"] == _TAINTED_HANDOFF
 
 
@@ -274,12 +293,13 @@ async def _resume_is_refused(hive: Hive, task: Task, checkpoint: HandoffRef) -> 
 
 
 async def _probe(
-    client: DockerClient, container: str, rig: _Rig, *, resolved: str | None
+    client: DockerClient, container: str, rig: _Rig, peer: str, *, resolved: str | None
 ) -> dict[str, str | None]:
     """Run the probe inside the container, off the event loop the Hive's loops share."""
     targets = [
         f"listener,{rig.gateway},{rig.listen_port}",
         f"model,{_DOCKER0},{rig.model_port}",
+        f"peer,{peer},{_PEER_PORT}",
     ]
     if resolved is not None:
         targets.append(f"http_ip,{resolved},80")
@@ -292,7 +312,7 @@ async def _probe(
     report = await asyncio.to_thread(run)
     if resolved is None and report["resolved"]:
         # The first probe names the address every later one tries, DNS or no DNS.
-        report = await _probe(client, container, rig, resolved=report["resolved"])
+        report = await _probe(client, container, rig, peer, resolved=report["resolved"])
     return report
 
 
@@ -346,8 +366,24 @@ prefer = "virtual"
     return path
 
 
+def _start_peer(client: DockerClient, network: str, hive_id: str) -> str:
+    """Start a stand-in for another Cell on the control network; return its address there."""
+    peer = client.containers.run(
+        _IMAGE,
+        entrypoint=["python3", "-c", _LISTEN],
+        name=f"hivemind-test-peer-{hive_id}",
+        network=network,
+        labels={_PEER_LABEL: hive_id},
+        detach=True,
+    )
+    peer.reload()
+    return str(peer.attrs["NetworkSettings"]["Networks"][network]["IPAddress"])
+
+
 def _sweep(client: DockerClient, hive_id: str) -> None:
     """Remove anything of this Hive's the run left behind: containers, volumes, networks."""
+    for peer in client.containers.list(all=True, filters={"label": f"{_PEER_LABEL}={hive_id}"}):
+        peer.remove(force=True)
     label = {"label": f"hivemind.hive_id={hive_id}"}
     for found in client.containers.list(all=True, filters=label):
         found.remove(force=True)

@@ -24,7 +24,9 @@ pool that keeps a dormant Cell around for fast reuse.
   is its in-memory implementation.
 - `DockerCellBackend` / `build_docker_backend` (`backends/docker/`): the first working
   `CellBackend`, over a Docker daemon (ADR-0026, ADR-0027), and the factory a composition root
-  hands to `BackendRegistry.register`.
+  hands to `BackendRegistry.register`. Given a control network (`DockerBackendConfig.control`,
+  from `[virtual_cells] control_subnet`) it dual-homes each Cell and can cut and restore a running
+  Cell's egress without dropping its link (roadmap step 10.6a; `backends/README.md`).
 - `QemuCellBackend` / `build_qemu_backend` (`backends/qemu/`): the second `CellBackend`, over real
   QEMU VMs booted from a prebuilt qcow2 and cloud-init (roadmap step 5.11); same contract, gives
   `isolation = "required"` a real hypervisor boundary. `hivemind.hive.backends.cloud` holds the
