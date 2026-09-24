@@ -87,6 +87,7 @@ async def test_a_departed_device_whose_certificate_was_never_withdrawn_is_listed
 
     listed = revoked_serial(departed)
 
+    assert device.approved_at is not None
     assert listed == RevokedSerial(serial=_serial(device), revoked_at=device.approved_at)
 
 
