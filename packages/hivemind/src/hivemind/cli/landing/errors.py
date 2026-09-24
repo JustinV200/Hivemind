@@ -35,7 +35,7 @@ import httpx
 from pydantic import ValidationError
 
 from hivemind.common.errors import HiveMindError, PermissionDeniedError
-from hivemind.entrance.gate import ErrorBody
+from hivemind.entrance.gate import NOT_FOUND_CODE, ErrorBody
 
 STEP_UP_CODE = "hivemind.entrance.step_up_required"  # ADR-0033's 403 step_up_required.
 AUTHENTICATION_CODE = "hivemind.entrance.authentication_failed"  # A refused login or session.
@@ -155,7 +155,8 @@ def _hint(status: int, body: ErrorBody) -> str | None:
         return AUTHENTICATION_HINT
     if body.error == CAPABILITY_CODE and body.capability is not None:
         return f"ask the operator to grant {body.capability} with hive entrance approve or steward"
-    # A route absent from this listener answers 404 without an Entrance code of its own.
-    if status == 404 and not body.error.startswith("hivemind."):
+    # A route absent from this listener (a loopback-only one on the remote listener among them)
+    # answers the router's own not-found code; an Entrance before that code answered none.
+    if status == 404 and (body.error == NOT_FOUND_CODE or not body.error.startswith("hivemind.")):
         return NOT_FOUND_HINT
     return None
