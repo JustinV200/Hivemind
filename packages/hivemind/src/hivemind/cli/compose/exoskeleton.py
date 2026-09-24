@@ -209,9 +209,12 @@ def exoskeleton_config(section: ExoskeletonSection, *, browser_sandbox: bool) ->
 def running_as_root() -> bool:
     """Return whether this process runs as root, where Chromium cannot keep its own sandbox."""
     # Windows has no effective uid, and Chromium's sandbox works for an administrator there.
+    # The else is load-bearing: mypy skips the branch a platform check rules out on the host it
+    # checks for, but reports a statement after an early return as unreachable (cell.local's rule).
     if sys.platform == "win32":
         return False
-    return os.geteuid() == 0
+    else:
+        return os.geteuid() == 0
 
 
 def build_browser_launcher(clock: Clock, window: ScreenSize) -> BrowserLauncher | None:

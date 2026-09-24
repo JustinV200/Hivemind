@@ -36,7 +36,7 @@ def test_the_script_loads_two_rewindless_sinks_and_sets_both_defaults() -> None:
 
     script = server_script(layout)
 
-    assert f'socket="{layout.pulse_socket}"' in script
+    assert f'socket="{layout.pulse_socket.as_posix()}"' in script
     assert script.count("norewinds=1") == 2
     assert f"set-default-sink {SPEAKER_SINK}" in script
     assert f"set-default-source {MICROPHONE_SINK}.monitor" in script

@@ -47,7 +47,7 @@ async def test_a_lease_display_is_private_and_ready_for_input(tmp_path: Path) ->
     assert xvfb.argv[6:8] == ("-nolisten", "tcp")
     assert "-auth" in xvfb.argv
     rc = layout.x11_dir / RC_FILE
-    assert wm.argv == ("openbox", "--sm-disable", "--config-file", str(rc))
+    assert wm.argv == ("openbox", "--sm-disable", "--config-file", rc.as_posix())
     assert b"Execute" not in await session.get_file(rc)  # The lease's own, launching nothing.
     assert wm.env["HOME"] == str(layout.home)
     assert wm.env["DISPLAY"] == f":{DISPLAY_NUMBER}"

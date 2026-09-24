@@ -28,7 +28,8 @@ def test_environment_sets_xauthority_only_for_a_display_with_its_own_cookie(tmp_
     lease = X11Display(name=":5", authority=tmp_path / "cookie", size=_SIZE)
     borrowed = X11Display(name=":0", authority=None, size=_SIZE)
 
-    assert lease.environment() == {"DISPLAY": ":5", "XAUTHORITY": str(tmp_path / "cookie")}
+    cookie = (tmp_path / "cookie").as_posix()
+    assert lease.environment() == {"DISPLAY": ":5", "XAUTHORITY": cookie}
     assert borrowed.environment() == {"DISPLAY": ":0"}
 
 
