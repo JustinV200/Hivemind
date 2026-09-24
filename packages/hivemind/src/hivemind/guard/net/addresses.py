@@ -115,9 +115,15 @@ def normalise_host(host: str) -> str:
         host: A host as a URL parser or a capability scope spells it.
 
     Returns:
-        The comparable spelling; an IPv6 literal keeps its address and loses its zone id.
+        The comparable spelling; an IPv6 literal keeps its address and loses its zone id. In a
+        name, a `%` is percent-encoding (`exa%20mple.com`) and stays, so the name is judged as
+        written rather than cut short at the `%`.
     """
-    return host.lower().rstrip(".").split(_ZONE_SEPARATOR, 1)[0]
+    lowered = host.lower().rstrip(".")
+    # Only an IPv6 literal (the one host form with a colon) carries a zone id.
+    if ":" in lowered:
+        return lowered.split(_ZONE_SEPARATOR, 1)[0]
+    return lowered
 
 
 def ip_literal(host: str) -> IPAddress | None:

@@ -57,6 +57,7 @@ from builders.llm import make_bound
 from hivemind.cell import Cell, CellIdentity, CellKind, HoneyClearance, NoopSnapshotter
 from hivemind.cell.fake import FakeSession
 from hivemind.guard import CapabilitySet, Enforcer, load_guard_policy
+from hivemind.guard.net import FakeResolver
 from hivemind.llm import DirectCallGate
 from hivemind.memory import Handoff, InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -255,6 +256,8 @@ def make_context(clock: Clock | None = None, **overrides: object) -> WorkerConte
         "call_gate": DirectCallGate(),
         # Roadmap step 10.3: the shipped Guard policy's Enforcer, recording to the same trail.
         "enforcer": Enforcer(load_guard_policy(), trail, active_clock, cell_identity),
+        # Roadmap step 10.3a: a table-driven resolver, so no test ever performs a DNS lookup.
+        "resolver": FakeResolver(),
     }
     fields.update(overrides)
     return WorkerContext(**fields)  # type: ignore[arg-type]  # a plain dataclass; see builders/llm.py

@@ -56,6 +56,12 @@ def test_plain_address_drops_an_ipv6_zone_id() -> None:
 def test_normalise_host_lowercases_and_drops_a_trailing_dot_and_a_zone() -> None:
     assert normalise_host("Example.COM.") == "example.com"
     assert normalise_host("fe80::1%eth0") == "fe80::1"
+    assert normalise_host("fe80::1%25eth0") == "fe80::1"
+
+
+def test_normalise_host_keeps_percent_encoding_in_a_name_whole() -> None:
+    # Cutting a name at "%" would judge `exa` while the client connects somewhere else.
+    assert normalise_host("exa%20mple.com") == "exa%20mple.com"
 
 
 def test_ip_literal_parses_a_bracketed_or_zoned_literal_and_refuses_a_name() -> None:

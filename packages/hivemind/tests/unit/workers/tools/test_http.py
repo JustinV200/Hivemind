@@ -3,12 +3,15 @@
 Roadmap step 10.3: the destination's `net:<host>` is checked through the Guard's `Enforcer` at the
 `tool_invocation` point -- a refusal is a readable result for the model and a `guard.denied` row on
 the trail -- and a well-formed call with `net` held passes the Capping gate on its `network_egress`
-tier, after which `_send` makes the one request. Every test that could reach `_send` replaces it
-(or `httpx`'s own transport) first, so nothing here opens a socket.
+tier, after which `_send` makes the one request, pinned to the address the Guard checked (roadmap
+step 10.3a; the loopback floor itself is tested in `test_http_floors.py`). Every test that could
+reach `_send` replaces it (or `httpx`'s own transport) first, and every context resolves through a
+`FakeResolver`, so nothing here opens a socket or performs a lookup.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from unittest.mock import AsyncMock
 
 import httpx
@@ -18,9 +21,10 @@ from builders.workers import make_assignment, make_context
 
 from hivemind.cell import AccessLevel, CellKind
 from hivemind.guard import CapabilitySet
+from hivemind.guard.net import DEFAULT_ANSWER
 from hivemind.pheromone import TrailQuery
 from hivemind.workers.tools import http as http_module
-from hivemind.workers.tools.http import http_request
+from hivemind.workers.tools.http import PinnedRequest, http_request
 from hivemind.workers.tools.registry import ToolInvocation
 
 
@@ -86,7 +90,12 @@ async def test_http_request_with_net_held_passes_the_gate_and_sends_once(sent: A
     result = await http_request(invocation, {"method": "POST", "url": url, "body": "x=1"})
 
     assert result == "200: ok"
-    sent.assert_awaited_once_with("POST", url, "x=1")
+    sent.assert_awaited_once()
+    assert sent.await_args is not None
+    method, pinned, body = sent.await_args.args
+    assert (method, str(pinned.url), body) == ("POST", url, "x=1")
+    # Pinned to the address the fake resolver answered, the one the Guard's floors checked.
+    assert str(pinned.address) == DEFAULT_ANSWER[0]
     kinds = [event.kind for event in await invocation.ctx.trail.query(TrailQuery())]
     assert "capping.verified" in kinds
     assert "guard.denied" not in kinds
@@ -121,11 +130,19 @@ def _client_answering(handler: httpx.MockTransport) -> type[httpx.AsyncClient]:
     return _Client
 
 
+def _pinned(url: str = "https://example.com/", address: str = "203.0.113.10") -> PinnedRequest:
+    """A request for `url` pinned to `address`, as `http_request` builds one after the floors."""
+    parsed = httpx.URL(url)
+    return PinnedRequest(
+        url=parsed, host=parsed.host.lower(), address=ipaddress.ip_address(address)
+    )
+
+
 async def test_send_returns_the_status_and_text(monkeypatch: pytest.MonkeyPatch) -> None:
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text="hello"))
     monkeypatch.setattr(httpx, "AsyncClient", _client_answering(transport))
 
-    assert await http_module._send("GET", "https://example.com/", None) == "200: hello"
+    assert await http_module._send("GET", _pinned(), None) == "200: hello"
 
 
 async def test_send_reports_a_failed_request_instead_of_raising(
@@ -136,6 +153,35 @@ async def test_send_reports_a_failed_request_instead_of_raising(
 
     monkeypatch.setattr(httpx, "AsyncClient", _client_answering(httpx.MockTransport(refuse)))
 
-    result = await http_module._send("GET", "https://example.com/", None)
+    result = await http_module._send("GET", _pinned(), None)
 
     assert "failed: ConnectError" in result
+
+
+async def test_send_connects_to_the_checked_address_with_the_name_kept_for_the_receiver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WHY: a second lookup inside the client could be answered differently (DNS rebinding).
+    seen: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _client_answering(httpx.MockTransport(record)))
+
+    await http_module._send("GET", _pinned("https://api.example.com:8443/v1?q=1"), None)
+
+    [request] = seen
+    assert str(request.url) == "https://203.0.113.10:8443/v1?q=1"
+    assert request.headers["host"] == "api.example.com:8443"
+    assert request.headers["connection"] == "close"
+    assert request.extensions["sni_hostname"] == "api.example.com"
+
+
+def test_a_plain_http_pin_sends_no_sni_and_brackets_an_ipv6_address() -> None:
+    pinned = _pinned("http://api.example.com/x", "2001:db8::7")
+
+    assert pinned.extensions() == {}
+    assert str(pinned.request_url()) == "http://[2001:db8::7]/x"
+    assert pinned.headers()["Host"] == "api.example.com"
