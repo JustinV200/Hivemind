@@ -1,12 +1,14 @@
 """Change an admitted device's standing: revoke it, lock and unlock it, and expire what lapsed.
 
 Once approved, a device's standing changes four ways (ADR-0033, codingrules Appendix C).
-``revoke`` withdraws it for good on the loopback listener: it lists the goals the device submitted
-that are still open and, when the operator asks, cancels them in the same step, and the revocation
-event names the goals left running. ``lock`` narrows it (a lockout after failed logins, a burst of
-capability denials, or another device locking a lost one) and ``unlock`` reopens it, on loopback
-only. ``expire_due`` is the sweep the Entrance runs on a timer: every invite, request or approval
-whose ``expires_at`` has passed moves to EXPIRED. Leaving APPROVED always ends the device's
+``revoke`` withdraws it for good on the loopback listener: every goal request it submitted that is
+not planned yet is refused (so its work never starts), the goals it submitted that are still open
+are listed and, when the operator asks, cancelled in the same step (placed work is stopped on its
+Warden), and the revocation event names what was refused, cancelled and left running. ``lock``
+narrows it (a lockout after failed logins, a burst of capability denials, or another device
+locking a lost one) and ``unlock`` reopens it, on loopback only. ``expire_due`` is the sweep the
+Entrance runs on a timer: every invite, request or approval whose ``expires_at`` has passed moves
+to EXPIRED. Leaving APPROVED always ends the device's
 sessions and push subscriptions (``hivemind.entrance.enrol.record``). The Hive Stand's own console
 can be locked and unlocked like any other device, but nothing here revokes or expires it: losing
 it means ``hive entrance operator password --reset``.
@@ -20,8 +22,8 @@ Fits into the Hive:
 Key invariants:
     - The console is never revoked or expired here; ``revoke`` refuses it with
       ``ConsoleProtectedError`` and ``expire_due`` never selects it.
-    - A revocation's event names every goal cancelled and every goal left running (up to
-      ``MAX_IDS_ON_TRAIL`` each, with the full counts).
+    - A revocation's event names every request refused, every goal cancelled and every goal left
+      running (up to ``MAX_IDS_ON_TRAIL`` each, with the full counts).
     - ``expire_due`` never overrides a concurrent decision: a device that moved since the sweep
       read it is left to that decision.
 
@@ -83,18 +85,21 @@ class LockReason(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Revocation:
-    """What a revocation did: the revoked device, and what became of its open goals.
+    """What a revocation did: the revoked device, its refused requests, its open goals.
 
     Attributes:
         device: The device as stored, REVOKED.
         goals_cancelled: The open goals cancelled in the same step.
         goals_left_running: The open goals still running: all of them when cancelling was not
-            asked for, or those that finished before a cancellation reached them.
+            asked for, or those whose work could not be stopped (its Warden unreachable).
+        requests_refused: The goal requests it submitted that were not planned yet, refused
+            in the same step whatever was asked, so they never run.
     """
 
     device: EnrolledDevice
     goals_cancelled: tuple[TaskId, ...]
     goals_left_running: tuple[TaskId, ...]
+    requests_refused: tuple[str, ...] = ()
 
 
 async def revoke(
@@ -124,13 +129,17 @@ async def revoke(
     # An INVITED device is withdrawn with cancel_invite, a PENDING one refused with deny.
     if device.status not in _REVOCABLE:
         raise DeviceStatusConflictError(device.id, DeviceStatus.APPROVED, device.status)
-    # Goals first, so the event can name exactly what was cancelled and what is left running.
+    # What it asked for and nobody planned yet never runs, whatever the operator asked.
     # Latency: the goal ledger is the Queen's own table in the same process; milliseconds.
+    refused = await deps.seams.goals.refuse_requests(device.id, _revoked_reason(device.id))
+    # Goals next, so the event can name exactly what was cancelled and what is left running.
     open_goals = await deps.seams.goals.open_goals(device.id)
     cancelled = await _cancelled(deps, device.id, open_goals, cancel_goals)
     left_running = tuple(goal for goal in open_goals if goal not in cancelled)
     payload: dict[str, JsonValue] = {
         "reason": OPERATOR_REVOKED,
+        "requests_refused": named_ids(refused),
+        "requests_refused_count": len(refused),
         "goals_cancelled": named_ids(cancelled),
         "goals_cancelled_count": len(cancelled),
         "goals_left_running": named_ids(left_running),
@@ -138,7 +147,7 @@ async def revoke(
     }
     transition = Transition(device.id, device.status, DeviceStatus.REVOKED, actor, payload)
     revoked = await apply_transition(deps, transition)
-    return Revocation(revoked, cancelled, left_running)
+    return Revocation(revoked, cancelled, left_running, refused)
 
 
 async def lock(
@@ -211,11 +220,16 @@ async def _cancelled(
     # Nothing asked for, or nothing to cancel: the ledger is not bothered.
     if not cancel or not open_goals:
         return ()
-    reason = f"device {device_id} was revoked"
+    reason = _revoked_reason(device_id)
     # Latency: local, like open_goals; each cancellation is the Queen's own trail event.
     done = await deps.seams.goals.cancel_goals(open_goals, reason)
     # Only goals that were open count; the ledger's answer is trusted no further than that.
     return tuple(goal for goal in open_goals if goal in done)
+
+
+def _revoked_reason(device_id: DeviceId) -> str:
+    """The phrase a revocation's refusals and cancellations record: ids only, never content."""
+    return f"device {device_id} was revoked"
 
 
 def _is_due(device: EnrolledDevice, now: datetime) -> bool:

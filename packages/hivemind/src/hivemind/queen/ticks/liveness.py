@@ -171,8 +171,9 @@ async def handle_heartbeat_item(
     """Record one Heartbeat InboxItem, renew its own Warden's live grants, and watch its context.
 
     `hivemind.queen.queen.Queen`'s own tick calls this directly for a received Heartbeat, so the
-    four things a Heartbeat causes (mirror it, reset liveness, renew grants, watch context) live
-    in one place instead of split across that call site and this module.
+    five things a Heartbeat causes (mirror it, reset liveness, hand it to `deps.on_heartbeat`,
+    renew grants, watch context) live in one place instead of split across that call site and
+    this module.
 
     Args:
         deps: The Queen's collaborators.
@@ -187,6 +188,10 @@ async def handle_heartbeat_item(
     heartbeat = cast(Heartbeat, item.payload)
     last_heartbeat[warden_id] = heartbeat
     record_heartbeat(liveness, warden_id, item.received_at)
+    # A Heartbeat never reaches the trail, so the Hive Entrance's telemetry view hears of it
+    # here, once she has recorded it; the hook only hands the sample on (QueenDeps.on_heartbeat).
+    if deps.on_heartbeat is not None:
+        deps.on_heartbeat(warden_id, heartbeat, item.received_at)
     await renew_grants_on_heartbeat(deps, warden_id)
     await _watch_context(deps, wardens, warden_id, heartbeat)
 

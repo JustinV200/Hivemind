@@ -7,10 +7,11 @@ with words appended to the same log. Her questions and the Alarms that reached t
 appended there too, so the human reads one conversation (README, "Chat": she speaks there as
 Monarch). The package holds the log (`model`, `protocol`, `memory`, `sqlite`), the functions that
 write it (`post`), the `HumanChannel` seam she tells the human's devices through (`channel`, the
-Entrance implements it later; a no-op by default), and `ChatDoor` (`door`), the human-facing
+Entrance implements it later; a no-op by default), `ChatDoor` (`door`), the human-facing
 methods `Queen` inherits: request, confirm or decline a goal, post a message, acknowledge an
-Alarm. Every line is C2, and the trail records only that a message arrived or that she replied,
-never the words.
+Alarm, and what a device's revocation withdraws (`withdraw`: its unplanned requests refused, its
+goals stopped, placed work on its Warden first). Every line is C2, and the trail records only that
+a message arrived or that she replied, never the words.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Written
@@ -41,6 +42,8 @@ Public API (roadmap step 10.5):
       resolve_alarm: every
       write (post).
     - ChatDoor: the Queen's human-facing methods (door).
+    - refuse_unplanned, stop_goal, REVOKED_CODE, CANCEL_GRACE_S, CANCEL_SEND_TIMEOUT_S: what a
+      revocation withdraws, and how a goal is stopped (withdraw).
 """
 
 from hivemind.queen.chat.channel import HumanChannel, NullHumanChannel
@@ -80,8 +83,17 @@ from hivemind.queen.chat.sqlite import (
     SqliteChatLog,
     apply_chat_migrations,
 )
+from hivemind.queen.chat.withdraw import (
+    CANCEL_GRACE_S,
+    CANCEL_SEND_TIMEOUT_S,
+    REVOKED_CODE,
+    refuse_unplanned,
+    stop_goal,
+)
 
 __all__ = [
+    "CANCEL_GRACE_S",
+    "CANCEL_SEND_TIMEOUT_S",
     "CHAT_ENTRY_ID_PATTERN",
     "CHAT_ENTRY_ID_PREFIX",
     "DEFAULT_CHAT_PAGE",
@@ -89,6 +101,7 @@ __all__ = [
     "MAX_CHAT_TEXT_CHARS",
     "MAX_REF_CHARS",
     "MIGRATIONS_PACKAGE",
+    "REVOKED_CODE",
     "SUBSYSTEM",
     "ChatAuthor",
     "ChatDoor",
@@ -111,5 +124,7 @@ __all__ = [
     "post_notice",
     "post_question",
     "post_reply",
+    "refuse_unplanned",
     "resolve_alarm",
+    "stop_goal",
 ]

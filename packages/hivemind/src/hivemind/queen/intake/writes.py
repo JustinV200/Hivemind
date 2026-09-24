@@ -20,6 +20,8 @@ Fits into the Hive:
 Key invariants:
     - Every write goes through `deps.goal_requests` with exactly one event, built here.
     - A request is created only in RECEIVED, never confirmed and never settled.
+    - Every edge is checked against the stored row under `deps.intake_lock`, so a caller holding
+      a stale copy gets `InvalidGoalRequestTransitionError`, never a lost update.
 
 See Also:
     - hivemind.queen.intake.state for the transition table every edge here is checked against.
@@ -238,18 +240,25 @@ async def _move(
     update: dict[str, object],
     payload: dict[str, JsonValue],
 ) -> GoalRequest:
-    """Check the edge, build the next value, and write it with the edge's own event."""
-    assert_goal_request_transition(request.state, to_state, request.id)
-    moved = _next_value(deps, request, {**update, "state": to_state})
-    event = queen_event(
-        deps,
-        _EDGE_KINDS[to_state],
-        deps.identity.hive_id,
-        goal_request_id=request.id,
-        from_state=request.state.value,
-        **payload,
-    )
-    await deps.goal_requests.update(moved, event)
+    """Check the edge from the row as it stands, build the next value, write it with its event."""
+    # One edge at a time, from the stored row rather than the caller's copy: the Queen's intake,
+    # a plan finishing beside her tick and a revocation through the Hive Entrance may all move one
+    # request, and a stale copy must fail its edge instead of overwriting a newer state.
+    async with deps.intake_lock:
+        # Latency: one local primary-key read of the Queen's goal-request table.
+        current = await deps.goal_requests.get(request.id)
+        assert_goal_request_transition(current.state, to_state, current.id)
+        moved = _next_value(deps, current, {**update, "state": to_state})
+        event = queen_event(
+            deps,
+            _EDGE_KINDS[to_state],
+            deps.identity.hive_id,
+            goal_request_id=current.id,
+            from_state=current.state.value,
+            **payload,
+        )
+        # Latency: one local transaction writing the row and its event together.
+        await deps.goal_requests.update(moved, event)
     return moved
 
 

@@ -5,6 +5,8 @@ RECEIVED and answers `202`, and from then on only the Queen moves it. She plans 
 (PLANNING, then PLANNED with its goal id, or REFUSED with a reason), or, when the request must be
 echoed back first (a spoken goal, or one held for a human's step-up, ADR-0033), holds it in
 AWAITING_CONFIRMATION until the human confirms it (back to RECEIVED) or declines it (REFUSED).
+A request whose device is revoked before it was planned is REFUSED from whichever unplanned state
+it is in (RECEIVED, AWAITING_CONFIRMATION or PLANNING), so a revoked device's work never starts.
 PLANNED and REFUSED are terminal: a request is planned at most once, and a refused one is asked
 again as a new request. This module is that machine's one table (codingrules section 9), each edge
 commented with who takes it; `hivemind.queen.intake.writes` is the only code that moves a request,
@@ -62,18 +64,20 @@ GOAL_REQUEST_TRANSITIONS: Mapping[GoalRequestState, frozenset[GoalRequestState]]
             {
                 GoalRequestState.PLANNING,  # the Queen's intake drain starts planning it
                 GoalRequestState.AWAITING_CONFIRMATION,  # it must be echoed back first
+                GoalRequestState.REFUSED,  # its device was revoked before the Queen planned it
             }
         ),
         GoalRequestState.AWAITING_CONFIRMATION: frozenset(
             {
                 GoalRequestState.RECEIVED,  # the human confirmed it; plan it next
-                GoalRequestState.REFUSED,  # the human declined it
+                GoalRequestState.REFUSED,  # the human declined it, or its device was revoked
             }
         ),
         GoalRequestState.PLANNING: frozenset(
             {
                 GoalRequestState.PLANNED,  # its graph is persisted (or found after a crash)
-                GoalRequestState.REFUSED,  # the planner or its model could not plan it
+                # The planner or its model could not plan it, or its device was revoked meanwhile.
+                GoalRequestState.REFUSED,
             }
         ),
         GoalRequestState.PLANNED: frozenset(),  # terminal: nothing follows

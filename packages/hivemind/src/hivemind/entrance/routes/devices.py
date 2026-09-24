@@ -3,10 +3,11 @@
 Every client is an enrolled device (ADR-0033). ``GET /v1/devices`` lists them (``observe``);
 ``GET /v1/devices/me`` is any session's own record. Locking is narrowing, so an interactive device
 may lock another from either listener after step-up (a lost phone), and only loopback unlocks.
-Unlocking, revoking (optionally cancelling the device's open goals in the same step, the rest named
-in the answer) and re-granting what an approved device may do (after step-up: a capability change)
-exist only on the loopback listener, so the remote application never mounts them. A revocation
-also rebuilds the remote listener's mutual-TLS revocation list.
+Unlocking, revoking (refusing the device's unplanned goal requests and, optionally, cancelling its
+open goals in the same step, the rest named in the answer) and re-granting what an approved device
+may do (after step-up: a capability change) exist only on the loopback listener, so the remote
+application never mounts them. A revocation also rebuilds the remote listener's mutual-TLS
+revocation list.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Registered in
@@ -140,6 +141,7 @@ async def revoke_device(
         device=device_view(revocation.device),
         goals_cancelled=list(revocation.goals_cancelled),
         goals_left_running=list(revocation.goals_left_running),
+        requests_refused=list(revocation.requests_refused),
     )
 
 

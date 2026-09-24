@@ -93,12 +93,28 @@ async def test_revoke_withdraws_the_device_and_names_the_goals_left_running() ->
     (event,) = await rig.events("guard.entrance_revoked")
     assert event.payload == {
         "reason": "operator",
+        "requests_refused": [],
+        "requests_refused_count": 0,
         "goals_cancelled": [],
         "goals_cancelled_count": 0,
         "goals_left_running": list(_GOALS),
         "goals_left_running_count": 2,
     }
     assert rig.notifier.notices[-1].event_id == event.id
+
+
+async def test_revoke_refuses_the_unplanned_requests_whatever_it_was_asked() -> None:
+    rig, device = await _with_goals()
+    rig.goals.request(device.id, ("goalreq_waiting", "goalreq_held"))
+
+    revocation = await revoke(rig.deps, device.id, "human", cancel_goals=False)
+
+    assert revocation.requests_refused == ("goalreq_waiting", "goalreq_held")
+    ((refused_for, reason),) = rig.goals.refusals
+    assert refused_for == device.id and device.id in reason
+    (event,) = await rig.events("guard.entrance_revoked")
+    assert event.payload["requests_refused"] == ["goalreq_waiting", "goalreq_held"]
+    assert event.payload["requests_refused_count"] == 2
 
 
 async def test_revoke_cancels_the_open_goals_in_the_same_step_when_asked() -> None:

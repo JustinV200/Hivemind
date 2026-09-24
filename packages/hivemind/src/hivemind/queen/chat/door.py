@@ -7,22 +7,26 @@ limits (the same composition `hivemind.brood_chamber.BroodChamber` uses): `reque
 durable goal request and wakes her, `confirm_goal_request`/`decline_goal_request` settle one held
 for the human's yes, `post_human_message` appends the human's words to the chat and wakes her,
 `acknowledge_alarm` resolves an Alarm that reached the human, `escalate_to_human` puts an Alarm the
-Hive itself raised (the Entrance's remote listener failing) in front of the human, and
-`cancel_goal` cancels what of a goal has not started yet (a revoked device's goals). Each one is a
-thin delegate to `hivemind.queen.intake.writes` or `hivemind.queen.chat.post`, or one chamber edge;
-waking her is the in-process signal she awaits beside her Warden links (`QueenDeps.wake`), so a
-request or a message is acted on at once rather than at the next Heartbeat.
+Hive itself raised (a listener of the Entrance failing) in front of the human, and a revocation's
+two: `refuse_device_requests` refuses every request a revoked device submitted that is not planned
+yet, and `cancel_goal` stops a goal (placed work is stopped on its Warden first). Each one is a
+thin delegate to `hivemind.queen.intake.writes`, `hivemind.queen.chat.post` or
+`hivemind.queen.chat.withdraw`; waking her is the in-process signal she awaits beside her Warden
+links (`QueenDeps.wake`), so a request or a message is acted on at once rather than at the next
+Heartbeat.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's chat
-    sub-package. Inherited by `Queen`; called by the Hive Entrance (a later step) and by tests.
-    Calls into `hivemind.queen.chat.post`, `hivemind.queen.intake` and waggle only; `QueenDeps`
-    and `HumanInbox` only for their types.
+    sub-package. Inherited by `Queen`; called by the Hive Entrance and by tests. Calls into
+    `hivemind.queen.chat.post`, `hivemind.queen.chat.withdraw`, `hivemind.queen.intake` and
+    waggle only; `QueenDeps`, `WardenLink` and `HumanInbox` only for their types.
 
 Key invariants:
     - `request_goal` returns only once the row is committed: the Entrance answers `202` after it.
-    - `cancel_goal` cancels only PENDING tasks (never dispatched), through the chamber's own
-      cancel edge; work already on a Warden runs to its end, and the goal is reported running.
+    - `cancel_goal` stops a placed task on its Warden (a TaskCancel) before the chamber records
+      it cancelled; one whose Warden is not attached runs on, and the goal is reported running.
+    - `refuse_device_requests` refuses only requests not yet planned, each edge checked against
+      the stored row, so a request planned meanwhile is left to `cancel_goal`.
     - Nothing here plans a goal or runs a model: the Queen's own tick does, so reducing the
       Entrance (or a request handler failing) can never kill planning.
 
@@ -35,17 +39,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivemind.brood_chamber import InvalidTransitionError, TaskFilter, TaskStatus, is_terminal
 from hivemind.queen.chat.model import ChatEntryId
 from hivemind.queen.chat.post import escalate_alarm, post_message, resolve_alarm
+from hivemind.queen.chat.withdraw import refuse_unplanned, stop_goal
 from hivemind.queen.intake import GoalRequest, GoalRequestId, confirm, decline, receive
 from hivemind.supervision import Alarm
-from waggle.ids import DeviceId, TaskId
+from waggle.ids import DeviceId, TaskId, WardenId
 
 if TYPE_CHECKING:
-    # Only for the two attribute annotations below: both are set by Queen.__init__, and a real
-    # import of hivemind.queen.deps here would cycle back through this package.
-    from hivemind.queen.deps import QueenDeps
+    # Only for the attribute annotations below: all are set by Queen.__init__, and a real import
+    # of hivemind.queen.deps here would cycle back through this package.
+    from hivemind.queen.deps import QueenDeps, WardenLink
     from hivemind.queen.human_inbox import HumanInbox
 
 __all__ = ["ChatDoor"]
@@ -60,6 +64,7 @@ class ChatDoor:
 
     _deps: QueenDeps
     _human_inbox: HumanInbox
+    _wardens: dict[WardenId, WardenLink]
 
     async def request_goal(self, request: GoalRequest) -> GoalRequestId:
         """Commit a goal request durably, then wake the Queen to plan it (ADR-0032).
@@ -156,27 +161,29 @@ class ChatDoor:
         """
         await escalate_alarm(self._deps, self._human_inbox, alarm)
 
+    async def refuse_device_requests(
+        self, device_id: DeviceId, reason: str
+    ) -> tuple[GoalRequestId, ...]:
+        """Refuse every goal request a revoked device submitted that is not planned yet.
+
+        Args:
+            device_id: The device just revoked at the Hive Entrance.
+            reason: For the human, kept on each refused row (never on the trail).
+
+        Returns:
+            The requests refused; a plan still in flight for one stops its goal when it lands.
+        """
+        return await refuse_unplanned(self._deps, self._wardens, device_id, reason)
+
     async def cancel_goal(self, goal_id: TaskId, reason: str) -> bool:
-        """Cancel every task of a goal that has not started yet, and wake the Queen.
+        """Cancel every unfinished task of a goal, stopping placed work on its Warden first.
 
         Args:
             goal_id: The goal (its first task's id), e.g. one a revoked device submitted.
-            reason: A short phrase each `task.cancelled` event records.
+            reason: A short phrase each `task.cancelled` event and TaskCancel records.
 
         Returns:
-            True when no task of the goal is left unfinished; False while some are still on a
-            Warden (they run to their end: no Warden-side cancel exists yet).
+            True when no task of the goal is left unfinished; False while one still runs on a
+            Warden that could not be told to stop (not attached, or its link failed).
         """
-        # Latency: one local chamber read, then one local transaction per task cancelled.
-        tasks = await self._deps.chamber.list(TaskFilter(goal_id=goal_id))
-        for task in tasks:
-            if task.status is not TaskStatus.PENDING:
-                continue
-            try:
-                await self._deps.chamber.cancel(task.id, reason)
-            except InvalidTransitionError:
-                # Dispatched between the read and the cancel: it runs to its end.
-                continue
-        self._deps.wake.set()
-        remaining = await self._deps.chamber.list(TaskFilter(goal_id=goal_id))
-        return all(is_terminal(task.status) for task in remaining)
+        return await stop_goal(self._deps, self._wardens, goal_id, reason)

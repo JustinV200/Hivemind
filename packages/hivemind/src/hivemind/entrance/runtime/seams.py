@@ -5,9 +5,11 @@ a device that leaves APPROVED (locked, revoked, expired) loses, in the same step
 (``SessionBook.offboard``), every push subscription and live push socket
 (``PushDispatcher.forget_device``) and every WebSocket it holds (the socket registry);
 ``EntranceOffboarder`` does all three. ``GoalLedger``: a revocation lists the device's open goals
-and, when asked, cancels them; ``QueenGoalLedger`` reads the Queen's goal-request table for the
-device's planned, unfinished goals and cancels through the Queen, who cancels what has not started
-(work already on a Warden runs to its end and is named as left running).
+and, when asked, cancels them, having first refused whatever the device asked for that is not
+planned yet; ``QueenGoalLedger`` refuses through the Queen (``Queen.refuse_device_requests``: the
+Entrance never writes her tables), reads her goal-request table for the device's planned,
+unfinished goals, and cancels through her (``Queen.cancel_goal``: placed work is stopped on its
+Warden first; work whose Warden cannot be reached is named as left running).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.runtime``. Installed in
@@ -16,7 +18,7 @@ Fits into the Hive:
 
 Key invariants:
     - Offboarding is idempotent: a device with nothing left to cut changes nothing.
-    - Goals are only ever cancelled through the Queen.
+    - Goals are only ever cancelled, and requests refused, through the Queen.
 
 See Also:
     - hivemind.entrance.enrol.deps for the seams' protocols.
@@ -69,7 +71,7 @@ class EntranceOffboarder:
 
 
 class QueenGoalLedger:
-    """A device's open goals, from the Queen's goal-request table; cancelled through the Queen."""
+    """A device's requests and open goals, from the Queen's table; refused and cancelled by her."""
 
     def __init__(self, requests: GoalRequestStore, queen: QueenDoor) -> None:
         """Hold the table and the door.
@@ -80,6 +82,19 @@ class QueenGoalLedger:
         """
         self._requests = requests
         self._queen = queen
+
+    async def refuse_requests(self, device_id: DeviceId, reason: str) -> tuple[str, ...]:
+        """Have the Queen refuse every request ``device_id`` submitted that is not planned yet.
+
+        Args:
+            device_id: The device being revoked.
+            reason: For the human, kept on each refused request.
+
+        Returns:
+            The goal requests refused.
+        """
+        # Latency: local goal-request edges in the Queen's own tables, in this process.
+        return await self._queen.refuse_device_requests(device_id, reason)
 
     async def open_goals(self, device_id: DeviceId) -> tuple[TaskId, ...]:
         """Return the planned goals ``device_id`` submitted that have not finished, oldest first.

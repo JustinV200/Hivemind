@@ -2,21 +2,24 @@
 
 Roadmap 10.5d: revoking a device lists the goals it submitted that are still open and, when the
 operator asks (``--cancel-goals``), cancels them in the same step; the revocation event then names
-the goals left running. Which goal came from which device is the Queen's goal-request table, a
-later step; a goal's id is its first task's id (``hivemind.brood_chamber``). ``GoalLedger`` is the
-seam: enrolment asks it for a device's open goals and to cancel some of them, and that later step
-implements it. ``NullGoalLedger`` is the documented no-op until then, which is honest: no device
-can submit a goal before the goal routes exist, so every device has none open.
+the goals left running. Whatever the device asked for that is not planned yet is refused in the
+same step, whatever the operator asked, so a revoked device's work never starts. Which goal came
+from which device is the Queen's goal-request table; a goal's id is its first task's id
+(``hivemind.brood_chamber``). ``GoalLedger`` is the seam: enrolment asks it to refuse a device's
+unplanned requests, for its open goals and to cancel some of them, and the Entrance runtime
+implements it over the Queen (``hivemind.entrance.runtime.seams.QueenGoalLedger``).
+``NullGoalLedger`` is the no-op for an enrolment with no Queen behind it (tests, tools).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol.deps``. Called by
-    ``hivemind.entrance.enrol.standing.revoke``; implemented by the Queen's goal-request table
-    (a later step) and by ``hivemind.entrance.enrol.deps.fake`` for tests. Calls into waggle (ids)
-    only.
+    ``hivemind.entrance.enrol.standing.revoke``; implemented over the Queen by the Entrance
+    runtime and by ``hivemind.entrance.enrol.deps.fake`` for tests. Calls into waggle (ids) only.
 
 Key invariants:
     - ``cancel_goals`` returns the goals it actually cancelled; a goal that finished meanwhile
       is simply not among them, so the revocation event can name exactly what is left running.
+    - ``refuse_requests`` refuses only requests not yet planned; one planned meanwhile is an open
+      goal, for ``open_goals`` and ``cancel_goals``.
 
 See Also:
     - .claude/roadmap.md step 10.5d for revocation's goal handling.
@@ -33,7 +36,19 @@ __all__ = ["GoalLedger", "NullGoalLedger"]
 
 
 class GoalLedger(Protocol):
-    """List a device's open goals and cancel goals on request."""
+    """Refuse a device's unplanned requests, list its open goals, and cancel goals on request."""
+
+    async def refuse_requests(self, device_id: DeviceId, reason: str) -> tuple[str, ...]:
+        """Refuse every goal request ``device_id`` submitted that has not been planned yet.
+
+        Args:
+            device_id: The device being revoked.
+            reason: For the human, kept on each refused request (never on the trail).
+
+        Returns:
+            The goal requests refused.
+        """
+        ...
 
     async def open_goals(self, device_id: DeviceId) -> tuple[TaskId, ...]:
         """Return the goals ``device_id`` submitted that have not finished.
@@ -60,10 +75,22 @@ class GoalLedger(Protocol):
 
 
 class NullGoalLedger:
-    """The no-op GoalLedger: no device has goals until the goal routes exist, so none are open.
+    """The no-op GoalLedger: with no Queen behind enrolment, no device has requests or goals.
 
-    The Queen's goal-request table (a later step) replaces this in the composition root.
+    The Entrance runtime replaces this with ``QueenGoalLedger`` in the composition root.
     """
+
+    async def refuse_requests(self, device_id: DeviceId, reason: str) -> tuple[str, ...]:
+        """Refuse nothing; see the class docstring.
+
+        Args:
+            device_id: The device, ignored.
+            reason: The reason, ignored.
+
+        Returns:
+            An empty tuple.
+        """
+        return ()
 
     async def open_goals(self, device_id: DeviceId) -> tuple[TaskId, ...]:
         """Return no goals; see the class docstring.

@@ -30,6 +30,7 @@ from hivemind.queen.intake import (
 _ALLOWED = {
     (GoalRequestState.RECEIVED, GoalRequestState.PLANNING),
     (GoalRequestState.RECEIVED, GoalRequestState.AWAITING_CONFIRMATION),
+    (GoalRequestState.RECEIVED, GoalRequestState.REFUSED),
     (GoalRequestState.AWAITING_CONFIRMATION, GoalRequestState.RECEIVED),
     (GoalRequestState.AWAITING_CONFIRMATION, GoalRequestState.REFUSED),
     (GoalRequestState.PLANNING, GoalRequestState.PLANNED),

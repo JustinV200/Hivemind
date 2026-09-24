@@ -119,7 +119,11 @@ class QueenDoor(Protocol):
         ...
 
     async def cancel_goal(self, goal_id: TaskId, reason: str) -> bool:
-        """Cancel what of a goal has not started; see ``Queen.cancel_goal``."""
+        """Stop a goal, placed work on its Warden first; see ``Queen.cancel_goal``."""
+        ...
+
+    async def refuse_device_requests(self, device_id: DeviceId, reason: str) -> tuple[str, ...]:
+        """Refuse a revoked device's unplanned requests; see ``Queen.refuse_device_requests``."""
         ...
 
 

@@ -79,8 +79,9 @@ class RevokeBody(BaseModel):
 
     cancel_goals: bool = Field(
         default=False,
-        description="Also cancel the device's open goals in the same step; goals already on a "
-        "Warden run to their end and are named in the answer.",
+        description="Also cancel the device's open goals in the same step: placed work is "
+        "stopped on its Warden; a goal whose Warden cannot be reached is named as left running. "
+        "Its goal requests not planned yet are refused whatever this says.",
     )
 
 
@@ -92,6 +93,11 @@ class RevocationView(BaseModel):
     device: DeviceView = Field(description="The device, REVOKED.")
     goals_cancelled: list[str] = Field(description="The open goals cancelled in the same step.")
     goals_left_running: list[str] = Field(description="The open goals still running.")
+    requests_refused: list[str] = Field(
+        default_factory=list,
+        description="Its goal requests not planned yet, refused in the same step so they never "
+        "run.",
+    )
 
 
 class WidenBody(BaseModel):

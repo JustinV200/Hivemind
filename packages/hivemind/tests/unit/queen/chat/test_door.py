@@ -1,9 +1,11 @@
-"""Test hivemind.queen.chat.door: the Hive Entrance's two newest ways in, through the Queen.
+"""Test hivemind.queen.chat.door: the Hive Entrance's newest ways in, through the Queen.
 
 ``escalate_to_human`` puts an Alarm the Hive itself raised (the Entrance's remote listener failed)
 in front of the human as an escalated Alarm does: in her inbox, on the trail, in the chat and on
-every device. ``cancel_goal`` cancels what of a goal has not started (a revoked device's goal) and
-says whether anything is left running.
+every device. A revocation's two: ``cancel_goal`` stops a goal, placed work first on its Warden
+with a TaskCancel, and says whether anything is left running; ``refuse_device_requests`` refuses
+every request of the revoked device that is not planned yet, and a stale copy of one can no longer
+move it afterwards.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/chat/door.py (codingrules section 3).
@@ -14,18 +16,29 @@ Key invariants:
 
 from __future__ import annotations
 
-from builders.human import RecordingHumanChannel
+import pytest
+from builders.human import RecordingHumanChannel, make_goal_request
 from builders.queen import make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
-from hivemind.queen.chat import ChatKind, ChatQuery
+from hivemind.queen.attach import detach_warden
+from hivemind.queen.chat import CANCEL_GRACE_S, REVOKED_CODE, ChatKind, ChatQuery
+from hivemind.queen.intake import (
+    GoalRequestState,
+    InvalidGoalRequestTransitionError,
+    hold,
+    receive,
+    start_planning,
+)
 from hivemind.queen.queen import Queen
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
-from waggle.ids import new_alarm_id
+from waggle.ids import new_alarm_id, new_device_id
 from waggle.messages.supervision import AlarmContext
+
+_REFUSED = "queen.goal_request_refused"  # The edge a revocation's refusal records.
 
 
 def _two_step_plan(goal: str) -> dict[str, object]:
@@ -76,13 +89,37 @@ async def test_escalate_to_human_reaches_the_inbox_the_trail_the_chat_and_every_
     assert channel.names() == ["alarm_raised"]
 
 
-async def test_cancel_goal_cancels_what_has_not_started_and_says_what_still_runs() -> None:
+async def test_cancel_goal_stops_placed_work_on_its_warden_and_cancels_the_rest() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_two_step_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    assignment = await warden_end.wait_for_assignment()
+
+    ended = await queen.cancel_goal(goal_id, "its device was revoked")
+    order = await warden_end.wait_for_task_cancel()
+
+    statuses = {
+        task.spec.title: task.status
+        for task in await deps.chamber.list(TaskFilter(goal_id=goal_id))
+    }
+    assert ended is True
+    assert statuses == {"Draft": TaskStatus.CANCELLED, "Polish": TaskStatus.CANCELLED}
+    assert order.task_id == assignment.task_id
+    assert order.reason == "its device was revoked" and order.grace_s == CANCEL_GRACE_S
+    await warden_end.close()
+
+
+async def test_cancel_goal_leaves_work_on_an_unattached_warden_running() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_two_step_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
     await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
+    # Its Warden is gone: nothing can reach the work it runs, so it is not recorded cancelled.
+    await detach_warden(queen, link.warden_id)
 
     ended = await queen.cancel_goal(goal_id, "its device was revoked")
 
@@ -94,3 +131,42 @@ async def test_cancel_goal_cancels_what_has_not_started_and_says_what_still_runs
     assert statuses["Polish"] is TaskStatus.CANCELLED
     assert statuses["Draft"] is not TaskStatus.CANCELLED
     await warden_end.close()
+
+
+async def test_refuse_device_requests_refuses_only_that_devices_unplanned_requests() -> None:
+    channel = RecordingHumanChannel()
+    deps, _link, _warden_end = make_queen_deps(human_channel=channel)
+    queen = Queen(deps)
+    device, other = new_device_id(deps.clock), new_device_id(deps.clock)
+    received = await receive(deps, make_goal_request(deps.clock, device_id=device))
+    held = await hold(deps, await receive(deps, make_goal_request(deps.clock, device_id=device)))
+    planning = await start_planning(
+        deps, await receive(deps, make_goal_request(deps.clock, device_id=device))
+    )
+    others = await receive(deps, make_goal_request(deps.clock, device_id=other))
+
+    refused = await queen.refuse_device_requests(device, "Its device was revoked.")
+
+    states = {
+        request.id: (await deps.goal_requests.get(request.id)).state
+        for request in (received, held, planning, others)
+    }
+    assert set(refused) == {received.id, held.id, planning.id}
+    assert states[others.id] is GoalRequestState.RECEIVED
+    assert {states[request_id] for request_id in refused} == {GoalRequestState.REFUSED}
+    assert channel.names().count("goal_request_refused") == 3
+    codes = [e.payload["reason_code"] for e in await deps.trail.query(TrailQuery(kind=_REFUSED))]
+    assert codes == [REVOKED_CODE] * 3
+
+
+async def test_an_edge_from_a_stale_copy_fails_instead_of_overwriting_a_refusal() -> None:
+    deps, _link, _warden_end = make_queen_deps()
+    queen = Queen(deps)
+    device = new_device_id(deps.clock)
+    request = await receive(deps, make_goal_request(deps.clock, device_id=device))
+    await queen.refuse_device_requests(device, "Its device was revoked.")
+
+    with pytest.raises(InvalidGoalRequestTransitionError):
+        await start_planning(deps, request)
+
+    assert (await deps.goal_requests.get(request.id)).state is GoalRequestState.REFUSED

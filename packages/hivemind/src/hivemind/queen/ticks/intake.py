@@ -11,7 +11,10 @@ is lost and nothing is planned twice), holds a request that must be echoed back 
 and tells a request's device once every task of its goal is terminal. A plan runs
 `plan_goal_graph` with the request's budget, tier, origin, device, ceiling and id; a plan the
 planner or its model cannot produce refuses the request with its reason instead of failing the
-Queen. Nothing is planned while her own model is clustered: the rows wait, durable.
+Queen. Nothing is planned while her own model is clustered: the rows wait, durable. A request can
+also be refused under her by its device's revocation (`hivemind.queen.chat.withdraw`): every edge
+here is checked against the stored row, so an edge from a stale copy is skipped rather than
+applied, and a goal whose plan lands after its request was refused is stopped at once, never run.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -30,6 +33,7 @@ Key invariants:
     - Every refusal's words stay on the request row (C2); the trail and the logs get its code.
     - Every `HumanChannel` call follows the durable write it reports, so a device is never told
       of a state the rows do not hold; a crash in between loses the push, never the state.
+    - A request refused meanwhile never has its goal run: the goal is stopped instead of PLANNED.
 
 See Also:
     - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
@@ -40,12 +44,12 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 
 from hivemind.brood_chamber import TaskFilter, is_terminal
 from hivemind.common.tasks import reap
 from hivemind.llm.errors import LLMError
-from hivemind.queen.chat import post_notice
+from hivemind.queen.chat import post_notice, stop_goal
 from hivemind.queen.cluster import awake_available
 from hivemind.queen.deps import PlanningLane, QueenDeps, WardenLink
 from hivemind.queen.goal_submission import GoalTerms, plan_goal_graph
@@ -53,6 +57,7 @@ from hivemind.queen.intake import (
     GoalRequest,
     GoalRequestQuery,
     GoalRequestState,
+    InvalidGoalRequestTransitionError,
     Refusal,
     hold,
     mark_finished,
@@ -70,10 +75,13 @@ MAX_GOALS_CHECKED_PER_TICK = 50  # Planned goals checked for completion per tick
 # valid graph, the planner's model failed on every rung and every binding of its chain, or a
 # Night Veil goal asked where its Cell is (roadmap step 10.3d).
 _PLANNING_FAILURES: tuple[type[Exception], ...] = (PlannerError, LLMError, NightVeilLocationError)
+# What each task.cancelled records when a goal lands for a request refused while it was planned.
+WITHDRAWN_REASON = "Its goal request was refused while it was being planned."
 
 __all__ = [
     "MAX_GOALS_CHECKED_PER_TICK",
     "MAX_REQUESTS_PER_TICK",
+    "WITHDRAWN_REASON",
     "drain_goal_requests",
     "stop_planning",
 ]
@@ -132,8 +140,7 @@ async def _settle_leftovers(
         goal_id = await _planned_goal_id(deps, request.id)
         if goal_id is not None:
             # The graph was persisted before the crash: never plan the same request twice.
-            planned = await mark_planned(deps, request, goal_id)
-            await deps.human_channel.goal_request_planned(planned)
+            await _settle_planned(deps, wardens, request, goal_id)
         elif thinking and deps.planning.task is None:
             _start_plan(deps, wardens, request)
 
@@ -149,7 +156,10 @@ async def _hold_or_plan(deps: QueenDeps, wardens: Sequence[WardenLink], *, think
         elif thinking and deps.planning.task is None:
             # PLANNING is committed before the planner is ever called, so a crash from here on
             # is settled by _settle_leftovers on the next start, never planned from scratch.
-            _start_plan(deps, wardens, await start_planning(deps, request))
+            planning = await _moved(start_planning(deps, request))
+            # None: refused meanwhile (its device was revoked), so it is never planned.
+            if planning is not None:
+                _start_plan(deps, wardens, planning)
 
 
 async def _hold(deps: QueenDeps, request: GoalRequest) -> None:
@@ -158,7 +168,10 @@ async def _hold(deps: QueenDeps, request: GoalRequest) -> None:
     # harmless), where the other order could leave a spoken goal held with no echo at all.
     echo = f"Before I plan it, please confirm this goal: {request.text}"
     await post_notice(deps, echo, ref=request.id, task_id=None)
-    await deps.human_channel.goal_request_held(await hold(deps, request))
+    held = await _moved(hold(deps, request))
+    # None: refused meanwhile (its device was revoked); there is nothing left to hold.
+    if held is not None:
+        await deps.human_channel.goal_request_held(held)
 
 
 def _start_plan(deps: QueenDeps, wardens: Sequence[WardenLink], request: GoalRequest) -> None:
@@ -175,16 +188,44 @@ async def _plan(deps: QueenDeps, wardens: Sequence[WardenLink], request: GoalReq
     try:
         goal_id = await plan_goal_graph(deps, wardens, request.text, _terms(request))
     except _PLANNING_FAILURES as exc:
-        refused = await refuse(deps, request, _refusal(exc))
-        why = f"I could not plan your goal: {refused.refusal}"
-        await post_notice(deps, why, ref=request.id, task_id=None)
-        await deps.human_channel.goal_request_refused(refused)
+        await _refuse_unplannable(deps, request, exc)
     else:
-        planned = await mark_planned(deps, request, goal_id)
-        await deps.human_channel.goal_request_planned(planned)
+        await _settle_planned(deps, wardens, request, goal_id)
     finally:
         # Wake the tick at once, so it reaps this plan and places the new goal's ready tasks.
         deps.wake.set()
+
+
+async def _settle_planned(
+    deps: QueenDeps, wardens: Sequence[WardenLink], request: GoalRequest, goal_id: TaskId
+) -> None:
+    """Mark a request PLANNED and tell its device; stop its goal when it was refused meanwhile."""
+    planned = await _moved(mark_planned(deps, request, goal_id))
+    if planned is None:
+        # Refused while it was being planned (its device was revoked): its goal never runs.
+        links = {link.warden_id: link for link in wardens}
+        await stop_goal(deps, links, goal_id, WITHDRAWN_REASON)
+        return
+    await deps.human_channel.goal_request_planned(planned)
+
+
+async def _refuse_unplannable(deps: QueenDeps, request: GoalRequest, error: Exception) -> None:
+    """Refuse a request the planner could not plan, and say why in the chat."""
+    refused = await _moved(refuse(deps, request, _refusal(error)))
+    if refused is None:
+        return  # Refused meanwhile (its device was revoked): that refusal already said so.
+    why = f"I could not plan your goal: {refused.refusal}"
+    await post_notice(deps, why, ref=request.id, task_id=None)
+    await deps.human_channel.goal_request_refused(refused)
+
+
+async def _moved(edge: Awaitable[GoalRequest]) -> GoalRequest | None:
+    """Await one goal-request edge; None when the stored row moved on from under this tick."""
+    try:
+        return await edge
+    except InvalidGoalRequestTransitionError:
+        # Only a revocation moves a request besides the Queen herself; the newer state stands.
+        return None
 
 
 async def _announce_finished_goals(deps: QueenDeps) -> None:

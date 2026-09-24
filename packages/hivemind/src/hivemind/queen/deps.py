@@ -24,7 +24,10 @@ waiting (`human_channel`), and two small pieces of her own runtime bookkeeping k
 `housekeeping`: the in-process `wake` signal her tick awaits beside her Warden links, and the
 `planning` lane her one in-flight goal plan runs in (`PlanningLane`). Roadmap step 10.6b adds the
 untrusted-content scanner a human's chat message passes through before her episode reads it
-(`scanner`).
+(`scanner`). The Hive Entrance's read side adds two more: `on_heartbeat`, the hook every Heartbeat
+she receives is handed to (the composition root wires it to the Entrance's telemetry stream, since
+a Heartbeat never reaches the trail), and `intake_lock`, which serialises every goal-request edge so
+a revocation from the Entrance and her own intake never move one request from a stale value.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built once per Queen by whichever
@@ -99,6 +102,7 @@ from hivemind.supervision import EscalationPolicy
 from waggle.clock import Clock
 from waggle.envelope import Hop
 from waggle.ids import CellId, GrantId, WardenId
+from waggle.messages.supervision import Heartbeat
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
@@ -133,6 +137,7 @@ __all__ = [
     "Housekeeping",
     "MemoryBudget",
     "OnCellGranted",
+    "OnHeartbeat",
     "OnTaskFinished",
     "PlanningLane",
     "QueenDeps",
@@ -159,6 +164,10 @@ OnTaskFinished = Callable[[CellId, TaskOutcome], Awaitable[None]]
 # caused it, not synthesised later at release time. The composition root wires it to
 # CellLifecycle.grant for Cells the lifecycle tracks, and to a no-op for every other Cell.
 OnCellGranted = Callable[[CellId, GrantId], Awaitable[None]]
+# Told about every Heartbeat the Queen receives (the Warden, the Heartbeat, when it arrived), after
+# she has recorded it. Synchronous and cheap by contract: it runs inside her tick, so it may only
+# hand the sample on (the Hive Entrance's telemetry board fans it out to its live views).
+OnHeartbeat = Callable[[WardenId, Heartbeat, datetime], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +428,12 @@ class QueenDeps:
             one of them is local to the Cell it is issued for, like a source that Cell serves
             itself (roadmap step 10.3a: a Night Veil grant names local bindings only). Defaults
             to none, so a Night Veil grant fails closed unless a composition root states them.
+        on_heartbeat: Told about every Heartbeat she receives, once she has recorded it
+            (`OnHeartbeat`); the Hive Entrance's telemetry board in `hive serve`, None (nobody)
+            by default. A Heartbeat never reaches the trail, so this is its one way out.
+        intake_lock: Serialises every goal-request edge (`hivemind.queen.intake.writes`): her
+            intake drain, a plan finishing beside her tick and a revocation arriving through the
+            Hive Entrance each move a request from the row as it stands, one at a time.
     """
 
     chamber: BroodChamber
@@ -491,3 +506,7 @@ class QueenDeps:
     scanner: ContentScanner = field(default_factory=default_content_scanner)
     # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil grant fails closed.
     in_process_providers: frozenset[str] = frozenset()
+    # Roadmap step 10.5 (the Entrance's read side): defaulted, so a Queen built without an
+    # Entrance tells nobody of her Heartbeats, and one lock per Queen guards her request edges.
+    on_heartbeat: OnHeartbeat | None = None
+    intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

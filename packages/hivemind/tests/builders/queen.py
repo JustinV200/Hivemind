@@ -87,7 +87,7 @@ from waggle.messages.base import WaggleMessage
 from waggle.messages.cell import CellWaxWritten
 from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued, PlanWritten
 from waggle.messages.supervision import Answer, Intervene
-from waggle.messages.task import TaskAssign, TaskPause, TaskResume
+from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging.
@@ -372,6 +372,7 @@ class WardenEnd:
         self.wax_written: list[CellWaxWritten] = []  # Roadmap step 4.2a.
         self.task_pauses: list[TaskPause] = []  # Roadmap step 4.9 (Clustering).
         self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
+        self.task_cancels: list[TaskCancel] = []  # Roadmap step 10.5: a revocation's cancel.
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -451,6 +452,11 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.task_resumes), limit=limit)
         return self.task_resumes[-1]
 
+    async def wait_for_task_cancel(self, limit: int = DEFAULT_PUMP_LIMIT) -> TaskCancel:
+        """Pump until at least one TaskCancel has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.task_cancels), limit=limit)
+        return self.task_cancels[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Queen's own receive() ends cleanly."""
         await self._transport.close()
@@ -458,8 +464,8 @@ class WardenEnd:
     def _sort(self, envelope: Envelope) -> None:
         """Append `envelope`'s payload to the matching bucket; unrecognised kinds are ignored."""
         payload = envelope.payload
-        if self._sort_forage(payload):
-            return  # Roadmap step 4.8's own three kinds; split out to stay under C901's limit.
+        if self._sort_forage(payload) or self._sort_task_control(payload):
+            return  # Split out by message family to stay under C901's limit.
         if isinstance(payload, GrantIssued):
             self.grants.append(payload)
             self.received_kinds.append("grant")
@@ -475,12 +481,21 @@ class WardenEnd:
         elif isinstance(payload, CellWaxWritten):
             self.wax_written.append(payload)
             self.received_kinds.append("wax_written")
-        elif isinstance(payload, TaskPause):
+
+    def _sort_task_control(self, payload: object) -> bool:
+        """Sort a task control order (TaskPause/TaskResume/TaskCancel); True if it matched."""
+        if isinstance(payload, TaskPause):
             self.task_pauses.append(payload)
             self.received_kinds.append("task_pause")
         elif isinstance(payload, TaskResume):
             self.task_resumes.append(payload)
             self.received_kinds.append("task_resume")
+        elif isinstance(payload, TaskCancel):
+            self.task_cancels.append(payload)
+            self.received_kinds.append("task_cancel")
+        else:
+            return False
+        return True
 
     def _sort_forage(self, payload: object) -> bool:
         """Sort a Forage-family payload (ForageReply/CeilingsSet/PlanWritten); True if it matched.

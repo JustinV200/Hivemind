@@ -3,9 +3,9 @@
 Codingrules 14.4 keeps fakes beside their protocols, honest and production quality. Tests (and
 demos) need to see what enrolment asked of its seams: which notices it sent, which devices it cut
 off, which goals it cancelled. ``RecordingSecurityNotifier`` and ``RecordingDeviceOffboarder``
-keep every call in order; ``FakeGoalLedger`` holds each device's open goals, cancels them on
-request, and can be told that some goals finish before they can be cancelled, so a revocation's
-"goals left running" can be exercised honestly.
+keep every call in order; ``FakeGoalLedger`` holds each device's unplanned requests and open
+goals, refuses and cancels them on request, and can be told that some goals finish before they can
+be cancelled, so a revocation's "goals left running" can be exercised honestly.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol.deps``. Used by
@@ -86,7 +86,23 @@ class FakeGoalLedger:
             device_id: list(goals) for device_id, goals in (open_goals or {}).items()
         }
         self._finishing = finishing
+        self._unplanned: dict[DeviceId, list[str]] = {}
         self.cancellations: list[tuple[tuple[TaskId, ...], str]] = []
+        self.refusals: list[tuple[DeviceId, str]] = []
+
+    def request(self, device_id: DeviceId, request_ids: Sequence[str]) -> None:
+        """Record that ``device_id`` has goal requests not planned yet; a test's arrange step.
+
+        Args:
+            device_id: The submitting device.
+            request_ids: Its unplanned requests, oldest first.
+        """
+        self._unplanned.setdefault(device_id, []).extend(request_ids)
+
+    async def refuse_requests(self, device_id: DeviceId, reason: str) -> tuple[str, ...]:
+        """Refuse the device's unplanned requests; see GoalLedger.refuse_requests."""
+        self.refusals.append((device_id, reason))
+        return tuple(self._unplanned.pop(device_id, ()))
 
     def submit(self, device_id: DeviceId, goal_ids: Sequence[TaskId]) -> None:
         """Record that ``device_id`` submitted ``goal_ids``, still open; a test's arrange step.
