@@ -94,11 +94,24 @@ file, flushed, then renamed over the old one):
   listener in `lan` and `tunnel` mode, and in `vpn` mode with `mutual_tls = true`. Minted on first
   use; never replaced: losing the key means minting a new authority (remove both) and re-issuing
   every device's certificate. A lost certificate alone is re-derived from the key.
+- `<name>.ed25519`: a named node key minted by `hive keys create NAME` for a peer to pin. `hive
+  keys list` shows every Ed25519 key here by its public half (hex, the form a peer pins) and its
+  fingerprint, never the private half; `hive keys revoke NAME` deletes one, and refuses
+  `hive.ed25519` (moved only by Supersedure) and `console.ed25519` (replaced only by `hive entrance
+  operator password --reset`).
 
 On Linux and macOS the directory is `0700` and every file `0600` from the moment it is created;
 on Windows those modes cannot be expressed, and the user profile's ACL is what protects it. Back
 the directory up like a private key and keep it out of version control. The operator password is
 not stored anywhere: the Entrance tables in `[hive] db` hold only its Argon2id hash.
+
+Beside `[hive] db`, `hive serve` keeps two small files of its own: `<db>.serve.lock`, an
+operating-system lock it holds for its whole life (so a second `hive serve`, `hive entrance
+operator password --reset` and `hive entrance unlock --console` refuse while it runs), and
+`<db>.serve.json`, where its loopback listener answers (pid, host, port), which the Hive Stand's
+`hive entrance` commands read to reach it. A laptop's own device key never lives in any Hive's
+secret store: `hive remote enrol` keeps it, with the profile naming its Hive, under the laptop
+user's config directory (`<config>/hivemind/remote/`, owner-only).
 
 ## Model ids and provider URLs
 

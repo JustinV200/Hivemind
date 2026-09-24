@@ -93,6 +93,16 @@ Drone's grant without a free core.
   Cell announces NIGHT_VEIL, the task is bound to NIGHT_VEIL (a Cell announcing MEADOW, as every
   one did before, fails it) and the Drone's work succeeds. The attestation probe is the all-green
   fake: production's is fail-closed until a Queen-side CellSession exists.
+- `test_phase10_remote_laptop.py` (`@pytest.mark.e2e`) -- roadmap phase 10's second exit
+  criterion over `hive serve`'s own composition (a real Queen, her Hive Stand Warden and a Drone
+  over a scripted `FakeLLMProvider`, the Hive's SQLite file, the Entrance on a real loopback
+  listener): the operator sets the password and mints an invite with `hive entrance`, a second
+  config directory (the laptop) enrols with `hive remote enrol` and is approved, and a real `hive
+  run --remote` process follows a goal to its end while the laptop's other terminal answers the
+  Drone's question with `hive inbox --remote answer` (the task SUCCEEDED). Requests without
+  credentials, with a stolen token signed by another key and replayed are refused, as is the laptop
+  while pending, locked by five wrong passwords (unlocked on loopback) and revoked. The follower is
+  a child process because `CliRunner` swaps the process's standard streams while a command runs.
 
 ## Budget
 
