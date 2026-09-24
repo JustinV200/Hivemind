@@ -499,3 +499,38 @@ async def test_with_identity_records_the_query_under_the_new_actor(hive: _Hive) 
 
     (event,) = await _queried_events(hive)
     assert event.actor == "human"
+
+
+async def test_a_new_embedder_with_no_vectors_yet_ranks_by_full_text_alone(hive: _Hive) -> None:
+    # Found for real right after switching the EMBEDDER model: every row still carried only the
+    # old model's vectors, the vector side found nothing, and fusing with its weight anyway cut
+    # every text score to 40% (a weak but real match fell under min_score).
+    await _ripen(hive, "Staging config", _TARGET_BODY)
+    await _ripen_filler(hive)
+    switched = hive.retriever(embedded=False)
+    renamed = BoundEmbedder(
+        ModelSlot.EMBEDDER,
+        "embedder",
+        FakeEmbedding(clock=hive.clock, model="new-embed"),
+        "new-embed",
+        None,
+    )
+    retriever = HoneyRetriever(
+        RetrieverDeps(
+            store=hive.store,
+            identity=hive.identity,
+            clock=hive.clock,
+            retrieval=HoneyRetrievalSection(),
+            embedder=renamed,
+            embed_gate=DirectEmbedGate(),
+        )
+    )
+
+    text_only = await switched.search_outcome(_search(hive, "staging configuration"))
+    fresh = await retriever.search_outcome(_search(hive, "staging configuration"))
+
+    assert fresh.vector_used is False
+    assert "no new-embed vectors" in fresh.response.reason
+    assert [hit.score for hit in fresh.response.hits] == [
+        hit.score for hit in text_only.response.hits
+    ]

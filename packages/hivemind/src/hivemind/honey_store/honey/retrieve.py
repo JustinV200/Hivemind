@@ -313,6 +313,10 @@ class HoneyRetriever:
         vector, model = embedded
         # Local SQLite on the store's own thread; only rows embedded by `model` are compared.
         candidates = await deps.store.search_vectors(vector, model, filter_, limit)
+        if not candidates:
+            # Nothing readable carries this model's vectors yet (a fresh embedder, mid re-embed):
+            # fusing with a vector side that found nothing would only scale every text score down.
+            return _VectorSide(candidates=(), unavailable=f"no {model} vectors among readable rows")
         return _VectorSide(candidates=candidates, unavailable=None)
 
     async def _embed_query(
