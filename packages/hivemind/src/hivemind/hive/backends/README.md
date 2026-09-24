@@ -26,7 +26,9 @@ providers under `backends/cloud/`.
   created) for a Night Veil Cell on a Hive with no link, or with one the Cell could never dial
   (not a v3 onion service, or a proxy that is not a loopback `socks5h`/`socks4a` one), so it is
   never handed a clearnet address. The chosen endpoint carries the Cell's tier, rendered as
-  `HIVEMIND_COMB_SHIELD`, so the Cell's own floors see it.
+  `HIVEMIND_COMB_SHIELD`, so the Cell's own floors see it, and its reservation
+  (`hivemind.hive.models.CellReservation`, from its spec), rendered as `HIVEMIND_RESERVATION`, so
+  the Cell reports that as its capacity rather than the host's figures it would probe.
 - `DockerCellBackend` / `build_docker_backend` (`docker/`): the first working `CellBackend`, over
   a Docker daemon. See `docker/`'s own module docstrings for `DockerClientPort`, `SdkDockerClient`
   (the only module that may import the `docker` SDK), `FakeDockerClient` and what each

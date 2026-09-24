@@ -76,7 +76,9 @@ class InCellSpawnConfig:
         capabilities: This container's own platform facts and capability flags, probed the same
             way `hivemind.cell.local.probe.probe_host` probes the Hive Stand (a Virtual Cell image
             is Ubuntu Linux too, so the same probe applies unchanged).
-        capacity: This container's own Forage report.
+        capacity: This Cell's Forage capacity: the reservation its bootstrap names
+            (`hivemind.hive.models.CellReservation.capacity`, no load), never the host's figures
+            a container's own probe would read (`hivemind.cli.in_cell.config`).
         comb_shield: This Cell's security tier; MEADOW unless the Queen provisioned it higher
             (codingrules section 8.7: "New Virtual Cells default to MEADOW").
         scratch_root: The directory inside this Cell every lease's own scratch subdirectory is
@@ -136,8 +138,9 @@ class InCellSpawnSource:
         Returns:
             A one-element tuple holding this Cell; unlike the Hive Stand's own source, capacity
             here is not refreshed live per call -- a Virtual Cell's resources are fixed for its
-            whole disposable lifetime by its `VirtualCellSpec` (a `hive` concern), never contended
-            by a second tenant the way the Hive Stand's free memory or disk can be.
+            whole disposable lifetime by its `VirtualCellSpec` (a `hive` concern: the reservation
+            its bootstrap names, `InCellSpawnConfig.capacity`), never contended by a second
+            tenant the way the Hive Stand's free memory or disk can be.
         """
         return (self._cell,)
 

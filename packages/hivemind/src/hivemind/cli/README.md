@@ -100,6 +100,9 @@ typer layer that calls into a subsystem's public API and never contains logic of
   Queen URL's host by name, and its addresses resolved once at start, never an onion's); the
   Cell's tier comes from `HIVEMIND_COMB_SHIELD` (`in_cell/config.py`, held to its link), and a
   Night Veil Cell dials only through its Tor SOCKS proxy and attests that link on `CellReady`.
+  Its capacity comes from `HIVEMIND_RESERVATION` beside it: what its backend reserved from its
+  `VirtualCellSpec`, with no load, never the host's cores, memory and load average a container
+  would probe; the Queen places it by the same figures (`compose/virtual_cells.py`).
   Every model call in a Virtual Cell passes through the Cell's own Fanner (`in_cell/fanner.py`):
   metered by the seats and rate limits the Queen shipped with each provider row, and recorded as
   an `llm.call` on the Cell's own trail segment, which reaches the Queen's trail when it syncs.

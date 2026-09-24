@@ -4,7 +4,8 @@ Codingrules section 13: the composition root is the only place configuration bec
 `hivemind.manifest.env.read_in_cell_env` only extracts what `os.environ` holds (`InCellEnv`, every
 field optional); this module is where a Virtual Cell image's entry point (roadmap step 5.5)
 decides which of those are required, parses them into typed ids and Ed25519 keys, mints this
-process's own node id, probes this Cell's own platform and capacity, and assembles the
+process's own node id, probes this Cell's own platform, takes its capacity from the reservation its
+bootstrap names (`HIVEMIND_RESERVATION`), and assembles the
 `hivemind.wardens.spawn.in_cell.InCellSpawnConfig` a real Warden will eventually lease through
 (roadmap steps 5.4/5.6). Signing is mandatory across a machine boundary (roadmap step 1.7), so
 every key field is required here even though `InCellEnv` itself leaves them optional.
@@ -25,6 +26,14 @@ URL that is an onion service is a Night Veil Cell's only, so a missing tier can 
 Veil link off as MEADOW. PROPOLIS is refused: no in-Cell attestation exists for it yet, and a
 Cell that cannot attest its tier must not announce it.
 
+Its capacity comes from the bootstrap too. A container shares its host's kernel, so probing it
+reads the host's cores, the host's memory and the host's load average: on a busy Hive Stand every
+Virtual Cell looked just as busy, and its grants shrank to nothing. What the backend reserved for
+the Cell (`hivemind.hive.models.CellReservation`, from its `VirtualCellSpec`) is all it has and
+no other tenant contends for it, so that is its capacity, with no load; the probe still supplies
+its platform facts (architecture, OS) and capability flags. A Cell whose bootstrap names no
+reservation (minted before one was shipped) reports what it probes, as every Cell used to.
+
 Key invariants:
     - `build_runtime_config` raises `ConfigurationError` naming the missing or malformed variable
       for any of: the Queen's Waggle URL, this Cell's id, the Queen's bee address, the Queen's own
@@ -37,6 +46,8 @@ Key invariants:
     - `node_id` and `warden_id` are freshly minted every time this process starts: a container is
       disposable (roadmap step 5.5's own key invariant on `hivemind.cell.in_cell`), so there is no
       identity to persist across restarts the way the Hive Stand's own node key is.
+    - A Cell with a reservation reports exactly `CellReservation.capacity` of it, whatever the
+      host's load: the same figures the Queen placed it by.
 
 See Also:
     - .claude/roadmap.md step 5.5 for the env var list this module reads.
@@ -61,9 +72,11 @@ from hivemind.cell.local.config import HiveStandConfig
 from hivemind.cell.local.probe import probe_host
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.common.errors import ConfigurationError
+from hivemind.forage import ForageCapacity
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
 from hivemind.guard.net import IPAddress
+from hivemind.hive import CellReservation
 from hivemind.llm import RateLimit
 from hivemind.llm.registry import ProviderConfig, ProviderKind
 from hivemind.manifest.env import InCellEnv
@@ -215,7 +228,7 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
 def _spawn_config(
     env: InCellEnv, cell_id: CellId, comb_shield: CombShieldLevel
 ) -> InCellSpawnConfig:
-    """Probe this Cell and describe it at the tier its bootstrap named."""
+    """Describe this Cell at the tier and reservation its bootstrap named, on its own platform."""
     # HIVEMIND_SCRATCH_ROOT overrides the image's own path: a test or an in-process Cell on a host
     # that cannot create /var/lib/hivemind (Linux CI) sets it; a real container never needs to.
     scratch_root = env.scratch_root if env.scratch_root is not None else DEFAULT_SCRATCH_ROOT
@@ -223,10 +236,22 @@ def _spawn_config(
     return InCellSpawnConfig(
         cell_id=cell_id,
         capabilities=probed.capabilities,
-        capacity=probed.capacity,
+        capacity=_capacity(env.reservation_json, probed.capacity),
         comb_shield=comb_shield,
         scratch_root=scratch_root,
     )
+
+
+def _capacity(raw: str | None, probed: ForageCapacity) -> ForageCapacity:
+    """Return the reservation `raw` names as this Cell's capacity; the probe's with none."""
+    if raw is None:
+        return probed  # Minted before its bootstrap shipped one (module docstring).
+    try:
+        reservation = CellReservation.model_validate_json(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"HIVEMIND_RESERVATION is not a Cell reservation: {exc}") from exc
+    # Platform facts only from the probe: the host's cores, memory and load are not this Cell's.
+    return reservation.capacity(arch=probed.host.arch, os=probed.host.os)
 
 
 def _require(value: str | None, var_name: str) -> str:
@@ -550,7 +575,8 @@ def _probe_config(scratch_root: Path) -> HiveStandConfig:
 
     `HiveStandConfig` is a Real Cell concept (its own module docstring); nothing here reads its
     `access_level`/`comb_shield` back -- `InCellSpawnConfig` above sets those itself for a Virtual
-    Cell. Only `probe_host`'s `capabilities`/`capacity` output is used; `scratch_root` is the one
+    Cell. Only `probe_host`'s `capabilities` and platform facts are used (its capacity only for
+    a Cell whose bootstrap names no reservation, `_capacity`); `scratch_root` is the one
     the Cell will really use, so the probe measures (and may create) the same directory.
     """
     return HiveStandConfig(

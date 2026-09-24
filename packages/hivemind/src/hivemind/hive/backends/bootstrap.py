@@ -45,7 +45,9 @@ Key invariants:
     - `CellBootstrap.environment()` returns exactly the `HIVEMIND_*` keys
       `images/base-ubuntu/README.md`'s "Runtime configuration" table documents as required
       (`HIVEMIND_COMB_SHIELD`, the Cell's own tier, among them since roadmap step 10.3a), plus
-      `HIVEMIND_SOCKS_PROXY_URL` only when `endpoint.socks_proxy_url` is set.
+      `HIVEMIND_SOCKS_PROXY_URL` only when `endpoint.socks_proxy_url` is set, and
+      `HIVEMIND_RESERVATION` whenever `cell_endpoint` chose the endpoint, as every backend does:
+      the Cell reports that reservation as its capacity, never the host's figures it would probe.
     - A Cell minted for NIGHT_VEIL through `cell_endpoint` always dials its Night Veil link's
       v3 `.onion` URL through that link's loopback SOCKS proxy, and is told its tier, or is never
       minted at all.
@@ -88,7 +90,7 @@ from hivemind.hive.backends.provider_table import (
     render_slots_json,
 )
 from hivemind.hive.errors import CellProvisionError
-from hivemind.hive.models import VirtualCellSpec
+from hivemind.hive.models import CellReservation, VirtualCellSpec
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId, NodeId, new_cell_id
 from waggle.signing import Ed25519Signer, public_key_hex
@@ -106,6 +108,9 @@ _ENV_CELL_SIGNING_KEY = "HIVEMIND_CELL_SIGNING_KEY"
 _ENV_QUEEN_VERIFY_KEY = "HIVEMIND_QUEEN_VERIFY_KEY"
 _ENV_SOCKS_PROXY_URL = "HIVEMIND_SOCKS_PROXY_URL"
 _ENV_COMB_SHIELD = "HIVEMIND_COMB_SHIELD"  # The Cell's own tier, so its floors see it (10.3a).
+# What the backend reserves for the Cell (hivemind.hive.models.CellReservation, as JSON): the
+# capacity it reports, since a container's own probe would read the host's cores, memory and load.
+_ENV_RESERVATION = "HIVEMIND_RESERVATION"
 _ENV_PROVIDERS = "HIVEMIND_PROVIDERS"
 _ENV_SLOTS = "HIVEMIND_SLOTS"
 # Reuses HIVEMIND_LLM_OFFLINE, the exact name hivemind.manifest.env.EnvOverrides/InCellEnv already
@@ -216,6 +221,9 @@ class QueenEndpoint:
         comb_shield: The tier of the Cell this endpoint was chosen for (`cell_endpoint` sets it
             from the Cell's spec), rendered as `HIVEMIND_COMB_SHIELD` so the Cell's own floors
             see it; MEADOW, the default tier, until then.
+        reservation: What the backend reserves for that Cell (`cell_endpoint` sets it from the
+            Cell's spec, alongside its tier), rendered as `HIVEMIND_RESERVATION` so the Cell
+            reports it as its capacity; None until then.
     """
 
     waggle_url: str
@@ -228,6 +236,7 @@ class QueenEndpoint:
     llm_offline: bool = False
     night_veil: NightVeilLink | None = None
     comb_shield: CombShieldLevel = CombShieldLevel.MEADOW
+    reservation: CellReservation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +276,9 @@ class CellBootstrap:
             # Roadmap step 10.3a: the Cell's tier comes from here, never assumed in the Cell.
             _ENV_COMB_SHIELD: self.endpoint.comb_shield.value,
         }
+        # Its capacity, taken from its spec rather than probed (module docstring's invariant).
+        if self.endpoint.reservation is not None:
+            env[_ENV_RESERVATION] = self.endpoint.reservation.model_dump_json()
         # Optional: a base-ubuntu Cell never sets a SOCKS proxy (images/base-ubuntu/README.md),
         # and InCellEnv.socks_proxy_url already treats an absent variable as "no proxy", so
         # omitting the key rather than sending an empty string keeps both sides agreeing on None.
@@ -386,9 +398,10 @@ def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) 
         backend: The provisioning backend's name, for the refusal.
 
     Returns:
-        `endpoint` at the Cell's tier for MEADOW and PROPOLIS; for NIGHT_VEIL, a copy whose
-        Waggle URL is the hidden service and whose SOCKS proxy is the Tor proxy (and which
-        carries no link of its own, so nothing downstream can choose again).
+        `endpoint` at the Cell's tier, carrying its reservation, for MEADOW and PROPOLIS; for
+        NIGHT_VEIL, likewise, a copy whose Waggle URL is the hidden service and whose SOCKS proxy
+        is the Tor proxy (and which carries no link of its own, so nothing downstream can choose
+        again).
 
     Raises:
         CellProvisionError: The Cell is NIGHT_VEIL and `endpoint` carries no Night Veil link, or
@@ -396,12 +409,11 @@ def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) 
             loopback `socks5h`/`socks4a` one); nothing has been created.
     """
     tier = spec.comb_shield
+    # The Cell's own figures ride with its tier: both are its spec's, and both the Cell must be
+    # told rather than find out for itself.
+    reservation = CellReservation.of(spec)
     if tier is not CombShieldLevel.NIGHT_VEIL:
-        return (
-            endpoint
-            if endpoint.comb_shield is tier
-            else dataclasses.replace(endpoint, comb_shield=tier)
-        )
+        return dataclasses.replace(endpoint, comb_shield=tier, reservation=reservation)
     link = endpoint.night_veil
     if link is None:
         raise CellProvisionError(
@@ -419,6 +431,7 @@ def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) 
         socks_proxy_url=link.socks_proxy_url,
         night_veil=None,
         comb_shield=tier,
+        reservation=reservation,
     )
 
 

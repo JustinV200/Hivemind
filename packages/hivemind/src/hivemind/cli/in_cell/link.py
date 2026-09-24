@@ -169,12 +169,12 @@ async def announce(deps: CellLinkDeps) -> None:
 
 
 async def send_capacity_report(deps: CellLinkDeps, capacity: ForageCapacity) -> None:
-    """Send this Cell's probed ForageCapacity, since CellReady carries none.
+    """Send this Cell's ForageCapacity, since CellReady carries none.
 
     Args:
         deps: This module's own collaborators.
-        capacity: This Cell's own probed capacity, from `InCellSpawnConfig.capacity`
-            (`hivemind.cli.in_cell.config`).
+        capacity: This Cell's own capacity, from `InCellSpawnConfig.capacity`: the reservation
+            its bootstrap names, the figures the Queen placed it by (`hivemind.cli.in_cell.config`).
     """
     report = CapacityReport(
         cell_id=deps.cell.id,

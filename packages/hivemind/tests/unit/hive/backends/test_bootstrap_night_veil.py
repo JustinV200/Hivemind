@@ -31,7 +31,7 @@ from hivemind.hive.backends.bootstrap import (
     night_veil_waggle_url,
 )
 from hivemind.hive.errors import CellProvisionError
-from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.models import CellReservation, NetworkPolicy, VirtualCellSpec
 from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
 
@@ -89,20 +89,43 @@ def test_an_incomplete_profile_builds_no_link(address: str, socks: str) -> None:
     assert NightVeilLink.from_profile(address, socks) is None
 
 
-def test_a_meadow_cell_keeps_the_ordinary_endpoint_itself() -> None:
+def test_a_meadow_cell_keeps_the_ordinary_endpoint_and_is_told_its_reservation() -> None:
     endpoint = _endpoint()
+    spec = _spec(CombShieldLevel.MEADOW)
 
-    assert cell_endpoint(endpoint, _spec(CombShieldLevel.MEADOW), "docker") is endpoint
+    chosen = cell_endpoint(endpoint, spec, "docker")
+
+    assert chosen == dataclasses.replace(endpoint, reservation=CellReservation.of(spec))
 
 
 def test_a_propolis_cell_keeps_the_ordinary_link_and_is_told_its_tier() -> None:
     endpoint = _endpoint()
+    spec = _spec(CombShieldLevel.PROPOLIS)
 
-    chosen = cell_endpoint(endpoint, _spec(CombShieldLevel.PROPOLIS), "docker")
+    chosen = cell_endpoint(endpoint, spec, "docker")
 
-    assert chosen == dataclasses.replace(endpoint, comb_shield=CombShieldLevel.PROPOLIS)
+    assert chosen == dataclasses.replace(
+        endpoint, comb_shield=CombShieldLevel.PROPOLIS, reservation=CellReservation.of(spec)
+    )
     environment = mint_cell_bootstrap(new_hive_id(FakeClock()), chosen, FakeClock()).environment()
     assert environment["HIVEMIND_COMB_SHIELD"] == "PROPOLIS"
+
+
+@pytest.mark.parametrize("tier", list(CombShieldLevel))
+def test_every_cell_is_told_the_reservation_its_spec_asks_for(tier: CombShieldLevel) -> None:
+    # The Cell reports this as its capacity rather than probing the host it shares a kernel with.
+    spec = _spec(tier)
+
+    chosen = cell_endpoint(_endpoint(), spec, "docker")
+    environment = mint_cell_bootstrap(new_hive_id(FakeClock()), chosen, FakeClock()).environment()
+
+    reservation = CellReservation.model_validate_json(environment["HIVEMIND_RESERVATION"])
+    assert reservation == CellReservation(
+        cpu_cores=spec.cpu_cores,
+        memory_bytes=spec.memory_bytes,
+        disk_bytes=spec.disk_bytes,
+        max_sub_bees=spec.capacity.max_sub_bees,
+    )
 
 
 def test_a_night_veil_cell_dials_the_hidden_service_through_tor_and_carries_no_link() -> None:

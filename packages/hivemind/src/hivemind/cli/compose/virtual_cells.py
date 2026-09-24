@@ -67,9 +67,10 @@ Fits into the Hive:
     `hivemind.cli.compose.virtual_cell_backends` (RegistryContext, build_registry,
     docker_gateway_url, night_veil_socks_proxy_url -- this module's own backend-construction
     half, split out for its own line budget), `hivemind.cli.stores` (open_snapshot_ledger),
-    `hivemind.forage` (ForageCapacity, HostCapacity), `hivemind.hive` (BackendRegistry,
-    CellLifecycle, NetworkPolicy, OverwinterConfig, OverwinterPool, OverwinterSettings,
-    VirtualCellSpec, mint_cell_bootstrap is not used here -- backends mint their own),
+    `hivemind.hive` (BackendRegistry, CellLifecycle, CellReservation -- the one computation of a
+    Virtual Cell's capacity, which the Cell itself repeats from its bootstrap -- NetworkPolicy,
+    OverwinterConfig, OverwinterPool, OverwinterSettings, VirtualCellSpec, mint_cell_bootstrap is
+    not used here -- backends mint their own),
     `hivemind.hive.night_veil` (NightVeilProbe, the fail-closed
     `_fail_closed_night_veil_probe` below returns), `hivemind.manifest` (HiveManifest),
     `hivemind.pheromone` (PheromoneTrail, TrailRecorder), `hivemind.queen.cell_gate`
@@ -136,10 +137,10 @@ from hivemind.cli.compose.virtual_cell_backends import (
     docker_gateway_url,
 )
 from hivemind.cli.stores import open_snapshot_ledger
-from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.hive import (
     BackendRegistry,
     CellLifecycle,
+    CellReservation,
     NetworkPolicy,
     OverwinterConfig,
     OverwinterPool,
@@ -406,21 +407,15 @@ def _dormant_cell_source(lifecycle: CellLifecycle) -> DormantCellSource:
 
 def _default_spec(section: VirtualCellsSection, hive_id: HiveId) -> VirtualCellSpec:
     """Build the one `VirtualCellSpec` template `[virtual_cells]`'s own defaults describe."""
-    capacity = ForageCapacity(
-        host=HostCapacity(
-            cores=max(1, int(section.cpu_cores)),
-            memory_bytes=section.memory_bytes,
-            memory_free_bytes=section.memory_bytes,
-            disk_bytes=section.disk_bytes,
-            disk_free_bytes=section.disk_bytes,
-            cpu_load=0.0,
-            gpus=(),
-            arch=_VIRTUAL_CELL_ARCH,
-            os=WireOsFamily.LINUX,
-        ),
-        local_seats=(),
+    # The capacity placement reads is the reservation's own, computed exactly as the Cell will
+    # compute it from its bootstrap (hivemind.hive.models.CellReservation): one set of figures.
+    reservation = CellReservation(
+        cpu_cores=section.cpu_cores,
+        memory_bytes=section.memory_bytes,
+        disk_bytes=section.disk_bytes,
         max_sub_bees=_DEFAULT_MAX_SUB_BEES,
     )
+    capacity = reservation.capacity(arch=_VIRTUAL_CELL_ARCH, os=WireOsFamily.LINUX)
     return VirtualCellSpec(
         image=section.default_image,
         cpu_cores=section.cpu_cores,

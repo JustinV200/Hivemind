@@ -14,13 +14,15 @@ The image's `ENTRYPOINT` is `hivemind-in-cell`, the console script for
 
 1. Reads its configuration from `HIVEMIND_*` environment variables (the table below), the one
    place they are read (`hivemind.manifest.env.read_in_cell_env`, codingrules section 13).
-2. Probes this container's own platform, capabilities and Forage capacity (the same stdlib-only
-   probe `hivemind.cell.local.probe.probe_host` uses for the Hive Stand -- a Virtual Cell image is
-   Ubuntu Linux too) and builds the one `Cell` it is (`hivemind.wardens.spawn.in_cell.
+2. Probes this container's own platform and capabilities (the same stdlib-only probe
+   `hivemind.cell.local.probe.probe_host` uses for the Hive Stand -- a Virtual Cell image is
+   Ubuntu Linux too), takes its Forage capacity from `HIVEMIND_RESERVATION` (what its backend
+   reserved for it, with no load: a container probing itself would read the host's cores, memory
+   and load average) and builds the one `Cell` it is (`hivemind.wardens.spawn.in_cell.
    InCellSpawnSource`, the `in_cell` Warden spawn strategy).
 3. Dials **out** to `HIVEMIND_QUEEN_WAGGLE_URL` over a signed WebSocket connection -- this image
    exposes no inbound port, so it has to be the one that connects.
-4. Sends one signed `CellReady` announcing itself, then a `CapacityReport` naming its probed
+4. Sends one signed `CellReady` announcing itself, then a `CapacityReport` naming that
    `ForageCapacity`, then one `CellHeartbeat` -- the three frames `hivemind.queen.cell_gate.
    listener.CellListener`'s own readiness gate waits for before a real Warden ever exists
    (`hivemind.cli.in_cell.link`).
@@ -96,6 +98,7 @@ provision time -- code in this image still never names a model or vendor itself.
 |---|---|---|
 | `HIVEMIND_QUEEN_WAGGLE_URL` | yes | Where this Cell dials out to (`wss://` anywhere; `ws://` on loopback, a documented host-gateway alias or private address, or a Tor v3 onion service -- `waggle.uris.check_waggle_uri`). |
 | `HIVEMIND_COMB_SHIELD` | yes (written by every backend since roadmap step 10.3a) | The tier the Queen provisioned this Cell at (`MEADOW` or `NIGHT_VEIL`), announced on `CellReady` and seen by the Cell's own floors. Unset reads as `MEADOW`; `PROPOLIS` is refused (no in-Cell attestation for it yet). A `NIGHT_VEIL` Cell must dial a v3 onion Queen URL through `HIVEMIND_SOCKS_PROXY_URL`, and only a `NIGHT_VEIL` Cell may name an onion Queen URL. |
+| `HIVEMIND_RESERVATION` | yes (written by every backend) | What the backend reserved for this Cell, as JSON (`hivemind.hive.models.CellReservation`: `cpu_cores`, `memory_bytes`, `disk_bytes`, `max_sub_bees`, from its `VirtualCellSpec`). The Cell reports it as its Forage capacity, with no load, the same figures the Queen placed it by; its platform facts alone come from its own probe. Unset (a Cell minted before it existed) reports what the Cell probes; a malformed value is refused. |
 | `HIVEMIND_CELL_ID` | yes | The `cell_<ULID>` id the Queen minted for this Cell when it provisioned it. |
 | `HIVEMIND_HIVE_ID` | yes | The Queen's own bee address (`hive_<ULID>`), the `recipient` of every envelope this Cell sends. |
 | `HIVEMIND_QUEEN_NODE_ID` | yes | The `node_<ULID>` the Queen signs its own frames as, so this Cell's Verifier knows whose signature to check (signing is mandatory across a machine boundary, roadmap step 1.7). |

@@ -113,6 +113,11 @@ Drone's grant without a free core.
   Overwintering; the Queen goes on judging it for ten of the manifest's 0.3 s windows past its
   first Heartbeat and raises no `CELL_UNREACHABLE` about it: each Warden is judged by the cadence
   it declares, never below the manifest's. About twenty seconds, most of it that first 15 s.
+- `test_virtual_cell_capacity.py` (`@pytest.mark.e2e`) -- the whole process reads a busy host
+  (`os.getloadavg` faked at 3.9, as a container sharing a four-core Hive Stand's kernel would read
+  it): a goal placed on a Virtual Cell still gets its bee and succeeds, because the Cell reports
+  the reservation its bootstrap names (`HIVEMIND_RESERVATION`, from its `VirtualCellSpec`, no
+  load) -- exactly the capacity the Queen placed it by -- instead of the host's figures.
 
 ## Budget
 

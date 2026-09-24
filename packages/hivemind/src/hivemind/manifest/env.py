@@ -229,6 +229,12 @@ class InCellEnv(BaseModel):
         description="HIVEMIND_COMB_SHIELD: the tier the Queen provisioned this Cell at (roadmap "
         "step 10.3a), validated by hivemind.cli.in_cell.config; unset reads as MEADOW.",
     )
+    reservation_json: str | None = Field(
+        default=None,
+        description="HIVEMIND_RESERVATION: what the backend reserved for this Cell, as JSON "
+        "(hivemind.hive.models.CellReservation), the capacity this Cell reports; parsed by "
+        "hivemind.cli.in_cell.config, never here (extraction only).",
+    )
     scratch_root: Path | None = Field(
         default=None,
         description="HIVEMIND_SCRATCH_ROOT: where this Cell's Warden creates each lease's own "
@@ -295,6 +301,7 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         queen_verify_key_file=Path(verify_key_file) if verify_key_file is not None else None,
         socks_proxy_url=environ.get("HIVEMIND_SOCKS_PROXY_URL"),
         comb_shield=environ.get("HIVEMIND_COMB_SHIELD"),
+        reservation_json=environ.get("HIVEMIND_RESERVATION"),
         scratch_root=Path(scratch_root) if scratch_root is not None else None,
         providers_json=environ.get("HIVEMIND_PROVIDERS"),
         slots_json=environ.get("HIVEMIND_SLOTS"),

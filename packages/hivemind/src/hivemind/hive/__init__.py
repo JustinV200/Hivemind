@@ -28,7 +28,8 @@ See Also:
     - hivemind.cell.local and hivemind.swarm for the Real Cell sources this package never touches.
 
 Public API:
-    - VirtualCellSpec, NetworkPolicy: a request to provision one Virtual Cell
+    - VirtualCellSpec, NetworkPolicy: a request to provision one Virtual Cell; CellReservation:
+      what its backend reserves for it, and so its capacity on both sides of its link
       (hivemind.hive.models).
     - VirtualCellStatus, TRANSITIONS, can_transition, assert_transition, can_enter_dormant,
       assert_dormant_allowed: the Virtual Cell lifecycle state machine (hivemind.hive.cell_state).
@@ -114,7 +115,7 @@ from hivemind.hive.lifecycle import (
     LiveVirtualCell,
     OverwinterSettings,
 )
-from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.models import CellReservation, NetworkPolicy, VirtualCellSpec
 from hivemind.hive.night_veil import (
     CHECK_NAMES,
     Attestation,
@@ -168,6 +169,7 @@ __all__ = [
     "CellLifecycle",
     "CellProvisionError",
     "CellReadyInfo",
+    "CellReservation",
     "CheckResult",
     "CheckStatus",
     "DockerCellBackend",
