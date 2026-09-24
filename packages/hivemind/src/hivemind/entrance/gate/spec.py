@@ -6,8 +6,13 @@ row names its method and path, the listeners that serve it (``LOOPBACK`` alone, 
 capability, plus ``honey:clearance:c2`` for routes that return personal content) and what it
 changes (``RouteEffect``). The loopback application mounts every row and the remote one only rows
 that name ``REMOTE``, so a loopback-only route on the remote listener is a 404 because it was never
-mounted. ``RouteSpec`` is an HTTP route, ``SocketSpec`` a WebSocket view; ``RouteTable`` is the one
-table both applications and the Landing Board's OpenAPI document are built from.
+mounted; a row under a manifest ``Switch`` is mounted only while that switch is on, a 404
+otherwise, for the same reason. ``RouteSpec`` is an HTTP route, ``SocketSpec`` a WebSocket view;
+``RouteTable`` is the one table both applications and the Landing Board's OpenAPI document are
+built from. A row that takes a raw body instead of JSON (a voice clip, roadmap step 10.5f) says
+so with ``RawBody``: its media types and its own size and time allowance, which the body limit
+applies to that row alone; a view whose client sends frames after the first names them, and the
+frames it answers them with, beside the frames it streams.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Rows are declared
@@ -19,6 +24,7 @@ Key invariants:
     - Every row declares its listeners and its access; neither has a default.
     - A public row (no session) names no capability; the loopback set is never empty.
     - Paths live under ``/v1/``; a method is an upper-case HTTP method.
+    - A raw body is taken only by an authenticated row that mutates, and names at least one type.
 
 See Also:
     - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "Two listeners are two
@@ -50,6 +56,7 @@ __all__ = [
     "PUBLIC",
     "Access",
     "Endpoint",
+    "RawBody",
     "RouteEffect",
     "RouteSpec",
     "RouteTable",
@@ -75,6 +82,7 @@ class Switch(Enum):
     """A manifest switch a row is mounted under; a row without one is always mounted."""
 
     STEWARD_DEVICES = "steward_devices"  # [entrance] steward_devices: the remote steward route.
+    VOICE = "voice.enabled"  # [entrance.voice] enabled, with a transcriber bound: the voice route.
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +124,26 @@ class Access:
 PUBLIC = Access(authenticated=False, capability=None)  # No session: enrolment, login.
 
 
+@dataclass(frozen=True, slots=True)
+class RawBody:
+    """A route's raw (non-JSON) request body: what it may be, and how much of it to wait for.
+
+    Attributes:
+        media_types: The media types the route takes, e.g. ``audio/wav``; never empty.
+        max_bytes: The largest body the body limit reads for this route; > 0.
+        read_timeout_s: How long the body limit waits for the whole body; > 0.
+    """
+
+    media_types: tuple[str, ...]
+    max_bytes: int
+    read_timeout_s: float
+
+    def __post_init__(self) -> None:
+        """Refuse an allowance that names no media type or bounds nothing."""
+        if not self.media_types or self.max_bytes <= 0 or self.read_timeout_s <= 0:
+            raise ValueError("A raw body names its media types and a positive size and time.")
+
+
 def session_with(capability: str | None, *, c2: bool = False) -> Access:
     """Return the access of a route a session whose device holds ``capability`` may call.
 
@@ -144,6 +172,9 @@ class RouteSpec:
         status_code: The success status.
         response_model: The response body's model; None for an empty body.
         mounted_when: The manifest switch it needs, or None.
+        raw_body: The raw body it takes instead of JSON, or None.
+        refusals: Statuses it may answer beyond the ones every row declares, each with its
+            meaning, e.g. ``(415, "...")``.
     """
 
     method: str
@@ -156,12 +187,17 @@ class RouteSpec:
     status_code: int = 200
     response_model: type[BaseModel] | None = None
     mounted_when: Switch | None = None
+    raw_body: RawBody | None = None
+    refusals: tuple[tuple[int, str], ...] = ()
 
     def __post_init__(self) -> None:
         """Refuse a row outside ``/v1/``, with an unknown method, or served nowhere on loopback."""
         _check_row(self.path, self.listeners)
         if self.method not in _METHODS:
             raise ValueError(f"{self.method!r} is not an HTTP method a route may use.")
+        # A large body is read before the signature is checked, so only a signed write takes one.
+        if self.raw_body is not None and (not self.access.authenticated or not self.is_mutating):
+            raise ValueError(f"{self.path!r}: only an authenticated write takes a raw body.")
 
     @property
     def is_mutating(self) -> bool:
@@ -183,7 +219,10 @@ class SocketSpec:
         access: Who may subscribe; always a session (the first frame authenticates it).
         endpoint: The FastAPI WebSocket endpoint.
         summary: One line for the Landing Board's ``x-hive-streams``.
-        frame_model: The model of every frame the view sends.
+        frame_model: The model of every frame the view streams.
+        client_frames: The frames a client may send after its first (push-to-talk audio, on the
+            chat view); empty when the view reads nothing but the first frame.
+        reply_frames: The frames the view sends only in answer to the client's own frames.
     """
 
     path: str
@@ -192,6 +231,8 @@ class SocketSpec:
     endpoint: Endpoint = field(repr=False)
     summary: str
     frame_model: type[BaseModel]
+    client_frames: tuple[type[BaseModel], ...] = ()
+    reply_frames: tuple[type[BaseModel], ...] = ()
 
     def __post_init__(self) -> None:
         """Refuse a view outside ``/v1/``, served nowhere on loopback, or without a session."""

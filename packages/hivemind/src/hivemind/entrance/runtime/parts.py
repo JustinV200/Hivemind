@@ -36,6 +36,7 @@ from hivemind.entrance.push import Resolver, SubscriptionStore, VapidSigner, sys
 from hivemind.entrance.runtime.tls import NoCertificates, RevokedSerials
 from hivemind.entrance.store import EntranceStore
 from hivemind.entrance.streams import DEFAULT_BACKLOG
+from hivemind.entrance.voice import VoiceServices
 from hivemind.guard import Enforcer, GuardPolicy
 from hivemind.manifest import EntranceSection
 from hivemind.pheromone import DEFAULT_POLL_INTERVAL_S, PheromoneTrail
@@ -146,6 +147,8 @@ class EntranceParts:
         http: The HTTP client push deliveries use, built without environment proxies.
         own_addresses: Every address the Hive Stand answers on; no push destination may be one.
         resolver: Resolves push destinations; the system resolver unless a test injects one.
+        voice: The transcriber, scanner, Nectar seam and rules voice needs; None while
+            ``[entrance.voice]`` is off, which leaves the voice route unmounted.
     """
 
     settings: EntranceSettings
@@ -156,3 +159,4 @@ class EntranceParts:
     http: httpx.AsyncClient
     own_addresses: frozenset[IPAddress] = frozenset()
     resolver: Resolver = system_resolver
+    voice: VoiceServices | None = None

@@ -7,7 +7,9 @@ it builds every collaborator once and returns the ``HiveEntrance`` ready to run,
 loopback, the exposure plan's name remotely) and its own login and enrolment challenges; the
 tables, the session book, the push stack, the limits and the seams are shared. The loopback port
 the socket really got shapes the loopback origin, relying party and Host check, which is why the
-socket is bound first and the applications are built here, afterwards.
+socket is bound first and the applications are built here, afterwards. Voice (roadmap step 10.5f)
+is handed in built, or not at all: with it, the voice route is mounted (``Switch.VOICE``) and the
+rate limiter carries each device's audio budget; without it, the route is never mounted.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.runtime``. Called by the
@@ -154,6 +156,7 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
         rules=_rules(parts),
         door=listeners,
         clock=parts.clock,
+        voice=parts.voice,
     )
     listeners.mount(_apps(parts, services, port))
     follower = ReduceOrderFollower(hub, reducer, shared.records.trail)
@@ -180,8 +183,8 @@ def _shared(parts: EntranceParts, push: _Push, sockets: SocketRegistry, port: in
         offboarder=EntranceOffboarder(book, push.dispatcher, sockets),
         goals=QueenGoalLedger(parts.hive.reads.goal_requests, parts.hive.queen),
     )
-    section = settings.section
-    limiter = RateLimiter(clock, section.rate_limit_per_device, section.rate_limit_per_address)
+    # Requests per device and per address, and each device's seconds of audio a minute.
+    limiter = RateLimiter.from_section(settings.section, clock)
     return _Shared(records, book, seams, limiter, PasswordHasher())
 
 
@@ -323,9 +326,7 @@ def _apps(parts: EntranceParts, services: EntranceServices, port: int) -> dict[L
     """Build each served listener's application from the one route table."""
     settings = parts.settings
     table, document = route_table(), render_document()
-    switches = (
-        frozenset({Switch.STEWARD_DEVICES}) if settings.section.steward_devices else frozenset()
-    )
+    switches = _switches(parts)
     apps = {
         Listener.LOOPBACK: build_listener_app(
             table,
@@ -345,3 +346,11 @@ def _apps(parts: EntranceParts, services: EntranceServices, port: int) -> dict[L
         )
         apps[Listener.REMOTE] = build_listener_app(table, services, options)
     return apps
+
+
+def _switches(parts: EntranceParts) -> frozenset[Switch]:
+    """The manifest switches that are on: the steward route's, and voice's (with a transcriber)."""
+    switches = {Switch.STEWARD_DEVICES} if parts.settings.section.steward_devices else set()
+    if parts.voice is not None:
+        switches.add(Switch.VOICE)
+    return frozenset(switches)

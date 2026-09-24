@@ -6,17 +6,18 @@ hand-written, from the same route table both listeners are built from, and commi
 when the generated document differs from the committed one, so every route change is a visible
 contract diff. FastAPI's generator describes every row (loopback-only ones too, so a client knows
 they exist) with ``x-hive-capability`` (absent where a session alone, or nothing, is needed),
-``x-hive-listeners``, ``x-hive-c2`` and ``x-hive-effect``; this module adds the ``HiveSession``
-security scheme, the ``x-hive-signing`` extension (every signed string, its fields and encodings,
-with worked examples built by the very functions the Entrance verifies with), ``x-hive-streams``
-(the WebSocket views, their first frame and their frames) and what a client must know that no
-schema says: ``x-hive-versioning`` (ADR-0034's additive rule, read from the client's side),
-``x-hive-socket-close`` (every close code a view sends) and ``x-hive-bare-refusals`` (the refusals
-answered before routing, which carry no body). Every object a client reads (a response body or a
-stream frame) is published open, because a later ``/v1/`` may add a field to it; a request-only
-object stays closed, as the Entrance refuses a field it does not know; and each enum whose
-vocabulary may grow within ``/v1/`` is marked ``x-hive-open``. The rendering is stable: sorted
-keys, two-space indent, a trailing newline.
+``x-hive-listeners``, ``x-hive-c2`` and ``x-hive-effect`` (and a raw-body row, the voice clip, with
+``x-hive-body``); this module adds the ``HiveSession`` security scheme, the ``x-hive-signing``
+extension (every signed string, its fields and encodings, with worked examples built by the very
+functions the Entrance verifies with), ``x-hive-streams`` (the WebSocket views, their first frame,
+their frames, and for the chat view the push-to-talk frames a client sends and the frames that
+answer them) and what a client must know that no schema says: ``x-hive-versioning`` (ADR-0034's
+additive rule, read from the client's side), ``x-hive-socket-close`` (every close code a view sends)
+and ``x-hive-bare-refusals`` (the refusals answered before routing, which carry no body). Every
+object a client reads (a response body or a stream frame) is published open, because a later
+``/v1/`` may add a field to it; a request-only object stays closed, as the Entrance refuses a field
+it does not know; and each enum whose vocabulary may grow within ``/v1/`` is marked ``x-hive-open``.
+The rendering is stable: sorted keys, two-space indent, a trailing newline.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by the
@@ -275,12 +276,14 @@ def _bare_refusals() -> list[JsonValue]:
         {
             "status": 413,
             "listeners": ["loopback", "remote"],
-            "when": f"The request body is larger than {MAX_BODY_BYTES} bytes.",
+            "when": f"The request body is larger than {MAX_BODY_BYTES} bytes, or than the "
+            "operation's own x-hive-body.max_bytes when it declares one.",
         },
         {
             "status": 408,
             "listeners": ["loopback", "remote"],
-            "when": f"The request body did not arrive within {BODY_READ_TIMEOUT_S:g} seconds.",
+            "when": f"The request body did not arrive within {BODY_READ_TIMEOUT_S:g} seconds, or "
+            "the operation's own x-hive-body.read_timeout_s when it declares one.",
         },
     ]
 
@@ -297,10 +300,12 @@ def _open_what_is_read(document: dict[str, JsonValue], schemas: dict[str, JsonVa
     for operations in paths.values():
         for operation in _object(operations).values():
             _references(_object(operation).get("responses", {}), roots)
-    # A stream frame is read too; its first frame is sent, like a request body.
+    # A stream frame is read too, and so is a reply to a client's frame; the first frame and the
+    # client's own frames are sent, like a request body.
     streams = document.get("x-hive-streams", [])
     for view in streams if isinstance(streams, list) else []:
         _references(_object(view).get("frame", {}), roots)
+        _references(_object(view).get("reply_frames", []), roots)
     for name in _closure(roots, schemas):
         schema = _object(schemas[name])
         if schema.get("additionalProperties") is False:
@@ -343,21 +348,24 @@ def _streams(table: RouteTable, schemas: dict[str, JsonValue]) -> list[JsonValue
     hello = _add_schema(SocketHello, schemas)
     described: list[JsonValue] = []
     for view in table.sockets:
-        described.append(
-            {
-                "path": view.path,
-                "summary": view.summary,
-                "x-hive-capability": view.access.capability,
-                "x-hive-c2": view.access.c2,
-                "x-hive-listeners": _listener_names(view.listeners),
-                "first_frame": {
-                    "schema": hello,
-                    "deadline_s": SOCKET_HELLO_DEADLINE_S,
-                    "signs": WEBSOCKET_TAG,
-                },
-                "frame": _add_schema(view.frame_model, schemas),
-            }
-        )
+        entry: dict[str, JsonValue] = {
+            "path": view.path,
+            "summary": view.summary,
+            "x-hive-capability": view.access.capability,
+            "x-hive-c2": view.access.c2,
+            "x-hive-listeners": _listener_names(view.listeners),
+            "first_frame": {
+                "schema": hello,
+                "deadline_s": SOCKET_HELLO_DEADLINE_S,
+                "signs": WEBSOCKET_TAG,
+            },
+            "frame": _add_schema(view.frame_model, schemas),
+        }
+        # A view the client talks to (push-to-talk on the chat): what it sends, what answers it.
+        if view.client_frames:
+            entry["client_frames"] = [_add_schema(model, schemas) for model in view.client_frames]
+            entry["reply_frames"] = [_add_schema(model, schemas) for model in view.reply_frames]
+        described.append(entry)
     return described
 
 

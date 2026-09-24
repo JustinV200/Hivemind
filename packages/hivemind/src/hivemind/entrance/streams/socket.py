@@ -9,14 +9,17 @@ like any request (rate, travel lock, the view's capability at the Entrance route
 view runs, four things race and the first to finish closes the socket with its reason: the view
 itself ending, the client leaving, the socket being told to close (logout, a lock or revocation of
 its device, a reduction: the ``SocketRegistry``), and a watchdog that re-judges the session every
-``SOCKET_RECHECK_S`` so an expired or idle session closes its sockets too.
+``SOCKET_RECHECK_S`` so an expired or idle session closes its sockets too. The client's frames are
+read (and ignored) only to see it leave, unless the view is a ``Duplex``: then its own reader reads
+them (push-to-talk audio on the chat view, roadmap step 10.5f) and ends when the client leaves.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.streams``. Called by each
     view's endpoint. Calls into the session checks, the gate's ``police`` and the registry.
 
 Key invariants:
-    - Nothing but the first frame is read before the socket is authenticated.
+    - Nothing but the first frame is read before the socket is authenticated, and exactly one
+      reader reads the client's frames after it.
     - A socket is registered from admission until its task ends, and is always closed with a code.
     - No token, signature or frame content is logged.
 
@@ -55,7 +58,7 @@ _GONE = (WebSocketDisconnect, RuntimeError, OSError)
 
 log = get_logger(__name__)
 
-__all__ = ["SOCKET_RECHECK_S", "StreamContext", "View", "send_frame", "serve_socket"]
+__all__ = ["SOCKET_RECHECK_S", "Duplex", "StreamContext", "View", "send_frame", "serve_socket"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,10 +82,23 @@ class StreamContext:
 View = Callable[[StreamContext], Coroutine[object, object, CloseReason]]
 
 
+@dataclass(frozen=True, slots=True)
+class Duplex:
+    """A view whose client sends frames the view reads, beside the frames it streams.
+
+    Attributes:
+        view: Streams frames to the client, as any view does.
+        reader: Reads the client's frames after the first, and returns once the client leaves.
+    """
+
+    view: View
+    reader: View
+
+
 async def serve_socket(
     websocket: WebSocket,
     access: Access,
-    view: View,
+    view: View | Duplex,
     services: EntranceServices,
     here: ListenerDeps,
 ) -> None:
@@ -91,7 +107,7 @@ async def serve_socket(
     Args:
         websocket: The socket, not yet accepted.
         access: The view's declared access.
-        view: The view to run once the socket is admitted.
+        view: The view to run once the socket is admitted; a ``Duplex`` also reads the client.
         services: The Entrance's services.
         here: The listener's dependencies.
     """
@@ -103,11 +119,14 @@ async def serve_socket(
     live = sockets.open(caller.listener, caller.device.id, caller.session.session.token_hash)
     try:
         context = StreamContext(websocket, caller, services, live)
+        # One reader of the client's frames: a duplex view's own, or the one that only sees it go.
+        streaming, reading = (
+            (view.view(context), view.reader(context))
+            if isinstance(view, Duplex)
+            else (view(context), _client_left(websocket))
+        )
         reason = await _first_reason(
-            view(context),
-            _client_left(websocket),
-            live.wait_closed(),
-            _watch_session(context, here),
+            streaming, reading, live.wait_closed(), _watch_session(context, here)
         )
         await _close(websocket, reason)
     finally:

@@ -6,8 +6,9 @@ and shapes the reply. What it calls is here, built once by the composition root:
 reads directly, since reading never changes state; ``hivemind.entrance.gate.reads``),
 ``PushServices``, ``GateGuards`` (the Guard's enforcer, the
 denial-burst lock, the rate limiter), ``EntranceRules`` (the thresholds routes decide with),
-``DoorControl`` (the running listeners, as routes see them) and the Entrance's own reducer, streams
-and sockets, in one ``EntranceServices``. ``ListenerDeps`` is what
+``DoorControl`` (the running listeners, as routes see them), the Entrance's own reducer, streams
+and sockets, and its voice (``hivemind.entrance.voice``, None when ``[entrance.voice]`` is off), in
+one ``EntranceServices``. ``ListenerDeps`` is what
 differs per listener: the login and enrolment dependencies carrying that listener's WebAuthn
 relying party (``localhost`` on loopback, the exposure plan's name on the remote listener).
 FastAPI hands them to routes through two dependencies, ``get_services`` and ``get_listener``, which
@@ -56,9 +57,11 @@ from waggle.clock import Clock
 from waggle.ids import CellId, DeviceId, MessageId, TaskId
 
 if TYPE_CHECKING:
-    # Type-only: the streams package imports this module's services, so a runtime import cycles.
+    # Type-only: the streams and voice packages import this module's services, so a runtime
+    # import of either here would cycle.
     from hivemind.entrance.streams.hub import StreamHub
     from hivemind.entrance.streams.registry import SocketRegistry
+    from hivemind.entrance.voice.services import VoiceServices
 
 __all__ = [
     "DoorControl",
@@ -84,6 +87,10 @@ class QueenDoor(Protocol):
 
     async def request_goal(self, request: GoalRequest) -> str:
         """Commit a goal request and wake the Queen; see ``Queen.request_goal``."""
+        ...
+
+    async def request_echoed_goal(self, request: GoalRequest) -> GoalRequest:
+        """Commit a goal request, echo it back and hold it; see ``Queen.request_echoed_goal``."""
         ...
 
     async def confirm_goal_request(self, request_id: str) -> GoalRequest:
@@ -260,6 +267,8 @@ class EntranceServices:
         rules: The thresholds routes decide with.
         door: The running listeners.
         clock: The Entrance's clock.
+        voice: The transcriber and what hearing a clip needs; None while voice is off, which
+            leaves the voice route unmounted.
     """
 
     queen: QueenDoor
@@ -272,6 +281,7 @@ class EntranceServices:
     rules: EntranceRules
     door: DoorControl
     clock: Clock
+    voice: VoiceServices | None = None
 
     @property
     def enrolment(self) -> EnrolmentDeps:

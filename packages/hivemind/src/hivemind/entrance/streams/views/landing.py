@@ -4,20 +4,26 @@ Clients never poll (codingrules 8.11); each view is a WebSocket declared as a ``
 served through the shared lifecycle in ``hivemind.entrance.streams.socket``. ``/v1/chat/stream``
 sends every new chat line after a cursor (``after``, or the newest line when absent): it re-reads
 the Queen's chat log whenever the trail moves, and at least every ``CHAT_RESYNC_S``, since a line
-may be appended just after the event that accompanies it. ``/v1/push/stream`` is the live push
-channel: the socket is attached to the ``LivePush`` hub and receives the same content-free notices
-webhooks and Web Push carry. ``/v1/entrance/stream`` sends every Entrance security event from the
-trail. Each subscription to the hub is bounded by the Entrance's stream backlog, so a reader
-that lags is closed with FELL_BEHIND. The Hive's own views (trail, telemetry, Forage, tasks,
+may be appended just after the event that accompanies it. It is also where a device holds its talk
+button (roadmap step 10.5f): the view is a ``Duplex`` whose reader is the voice package's
+push-to-talk ``listen``, which answers each hold on this socket alone; one lock orders the two
+writers, so a chat line and a voice answer never interleave mid-frame. ``/v1/push/stream`` is the
+live push channel: the socket is attached to the ``LivePush`` hub and receives the same content-free
+notices webhooks and Web Push carry. ``/v1/entrance/stream`` sends every Entrance security event
+from the trail. Each subscription to the hub is bounded by the Entrance's stream backlog, so a
+reader that lags is closed with FELL_BEHIND. The Hive's own views (trail, telemetry, Forage, tasks,
 episodes, Cells) are the modules beside this one.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.streams.views``. Its
     ``LANDING_VIEWS`` join the route table through ``hivemind.entrance.streams.views.VIEWS``.
-    Calls into the stream hub, the chat log and the live push hub.
+    Calls into the stream hub, the chat log, the live push hub and the voice package's
+    push-to-talk reader.
 
 Key invariants:
-    - The chat view needs ``entrance:submit`` and ``honey:clearance:c2``, like reading the chat.
+    - The chat view needs ``entrance:submit`` and ``honey:clearance:c2``, like reading the chat
+      (and like speaking into it: a hold's answer carries the transcript).
+    - A voice answer goes to the socket whose device spoke, never to another.
     - A push frame is a ``PushNotice``: it never carries content.
     - A notice sent to a socket whose client already left detaches that socket; nothing the send
       raises escapes into the push outbox.
@@ -32,6 +38,7 @@ import asyncio
 from typing import Annotated
 
 from fastapi import Query
+from pydantic import BaseModel
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from hivemind.entrance.gate.params import Here, Services
@@ -39,8 +46,17 @@ from hivemind.entrance.gate.spec import BOTH_LISTENERS, SocketSpec, session_with
 from hivemind.entrance.models import ChatFrame, SecurityFrame, chat_line, security_frame
 from hivemind.entrance.push import LiveSender, LiveSocketClosedError, PushNotice
 from hivemind.entrance.streams.errors import CloseReason, StreamClosedError
-from hivemind.entrance.streams.socket import StreamContext, send_frame, serve_socket
+from hivemind.entrance.streams.socket import Duplex, StreamContext, send_frame, serve_socket
 from hivemind.entrance.streams.views.pump import trail_subscription
+from hivemind.entrance.voice import (
+    AudioChunkFrame,
+    AudioEndFrame,
+    Send,
+    Talk,
+    VoiceFrame,
+    VoiceRefusedFrame,
+    listen,
+)
 from hivemind.pheromone import PheromoneEvent
 from hivemind.queen import ChatQuery
 from hivemind.queen.chat import MAX_CHAT_PAGE
@@ -81,12 +97,24 @@ async def chat_stream(
         here: This listener's dependencies.
         after: The position to resume after; None starts at the newest line.
     """
+    # The socket's two writers (new lines, voice answers) take turns: one frame at a time.
+    sending = asyncio.Lock()
+
+    async def send(frame: BaseModel) -> bool:
+        """Send one frame under the socket's lock; False once the client is gone."""
+        async with sending:
+            return await send_frame(websocket, frame)
 
     async def view(context: StreamContext) -> CloseReason:
         """Send new lines whenever the trail moves, and at least every CHAT_RESYNC_S."""
-        return await _follow_chat(context, after)
+        return await _follow_chat(context, after, send)
 
-    await serve_socket(websocket, _CHAT_ACCESS, view, services, here)
+    async def talk(context: StreamContext) -> CloseReason:
+        """Hear every push-to-talk hold the client sends, until it leaves."""
+        await listen(Talk(context.websocket, context.caller, context.services, send))
+        return CloseReason.UNSUBSCRIBED
+
+    await serve_socket(websocket, _CHAT_ACCESS, Duplex(view, talk), services, here)
 
 
 async def push_stream(websocket: WebSocket, services: Services, here: Here) -> None:
@@ -138,7 +166,7 @@ def live_sender(websocket: WebSocket, gone: asyncio.Event) -> LiveSender:
     return send
 
 
-async def _follow_chat(context: StreamContext, after: int | None) -> CloseReason:
+async def _follow_chat(context: StreamContext, after: int | None, send: Send) -> CloseReason:
     """Send chat lines after the cursor until the socket or the subscription closes."""
     chat = context.services.hive.chat
     cursor = after if after is not None else await _newest_seq(context)
@@ -148,7 +176,7 @@ async def _follow_chat(context: StreamContext, after: int | None) -> CloseReason
             # Latency: one local indexed read of the chat table.
             for entry in await chat.read(ChatQuery(after_seq=cursor, limit=MAX_CHAT_PAGE)):
                 line = chat_line(entry)
-                if not await send_frame(context.websocket, ChatFrame(entry=line)):
+                if not await send(ChatFrame(entry=line)):
                     return CloseReason.UNSUBSCRIBED
                 cursor = line.seq
             try:
@@ -214,8 +242,10 @@ LANDING_VIEWS: tuple[SocketSpec, ...] = (
         listeners=BOTH_LISTENERS,
         access=_CHAT_ACCESS,
         endpoint=chat_stream,
-        summary="New chat lines after a cursor, as they are written (C2).",
+        summary="New chat lines after a cursor, as they are written (C2); push-to-talk in.",
         frame_model=ChatFrame,
+        client_frames=(AudioChunkFrame, AudioEndFrame),
+        reply_frames=(VoiceFrame, VoiceRefusedFrame),
     ),
     SocketSpec(
         path="/v1/push/stream",

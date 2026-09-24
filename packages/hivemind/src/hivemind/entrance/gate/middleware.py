@@ -11,7 +11,8 @@ approve devices; ``AddressLimit`` holds every peer address to ``rate_limit_per_a
 unauthenticated routes and WebSocket handshakes included, and answers 429 past it; ``BodyLimit``
 reads a request body in full, within ``BODY_READ_TIMEOUT_S`` and ``MAX_BODY_BYTES`` (413 or 408
 past them), so no client can hold a connection open or fill memory with an endless body, and the
-route's signature check hashes exactly the bytes that were read.
+route's signature check hashes exactly the bytes that were read. A route that takes a raw body
+(``RawBody``: a voice clip) has its own allowance for its method and path, given by the table.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Wrapped around
@@ -32,11 +33,13 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from hivemind.entrance.auth.limits import RateLimiter
 from hivemind.entrance.expose import loopback_request_allowed
+from hivemind.entrance.gate.spec import RawBody
 
 CONTENT_SECURITY_POLICY = "default-src 'self'; object-src 'none'; frame-ancestors 'none'"
 _SECURITY_HEADERS = (
@@ -144,25 +147,37 @@ class AddressLimit:
 class BodyLimit:
     """Read every HTTP body in full, bounded in size and time, before the route sees it."""
 
-    def __init__(self, app: ASGIApp, limit: int = MAX_BODY_BYTES) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        limit: int = MAX_BODY_BYTES,
+        allowances: Mapping[tuple[str, str], RawBody] | None = None,
+    ) -> None:
         """Wrap ``app``.
 
         Args:
             app: The application (or the next wrapper).
             limit: The most bytes a body may have; > 0.
+            allowances: A raw-body route's own size and time, by method and path; every other
+                request gets ``limit`` and ``BODY_READ_TIMEOUT_S``.
         """
         self._app = app
         self._limit = limit
+        self._allowances = dict(allowances) if allowances is not None else {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Buffer the body within its bounds, then replay it to the application."""
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
+        # A mounted raw-body route has its own allowance; everything else is small JSON.
+        allowance = self._allowances.get((str(scope.get("method")), str(scope.get("path"))))
+        limit = allowance.max_bytes if allowance is not None else self._limit
+        wait_s = allowance.read_timeout_s if allowance is not None else BODY_READ_TIMEOUT_S
         try:
             # External wait: the client sending its body, bounded so a stalled one lets go.
-            async with asyncio.timeout(BODY_READ_TIMEOUT_S):
-                body = await _read_body(receive, self._limit)
+            async with asyncio.timeout(wait_s):
+                body = await _read_body(receive, limit)
         except TimeoutError:
             await _refuse(scope, send, _TOO_SLOW)
             return

@@ -10,8 +10,10 @@ row is mounted behind the gate's dependency for its declared access; every appli
 refusals through the gate's handlers, serves the committed OpenAPI document as a static file (the
 interactive documentation routes are off: they load script from a CDN) and the Observation Hive's
 build when it exists, and is wrapped, outermost first, in the security headers, the loopback check
-(loopback only), the per-address rate limit and the body limit. CORS is allowed for ``public_url``
-alone, on the remote listener alone.
+(loopback only), the per-address rate limit and the body limit (a mounted raw-body row, the voice
+route's clip, with its own allowance). CORS is allowed for ``public_url`` alone, on the remote
+listener alone. A raw-body row is documented with its media types as a binary request body and its
+allowance as ``x-hive-body``; a row's extra refusals join the ones every row declares.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by the
@@ -46,6 +48,7 @@ from hivemind.entrance.gate import (
     EntranceServices,
     ErrorBody,
     LoopbackGate,
+    RawBody,
     RouteSpec,
     RouteTable,
     SecurityHeaders,
@@ -181,6 +184,8 @@ def build_listener_app(
     here = services.listeners[options.listener]
     app.dependency_overrides[get_services] = lambda: services
     app.dependency_overrides[get_listener] = lambda: here
+    # Only a row this listener mounts may read a large body; every other body stays small JSON.
+    allowances = {(row.method, row.path): row.raw_body for row in rows if row.raw_body is not None}
     _serve_document(app, options.openapi_document)
     # Mounted last, so every route matches first; the build may not exist yet.
     if options.web_root is not None and options.web_root.is_dir():
@@ -194,7 +199,7 @@ def build_listener_app(
             allow_headers=_SIGNED_HEADERS,
             max_age=_CORS_MAX_AGE_S,
         )
-    return _wrapped(app, services, options)
+    return _wrapped(app, services, options, allowances)
 
 
 def _mount(app: FastAPI, route: RouteSpec) -> None:
@@ -209,8 +214,13 @@ def _mount(app: FastAPI, route: RouteSpec) -> None:
     }
     if route.mounted_when is not None:
         extra["x-hive-switch"] = route.mounted_when.value
+    if route.raw_body is not None:
+        extra.update(_raw_body(route.raw_body))
     # A public route needs no session: its security requirement is explicitly empty.
     extra["security"] = [{SESSION_SCHEME: []}] if access.authenticated else []
+    own: dict[int | str, dict[str, object]] = {
+        status: {"model": ErrorBody, "description": text} for status, text in route.refusals
+    }
     app.add_api_route(
         route.path,
         route.endpoint,
@@ -221,9 +231,21 @@ def _mount(app: FastAPI, route: RouteSpec) -> None:
         summary=route.summary,
         description=_NO_DESCRIPTION,
         tags=[_resource(route.path)],
-        responses=_REFUSALS,
+        responses={**_REFUSALS, **own},
         openapi_extra=extra,
     )
+
+
+def _raw_body(body: RawBody) -> dict[str, object]:
+    """Document a raw request body: each media type as binary, and the row's own allowance."""
+    binary = {"schema": {"type": "string", "format": "binary"}}
+    return {
+        "requestBody": {
+            "required": True,
+            "content": dict.fromkeys(body.media_types, binary),
+        },
+        "x-hive-body": {"max_bytes": body.max_bytes, "read_timeout_s": body.read_timeout_s},
+    }
 
 
 def _serve_document(app: FastAPI, document: bytes) -> None:
@@ -236,9 +258,14 @@ def _serve_document(app: FastAPI, document: bytes) -> None:
     app.add_api_route(OPENAPI_PATH, openapi_document, methods=["GET"], include_in_schema=False)
 
 
-def _wrapped(app: FastAPI, services: EntranceServices, options: ListenerOptions) -> ASGIApp:
+def _wrapped(
+    app: FastAPI,
+    services: EntranceServices,
+    options: ListenerOptions,
+    allowances: dict[tuple[str, str], RawBody],
+) -> ASGIApp:
     """Wrap the application in the gate's checks; the security headers go outermost."""
-    wrapped: ASGIApp = BodyLimit(app)
+    wrapped: ASGIApp = BodyLimit(app, allowances=allowances)
     wrapped = AddressLimit(wrapped, services.guards.limiter)
     # Loopback alone checks Host and forwarding headers, against the port it really bound.
     if options.listener is Listener.LOOPBACK:

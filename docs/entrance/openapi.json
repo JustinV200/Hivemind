@@ -222,6 +222,95 @@
         "title": "ApprovalBody",
         "type": "object"
       },
+      "AudioChunkFrame": {
+        "additionalProperties": false,
+        "description": "One slice of a push-to-talk recording, sent on the chat socket in order.",
+        "properties": {
+          "data": {
+            "description": "This slice's bytes (at most 524288), base64: the standard or the URL-safe alphabet.",
+            "format": "base64url",
+            "maxLength": 699052,
+            "minLength": 1,
+            "title": "Data",
+            "type": "string"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "This slice's length in seconds; every compressed slice needs one, a WAV recording's header decides instead.",
+            "title": "Duration S"
+          },
+          "media_type": {
+            "description": "The recording's format, the same on every chunk, e.g. audio/webm;codecs=opus.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Media Type",
+            "type": "string"
+          },
+          "type": {
+            "const": "audio_chunk",
+            "description": "Always audio_chunk.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "media_type",
+          "data"
+        ],
+        "title": "AudioChunkFrame",
+        "type": "object"
+      },
+      "AudioEndFrame": {
+        "additionalProperties": false,
+        "description": "The end of a push-to-talk hold: hear everything sent since the hold began, as ``intent``.",
+        "properties": {
+          "intent": {
+            "description": "goal (echoed back for confirmation), chat, or answer:<question id>.",
+            "maxLength": 64,
+            "pattern": "^(goal|chat|answer:msg_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26})$",
+            "title": "Intent",
+            "type": "string"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A language hint; the transcriber detects it when absent.",
+            "title": "Language"
+          },
+          "type": {
+            "const": "audio_end",
+            "description": "Always audio_end.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "intent"
+        ],
+        "title": "AudioEndFrame",
+        "type": "object"
+      },
       "CapacityView": {
         "description": "One Cell's latest capacity report.",
         "properties": {
@@ -3936,6 +4025,138 @@
         "title": "VirtualCellStatus",
         "type": "string"
       },
+      "VoiceAccepted": {
+        "description": "What a clip became (C2: the transcript is the human's own words).",
+        "properties": {
+          "answered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnsweredView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an answer: the question answered and the task it resumed."
+          },
+          "chat": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatAccepted"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For chat: the chat line."
+          },
+          "duration_s": {
+            "description": "The clip's length in seconds, as transcribed.",
+            "minimum": 0.0,
+            "title": "Duration S",
+            "type": "number"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a goal: its request, AWAITING_CONFIRMATION when echoed back (confirm or decline it at /v1/goals/{request_id}), RECEIVED when submitted at once."
+          },
+          "intent": {
+            "$ref": "#/components/schemas/VoiceIntentKind",
+            "description": "goal, answer or chat."
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The language heard, when the transcriber named it.",
+            "title": "Language"
+          },
+          "transcript": {
+            "description": "What was heard (C2), trimmed.",
+            "maxLength": 100000,
+            "title": "Transcript",
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent",
+          "transcript",
+          "language",
+          "duration_s"
+        ],
+        "title": "VoiceAccepted",
+        "type": "object"
+      },
+      "VoiceFrame": {
+        "description": "A push-to-talk hold heard, sent to the socket that spoke it and no other (C2).",
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/VoiceAccepted",
+            "description": "What the hold became, as the HTTP route answers."
+          },
+          "type": {
+            "const": "voice",
+            "default": "voice",
+            "description": "Always voice.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "VoiceFrame",
+        "type": "object"
+      },
+      "VoiceIntentKind": {
+        "description": "What a clip's words are for.",
+        "enum": [
+          "goal",
+          "answer",
+          "chat"
+        ],
+        "title": "VoiceIntentKind",
+        "type": "string"
+      },
+      "VoiceRefusedFrame": {
+        "description": "A push-to-talk hold refused, with the body the HTTP route would have answered.",
+        "properties": {
+          "refusal": {
+            "$ref": "#/components/schemas/ErrorBody",
+            "description": "Why: a stable code and one sentence."
+          },
+          "status": {
+            "description": "The HTTP status the same refusal is answered with.",
+            "title": "Status",
+            "type": "integer"
+          },
+          "type": {
+            "const": "voice_refused",
+            "default": "voice_refused",
+            "description": "Always so.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "refusal"
+        ],
+        "title": "VoiceRefusedFrame",
+        "type": "object"
+      },
       "WardenList": {
         "description": "Every Warden attached to the Queen.",
         "properties": {
@@ -5269,6 +5490,224 @@
           "loopback",
           "remote"
         ]
+      }
+    },
+    "/v1/chat/audio": {
+      "post": {
+        "operationId": "speak_v1_chat_audio_post",
+        "parameters": [
+          {
+            "description": "goal (echoed back for confirmation), chat, or answer:<question id>.",
+            "in": "query",
+            "name": "intent",
+            "required": true,
+            "schema": {
+              "description": "goal (echoed back for confirmation), chat, or answer:<question id>.",
+              "maxLength": 64,
+              "pattern": "^(goal|chat|answer:msg_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26})$",
+              "title": "Intent",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The clip's length in seconds; required for a compressed format, ignored for WAV (its header is read instead).",
+            "in": "query",
+            "name": "duration_s",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 600.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The clip's length in seconds; required for a compressed format, ignored for WAV (its header is read instead).",
+              "title": "Duration S"
+            }
+          },
+          {
+            "description": "A language hint (en, en-US); the transcriber detects it when absent.",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A language hint (en, en-US); the transcriber detects it when absent.",
+              "title": "Language"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "audio/mp4": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "audio/mpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "audio/ogg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "audio/wav": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "audio/webm": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The clip is longer than [entrance.voice] max_clip_seconds, or too big."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The clip's Content-Type is missing or not an accepted format."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The transcriber could not hear the clip; try again shortly."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Speak to the Queen: a clip heard on the transcriber, as a goal, answer or chat.",
+        "tags": [
+          "chat"
+        ],
+        "x-hive-body": {
+          "max_bytes": 25000000,
+          "read_timeout_s": 120.0
+        },
+        "x-hive-c2": true,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ],
+        "x-hive-switch": "voice.enabled"
       }
     },
     "/v1/devices": {
@@ -9960,7 +10399,7 @@
         "remote"
       ],
       "status": 413,
-      "when": "The request body is larger than 262144 bytes."
+      "when": "The request body is larger than 262144 bytes, or than the operation's own x-hive-body.max_bytes when it declares one."
     },
     {
       "listeners": [
@@ -9968,7 +10407,7 @@
         "remote"
       ],
       "status": 408,
-      "when": "The request body did not arrive within 30 seconds."
+      "when": "The request body did not arrive within 30 seconds, or the operation's own x-hive-body.read_timeout_s when it declares one."
     }
   ],
   "x-hive-signing": {
@@ -10076,6 +10515,14 @@
   ],
   "x-hive-streams": [
     {
+      "client_frames": [
+        {
+          "$ref": "#/components/schemas/AudioChunkFrame"
+        },
+        {
+          "$ref": "#/components/schemas/AudioEndFrame"
+        }
+      ],
       "first_frame": {
         "deadline_s": 5.0,
         "schema": {
@@ -10087,7 +10534,15 @@
         "$ref": "#/components/schemas/ChatFrame"
       },
       "path": "/v1/chat/stream",
-      "summary": "New chat lines after a cursor, as they are written (C2).",
+      "reply_frames": [
+        {
+          "$ref": "#/components/schemas/VoiceFrame"
+        },
+        {
+          "$ref": "#/components/schemas/VoiceRefusedFrame"
+        }
+      ],
+      "summary": "New chat lines after a cursor, as they are written (C2); push-to-talk in.",
       "x-hive-c2": true,
       "x-hive-capability": "entrance:submit",
       "x-hive-listeners": [

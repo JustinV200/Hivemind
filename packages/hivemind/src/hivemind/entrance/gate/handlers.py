@@ -3,14 +3,17 @@
 A Landing Board route raises what the flow below it raised; this module turns it into the answer a
 client can act on (ADR-0033, ADR-0034). The status comes from the error's category
 (``hivemind.common.errors``): not found is 404, a conflict 409, a permission refusal 403, a failed
-authentication 401, a rate limit 429, a missed deadline 504, a configuration gap 503; the gate's own
+authentication 401, a rate limit 429, a missed deadline 504, a configuration gap 503; an Entrance
+refusal no category names declares its own ``http_status`` (a voice clip too long is 413, of a
+format the Hive does not take 415, a transcriber that failed 503); the gate's own
 ``step_up_required`` answers 403 with its reason and, for a device that cannot step up, the pending
-confirmation's id. A request body that does not validate answers 422 naming only the fields,
-never their values, so a mistyped password is never echoed into a client's logs. A refusal the
-router makes itself (no such route here, which is also how a loopback-only route answers on the
-remote listener: 404; a method the path does not take: 405) carries an ``ErrorBody`` too, because
-the published document declares that body for every refusal. Anything else the Hive raised on
-purpose is a 500 with its code and a fixed sentence.
+confirmation's id. ``error_body`` is that shaping as a function, for a refusal that is not an HTTP
+answer (a push-to-talk refusal frame on the chat socket). A request body that does not validate
+answers 422 naming only the fields, never their values, so a mistyped password is never echoed into
+a client's logs. A refusal the router makes itself (no such route here, which is also how a
+loopback-only route answers on the remote listener: 404; a method the path does not take: 405)
+carries an ``ErrorBody`` too, because the published document declares that body for every refusal.
+Anything else the Hive raised on purpose is a 500 with its code and a fixed sentence.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Installed on both
@@ -19,6 +22,7 @@ Fits into the Hive:
 
 Key invariants:
     - A body is ``ErrorBody``: a stable code, a sentence, and step-up's reason and pending id.
+    - An error's own ``http_status`` is its answer; nothing else overrides its category's.
     - No body carries a request's input, a credential, or an internal error's message.
 
 See Also:
@@ -76,8 +80,10 @@ log = get_logger(__name__)
 __all__ = [
     "INVALID_REQUEST_CODE",
     "NOT_FOUND_CODE",
+    "NOT_FOUND_DETAIL",
     "ROUTER_REFUSAL_CODE",
     "ErrorBody",
+    "error_body",
     "install_error_handlers",
     "status_for",
 ]
@@ -125,17 +131,25 @@ def status_for(error: HiveMindError) -> int:
         error: What a route raised.
 
     Returns:
-        The status; 500 for an error in none of the categories.
+        The status: the error's own ``http_status`` when it declares one, else its category's;
+        500 for an error in none of the categories.
     """
+    declared = getattr(error, "http_status", None)
+    if isinstance(declared, int):
+        return declared
     return next((status for kind, status in _STATUSES if isinstance(error, kind)), 500)
 
 
-async def _hive_error(request: Request, error: Exception) -> JSONResponse:
-    """Answer a HiveMindError with its category's status and a body carrying its code."""
-    # Starlette only routes HiveMindErrors here; the check narrows the type for the code below.
-    if not isinstance(error, HiveMindError):
-        fallback = ErrorBody(error=HiveMindError.code, detail=INTERNAL_CODE_DETAIL)
-        return JSONResponse(status_code=500, content=fallback.model_dump(mode="json"))
+def error_body(error: HiveMindError) -> tuple[int, ErrorBody]:
+    """Shape a refusal: its status and the body a client reads, never an internal message.
+
+    Args:
+        error: What a route (or a socket's frame) raised on purpose.
+
+    Returns:
+        The status and the ``ErrorBody``: step-up's reason and pending id, a denied capability,
+        and for a 500 a fixed sentence instead of the error's own words.
+    """
     status = status_for(error)
     body = ErrorBody(error=error.code, detail=str(error))
     if isinstance(error, StepUpRequiredError):
@@ -146,8 +160,20 @@ async def _hive_error(request: Request, error: Exception) -> JSONResponse:
         body = body.model_copy(update={"capability": error.capability})
     elif status == 500:
         # An invariant the Hive broke: its message stays in the log, never in a client's hands.
-        log.error("entrance.route_failed", path=request.url.path, code=error.code)
         body = ErrorBody(error=error.code, detail=INTERNAL_CODE_DETAIL)
+    return status, body
+
+
+async def _hive_error(request: Request, error: Exception) -> JSONResponse:
+    """Answer a HiveMindError with its category's status and a body carrying its code."""
+    # Starlette only routes HiveMindErrors here; the check narrows the type for the code below.
+    if not isinstance(error, HiveMindError):
+        fallback = ErrorBody(error=HiveMindError.code, detail=INTERNAL_CODE_DETAIL)
+        return JSONResponse(status_code=500, content=fallback.model_dump(mode="json"))
+    status, body = error_body(error)
+    if status == 500:
+        # Logged by path and code only: the error's own message never leaves the log.
+        log.error("entrance.route_failed", path=request.url.path, code=error.code)
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
 

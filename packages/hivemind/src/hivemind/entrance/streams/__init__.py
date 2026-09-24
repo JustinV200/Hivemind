@@ -31,8 +31,8 @@ Public API:
     - TelemetryBoard, TelemetrySample: the Queen's Heartbeats, kept and fanned out (telemetry).
     - SocketRegistry, LiveSocket: every live socket, closable by session, device or listener
       (registry).
-    - serve_socket, send_frame, StreamContext, View, SOCKET_RECHECK_S: the shared lifecycle
-      (socket).
+    - serve_socket, send_frame, StreamContext, View, Duplex, SOCKET_RECHECK_S: the shared
+      lifecycle (socket).
     - VIEWS, CHAT_RESYNC_S, chat_stream, push_stream, security_stream: the views (views; each
       Hive view is reached through ``hivemind.entrance.streams.views``).
     - ReduceOrderFollower, REDUCE_ORDERED_KIND, ORDER_ACTOR: the Guard's reduce orders (orders).
@@ -49,6 +49,7 @@ from hivemind.entrance.streams.orders import (
 from hivemind.entrance.streams.registry import LiveSocket, SocketRegistry
 from hivemind.entrance.streams.socket import (
     SOCKET_RECHECK_S,
+    Duplex,
     StreamContext,
     View,
     send_frame,
@@ -72,6 +73,7 @@ __all__ = [
     "SOCKET_RECHECK_S",
     "VIEWS",
     "CloseReason",
+    "Duplex",
     "EventFilter",
     "LiveSocket",
     "ReduceOrderFollower",

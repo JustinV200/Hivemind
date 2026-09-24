@@ -8,7 +8,8 @@ goal a person confirmed whose request a crash kept from being committed is commi
 (``recovery``), and a Guard Bee's reduce order recorded while no Entrance followed the trail is
 obeyed. Then it serves the loopback listener, starts the remote one only when the persisted mode is
 OPEN and the plan exposes one, and runs its background work: the stream hub, the push outbox, the
-reduce-order follower and a sweep that expires devices and held requests on time. A listener that
+reduce-order follower and a sweep that expires devices and held requests on time and deletes kept
+voice clips past their retention window (``[entrance.voice] keep_audio_hours``). A listener that
 fails after start is logged and raises an Alarm to the human: the remote one reduces the Entrance,
 the loopback one is restarted with bounded backoff (``listeners``); the Queen never stops for
 either. ``stop`` closes every socket with a reason, stops both listeners and the background
@@ -48,7 +49,7 @@ from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from waggle.ids import new_alarm_id
 from waggle.messages.supervision import AlarmContext
 
-SWEEP_INTERVAL_S = 60.0  # How often lapsed devices and held requests are expired.
+SWEEP_INTERVAL_S = 60.0  # How often lapsed devices, held requests and kept clips are expired.
 FAILURE_ACTOR = "system"  # A reduction for a failed listener is nobody's device's decision.
 
 log = get_logger(__name__)
@@ -155,13 +156,17 @@ class HiveEntrance:
         )
 
     async def _sweep(self) -> None:
-        """Expire lapsed devices and held requests on time, until cancelled."""
-        enrolment = self._services.enrolment
+        """Expire lapsed devices, held requests and kept voice clips on time, until cancelled."""
+        services = self._services
+        enrolment = services.enrolment
         while True:
             # External wait: the sweep interval, on the Entrance's clock.
-            await self._services.clock.sleep(SWEEP_INTERVAL_S)
+            await services.clock.sleep(SWEEP_INTERVAL_S)
             await expire_due(enrolment)
             await expire_pending(enrolment.records)
+            # A kept clip lives no longer than its retention window (and one sweep interval).
+            if services.voice is not None:
+                await services.voice.nectar.sweep(services.clock.now())
 
     async def _listener_failed(self, listener: Listener, failure: str) -> None:
         """A listener failed after start: reduce for the remote one, and tell the human."""

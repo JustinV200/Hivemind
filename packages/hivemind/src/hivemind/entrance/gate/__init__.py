@@ -24,15 +24,16 @@ See Also:
     - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
 
 Public API:
-    - RouteSpec, SocketSpec, RouteTable, Access, RouteEffect, Switch, PUBLIC, session_with,
-      LOOPBACK_ONLY, BOTH_LISTENERS, C2_CAPABILITY, API_PREFIX, Endpoint: the table's rows (spec).
+    - RouteSpec, SocketSpec, RouteTable, Access, RouteEffect, Switch, RawBody, PUBLIC,
+      session_with, LOOPBACK_ONLY, BOTH_LISTENERS, C2_CAPABILITY, API_PREFIX, Endpoint: the
+      table's rows (spec).
     - SecurityHeaders, LoopbackGate, AddressLimit, BodyLimit, CONTENT_SECURITY_POLICY,
       MAX_BODY_BYTES: the application wrappers (middleware).
     - Caller, gate_for, police, authorise, current_caller, current_arrival, arrival_of,
       CALLER_KEY: admission (admit).
     - require_step_up: step-up for sensitive actions (step_up).
-    - ErrorBody, install_error_handlers, status_for, INVALID_REQUEST_CODE, NOT_FOUND_CODE,
-      ROUTER_REFUSAL_CODE: answers (handlers).
+    - ErrorBody, error_body, install_error_handlers, status_for, INVALID_REQUEST_CODE,
+      NOT_FOUND_CODE, NOT_FOUND_DETAIL, ROUTER_REFUSAL_CODE: answers (handlers).
     - StepUpRequiredError, CapabilityDeniedError, RateLimitedError: the gate's refusals (errors).
     - EntranceServices, QueenDoor, PushServices, GateGuards, EntranceRules, StreamServices,
       DoorControl, ListenerDeps, get_services, get_listener: the services (services).
@@ -58,8 +59,10 @@ from hivemind.entrance.gate.errors import (
 from hivemind.entrance.gate.handlers import (
     INVALID_REQUEST_CODE,
     NOT_FOUND_CODE,
+    NOT_FOUND_DETAIL,
     ROUTER_REFUSAL_CODE,
     ErrorBody,
+    error_body,
     install_error_handlers,
     status_for,
 )
@@ -93,6 +96,7 @@ from hivemind.entrance.gate.spec import (
     PUBLIC,
     Access,
     Endpoint,
+    RawBody,
     RouteEffect,
     RouteSpec,
     RouteTable,
@@ -112,6 +116,7 @@ __all__ = [
     "LOOPBACK_ONLY",
     "MAX_BODY_BYTES",
     "NOT_FOUND_CODE",
+    "NOT_FOUND_DETAIL",
     "PUBLIC",
     "ROUTER_REFUSAL_CODE",
     "Access",
@@ -136,6 +141,7 @@ __all__ = [
     "PushServices",
     "QueenDoor",
     "RateLimitedError",
+    "RawBody",
     "RouteEffect",
     "RouteSpec",
     "RouteTable",
@@ -150,6 +156,7 @@ __all__ = [
     "authorise",
     "current_arrival",
     "current_caller",
+    "error_body",
     "gate_for",
     "get_listener",
     "get_services",

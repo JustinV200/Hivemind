@@ -8,7 +8,8 @@ the two into the ``RouteTable``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Read by
-    ``hivemind.entrance.app``. Calls into each resource module for its rows only.
+    ``hivemind.entrance.app``. Calls into each resource module for its rows only (the voice
+    route's rows live with the rest of voice, in ``hivemind.entrance.voice``).
 
 Key invariants:
     - Every resource appears once; the document lists its rows in this order.
@@ -33,6 +34,7 @@ from hivemind.entrance.routes.hive import (
 )
 from hivemind.entrance.routes.isolation import ROUTES as ISOLATION_ROUTES
 from hivemind.entrance.routes.later import HONEY_ROUTES, SWARM_ROUTES, TOOL_ROUTES
+from hivemind.entrance.voice import VOICE_ROUTES
 
 __all__ = ["RESOURCE_ROUTES"]
 
@@ -46,6 +48,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     devices.ROUTES,
     goals.ROUTES,
     chat.ROUTES,
+    VOICE_ROUTES,  # POST /v1/chat/audio, beside the chat it speaks into (hivemind.entrance.voice).
     inbox.ROUTES,
     push.ROUTES,
     TASK_ROUTES,
