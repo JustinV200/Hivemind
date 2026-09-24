@@ -90,6 +90,7 @@ RESOLVED = AlarmResolved(
                 "AUDIT_FAILED",
                 "CELL_UNREACHABLE",
                 "QUOTA_EXCEEDED",
+                "SECURITY",
                 "OTHER",
             ],
         ),

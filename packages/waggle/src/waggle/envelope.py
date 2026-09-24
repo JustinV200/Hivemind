@@ -57,9 +57,9 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.6"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.7"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 6  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 7  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
 # Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 3 for
 # TaskAssign.leaves, a new optional field (roadmap step 5.0b, "the plan declares what stays"); 4
@@ -68,7 +68,10 @@ PROTOCOL_MINOR = 6  # Additive changes bump it; any minor of a known major is ac
 # Cell snapshot relay (cell.snapshot_request/_reply, cell.rollback_request/_reply) and
 # InterventionAction.RELEASE_LEASE (roadmap steps 5.10 and 5.13); 6 for TaskAssign.capabilities and
 # TaskAssign.network_scopes, two new optional fields (roadmap step 10.3, ADR-0031: a goal's
-# capability set and a task's network needs reach the Warden that attenuates its Worker's set).
+# capability set and a task's network needs reach the Warden that attenuates its Worker's set); 7
+# for AlarmKind.SECURITY, InterventionAction.QUARANTINE and Intervene.suspect_episode_id (roadmap
+# steps 10.6 and 10.6c, ADR-0035: a security Alarm reaches the human, and a quarantine names the
+# episode from which the bee's memory is suspect).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

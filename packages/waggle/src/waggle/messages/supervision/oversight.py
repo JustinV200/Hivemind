@@ -9,7 +9,8 @@ the tree. The four messages here are the liveness beat and the supervisor's dire
 one Cell, a unit of compute, adds one row per sub-bee and renews its Forage grant; Forage is
 capacity as data), ``Inspect`` asks for a compacted view of a bee's context under a size cap and
 ``InspectReply`` returns it, and ``Intervene`` pulls one lever (compact, checkpoint, handoff,
-rebind, takeover, cancel) on a child or one of its sub-bees. The Queen (the central orchestrator)
+rebind, takeover, cancel; and, from the Queen to a Warden only, release its lease or quarantine one
+of its sub-bees) on a child or one of its sub-bees. The Queen (the central orchestrator)
 never addresses a Worker (a sub-bee spawned for one task) directly, so reaching one goes through
 its Warden. The rest of the family is split out by responsibility so each file stays under the
 codingrules 5.1 size limit: the value models in ``waggle.messages.supervision.telemetry``,
@@ -31,6 +32,8 @@ Key invariants:
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A Heartbeat says which kind of bee sent it: exactly one of worker_state and warden_state
       is set (validator).
+    - An Intervene carries a slot exactly for REBIND and a suspect episode exactly for
+      QUARANTINE, and a QUARANTINE always names its bee by subject or task (validators).
 
 See Also:
     - docs/waggle/spec.md section 8.3 for the normative fields, bounds and validators.
@@ -55,6 +58,7 @@ from waggle.messages.base import (
     MAX_SUB_BEES_ON_WIRE,
     SLOT_PATTERN,
     AlarmIdField,
+    EventIdField,
     GrantIdField,
     TaskIdField,
     WaggleMessage,
@@ -102,6 +106,10 @@ class InterventionAction(Enum):
     # (this lever targets the recipient itself, never one of its sub-bees), matching CANCEL's own
     # shape rather than REBIND's (no slot). See waggle.messages.cell for the lease it releases.
     RELEASE_LEASE = "RELEASE_LEASE"
+    # PROTOCOL_MINOR 7 (roadmap step 10.6c, ADR-0035): the Queen tells a Warden to quarantine one
+    # of its sub-bees -- checkpoint, stop and kill it, taint its memory from suspect_episode_id on
+    # and hold its task paused. The Warden carries it out itself; it is never relayed to a Worker.
+    QUARANTINE = "QUARANTINE"
 
 
 # A reason field, as the catalogue conventions fix it: always named `reason`, always bounded by
@@ -226,7 +234,9 @@ class Intervene(WaggleMessage):
     over their sub-bees minus takeover with the Queen's slot. `binding` (PROTOCOL_MINOR 2)
     is an optional, additional REBIND hint: a `[llm.slots]` manifest key the sender already
     resolved (the Queen's own fallback-chain lookup, for instance), so a receiving Warden can
-    respawn on it directly instead of searching its own grant.
+    respawn on it directly instead of searching its own grant. QUARANTINE (PROTOCOL_MINOR 7, the
+    Queen -> Warden lever only) names the bee by `subject` or `task_id` and carries
+    `suspect_episode_id`, the episode from which that bee's memory is suspect.
     """
 
     action: InterventionAction = Field(description="The lever pulled.")
@@ -250,6 +260,13 @@ class Intervene(WaggleMessage):
         description="The Alarm this intervention answers, so the trail links the two."
     )
     reason: _Reason = Field(description="Why the supervisor intervenes.")
+    suspect_episode_id: EventIdField | None = Field(
+        default=None,
+        description="The episode (an EventId-shaped episode record id, or the trail event that "
+        "best marks it) from which the bee's memory is suspect: everything it wrote from then on "
+        "is tainted. Required when action is QUARANTINE, None otherwise. Added in "
+        "PROTOCOL_MINOR 7.",
+    )
 
     @model_validator(mode="after")
     def _slot_matches_action(self) -> Intervene:
@@ -261,5 +278,25 @@ class Intervene(WaggleMessage):
             raise ValueError(
                 f"Intervene slot is required exactly when action is REBIND, got action "
                 f"{self.action.value} with slot {self.slot}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _quarantine_names_its_bee_and_episode(self) -> Intervene:
+        """Require a suspect episode, and a bee, exactly for QUARANTINE (PROTOCOL_MINOR 7)."""
+        quarantining = self.action is InterventionAction.QUARANTINE
+        # Without the episode the receiver cannot say which memory to taint, and an episode on any
+        # other lever would be read by nobody and hints the sender meant a quarantine.
+        if quarantining != (self.suspect_episode_id is not None):
+            raise ValueError(
+                f"Intervene suspect_episode_id is required exactly when action is QUARANTINE, "
+                f"got action {self.action.value} with suspect_episode_id "
+                f"{self.suspect_episode_id}."
+            )
+        # A quarantine with neither a subject nor a task would target the recipient itself, a
+        # Warden; the lever only ever acts on one of the recipient's sub-bees.
+        if quarantining and self.subject is None and self.task_id is None:
+            raise ValueError(
+                "Intervene QUARANTINE names its bee by subject or by task_id; both are None."
             )
         return self

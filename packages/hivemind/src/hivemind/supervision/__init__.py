@@ -6,7 +6,7 @@ cannot decide runs an awake episode; an issue a bee cannot resolve becomes a typ
 the tree through the same `EscalationPolicy` shape at every level, with the human always last; and
 every supervisor triages its inbox with the same deterministic `Attendant`. This package defines
 that shared surface -- `Supervisor`, `Alarm` and its state machine, `ContextTelemetry`'s helpers,
-the six `Intervention` levers, `EscalationPolicy` and `Attendant` -- once, so the Queen and every
+the seven `Intervention` levers, `EscalationPolicy` and `Attendant` -- once, so the Queen and every
 Warden are built on the same shape rather than each reinventing it. It never imports
 `hivemind.llm`: both autopilot packages (`hivemind.queen.autopilot`, `hivemind.wardens.autopilot`)
 import this package, and `lint-imports` forbids any path from either into `hivemind.llm`, so
@@ -43,8 +43,8 @@ See Also:
     - hivemind.supervision.README for the module-by-module map of this package.
 
 Public API:
-    - SupervisionError, InvalidAlarmTransitionError, PolicyError, UnknownChildError: this
-      subsystem's error tree (errors).
+    - SupervisionError, InvalidAlarmTransitionError, PolicyError, UnknownChildError,
+      UnknownInterventionError: this subsystem's error tree (errors).
     - ChildKind, ChildRef, Supervisor: the one supervision protocol (supervisor).
     - Alarm, AlarmKind, AlarmSeverity, AlarmState, TRANSITIONS, can_transition, assert_transition:
       the mirrored kinds, the model, and its state machine (alarm).
@@ -52,8 +52,9 @@ Public API:
       Alarm's own chain (alarm_trail).
     - ContextTelemetry, fraction_used, is_past_threshold, summarise: waggle's own telemetry value
       model, re-exported, plus the pure helpers over it (telemetry).
-    - Compact, Checkpoint, Handoff, Rebind, Takeover, Cancel, Intervention, to_wire, from_wire: the
-      six intervention levers and their wire conversion (intervention).
+    - Compact, Checkpoint, Handoff, Rebind, Takeover, Cancel, Quarantine, Intervention, to_wire,
+      to_intervene, from_wire: the seven intervention levers and their wire conversion
+      (intervention).
     - PolicyAction, PolicyRule, EscalationPolicy, load_policy, decide: policy as data (policy).
     - InboxKind, InboxItem, WeightTable, Priority, TieBreaker, Attendant, score_item: one
       supervisor's inbox triage (attendant).
@@ -89,6 +90,7 @@ from hivemind.supervision.errors import (
     PolicyError,
     SupervisionError,
     UnknownChildError,
+    UnknownInterventionError,
 )
 from hivemind.supervision.fake import FakeSupervisor
 from hivemind.supervision.intervention import (
@@ -97,9 +99,11 @@ from hivemind.supervision.intervention import (
     Compact,
     Handoff,
     Intervention,
+    Quarantine,
     Rebind,
     Takeover,
     from_wire,
+    to_intervene,
     to_wire,
 )
 from hivemind.supervision.policy import (
@@ -143,6 +147,7 @@ __all__ = [
     "PolicyRule",
     "Priority",
     "Proposal",
+    "Quarantine",
     "Rebind",
     "RiskTier",
     "SupervisionError",
@@ -150,6 +155,7 @@ __all__ = [
     "Takeover",
     "TieBreaker",
     "UnknownChildError",
+    "UnknownInterventionError",
     "WeightTable",
     "assert_transition",
     "can_transition",
@@ -161,5 +167,6 @@ __all__ = [
     "record_alarm_event",
     "score_item",
     "summarise",
+    "to_intervene",
     "to_wire",
 ]

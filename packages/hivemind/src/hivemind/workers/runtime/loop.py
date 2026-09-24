@@ -31,7 +31,8 @@ keep this class inside codingrules 5.1's size limits.
 Fits into the Hive:
     Layer 4 (roles that do the work). Constructed by `hivemind.wardens.spawn` (roadmap step 3.19)
     once per sub-bee it starts, inside a `TaskGroup` it owns. Calls into `hivemind.supervision`
-    (the Intervention levers only, never `hivemind.supervision.capping`), `hivemind.workers.base`,
+    (the Intervention levers and their error, never `hivemind.supervision.capping`),
+    `hivemind.workers.base`,
     `.context`, `.errors`, `.state`, this package's own `attempt` (which loads a resume Handoff,
     `begin_attempt`), `deps`, `mailbox` and `reporter`, and waggle.
 
@@ -41,7 +42,8 @@ Key invariants:
       AttemptManager` reports through the very same instance, so the two classes never disagree
       about this Worker's own state.
     - `_dispatch` catches `InvalidWorkerTransitionError` around each handler, so one out-of-order
-      or duplicate wire message is logged and dropped rather than ending `run()`.
+      or duplicate wire message is logged and dropped rather than ending `run()`; an Intervene
+      whose lever the Hive does not model is refused the same way, never read as a cancel.
     - `stop()` (TickLoop's own) always ends with `Mailbox.aclose()` having run exactly once,
       whether `stop()` was called by this runtime's owner or the transport ended on its own.
     - Every pending Alarm noted before a terminal WorkerState transition, or before `run()` is
@@ -73,7 +75,8 @@ from typing import Any
 
 from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reaping
-from hivemind.supervision.intervention import Checkpoint, Compact, Rebind, Takeover
+from hivemind.supervision.errors import SupervisionError
+from hivemind.supervision.intervention import Checkpoint, Compact, Quarantine, Rebind, Takeover
 from hivemind.supervision.intervention import Handoff as HandoffLever
 from hivemind.supervision.intervention import from_wire as intervention_from_wire
 from hivemind.workers.base import Worker
@@ -275,27 +278,46 @@ class WorkerRuntime(TickLoop):
         await self._reporter.send_progress(TaskStage.RESUMED, f"Resumed: {resume.reason}")
 
     async def _handle_intervene(self, intervene: Intervene) -> None:
-        """Pull one supervisor lever on this Worker.
+        """Pull one supervisor lever on this Worker (`_pull_lever`, module-level for size)."""
+        _pull_lever(self, intervene)
 
-        Compact and Checkpoint both ask for a handoff at the role's own next opportunity and
-        continue afterwards; Handoff, Rebind and Takeover ask for the same handoff but stop this
-        attempt once it is written; Cancel behaves exactly like TaskCancel, except an Intervene
-        carries no grace period of its own.
-        """
+
+def _pull_lever(runtime: WorkerRuntime, intervene: Intervene) -> None:
+    """Pull one supervisor lever on `runtime`'s Worker.
+
+    Compact and Checkpoint both ask for a handoff at the role's own next opportunity and continue
+    afterwards; Handoff, Rebind and Takeover ask for the same handoff but stop this attempt once it
+    is written; Cancel behaves exactly like TaskCancel, except an Intervene carries no grace period
+    of its own. A Quarantine is its Warden's to carry out and is never relayed to a Worker (roadmap
+    10.6c); one that arrives anyway is read as the one thing it certainly means for this bee, stop
+    now, and logged. A lever the Hive has no variant for is refused and logged, never read as a
+    cancel (ADR-0035: an unknown intervention is an error, not a silent cancel).
+    """
+    try:
         lever = intervention_from_wire(intervene)
-        # An isinstance chain over the lever's own discriminated union, not a `.kind` match on a
-        # Cell (scripts/check_no_kind_branches.py's actual target): the same pattern
-        # hivemind.supervision.intervention.to_wire itself uses, for the same reason.
-        if isinstance(lever, Compact | Checkpoint):
-            self._attempt.request_handoff(stop_after=False)
-            return
-        if isinstance(lever, HandoffLever | Rebind | Takeover):
-            reason = f"{type(lever).__name__} intervention: {lever.reason}"
-            self._attempt.request_handoff(stop_after=True, reason=reason)
-            return
-        # The only remaining variant is Cancel; every Intervention variant carries `reason`, so
-        # no narrowing is needed to reach it here.
-        self._attempt.request_cancel(lever.reason, DEFAULT_INTERVENE_CANCEL_GRACE_S)
+    except SupervisionError as refused:
+        # Dropped, not raised: one malformed or unknown lever must not end this Worker's own loop.
+        log.warning(
+            "workers.runtime.intervention_refused",
+            worker_id=runtime._ctx.worker_id,
+            action=intervene.action.value,
+            error=refused.code,
+        )
+        return
+    # An isinstance chain over the lever's own discriminated union, not a `.kind` match on a Cell
+    # (scripts/check_no_kind_branches.py's actual target): the same pattern
+    # hivemind.supervision.intervention.to_wire itself uses, for the same reason.
+    if isinstance(lever, Compact | Checkpoint):
+        runtime._attempt.request_handoff(stop_after=False)
+        return
+    if isinstance(lever, HandoffLever | Rebind | Takeover):
+        reason = f"{type(lever).__name__} intervention: {lever.reason}"
+        runtime._attempt.request_handoff(stop_after=True, reason=reason)
+        return
+    if isinstance(lever, Quarantine):
+        log.warning("workers.runtime.quarantine_relayed", worker_id=runtime._ctx.worker_id)
+    # Cancel, or a relayed Quarantine: every variant carries `reason`, and both stop at once.
+    runtime._attempt.request_cancel(lever.reason, DEFAULT_INTERVENE_CANCEL_GRACE_S)
 
 
 async def _send_pending_alarms(runtime: WorkerRuntime) -> None:

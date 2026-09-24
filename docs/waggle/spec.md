@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.6`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.7`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.6"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.7"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.6"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 6` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.7"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 7` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -197,6 +197,12 @@ validates every message a newer one sends it, as long as the sender honours the 
 - **1.6**: `TaskAssign.capabilities` and `TaskAssign.network_scopes` (roadmap step 10.3,
   ADR-0031): a goal's capability set and a task's network needs reach the Warden that
   attenuates its Worker's set to them.
+- **1.7**: `AlarmKind.SECURITY`, `InterventionAction.QUARANTINE` and `Intervene.suspect_episode_id`
+  (roadmap steps 10.6 and 10.6c, ADR-0035): a security Alarm always goes up to the Queen and on
+  to the human, and the Queen may order a Warden to quarantine one of its sub-bees from the
+  episode its memory is suspect from. A receiver that meets an `InterventionAction` it does not
+  know refuses the whole frame (`waggle.codec.invalid_payload`); it never reads an unknown lever
+  as a cancel, or as any other lever.
 
 ## 5. Wire format and size limit
 
@@ -709,7 +715,9 @@ Family enums and value models:
 - `AlarmKind`: `WORKER_FAILED`, `WORKER_CRASHED`, `WORKER_STALLED`, `ACCEPTANCE_FAILED`,
   `POSTCONDITION_FAILED`, `CONTEXT_OVERFLOW`, `GRANT_EXCEEDED`, `PROVIDER_UNAVAILABLE`,
   `AUDIT_FAILED`, `CELL_UNREACHABLE`, `QUOTA_EXCEEDED` (a lease's scratch directory outgrew its
-  configured quota; added in a minor 1 bump, roadmap step 3.11), `OTHER`. The closed set the
+  configured quota; added in a minor 1 bump, roadmap step 3.11), `SECURITY` (a security event,
+  such as a bee its Warden quarantined; it always goes up to the Queen and on to the human, never
+  retried or rebound; PROTOCOL_MINOR 7, roadmap step 10.6), `OTHER`. The closed set the
   escalation policy keys on; `OTHER` carries anything new until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:
@@ -724,7 +732,12 @@ Family enums and value models:
     total characters at most 8000 (validator).
 - `InterventionAction`: `COMPACT`, `CHECKPOINT`, `HANDOFF`, `REBIND`, `TAKEOVER`, `CANCEL`,
   `RELEASE_LEASE` (PROTOCOL_MINOR 5: Queen -> Warden only, stop every sub-bee and release the
-  recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None).
+  recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None),
+  `QUARANTINE` (PROTOCOL_MINOR 7, roadmap step 10.6c: Queen -> Warden only; the Warden carries it
+  out on the sub-bee `subject` or `task_id` names, and never relays it to a Worker: it checkpoints
+  the bee, stops and kills it, revokes its slice of the grant, taints the bee's memory from
+  `suspect_episode_id` on, holds the task paused (a `task.progress` at stage `PAUSED` to the
+  Queen) and tells the Queen with a `SECURITY` Alarm (receiver rule)).
 - `AnswerSource`: `HUMAN`, `QUEEN`, `WARDEN`. Who answered; the human is not a bee address.
 
 #### Heartbeat
@@ -801,9 +814,10 @@ Return the requested bee's telemetry and compacted view, labelled with its clear
 #### Intervene
 
 Pull one of the supervisor's levers on a child or one of its sub-bees: compact, checkpoint,
-handoff, rebind to a slot, takeover, cancel, or (PROTOCOL_MINOR 5, Queen -> Warden only) release
-the recipient's own lease. Wardens hold the same levers over their sub-bees minus takeover with
-the Queen's slot.
+handoff, rebind to a slot, takeover, cancel, (PROTOCOL_MINOR 5, Queen -> Warden only) release
+the recipient's own lease, or (PROTOCOL_MINOR 7, Queen -> Warden only) quarantine one of its
+sub-bees. Wardens hold the same levers over their sub-bees minus takeover with the Queen's slot;
+a Warden quarantines its own sub-bee by its own escalation policy, never by sending this.
 
 - `action` (`InterventionAction`): the lever pulled.
 - `subject` (`WorkerId | None`): the recipient's sub-bee the action targets; None means the
@@ -817,6 +831,11 @@ the Queen's slot.
   64 characters.
 - `alarm_id` (`AlarmId | None`): the Alarm this intervention answers, so the trail links the two.
 - `reason` (`str`): why the supervisor intervenes.
+- `suspect_episode_id` (`EventId | None`, PROTOCOL_MINOR 7): the episode from which the bee's
+  memory is suspect (an episode record's id, EventId-shaped, or the trail event that best marks
+  it); everything the bee wrote from then on is tainted. Required when `action` is `QUARANTINE`,
+  None otherwise (validator); a `QUARANTINE` names its bee by `subject` or `task_id`, never
+  neither (validator).
 
 #### Question
 

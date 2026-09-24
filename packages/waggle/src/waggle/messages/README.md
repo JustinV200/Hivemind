@@ -21,6 +21,10 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
 - Waggle 1.6 (roadmap step 10.3): `task.assign` carries `capabilities` (the task's goal set, bounded
   in count and length; None from an older peer or the operator's own path) and `network_scopes`
   (the task's needs, so a Worker can be given `net` at all), both in `task/assignment.py`.
+- Waggle 1.7 (roadmap steps 10.6 and 10.6c, ADR-0035): `supervision/alarms.py`'s `AlarmKind` gains
+  `SECURITY`, and `supervision/oversight.py`'s `InterventionAction` gains `QUARANTINE`, whose
+  `Intervene` names the bee (`subject` or `task_id`) and carries `suspect_episode_id`, the episode
+  from which that bee's memory is suspect (required exactly for `QUARANTINE`, by validator).
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
