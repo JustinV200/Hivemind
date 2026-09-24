@@ -8,8 +8,9 @@ list (the device ceiling) and nothing beyond it; naming nothing grants the role'
 list, which leaves out stewardship and Night Veil. A steward device (``[entrance]
 steward_devices``, holding ``entrance:steward``), approving remotely after full step-up, may grant
 at most its own set intersected with that ceiling, and never ``entrance:steward`` itself, so
-stewardship can only ever be granted at the Hive Stand. Both are pure functions over capability
-sets (codingrules 8.3); the approval flow and, later, the steward route call them.
+stewardship can only ever be granted at the Hive Stand; nor may it grant more spend per day, or a
+longer life, than its own approval has (a grant never exceeds its grantor, ADR-0031). All are
+pure functions (codingrules 8.3); the approval flow and the steward route call them.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol``. Called by
@@ -20,6 +21,7 @@ Fits into the Hive:
 Key invariants:
     - Nothing returned is wider than the device ceiling; nothing a steward returns is wider than
       the steward's own set, and never holds ``entrance:steward``.
+    - A steward's approval never spends more per day, or lasts longer, than the steward's own.
     - A refusal names the first offending capability in sorted order, so the same request is
       always refused the same way.
 
@@ -32,6 +34,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 
 from hivemind.entrance.enrol.models import EnrolledDevice
 from hivemind.entrance.enrol.state import DeviceStatus
@@ -49,7 +52,7 @@ from hivemind.guard.policy import DEVICE_ROLE
 # The capability that makes a device a steward; granted only by name, and only on loopback.
 _STEWARD = Capability(family=CapabilityFamily.ENTRANCE_STEWARD)
 
-__all__ = ["approval_grant", "device_ceiling", "steward_grant"]
+__all__ = ["approval_grant", "device_ceiling", "steward_grant", "steward_terms"]
 
 
 def device_ceiling(policy: GuardPolicy) -> CapabilitySet:
@@ -125,6 +128,35 @@ def steward_grant(
         if reason is not None:
             raise StewardGrantError(steward.id, str(capability), reason)
     return requested
+
+
+def steward_terms(
+    steward: EnrolledDevice, spend_cap_usd_per_day: float, expires_at: datetime | None
+) -> None:
+    """Refuse the approval's other terms when they exceed the steward's own (ADR-0031, ADR-0033).
+
+    ``steward_grant`` bounds what the pending device may do; this bounds how much it may spend a
+    day and how long it lasts, so a steward can never mint a device that outspends or outlives
+    its own approval. Anything more is granted at the Hive Stand.
+
+    Args:
+        steward: The approving steward, already admitted by ``steward_grant``.
+        spend_cap_usd_per_day: The daily cap asked for the pending device.
+        expires_at: Its asked expiry; None asks for no expiry.
+
+    Raises:
+        StewardGrantError: The cap is above the steward's own, or the steward's approval lapses
+            and the asked one lapses later or never.
+    """
+    own_cap = steward.spend_cap_usd_per_day
+    # A capped steward grants at most its own cap; only the console is uncapped (None).
+    if own_cap is not None and spend_cap_usd_per_day > own_cap:
+        reason = f"a daily cap above its own {own_cap:g} USD is granted only at the Hive Stand"
+        raise StewardGrantError(steward.id, None, reason)
+    own_expiry = steward.expires_at
+    if own_expiry is not None and (expires_at is None or expires_at > own_expiry):
+        reason = "an approval outlasting its own is granted only at the Hive Stand"
+        raise StewardGrantError(steward.id, None, reason)
 
 
 def _steward_refusal(

@@ -35,6 +35,7 @@ from hivemind.entrance.enrol import (
     device_ceiling,
     mint_invite,
     steward_grant,
+    steward_terms,
 )
 from hivemind.entrance.gate.params import CallerParam, Services
 from hivemind.entrance.gate.spec import (
@@ -172,6 +173,8 @@ async def steward_approve(
     )
     # ADR-0033: at most the steward's own set, inside the ceiling, never stewardship itself.
     granted = steward_grant(caller.device, asked, device_ceiling(policy))
+    # Nor more spend per day, or a longer life, than the steward's own approval (ADR-0031).
+    steward_terms(caller.device, body.spend_cap_usd_per_day, body.expires_at)
     request = _approval(body, granted, caller.device.id)
     return device_view(await approve(services.enrolment, device_id, request))
 

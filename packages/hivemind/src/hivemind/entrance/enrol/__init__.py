@@ -51,7 +51,7 @@ Public API:
     - ApprovalRequest, approve, deny, GrantChange, regrant: decisions on a pending request, and
       re-granting an approved device.
     - LockReason, Revocation, revoke, lock, unlock, expire_due: an admitted device's standing.
-    - approval_grant, device_ceiling, steward_grant: what an approval may grant.
+    - approval_grant, device_ceiling, steward_grant, steward_terms: what an approval may grant.
     - OPERATOR_ACTOR: the trail's actor for the operator at the Hive Stand.
 """
 
@@ -87,7 +87,12 @@ from hivemind.entrance.enrol.deps import (
     SecurityNotice,
     SecurityNotifier,
 )
-from hivemind.entrance.enrol.grants import approval_grant, device_ceiling, steward_grant
+from hivemind.entrance.enrol.grants import (
+    approval_grant,
+    device_ceiling,
+    steward_grant,
+    steward_terms,
+)
 from hivemind.entrance.enrol.invite import (
     INVITE_PATH,
     InviteQr,
@@ -209,6 +214,7 @@ __all__ = [
     "reset_operator",
     "revoke",
     "steward_grant",
+    "steward_terms",
     "trail_kind",
     "unlock",
     "unlock_console",

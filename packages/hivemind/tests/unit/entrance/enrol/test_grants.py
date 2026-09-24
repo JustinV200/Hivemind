@@ -12,6 +12,8 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from builders.entrance import make_device
 
@@ -21,6 +23,7 @@ from hivemind.entrance.enrol import (
     approval_grant,
     device_ceiling,
     steward_grant,
+    steward_terms,
 )
 from hivemind.entrance.errors import CapabilityCeilingError, StewardGrantError
 from hivemind.guard import CapabilitySet, InvalidCapabilityError, load_guard_policy, proposed_set
@@ -125,3 +128,40 @@ def test_only_an_approved_device_holding_stewardship_may_approve(steward: Enroll
         steward_grant(steward, CapabilitySet.parse("observe"), _CEILING)
 
     assert excinfo.value.capability is None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# A steward's approval: no more spend per day, and no longer life, than its own
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_steward_grants_up_to_its_own_cap_and_expiry() -> None:
+    steward = make_device(status=DeviceStatus.APPROVED, spend_cap_usd_per_day=5.0)
+    assert steward.expires_at is not None
+
+    steward_terms(steward, 5.0, steward.expires_at)
+    steward_terms(steward, 0.0, steward.expires_at - timedelta(hours=1))
+
+
+def test_a_steward_may_not_grant_a_cap_above_its_own() -> None:
+    steward = make_device(status=DeviceStatus.APPROVED, spend_cap_usd_per_day=5.0)
+
+    with pytest.raises(StewardGrantError, match="daily cap above its own 5 USD"):
+        steward_terms(steward, 5.01, steward.expires_at)
+
+
+@pytest.mark.parametrize("longer", [timedelta(seconds=1), None])
+def test_a_steward_may_not_grant_an_approval_outlasting_its_own(longer: timedelta | None) -> None:
+    steward = make_device(status=DeviceStatus.APPROVED, spend_cap_usd_per_day=5.0)
+    assert steward.expires_at is not None
+    # None asks for an approval that never lapses, which outlasts any steward that does.
+    asked = steward.expires_at + longer if longer is not None else None
+
+    with pytest.raises(StewardGrantError, match="outlasting its own"):
+        steward_terms(steward, 1.0, asked)
+
+
+def test_an_uncapped_never_lapsing_steward_bounds_neither_term() -> None:
+    steward = make_device(status=DeviceStatus.APPROVED, spend_cap_usd_per_day=None, expires_at=None)
+
+    steward_terms(steward, 1_000.0, None)

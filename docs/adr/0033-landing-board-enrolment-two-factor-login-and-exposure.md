@@ -79,7 +79,8 @@ the same step; the revocation event names any goals left running. A steward devi
 steward_devices = true`, off by default, holding `entrance:steward`) may approve through a
 separate steward route that is mounted on the remote listener only when the switch is on, only
 after full step-up, granting at most its own set intersected with the device ceiling and never
-`entrance:steward` itself; nothing else approves remotely. The state machine is
+`entrance:steward` itself, and no higher daily spend cap and no later expiry than its own (a
+grant never exceeds its grantor, ADR-0031); nothing else approves remotely. The state machine is
 `entrance/enrol/state.py`: `INVITED → PENDING → APPROVED`, `INVITED → EXPIRED | REVOKED`,
 `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`, `APPROVED | LOCKED → EXPIRED | REVOKED`; every
 edge is a `guard.entrance_*` trail event (a trail kind has exactly one dot), and leaving
