@@ -27,6 +27,9 @@ from builders.cli import fake_manifest
 from hivemind.cli.compose.entrance import ServedHive, build_served_hive, serve_hive
 from hivemind.entrance.app import OPENAPI_PATH
 from hivemind.entrance.expose import ExposureRefusedError, ExposureRule, FakeInterfaces
+from hivemind.entrance.voice import VoiceServices
+from hivemind.forage.slots import ModelSlot
+from hivemind.llm import MeteredTranscriber, TranscriptionUnsupportedError
 from hivemind.manifest import load_manifest
 from waggle.clock import SystemClock
 
@@ -34,12 +37,18 @@ _OVERLAY = "100.101.102.103"  # Inside [entrance] vpn_cidrs' default, on the Tai
 _NAMED = 'public_url = "https://hive.example.ts.net"\n'  # Every remote mode's DNS name.
 
 
-def _served(tmp_path: Path, entrance: str) -> ServedHive:
+def _served(tmp_path: Path, entrance: str, transcriber: str = "fake") -> ServedHive:
     """Compose `hive serve`'s Hive over a fake manifest with ``entrance`` as its section."""
     path = fake_manifest(tmp_path)
-    path.write_text(
-        path.read_text(encoding="utf-8") + f"\n[entrance]\n{entrance}", encoding="utf-8"
-    )
+    text = path.read_text(encoding="utf-8")
+    if transcriber != "fake":
+        # The fake manifest binds every slot to "fake"; this binds the transcriber elsewhere.
+        text = text.replace(
+            '[llm.slots.transcriber]\nprovider = "fake"',
+            f'[llm.providers.{transcriber}]\nkind = "{transcriber}"\n\n'
+            f'[llm.slots.transcriber]\nprovider = "{transcriber}"',
+        )
+    path.write_text(text + f"\n[entrance]\n{entrance}", encoding="utf-8")
     served = build_served_hive(load_manifest(path, {}), environ={}, clock=SystemClock())
     return replace(
         served, interfaces=FakeInterfaces({"tailscale0": [_OVERLAY], "lo": ["127.0.0.1"]})
@@ -106,3 +115,33 @@ def test_a_loopback_listener_that_cannot_bind_refuses_to_start(tmp_path: Path) -
 
         with pytest.raises(OSError):
             asyncio.run(_enter(served))
+
+
+async def _voice(served: ServedHive) -> VoiceServices | None:
+    """Enter serve_hive and return the voice the Entrance was built with."""
+    async with serve_hive(served) as entrance:
+        return entrance.services.voice
+
+
+def test_voice_hears_through_the_hives_own_registry_fanner_and_scanner(tmp_path: Path) -> None:
+    served = _served(tmp_path, 'bind = "127.0.0.1:0"\n')
+
+    voice = asyncio.run(_voice(served))
+
+    assert voice is not None and isinstance(voice.transcriber, MeteredTranscriber)
+    assert voice.transcriber.bound.slot is ModelSlot.TRANSCRIBER
+    assert voice.scanner is served.hive.queen_deps.scanner
+    assert (voice.rules.confirm_goals, voice.rules.keep_audio) == (True, False)
+
+
+def test_voice_off_is_never_wired(tmp_path: Path) -> None:
+    served = _served(tmp_path, 'bind = "127.0.0.1:0"\n\n[entrance.voice]\nenabled = false\n')
+
+    assert asyncio.run(_voice(served)) is None
+
+
+def test_a_transcriber_that_cannot_transcribe_refuses_to_start(tmp_path: Path) -> None:
+    served = _served(tmp_path, 'bind = "127.0.0.1:0"\n', transcriber="anthropic")
+
+    with pytest.raises(TranscriptionUnsupportedError, match="cannot transcribe"):
+        asyncio.run(_voice(served))
