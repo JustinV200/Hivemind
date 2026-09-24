@@ -130,6 +130,7 @@ class OpenedHoney:
 
     access: HoneyAccess  # Built by build_honey_access, exactly as the running Hive builds it.
     bindings: BindingStatus  # For printing a missing slot's reason.
+    registry: ProviderRegistry  # Closed by the command's model-calling run (closing_registry).
 
 
 def honey_callback(
@@ -209,7 +210,7 @@ def open_access(cli_ctx: HoneyCliContext) -> OpenedHoney:
     registry = build_provider_registry(manifest, os.environ, clock, forage_map, None)
     fanner = build_fanner(manifest, forage_map, open_trail(cli_ctx.db), clock)
     access = build_honey_access(manifest, store, registry, fanner, clock)
-    return OpenedHoney(access=access, bindings=_probe_bindings(registry))
+    return OpenedHoney(access=access, bindings=_probe_bindings(registry), registry=registry)
 
 
 def run_or_exit[ResultT](work: Coroutine[object, None, ResultT]) -> ResultT:

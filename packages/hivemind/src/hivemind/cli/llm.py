@@ -58,6 +58,7 @@ from hivemind.cli.stores import (
     JsonOption,
     ManifestOption,
     build_registry,
+    closing_registry,
     load_manifest_or_exit,
 )
 from hivemind.forage import ModelSlot
@@ -164,7 +165,7 @@ def providers_command(
     """List every configured provider: kind, base URL, seats, API key presence and health."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
-    rows = asyncio.run(_provider_rows(loaded, registry))
+    rows = asyncio.run(closing_registry(registry, _provider_rows(loaded, registry)))
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return
@@ -201,9 +202,13 @@ def test_command(
     try:
         if model_slot is ModelSlot.EMBEDDER:
             # EMBEDDER has no completion to run; embed one short text instead (roadmap 7.1).
-            _print_embed_test_result(asyncio.run(_run_embed_test_call(registry, prompt)))
+            _print_embed_test_result(
+                asyncio.run(closing_registry(registry, _run_embed_test_call(registry, prompt)))
+            )
             return
-        _print_test_result(asyncio.run(_run_test_call(registry, model_slot, prompt)))
+        _print_test_result(
+            asyncio.run(closing_registry(registry, _run_test_call(registry, model_slot, prompt)))
+        )
     except LLMError as exc:
         # Every call failure the provider boundary can raise is a typed LLMError (codingrules
         # section 8.6); its own message already names the provider and the reason.

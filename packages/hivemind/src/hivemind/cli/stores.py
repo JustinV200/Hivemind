@@ -84,7 +84,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from pathlib import Path
 from typing import Annotated
 
@@ -142,6 +142,7 @@ __all__ = [
     "ManifestOption",
     "build_forage_map",
     "build_registry",
+    "closing_registry",
     "load_manifest_or_exit",
     "open_chamber",
     "open_cluster_orders",
@@ -481,6 +482,28 @@ def build_forage_map(manifest: HiveManifest, clock: Clock) -> ForageMap:
         for source_id, spec in manifest.forage.map.items()
     )
     return ForageMap(sources, clock=clock)
+
+
+async def closing_registry[ResultT](
+    registry: ProviderRegistry, work: Awaitable[ResultT]
+) -> ResultT:
+    """Await `work`, then close `registry`'s pooled model-server connections in the same loop.
+
+    A command's model calls pool keep-alive connections on the event loop that made them, so the
+    registry must close inside that same `asyncio.run`: once that loop ends, nothing can close
+    them and they stay open until the process exits (`ProviderRegistry.aclose`).
+
+    Args:
+        registry: The registry `work`'s model calls went through.
+        work: The command's own coroutine.
+
+    Returns:
+        Whatever `work` returned; the registry is closed whether or not `work` raised.
+    """
+    try:
+        return await work
+    finally:
+        await registry.aclose()
 
 
 def build_registry(

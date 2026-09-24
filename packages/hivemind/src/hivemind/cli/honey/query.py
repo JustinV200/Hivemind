@@ -38,7 +38,7 @@ from hivemind.cli.honey.context import (
     run_or_exit,
 )
 from hivemind.cli.honey.render import print_response, print_slot, print_stats
-from hivemind.cli.stores import JsonOption, open_honey_store
+from hivemind.cli.stores import JsonOption, closing_registry, open_honey_store
 from hivemind.honey_store import HoneySearch, InvalidScopeError, folder_for_scope
 from waggle.messages.honey.exchange import DEFAULT_MAX_HITS, MAX_MAX_HITS, MIN_MAX_HITS
 
@@ -85,7 +85,7 @@ def query_command(
     # timeout or an outage the search runs on full text alone and its reason says so.
     # The operator is asking, so the query's trail event names the human, not the Hive.
     retriever = access.retriever.with_identity(human_identity(cli_ctx.manifest))
-    response = run_or_exit(retriever.search(search))
+    response = run_or_exit(closing_registry(opened.registry, retriever.search(search)))
     # --json prints the wire response unchanged, for a script to read.
     if as_json:
         typer.echo(response.model_dump_json(indent=2))

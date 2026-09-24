@@ -33,6 +33,7 @@ from hivemind.cli.stores import (
     DbOption,
     ManifestOption,
     build_registry,
+    closing_registry,
     load_manifest_or_exit,
     open_chamber,
     open_memory,
@@ -69,7 +70,9 @@ def compact_command(
     registry = build_registry(loaded, os.environ, SystemClock())
     bound = registry.bound(ModelSlot.RIPENER)
     ctx = memory_context(loaded, store, "system")
-    result = asyncio.run(_compact_closed_tasks(chamber, store, ctx, bound, WardenId(bee)))
+    result = asyncio.run(
+        closing_registry(registry, _compact_closed_tasks(chamber, store, ctx, bound, WardenId(bee)))
+    )
     if result is None:
         typer.echo(f"nothing to compact: no closed task's Bee Bread entries for warden {bee}")
         return

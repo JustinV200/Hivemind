@@ -58,7 +58,7 @@ from hivemind.cli.honey.context import (
     run_or_exit,
 )
 from hivemind.cli.honey.render import print_slot
-from hivemind.cli.stores import open_honey_store
+from hivemind.cli.stores import closing_registry, open_honey_store
 from hivemind.honey_store import HoneyStats, HoneyStore, NectarState, Ripener
 from hivemind.honey_store.browse import HoneyRelabeller, RelabelDirection, RelabelRequest
 from hivemind.workers.roles.house_bee import HouseBeeRipening, RipeningPass
@@ -96,7 +96,7 @@ def ripen_command(
     # One pass: drain queued notes, then every summary and embedding call, each carrying the
     # Ripener's own timeouts; a model that fails leaves a heuristic summary or an unembedded row,
     # never a failed pass.
-    pass_result = run_or_exit(ripening.run_pass())
+    pass_result = run_or_exit(closing_registry(opened.registry, ripening.run_pass()))
     _print_pass(pass_result)
     print_slot("ripener", opened.bindings.ripener, _NO_RIPENER)
     print_slot("embedder", opened.bindings.embedder, _NO_EMBEDDER)
@@ -110,7 +110,9 @@ def reembed_command(ctx: typer.Context) -> None:
     if model is None:
         print_slot("embedder", opened.bindings.embedder, "nothing can be re-embedded")
         raise typer.Exit(code=EXIT_REFUSED)
-    passes, embedded = run_or_exit(_reembed(opened.access.ripener))
+    passes, embedded = run_or_exit(
+        closing_registry(opened.registry, _reembed(opened.access.ripener))
+    )
     still_pending = run_or_exit(_has_pending(opened.access.store, model))
     # Coverage per model (ADR-0032): the old model's vectors stay beside the new model's.
     stats = run_or_exit(opened.access.store.stats())

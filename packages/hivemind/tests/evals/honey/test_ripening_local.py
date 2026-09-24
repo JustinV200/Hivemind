@@ -50,6 +50,7 @@ from hivemind.honey_store import (
     SqliteHoneyStore,
     queen_read_capabilities,
 )
+from hivemind.llm import ProviderRegistry
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.llm import SlotBinding
 from hivemind.pheromone import SqlitePheromoneTrail
@@ -93,8 +94,13 @@ def _local_manifest(environ: Mapping[str, str]) -> HiveManifest:
     return manifest.model_copy(update={"llm": llm.model_copy(update=update)})
 
 
-async def _local_access(tmp_path: Path, manifest: HiveManifest) -> HoneyAccess:
-    """Build the Hive's own Honey Store handles on a fresh file, both local bindings live."""
+async def _local_access(
+    tmp_path: Path, manifest: HiveManifest
+) -> tuple[HoneyAccess, ProviderRegistry]:
+    """Build the Hive's own Honey Store handles on a fresh file, both local bindings live.
+
+    Returns the registry too: the test closes it, since a real server keeps its connections alive.
+    """
     clock = SystemClock()  # Real models have real latency; nothing here fakes time.
     connection = connect(tmp_path / "hive.sqlite3")
     trail = await SqlitePheromoneTrail.create(connection, clock)
@@ -105,7 +111,7 @@ async def _local_access(tmp_path: Path, manifest: HiveManifest) -> HoneyAccess:
     assert resolve_ripener(registry) is not None
     assert resolve_embedder(registry) is not None
     fanner = build_fanner(manifest, forage_map, trail, clock)
-    return build_honey_access(manifest, store, registry, fanner, clock)
+    return build_honey_access(manifest, store, registry, fanner, clock), registry
 
 
 def _finding(clock: SystemClock) -> NectarSubmission:
@@ -146,8 +152,16 @@ async def test_ripening_summarises_and_embeds_on_local_models(tmp_path: Path) ->
     if not os.environ.get("HIVEMIND_LOCAL_LLM_BASE_URL"):
         pytest.skip("HIVEMIND_LOCAL_LLM_BASE_URL must be set.")
     manifest = _local_manifest(os.environ)
-    access = await _local_access(tmp_path, manifest)
+    access, registry = await _local_access(tmp_path, manifest)
+    try:
+        await _ripen_and_find(access, manifest)
+    finally:
+        # A real server keeps connections alive; closed here, in this loop, the run leaves none.
+        await registry.aclose()
 
+
+async def _ripen_and_find(access: HoneyAccess, manifest: HiveManifest) -> None:
+    """Ripen one finding on the local models, then find it by a paraphrase with vectors in use."""
     await access.intake.submit(_finding(SystemClock()))
     outcome = await access.ripener.run_pass()
 

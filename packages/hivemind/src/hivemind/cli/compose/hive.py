@@ -323,16 +323,7 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             await hive.queen.stop()
             await hive.warden.stop()
             await asyncio.gather(queen_task, warden_task)
-            if hive.virtual_cells is not None:
-                # Every Virtual Cell, dormant ones included: hivemind.queen.cell_gate.shutdown.
-                await hive.virtual_cells.retire_all()
-                # Stop accepting and close every Virtual Cell connection last: nothing above this
-                # still reads from a WardenLink once the Queen and Warden are both fully stopped.
-                await hive.virtual_cells.listener.stop()
-            # Closing the Queen's own end wakes the Warden's queen_link.receive() with a clean
-            # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
-            # is left awaiting a link neither side will ever write to again.
-            await hive.warden_link.transport.close()
+            await _close_links(hive)
 
 
 async def _open_virtual_cells(hive: Hive) -> None:
@@ -349,6 +340,27 @@ async def _open_virtual_cells(hive: Hive) -> None:
         return  # `[virtual_cells] backend` unset: nothing Virtual-Cell-related to open.
     await hive.virtual_cells.listener.start(hive.queen)
     await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+
+
+async def _close_links(hive: Hive) -> None:
+    """Close what the stopped Queen and Warden leave open: Cells, links, model connections.
+
+    Split out of `run_hive` for its own line budget (codingrules 5.1); called only once the Queen
+    and the Warden have both fully stopped, so nothing still reads from what this closes.
+    """
+    if hive.virtual_cells is not None:
+        # Every Virtual Cell, dormant ones included: hivemind.queen.cell_gate.shutdown.
+        await hive.virtual_cells.retire_all()
+        # Stop accepting and close every Virtual Cell connection last: nothing above this still
+        # reads from a WardenLink once the Queen and Warden are both fully stopped.
+        await hive.virtual_cells.listener.stop()
+    # Closing the Queen's own end wakes the Warden's queen_link.receive() with a clean sentinel
+    # (waggle.transport.memory.MemoryTransport.close's own contract), so nothing is left awaiting
+    # a link neither side will ever write to again.
+    await hive.warden_link.transport.close()
+    # Last: every model call has stopped, so the providers' pooled connections close in the loop
+    # that opened them, never left as open sockets behind the Hive.
+    await hive.registry.aclose()
 
 
 async def _stop_ripening(hive: Hive, ripening_task: asyncio.Task[None] | None) -> None:
