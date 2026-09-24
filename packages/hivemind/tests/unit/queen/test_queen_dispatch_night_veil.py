@@ -49,7 +49,7 @@ from waggle.transport.memory import MemoryTransport
 
 _PROFILE = NightVeilConstraints(
     required_network_policy=NetworkPolicy.VPN_TOR,
-    hive_stand_onion_address="hivestandhiddenservice.onion:8710",
+    hive_stand_onion_address="7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710",
     socks_proxy_url="socks5h://127.0.0.1:9050",
     locale_profile="C.UTF-8",
 )

@@ -17,10 +17,18 @@ that: `hivemind.queen.cell_gate.listener`'s own known-gap note says today's `Cel
 reads anything past that first pair anyway (this dispatch's own report names the recurring-liveness
 gap that leaves).
 
+Roadmap step 10.3a: the Cell announces the tier it was provisioned at (`HIVEMIND_COMB_SHIELD`, no
+longer always MEADOW), and `CellReady` carries check results exactly when that tier attests. A
+Night Veil Cell reports the two checks it can make of its own control link
+(`control_link_attestation`): that Waggle dials the Queen only through the SOCKS proxy, and that
+the Queen it reaches is her onion service, which the `CellReady` arriving over that link proves.
+They mirror two of `hivemind.hive.night_veil.results.CHECK_NAMES`; the Queen's own attestation of
+the image (`hivemind.queen.cell_gate.provider`) stays the one that decides readiness.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
     `hivemind.cell` (Cell), `hivemind.forage` (ForageCapacity) and waggle (envelope, ids, messages,
-    transport) only. Built and run by `hivemind.cli.in_cell.main.run_in_cell_warden`.
+    transport, uris) only. Built and run by `hivemind.cli.in_cell.main.run_in_cell_warden`.
 
 Key invariants:
     - `announce` connects the transport and sends the one `CellReady` this Cell ever sends; it
@@ -44,6 +52,7 @@ See Also:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from hivemind.cell.models import Cell
 from hivemind.cell.tiers import CombShieldLevel
@@ -51,11 +60,26 @@ from hivemind.forage import ForageCapacity
 from waggle.clock import Clock
 from waggle.envelope import Hop, wrap
 from waggle.ids import HiveId, NodeId, WardenId
-from waggle.messages.cell.status import CellHeartbeat, CellMode, CellReady
+from waggle.messages.cell.status import AttestationCheck, CellHeartbeat, CellMode, CellReady
 from waggle.messages.forage import CapacityReport, CapacityTrigger, LocalPoolUsage
 from waggle.transport.base import Transport
+from waggle.transport.socks import SocksProxy
+from waggle.uris import is_onion_service_host
 
-__all__ = ["CellLinkDeps", "announce", "send_capacity_report", "send_cell_heartbeat"]
+# The two checks a Night Veil Cell makes of its own control link; the names mirror
+# hivemind.hive.night_veil.results.CHECK_NAMES, where the Queen's attestation runs the same two.
+VIA_SOCKS_CHECK = "waggle_socket_via_socks"
+HIDDEN_SERVICE_CHECK = "hidden_service_reachable"
+
+__all__ = [
+    "HIDDEN_SERVICE_CHECK",
+    "VIA_SOCKS_CHECK",
+    "CellLinkDeps",
+    "announce",
+    "control_link_attestation",
+    "send_capacity_report",
+    "send_cell_heartbeat",
+]
 
 # The Cell has just come up with no lease and no sub-bees yet, for both frames this module sends;
 # Warden.start() (called right after this module's three sends) is what actually leases the Cell.
@@ -82,6 +106,8 @@ class CellLinkDeps:
         heartbeat_interval_s: The cadence `send_cell_heartbeat` reports on
             `CellHeartbeat.interval_s`.
         runtime_version: The installed `hivemind` distribution version, carried on `CellReady`.
+        attestation: The checks `CellReady` carries for this Cell's tier: none for MEADOW, the
+            control-link checks for NIGHT_VEIL (`control_link_attestation`).
     """
 
     transport: Transport
@@ -92,6 +118,44 @@ class CellLinkDeps:
     clock: Clock
     heartbeat_interval_s: float
     runtime_version: str
+    attestation: tuple[AttestationCheck, ...] = ()
+
+
+def control_link_attestation(
+    queen_waggle_url: str, proxy: SocksProxy | None
+) -> tuple[AttestationCheck, ...]:
+    """Return the two checks a Night Veil Cell makes of its own control link.
+
+    Args:
+        queen_waggle_url: The URL this Cell dials the Queen at.
+        proxy: The SOCKS proxy its transport dials through, or None for a direct dial.
+
+    Returns:
+        `waggle_socket_via_socks` (every dial goes through the proxy) and
+        `hidden_service_reachable` (the Queen answers at her onion service, which the `CellReady`
+        carrying this result proves by arriving), each passed or failed as the facts are.
+    """
+    host = urlsplit(queen_waggle_url).hostname or ""
+    via_socks = AttestationCheck(
+        name=VIA_SOCKS_CHECK,
+        has_passed=proxy is not None,
+        detail=(
+            f"Waggle dials the Queen only through the SOCKS proxy {proxy}; never directly."
+            if proxy is not None
+            else "No SOCKS proxy is set: Waggle would dial the Queen directly."
+        ),
+    )
+    onion = is_onion_service_host(host)
+    hidden_service = AttestationCheck(
+        name=HIDDEN_SERVICE_CHECK,
+        has_passed=onion,
+        detail=(
+            f"This CellReady reaches the Queen at her onion service {host}, over Tor."
+            if onion
+            else f"The Queen's URL names {host!r}, which is not an onion service."
+        ),
+    )
+    return (via_socks, hidden_service)
 
 
 async def announce(deps: CellLinkDeps) -> None:
@@ -131,8 +195,9 @@ async def send_cell_heartbeat(deps: CellLinkDeps) -> None:
         lease_ids=(),
         worker_count=0,
         # A receiver rule (waggle.messages.cell.status's own docstring): always true for MEADOW;
-        # this Cell has no tiered attestation to report otherwise (_build_cell_ready below).
-        is_shield_verified=deps.cell.comb_shield is CombShieldLevel.MEADOW,
+        # a tiered Cell's shield is verified when every check its CellReady carried passed.
+        is_shield_verified=deps.cell.comb_shield is CombShieldLevel.MEADOW
+        or (bool(deps.attestation) and all(check.has_passed for check in deps.attestation)),
         interval_s=deps.heartbeat_interval_s,
     )
     await deps.transport.send(wrap(heartbeat, _hop(deps), clock=deps.clock))
@@ -155,9 +220,8 @@ def _build_cell_ready(deps: CellLinkDeps) -> CellReady:
         # (hivemind.cell.tiers), never the waggle.messages.labels wire form an Envelope carries.
         access_level=deps.cell.access_level.to_wire(),
         comb_shield=deps.cell.comb_shield.to_wire(),
-        # Empty exactly when comb_shield is MEADOW (CellReady's own validator); this dispatch's
-        # Cell is always provisioned at MEADOW (hivemind.cli.in_cell.config), so there is nothing
-        # to report here yet -- Night Veil/Propolis attestation is a later roadmap step (5.7b).
-        attestation=(),
+        # Empty exactly when comb_shield is MEADOW (CellReady's own validator); a Night Veil
+        # Cell carries its control-link checks (roadmap step 10.3a, main.py builds them).
+        attestation=deps.attestation,
         runtime_version=deps.runtime_version,
     )

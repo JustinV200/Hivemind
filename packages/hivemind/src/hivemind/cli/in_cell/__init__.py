@@ -16,6 +16,11 @@ back to the Queen; `providers` builds that Warden's own model door (today, a scr
 yet); `main` wires all of it together as `main()`, the console-script target `packages/hivemind/
 pyproject.toml` registers and the Dockerfile's ENTRYPOINT invokes: announce, then build and run a
 real `hivemind.wardens.warden.Warden` until a Queen-sent `Shutdown`/`CellTeardownRequest` stops it.
+Roadmap step 10.3a: the Cell's tier comes from its bootstrap (`HIVEMIND_COMB_SHIELD`, validated
+against its link by `config`), a Night Veil Cell dials the Queen's onion service only through
+the Tor SOCKS proxy the bootstrap names and attests that link on `CellReady` (`link`), and
+`hive_stand` names the Hive Stand as this Cell reaches it (its host, and the addresses that host
+resolved to once at start; an onion is never resolved) for the Warden's floors.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). The one composition root for a Virtual Cell's own
@@ -47,7 +52,9 @@ Public API:
     - InCellRuntimeConfig, build_runtime_config, rewrite_loopback_base_url, gateway_host: turn
       InCellEnv into typed config, and rewrite a loopback provider URL for a Virtual Cell (config).
     - CellLinkDeps, announce, send_capacity_report, send_cell_heartbeat: the three frames sent
-      before a Warden exists (link).
+      before a Warden exists (link); control_link_attestation, a Night Veil Cell's link checks.
+    - hive_stand_addresses, hive_stand_names: the Hive Stand as this Cell reaches it
+      (hive_stand).
     - build_in_cell_warden_deps: compose a real WardenDeps for this Cell (deps).
     - build_in_cell_provider_registry: this Warden's own model door (providers).
     - main, run_in_cell_warden: the console-script entry point and its async body (main).

@@ -29,6 +29,7 @@ from hivemind.queen.intake import new_goal_request_id, receive
 from hivemind.queen.placement import NightVeilConstraints, PlacementPolicy
 
 _TOR = "socks5h://127.0.0.1:9050"
+_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion"  # A valid v3 address.
 
 
 def _policy(address: str, socks: str = _TOR) -> PlacementPolicy:
@@ -59,9 +60,9 @@ def _task(tier: CombShieldLevel, request_id: str | None = None) -> Task:
 @pytest.mark.parametrize(
     "address",
     [
-        "hivestandhiddenservice.onion",
-        "hivestandhiddenservice.onion:8710",
-        "ws://hivestandhiddenservice.onion:8710/waggle",
+        _ONION,
+        f"{_ONION}:8710",
+        f"ws://{_ONION}:8710/waggle",
     ],
 )
 def test_the_control_link_names_the_hidden_service_host_however_it_is_written(
@@ -69,7 +70,7 @@ def test_the_control_link_names_the_hidden_service_host_however_it_is_written(
 ) -> None:
     link = control_link(_policy(address))
 
-    assert link == ControlLink(host="hivestandhiddenservice.onion", socks_proxy_url=_TOR)
+    assert link == ControlLink(host=_ONION, socks_proxy_url=_TOR)
 
 
 def test_an_unset_profile_or_address_states_no_link_and_an_unset_proxy_states_none() -> None:

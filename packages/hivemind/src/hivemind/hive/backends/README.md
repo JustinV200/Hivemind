@@ -23,7 +23,10 @@ providers under `backends/cloud/`.
   Waggle URL and the Tor SOCKS proxy, built from `[security.tiers.NIGHT_VEIL]`), and
   `cell_endpoint` is the one per-Cell choice every backend makes before minting: the ordinary
   endpoint for MEADOW and PROPOLIS, the link for NIGHT_VEIL, and a `CellProvisionError` (nothing
-  created) for a Night Veil Cell on a Hive with no link, so it is never handed a clearnet address.
+  created) for a Night Veil Cell on a Hive with no link, or with one the Cell could never dial
+  (not a v3 onion service, or a proxy that is not a loopback `socks5h`/`socks4a` one), so it is
+  never handed a clearnet address. The chosen endpoint carries the Cell's tier, rendered as
+  `HIVEMIND_COMB_SHIELD`, so the Cell's own floors see it.
 - `DockerCellBackend` / `build_docker_backend` (`docker/`): the first working `CellBackend`, over
   a Docker daemon. See `docker/`'s own module docstrings for `DockerClientPort`, `SdkDockerClient`
   (the only module that may import the `docker` SDK), `FakeDockerClient` and what each

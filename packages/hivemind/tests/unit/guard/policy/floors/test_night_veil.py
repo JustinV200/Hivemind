@@ -35,7 +35,7 @@ _POLICY = load_guard_policy()
 _NIGHT_VEIL = CombShieldLevel.NIGHT_VEIL
 _ON_CELL = PolicyContext(comb_shield=_NIGHT_VEIL)  # An action on a Night Veil Cell.
 _BOUND = PolicyContext(bound_tier=_NIGHT_VEIL)  # A task bound to, or asking for, Night Veil.
-_ONION = "hivestand2a5bq3v7lx6hbhxg4hjk6bqjhm6mmuwq4z7s3fqhp2fy6s2ad.onion"
+_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion"  # A valid v3.
 _TOR = "socks5h://127.0.0.1:9050"
 
 
@@ -189,8 +189,10 @@ def test_a_night_veil_link_to_a_hidden_service_through_loopback_tor_passes_the_f
 @pytest.mark.parametrize(
     ("host", "proxy", "problem"),
     [
-        ("hive.example.com", _TOR, "its link dials a clearnet host"),
-        ("10.8.0.1", _TOR, "its link dials a clearnet host"),
+        ("hive.example.com", _TOR, "not a v3 onion service"),
+        ("10.8.0.1", _TOR, "not a v3 onion service"),
+        ("hivestandhiddenservice.onion", _TOR, "not a v3 onion service"),  # Not v3-shaped.
+        ("x" + _ONION[1:], _TOR, "not a v3 onion service"),  # A typo: its checksum fails.
         (_ONION, None, "its link dials directly, with no SOCKS proxy"),
         (_ONION, "http://127.0.0.1:9050", "its proxy is not a SOCKS proxy"),
         (_ONION, "socks5h://10.8.0.1:9050", "its SOCKS proxy is off the Cell's own loopback"),

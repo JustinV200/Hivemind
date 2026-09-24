@@ -17,11 +17,21 @@ Fits into the Hive:
     (InCellEnv), `hivemind.wardens.spawn` (InCellSpawnConfig), `waggle.clock`, `waggle.ids` and
     `waggle.signing` only.
 
+Roadmap step 10.3a: this Cell's tier is no longer assumed MEADOW. It comes from the bootstrap
+(`HIVEMIND_COMB_SHIELD`, which the provisioning backend always writes; unset reads as MEADOW, the
+tier of every Cell minted before it existed), and the link has to match it: a Night Veil Cell must
+dial a v3 onion service through a loopback SOCKS proxy (`HIVEMIND_SOCKS_PROXY_URL`), and a Queen
+URL that is an onion service is a Night Veil Cell's only, so a missing tier can never pass a Night
+Veil link off as MEADOW. PROPOLIS is refused: no in-Cell attestation exists for it yet, and a
+Cell that cannot attest its tier must not announce it.
+
 Key invariants:
     - `build_runtime_config` raises `ConfigurationError` naming the missing or malformed variable
       for any of: the Queen's Waggle URL, this Cell's id, the Queen's bee address, the Queen's own
-      node id, this Cell's signing key, or the Queen's verify key -- never a bare `KeyError` or a
-      cryptography-library exception.
+      node id, this Cell's signing key, the Queen's verify key, the Cell's tier or the SOCKS proxy
+      -- never a bare `KeyError` or a cryptography-library exception.
+    - A NIGHT_VEIL config always names a v3 onion Queen URL and a loopback socks5h/socks4a proxy;
+      no other tier's config names an onion Queen URL.
     - A key given as both `..._FILE` and the inline hex variable prefers the file (a mounted
       secret is harder to leak than a bare environment variable, codingrules section 15).
     - `node_id` and `warden_id` are freshly minted every time this process starts: a container is
@@ -53,6 +63,7 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
+from hivemind.guard.net import IPAddress
 from hivemind.llm.registry import ProviderConfig, ProviderKind
 from hivemind.manifest.env import InCellEnv
 from hivemind.wardens.spawn import InCellSpawnConfig
@@ -69,7 +80,8 @@ from waggle.ids import (
     parse_id,
 )
 from waggle.signing import Ed25519Signer, Ed25519Verifier
-from waggle.uris import check_waggle_uri, is_loopback_host
+from waggle.transport.socks import SocksProxy
+from waggle.uris import check_waggle_uri, is_loopback_host, is_onion_service_host
 
 # Where this dispatch's Cell keeps every lease's own scratch subdirectory (roadmap step 5.5:
 # InCellSpawnSource.lease() creates one under this root per lease). Matches the non-root `hive`
@@ -111,8 +123,8 @@ class InCellRuntimeConfig:
         spawn_config: What describes this Cell to `hivemind.wardens.spawn.in_cell.
             InCellSpawnSource`, once a Warden is wired up to use one (roadmap steps 5.4/5.6).
         heartbeat_interval_s: How often `CellHeartbeat` is sent.
-        socks_proxy_url: A SOCKS proxy Waggle should dial through, once Night Veil wires it up
-            (roadmap step 5.7a); carried unchanged, never acted on here.
+        socks_proxy_url: The loopback SOCKS proxy every Waggle dial goes through (a Night Veil
+            Cell's Tor SOCKS port, roadmap step 10.3a), already validated; None dials directly.
         providers: This Hive's own `[llm.providers]` table, parsed from `HIVEMIND_PROVIDERS`
             (`hivemind.cli.in_cell.providers.build_in_cell_provider_registry`'s own input); empty
             when the variable is unset, in which case that module keeps building today's fake.
@@ -123,6 +135,9 @@ class InCellRuntimeConfig:
             `build_in_cell_provider_registry` can resolve each provider's own API key by the exact
             variable name `providers`' own `api_key_env` names (`hivemind.manifest.env.InCellEnv.
             environ`'s own docstring explains why this is not a second environment read).
+        hive_stand_addresses: The addresses the Queen's host resolved to, once, at start
+            (`hivemind.cli.in_cell.hive_stand`); empty until then, and always for a Night Veil
+            Cell, whose onion host is never resolved here.
     """
 
     queen_waggle_url: str
@@ -139,6 +154,7 @@ class InCellRuntimeConfig:
     slots: tuple[SlotBinding, ...]
     llm_offline: bool
     environ: Mapping[str, str]
+    hive_stand_addresses: tuple[IPAddress, ...] = ()
 
 
 def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
@@ -160,36 +176,43 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
     queen_node_id = NodeId(
         _parse_required(env.queen_node_id, IdKind.NODE, "HIVEMIND_QUEEN_NODE_ID")
     )
-    signer = Ed25519Signer(_signing_key_bytes(env))
-    verifier = Ed25519Verifier({queen_node_id: _verify_key_bytes(env)})
-    # HIVEMIND_SCRATCH_ROOT overrides the image's own path: a test or an in-process Cell on a host
-    # that cannot create /var/lib/hivemind (Linux CI) sets it; a real container never needs to.
-    scratch_root = env.scratch_root if env.scratch_root is not None else DEFAULT_SCRATCH_ROOT
-    probed = probe_host(_probe_config(scratch_root))
-    spawn_config = InCellSpawnConfig(
-        cell_id=cell_id,
-        capabilities=probed.capabilities,
-        capacity=probed.capacity,
-        # New Virtual Cells default to MEADOW (codingrules section 8.7); a higher tier is a Queen
-        # provisioning decision (roadmap step 5.7), not something this entry point chooses itself.
-        comb_shield=CombShieldLevel.MEADOW,
-        scratch_root=scratch_root,
-    )
+    # The tier is the Queen's provisioning decision, read from the bootstrap and held to the
+    # link it came with (module docstring), never chosen by this entry point itself.
+    comb_shield = _parse_comb_shield(env.comb_shield)
+    queen_waggle_url = _require_queen_waggle_url(env.queen_waggle_url)
+    _check_link_matches_tier(comb_shield, queen_waggle_url, env.socks_proxy_url)
     return InCellRuntimeConfig(
-        queen_waggle_url=_require_queen_waggle_url(env.queen_waggle_url),
+        queen_waggle_url=queen_waggle_url,
         hive_id=hive_id,
         queen_node_id=queen_node_id,
         node_id=new_node_id(clock),
         warden_id=new_warden_id(clock),
-        signer=signer,
-        verifier=verifier,
-        spawn_config=spawn_config,
+        signer=Ed25519Signer(_signing_key_bytes(env)),
+        verifier=Ed25519Verifier({queen_node_id: _verify_key_bytes(env)}),
+        spawn_config=_spawn_config(env, cell_id, comb_shield),
         heartbeat_interval_s=DEFAULT_HEARTBEAT_INTERVAL_S,
         socks_proxy_url=env.socks_proxy_url,
         providers=_parse_providers(env.providers_json),
         slots=_parse_slots(env.slots_json),
         llm_offline=env.llm_offline or False,
         environ=env.environ,
+    )
+
+
+def _spawn_config(
+    env: InCellEnv, cell_id: CellId, comb_shield: CombShieldLevel
+) -> InCellSpawnConfig:
+    """Probe this Cell and describe it at the tier its bootstrap named."""
+    # HIVEMIND_SCRATCH_ROOT overrides the image's own path: a test or an in-process Cell on a host
+    # that cannot create /var/lib/hivemind (Linux CI) sets it; a real container never needs to.
+    scratch_root = env.scratch_root if env.scratch_root is not None else DEFAULT_SCRATCH_ROOT
+    probed = probe_host(_probe_config(scratch_root))
+    return InCellSpawnConfig(
+        cell_id=cell_id,
+        capabilities=probed.capabilities,
+        capacity=probed.capacity,
+        comb_shield=comb_shield,
+        scratch_root=scratch_root,
     )
 
 
@@ -217,6 +240,57 @@ def _require_queen_waggle_url(value: str | None) -> str:
         return check_waggle_uri(raw, allow_virtual_cell_gateway_host=True)
     except ValueError as exc:
         raise ConfigurationError(f"HIVEMIND_QUEEN_WAGGLE_URL={raw!r} is invalid: {exc}") from exc
+
+
+def _parse_comb_shield(value: str | None) -> CombShieldLevel:
+    """Return the tier `HIVEMIND_COMB_SHIELD` names; MEADOW when it is unset.
+
+    Raises:
+        ConfigurationError: The value names no tier, or names PROPOLIS, which this Cell cannot
+            attest (module docstring).
+    """
+    if value is None:
+        return CombShieldLevel.MEADOW  # A bootstrap from before the tier was written.
+    try:
+        tier = CombShieldLevel[value.strip().upper()]
+    except KeyError as exc:
+        raise ConfigurationError(
+            f"HIVEMIND_COMB_SHIELD={value!r} is not a Comb Shield tier (MEADOW or NIGHT_VEIL)."
+        ) from exc
+    if tier is CombShieldLevel.PROPOLIS:
+        raise ConfigurationError(
+            "HIVEMIND_COMB_SHIELD=PROPOLIS: no in-Cell attestation exists for PROPOLIS yet, and a "
+            "Cell that cannot attest its tier must not announce it."
+        )
+    return tier
+
+
+def _check_link_matches_tier(
+    tier: CombShieldLevel, queen_waggle_url: str, socks_proxy_url: str | None
+) -> None:
+    """Refuse a link that does not fit the tier: Night Veil dials an onion through Tor, only.
+
+    Raises:
+        ConfigurationError: The proxy is not a loopback socks5h/socks4a one; a NIGHT_VEIL Cell's
+            Queen URL is not a v3 onion service or it names no proxy; or another tier's Queen URL
+            is an onion service.
+    """
+    try:
+        proxy = SocksProxy.parse(socks_proxy_url) if socks_proxy_url is not None else None
+    except ValueError as exc:
+        raise ConfigurationError(f"HIVEMIND_SOCKS_PROXY_URL is invalid: {exc}") from exc
+    onion = is_onion_service_host(urlsplit(queen_waggle_url).hostname or "")
+    if tier is CombShieldLevel.NIGHT_VEIL and (not onion or proxy is None):
+        raise ConfigurationError(
+            "A NIGHT_VEIL Cell dials the Queen only at her v3 onion service, through the Tor "
+            f"SOCKS proxy on its own loopback; got HIVEMIND_QUEEN_WAGGLE_URL={queen_waggle_url!r} "
+            f"and HIVEMIND_SOCKS_PROXY_URL={socks_proxy_url!r}."
+        )
+    if tier is not CombShieldLevel.NIGHT_VEIL and onion:
+        raise ConfigurationError(
+            f"HIVEMIND_QUEEN_WAGGLE_URL names an onion service, which only a NIGHT_VEIL Cell "
+            f"dials, but HIVEMIND_COMB_SHIELD is {tier.value}."
+        )
 
 
 def rewrite_loopback_base_url(base_url: str, gateway_host: str) -> str:

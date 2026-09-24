@@ -17,6 +17,8 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from builders.forage import make_capacity
 
@@ -33,7 +35,8 @@ from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
 from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
 
-_ONION = "hivestandhiddenservice.onion:8710"
+_HOST = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion"  # A valid v3 address.
+_ONION = f"{_HOST}:8710"
 _TOR = "socks5h://127.0.0.1:9050"
 _LINK = NightVeilLink(waggle_url=f"ws://{_ONION}", socks_proxy_url=_TOR)
 
@@ -67,7 +70,7 @@ def _spec(tier: CombShieldLevel) -> VirtualCellSpec:
     ("address", "url"),
     [
         (_ONION, f"ws://{_ONION}"),
-        ("hivestandhiddenservice.onion", "ws://hivestandhiddenservice.onion"),
+        (_HOST, f"ws://{_HOST}"),
         (f"wss://{_ONION}/waggle", f"wss://{_ONION}/waggle"),
     ],
 )
@@ -86,11 +89,20 @@ def test_an_incomplete_profile_builds_no_link(address: str, socks: str) -> None:
     assert NightVeilLink.from_profile(address, socks) is None
 
 
-@pytest.mark.parametrize("tier", [CombShieldLevel.MEADOW, CombShieldLevel.PROPOLIS])
-def test_every_other_tier_keeps_the_ordinary_endpoint(tier: CombShieldLevel) -> None:
+def test_a_meadow_cell_keeps_the_ordinary_endpoint_itself() -> None:
     endpoint = _endpoint()
 
-    assert cell_endpoint(endpoint, _spec(tier), "docker") is endpoint
+    assert cell_endpoint(endpoint, _spec(CombShieldLevel.MEADOW), "docker") is endpoint
+
+
+def test_a_propolis_cell_keeps_the_ordinary_link_and_is_told_its_tier() -> None:
+    endpoint = _endpoint()
+
+    chosen = cell_endpoint(endpoint, _spec(CombShieldLevel.PROPOLIS), "docker")
+
+    assert chosen == dataclasses.replace(endpoint, comb_shield=CombShieldLevel.PROPOLIS)
+    environment = mint_cell_bootstrap(new_hive_id(FakeClock()), chosen, FakeClock()).environment()
+    assert environment["HIVEMIND_COMB_SHIELD"] == "PROPOLIS"
 
 
 def test_a_night_veil_cell_dials_the_hidden_service_through_tor_and_carries_no_link() -> None:
@@ -109,6 +121,7 @@ def test_the_minted_night_veil_environment_names_only_the_hidden_service() -> No
 
     assert environment["HIVEMIND_QUEEN_WAGGLE_URL"] == _LINK.waggle_url
     assert environment["HIVEMIND_SOCKS_PROXY_URL"] == _TOR
+    assert environment["HIVEMIND_COMB_SHIELD"] == "NIGHT_VEIL"
     assert "localhost" not in "".join(environment.values())
 
 
@@ -117,3 +130,19 @@ def test_a_night_veil_cell_on_a_hive_with_no_link_is_refused() -> None:
         cell_endpoint(_endpoint(None), _spec(CombShieldLevel.NIGHT_VEIL), "qemu")
 
     assert "qemu" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("link", "why"),
+    [
+        (NightVeilLink("ws://hivestand.example:8710", _TOR), "not a v3 onion service"),
+        (NightVeilLink(f"ws://x{_HOST[1:]}:8710", _TOR), "not a v3 onion service"),  # A typo.
+        (NightVeilLink(f"ws://{_ONION}", "socks5://127.0.0.1:9050"), "cannot be dialled"),
+        (NightVeilLink(f"ws://{_ONION}", "socks5h://10.0.0.1:9050"), "cannot be dialled"),
+    ],
+)
+def test_a_link_the_cell_could_never_dial_is_refused_before_anything_exists(
+    link: NightVeilLink, why: str
+) -> None:
+    with pytest.raises(CellProvisionError, match=why):
+        cell_endpoint(_endpoint(link), _spec(CombShieldLevel.NIGHT_VEIL), "docker")

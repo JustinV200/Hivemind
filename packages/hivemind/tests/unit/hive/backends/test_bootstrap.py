@@ -121,6 +121,7 @@ def test_environment_renders_every_required_hivemind_variable() -> None:
     assert env["HIVEMIND_QUEEN_NODE_ID"] == endpoint.queen_node_id
     assert env["HIVEMIND_CELL_SIGNING_KEY"] == bootstrap.private_key_hex.get_secret_value()
     assert env["HIVEMIND_QUEEN_VERIFY_KEY"] == endpoint.queen_verify_key_hex
+    assert env["HIVEMIND_COMB_SHIELD"] == "MEADOW"  # Roadmap step 10.3a: the Cell's own tier.
     assert "HIVEMIND_SOCKS_PROXY_URL" not in env
     # No provider table: the fake-backend e2e and every existing caller must see byte-for-byte
     # the same environment as before roadmap step 8.x (hivemind.cli.in_cell.providers's own

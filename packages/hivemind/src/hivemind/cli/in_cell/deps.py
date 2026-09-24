@@ -11,9 +11,10 @@ first place. Roadmap step 10.3: the Warden's Guard `Enforcer` is built over that
 and records to this Cell's own trail segment (shipped to the Queen like every other row), and its
 lease needs `cell:virtual` -- set here, because this module is the one place that knows it built a
 Virtual Cell's source, never read off the Cell's kind. Roadmap step 10.3a: the policy names the
-Hive Stand's address as this Cell sees it (its Queen URL's host, when that is an IP literal, as
-QEMU's gateway is), so the Hive-state floor refuses a Worker `net` to it, and the deps say which
-providers this Cell serves locally, for Night Veil's local-only binding rule.
+Hive Stand as this Cell reaches it (its Queen URL's host as a name, and the addresses that host
+resolved to at start, `hivemind.cli.in_cell.hive_stand`), so the Hive-state floor refuses a Worker
+`net` to it, and the deps say which providers this Cell serves locally, for Night Veil's
+local-only binding rule.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
@@ -25,7 +26,8 @@ Fits into the Hive:
     load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
     (RelaySnapshotter), `hivemind.wardens.spawn` (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
-    (Drone), `hivemind.cli.in_cell.providers` and waggle only.
+    (Drone), `hivemind.cli.in_cell.providers`, `hivemind.cli.in_cell.hive_stand` and waggle
+    only.
 
 Key invariants:
     - `worker_factory` always returns a fresh `Drone`, the same "v0's only Worker role" choice
@@ -50,6 +52,7 @@ from urllib.parse import urlsplit
 
 from hivemind.cell import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
+from hivemind.cli.in_cell.hive_stand import hive_stand_names
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry, local_provider_names
 from hivemind.forage.slots import ModelSlot
 from hivemind.guard import Capability, CapabilityFamily, Enforcer, load_guard_policy
@@ -169,14 +172,16 @@ def _build_enforcer(config: InCellRuntimeConfig, trail: PheromoneTrail, clock: C
 
 
 def _hive_stand_state(config: InCellRuntimeConfig) -> HiveState:
-    """Name the Hive Stand's address as this Cell reaches it, when its Queen URL spells one.
+    """Name the Hive Stand as this Cell reaches it: its host's name and its addresses.
 
-    The Hive's files live on the Hive Stand, not in this Cell, so only the address applies here;
-    a gateway name (`host.docker.internal`) is not resolved at start, so it names none.
+    The Hive's files live on the Hive Stand, not in this Cell, so only the Hive Stand's names and
+    addresses apply here: the Queen URL's host (a gateway alias, an onion service: refused by
+    name) and what that host resolved to at start, or the host itself when it is an address.
     """
     host = urlsplit(config.queen_waggle_url).hostname or ""
     literal = ip_literal(host)
-    return HiveState.of(own_addresses=(literal,) if literal is not None else ())
+    own = (*config.hive_stand_addresses, *((literal,) if literal is not None else ()))
+    return HiveState.of(own_addresses=own, own_host_names=hive_stand_names(config))
 
 
 def _build_snapshotter(

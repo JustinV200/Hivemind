@@ -53,8 +53,11 @@ start: the kill-switch is in force before there is anything to leak, never appli
 ## Tor (`torrc`)
 
 `SocksPort 127.0.0.1:9050` (loopback only -- the Warden's Waggle transport is the one thing on
-this Cell that dials it) and `ControlPort 127.0.0.1:9051` (cookie-authenticated, no password file
-to leak). `Log notice file /dev/null`: no logs retained, matching codingrules section 12's Night
+this Cell that dials it: the backend sets `HIVEMIND_SOCKS_PROXY_URL=socks5h://127.0.0.1:9050`,
+`HIVEMIND_QUEEN_WAGGLE_URL` to the Hive Stand's v3 onion service and `HIVEMIND_COMB_SHIELD=
+NIGHT_VEIL`, and the transport names the onion to Tor over SOCKS5, never resolving it and never
+dialling directly, roadmap step 10.3a) and `ControlPort 127.0.0.1:9051` (cookie-authenticated, no
+password file to leak). `Log notice file /dev/null`: no logs retained, matching codingrules section 12's Night
 Veil boundary -- Tor's own log is one of the "side channels" `docs/adr/0030` names, and this image
 never writes one in the first place rather than relying on teardown to purge it. `ClientOnly 1`:
 this Cell is a Tor client, never a relay or bridge.

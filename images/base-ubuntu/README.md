@@ -88,7 +88,8 @@ provision time -- code in this image still never names a model or vendor itself.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `HIVEMIND_QUEEN_WAGGLE_URL` | yes | Where this Cell dials out to (`wss://` anywhere, `ws://` on loopback only -- `waggle.uris.check_waggle_uri`). |
+| `HIVEMIND_QUEEN_WAGGLE_URL` | yes | Where this Cell dials out to (`wss://` anywhere; `ws://` on loopback, a documented host-gateway alias or private address, or a Tor v3 onion service -- `waggle.uris.check_waggle_uri`). |
+| `HIVEMIND_COMB_SHIELD` | yes (written by every backend since roadmap step 10.3a) | The tier the Queen provisioned this Cell at (`MEADOW` or `NIGHT_VEIL`), announced on `CellReady` and seen by the Cell's own floors. Unset reads as `MEADOW`; `PROPOLIS` is refused (no in-Cell attestation for it yet). A `NIGHT_VEIL` Cell must dial a v3 onion Queen URL through `HIVEMIND_SOCKS_PROXY_URL`, and only a `NIGHT_VEIL` Cell may name an onion Queen URL. |
 | `HIVEMIND_CELL_ID` | yes | The `cell_<ULID>` id the Queen minted for this Cell when it provisioned it. |
 | `HIVEMIND_HIVE_ID` | yes | The Queen's own bee address (`hive_<ULID>`), the `recipient` of every envelope this Cell sends. |
 | `HIVEMIND_QUEEN_NODE_ID` | yes | The `node_<ULID>` the Queen signs its own frames as, so this Cell's Verifier knows whose signature to check (signing is mandatory across a machine boundary, roadmap step 1.7). |
@@ -96,7 +97,7 @@ provision time -- code in this image still never names a model or vendor itself.
 | `HIVEMIND_CELL_SIGNING_KEY_FILE` | one of these two | A file holding the same hex text, for a mounted secret instead of a bare environment variable (preferred when both are set, codingrules section 15). |
 | `HIVEMIND_QUEEN_VERIFY_KEY` | one of these two | The Queen's own Ed25519 public key, hex-encoded. |
 | `HIVEMIND_QUEEN_VERIFY_KEY_FILE` | one of these two | A file holding the same hex text (preferred when both are set). |
-| `HIVEMIND_SOCKS_PROXY_URL` | no | A SOCKS proxy Waggle should dial through. Carried, not yet acted on -- Night Veil (roadmap step 5.7a) is what routes this over Tor; a `base-ubuntu` Cell never sets it. |
+| `HIVEMIND_SOCKS_PROXY_URL` | no | A `socks5h://` or `socks4a://` proxy on the Cell's own loopback that every Waggle dial goes through, the destination named to it and never resolved in the Cell (roadmap step 10.3a: a Night Veil Cell's Tor SOCKS port; `waggle.transport.socks`). Once set, the Cell never dials directly. A `base-ubuntu` Cell never sets it. |
 | `HIVEMIND_PROVIDERS` | no | This Hive's own `[llm.providers]` table, as a bounded JSON array (`hivemind.hive.backends.provider_table.render_providers_json`): one object per provider, each naming its `kind`, its own Cell-reachable `base_url` (already rewritten from the Hive Stand's own loopback address), `default_model`, capability overrides and the `api_key_env` variable name its own key (if any) rides under. Absent means this Cell resolves every model slot to a scriptable fake instead (`hivemind.cli.in_cell.providers`). |
 | `HIVEMIND_SLOTS` | no | This Hive's own `[llm.slots]` table, as a bounded JSON array (`render_slots_json`); present exactly when `HIVEMIND_PROVIDERS` is. |
 | `HIVEMIND_<NAME>_API_KEY` | no | One such variable per provider named in `HIVEMIND_PROVIDERS` that actually has a key configured (e.g. `HIVEMIND_ANTHROPIC_API_KEY`) -- the exact name `[llm.providers.<name>].api_key_env` derives, never the JSON above (a key VALUE never rides that blob). |

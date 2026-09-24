@@ -5,9 +5,11 @@ Worker's set holds, it is refused `fs:read` and `fs:write` on the Hive's state p
 and its SQLite siblings, the secret store and everything under it, the manifest), `exec` of the
 Hive's own entry points (`hive`, and every `hivemind-*` console script, matched on the basename of
 argv[0] so `/x/.venv/bin/hive` and `hive.exe` are caught), and `net` to any loopback name or
-address, the unspecified address, a link-local address (where cloud metadata services answer) or
-one of the Hive Stand's own addresses. A capability can spell a loopback host many ways the
-string grammar never sees through, so when an enforcement point resolved the host first
+address, the unspecified address, a link-local address (where cloud metadata services answer),
+one of the Hive Stand's own addresses, or one of the names a Cell reaches the Hive Stand by (a
+host-gateway alias, a Night Veil Cell's onion service; `HiveState.own_host_names`, refused by
+name, and a `*.domain` scope that covers one too). A capability can spell a loopback host many
+ways the string grammar never sees through, so when an enforcement point resolved the host first
 (`PolicyContext.resolved_addresses`, the HTTP tool), every resolved address is judged too. A path
 is compared in `comparable_path` form; a write is also refused on a directory that holds state
 (replacing or removing it would take the state with it), and a scope that is itself a glob
@@ -160,7 +162,7 @@ def _entry_point_refusal(program: str) -> FloorRefusal | None:
 
 def _net_refusal(scope: str, context: PolicyContext, hive: HiveState) -> FloorRefusal | None:
     """Refuse a `net` scope, or any address it resolved to, that reaches the Hive Stand itself."""
-    phrase = _scope_phrase(scope, hive.own_addresses)
+    phrase = _scope_phrase(scope, hive.own_addresses) or _own_name_phrase(scope, hive)
     # Resolved addresses are what a connection would really use: each one is judged too.
     if phrase is None:
         phrase = _resolved_phrase(context, hive.own_addresses)
@@ -192,6 +194,17 @@ def _scope_phrase(scope: str, own: frozenset[IPAddress]) -> str | None:
         return "it names a loopback name" if is_loopback_name(host) else None
     found = network_refusal(network, own)
     return f"it names {found}" if found is not None else None
+
+
+def _own_name_phrase(scope: str, hive: HiveState) -> str | None:
+    """Say which of the Hive Stand's own names a `net` scope names or covers; else None."""
+    host = normalise_host(scope)
+    # `*.domain` covers every name that ends in `.domain`; any other scope names one host.
+    covered = host.removeprefix(_SUBDOMAINS) if host.startswith(_SUBDOMAINS) else None
+    for name in sorted(hive.own_host_names):
+        if name == host or (covered is not None and name.endswith(f".{covered}")):
+            return f"it names {name!r}, the Hive Stand's own name from here"
+    return None
 
 
 def _at_or_under(path: str, root: str) -> bool:

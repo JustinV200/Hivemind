@@ -52,7 +52,8 @@ def _make_spec(**overrides: object) -> VirtualCellSpec:
 
 # The Hive's Night Veil link, as a composition root builds it from [security.tiers.NIGHT_VEIL].
 _LINK = NightVeilLink(
-    waggle_url="ws://hivestandhiddenservice.onion:8710", socks_proxy_url="socks5h://127.0.0.1:9050"
+    waggle_url="ws://7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710",
+    socks_proxy_url="socks5h://127.0.0.1:9050",
 )
 
 

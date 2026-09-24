@@ -12,6 +12,10 @@ readiness gate waits for the first and last of those, unmodified by this dispatc
 run a real, task-executing `Warden` over that same transport until it stops.
 `run_in_cell_warden` is the async half, taking an already-read environment mapping and an injected
 `Clock` so a test drives the whole sequence without touching the real environment or a real timer.
+Roadmap step 10.3a: the transport dials through the SOCKS proxy the bootstrap names (a Night Veil
+Cell's Tor SOCKS port; never directly once one is named), a Night Veil Cell's `CellReady` carries
+its control-link checks, and the Hive Stand's addresses are resolved once, before the Warden is
+built, so its floors know them (`hivemind.cli.in_cell.hive_stand`; an onion host never is).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
@@ -56,13 +60,16 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 from collections.abc import Callable, Mapping
 
 from hivemind.cell.source import CellIdentity
+from hivemind.cell.tiers import CombShieldLevel
 from hivemind.cli.in_cell import link as cell_link
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
+from hivemind.cli.in_cell.hive_stand import hive_stand_addresses
 from hivemind.cli.version import collect_version_info
 from hivemind.common.logging import configure_logging, get_logger
 from hivemind.manifest.env import read_in_cell_env
@@ -73,6 +80,7 @@ from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
 from waggle.clock import Clock, SystemClock
 from waggle.codec import Codec
+from waggle.messages.cell.status import AttestationCheck
 from waggle.transport.websocket_client import DialOptions, WebSocketClientTransport
 
 __all__ = ["main", "run_in_cell_warden"]
@@ -100,6 +108,8 @@ async def run_in_cell_warden(
             needing to expose a second, lower-level entry point.
     """
     config = build_runtime_config(read_in_cell_env(environ), clock)
+    # Once, at start: the Hive Stand's addresses for this Cell's floors (never an onion's).
+    config = dataclasses.replace(config, hive_stand_addresses=await hive_stand_addresses(config))
     transport, source, trail = await _connect_and_announce(config, clock)
 
     deps = build_in_cell_warden_deps(config, source, transport, trail, clock)
@@ -153,11 +163,14 @@ async def _connect_and_announce(
     codec = Codec(signer=config.signer, verifier=config.verifier)
     # The gateway carve-out matches build_runtime_config's own validation of this URL: from inside
     # a container, loopback is the Cell itself, so the Queen is reached through the host gateway.
+    # Roadmap step 10.3a: with a SOCKS proxy named, every dial goes through it and none directly.
     transport = WebSocketClientTransport(
         config.queen_waggle_url,
         codec,
         clock,
-        options=DialOptions(allow_virtual_cell_gateway_host=True),
+        options=DialOptions(
+            allow_virtual_cell_gateway_host=True, socks_proxy_url=config.socks_proxy_url
+        ),
     )
     # This Cell's own local Pheromone Trail segment (codingrules section 12: "A Warden that is
     # offline writes to its local segment; on reconnection the segment merges into the Queen's
@@ -179,6 +192,7 @@ async def _connect_and_announce(
         clock=clock,
         heartbeat_interval_s=config.heartbeat_interval_s,
         runtime_version=collect_version_info().hivemind_version,
+        attestation=_attestation(cell.comb_shield, transport),
     )
     _LOG.info("cell.link.connecting", queen_waggle_url=config.queen_waggle_url, cell_id=cell.id)
     await cell_link.announce(link_deps)
@@ -187,6 +201,16 @@ async def _connect_and_announce(
     await cell_link.send_cell_heartbeat(link_deps)
     _LOG.info("cell.link.ready", cell_id=cell.id)
     return transport, source, trail
+
+
+def _attestation(
+    tier: CombShieldLevel, transport: WebSocketClientTransport
+) -> tuple[AttestationCheck, ...]:
+    """Return the checks this Cell's CellReady carries: its control link's, for Night Veil."""
+    # MEADOW attests nothing (CellReady's own rule); config refused every tier but these two.
+    if tier is not CombShieldLevel.NIGHT_VEIL:
+        return ()
+    return cell_link.control_link_attestation(transport.uri, transport.socks_proxy)
 
 
 _DEFAULT_LOG_LEVEL = "INFO"  # Used when HIVEMIND_LOG_LEVEL is not set.

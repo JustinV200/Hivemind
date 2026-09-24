@@ -115,13 +115,13 @@ deciding (`floors/chain.py`):
 | --- | --- | --- | --- |
 | Hive state (`floors/hive_state.py`) | `guard.state_floor.state_paths` | a bee's `fs:read`/`fs:write` on the `[hive] db` and its `-wal`/`-shm`/`-journal` siblings, the `[hive] secrets_dir` and everything under it, or the manifest (a write also on any directory above them) | `GuardPolicy.hive_state` |
 | | `guard.state_floor.entry_points` | a bee's `exec` of `hive` or `hivemind-*` (argv[0]'s basename, `.exe` and the like stripped) | the need alone |
-| | `guard.state_floor.loopback` | a bee's `net` to a loopback, unspecified or link-local host (every spelling: `localhost`, `*.localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, IPv4-mapped forms), to one of the Hive Stand's own addresses, or to any address the name resolved to | `hive_state.own_addresses`, `resolved_addresses` |
+| | `guard.state_floor.loopback` | a bee's `net` to a loopback, unspecified or link-local host (every spelling: `localhost`, `*.localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0/8`, `::`, IPv4-mapped forms), to one of the Hive Stand's own addresses or names (a Cell's host-gateway alias, a Night Veil Cell's onion service; a `*.domain` scope covering one), or to any address the name resolved to | `hive_state.own_addresses`, `hive_state.own_host_names`, `resolved_addresses` |
 | Initiation (`floors/initiation.py`) | `guard.tier_floor.night_veil_initiation` | Night Veil placement or egress unless the task's origin is HUMAN and its durable goal request (origin HUMAN) named NIGHT_VEIL | `origin`, `goal_request` |
 | Night Veil (`floors/night_veil.py`) | `guard.tier_floor.night_veil_virtual_only` | `cell:hive_stand` or `cell:real:*` for a Night Veil task | the need alone |
 | | `guard.tier_floor.night_veil_local_slots` | an `llm` binding not shown local (in process, or served on the Cell itself; unknown fails closed) | `binding_local` |
 | | `guard.tier_floor.night_veil_clearance` | Honey above `c1` (the `honey_access` point is pending until phase 7; the floor is tested through `evaluate`) | the need alone |
 | | `guard.tier_floor.night_veil_location` | `geo`, `wifi:scan`, `host:metadata`, and `net` to a cloud metadata endpoint by name or resolved address | the need, `resolved_addresses` |
-| | `guard.tier_floor.night_veil_control_link` | a Night Veil Cell's control link that is not a `.onion` host through a `socks5h`/`socks4a` proxy on the Cell's loopback | `control_link` |
+| | `guard.tier_floor.night_veil_control_link` | a Night Veil Cell's control link that is not a v3 onion service (`waggle.uris.is_onion_service_host`, the rule the Cell's transport dials by) through a `socks5h`/`socks4a` proxy on the Cell's loopback | `control_link` |
 | Inheritance (`floors/inheritance.py`) | `guard.tier_floor.tier_inheritance` | activating egress for a tier weaker than the one the task is bound to | `bound_tier` |
 
 "Under Night Veil" means the Cell's tier, or the task's bound or requested tier, is NIGHT_VEIL.

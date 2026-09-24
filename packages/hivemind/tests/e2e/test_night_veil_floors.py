@@ -58,7 +58,7 @@ from waggle.transport.memory import MemoryTransport
 
 pytestmark = pytest.mark.e2e
 
-_ONION = "hivestandhiddenservice.onion:8710"
+_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710"
 _TOR = "socks5h://127.0.0.1:9050"
 _DECISION: dict[str, object] = {"action": "RECORD", "reason": "Nothing to decide."}
 _NIGHT_VEIL_NEEDS: dict[str, object] = {"comb_shield": "NIGHT_VEIL", "isolation": "REQUIRED"}

@@ -221,8 +221,13 @@ class InCellEnv(BaseModel):
     )
     socks_proxy_url: str | None = Field(
         default=None,
-        description="HIVEMIND_SOCKS_PROXY_URL: a SOCKS proxy Waggle should dial through once "
-        "Night Veil routes it over Tor (roadmap step 5.7a); carried here, not yet acted on.",
+        description="HIVEMIND_SOCKS_PROXY_URL: the loopback SOCKS proxy (socks5h/socks4a) every "
+        "Waggle dial goes through: a Night Veil Cell's Tor SOCKS port (roadmap step 10.3a).",
+    )
+    comb_shield: str | None = Field(
+        default=None,
+        description="HIVEMIND_COMB_SHIELD: the tier the Queen provisioned this Cell at (roadmap "
+        "step 10.3a), validated by hivemind.cli.in_cell.config; unset reads as MEADOW.",
     )
     scratch_root: Path | None = Field(
         default=None,
@@ -289,6 +294,7 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         queen_verify_key_hex=environ.get("HIVEMIND_QUEEN_VERIFY_KEY"),
         queen_verify_key_file=Path(verify_key_file) if verify_key_file is not None else None,
         socks_proxy_url=environ.get("HIVEMIND_SOCKS_PROXY_URL"),
+        comb_shield=environ.get("HIVEMIND_COMB_SHIELD"),
         scratch_root=Path(scratch_root) if scratch_root is not None else None,
         providers_json=environ.get("HIVEMIND_PROVIDERS"),
         slots_json=environ.get("HIVEMIND_SLOTS"),

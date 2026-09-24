@@ -31,7 +31,7 @@ from hivemind.hive import NetworkPolicy
 from hivemind.hive.backends.bootstrap import NightVeilLink
 from hivemind.manifest import HiveManifest, load_manifest
 
-_ONION = "hivestandhiddenservice.onion"
+_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion"
 
 
 def _manifest(tmp_path: Path, night_veil: str | None = None, extra: str = "") -> HiveManifest:

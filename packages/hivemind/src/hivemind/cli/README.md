@@ -92,7 +92,11 @@ typer layer that calls into a subsystem's public API and never contains logic of
   needs `HIVE_STAND_LEASE` (`cell:hive_stand`), and `run_hive` attaches the Hive Stand's Warden to
   the Queen first (her awaited `warden_spawn` point), so a freshly built `Hive.queen` has no Warden
   attached yet. `in_cell/deps.py` does the same for a Virtual Cell's Warden: the shipped policy,
-  recording to the Cell's own trail, with `VIRTUAL_CELL_LEASE` (`cell:virtual`).
+  recording to the Cell's own trail, with `VIRTUAL_CELL_LEASE` (`cell:virtual`). Roadmap step
+  10.3a: that policy names the Hive Stand as the Cell reaches it (`in_cell/hive_stand.py`: the
+  Queen URL's host by name, and its addresses resolved once at start, never an onion's); the
+  Cell's tier comes from `HIVEMIND_COMB_SHIELD` (`in_cell/config.py`, held to its link), and a
+  Night Veil Cell dials only through its Tor SOCKS proxy and attests that link on `CellReady`.
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
   [--json] [--comb-shield night_veil]`: the one command that calls `build_hive`/`run_hive`/
   `run_goal`. With `--comb-shield` (roadmap step 10.3c) the goal is asked for as a durable goal

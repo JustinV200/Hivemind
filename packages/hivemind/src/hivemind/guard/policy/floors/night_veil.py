@@ -8,16 +8,17 @@ process or served on the Cell itself, never hosted and never the Hive Stand's
 (`night_veil_local_slots`); it touches Honey at `c0` and `c1` and never `c2`
 (`night_veil_clearance`); it is location-blind, so `geo`, `wifi:scan` and `host:metadata` are
 never granted and a cloud metadata endpoint is never reachable by `net`
-(`night_veil_location`); and a Cell provisioned for it dials the Queen only over a `.onion`
-hidden service through the Tor SOCKS proxy on its own loopback, never the VPN interface or a
-clearnet address (`night_veil_control_link`, checked when the enforcement point states the link).
+(`night_veil_location`); and a Cell provisioned for it dials the Queen only over a v3 `.onion`
+hidden service (`waggle.uris.is_onion_service_host`, the rule the Cell's own transport dials by)
+through the Tor SOCKS proxy on its own loopback, never the VPN interface or a clearnet address
+(`night_veil_control_link`, checked when the enforcement point states the link).
 Each floor reads the request's context (`PolicyContext`), never the held set.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.guard.policy.floors`.
     Run by `hivemind.guard.policy.floors.chain`. Calls into `hivemind.cell` (the tier enums),
-    `hivemind.guard.capabilities`, `hivemind.guard.net`, this package's `refusal` and the policy
-    package's `facts`, `models` and `table`.
+    `hivemind.guard.capabilities`, `hivemind.guard.net`, this package's `refusal`, the policy
+    package's `facts`, `models` and `table`, and `waggle.uris` (the onion service rule).
 
 Key invariants:
     - Applies only when `is_night_veil(context)`: the Cell's tier or the task's bound or
@@ -49,6 +50,8 @@ from hivemind.guard.policy.facts import ControlLink
 from hivemind.guard.policy.floors.refusal import FloorRefusal, tier
 from hivemind.guard.policy.models import PolicyContext, PolicyRequest
 from hivemind.guard.policy.table import GuardPolicy
+from waggle.uris import ONION_SUFFIX as WAGGLE_ONION_SUFFIX
+from waggle.uris import is_onion_service_host
 
 VIRTUAL_ONLY_FLOOR = "night_veil_virtual_only"  # Never the Hive Stand, never a Real Cell.
 LOCAL_SLOTS_FLOOR = "night_veil_local_slots"  # Every binding local: never hosted or Hive Stand.
@@ -59,7 +62,8 @@ CONTROL_LINK_FLOOR = "night_veil_control_link"  # Waggle over Tor to a .onion hi
 LOCATION_FAMILIES = frozenset(
     {CapabilityFamily.GEO, CapabilityFamily.WIFI_SCAN, CapabilityFamily.HOST_METADATA}
 )
-ONION_SUFFIX = ".onion"  # A Tor hidden service's top-level name: reachable only through Tor.
+# A Tor hidden service's top-level name: reachable only through Tor (waggle.uris owns the rule).
+ONION_SUFFIX = WAGGLE_ONION_SUFFIX
 # SOCKS schemes that resolve the name through the proxy: a .onion name never meets local DNS.
 REMOTE_DNS_SOCKS_SCHEMES = frozenset({"socks5h", "socks4a"})
 _HIGHEST_NIGHT_VEIL_CLEARANCE = HoneyClearance.C1  # ADR-0030: never c2 on a Night Veil Cell.
@@ -187,8 +191,9 @@ def _control_link(needed: Capability, context: PolicyContext) -> FloorRefusal | 
 
 def _link_problem(link: ControlLink) -> str | None:
     """Say what is wrong with a control link for a Night Veil Cell, or None when nothing is."""
-    if not normalise_host(link.host).endswith(ONION_SUFFIX):
-        return "its link dials a clearnet host"
+    # The very address rule the Cell's own transport dials by: a well-formed v3 onion service.
+    if not is_onion_service_host(normalise_host(link.host)):
+        return "its link dials a host that is not a v3 onion service"
     if link.socks_proxy_url is None:
         return "its link dials directly, with no SOCKS proxy"
     parts = urlsplit(link.socks_proxy_url)
