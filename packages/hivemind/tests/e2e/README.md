@@ -52,6 +52,12 @@ exist to catch problems that only show up when every layer runs at once.
   Queen's first grant compute to `max_sub_bees = 0`; asserts `run_goal` returns FAILED with a
   readable reason well inside its own timeout, never a timeout itself, and that `forage.denied`
   and `task.failed` both land on the trail.
+- `test_injection_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 10.6b's invariant on a
+  real run: a Drone's question is answered through `hive inbox answer` with seed payloads from the
+  shipped pattern file, as a compromised device would answer it. The Worker's registry withholds
+  the answer from the model, `guard.injection_suspected` lands on the real trail with the keyed
+  hash (never the words), the steered outside-scratch write is capped and rejected, the goal still
+  finishes, and the scanner's key is minted in the manifest's secrets dir on that first flag.
 
 ## Budget
 
