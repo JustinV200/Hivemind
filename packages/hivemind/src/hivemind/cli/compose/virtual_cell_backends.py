@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
 from hivemind.cell import CombShieldLevel
+from hivemind.cli.compose.night_veil import night_veil_link
 from hivemind.cli.compose.virtual_cell_providers import (
     cell_providers,
     cell_slots,
@@ -235,6 +236,9 @@ def _endpoint_for(
         slots=cell_slots(ctx.manifest),
         provider_api_keys=provider_api_keys(ctx.manifest, ctx.environ),
         llm_offline=ctx.manifest.llm.offline,
+        # Roadmap step 10.3a: how a Night Veil Cell reaches the Queen instead, chosen per Cell
+        # at provisioning (`hivemind.hive.backends.bootstrap.cell_endpoint`).
+        night_veil=night_veil_link(ctx.manifest),
     )
 
 

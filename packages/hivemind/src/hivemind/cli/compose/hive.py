@@ -78,6 +78,7 @@ from hivemind.cli.compose.deps import (
     open_default_stores,
 )
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
+from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
@@ -92,7 +93,15 @@ from waggle.clock import Clock
 from waggle.ids import TaskId
 from waggle.signing import Ed25519Signer
 
-__all__ = ["GoalReport", "Hive", "build_content_scanner", "build_hive", "run_goal", "run_hive"]
+__all__ = [
+    "GoalReport",
+    "Hive",
+    "build_content_scanner",
+    "build_hive",
+    "run_goal",
+    "run_hive",
+    "run_requested_goal",
+]
 
 # run_goal's own polling cadence, on the injected Clock: short enough that a FakeClock-driven unit
 # test (codingrules 14.5) finishes in a handful of iterations, gentle enough to be a real interval
@@ -402,13 +411,55 @@ async def run_goal(
         timeout.
     """
     clock = hive.clock
-    start = clock.monotonic()
-    submitted_at = clock.now()
-    goal_id = await hive.queen.submit_goal(goal, clearance=clearance)
-    # The deadline runs from `start`, before planning: submit_goal's own model call can take
+    # The deadline runs from here, before planning: submit_goal's own model call can take
     # minutes on a local model, and "never blocks past timeout_s" (module docstring) has to
     # include it.
-    submission = _Submission(start=start, at=submitted_at)
+    submission = _Submission(start=clock.monotonic(), at=clock.now())
+    goal_id = await hive.queen.submit_goal(goal, clearance=clearance)
+    return await _follow(hive, goal_id, timeout_s, on_event, submission)
+
+
+async def run_requested_goal(
+    hive: Hive,
+    ask: GoalAsk,
+    *,
+    timeout_s: float,
+    on_event: Callable[[PheromoneEvent], None] | None = None,
+) -> GoalReport:
+    """Ask for `ask` as a durable goal request, then follow its goal like `run_goal` does.
+
+    Roadmap step 10.3c: a tier the operator named is asked for the way the Hive Entrance asks,
+    the one way a tier like NIGHT_VEIL is initiated (`hivemind.cli.compose.request`).
+
+    Args:
+        hive: A Hive whose Queen and Warden are running (inside an `async with run_hive(hive):`).
+        ask: The goal, its clearance and the tier the operator named.
+        timeout_s: The most wall time to wait, planning included.
+        on_event: As for `run_goal`.
+
+    Returns:
+        A GoalReport over the planned goal, as `run_goal` returns.
+
+    Raises:
+        hivemind.cli.compose.request.GoalNotPlannedError: The Queen refused the request, or it was
+            not planned before the timeout.
+    """
+    clock = hive.clock
+    submission = _Submission(start=clock.monotonic(), at=clock.now())
+    deadline_s = submission.start + timeout_s
+    requests = hive.stores.goal_requests
+    goal_id = await request_goal_and_wait(hive.queen, requests, clock, ask, deadline_s)
+    return await _follow(hive, goal_id, timeout_s, on_event, submission)
+
+
+async def _follow(
+    hive: Hive,
+    goal_id: TaskId,
+    timeout_s: float,
+    on_event: Callable[[PheromoneEvent], None] | None,
+    submission: _Submission,
+) -> GoalReport:
+    """Poll `goal_id`'s tasks to the end (or the deadline) and report on them."""
     timed_out = await _poll_until_terminal(hive, goal_id, timeout_s, on_event, submission)
     tasks = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
     succeeded = (
@@ -418,8 +469,8 @@ async def run_goal(
         goal_id=goal_id,
         tasks=tasks,
         succeeded=succeeded,
-        spend_usd=await _spend_since(hive, submitted_at),
-        elapsed_s=clock.monotonic() - start,
+        spend_usd=await _spend_since(hive, submission.at),
+        elapsed_s=hive.clock.monotonic() - submission.start,
         timed_out=timed_out,
     )
 

@@ -10,7 +10,10 @@ Virtual Cell image carries no `[supervision]` or `[guard]` section to name an ov
 first place. Roadmap step 10.3: the Warden's Guard `Enforcer` is built over that same shipped policy
 and records to this Cell's own trail segment (shipped to the Queen like every other row), and its
 lease needs `cell:virtual` -- set here, because this module is the one place that knows it built a
-Virtual Cell's source, never read off the Cell's kind.
+Virtual Cell's source, never read off the Cell's kind. Roadmap step 10.3a: the policy names the
+Hive Stand's address as this Cell sees it (its Queen URL's host, when that is an IP literal, as
+QEMU's gateway is), so the Hive-state floor refuses a Worker `net` to it, and the deps say which
+providers this Cell serves locally, for Night Veil's local-only binding rule.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
@@ -42,11 +45,16 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
+from urllib.parse import urlsplit
+
 from hivemind.cell import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
-from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
+from hivemind.cli.in_cell.providers import build_in_cell_provider_registry, local_provider_names
 from hivemind.forage.slots import ModelSlot
 from hivemind.guard import Capability, CapabilityFamily, Enforcer, load_guard_policy
+from hivemind.guard.net import ip_literal
+from hivemind.guard.policy import HiveState
 from hivemind.llm.ladders.gate import DirectCallGate
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
@@ -124,6 +132,7 @@ def build_in_cell_warden_deps(
         enforcer=enforcer,  # Roadmap step 10.3.
         lease_capability=VIRTUAL_CELL_LEASE,
         bindings=config.slots,  # What a named binding resolves against at slot_binding.
+        local_providers=local_provider_names(config),  # Roadmap step 10.3a.
         checks=deterministic_checks(),  # No JudgeReviewer wired yet; see this dispatch's report.
         bound=registry.bound(ModelSlot.WARDEN),
         call_gate=DirectCallGate(),  # No per-Cell Fanner yet (module docstring's own note).
@@ -155,7 +164,19 @@ def _build_enforcer(config: InCellRuntimeConfig, trail: PheromoneTrail, clock: C
     identity = CellIdentity(
         hive_id=config.hive_id, node_id=config.node_id, actor=str(config.warden_id)
     )
-    return Enforcer(load_guard_policy(), trail, clock, identity)
+    policy = dataclasses.replace(load_guard_policy(), hive_state=_hive_stand_state(config))
+    return Enforcer(policy, trail, clock, identity)
+
+
+def _hive_stand_state(config: InCellRuntimeConfig) -> HiveState:
+    """Name the Hive Stand's address as this Cell reaches it, when its Queen URL spells one.
+
+    The Hive's files live on the Hive Stand, not in this Cell, so only the address applies here;
+    a gateway name (`host.docker.internal`) is not resolved at start, so it names none.
+    """
+    host = urlsplit(config.queen_waggle_url).hostname or ""
+    literal = ip_literal(host)
+    return HiveState.of(own_addresses=(literal,) if literal is not None else ())
 
 
 def _build_snapshotter(

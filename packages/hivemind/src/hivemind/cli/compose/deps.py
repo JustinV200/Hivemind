@@ -13,7 +13,11 @@ take `manifest`/`trail`/`clock` directly instead, since `build_hive` calls each 
 before a `HiveParts` naming their own return values could exist. Roadmap step 10.3: `build_enforcer`
 builds the one Guard `Enforcer` (over `[guard]`'s policy) that the Queen and the Hive Stand's Warden
 share, carried on `HiveParts.enforcer`; the Warden's lease needs `cell:hive_stand`, because this
-module is the one place that knows it built the Hive Stand's own source.
+module is the one place that knows it built the Hive Stand's own source (`build_enforcer` itself
+lives in `hivemind.cli.compose.guard` since roadmap step 10.3a, beside the policy that names the
+Hive's own state, and is re-exported here). Roadmap step 10.3a also has the placement policy carry
+the Night Veil tier profile and both deps bags say which providers serve locally
+(`hivemind.cli.compose.night_veil`).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -58,7 +62,15 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
 from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
+
+# Roadmap step 10.3's one Enforcer; built beside the policy it decides against, re-exported here.
+from hivemind.cli.compose.guard import build_enforcer
 from hivemind.cli.compose.links import HiveLinks
+from hivemind.cli.compose.night_veil import (
+    in_process_providers,
+    local_providers,
+    night_veil_constraints,
+)
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import (
     build_registry,
@@ -73,7 +85,7 @@ from hivemind.cli.stores import (
     slot_bindings,
 )
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
-from hivemind.guard import Capability, CapabilityFamily, Enforcer, GuardPolicy, load_guard_policy
+from hivemind.guard import Capability, CapabilityFamily, Enforcer
 from hivemind.llm import (
     CallGate,
     CompositeLlmEventRecorder,
@@ -92,7 +104,6 @@ from hivemind.llm import (
     default_factories,
 )
 from hivemind.manifest import ForageSection, HiveManifest
-from hivemind.manifest.schema import PlacementSection
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
@@ -314,8 +325,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     Args:
         parts: This Hive's shared collaborators.
         source: The Hive Stand's own RealCellSource: leased and released, never provisioned.
-        links: Both ends of the Queen<->Warden link (`hivemind.cli.compose.links.build_hive_
-            links`); `links.warden_transport`/`.warden_hop` are this Warden's own end.
+        links: Both ends of the Queen<->Warden link; `.warden_transport`/`.warden_hop` are its end.
 
     Returns:
         A WardenDeps ready for `hivemind.wardens.Warden(links.warden_id, deps)`.
@@ -357,33 +367,8 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         enforcer=parts.enforcer,
         lease_capability=HIVE_STAND_LEASE,
         bindings=slot_bindings(manifest),
+        local_providers=local_providers(manifest),  # Roadmap step 10.3a: a binding's locality.
     )
-
-
-def build_enforcer(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) -> Enforcer:
-    """Build the Hive's one Guard Enforcer over `[guard]`'s policy (roadmap step 10.3).
-
-    Args:
-        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[guard]` is read.
-        trail: Where every refusal's `guard.denied` row lands.
-        clock: Mints each refusal's id and timestamp.
-
-    Returns:
-        An Enforcer recording as `actor="system"`, like every identity this module builds.
-    """
-    identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
-    return Enforcer(_guard_policy(manifest), trail, clock, identity)
-
-
-def _guard_policy(manifest: HiveManifest) -> GuardPolicy:
-    """Build the Guard policy from `[guard]`: its policy file (or the shipped one), overlaid.
-
-    `policy_file` resolves against the manifest's own directory like every other manifest path
-    (`_supervision_file`); an empty one means the policy shipped in `hivemind.guard.defaults`.
-    """
-    section = manifest.guard
-    path = manifest.resolve_path(Path(section.policy_file)) if section.policy_file else None
-    return load_guard_policy(path, section)
 
 
 def _keep_root(manifest: HiveManifest) -> Path | None:
@@ -474,13 +459,16 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         # Roadmap step 4.3: the manifest's own sweep cadence for the Queen's House Bee sweep.
         sweep_interval_s=manifest.memory.sweep_interval_s,
         hot_window_s=manifest.memory.hot_window_s,
-        # Roadmap step 5.7: the [placement] section, as the slice decide() reads.
-        placement_policy=_placement_policy(manifest.placement),
+        # Roadmap step 5.7: the [placement] section, as the slice decide() reads; roadmap step
+        # 10.3a adds the Night Veil tier profile, which no composition root used to build.
+        placement_policy=_placement_policy(manifest),
+        in_process_providers=in_process_providers(manifest),  # Roadmap step 10.3a.
     )
 
 
-def _placement_policy(section: PlacementSection) -> PlacementPolicy:
-    """Convert the manifest's `[placement]` section into the `PlacementPolicy` decide() reads."""
+def _placement_policy(manifest: HiveManifest) -> PlacementPolicy:
+    """Convert `[placement]` and the Night Veil tier profile into the policy decide() reads."""
+    section = manifest.placement
     return PlacementPolicy(
         prefer=section.prefer,
         allow_hive_stand=section.allow_hive_stand,
@@ -489,6 +477,7 @@ def _placement_policy(section: PlacementSection) -> PlacementPolicy:
             for key, override in section.roles.items()
             if override.prefer is not None
         },
+        night_veil=night_veil_constraints(manifest),
     )
 
 

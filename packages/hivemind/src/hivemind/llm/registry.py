@@ -139,6 +139,7 @@ __all__ = [
     "apply_overrides",
     "default_factories",
     "default_transcriber_factories",
+    "runs_in_process",
     "runs_locally",
 ]
 
@@ -470,6 +471,18 @@ def _check_offline(name: str, base_url: str, offline: bool) -> None:
         raise OfflineViolationError(name, base_url)
 
 
+def runs_in_process(config: ProviderConfig) -> bool:
+    """Return whether a provider's model runs inside whichever process binds it.
+
+    Args:
+        config: One provider's configuration.
+
+    Returns:
+        True for a kind in `IN_PROCESS_KINDS`: local to any Cell that binds it (roadmap 10.3a).
+    """
+    return config.kind in IN_PROCESS_KINDS
+
+
 def runs_locally(config: ProviderConfig) -> bool:
     """Return whether a provider serves from the calling machine itself: in process, or loopback.
 
@@ -485,7 +498,7 @@ def runs_locally(config: ProviderConfig) -> bool:
         True for an in-process kind (`IN_PROCESS_KINDS`) or a base URL on a loopback host;
         False for a hosted endpoint, a gateway host or any other address.
     """
-    if config.kind in IN_PROCESS_KINDS:
+    if runs_in_process(config):
         return True  # Nothing leaves the process, so nothing leaves the machine.
     hostname = urlsplit(config.base_url).hostname if config.base_url else None
     return hostname is not None and is_loopback_host(hostname)

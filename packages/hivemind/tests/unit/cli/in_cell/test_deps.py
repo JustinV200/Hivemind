@@ -29,15 +29,19 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import ipaddress
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import VIRTUAL_CELL_LEASE, build_in_cell_warden_deps
 from hivemind.cli.in_cell.link import CellLinkDeps, announce
 from hivemind.guard import load_guard_policy
+from hivemind.guard.policy import HiveState
 from hivemind.llm import text_response
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.manifest.env import read_in_cell_env
@@ -210,7 +214,12 @@ async def _build_scenario(
     provider = deps.bound.provider
     assert isinstance(provider, FakeLLMProvider)
     provider.script(text_response("Done."))  # A trivial, tool-free completion.
-    assert deps.guard == load_guard_policy()  # No [guard] inside a Cell: the shipped policy.
+    # No [guard] inside a Cell: the shipped policy, naming only the Hive Stand's address as this
+    # Cell dials it (roadmap step 10.3a: its Queen URL's host, here the loopback test server).
+    assert dataclasses.replace(deps.guard, hive_state=HiveState()) == load_guard_policy()
+    host = urlsplit(config.queen_waggle_url).hostname or ""
+    assert deps.guard.hive_state.own_addresses == frozenset({ipaddress.ip_address(host)})
+    assert deps.local_providers == frozenset({"fake"})  # The in-process fallback provider.
     # Roadmap step 10.3: one policy for the sets and the Enforcer, and a Virtual Cell's lease.
     assert deps.enforcer.policy is deps.guard
     assert deps.lease_capability == VIRTUAL_CELL_LEASE
