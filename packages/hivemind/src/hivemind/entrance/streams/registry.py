@@ -6,7 +6,10 @@ second. The registry is how the rest of the Entrance reaches a socket it did not
 registers a ``LiveSocket`` (its listener, device and session) while it is served, and the logout
 route, the device offboarder and the Entrance Reducer close them by session, by device or by
 listener. Closing only signals; the socket's own task sends the close frame at once, so nothing
-here waits on a slow client. The registry is the Reducer's ``StreamCloser``.
+here waits on a slow client, with one bounded exception: the Reducer's ``close_remote`` waits up
+to ``REMOTE_CLOSE_WAIT_S`` for the remote sockets to go, because the remote listener stops next
+and its own shutdown would otherwise close a socket as a restart (1012) instead of telling the
+client it was reduced. The registry is the Reducer's ``StreamCloser``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.streams``. Filled by the
@@ -26,11 +29,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from hivemind.common.logging import get_logger
 from hivemind.entrance.auth.session.models import Listener
 from hivemind.entrance.streams.errors import CloseReason
 from waggle.ids import DeviceId
 
-__all__ = ["LiveSocket", "SocketRegistry"]
+REMOTE_CLOSE_WAIT_S = 0.25  # How long a reduction waits for remote sockets to send their close.
+
+log = get_logger(__name__)
+
+__all__ = ["REMOTE_CLOSE_WAIT_S", "LiveSocket", "SocketRegistry"]
 
 
 @dataclass(eq=False)
@@ -49,6 +57,7 @@ class LiveSocket:
     token_hash: str = field(repr=False)
     reason: CloseReason | None = None
     _closing: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    _gone: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
     def close(self, reason: CloseReason) -> None:
         """Tell the socket to close; the first reason given is the one sent.
@@ -68,6 +77,14 @@ class LiveSocket:
         """
         await self._closing.wait()
         return self.reason or CloseReason.UNSUBSCRIBED
+
+    def mark_gone(self) -> None:
+        """Record that the socket's task ended (its close frame, if any, was sent)."""
+        self._gone.set()
+
+    async def wait_gone(self) -> None:
+        """Wait until the socket's task has ended."""
+        await self._gone.wait()
 
 
 class SocketRegistry:
@@ -100,6 +117,7 @@ class SocketRegistry:
             socket: Its handle.
         """
         self._sockets.discard(socket)
+        socket.mark_gone()
 
     def count(self, listener: Listener | None = None) -> int:
         """Count live sockets, on one listener or on both.
@@ -164,8 +182,20 @@ class SocketRegistry:
         return self._close(list(self._sockets), reason)
 
     async def close_remote(self) -> None:
-        """Close every socket on the remote listener: the Entrance Reducer's ``StreamCloser``."""
-        self.close_listener(Listener.REMOTE, CloseReason.REDUCED)
+        """Close every socket on the remote listener: the Entrance Reducer's ``StreamCloser``.
+
+        Waits up to ``REMOTE_CLOSE_WAIT_S`` for them to go (module docstring); a socket slower
+        than that is closed by the listener's own shutdown instead.
+        """
+        closing = [s for s in self._sockets if s.listener is Listener.REMOTE]
+        self._close(closing, CloseReason.REDUCED)
+        try:
+            # External wait: each socket's own task sending its close frame, bounded.
+            async with asyncio.timeout(REMOTE_CLOSE_WAIT_S):
+                for socket in closing:
+                    await socket.wait_gone()
+        except TimeoutError:
+            log.warning("entrance.remote_sockets_slow", count=len(closing))
 
     def _close(self, sockets: list[LiveSocket], reason: CloseReason) -> int:
         """Signal each socket; its own task sends the close frame at once."""

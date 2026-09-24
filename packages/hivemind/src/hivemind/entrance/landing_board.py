@@ -5,11 +5,12 @@ are written from ``docs/entrance/openapi.json`` alone, so the document is genera
 hand-written, from the same route table both listeners are built from, and committed; a test fails
 when the generated document differs from the committed one, so every route change is a visible
 contract diff. FastAPI's generator describes every row (loopback-only ones too, so a client knows
-they exist) with ``x-hive-capability``, ``x-hive-listeners``, ``x-hive-c2`` and ``x-hive-effect``;
-this module adds the ``HiveSession`` security scheme, the ``x-hive-signing`` extension (every
-signed string, its fields and encodings, with a worked example built by the very functions the
-Entrance verifies with) and ``x-hive-streams`` (the WebSocket views, their first frame and their
-frames). The rendering is stable: sorted keys, two-space indent, a trailing newline.
+they exist) with ``x-hive-capability`` (absent where a session alone, or nothing, is needed),
+``x-hive-listeners``, ``x-hive-c2`` and ``x-hive-effect``; this module adds the ``HiveSession``
+security scheme, the ``x-hive-signing`` extension (every signed string, its fields and encodings,
+with a worked example built by the very functions the Entrance verifies with) and
+``x-hive-streams`` (the WebSocket views, their first frame and their frames). The rendering is
+stable: sorted keys, two-space indent, a trailing newline.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by the

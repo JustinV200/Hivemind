@@ -11,8 +11,9 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
-    hivemind.cli.forage and hivemind.cli.readback (cells, inbox, wardens, cluster) now; later
-    phases add entrance and friends through their own public APIs.
+    hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
+    hivemind.cli.serve (`hive serve`, roadmap step 10.5) now; later phases add entrance and
+    friends through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -46,6 +47,7 @@ import typer
 from hivemind.cli import capping, forage, llm, memory, tasks, trail
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import run_command
+from hivemind.cli.serve import serve_command
 from hivemind.cli.version import collect_version_info, format_version
 
 __all__ = ["app", "main"]
@@ -91,6 +93,10 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(forage.app, name="forage")
 app.add_typer(cluster_app, name="cluster")
 app.command("wake")(wake_command)
+
+# Roadmap step 10.5: run the Queen with the Hive Entrance (the Hive's one HTTP door) until
+# interrupted. A bare command like `run` (`hive serve`, not `hive serve serve`).
+app.command("serve")(serve_command)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,

@@ -1,0 +1,6200 @@
+{
+  "components": {
+    "schemas": {
+      "AcknowledgedView": {
+        "additionalProperties": false,
+        "description": "An Alarm acknowledged.",
+        "properties": {
+          "acknowledged": {
+            "description": "True when it was waiting and is now resolved; false when nothing was.",
+            "title": "Acknowledged",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "acknowledged"
+        ],
+        "title": "AcknowledgedView",
+        "type": "object"
+      },
+      "ActionKind": {
+        "description": "An action the Entrance may have to guard with step-up; also a held confirmation's kind.",
+        "enum": [
+          "goal",
+          "key_change",
+          "capability_change",
+          "supersedure",
+          "sting_cut",
+          "abscond",
+          "reopen",
+          "lock_device",
+          "new_network"
+        ],
+        "title": "ActionKind",
+        "type": "string"
+      },
+      "AlarmView": {
+        "additionalProperties": false,
+        "description": "An Alarm that reached the human.",
+        "properties": {
+          "detail": {
+            "description": "The failing assertion, error sentence or observation.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "id": {
+            "description": "The Alarm's id: acknowledge it at .../alarms/{id}/acknowledge.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What went wrong, e.g. CELL_UNREACHABLE.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "raised_at": {
+            "description": "When it was first raised.",
+            "format": "date-time",
+            "title": "Raised At",
+            "type": "string"
+          },
+          "severity": {
+            "description": "INFO, WARNING or CRITICAL.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task concerned, if any.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "severity",
+          "detail",
+          "task_id",
+          "raised_at"
+        ],
+        "title": "AlarmView",
+        "type": "object"
+      },
+      "AnswerBody": {
+        "additionalProperties": false,
+        "description": "The human's answer to a question (``entrance:answer``).",
+        "properties": {
+          "chosen_option": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The index of the option picked, for a closed question.",
+            "title": "Chosen Option"
+          },
+          "text": {
+            "description": "The answer.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "AnswerBody",
+        "type": "object"
+      },
+      "AnsweredView": {
+        "additionalProperties": false,
+        "description": "A question answered: its task runs again.",
+        "properties": {
+          "question_id": {
+            "description": "The question answered.",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "question_status": {
+            "$ref": "#/components/schemas/QuestionStatus",
+            "description": "ANSWERED."
+          },
+          "task_id": {
+            "description": "The task it unblocked.",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_status": {
+            "$ref": "#/components/schemas/TaskStatus",
+            "description": "The task's status now (RUNNING again)."
+          }
+        },
+        "required": [
+          "question_id",
+          "task_id",
+          "task_status",
+          "question_status"
+        ],
+        "title": "AnsweredView",
+        "type": "object"
+      },
+      "ApprovalBody": {
+        "additionalProperties": false,
+        "description": "Approve a pending device (loopback only; a steward device through its own route).",
+        "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it may do, inside the device ceiling; null grants the device role's proposed set.",
+            "title": "Capabilities"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the approval lapses.",
+            "title": "Expires At"
+          },
+          "interactive": {
+            "default": false,
+            "description": "For an Ed25519 program key: a person types the password at it.",
+            "title": "Interactive",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Its name from now on.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "spend_cap_usd_per_day": {
+            "description": "The most it may spend per day, in USD.",
+            "minimum": 0.0,
+            "title": "Spend Cap Usd Per Day",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "spend_cap_usd_per_day"
+        ],
+        "title": "ApprovalBody",
+        "type": "object"
+      },
+      "ChallengeRequest": {
+        "additionalProperties": false,
+        "description": "Ask for a login challenge for one device (unauthenticated).",
+        "properties": {
+          "binding_key": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A browser's WebCrypto ECDSA P-256 session key, the uncompressed point as unpadded base64url; its session will be bound to it. Omit for an Ed25519 device.",
+            "title": "Binding Key"
+          },
+          "device_id": {
+            "description": "The device that will log in.",
+            "title": "Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id"
+        ],
+        "title": "ChallengeRequest",
+        "type": "object"
+      },
+      "ChallengeView": {
+        "additionalProperties": false,
+        "description": "A login (or step-up) challenge: what the device answers.",
+        "properties": {
+          "device_id": {
+            "description": "The device it was issued for.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When it can no longer be answered (60 s).",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "nonce": {
+            "description": "The challenge, unpadded base64url; an Ed25519 device signs login_string (hive-login-v1, the Hive id, its device id, this nonce) with its key.",
+            "title": "Nonce",
+            "type": "string"
+          },
+          "passkey_options": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a passkey device: PublicKeyCredentialRequestOptionsJSON for navigator.credentials.get (user verification required). Null for an Ed25519 device.",
+            "title": "Passkey Options"
+          }
+        },
+        "required": [
+          "device_id",
+          "nonce",
+          "expires_at"
+        ],
+        "title": "ChallengeView",
+        "type": "object"
+      },
+      "ChangedView": {
+        "additionalProperties": false,
+        "description": "What a reduction or a reopening did.",
+        "properties": {
+          "changed": {
+            "description": "True when this call moved the mode.",
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EntranceMode",
+            "description": "The mode now."
+          }
+        },
+        "required": [
+          "changed",
+          "mode"
+        ],
+        "title": "ChangedView",
+        "type": "object"
+      },
+      "ChannelKind": {
+        "description": "How a stored subscription is reached; the live WebSocket is not stored, so not listed.",
+        "enum": [
+          "webhook",
+          "web_push"
+        ],
+        "title": "ChannelKind",
+        "type": "string"
+      },
+      "ChatAccepted": {
+        "additionalProperties": false,
+        "description": "A message appended to the chat; the Queen reads it on her next tick.",
+        "properties": {
+          "id": {
+            "description": "The chat line's id.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ChatAccepted",
+        "type": "object"
+      },
+      "ChatAuthor": {
+        "description": "Who wrote a chat line.",
+        "enum": [
+          "human",
+          "queen"
+        ],
+        "title": "ChatAuthor",
+        "type": "string"
+      },
+      "ChatFrame": {
+        "additionalProperties": false,
+        "description": "One new chat line, as ``/v1/chat/stream`` sends it (C2).",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/ChatLine",
+            "description": "The line; its seq is the resume cursor."
+          },
+          "type": {
+            "const": "chat",
+            "default": "chat",
+            "description": "Always chat.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "title": "ChatFrame",
+        "type": "object"
+      },
+      "ChatKind": {
+        "description": "What a chat line is.",
+        "enum": [
+          "message",
+          "reply",
+          "question",
+          "alarm",
+          "notice"
+        ],
+        "title": "ChatKind",
+        "type": "string"
+      },
+      "ChatLine": {
+        "additionalProperties": false,
+        "description": "One line of the chat (C2).",
+        "properties": {
+          "at": {
+            "description": "When it was written.",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/components/schemas/ChatAuthor",
+            "description": "human or queen."
+          },
+          "id": {
+            "description": "The line's own id (chat_...).",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatKind",
+            "description": "message, reply, question, alarm or notice."
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it refers to: the question or Alarm id to answer or acknowledge, the goal request, or the message a reply answers.",
+            "title": "Ref"
+          },
+          "seq": {
+            "description": "Its position in the log: the cursor pages and streams use.",
+            "minimum": 1.0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it concerns, if any.",
+            "title": "Task Id"
+          },
+          "text": {
+            "description": "The words.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "id",
+          "at",
+          "author",
+          "kind",
+          "text",
+          "ref",
+          "task_id"
+        ],
+        "title": "ChatLine",
+        "type": "object"
+      },
+      "ChatPage": {
+        "additionalProperties": false,
+        "description": "A page of the chat, oldest first.",
+        "properties": {
+          "entries": {
+            "description": "The lines, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/ChatLine"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "newest_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest position on this page: pass it as after to read on, or to the stream to resume from; null for an empty page.",
+            "title": "Newest Seq"
+          }
+        },
+        "required": [
+          "entries",
+          "newest_seq"
+        ],
+        "title": "ChatPage",
+        "type": "object"
+      },
+      "ChatPost": {
+        "additionalProperties": false,
+        "description": "A message from the human to the Queen (``entrance:submit``).",
+        "properties": {
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it concerns; null addresses the Queen at large.",
+            "title": "Task Id"
+          },
+          "text": {
+            "description": "The words.",
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ChatPost",
+        "type": "object"
+      },
+      "CombShieldLevel": {
+        "description": "A Cell's security tier: what network egress a task on that Cell must run through.\n\nBound to the Cell, not the task (codingrules section 8.7): a task inherits the\nCombShieldLevel of the Cell where it runs. Operator-set at enrolment for a Real Cell;\nQueen-chosen at provisioning for a Virtual one, which alone may reach NIGHT_VEIL.",
+        "enum": [
+          "MEADOW",
+          "PROPOLIS",
+          "NIGHT_VEIL"
+        ],
+        "title": "CombShieldLevel",
+        "type": "string"
+      },
+      "ConfirmationList": {
+        "additionalProperties": false,
+        "description": "Every request still held.",
+        "properties": {
+          "confirmations": {
+            "description": "The held requests, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/ConfirmationView"
+            },
+            "title": "Confirmations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "confirmations"
+        ],
+        "title": "ConfirmationList",
+        "type": "object"
+      },
+      "ConfirmationView": {
+        "additionalProperties": false,
+        "description": "A request held for a person's confirmation (C2: its payload is shown).",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionKind",
+            "description": "What it asked for, e.g. goal or new_network."
+          },
+          "created_at": {
+            "description": "When it was held.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "device_id": {
+            "description": "The device that asked, which cannot step up.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When it can no longer be confirmed.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The pending confirmation's id (pend_...).",
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "What it asked for, in full.",
+            "title": "Payload",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PendingStatus",
+            "description": "PENDING, CONFIRMED, EXPIRED or CANCELLED."
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "action",
+          "payload",
+          "status",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "ConfirmationView",
+        "type": "object"
+      },
+      "ConfirmedView": {
+        "additionalProperties": false,
+        "description": "What confirming a held request carried out.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionKind",
+            "description": "What was carried out."
+          },
+          "goal_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a held goal: the goal request now committed.",
+            "title": "Goal Request Id"
+          },
+          "pending_id": {
+            "description": "The confirmation.",
+            "title": "Pending Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pending_id",
+          "action"
+        ],
+        "title": "ConfirmedView",
+        "type": "object"
+      },
+      "DeclineBody": {
+        "additionalProperties": false,
+        "description": "Decline a goal request held for the human's yes.",
+        "properties": {
+          "reason": {
+            "default": "declined by the human",
+            "description": "Why, kept on the request for the human (never on the trail).",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "DeclineBody",
+        "type": "object"
+      },
+      "DenyBody": {
+        "additionalProperties": false,
+        "description": "Deny a pending device (loopback only).",
+        "properties": {
+          "reason": {
+            "default": "denied by the operator",
+            "description": "Why; recorded as a category on the trail.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "DenyBody",
+        "type": "object"
+      },
+      "DeviceDescription": {
+        "additionalProperties": false,
+        "description": "What a device says about itself when it redeems an invite, shown to the operator at approval.\n\nUnauthenticated and unverified: it crosses the Landing Board from a device nobody trusts yet,\nso it is display text only, bounded and free of control characters.",
+        "properties": {
+          "name": {
+            "description": "The name the device proposes, e.g. 'Pixel 9'; the operator may rename it.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "default": "",
+            "description": "Operating system or runtime as the device reports it, e.g. 'Android 16'.",
+            "maxLength": 64,
+            "title": "Platform",
+            "type": "string"
+          },
+          "user_agent": {
+            "default": "",
+            "description": "The browser's User-Agent, or a program's name and version, as reported.",
+            "maxLength": 512,
+            "title": "User Agent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DeviceDescription",
+        "type": "object"
+      },
+      "DeviceList": {
+        "additionalProperties": false,
+        "description": "Every device matching a listing.",
+        "properties": {
+          "devices": {
+            "description": "The devices, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/DeviceView"
+            },
+            "title": "Devices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "DeviceList",
+        "type": "object"
+      },
+      "DeviceStatus": {
+        "description": "Every state an enrolled device can be in; see TRANSITIONS for the moves between them.",
+        "enum": [
+          "INVITED",
+          "PENDING",
+          "APPROVED",
+          "DENIED",
+          "EXPIRED",
+          "LOCKED",
+          "REVOKED"
+        ],
+        "title": "DeviceStatus",
+        "type": "string"
+      },
+      "DeviceView": {
+        "additionalProperties": false,
+        "description": "One enrolled device, as the Landing Board shows it.",
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the operator approved it.",
+            "title": "Approved At"
+          },
+          "backup_eligible": {
+            "description": "A passkey that may be synced elsewhere.",
+            "title": "Backup Eligible",
+            "type": "boolean"
+          },
+          "backup_state": {
+            "description": "A passkey that was synced when registered.",
+            "title": "Backup State",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "description": "What it may do, as capability strings.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "When its record was created (invite minted).",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceDescription"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it said about itself at redemption (display text; escape it)."
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its current standing lapses.",
+            "title": "Expires At"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its key's fingerprint; null before redemption.",
+            "title": "Fingerprint"
+          },
+          "id": {
+            "description": "The device's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "interactive": {
+            "description": "A person types at it, so it may step up.",
+            "title": "Interactive",
+            "type": "boolean"
+          },
+          "key_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ed25519 or passkey; null before redemption.",
+            "title": "Key Kind"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it last authenticated.",
+            "title": "Last Seen At"
+          },
+          "loopback_bound": {
+            "description": "The Hive Stand console: loopback sessions only.",
+            "title": "Loopback Bound",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Its name, as the operator bound it at approval.",
+            "title": "Name",
+            "type": "string"
+          },
+          "spend_cap_usd_per_day": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its daily cap; null: uncapped.",
+            "title": "Spend Cap Usd Per Day"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceStatus",
+            "description": "INVITED, PENDING, APPROVED, LOCKED, DENIED, ..."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "key_kind",
+          "fingerprint",
+          "interactive",
+          "capabilities",
+          "spend_cap_usd_per_day",
+          "expires_at",
+          "loopback_bound",
+          "backup_eligible",
+          "backup_state",
+          "description",
+          "created_at",
+          "approved_at",
+          "last_seen_at"
+        ],
+        "title": "DeviceView",
+        "type": "object"
+      },
+      "Ed25519Redemption": {
+        "additionalProperties": false,
+        "description": "Redeem an invite with a program's Ed25519 key.",
+        "properties": {
+          "code": {
+            "description": "The invite code.",
+            "maxLength": 64,
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "$ref": "#/components/schemas/DeviceDescription",
+            "description": "What the device says about itself."
+          },
+          "public_key_hex": {
+            "description": "The raw 32-byte public key, 64 lowercase hex.",
+            "maxLength": 256,
+            "title": "Public Key Hex",
+            "type": "string"
+          },
+          "signature": {
+            "description": "The key's signature over enrol_string (hive-enrol-v1, the Hive id, the code's SHA-256 in hex, the key in hex), unpadded base64url.",
+            "maxLength": 256,
+            "title": "Signature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "public_key_hex",
+          "signature",
+          "description"
+        ],
+        "title": "Ed25519Redemption",
+        "type": "object"
+      },
+      "EntranceMode": {
+        "description": "Whether the Entrance serves its remote listener at all.",
+        "enum": [
+          "OPEN",
+          "REDUCED"
+        ],
+        "title": "EntranceMode",
+        "type": "string"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "description": "The body of every refusal the Landing Board answers with.",
+        "properties": {
+          "capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For capability_denied: the capability the device lacks.",
+            "title": "Capability"
+          },
+          "detail": {
+            "description": "One sentence naming what was refused; never a credential.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "error": {
+            "description": "A stable error code, e.g. hivemind.entrance.step_up_required.",
+            "title": "Error",
+            "type": "string"
+          },
+          "pending_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For step_up_required from a device that cannot step up: the pending confirmation a person confirms from an interactive device.",
+            "title": "Pending Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For step_up_required: why (over_step_up_spend, over_daily_cap, sensitive_action, new_network).",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "error",
+          "detail"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "GoalAccepted": {
+        "additionalProperties": false,
+        "description": "A goal request committed in the Queen's tables (``202 Accepted``).",
+        "properties": {
+          "id": {
+            "description": "The goal request's id (goalreq_...); follow it with GET.",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GoalRequestState",
+            "description": "RECEIVED: the Queen plans it on her own tick."
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "title": "GoalAccepted",
+        "type": "object"
+      },
+      "GoalRequestState": {
+        "description": "Where one goal request is: waiting, held for the human, being planned, or settled.",
+        "enum": [
+          "RECEIVED",
+          "AWAITING_CONFIRMATION",
+          "PLANNING",
+          "PLANNED",
+          "REFUSED"
+        ],
+        "title": "GoalRequestState",
+        "type": "string"
+      },
+      "GoalSource": {
+        "description": "How the human gave the goal: typed, or spoken and transcribed (roadmap step 10.5f).",
+        "enum": [
+          "typed",
+          "spoken"
+        ],
+        "title": "GoalSource",
+        "type": "string"
+      },
+      "GoalSubmission": {
+        "additionalProperties": false,
+        "description": "Submit a goal (``entrance:submit``).",
+        "properties": {
+          "budget_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The goal's own spend cap in USD; it only lowers [forage] spend_cap_per_goal_usd. Above [entrance] step_up_spend it needs a step-up.",
+            "title": "Budget Usd"
+          },
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "default": "C1",
+            "description": "The goal's data-sensitivity ceiling; every task is at or below it."
+          },
+          "comb_shield": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CombShieldLevel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Comb Shield tier every task needs; NIGHT_VEIL needs cell:comb_shield:night_veil. Null leaves tiers to the planner."
+          },
+          "text": {
+            "description": "The goal, in the human's words.",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "GoalSubmission",
+        "type": "object"
+      },
+      "GoalView": {
+        "additionalProperties": false,
+        "description": "A goal request's progress, without its text.",
+        "properties": {
+          "budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its own spend cap, if it named one.",
+            "title": "Budget Usd"
+          },
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "Its data-sensitivity ceiling."
+          },
+          "comb_shield": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CombShieldLevel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tier it asked for, if any."
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the human confirmed it, if asked.",
+            "title": "Confirmed At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When every task of its goal finished.",
+            "title": "Finished At"
+          },
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The planned goal's id, once PLANNED.",
+            "title": "Goal Id"
+          },
+          "id": {
+            "description": "The goal request's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "needs_confirmation": {
+            "description": "It waits for the human's yes before planning.",
+            "title": "Needs Confirmation",
+            "type": "boolean"
+          },
+          "received_at": {
+            "description": "When it was committed.",
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "refused": {
+            "description": "It will never be planned (the reason is in the chat).",
+            "title": "Refused",
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/GoalSource",
+            "description": "typed or spoken."
+          },
+          "state": {
+            "$ref": "#/components/schemas/GoalRequestState",
+            "description": "RECEIVED, AWAITING_CONFIRMATION, PLANNING, PLANNED or REFUSED."
+          },
+          "updated_at": {
+            "description": "When it last changed.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "goal_id",
+          "budget_usd",
+          "comb_shield",
+          "clearance",
+          "source",
+          "needs_confirmation",
+          "refused",
+          "received_at",
+          "updated_at",
+          "confirmed_at",
+          "finished_at"
+        ],
+        "title": "GoalView",
+        "type": "object"
+      },
+      "HiveKeyView": {
+        "additionalProperties": false,
+        "description": "The Hive's public signing key: what a webhook receiver verifies with.",
+        "properties": {
+          "algorithm": {
+            "default": "ed25519",
+            "description": "Always ed25519.",
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "public_key_hex": {
+            "description": "The Hive's Ed25519 public key, 64 lowercase hex.",
+            "title": "Public Key Hex",
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_key_hex"
+        ],
+        "title": "HiveKeyView",
+        "type": "object"
+      },
+      "HoneyClearance": {
+        "description": "A data-sensitivity label carried by every memory tier, not only Honey (the cold tier).\n\nTotally ordered C0 < C1 < C2 by declaration; compare `rank`, never the values. Any detail\nabout the operator or a Real Cell -- a first name or a habit included -- is C2. Labels come\nfrom provenance at intake; a model may raise a label, only a judge verdict or a human may\nlower one.",
+        "enum": [
+          "C0",
+          "C1",
+          "C2"
+        ],
+        "title": "HoneyClearance",
+        "type": "string"
+      },
+      "InboxView": {
+        "additionalProperties": false,
+        "description": "Everything waiting on the human (C2).",
+        "properties": {
+          "alarms": {
+            "description": "Alarms waiting, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/AlarmView"
+            },
+            "title": "Alarms",
+            "type": "array"
+          },
+          "questions": {
+            "description": "Questions waiting, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/QuestionView"
+            },
+            "title": "Questions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "questions",
+          "alarms"
+        ],
+        "title": "InboxView",
+        "type": "object"
+      },
+      "InviteRequest": {
+        "additionalProperties": false,
+        "description": "Mint an invite for a device to join (loopback only).",
+        "properties": {
+          "label": {
+            "description": "What the operator calls the device, e.g. phone; its name until approval.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "title": "InviteRequest",
+        "type": "object"
+      },
+      "InviteView": {
+        "additionalProperties": false,
+        "description": "A minted invite, shown once: the code, its link and its QR code.",
+        "properties": {
+          "code": {
+            "description": "The single-use code, grouped for reading aloud.",
+            "title": "Code",
+            "type": "string"
+          },
+          "device_id": {
+            "description": "The INVITED record the invite admits.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When it stops admitting (invite_ttl_minutes).",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "qr_svg": {
+            "description": "The link as an inline SVG QR code.",
+            "title": "Qr Svg",
+            "type": "string"
+          },
+          "url": {
+            "description": "The enrolment link, with the code in its fragment.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "code",
+          "url",
+          "qr_svg",
+          "expires_at"
+        ],
+        "title": "InviteView",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "LoginRequest": {
+        "additionalProperties": false,
+        "description": "Answer a login challenge: the device's proof, then the operator password.",
+        "properties": {
+          "assertion": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A passkey device's PublicKeyCredential.toJSON() assertion over the challenge.",
+            "title": "Assertion"
+          },
+          "binding_key": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A browser's P-256 session key, exactly as sent with the challenge.",
+            "title": "Binding Key"
+          },
+          "device_id": {
+            "description": "The device logging in.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "nonce": {
+            "description": "The challenge being answered.",
+            "maxLength": 256,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "password": {
+            "description": "The operator password; checked only after the device proof holds.",
+            "format": "password",
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An Ed25519 device's signature over login_string, unpadded base64url.",
+            "title": "Signature"
+          }
+        },
+        "required": [
+          "device_id",
+          "nonce",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "ModeView": {
+        "additionalProperties": false,
+        "description": "The Entrance's mode.",
+        "properties": {
+          "exposed": {
+            "description": "The manifest asks for a remote listener at all.",
+            "title": "Exposed",
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EntranceMode",
+            "description": "OPEN, or REDUCED (loopback only until reopened)."
+          },
+          "remote_listening": {
+            "description": "The remote listener is serving right now.",
+            "title": "Remote Listening",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "exposed",
+          "remote_listening"
+        ],
+        "title": "ModeView",
+        "type": "object"
+      },
+      "NoticeKind": {
+        "description": "What a notice says is waiting; the device fetches the item itself when the human looks.",
+        "enum": [
+          "question_waiting",
+          "alarm_waiting",
+          "reply_waiting",
+          "goal_completed",
+          "security_event",
+          "withdrawn"
+        ],
+        "title": "NoticeKind",
+        "type": "string"
+      },
+      "OpenedSessionView": {
+        "additionalProperties": false,
+        "description": "A new session: its bearer token, handed out this once, and how long it lives.",
+        "properties": {
+          "device_id": {
+            "description": "The device the session belongs to.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Its absolute end (session_ttl_hours at most).",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "listener": {
+            "description": "The listener it works on: loopback or remote.",
+            "title": "Listener",
+            "type": "string"
+          },
+          "needs_step_up": {
+            "description": "The travel lock saw a new network: step up before anything else.",
+            "title": "Needs Step Up",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "The session's bearer token: send it as Authorization: Bearer on every request, signed by the binding key (x-hive-signing). The Entrance keeps only its hash.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "device_id",
+          "listener",
+          "expires_at",
+          "needs_step_up"
+        ],
+        "title": "OpenedSessionView",
+        "type": "object"
+      },
+      "PasskeyOptionsRequest": {
+        "additionalProperties": false,
+        "description": "Ask for WebAuthn creation options for an invite (a browser, before redeeming).",
+        "properties": {
+          "code": {
+            "description": "The invite code, as typed or scanned.",
+            "maxLength": 64,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PasskeyOptionsRequest",
+        "type": "object"
+      },
+      "PasskeyOptionsView": {
+        "additionalProperties": false,
+        "description": "The options a browser creates its passkey with.",
+        "properties": {
+          "options": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "PublicKeyCredentialCreationOptionsJSON for navigator.credentials.create (user verification required, no attestation), its challenge bound to the invite.",
+            "title": "Options",
+            "type": "object"
+          }
+        },
+        "required": [
+          "options"
+        ],
+        "title": "PasskeyOptionsView",
+        "type": "object"
+      },
+      "PasskeyRedemption": {
+        "additionalProperties": false,
+        "description": "Redeem an invite with a browser's new passkey.",
+        "properties": {
+          "code": {
+            "description": "The invite code.",
+            "maxLength": 64,
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "$ref": "#/components/schemas/DeviceDescription",
+            "description": "What the device says about itself."
+          },
+          "registration": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "The PublicKeyCredential.toJSON() registration answering the options.",
+            "title": "Registration",
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "registration",
+          "description"
+        ],
+        "title": "PasskeyRedemption",
+        "type": "object"
+      },
+      "PendingStatus": {
+        "description": "Every state a pending confirmation can be in; see TRANSITIONS for the moves.",
+        "enum": [
+          "PENDING",
+          "CONFIRMED",
+          "EXPIRED",
+          "CANCELLED"
+        ],
+        "title": "PendingStatus",
+        "type": "string"
+      },
+      "PushNotice": {
+        "additionalProperties": false,
+        "description": "One \"something is waiting\" notice: what kind, pointing at which item, minted when.\n\nCrosses every push channel as ``notice_json``: a webhook body, a Web Push plaintext, a\nWebSocket frame. The event id is minted once and reused by every retry and every channel, so\na receiver dedupes on it.",
+        "properties": {
+          "created_at": {
+            "description": "When the notice was minted.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "description": "The notice's id (event_ plus a ULID from the injected clock); stable across retries and channels, the receiver's idempotency key.",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NoticeKind",
+            "description": "What is waiting; never the item itself."
+          },
+          "ref": {
+            "description": "The id of the question, Alarm, goal or security event it points at.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "kind",
+          "ref",
+          "created_at"
+        ],
+        "title": "PushNotice",
+        "type": "object"
+      },
+      "QuestionStatus": {
+        "description": "Every state a Question can be in, from being asked to being resolved.\n\nSee QUESTION_TRANSITIONS below for the legal moves between these.",
+        "enum": [
+          "ASKED",
+          "ANSWERED",
+          "WITHDRAWN"
+        ],
+        "title": "QuestionStatus",
+        "type": "string"
+      },
+      "QuestionView": {
+        "additionalProperties": false,
+        "description": "A question waiting on the human.",
+        "properties": {
+          "asked_at": {
+            "description": "When it was asked.",
+            "format": "date-time",
+            "title": "Asked At",
+            "type": "string"
+          },
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The question text's sensitivity label."
+          },
+          "id": {
+            "description": "The question's id: answer it at .../questions/{id}/answer.",
+            "title": "Id",
+            "type": "string"
+          },
+          "options": {
+            "description": "Closed choices, if any; empty means free text.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "task_id": {
+            "description": "The task blocked on it.",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "The question.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "task_id",
+          "text",
+          "options",
+          "clearance",
+          "asked_at"
+        ],
+        "title": "QuestionView",
+        "type": "object"
+      },
+      "RedemptionView": {
+        "additionalProperties": false,
+        "description": "A redeemed invite: the request now waits for the operator on the Hive Stand.",
+        "properties": {
+          "device_id": {
+            "description": "The device's record, now PENDING.",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "The key's fingerprint; the operator sees the same one at approval.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "hive_public_key_hex": {
+            "description": "The Hive's Ed25519 public key in hex: pin it to verify webhooks.",
+            "title": "Hive Public Key Hex",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "fingerprint",
+          "hive_public_key_hex"
+        ],
+        "title": "RedemptionView",
+        "type": "object"
+      },
+      "RevocationView": {
+        "additionalProperties": false,
+        "description": "What a revocation did.",
+        "properties": {
+          "device": {
+            "$ref": "#/components/schemas/DeviceView",
+            "description": "The device, REVOKED."
+          },
+          "goals_cancelled": {
+            "description": "The open goals cancelled in the same step.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Goals Cancelled",
+            "type": "array"
+          },
+          "goals_left_running": {
+            "description": "The open goals still running.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Goals Left Running",
+            "type": "array"
+          }
+        },
+        "required": [
+          "device",
+          "goals_cancelled",
+          "goals_left_running"
+        ],
+        "title": "RevocationView",
+        "type": "object"
+      },
+      "RevokeBody": {
+        "additionalProperties": false,
+        "description": "Revoke a device (loopback only).",
+        "properties": {
+          "cancel_goals": {
+            "default": false,
+            "description": "Also cancel the device's open goals in the same step; goals already on a Warden run to their end and are named in the answer.",
+            "title": "Cancel Goals",
+            "type": "boolean"
+          }
+        },
+        "title": "RevokeBody",
+        "type": "object"
+      },
+      "SecurityEventView": {
+        "additionalProperties": false,
+        "description": "An Entrance security event, as the trail records it.",
+        "properties": {
+          "actor": {
+            "description": "Who did it: a device id, human or system.",
+            "title": "Actor",
+            "type": "string"
+          },
+          "at": {
+            "description": "When it happened.",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The trail event's id: a security_event push's ref.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "guard.entrance_*, guard.reduced, guard.reopened, ...",
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "Identifiers, counts and reasons only.",
+            "title": "Payload",
+            "type": "object"
+          },
+          "subject_id": {
+            "description": "The device (or the Hive) it is about.",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "subject_id",
+          "actor",
+          "at",
+          "payload"
+        ],
+        "title": "SecurityEventView",
+        "type": "object"
+      },
+      "SecurityFrame": {
+        "additionalProperties": false,
+        "description": "One Entrance security event, as ``/v1/entrance/stream`` sends it.",
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/SecurityEventView",
+            "description": "The event."
+          },
+          "type": {
+            "const": "security_event",
+            "default": "security_event",
+            "description": "Always security_event.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "title": "SecurityFrame",
+        "type": "object"
+      },
+      "SocketHello": {
+        "additionalProperties": false,
+        "description": "A WebSocket's first frame: the session's token and a signature over the socket's opening.\n\nCrosses the Landing Board from the client as JSON; bounded, so a flood of large frames costs\nnothing to refuse.",
+        "properties": {
+          "nonce": {
+            "description": "A fresh nonce, base64url.",
+            "maxLength": 256,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "signature": {
+            "description": "The binding key's signature over websocket_string, unpadded base64url.",
+            "maxLength": 256,
+            "title": "Signature",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Integer Unix seconds at signing.",
+            "minimum": 0,
+            "title": "Timestamp",
+            "type": "integer"
+          },
+          "token": {
+            "description": "The session's bearer token.",
+            "maxLength": 256,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "timestamp",
+          "nonce",
+          "signature"
+        ],
+        "title": "SocketHello",
+        "type": "object"
+      },
+      "StepUpRequest": {
+        "additionalProperties": false,
+        "description": "Answer a step-up challenge: a fresh device proof, and the password on an Ed25519 device.",
+        "properties": {
+          "assertion": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A passkey device's fresh assertion with user verification.",
+            "title": "Assertion"
+          },
+          "nonce": {
+            "description": "The step-up challenge answered.",
+            "maxLength": 256,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 1024,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The operator password: required for an Ed25519 device, optional for a passkey (its user verification is the person).",
+            "title": "Password"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An Ed25519 device's signature over login_string for this challenge.",
+            "title": "Signature"
+          }
+        },
+        "required": [
+          "nonce"
+        ],
+        "title": "StepUpRequest",
+        "type": "object"
+      },
+      "SteppedUpView": {
+        "additionalProperties": false,
+        "description": "A session just stepped up.",
+        "properties": {
+          "stepped_up_until": {
+            "description": "When the step-up window closes (step_up_window_minutes).",
+            "format": "date-time",
+            "title": "Stepped Up Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stepped_up_until"
+        ],
+        "title": "SteppedUpView",
+        "type": "object"
+      },
+      "SubscribeBody": {
+        "additionalProperties": false,
+        "description": "Register a push destination for the calling device (``entrance:push``).",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/ChannelKind",
+            "description": "webhook or web_push."
+          },
+          "endpoint": {
+            "description": "The webhook URL (https, inside [entrance] vpn_cidrs, or allowlisted), or the Web Push subscription's endpoint.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "keys": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebPushKeys"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For web_push: the subscription's p256dh and auth keys."
+          }
+        },
+        "required": [
+          "channel",
+          "endpoint"
+        ],
+        "title": "SubscribeBody",
+        "type": "object"
+      },
+      "SubscriptionView": {
+        "additionalProperties": false,
+        "description": "A stored push subscription.",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/ChannelKind",
+            "description": "webhook or web_push."
+          },
+          "created_at": {
+            "description": "When it was registered.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The subscription's id (sub_...): delete it with this.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "created_at"
+        ],
+        "title": "SubscriptionView",
+        "type": "object"
+      },
+      "TaskStatus": {
+        "description": "Every state a Task can be in, from submission to a terminal outcome.\n\nSee TRANSITIONS below for the legal moves between these; nowhere else decides that.",
+        "enum": [
+          "PENDING",
+          "ASSIGNED",
+          "RUNNING",
+          "BLOCKED",
+          "PAUSED",
+          "SUCCEEDED",
+          "FAILED",
+          "CANCELLED"
+        ],
+        "title": "TaskStatus",
+        "type": "string"
+      },
+      "VapidKeyView": {
+        "additionalProperties": false,
+        "description": "The key a browser's PushManager.subscribe takes as applicationServerKey.",
+        "properties": {
+          "application_server_key": {
+            "description": "The VAPID public key: an uncompressed P-256 point, unpadded base64url.",
+            "title": "Application Server Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "application_server_key"
+        ],
+        "title": "VapidKeyView",
+        "type": "object"
+      },
+      "WebPushKeys": {
+        "additionalProperties": false,
+        "description": "A Web Push subscription's keys, as a browser's ``PushSubscription.toJSON()`` gives them.\n\nCrosses the subscribe route inbound and the subscription store; ``auth`` is a secret shared\nwith the user agent, so it never appears in ``repr``, a log line or the trail.",
+        "properties": {
+          "auth": {
+            "description": "The user agent's 16-byte auth secret, base64url.",
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "description": "The user agent's P-256 public key, base64url of the uncompressed point.",
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "WebPushKeys",
+        "type": "object"
+      },
+      "WidenBody": {
+        "additionalProperties": false,
+        "description": "Change what an approved device may do (loopback only, after step-up).",
+        "properties": {
+          "capabilities": {
+            "description": "Its whole new capability set, inside the device role's ceiling.",
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "spend_cap_usd_per_day": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new daily cap; null keeps it.",
+            "title": "Spend Cap Usd Per Day"
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "title": "WidenBody",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HiveSession": {
+        "description": "The token POST /v1/auth/login answered, as Authorization: Bearer <token>. A token alone is refused: every request also carries X-Hive-Timestamp, X-Hive-Nonce and X-Hive-Signature, the session's binding key's signature over hive-request-v1 (x-hive-signing). A session works only on the listener it was opened on.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "HiveMind Landing Board",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/auth/challenge": {
+      "post": {
+        "operationId": "login_challenge_v1_auth_challenge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [],
+        "summary": "Issue a login challenge for a device.",
+        "tags": [
+          "auth"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenedSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [],
+        "summary": "Log in with the device's proof and the operator password.",
+        "tags": [
+          "auth"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "logout_v1_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "End the calling session and close its sockets.",
+        "tags": [
+          "auth"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/auth/step-up": {
+      "post": {
+        "operationId": "answer_step_up_v1_auth_step_up_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SteppedUpView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Step the calling session up: both factors again, from an interactive device.",
+        "tags": [
+          "auth"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/auth/step-up/challenge": {
+      "post": {
+        "operationId": "new_step_up_challenge_v1_auth_step_up_challenge_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Issue a step-up challenge bound to the calling session.",
+        "tags": [
+          "auth"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/chat": {
+      "get": {
+        "operationId": "read_chat_v1_chat_get",
+        "parameters": [
+          {
+            "description": "Only lines after this position.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only lines after this position.",
+              "title": "After"
+            }
+          },
+          {
+            "description": "Only lines before this position: scroll back.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only lines before this position: scroll back.",
+              "title": "Before"
+            }
+          },
+          {
+            "description": "Most lines to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Most lines to return.",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read a page of the chat with the Queen (C2).",
+        "tags": [
+          "chat"
+        ],
+        "x-hive-c2": true,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      },
+      "post": {
+        "operationId": "post_chat_v1_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatPost"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Send the Queen a message; it enters her inbox.",
+        "tags": [
+          "chat"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "operationId": "list_devices_v1_devices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "List every enrolled device.",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/devices/me": {
+      "get": {
+        "operationId": "read_own_device_v1_devices_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the calling device's own record.",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/devices/{device_id}/capabilities": {
+      "post": {
+        "operationId": "regrant_device_v1_devices__device_id__capabilities_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WidenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Replace what a device may do (loopback only, after step-up).",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/devices/{device_id}/lock": {
+      "post": {
+        "operationId": "lock_device_v1_devices__device_id__lock_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Lock another device (interactive, after step-up); only loopback unlocks it.",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/devices/{device_id}/revoke": {
+      "post": {
+        "operationId": "revoke_device_v1_devices__device_id__revoke_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevocationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Revoke a device, optionally cancelling its open goals (loopback only).",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/devices/{device_id}/unlock": {
+      "post": {
+        "operationId": "unlock_device_v1_devices__device_id__unlock_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Unlock a locked device (loopback only).",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/enrol/ed25519": {
+      "post": {
+        "operationId": "redeem_ed25519_v1_enrol_ed25519_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Ed25519Redemption"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [],
+        "summary": "Redeem an invite with an Ed25519 key; the device then waits for approval.",
+        "tags": [
+          "enrol"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/enrol/passkey": {
+      "post": {
+        "operationId": "redeem_passkey_v1_enrol_passkey_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyRedemption"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [],
+        "summary": "Redeem an invite with a new passkey; the device then waits for approval.",
+        "tags": [
+          "enrol"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/enrol/passkey-options": {
+      "post": {
+        "operationId": "creation_options_v1_enrol_passkey_options_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyOptionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyOptionsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [],
+        "summary": "Get WebAuthn creation options for an invite.",
+        "tags": [
+          "enrol"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/confirmations": {
+      "get": {
+        "operationId": "list_held_v1_entrance_confirmations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "List the requests held for a person's confirmation (C2).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": true,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/confirmations/{pending_id}/cancel": {
+      "post": {
+        "operationId": "cancel_held_v1_entrance_confirmations__pending_id__cancel_post",
+        "parameters": [
+          {
+            "description": "The held request's id.",
+            "in": "path",
+            "name": "pending_id",
+            "required": true,
+            "schema": {
+              "description": "The held request's id.",
+              "pattern": "^pend_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Pending Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Decline a held request.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/confirmations/{pending_id}/confirm": {
+      "post": {
+        "operationId": "confirm_held_v1_entrance_confirmations__pending_id__confirm_post",
+        "parameters": [
+          {
+            "description": "The held request's id.",
+            "in": "path",
+            "name": "pending_id",
+            "required": true,
+            "schema": {
+              "description": "The held request's id.",
+              "pattern": "^pend_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Pending Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmedView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Confirm a held request from an interactive device inside its step-up window.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/invites": {
+      "post": {
+        "operationId": "mint_v1_entrance_invites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Mint a single-use invite for a device (loopback only).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/entrance/invites/{device_id}": {
+      "delete": {
+        "operationId": "cancel_v1_entrance_invites__device_id__delete",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Withdraw an unredeemed invite (loopback only).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/entrance/mode": {
+      "get": {
+        "operationId": "read_mode_v1_entrance_mode_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the Entrance's mode.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/open": {
+      "post": {
+        "operationId": "reopen_entrance_v1_entrance_open_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangedView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Reopen a reduced Entrance (loopback only, after step-up).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/entrance/pending": {
+      "get": {
+        "operationId": "list_pending_v1_entrance_pending_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "List the devices asking to join.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/pending/{device_id}/approve": {
+      "post": {
+        "operationId": "approve_pending_v1_entrance_pending__device_id__approve_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Approve a device asking to join (loopback only).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/entrance/pending/{device_id}/deny": {
+      "post": {
+        "operationId": "deny_pending_v1_entrance_pending__device_id__deny_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DenyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Deny a device asking to join (loopback only).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/entrance/reduce": {
+      "post": {
+        "operationId": "reduce_entrance_v1_entrance_reduce_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangedView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Reduce the Entrance to loopback only, ending every remote session.",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/steward/{device_id}/approve": {
+      "post": {
+        "operationId": "steward_approve_v1_entrance_steward__device_id__approve_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Approve a device from a steward device after full step-up (mounted only when [entrance] steward_devices is on).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ],
+        "x-hive-switch": "steward_devices"
+      }
+    },
+    "/v1/goals": {
+      "post": {
+        "operationId": "submit_goal_v1_goals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Submit a goal; 202 once it is committed in the Queen's tables.",
+        "tags": [
+          "goals"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/goals/{request_id}": {
+      "get": {
+        "operationId": "read_goal_v1_goals__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^goalreq_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read one of your goal requests, without its text.",
+        "tags": [
+          "goals"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/goals/{request_id}/confirm": {
+      "post": {
+        "operationId": "confirm_goal_v1_goals__request_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^goalreq_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Confirm a goal held for the human's yes.",
+        "tags": [
+          "goals"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/goals/{request_id}/decline": {
+      "post": {
+        "operationId": "decline_goal_v1_goals__request_id__decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^goalreq_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Decline a goal held for the human's yes.",
+        "tags": [
+          "goals"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/inbox": {
+      "get": {
+        "operationId": "read_inbox_v1_inbox_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the questions and Alarms waiting on the human (C2).",
+        "tags": [
+          "inbox"
+        ],
+        "x-hive-c2": true,
+        "x-hive-capability": "entrance:answer",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/inbox/alarms/{alarm_id}/acknowledge": {
+      "post": {
+        "operationId": "acknowledge_v1_inbox_alarms__alarm_id__acknowledge_post",
+        "parameters": [
+          {
+            "description": "The Alarm's id.",
+            "in": "path",
+            "name": "alarm_id",
+            "required": true,
+            "schema": {
+              "description": "The Alarm's id.",
+              "title": "Alarm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcknowledgedView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Acknowledge an Alarm that reached the human.",
+        "tags": [
+          "inbox"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:answer",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/inbox/questions/{question_id}/answer": {
+      "post": {
+        "operationId": "answer_v1_inbox_questions__question_id__answer_post",
+        "parameters": [
+          {
+            "description": "The question's id.",
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "description": "The question's id.",
+              "title": "Question Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnsweredView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Answer a question as the human.",
+        "tags": [
+          "inbox"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:answer",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/push/hive-key": {
+      "get": {
+        "operationId": "hive_key_v1_push_hive_key_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HiveKeyView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the Hive's public key, which signs every webhook.",
+        "tags": [
+          "push"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:push",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/push/subscriptions": {
+      "post": {
+        "operationId": "subscribe_v1_push_subscriptions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscribeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Register a webhook or Web Push destination for this device.",
+        "tags": [
+          "push"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:push",
+        "x-hive-effect": "push",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/push/subscriptions/{subscription_id}": {
+      "delete": {
+        "operationId": "unsubscribe_v1_push_subscriptions__subscription_id__delete",
+        "parameters": [
+          {
+            "description": "The subscription's id.",
+            "in": "path",
+            "name": "subscription_id",
+            "required": true,
+            "schema": {
+              "description": "The subscription's id.",
+              "pattern": "^sub_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Subscription Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Delete one of this device's push subscriptions.",
+        "tags": [
+          "push"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:push",
+        "x-hive-effect": "push",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/push/vapid-key": {
+      "get": {
+        "operationId": "vapid_key_v1_push_vapid_key_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VapidKeyView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the VAPID public key a browser subscribes with.",
+        "tags": [
+          "push"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:push",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    }
+  },
+  "x-hive-signing": {
+    "digest": "Lowercase hex SHA-256.",
+    "encoding": "Each string is its tag then its fields, one per line, joined by a single line feed (U+000A), encoded as UTF-8; no field may contain a line break.",
+    "example": {
+      "body": "{\"text\":\"tidy the garden\"}",
+      "method": "POST",
+      "nonce": "AAECAwQFBgcICQoLDA0ODw",
+      "signed_string": "hive-request-v1\nPOST\n/v1/goals\n1767225600\nAAECAwQFBgcICQoLDA0ODw\nb871f8adce1965f0d33c39bac156934efef4af389544b1c86547dd868430b289",
+      "target": "/v1/goals",
+      "timestamp": 1767225600
+    },
+    "headers": {
+      "authorization": "Authorization: Bearer <token>",
+      "nonce": "X-Hive-Nonce",
+      "signature": "X-Hive-Signature",
+      "timestamp": "X-Hive-Timestamp"
+    },
+    "nonce": "Unpadded base64url over at least 16 random bytes; single use.",
+    "signature": "Unpadded base64url: Ed25519's raw 64 bytes, or a WebCrypto P-256 signature in IEEE P1363 form (r || s, 64 bytes).",
+    "strings": {
+      "hive-enrol-v1": [
+        "hive id",
+        "invite code SHA-256 (hex)",
+        "Ed25519 public key (hex)"
+      ],
+      "hive-login-v1": [
+        "hive id",
+        "device id",
+        "challenge nonce"
+      ],
+      "hive-request-v1": [
+        "method, upper case",
+        "raw path and query exactly as sent (path?query, or path alone)",
+        "X-Hive-Timestamp",
+        "X-Hive-Nonce",
+        "request body SHA-256 (hex; of the empty string when there is no body)"
+      ],
+      "hive-webhook-v1": [
+        "subscription id",
+        "event id",
+        "X-Hive-Timestamp",
+        "body SHA-256 (hex)"
+      ],
+      "hive-ws-v1": [
+        "raw path and query exactly as requested",
+        "timestamp",
+        "nonce"
+      ]
+    },
+    "timestamp": "Integer Unix seconds, in decimal.",
+    "webhooks": "A webhook carries X-Hive-Signature (the Hive's Ed25519 key over hive-webhook-v1), X-Hive-Timestamp and X-Hive-Event-Id (dedupe on it); verify with the key GET /v1/push/hive-key answers, which enrolment also returned."
+  },
+  "x-hive-streams": [
+    {
+      "first_frame": {
+        "deadline_s": 5.0,
+        "schema": {
+          "$ref": "#/components/schemas/SocketHello"
+        },
+        "signs": "hive-ws-v1"
+      },
+      "frame": {
+        "$ref": "#/components/schemas/ChatFrame"
+      },
+      "path": "/v1/chat/stream",
+      "summary": "New chat lines after a cursor, as they are written (C2).",
+      "x-hive-c2": true,
+      "x-hive-capability": "entrance:submit",
+      "x-hive-listeners": [
+        "loopback",
+        "remote"
+      ]
+    },
+    {
+      "first_frame": {
+        "deadline_s": 5.0,
+        "schema": {
+          "$ref": "#/components/schemas/SocketHello"
+        },
+        "signs": "hive-ws-v1"
+      },
+      "frame": {
+        "$ref": "#/components/schemas/PushNotice"
+      },
+      "path": "/v1/push/stream",
+      "summary": "The live push channel: content-free notices that something is waiting.",
+      "x-hive-c2": false,
+      "x-hive-capability": "entrance:push",
+      "x-hive-listeners": [
+        "loopback",
+        "remote"
+      ]
+    },
+    {
+      "first_frame": {
+        "deadline_s": 5.0,
+        "schema": {
+          "$ref": "#/components/schemas/SocketHello"
+        },
+        "signs": "hive-ws-v1"
+      },
+      "frame": {
+        "$ref": "#/components/schemas/SecurityFrame"
+      },
+      "path": "/v1/entrance/stream",
+      "summary": "Every Entrance security event, from the trail.",
+      "x-hive-c2": false,
+      "x-hive-capability": "observe",
+      "x-hive-listeners": [
+        "loopback",
+        "remote"
+      ]
+    }
+  ]
+}

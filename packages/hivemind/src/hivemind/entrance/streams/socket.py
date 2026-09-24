@@ -112,9 +112,10 @@ async def serve_socket(
             live.wait_closed(),
             _watch_session(context, here),
         )
+        await _close(websocket, reason)
     finally:
+        # Forgotten only once its close frame was sent: the Reducer waits for exactly that.
         sockets.discard(live)
-    await _close(websocket, reason)
 
 
 async def send_frame(websocket: WebSocket, frame: BaseModel) -> bool:

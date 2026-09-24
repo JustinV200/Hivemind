@@ -212,14 +212,14 @@ class EntranceReducer:
         event = await self._change(EntranceMode.OPEN, EntranceMode.REDUCED, actor, payload)
         # Nothing remote authenticates from here on, even before the listener has stopped.
         ended = await self._sessions.end_remote()
+        # Every remote socket is told why before the listener's own shutdown closes it.
+        await self._seams.streams.close_remote()
         try:
             # Latency: the app bounds the listener's graceful shutdown to one second.
             await self._seams.listener.stop()
         finally:
-            # A remote login that finished while the listener stopped is ended too, and every
-            # remote socket is closed even if stopping the listener failed.
+            # A remote login that finished while the listener stopped is ended too.
             ended += await self._sessions.end_remote()
-            await self._seams.streams.close_remote()
         changed = event is not None
         if event is not None:
             await self._broadcast(event)
