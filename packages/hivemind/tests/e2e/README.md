@@ -129,6 +129,29 @@ Drone's grant without a free core.
   enrolled `--offline` is registered with `hive entrance register`, imports the certificate
   `approve --certificate-out` wrote, and reads its inbox; and `vpn` with `mutual_tls = true`
   admits a device with its certificate the same way.
+- `test_phase10_phone.py` (`@pytest.mark.e2e`) -- roadmap phase 10's third exit criterion: a phone
+  that speaks only to the remote listener. `hive serve`'s own Hive (the scripted goal whose Drone
+  asks one question) is served by `remote_serve.py`, which builds the Entrance exactly as `hive
+  serve` does but under the serving rig's test-only vpn plan (public origin and passkey relying
+  party `hive.example.ts.net`, the remote listener on a second loopback port, plain HTTP), since
+  `hive serve` rightly refuses a vpn bind without an overlay address and TLS. Every push delivery
+  goes to `push_network.py`'s recorder. The phone takes the invite code from the link the QR
+  encodes (no QR decoder is locked; the QR shown is proven to be that link by encoding it again),
+  redeems it with a `SoftPasskey`, is refused while pending and approved at the Hive Stand, logs in
+  with passkey plus password, subscribes to Web Push, and decrypts the question's notice, its
+  withdrawal and its goal's completion with its own key after answering; the approve route is a
+  404 for it on the remote listener.
+- `test_phase10_program_webhook.py` (`@pytest.mark.e2e`) -- roadmap phase 10's fourth exit
+  criterion over `hive serve`'s composition: the document-only client (`landing_client/`) enrols
+  an Ed25519 program approved with no `observe` capability and a one-dollar daily cap, registers a
+  webhook, submits a goal, verifies the question's notice under the Hive key it pinned (for its
+  subscription and no other, `X-Hive-Event-Id` its event id), answers it, and hears the withdrawal
+  and the completion. The same key is refused `GET /v1/cells` (`capability_denied`, `observe`) and
+  a goal above its cap (`step_up_required`, `over_daily_cap`, a pending id the console lists).
+- `test_push_withdrawal.py` (`@pytest.mark.e2e`) -- roadmap step 10.5b's named test: a laptop's
+  `hive run --remote` asks, a program answers the question it heard by signed webhook, and a
+  phone's Web Push copy is withdrawn under the same Topic (decrypted with the phone's own key); the
+  program's webhook hears the withdrawal too and the laptop's follow sees the goal end.
 - `test_slow_provision.py` (`@pytest.mark.e2e`) -- a Virtual Cell provision slowed far past the
   manifest's liveness window (the container-spawning fake backend's `set_provision_delay`): the
   Hive Stand's Warden, heartbeating the whole time the Queen's tick is stalled, is never reported
