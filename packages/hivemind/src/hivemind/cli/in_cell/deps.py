@@ -14,34 +14,37 @@ Virtual Cell's source, never read off the Cell's kind. Roadmap step 10.3a: the p
 Hive Stand as this Cell reaches it (its Queen URL's host as a name, and the addresses that host
 resolved to at start, `hivemind.cli.in_cell.hive_stand`), so the Hive-state floor refuses a Worker
 `net` to it, and the deps say which providers this Cell serves locally, for Night Veil's
-local-only binding rule.
+local-only binding rule. Every model call in the Cell passes through the Cell's own Fanner
+(`hivemind.cli.in_cell.fanner`, the seat meter codingrules section 8.10 requires of every call):
+the Warden's own awake episodes on one unattributed lane (`call_gate`), each sub-bee on its own
+lane for its grant and goal (`lane_for_grant`), all recording `llm.call` to this Cell's own trail
+segment, which the trail sync ships to the Queen.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
     `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.guard`
-    (Capability, CapabilityFamily, Enforcer, load_guard_policy),
-    `hivemind.llm.ladders.gate` (DirectCallGate),
+    (Capability, CapabilityFamily, Enforcer, load_guard_policy), `hivemind.forage` (Tempo),
     `hivemind.memory` (InMemoryMemoryStore, MemoryIdentity), `hivemind.pheromone` (PheromoneTrail),
     `hivemind.supervision` (load_policy), `hivemind.supervision.capping` (deterministic_checks,
     load_tiers), `hivemind.wardens` (WardenDeps), `hivemind.wardens.snapshot_relay`
     (RelaySnapshotter), `hivemind.wardens.spawn` (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
-    (Drone), `hivemind.cli.in_cell.providers`, `hivemind.cli.in_cell.hive_stand` and waggle
-    only.
+    (Drone), `hivemind.cli.in_cell.providers`, `hivemind.cli.in_cell.fanner`,
+    `hivemind.cli.in_cell.hive_stand` and waggle only.
 
 Key invariants:
     - `worker_factory` always returns a fresh `Drone`, the same "v0's only Worker role" choice
       `hivemind.cli.compose.deps.build_warden_deps` makes for the Hive Stand.
-    - `call_gate`/`lane_for_grant` are both unmetered (`DirectCallGate`): a single Virtual Cell has
-      no Fanner of its own to share a seat meter across bees the way the Hive Stand's shared pool
-      does (roadmap step 5.5 scope; a per-Cell Fanner is a later step, flagged in this dispatch's
-      report).
+    - `call_gate` and every `lane_for_grant` lane are lanes of one Fanner per Cell, built the
+      same way whichever provider registry was built (the fallback fake one included): no model
+      call in a Virtual Cell ever bypasses the seat meter or goes unrecorded.
 
 See Also:
     - .claude/codingrules.md section 5.1 for "introduce a frozen dataclass for the argument group",
       the reason `WardenDeps` itself takes this many fields.
     - hivemind.cli.compose.deps for build_warden_deps, the manifest-driven sibling this mirrors.
     - hivemind.cli.in_cell.providers for build_in_cell_provider_registry, this module's model door.
+    - hivemind.cli.in_cell.fanner for build_in_cell_fanner/lane_for_grant, its seat meter.
     - hivemind.wardens.deps for WardenDeps, this module's one return type.
 """
 
@@ -52,13 +55,14 @@ from urllib.parse import urlsplit
 
 from hivemind.cell import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
+from hivemind.cli.in_cell.fanner import build_in_cell_fanner, lane_for_grant
 from hivemind.cli.in_cell.hive_stand import hive_stand_names
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry, local_provider_names
+from hivemind.forage import Tempo
 from hivemind.forage.slots import ModelSlot
 from hivemind.guard import Capability, CapabilityFamily, Enforcer, load_guard_policy
 from hivemind.guard.net import ip_literal
 from hivemind.guard.policy import HiveState
-from hivemind.llm.ladders.gate import DirectCallGate
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision import load_policy
@@ -119,12 +123,12 @@ def build_in_cell_warden_deps(
         A WardenDeps ready for `hivemind.wardens.Warden(config.warden_id, deps)`.
     """
     registry = build_in_cell_provider_registry(clock, config)
-    hop = Hop(sender=config.warden_id, recipient=config.hive_id, node_id=config.node_id)
+    fanner = build_in_cell_fanner(config, trail, clock)  # One per Cell, whichever registry.
     enforcer = _build_enforcer(config, trail, clock)  # Its policy is also every set's (`guard`).
     return WardenDeps(
         source=source,
         queen_link=queen_link,
-        hop=hop,
+        hop=_hop(config),
         memory=InMemoryMemoryStore(trail),
         trail=trail,
         identity=_identity(config),
@@ -138,7 +142,7 @@ def build_in_cell_warden_deps(
         local_providers=local_provider_names(config),  # Roadmap step 10.3a.
         checks=deterministic_checks(),  # No JudgeReviewer wired yet; see this dispatch's report.
         bound=registry.bound(ModelSlot.WARDEN),
-        call_gate=DirectCallGate(),  # No per-Cell Fanner yet (module docstring's own note).
+        call_gate=fanner.lane(Tempo()),  # The Warden's own lane, for its awake episodes.
         worker_factory=_build_drone,
         rebind=lambda key: registry.bound_for_key(key, ModelSlot.WORKER),
         handoff_threshold=DEFAULT_HANDOFF_THRESHOLD,
@@ -146,8 +150,14 @@ def build_in_cell_warden_deps(
         worker_heartbeat_interval_s=DEFAULT_WORKER_HEARTBEAT_INTERVAL_S,
         missed_heartbeats_before_stalled=DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED,
         trail_sync=_build_trail_sync(config, queen_link, trail, clock),
-        snapshotter=_build_snapshotter(config, queen_link, hop, clock),
+        snapshotter=_build_snapshotter(config, queen_link, _hop(config), clock),
+        lane_for_grant=lane_for_grant(fanner),  # One lane per sub-bee's grant and goal.
     )
+
+
+def _hop(config: InCellRuntimeConfig) -> Hop:
+    """Return this Warden's own address toward the Queen: itself, to her Hive, from this node."""
+    return Hop(sender=config.warden_id, recipient=config.hive_id, node_id=config.node_id)
 
 
 def _identity(config: InCellRuntimeConfig) -> MemoryIdentity:

@@ -51,6 +51,18 @@ def test_cell_providers_rewrites_a_loopback_base_url_for_the_given_gateway_host(
     assert local.api_key_env == "HIVEMIND_LOCAL_API_KEY"
 
 
+def test_cell_providers_carries_each_providers_own_seats_and_rate_limits(tmp_path: Path) -> None:
+    # What the Cell's own Fanner meters by (hivemind.cli.in_cell.fanner): the operator's figures.
+    manifest = _with_local_provider(tmp_path, seats=2, requests_per_minute=30)
+
+    providers = cell_providers(manifest, None)
+
+    local = next(p for p in providers if p.name == "local")
+    assert (local.seats, local.requests_per_minute, local.tokens_per_minute) == (2, 30, None)
+    fake = next(p for p in providers if p.name == "fake")
+    assert fake.seats == manifest.llm.providers["fake"].seats
+
+
 def test_cell_providers_leaves_base_url_unchanged_when_gateway_host_is_none(
     tmp_path: Path,
 ) -> None:

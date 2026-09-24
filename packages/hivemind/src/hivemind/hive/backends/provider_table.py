@@ -8,7 +8,9 @@ must hand a freshly provisioned Cell that table itself, once, at provision time 
 `hivemind.hive.backends.bootstrap.QueenEndpoint` is where it rides along, and `CellBootstrap.
 environment()` is where it becomes the `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` JSON this module's own
 render functions produce. `CellProviderSpec` mirrors `hivemind.llm.registry.ProviderConfig` plus
-the provider's own manifest name (a bare tuple has nowhere else to carry it); `CellSlotSpec` mirrors
+the provider's own manifest name (a bare tuple has nowhere else to carry it) and its `seats` and
+rate limits, which the Cell's own Fanner (`hivemind.cli.in_cell.fanner`, the seat meter every model
+call inside the Cell passes through) meters its bees' calls by; `CellSlotSpec` mirrors
 `hivemind.forage.map.SlotBinding` the same way. Deliberately NOT those types themselves: this
 package's own render step only needs plain, JSON-safe values, never a live registry or pydantic
 model, and keeping `hive.backends` free of an `hivemind.llm`/`hivemind.forage` dependency it never
@@ -76,10 +78,14 @@ class CellProviderSpec:
     # never the Hive Stand's own loopback address.
     base_url: str
     default_model: str | None
+    # [llm.providers.<name>] seats: the concurrency budget the Cell's own Fanner meters by.
+    seats: int
     # ProviderConfig.capability_overrides, unchanged.
     capabilities: Mapping[str, bool | int] = field(default_factory=dict)
     # The HIVEMIND_<NAME>_API_KEY-shaped variable name; never the key itself.
     api_key_env: str = ""
+    requests_per_minute: int | None = None  # [llm.providers.<name>] rate limit; None: unmetered.
+    tokens_per_minute: int | None = None  # Its token-rate limit; None: not metered that way.
 
 
 @dataclass(frozen=True, slots=True)

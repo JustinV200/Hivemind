@@ -64,6 +64,7 @@ from hivemind.common.errors import ConfigurationError
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
 from hivemind.guard.net import IPAddress
+from hivemind.llm import RateLimit
 from hivemind.llm.registry import ProviderConfig, ProviderKind
 from hivemind.manifest.env import InCellEnv
 from hivemind.wardens.spawn import InCellSpawnConfig
@@ -128,6 +129,12 @@ class InCellRuntimeConfig:
         providers: This Hive's own `[llm.providers]` table, parsed from `HIVEMIND_PROVIDERS`
             (`hivemind.cli.in_cell.providers.build_in_cell_provider_registry`'s own input); empty
             when the variable is unset, in which case that module keeps building today's fake.
+        provider_seats: Each provider's `seats`, from the same rows: the concurrency budget this
+            Cell's own Fanner meters its bees' calls against (`hivemind.cli.in_cell.fanner`). A
+            provider left out (no table, or a row from a Queen that shipped no seats) gets the
+            Fanner's own one-seat default.
+        provider_limits: Each provider's `requests_per_minute`/`tokens_per_minute`, from the same
+            rows, as the Fanner's `RateLimit`; a provider left out is unlimited.
         slots: This Hive's own `[llm.slots]` table, parsed from `HIVEMIND_SLOTS` the same way.
         llm_offline: This Hive's own `[llm] offline` flag, from `HIVEMIND_LLM_OFFLINE`; `False`
             when unset, matching `hivemind.manifest.schema.llm.LlmSection.offline`'s own default.
@@ -151,6 +158,8 @@ class InCellRuntimeConfig:
     heartbeat_interval_s: float
     socks_proxy_url: str | None
     providers: Mapping[str, ProviderConfig]
+    provider_seats: Mapping[str, int]
+    provider_limits: Mapping[str, RateLimit]
     slots: tuple[SlotBinding, ...]
     llm_offline: bool
     environ: Mapping[str, str]
@@ -181,6 +190,7 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
     comb_shield = _parse_comb_shield(env.comb_shield)
     queen_waggle_url = _require_queen_waggle_url(env.queen_waggle_url)
     _check_link_matches_tier(comb_shield, queen_waggle_url, env.socks_proxy_url)
+    providers = _parse_providers(env.providers_json)
     return InCellRuntimeConfig(
         queen_waggle_url=queen_waggle_url,
         hive_id=hive_id,
@@ -192,7 +202,9 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
         spawn_config=_spawn_config(env, cell_id, comb_shield),
         heartbeat_interval_s=DEFAULT_HEARTBEAT_INTERVAL_S,
         socks_proxy_url=env.socks_proxy_url,
-        providers=_parse_providers(env.providers_json),
+        providers=providers.configs,
+        provider_seats=providers.seats,
+        provider_limits=providers.limits,
         slots=_parse_slots(env.slots_json),
         llm_offline=env.llm_offline or False,
         environ=env.environ,
@@ -401,45 +413,89 @@ def _decode_hex(hex_text: str, var_name: str) -> bytes:
         raise ConfigurationError(f"{var_name} is not valid hex-encoded key material.") from exc
 
 
-def _parse_providers(raw: str | None) -> dict[str, ProviderConfig]:
-    """Parse `HIVEMIND_PROVIDERS` into ProviderRegistry-facing ProviderConfigs, keyed by name.
+@dataclass(frozen=True, slots=True)
+class _ProviderTable:
+    """`HIVEMIND_PROVIDERS`, parsed once: the registry's configs and what the Fanner meters."""
+
+    configs: dict[str, ProviderConfig]
+    seats: dict[str, int]
+    limits: dict[str, RateLimit]
+
+
+def _parse_providers(raw: str | None) -> _ProviderTable:
+    """Parse `HIVEMIND_PROVIDERS` into ProviderConfigs, seats and rate limits, keyed by name.
 
     Args:
         raw: The variable's raw JSON text (`hivemind.hive.backends.provider_table.
             render_providers_json`'s own output), or None when this Cell has no provider table.
 
     Returns:
-        An empty dict when `raw` is None (`hivemind.cli.in_cell.providers.
+        Empty tables when `raw` is None (`hivemind.cli.in_cell.providers.
         build_in_cell_provider_registry`'s own cue to keep building today's fake); otherwise one
-        ProviderConfig per row, in the JSON array's own order.
+        ProviderConfig and one RateLimit per row, and its seats when the row names them.
 
     Raises:
         ConfigurationError: `raw` is not a JSON array of well-formed provider rows.
     """
+    table = _ProviderTable(configs={}, seats={}, limits={})
     if raw is None:
-        return {}
-    providers: dict[str, ProviderConfig] = {}
+        return table
     for row in _load_json_array(raw, "HIVEMIND_PROVIDERS"):
         if not isinstance(row, dict):
             raise ConfigurationError("HIVEMIND_PROVIDERS contains a row that is not a JSON object.")
-        kind = row.get("kind")
-        if kind not in _VALID_PROVIDER_KINDS:
-            raise ConfigurationError(
-                f"HIVEMIND_PROVIDERS names an unknown provider kind: {kind!r}."
-            )
-        try:
-            name = str(row["name"])
-            api_key_env = row.get("api_key_env") or None
-            providers[name] = ProviderConfig(
-                kind=cast(ProviderKind, kind),
-                base_url=str(row["base_url"]),
-                api_key_env=str(api_key_env) if api_key_env else None,
-                capability_overrides=dict(row.get("capabilities") or {}),
-                default_model=row.get("default_model"),
-            )
-        except KeyError as exc:
-            raise ConfigurationError(f"HIVEMIND_PROVIDERS row is missing {exc}.") from exc
-    return providers
+        name, config = _provider_config(row)
+        table.configs[name] = config
+        # What this Cell's own Fanner meters the provider's calls by (hivemind.cli.in_cell.
+        # fanner); a row with no seats (an older Queen) leaves the Fanner's one-seat default.
+        seats = _positive_int(row, "seats")
+        if seats is not None:
+            table.seats[name] = seats
+        table.limits[name] = RateLimit(
+            requests_per_minute=_positive_int(row, "requests_per_minute"),
+            tokens_per_minute=_positive_int(row, "tokens_per_minute"),
+        )
+    return table
+
+
+def _provider_config(row: dict[str, object]) -> tuple[str, ProviderConfig]:
+    """Build one `HIVEMIND_PROVIDERS` row's own registry-facing ProviderConfig, with its name.
+
+    Raises:
+        ConfigurationError: The row names an unknown kind, or misses its name or base URL.
+    """
+    kind = row.get("kind")
+    if kind not in _VALID_PROVIDER_KINDS:
+        raise ConfigurationError(f"HIVEMIND_PROVIDERS names an unknown provider kind: {kind!r}.")
+    try:
+        api_key_env = row.get("api_key_env") or None
+        capabilities = cast(dict[str, bool | int], row.get("capabilities") or {})
+        config = ProviderConfig(
+            kind=cast(ProviderKind, kind),
+            base_url=str(row["base_url"]),
+            api_key_env=str(api_key_env) if api_key_env else None,
+            capability_overrides=dict(capabilities),
+            default_model=cast(str | None, row.get("default_model")),
+        )
+        return str(row["name"]), config
+    except KeyError as exc:
+        raise ConfigurationError(f"HIVEMIND_PROVIDERS row is missing {exc}.") from exc
+
+
+def _positive_int(row: dict[str, object], key: str) -> int | None:
+    """Return `row[key]` as a positive integer, or None when the row leaves it out or null.
+
+    Raises:
+        ConfigurationError: The value is present but not a positive integer.
+    """
+    value = row.get(key)
+    if value is None:
+        return None
+    # A JSON true is a Python bool, itself an int: refused like any other non-count.
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigurationError(
+            f"HIVEMIND_PROVIDERS row has {key}={value!r}; it must be a positive integer."
+        )
+    return value
 
 
 def _parse_slots(raw: str | None) -> tuple[SlotBinding, ...]:

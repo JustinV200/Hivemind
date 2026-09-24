@@ -35,8 +35,10 @@ _A_PROVIDER = CellProviderSpec(
     kind="openai_compat",
     base_url="http://host.docker.internal:1234/v1",
     default_model="local-test-model",
+    seats=2,
     capabilities={"vision": False},
     api_key_env="HIVEMIND_LOCAL_API_KEY",
+    requests_per_minute=60,
 )
 _A_SLOT = CellSlotSpec(
     key="warden",
@@ -156,8 +158,11 @@ def test_environment_renders_providers_and_slots_as_a_json_round_trip() -> None:
             "kind": "openai_compat",
             "base_url": "http://host.docker.internal:1234/v1",
             "default_model": "local-test-model",
+            "seats": 2,
             "capabilities": {"vision": False},
             "api_key_env": "HIVEMIND_LOCAL_API_KEY",
+            "requests_per_minute": 60,
+            "tokens_per_minute": None,
         }
     ]
     assert slots == [
