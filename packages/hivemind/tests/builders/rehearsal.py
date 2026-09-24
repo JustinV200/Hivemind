@@ -50,15 +50,21 @@ def recorded_action(
     )
 
 
-def login_recording(site: str = FIXTURE_ORIGIN) -> tuple[RecordedAction, ...]:
-    """A bee's recording of logging in to the fixture site at `site`, one mistake included."""
+def login_recording(site: str = FIXTURE_ORIGIN, suffix: str = "") -> tuple[RecordedAction, ...]:
+    """A bee's recording of logging in to the fixture site at `site`, one mistake included.
+
+    Args:
+        site: The origin it was recorded on.
+        suffix: What the pages' paths end in: "" for the fake site (`/login`), ".html" for the
+            static fixture served over http (`/login.html`).
+    """
     held = {"has_held": True}
     return (
         recorded_action(
-            (GuiStep(op=GuiOp.NAVIGATE, url=f"{site}/login"),),
+            (GuiStep(op=GuiOp.NAVIGATE, url=f"{site}/login{suffix}"),),
             (
                 RecordedPostcondition(
-                    kind="URL_MATCHES", subject="page", expected=f"{site}/login", **held
+                    kind="URL_MATCHES", subject="page", expected=f"{site}/login{suffix}", **held
                 ),
             ),
         ),

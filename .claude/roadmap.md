@@ -1139,11 +1139,15 @@ applications that have no API; it is not a stealth layer (coding rules section 1
   Bread `RECORDING` reference, the judge's review through `exoskeleton/surface/evidence.py` and
   `AuditingCappingGate`, and `hive recordings list/show/export` (a self-contained HTML playback)
   until the Observation Hive exists.
-- [ ] **6.7 Structural assertions and rehearsal.** For browser work the gate prefers assertions
+- [x] **6.7 Structural assertions and rehearsal.** For browser work the gate prefers assertions
   on structure over pixels: URL, accessibility tree, element text. A browser procedure that will
   be reused is rehearsed against a fixture or staging site first and then promoted as a tool
   through the Royal Jelly Lab (9.3), so production runs execute a capped procedure rather than an
-  improvised one.
+  improvised one. Landed as: URL_MATCHES and ELEMENT_TEXT acceptance, allowed by the planner only
+  on Exoskeleton subtasks and checked by the Warden on the attached browser before it detaches;
+  `exoskeleton/rehearsal/` (export a verified recording as a `BrowserProcedure`, `rebase` it onto
+  a fixture origin, `rehearse` it into a `RehearsalReport`), proven on a real Chromium against the
+  served fixture site. The command that promotes a procedure is the Royal Jelly Lab's (9.3).
 - [x] **6.8 Fake exoskeleton.** `exoskeleton/*/fake.py`; contract suite over real and fake,
   including the recorder. Landed as three suites: `test_exoskeleton_contract.py` (display, input,
   audio over the fakes and real X11/PulseAudio), `test_browser_contract.py` (the fake browser and
