@@ -341,6 +341,11 @@ def _task_query_where(query: TaskFilter) -> tuple[list[str], list[object]]:
         # only the Queen's crash recovery looks a goal up by it, so a scan beats a migration.
         clauses.append("json_extract(body, '$.spec.goal_request_id') = ?")
         params.append(query.goal_request_id)
+    if query.after is not None:
+        # Keyset paging on the list order's own index; an unknown cursor's subquery is NULL, so
+        # the row-value comparison is never true and the page is empty, never a restart.
+        clauses.append("(created_at, id) > (SELECT created_at, id FROM tasks WHERE id = ?)")
+        params.append(query.after)
     return clauses, params
 
 

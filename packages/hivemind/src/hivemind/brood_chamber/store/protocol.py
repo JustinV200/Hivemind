@@ -7,7 +7,9 @@ module fixes the one seam every implementation must honour (codingrules section 
 `Question` mutation and the `TaskEvent` (`hivemind.pheromone`) that records it on the Pheromone
 Trail commit together, in the same transaction, or neither commits at all (Appendix C rule 3, "the
 trail can never disagree with the store"). `TaskFilter` is `list_tasks`'s query shape (status,
-goal, and since roadmap step 10.5 the goal request a task was planned from).
+goal, and since roadmap step 10.5 the goal request a task was planned from and a paging cursor:
+the tasks after one task in `(created_at, id)` order, how the Hive Entrance pages the task list
+without an offset).
 `check_task_event` is the one guard both implementations (`hivemind.brood_chamber.store.memory.
 MemoryTaskStore`, `hivemind.brood_chamber.store.sqlite.SqliteTaskStore`) call before writing, so a
 bug inside the Brood Chamber can never file an event under the wrong task's `subject_id` or the
@@ -88,6 +90,11 @@ class TaskFilter(BaseModel):
     # Roadmap step 10.5: how the Queen finds a goal she already planned for a request, after a
     # crash between persisting the graph and marking the request PLANNED (hivemind.queen.intake).
     goal_request_id: GoalRequestRef = None
+    after: TaskIdField | None = Field(
+        default=None,
+        description="Only tasks after this one in (created_at, id) order: the paging cursor, "
+        "the last task of the previous page. A task the store does not hold matches nothing.",
+    )
     limit: int = Field(
         default=DEFAULT_TASK_FILTER_LIMIT,
         ge=MIN_TASK_FILTER_LIMIT,

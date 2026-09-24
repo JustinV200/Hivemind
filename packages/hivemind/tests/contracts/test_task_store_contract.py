@@ -316,6 +316,39 @@ async def test_list_tasks_respects_limit(store_and_trail: _StoreAndTrail) -> Non
     assert len(results) == 2
 
 
+async def test_list_tasks_pages_after_a_cursor_in_list_order(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    tasks = []
+    for _ in range(5):
+        task = make_task(clock=clock)
+        await store_and_trail.store.insert_tasks([task], [_make_task_event(clock, task)])
+        tasks.append(task)
+        clock.advance(1)
+
+    first = await store_and_trail.store.list_tasks(TaskFilter(limit=2))
+    second = await store_and_trail.store.list_tasks(TaskFilter(after=first[-1].id, limit=2))
+    last = await store_and_trail.store.list_tasks(TaskFilter(after=second[-1].id, limit=2))
+    end = await store_and_trail.store.list_tasks(TaskFilter(after=last[-1].id, limit=2))
+
+    pages = [task.id for page in (first, second, last) for task in page]
+    assert pages == [task.id for task in tasks]
+    assert end == ()
+
+
+async def test_list_tasks_after_an_unknown_cursor_is_empty(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    task = make_task(clock=clock)
+    await store_and_trail.store.insert_tasks([task], [_make_task_event(clock, task)])
+
+    results = await store_and_trail.store.list_tasks(TaskFilter(after=make_task(clock=clock).id))
+
+    assert results == ()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # insert_question / update_question / get_question / list_questions
 # ──────────────────────────────────────────────────────────────────────────────

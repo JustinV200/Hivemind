@@ -54,6 +54,8 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import types
+from collections.abc import Mapping
 
 from hivemind.forage import ForageCapacity, ForageGrant, RoyalReserve
 from hivemind.forage.grant_state import is_terminal
@@ -182,6 +184,14 @@ class ForageLedger:
     def capacity_for(self, cell_id: CellId) -> ForageCapacity | None:
         """Return the latest reported capacity for `cell_id`, or None if none has arrived yet."""
         return self._capacities.get(cell_id)
+
+    def capacities(self) -> Mapping[CellId, ForageCapacity]:
+        """Return every Cell's latest reported capacity, keyed by Cell: a read-only snapshot.
+
+        The Hive Entrance's Forage view reads the whole book this way (ADR-0032: reads go to the
+        stores directly); a snapshot, so a report landing meanwhile never changes it under a reader.
+        """
+        return types.MappingProxyType(dict(self._capacities))
 
     def headroom(self) -> Headroom:
         """Compute the shared pool's current sub-bee and shared-seat headroom.

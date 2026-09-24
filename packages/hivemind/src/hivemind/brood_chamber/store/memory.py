@@ -110,6 +110,8 @@ class MemoryTaskStore:
             tasks = list(self._tasks.values())
         matches = [task for task in tasks if _matches_task_filter(task, query)]
         matches.sort(key=lambda task: (task.created_at, task.id))
+        if query.after is not None:
+            matches = _after_cursor(matches, {task.id: task for task in tasks}, query.after)
         return tuple(matches[: query.limit])
 
     async def insert_question(self, task: Task, question: Question, event: TaskEvent) -> None:
@@ -160,6 +162,15 @@ class MemoryTaskStore:
         ]
         matches.sort(key=lambda question: (question.asked_at, question.id))
         return tuple(matches)
+
+
+def _after_cursor(matches: list[Task], every: dict[TaskId, Task], after: TaskId) -> list[Task]:
+    """Keep the tasks after the cursor in (created_at, id) order; none for an unknown cursor."""
+    cursor = every.get(after)
+    if cursor is None:
+        return []  # Matches SqliteTaskStore: an unknown cursor pages nothing, never restarts.
+    key = (cursor.created_at, cursor.id)
+    return [task for task in matches if (task.created_at, task.id) > key]
 
 
 def _matches_task_filter(task: Task, query: TaskFilter) -> bool:
