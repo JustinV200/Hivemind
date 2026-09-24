@@ -14,13 +14,21 @@ seam and ships an in-memory implementation), records a `capping.audited` trail e
 `Alarm` of kind `AUDIT_FAILED` on a `REJECT` verdict, through the same `record_alarm_event` path
 every other supervisor uses. `AuditRates` is the read model the Guard Bee (phase 10, part of
 `hivemind.guard`, the Hive's policy engine) will read to raise a tier's `audit_rate` when its
-failure rate climbs; this module only counts, it does not decide.
+failure rate climbs; this module only counts, it does not decide. Roadmap step 10.6 adds the other
+half of that sentence: `AuditRateRaise` is what a Guard Bee raise carries on the trail
+(`guard.audit_rate_raised`: the tier, the rate it rose from and to, until when, and the report
+behind it), and `raised_audit_rate` is how a Warden's gate reads it back from the trail it records
+to, so a proposal is sampled at the higher of the tier table's rate and a live raise. A raise only
+ever raises: the model refuses one that does not, and the reader takes the maximum.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Called
     by whichever composition root schedules audit sampling (a later dispatch's Warden tick, or
-    `hive capping audit --sample`, roadmap step 4.11) once a proposal reaches a terminal state.
-    Calls into `hivemind.cell` (CellIdentity), `hivemind.pheromone` (CappingEvent, PheromoneTrail),
+    `hive capping audit --sample`, roadmap step 4.11) once a proposal reaches a terminal state;
+    `raised_audit_rate` by `hivemind.wardens.spawn.audited_gate`, and `AuditRateRaise` by the
+    Guard Bee (`hivemind.workers.roles.guard_bee`) when it raises a rate. Calls into
+    `hivemind.cell` (CellIdentity), `hivemind.guard.report` (the report id pattern),
+    `hivemind.pheromone` (CappingEvent, PheromoneEvent, PheromoneTrail, TrailQuery),
     `hivemind.supervision.alarm`, `hivemind.supervision.alarm_trail`, `hivemind.supervision.
     capping.checks.judge`, `.checks.rubrics`, `.errors`, `.proposal`, `.tiers` and waggle only;
     never `hivemind.memory` or `hivemind.honey_store` (`FindingsSink` is the seam a later phase
@@ -38,6 +46,9 @@ Key invariants:
     - The capping.audited trail event's payload carries only the tier, the verdict outcome and the
       rubric id -- never JudgeVerdict.reasons or .notes (codingrules section 12: no event ever
       carries text).
+    - `raised_audit_rate` never lowers anything: it returns the highest live raise for one tier,
+      or 0.0, and a gate samples at the higher of that and the tier table's rate; an expired or
+      malformed raise is skipped, never trusted.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "What cannot be gated is sampled."
@@ -54,13 +65,15 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from random import Random
-from typing import Protocol
+from typing import Protocol, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
 
 from hivemind.cell import CellIdentity
-from hivemind.pheromone import CappingEvent, PheromoneTrail
+from hivemind.guard.report import GUARD_REPORT_ID_PATTERN
+from hivemind.pheromone import CappingEvent, PheromoneEvent, PheromoneTrail, TrailQuery
 from hivemind.supervision.alarm import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from hivemind.supervision.alarm_trail import record_alarm_event
 from hivemind.supervision.capping.checks.judge import (
@@ -78,14 +91,23 @@ from waggle.ids import MessageId, new_alarm_id, new_event_id
 from waggle.messages.base import UtcDatetime
 from waggle.messages.supervision import AlarmContext
 
+AUDIT_RATE_RAISED_KIND = "guard.audit_rate_raised"  # The trail kind a Guard Bee raise is.
+# Raises are rare (a rule consumes the burst that fired it): the newest 64 always include each
+# tier's newest live raise, which is its highest, since every raise starts from the rate in force.
+MAX_RAISES_READ = 64
+
 __all__ = [
+    "AUDIT_RATE_RAISED_KIND",
+    "MAX_RAISES_READ",
     "AuditDeps",
     "AuditFinding",
+    "AuditRateRaise",
     "AuditRates",
     "AuditSampler",
     "FindingsSink",
     "InMemoryFindingsSink",
     "audit_completed",
+    "raised_audit_rate",
 ]
 
 
@@ -207,6 +229,75 @@ class AuditRates:
         """Return `tier`'s audit failure rate: failed / sampled, or 0.0 with nothing sampled yet."""
         total = self.sampled(tier)
         return self.failed(tier) / total if total else 0.0
+
+
+class AuditRateRaise(BaseModel):
+    """One Guard Bee raise of one tier's sampled-audit rate: the `guard.audit_rate_raised` payload.
+
+    Written by the Guard Bee (roadmap step 10.6) when a rule sees a tier's failures climb, and read
+    back by `raised_audit_rate` wherever a gate samples; the trail is the only channel between the
+    two, so the raise survives a restart of either side and needs no shared object.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tier: RiskTier = Field(description="The tier whose sampling rate rose.")
+    from_rate: float = Field(ge=0.0, lt=1.0, description="The rate in force before the raise.")
+    to_rate: float = Field(gt=0.0, le=1.0, description="The rate in force until `until`.")
+    until: UtcDatetime = Field(description="When the raise lapses and the table's rate returns.")
+    report_id: str = Field(pattern=GUARD_REPORT_ID_PATTERN, description="The report behind it.")
+    rule: str = Field(
+        pattern=r"^[a-z][a-z0-9_.]*$", max_length=64, description="The rule that raised it."
+    )
+
+    @model_validator(mode="after")
+    def _only_ever_raises(self) -> Self:
+        """Refuse a 'raise' that does not raise: lowering a rate would widen what goes unaudited."""
+        if self.to_rate <= self.from_rate:
+            raise ValueError(f"A raise must raise: {self.to_rate} is not above {self.from_rate}.")
+        return self
+
+    def to_payload(self) -> dict[str, JsonValue]:
+        """Return the raise as a trail payload: a tier name, two rates, a time and two ids."""
+        return self.model_dump(mode="json")
+
+    @classmethod
+    def from_event(cls, event: PheromoneEvent) -> AuditRateRaise | None:
+        """Read a raise back from a `guard.audit_rate_raised` event; None when it is malformed.
+
+        Args:
+            event: One trail event of kind `AUDIT_RATE_RAISED_KIND`.
+
+        Returns:
+            The raise, or None for a payload this model refuses (a foreign or damaged row, which
+            a reader skips rather than trusts).
+        """
+        try:
+            return cls.model_validate(event.payload)
+        except ValidationError:
+            return None
+
+
+async def raised_audit_rate(trail: PheromoneTrail, tier: RiskTier, now: datetime) -> float:
+    """Return the highest live Guard Bee raise of `tier`'s sampled-audit rate, or 0.0.
+
+    Args:
+        trail: The trail the calling gate records to; on the Hive Stand that is the Queen's own
+            trail, where the Guard Bee records every raise.
+        tier: The tier a terminal proposal is being considered for sampling at.
+        now: The reference time; a raise whose `until` has passed is ignored.
+
+    Returns:
+        The largest `to_rate` among `tier`'s raises still in force, or 0.0 with none.
+    """
+    # Latency: one indexed local read of at most MAX_RAISES_READ rows (the kind index), once per
+    # terminal proposal, after its outcome is already decided.
+    events = await trail.query(
+        TrailQuery(kind=AUDIT_RATE_RAISED_KIND, newest_first=True, limit=MAX_RAISES_READ)
+    )
+    raises = (AuditRateRaise.from_event(event) for event in events)
+    live = [r.to_rate for r in raises if r is not None and r.tier is tier and r.until > now]
+    return max(live, default=0.0)
 
 
 @dataclass(frozen=True, slots=True)
