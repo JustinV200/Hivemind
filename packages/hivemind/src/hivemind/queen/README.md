@@ -29,7 +29,10 @@ every assignment goes to a Warden, over Waggle.
   `goal_submission.submit_goal` is its one reader.
 - `queen.autopilot`: `QueenAction` (now including `WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX`, roadmap
   step 4.2a), `decide`, `effort_for`, `decide_forage_request`, `decide_wax_proposal` -- the
-  deterministic dispatch tables; never imports `hivemind.llm`.
+  deterministic dispatch tables; never imports `hivemind.llm`. `decide`'s own `_decide_task_
+  result` maps a SUCCEEDED `TaskResult` whose `scout_report.feasible` is False to `FAIL_TASK`,
+  never `COMPLETE_TASK` or `RETRY_TASK` (roadmap step 6.10): acceptance passed (the Scout wrote
+  its report), but the Scout itself recommends against the work.
 - `queen.awake`: `QueenDecision`, `QueenSources` (its `wax(cells)` returns WRITTEN Cell Wax
   capped per Cell, `cap_wax_for_hot_state`), `decide_awake` (now takes an optional
   `cells_in_play`, roadmap step 4.2a) -- one stateless episode on `ModelSlot.QUEEN`, at the
@@ -39,7 +42,10 @@ every assignment goes to a Warden, over Waggle.
   one acceptance postcondition (roadmap step 3.18). `PlannedTask.leaves` (roadmap step 5.0b) is
   a bounded tuple of `waggle.messages.PlannedLeaving`, empty by default; `plan_goal` threads
   `PlanBrief.scratch_root` to the ladder as a validation context so a leaving declared inside
-  scratch is refused and retried while planning, never discovered later.
+  scratch is refused and retried while planning, never discovered later. `PlannedTask.role`
+  (roadmap steps 6.9/6.10) names DRONE, FORAGER or SCOUT; a FORAGER needs `needs.exoskeleton` and
+  a SCOUT's acceptance is exactly one `FILE_EXISTS` on its own report file, both ladder-retryable
+  like every other rule here. See `queen/planner/README.md` for the full rule.
 - `queen.placement` (roadmap step 5.7, `docs/adr/0028-placement-policy-real-versus-virtual.md`):
   `Placement` (a union: `ReuseReal`, `ReuseDormant`, `ProvisionVirtual`, each with its own
   `reason`), `PlacementError`, `decide(needs, inventory, forage, policy)` -- the pure, ordered
@@ -63,13 +69,18 @@ every assignment goes to a Warden, over Waggle.
   Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
   over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
   attached" means, so every later dispatch to the same Warden is a no-op here. The `TaskAssign` it
-  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b). A fresh grant that computes to
-  `max_sub_bees < 1` is never sent to the Warden: `_send_grant_and_assign` records `forage.denied`
-  (the allocator's own reason plus the free-memory/reserve/seat figures that produced zero) and
-  fails the task at once instead (`.claude/phase-4-handoff.md` section 4.2 item 1 -- a grant that
-  empty used to be sent anyway, park the task RUNNING with a `GRANT_EXCEEDED` escalation, and time
-  out silently). `redispatch` (a RUNNING retry) and `resume_paused` (a `resume_from` resume) both
-  funnel through the same `_send_grant_and_assign` and fail the same way.
+  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b) and `task.spec.role` (roadmap
+  steps 6.9/6.10) as its own `role`, plus `recon`: the `waggle.messages.task.ScoutReport`s of the
+  task's SUCCEEDED Scout dependencies, at most `MAX_RECON_REPORTS`, newest completion first
+  (`_recon_for`). Grants are sized against the role's own `[forage.roles]` footprint when the
+  manifest set one, else the Drone's (`forager`/`scout` are never required manifest keys). A
+  fresh grant that computes to `max_sub_bees < 1` is never sent to the Warden: `_send_grant_and_
+  assign` records `forage.denied` (the allocator's own reason plus the free-memory/reserve/seat
+  figures that produced zero) and fails the task at once instead (`.claude/phase-4-handoff.md`
+  section 4.2 item 1 -- a grant that empty used to be sent anyway, park the task RUNNING with a
+  `GRANT_EXCEEDED` escalation, and time out silently). `redispatch` (a RUNNING retry) and
+  `resume_paused` (a `resume_from` resume) both funnel through the same `_send_grant_and_assign`
+  and carry role and recon, and fail the same way, for the same reason.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules

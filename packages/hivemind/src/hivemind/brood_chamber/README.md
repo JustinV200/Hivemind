@@ -25,7 +25,15 @@ Task` without knowing the split.
   record), plus `TaskDraft`/`TaskGraphDraft`, the JSON graph file a human hands to
   `hive tasks submit`. Both `TaskSpec` and `TaskDraft` carry `leaves`, a bounded tuple of
   `waggle.messages.PlannedLeaving` declared by the plan (roadmap step 5.0b), empty by default;
-  `chamber/submission.py` copies a draft's `leaves` onto its minted `TaskSpec` unchanged.
+  `chamber/submission.py` copies a draft's `leaves` onto its minted `TaskSpec` unchanged. Both
+  also carry `role` (roadmap steps 6.9/6.10): which `waggle.messages.task.WorkerRole` the Warden
+  spawns for the task, defaulting to DRONE and restricted to `PLANNABLE_ROLES` (DRONE, FORAGER,
+  SCOUT) by a `field_validator` shared by both classes; a stored body from before this field
+  existed loads as DRONE with no migration, since the default fills the missing key. `TaskOutcome.
+  scout_report` (roadmap step 6.10) carries a Scout's own `waggle.messages.task.ScoutReport`,
+  copied unchanged from the Warden-verified `TaskResult` that closed the task -- set on SUCCEEDED
+  for a feasible Scout and on FAILED for an infeasible one (`hivemind.queen.autopilot.table`),
+  None for every other role.
 - `task/graph.py` -- pure functions over a task graph: `is_acyclic_edges` (generic, used by
   `TaskGraphDraft`'s own validator), `is_acyclic`, `ready_tasks`, `descendants`. No I/O.
 

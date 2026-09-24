@@ -22,7 +22,12 @@ class stay within codingrules 5.1's size limits.
   `ForageReply(DENIED)` otherwise (contested or not) -- and record `forage.requested` and
   `forage.granted`/`forage.denied` on the trail.
 - `results.complete_task`, `.retry_task`, `.fail_task`: `COMPLETE_TASK`/`RETRY_TASK`/`FAIL_TASK`,
-  shared by a `TaskResult` and an escalated Alarm alike.
+  shared by a `TaskResult` and an escalated Alarm alike. `complete_task` carries a `TaskResult`'s
+  `scout_report` onto the SUCCEEDED outcome unchanged (roadmap step 6.10); `fail_task` takes an
+  optional `scout_report` for the FAILED outcome, `fail_reason` builds the infeasible-Scout
+  wording (or echoes the result's own reason otherwise), and `fail_task_from_result` is the one
+  call `hivemind.queen.queen._act_on_task_result` makes for a `TaskResult`-shaped `FAIL_TASK`,
+  wiring both together.
 - `wax.handle_wax_item`, `.handle_wax_proposed` (roadmap step 4.2a): the other entry point
   `handle_infrastructure_item` reaches ahead of `decide`, for a `CellWaxProposed`. Records the
   proposal (`hivemind.memory.cell_wax.propose_wax`), judges it with
