@@ -139,7 +139,11 @@ class Stand:
 
 
 def run_console[T](
-    ctx: typer.Context, verb: str, work: Callable[[SignedIn, Stand], Awaitable[T]]
+    ctx: typer.Context,
+    verb: str,
+    work: Callable[[SignedIn, Stand], Awaitable[T]],
+    *,
+    group: str = "entrance",
 ) -> T:
     """Run ``work`` as the console over the running serve's loopback listener, or exit 1.
 
@@ -147,6 +151,8 @@ def run_console[T](
         ctx: The command's context, carrying ``--manifest`` and ``--password-stdin``.
         verb: The command's name, for the refusal line (``"approve"``).
         work: What to do once logged in.
+        group: The ``hive`` group the command belongs to, for the refusal line (``hive cells
+            isolate`` acts as the console too).
 
     Returns:
         What ``work`` returned.
@@ -154,14 +160,14 @@ def run_console[T](
     Raises:
         typer.Exit: 1 with one stderr line when anything refused; 2 for a bad manifest.
     """
-    stand = _stand(ctx, verb)
+    stand = _stand(ctx, verb, group)
 
     async def logged_in() -> T:
         """Open the console session and run the work inside it."""
         async with console_session(stand, SystemClock()) as board:
             return await work(board, stand)
 
-    return refusing(verb, lambda: asyncio.run(logged_in()))
+    return refusing(verb, lambda: asyncio.run(logged_in()), group=group)
 
 
 def run_offline[T](
@@ -293,22 +299,23 @@ async def _console_id(stand: Stand, signer: Ed25519Signer, clock: Clock) -> str:
     return str(console.id)
 
 
-def _stand(ctx: typer.Context, verb: str) -> Stand:
+def _stand(ctx: typer.Context, verb: str, group: str = "entrance") -> Stand:
     """Load the manifest and read the password, or exit: 2 for a bad manifest, 1 otherwise."""
     manifest = load_manifest_or_exit(carried_path(ctx, MANIFEST) or DEFAULT_MANIFEST)
     try:
         password = read_password(carried_flag(ctx, PASSWORD_STDIN))
     except LandingError as exc:
-        _refuse(verb, exc)
+        _refuse(verb, exc, group)
     return Stand(manifest, password)
 
 
-def refusing[T](verb: str, run: Callable[[], T]) -> T:
+def refusing[T](verb: str, run: Callable[[], T], *, group: str = "entrance") -> T:
     """Run ``run``; turn every typed refusal into one stderr line and exit 1.
 
     Args:
-        verb: The command's name after ``hive entrance``, for the refusal line.
+        verb: The command's name after ``hive <group>``, for the refusal line.
         run: The command's work.
+        group: The ``hive`` group the command belongs to.
 
     Returns:
         What ``run`` returned.
@@ -322,10 +329,10 @@ def refusing[T](verb: str, run: Callable[[], T]) -> T:
         # Typed failures only: a HiveMindError is every refusal the Entrance or the CLI raises on
         # purpose, a ValidationError a value the contract refused, the rest a file, a socket or
         # the database.
-        _refuse(verb, exc)
+        _refuse(verb, exc, group)
 
 
-def _refuse(verb: str, exc: Exception) -> NoReturn:
-    """Print why ``hive entrance <verb>`` could not act, and exit 1."""
-    typer.echo(f"hive entrance {verb} refused: {describe(exc)}", err=True)
+def _refuse(verb: str, exc: Exception, group: str = "entrance") -> NoReturn:
+    """Print why ``hive <group> <verb>`` could not act, and exit 1."""
+    typer.echo(f"hive {group} {verb} refused: {describe(exc)}", err=True)
     raise typer.Exit(code=1) from exc

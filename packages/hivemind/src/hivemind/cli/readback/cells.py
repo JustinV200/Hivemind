@@ -7,7 +7,8 @@ level, Comb Shield tier, capabilities and capacity. v0 has exactly one Cell (the
 this command's own row shape already covers a Swarm-sourced Cell too (`hivemind.swarm`, a later
 phase), since `hivemind.cell.Cell` makes no distinction a reader of this table would need to see.
 `hive cells leavings list|remove` (roadmap step 5.0a) is nested here as `hivemind.cli.readback.
-leavings.app`, the same way a Typer sub-app nests under any other group.
+leavings.app`, the same way a Typer sub-app nests under any other group; `hive cells isolate|lift`
+(roadmap step 10.6, `hivemind.cli.readback.isolation`) are merged in at this level.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
@@ -42,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.cell import Cell
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose.deps import build_hive_stand_source
+from hivemind.cli.readback.isolation import app as isolation_app
 from hivemind.cli.readback.leavings import app as leavings_app
 from hivemind.cli.readback.virtual import app as virtual_app
 from hivemind.cli.stores import DEFAULT_MANIFEST, JsonOption, ManifestOption, load_manifest_or_exit
@@ -59,6 +61,9 @@ app.add_typer(virtual_app)
 # Roadmap step 5.0a: `hive cells leavings list|remove [CELL]`, nested under this group the same
 # way `hive capping <sub>` nests its own subcommands (hivemind.cli.readback.leavings's own app).
 app.add_typer(leavings_app, name="leavings")
+# Roadmap step 10.6: `hive cells isolate|lift`, the human's two levers, merged in at this level
+# the same way virtual_app's are; both act as the Hive Stand's console over `hive serve`.
+app.add_typer(isolation_app)
 
 __all__ = ["app"]
 
