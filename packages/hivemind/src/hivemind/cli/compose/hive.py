@@ -26,12 +26,13 @@ Key invariants:
       seed the Queen<->Warden link's Cell) and, with a Virtual side, read or mint the Hive's
       signing key in the local secret store (`_hive_signer`).
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
-      their `run()` tasks, and closes the Queen<->Warden link, in that order, whether its
-      `async with` block exits cleanly or raises. Awaiting both tasks before its own
-      `asyncio.TaskGroup` block ends is this dispatch's own shutdown-hygiene fix: without it, an
-      exception propagating out of the caller's `async with run_hive(hive):` body would reach the
-      TaskGroup while a tick might still be in flight, and the TaskGroup would cancel it itself
-      rather than let the cooperative `stop()` above finish on its own.
+      their `run()` tasks, closes the Queen<->Warden link and then every model provider's
+      connections, in that order, whether its `async with` block exits cleanly or raises.
+      Awaiting both tasks before its own `asyncio.TaskGroup` block ends is this dispatch's own
+      shutdown-hygiene fix: without it, an exception propagating out of the caller's `async with
+      run_hive(hive):` body would reach the TaskGroup while a tick might still be in flight, and
+      the TaskGroup would cancel it itself rather than let the cooperative `stop()` above finish
+      on its own.
     - `run_goal` never blocks past `timeout_s`: `GoalReport.timed_out` is True whenever the goal's
       own tasks are not all terminal by then, and `succeeded` is False in that case regardless of
       how far the goal got.
@@ -313,6 +314,10 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             # sentinel (waggle.transport.memory.MemoryTransport.close's own contract), so nothing
             # is left awaiting a link neither side will ever write to again.
             await hive.warden_link.transport.close()
+            # Last, once nothing can call a model any more: release every provider's pooled
+            # connections (hivemind.llm.ProviderRegistry.aclose, bounded per provider), which a
+            # long-running `hive serve` would otherwise leak for good.
+            await hive.registry.aclose()
 
 
 async def _start(hive: Hive) -> None:
