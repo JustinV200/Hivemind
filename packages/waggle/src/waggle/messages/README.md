@@ -25,6 +25,10 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   `SECURITY`, and `supervision/oversight.py`'s `InterventionAction` gains `QUARANTINE`, whose
   `Intervene` names the bee (`subject` or `task_id`) and carries `suspect_episode_id`, the episode
   from which that bee's memory is suspect (required exactly for `QUARANTINE`, by validator).
+- Waggle 1.8 (roadmap step 10.6): `forage.grant_issued` carries `audit_raises`, every Capping
+  audit-rate raise the Guard Bee has in force when the grant is issued (`RaisedAuditRate`, in
+  `forage/values.py`: the tier by name, the raised rate, when it lapses; at most one per tier, by
+  validator), so every Warden's gate, a Virtual Cell's in-Cell one included, samples at it.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section

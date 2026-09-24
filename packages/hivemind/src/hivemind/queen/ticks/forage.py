@@ -269,10 +269,8 @@ async def _shrink_and_notify(
     holder_link = wardens.get(revised.holder)
     if holder_link is None:
         return  # Unreachable: the shrink is still committed (mirrors this module's own rule).
-    sources = {b.source_id: deps.map.get(b.source_id) for b in revised.allowed}
-    await holder_link.transport.send(
-        wrap(revised.to_wire(sources), holder_link.hop, clock=deps.clock)
-    )
+    message = await forage_grants.grant_message(deps, revised)
+    await holder_link.transport.send(wrap(message, holder_link.hop, clock=deps.clock))
 
 
 def _shrunk(target: ForageGrant, amount: float, kind: WireForageRequestKind) -> ForageGrant:
@@ -322,8 +320,8 @@ def _wanted_amount(wire_request: WireForageRequest) -> float:
 async def _send_grant(deps: QueenDeps, reply: _Reply, grant: ForageGrant, reason: str) -> None:
     """Send the fresh GrantIssued, then the matching ForageReply, and record forage.granted."""
     link = reply.link
-    sources = {binding.source_id: deps.map.get(binding.source_id) for binding in grant.allowed}
-    await link.transport.send(wrap(grant.to_wire(sources), link.hop, clock=deps.clock))
+    message = await forage_grants.grant_message(deps, grant)
+    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
     wire_reply = ForageReply(
         grant_id=grant.id,
         outcome=ForageOutcome.GRANTED,

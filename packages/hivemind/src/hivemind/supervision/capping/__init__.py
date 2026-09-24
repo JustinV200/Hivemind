@@ -65,25 +65,23 @@ Public API:
     - CappingGate, GateDeps, GateOutcome: the gate itself (gate).
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
       audit_completed: the after-the-fact sampled audit (audit).
-    - AuditRateRaise, raised_audit_rate, AUDIT_RATE_RAISED_KIND, MAX_RAISES_READ: a Guard Bee raise
-      of a tier's sampled-audit rate, and how a gate reads it back (audit, roadmap step 10.6).
+    - AuditRateRaise, raised_audit_rate, live_audit_raises, CarriedAuditRaises,
+      AUDIT_RATE_RAISED_KIND, MAX_RAISES_READ, MAX_CARRIED_PER_TIER: a Guard Bee raise of a
+      tier's sampled-audit rate, read back from the trail by a gate on it, carried on a grant to
+      every other Warden (roadmap step 10.6, Waggle 1.8) (raises).
     - CappingError, UnknownProposalError, InvalidProposalTransitionError, DiffApplyError,
       JudgeUnavailableError, JudgeAnswerError: this package's error tree (errors).
 """
 
 from hivemind.supervision.capping.apply import ApplyResult, TouchedPath, apply_action
 from hivemind.supervision.capping.audit import (
-    AUDIT_RATE_RAISED_KIND,
-    MAX_RAISES_READ,
     AuditDeps,
     AuditFinding,
-    AuditRateRaise,
     AuditRates,
     AuditSampler,
     FindingsSink,
     InMemoryFindingsSink,
     audit_completed,
-    raised_audit_rate,
 )
 from hivemind.supervision.capping.checks import (
     Check,
@@ -121,6 +119,15 @@ from hivemind.supervision.capping.postconditions import (
     check_postcondition,
 )
 from hivemind.supervision.capping.proposal import MAX_POSTCONDITIONS, Proposal
+from hivemind.supervision.capping.raises import (
+    AUDIT_RATE_RAISED_KIND,
+    MAX_CARRIED_PER_TIER,
+    MAX_RAISES_READ,
+    AuditRateRaise,
+    CarriedAuditRaises,
+    live_audit_raises,
+    raised_audit_rate,
+)
 from hivemind.supervision.capping.state import (
     TRANSITIONS,
     ProposalState,
@@ -140,6 +147,7 @@ from hivemind.supervision.capping.tiers import (
 __all__ = [
     "AUDIT_RATE_RAISED_KIND",
     "CHECKABLE_KINDS",
+    "MAX_CARRIED_PER_TIER",
     "MAX_POSTCONDITIONS",
     "MAX_RAISES_READ",
     "SHORTEN_LATENCY_BUDGET_S",
@@ -152,6 +160,7 @@ __all__ = [
     "AuditSampler",
     "CappingError",
     "CappingGate",
+    "CarriedAuditRaises",
     "Check",
     "CheckContext",
     "CheckResultRecord",
@@ -193,6 +202,7 @@ __all__ = [
     "deterministic_checks",
     "is_terminal",
     "judge_checks",
+    "live_audit_raises",
     "load_judge_rubrics",
     "load_tiers",
     "raised_audit_rate",

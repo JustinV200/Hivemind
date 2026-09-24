@@ -3,7 +3,9 @@
 Roadmap step 10.6: the Guard Bee raises a Capping tier's sampled-audit rate by recording
 `guard.audit_rate_raised` on the Queen's trail, and a Warden whose gate records to that same trail
 (the Hive Stand's) samples at the higher of the tier table's rate and the live raise, from the
-next terminal proposal on. An expired raise leaves the table's rate, and a raise never lowers it.
+next terminal proposal on. A Warden whose trail never sees the Queen's (a Virtual Cell's in-Cell
+one) samples at a raise its grant carried instead (Waggle 1.8). An expired raise leaves the
+table's rate, and a raise never lowers it.
 
 Fits into the Hive:
     Mirrors src/hivemind/wardens/spawn/audited_gate.py (codingrules section 3), split by feature
@@ -38,6 +40,7 @@ from hivemind.supervision.capping import (
     AuditRateRaise,
     AuditRates,
     AuditSampler,
+    CarriedAuditRaises,
     InMemoryFindingsSink,
     JudgeOutcome,
 )
@@ -49,12 +52,17 @@ from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from waggle.clock import FakeClock
 from waggle.ids import new_event_id
 from waggle.messages.capping import CheckKind
+from waggle.messages.forage import RaisedAuditRate
 
 _HOLD = timedelta(hours=1)  # How long the raise in these tests lasts.
 
 
 def _gate(
-    tmp_path: Path, clock: FakeClock, trail: MemoryPheromoneTrail, table_rate: float
+    tmp_path: Path,
+    clock: FakeClock,
+    trail: MemoryPheromoneTrail,
+    table_rate: float,
+    carried: CarriedAuditRaises | None = None,
 ) -> tuple[AuditingCappingGate, RepeatingJudgeReviewer]:
     """Build a gate whose SCRATCH_WRITE tier samples at `table_rate`, recording to `trail`."""
     spec = TierSpec(
@@ -81,6 +89,7 @@ def _gate(
         sampler=AuditSampler(),
         sink=InMemoryFindingsSink(),
         rates=AuditRates(),
+        carried=carried,
     )
     return AuditingCappingGate(deps, wiring), reviewer
 
@@ -152,3 +161,21 @@ async def test_a_raise_never_lowers_the_tier_tables_own_rate(tmp_path: Path) -> 
     await _run_one(gate, tmp_path)
 
     assert len(reviewer.calls) == 1  # Still sampled at the table's 1.0, not the raise's 0.01.
+
+
+async def test_a_raise_its_grant_carried_samples_where_its_trail_never_saw_one(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    held = CarriedAuditRaises()
+    gate, reviewer = _gate(tmp_path, clock, MemoryPheromoneTrail(clock), 0.0, carried=held)
+    await _run_one(gate, tmp_path)
+    before = len(reviewer.calls)
+
+    held.carry(
+        [RaisedAuditRate(tier="SCRATCH_WRITE", rate=1.0, until=clock.now() + _HOLD)], clock.now()
+    )
+    await _run_one(gate, tmp_path)
+
+    assert before == 0  # Its own trail holds no raise, and the table samples nothing.
+    assert len(reviewer.calls) == 1  # The carried raise took effect on the next proposal.

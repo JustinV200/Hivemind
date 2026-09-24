@@ -29,7 +29,7 @@ See Also:
 Public API:
     - Grants (grants): ForageReply, ForageRequest, GrantIssued, GrantRevoked.
     - Values (values): AllowedBinding, Effort, ForageDelta, ForageOutcome, ForageRequestKind,
-      RevocationCause, SeatReservation, SourceRef.
+      RaisedAuditRate (minor 8), RevocationCause, SeatReservation, SourceRef.
     - Capacity (capacity): CapacityTrigger, CeilingsReport, HostingMode, LocalPoolUsage,
       LocalSourceReport, ModelServerReport, SlotPlan, SourceChain.
     - Hosting (hosting): CapacityReport, CeilingsSet, HostingDecided, PlanWritten.
@@ -53,6 +53,7 @@ from waggle.messages.forage.values import (
     ForageDelta,
     ForageOutcome,
     ForageRequestKind,
+    RaisedAuditRate,
     RevocationCause,
     SeatReservation,
     SourceRef,
@@ -78,6 +79,7 @@ __all__ = [
     "LocalSourceReport",
     "ModelServerReport",
     "PlanWritten",
+    "RaisedAuditRate",
     "RevocationCause",
     "SeatReservation",
     "SlotPlan",

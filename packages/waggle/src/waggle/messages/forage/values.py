@@ -9,12 +9,15 @@ a grant, and a request for more, are made of: ``SourceRef`` names one entry of t
 slot (the named role a model is bound to) with a source and an effort cap; ``SeatReservation``
 holds seats on one shared server or hosted provider, where the hosted equivalent of a seat is
 requests and tokens per minute; ``ForageDelta`` is the delta a Warden asks for and the Queen
-grants, one shape for both so a partial grant has the shape of the ask. The enums are the closed
-sets those models and the grant messages carry. The family's other values (a Cell's capacity,
-its ceilings and the chains of a hosting plan) live in ``waggle.messages.forage.capacity``, and
-its messages in ``waggle.messages.forage.grants`` and ``waggle.messages.forage.hosting``, each split
-out by responsibility so every file stays under the codingrules 5.1 size limit. Every bound is a
-named constant here; the number, not the name, is normative.
+grants, one shape for both so a partial grant has the shape of the ask; ``RaisedAuditRate``
+(minor 8) is one Capping tier's sampled-audit rate the Guard Bee raised Hive-wide, which a grant
+carries to the Warden holding it so its Capping gate samples at that rate until it lapses. The
+enums are the closed sets those models and the grant messages carry. The family's other values (a
+Cell's capacity, its ceilings and the chains of a hosting plan) live in
+``waggle.messages.forage.capacity``, and its messages in ``waggle.messages.forage.grants`` and
+``waggle.messages.forage.hosting``, each split out by responsibility so every file stays under the
+codingrules 5.1 size limit. Every bound is a named constant here; the number, not the name, is
+normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -50,6 +53,7 @@ from waggle.messages.base import (
     SLOT_PATTERN,
     VALUE_MODEL_CONFIG,
     CellIdField,
+    UtcDatetime,
 )
 
 MAX_SOURCE_ID_CHARS = 128  # A Forage map entry key names a provider and a model: a short handle.
@@ -57,18 +61,25 @@ MAX_PROVIDER_CHARS = 64  # A manifest provider key (anthropic, ollama_local, ...
 MAX_MODEL_CHARS = 128  # A model id as the map names it; some vendors' ids carry a long date tag.
 MIN_MODEL_GRADE = 1  # The Forage map grades models from 1, the weakest that can hold a slot.
 MAX_MODEL_GRADE = 5  # To 5, the strongest; a binding request names the least grade it accepts.
+MAX_TIER_CHARS = 64  # A Capping risk tier's name (SCRATCH_WRITE, ...): one upper-case word.
+# A tier by name, never by the capping family's enum: no family imports another (Key invariants),
+# and a receiver ignores a tier it does not know rather than refusing the whole grant.
+TIER_NAME_PATTERN = r"^[A-Z][A-Z0-9_]*$"
 
 __all__ = [
     "MAX_MODEL_CHARS",
     "MAX_MODEL_GRADE",
     "MAX_PROVIDER_CHARS",
     "MAX_SOURCE_ID_CHARS",
+    "MAX_TIER_CHARS",
     "MIN_MODEL_GRADE",
+    "TIER_NAME_PATTERN",
     "AllowedBinding",
     "Effort",
     "ForageDelta",
     "ForageOutcome",
     "ForageRequestKind",
+    "RaisedAuditRate",
     "RevocationCause",
     "SeatReservation",
     "SourceRef",
@@ -173,6 +184,26 @@ class SeatReservation(BaseModel):
         description="Tokens per minute reserved on a hosted provider; None when the source is "
         "not metered that way."
     )
+
+
+class RaisedAuditRate(BaseModel):
+    """One Capping tier's sampled-audit rate, raised Hive-wide by the Guard Bee until it lapses.
+
+    PROTOCOL_MINOR 8. A grant carries every raise in force when it is issued, so the Warden
+    holding it samples that tier's terminal proposals at the higher of its own tier table's rate
+    and this one until `until`; a receiver ignores a tier it does not know and a raise already
+    past (receiver rules).
+    """
+
+    model_config = VALUE_MODEL_CONFIG
+
+    tier: str = Field(
+        pattern=TIER_NAME_PATTERN,
+        max_length=MAX_TIER_CHARS,
+        description="The Capping risk tier, by name (SCRATCH_WRITE, NETWORK_EGRESS, ...).",
+    )
+    rate: float = Field(gt=0, le=1, description="The raised sampled-audit rate, above 0, up to 1.")
+    until: UtcDatetime = Field(description="When the raise lapses and the table's rate stands.")
 
 
 class ForageDelta(BaseModel):

@@ -1,18 +1,20 @@
-"""Tests for hivemind.supervision.capping.audit's Guard Bee raise: AuditRateRaise and its reader.
+"""Tests for hivemind.supervision.capping.raises: a Guard Bee raise, and every way it is read.
 
 Roadmap step 10.6: a Guard Bee raise of one tier's sampled-audit rate travels on the trail as
-`guard.audit_rate_raised`; `raised_audit_rate` reads the highest live one back. A raise only ever
-raises, an expired or foreign one is ignored, and a malformed row is skipped rather than trusted.
+`guard.audit_rate_raised`; `raised_audit_rate` reads the highest live one back, and
+`live_audit_raises` the highest per tier, for a grant to carry. A raise only ever raises, an
+expired or foreign one is ignored, and a malformed row is skipped rather than trusted. A Warden's
+`CarriedAuditRaises` keeps what its grants carried, per tier the highest still in force, and
+ignores a tier it does not know.
 
 Fits into the Hive:
-    Mirrors src/hivemind/supervision/capping/audit.py (codingrules section 3), split by feature
-    from test_audit.py.
+    Mirrors src/hivemind/supervision/capping/raises.py (codingrules section 3).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.supervision.capping.audit for AuditRateRaise and raised_audit_rate.
+    - hivemind.supervision.capping.raises for the module under test.
     - tests.unit.wardens.spawn.test_audited_gate_raised for a raise taking effect in a gate.
 """
 
@@ -28,12 +30,16 @@ from hivemind.guard import new_guard_report_id
 from hivemind.pheromone import GuardEvent, MemoryPheromoneTrail
 from hivemind.supervision.capping import (
     AUDIT_RATE_RAISED_KIND,
+    MAX_CARRIED_PER_TIER,
     AuditRateRaise,
+    CarriedAuditRaises,
     RiskTier,
+    live_audit_raises,
     raised_audit_rate,
 )
 from waggle.clock import FakeClock
 from waggle.ids import new_event_id
+from waggle.messages.forage import RaisedAuditRate
 
 _HOLD = timedelta(hours=1)  # How long every raise in this module lasts.
 
@@ -123,3 +129,63 @@ async def test_a_malformed_raise_row_is_skipped_rather_than_trusted() -> None:
     rate = await raised_audit_rate(trail, RiskTier.SCRATCH_WRITE, clock.now())
 
     assert rate == 0.0
+
+
+async def test_the_raises_a_grant_carries_are_the_highest_per_tier_still_in_force() -> None:
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    await _record(trail, clock, _raise(clock, RiskTier.SCRATCH_WRITE, 0.27).to_payload())
+    await _record(trail, clock, _raise(clock, RiskTier.SCRATCH_WRITE, 0.52).to_payload())
+    expired = _raise(clock, RiskTier.NETWORK_EGRESS, 0.9, until=clock.now())
+    await _record(trail, clock, expired.to_payload())
+    await _record(trail, clock, {"tier": "SCRATCH_WRITE"})  # Malformed: never carried.
+    clock.advance(1.0)
+
+    carried = await live_audit_raises(trail, clock.now())
+
+    assert [(r.tier, r.to_rate) for r in carried] == [(RiskTier.SCRATCH_WRITE, 0.52)]
+
+
+def _carried(tier: str, rate: float, until_s: float, clock: FakeClock) -> RaisedAuditRate:
+    return RaisedAuditRate(tier=tier, rate=rate, until=clock.now() + timedelta(seconds=until_s))
+
+
+def test_a_warden_keeps_the_highest_carried_raise_in_force_per_tier() -> None:
+    clock = FakeClock()
+    held = CarriedAuditRaises()
+
+    held.carry([_carried("SCRATCH_WRITE", 0.27, 60.0, clock)], clock.now())
+    held.carry([_carried("SCRATCH_WRITE", 0.52, 30.0, clock)], clock.now())
+    before = held.rate(RiskTier.SCRATCH_WRITE, clock.now())
+    clock.advance(45.0)  # The higher raise has lapsed; the lower one still holds.
+    after = held.rate(RiskTier.SCRATCH_WRITE, clock.now())
+    clock.advance(30.0)
+
+    assert (before, after) == (0.52, 0.27)
+    assert held.rate(RiskTier.SCRATCH_WRITE, clock.now()) == 0.0
+    assert held.rate(RiskTier.NETWORK_EGRESS, clock.now()) == 0.0
+
+
+def test_a_carried_raise_of_an_unknown_tier_or_already_past_is_ignored() -> None:
+    clock = FakeClock()
+    held = CarriedAuditRaises()
+
+    held.carry(
+        [
+            _carried("A_TIER_FROM_A_LATER_MINOR", 1.0, 60.0, clock),
+            _carried("SCRATCH_WRITE", 0.5, -1.0, clock),
+        ],
+        clock.now(),
+    )
+
+    assert all(held.rate(tier, clock.now()) == 0.0 for tier in RiskTier)
+
+
+def test_a_warden_keeps_a_bounded_number_of_carried_raises_per_tier() -> None:
+    clock = FakeClock()
+    held = CarriedAuditRaises()
+
+    for step in range(MAX_CARRIED_PER_TIER * 2):
+        held.carry([_carried("SCRATCH_WRITE", 0.01 * (step + 1), 60.0, clock)], clock.now())
+
+    assert held.rate(RiskTier.SCRATCH_WRITE, clock.now()) == 0.01 * (MAX_CARRIED_PER_TIER * 2)

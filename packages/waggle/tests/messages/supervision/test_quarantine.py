@@ -65,8 +65,9 @@ def _quarantine(**changes: object) -> Intervene:
     return Intervene.model_validate({**fields, **changes})
 
 
-def test_the_protocol_is_at_minor_seven() -> None:
-    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.7", 7)
+def test_the_protocol_is_at_minor_seven_or_later() -> None:
+    # Minor 7 introduced the lever; every later minor still carries it unchanged (additive only).
+    assert PROTOCOL_MINOR >= 7 and f"1.{PROTOCOL_MINOR}" == PROTOCOL_VERSION
 
 
 def test_a_quarantine_round_trips_with_its_suspect_episode() -> None:
@@ -146,7 +147,7 @@ def test_a_quarantine_crosses_the_codec_unchanged(
     decoded = plain_codec.decode(plain_codec.encode(envelope))
 
     assert decoded == envelope
-    assert decoded.version == "1.7"
+    assert decoded.version == PROTOCOL_VERSION
 
 
 @pytest.mark.parametrize("unknown", ["ISOLATE", "LEVITATE"])

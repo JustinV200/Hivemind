@@ -16,7 +16,11 @@ from hivemind.supervision.capping.audit import (
 )
 from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
 from hivemind.supervision.capping.checks.judge import JudgeOutcome, JudgeVerdict
-from hivemind.supervision.capping.errors import CappingError, JudgeAnswerError
+from hivemind.supervision.capping.errors import (
+    CappingError,
+    JudgeAnswerError,
+    JudgeUnavailableError,
+)
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec
 from waggle.clock import FakeClock
 
@@ -250,3 +254,18 @@ async def test_audit_completed_records_an_inconclusive_sample_when_the_judge_can
     assert "unparseable" not in str(audited[0].payload)  # The error text stays off the trail.
     alarms = await trail.query(TrailQuery(family="alarm"))
     assert alarms == ()
+
+
+async def test_audit_completed_records_an_inconclusive_sample_with_no_judge_to_ask() -> None:
+    # A Virtual Cell's in-Cell Warden has no model-backed reviewer wired: its unscripted one is
+    # unavailable, and a raised audit rate made every one of its samples reach it (step 10.6).
+    deps, trail = _deps(FakeJudgeReviewer())
+    proposal = make_proposal(risk_tier=RiskTier.SCRATCH_WRITE)
+    tier = TierSpec(checks=(), floor=(), audit_rate=1.0)
+
+    verdict = await audit_completed(deps, proposal, tier, AuditRates())
+
+    assert verdict is None
+    [audited] = await trail.query(TrailQuery(kind="capping.audited", subject_id=proposal.id))
+    assert (audited.payload["outcome"], audited.payload["judge_error"]) == (None, True)
+    assert JudgeUnavailableError.code == "hivemind.supervision.capping.judge_unavailable"

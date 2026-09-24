@@ -406,6 +406,7 @@ def _build_capping_gate(ctx: WardenCellContext, assignment: TaskAssign) -> Audit
             sampler=deps.audit_sampler,
             sink=deps.findings_sink,
             rates=deps.audit_rates,
+            carried=deps.carried_raises,
         ),
     )
 

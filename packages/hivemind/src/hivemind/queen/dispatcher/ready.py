@@ -129,7 +129,6 @@ from pydantic import JsonValue
 from hivemind.brood_chamber import Task, TaskFilter, ready_tasks
 from hivemind.cell import Cell
 from hivemind.forage import Ceilings, ForageGrant, ModelSlot
-from hivemind.forage.models.sources import ModelSource
 from hivemind.guard import CapabilitySet, EnforcementPoint
 from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS, ForageEvent
 from hivemind.queen.authority import goal_held, request_for, task_context
@@ -436,13 +435,11 @@ async def _send_grant_and_assign(
     # a no-op for a Cell the lifecycle does not track (QueenDeps.on_cell_granted's own comment).
     if deps.on_cell_granted is not None:
         await deps.on_cell_granted(cell_id, fresh_grant.id)
-    sources: dict[str, ModelSource] = {
-        binding.source_id: deps.map.get(binding.source_id) for binding in fresh_grant.allowed
-    }
     assign = _task_assign(
         task, cell_id, fresh_grant.id, terms.attempt, resume_from=terms.resume_from
     )
-    await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
+    message = await forage_grants.grant_message(deps, fresh_grant)
+    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
     await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
     return fresh_grant
 

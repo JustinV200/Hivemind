@@ -52,6 +52,7 @@ from hivemind.supervision.capping import (
     AuditRates,
     AuditSampler,
     CappingGate,
+    CarriedAuditRaises,
     FindingsSink,
     GateDeps,
     GateOutcome,
@@ -89,6 +90,7 @@ class AuditWiring:
     sampler: AuditSampler  # WardenDeps.audit_sampler.
     sink: FindingsSink  # WardenDeps.findings_sink.
     rates: AuditRates  # WardenDeps.audit_rates.
+    carried: CarriedAuditRaises | None = None  # WardenDeps.carried_raises (roadmap step 10.6).
 
 
 class AuditingCappingGate(CappingGate):
@@ -112,6 +114,7 @@ class AuditingCappingGate(CappingGate):
             clock=deps.clock,
         )
         self._rates = wiring.rates
+        self._carried = wiring.carried
 
     async def run(
         self,
@@ -135,8 +138,15 @@ class AuditingCappingGate(CappingGate):
         return outcome
 
     async def _with_live_raise(self, risk_tier: RiskTier, tier: TierSpec) -> TierSpec:
-        """Return `tier` sampled at the higher of its own rate and a live Guard Bee raise."""
-        raised = await raised_audit_rate(self._deps.trail, risk_tier, self._deps.clock.now())
+        """Return `tier` sampled at the higher of its own rate and a live Guard Bee raise.
+
+        A raise reaches this gate by either road: its own trail (the Hive Stand's is the Queen's)
+        or a grant this Warden holds, which carried the raises in force when it was issued.
+        """
+        now = self._deps.clock.now()
+        raised = await raised_audit_rate(self._deps.trail, risk_tier, now)
+        if self._carried is not None:
+            raised = max(raised, self._carried.rate(risk_tier, now))
         if raised <= tier.audit_rate:
             return tier  # No live raise, or one below the table's rate: the table's rate stands.
         return tier.model_copy(update={"audit_rate": raised})

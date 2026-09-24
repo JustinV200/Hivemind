@@ -5,7 +5,8 @@ the Hive's capacity as data, in several dimensions and never one number, and the
 it is divided by grant: a lease with an expiry that the Queen (the central orchestrator) issues
 to a Warden (the always-on supervisor of one Cell, a unit of compute), re-issues to grow, shrink
 or top up, and can take back entirely. The four messages here are that grant's life:
-``GrantIssued`` (every revision of the terms), ``GrantRevoked`` (the whole grant withdrawn),
+``GrantIssued`` (every revision of the terms, and from minor 8 the Capping audit-rate raises in
+force when it was issued), ``GrantRevoked`` (the whole grant withdrawn),
 ``ForageRequest`` (a Warden asks for shared Forage beyond its grant, with the task's Tempo, its
 speed-against-accuracy setting, as an allocator input) and ``ForageReply`` (granted, partly
 granted or denied, with the reason). Within its grant a Warden never asks; outside it, it asks
@@ -28,6 +29,7 @@ Key invariants:
     - Every rule the spec marks (validator) is a pydantic validator on the class; every rule it
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A ForageRequest never asks for nothing, and a denied ForageReply never carries terms.
+    - A GrantIssued carries at most one audit-rate raise per tier.
 
 See Also:
     - docs/waggle/spec.md section 8.4 for the normative fields, bounds and validators.
@@ -58,6 +60,7 @@ from waggle.messages.forage.values import (
     ForageDelta,
     ForageOutcome,
     ForageRequestKind,
+    RaisedAuditRate,
     RevocationCause,
     SeatReservation,
 )
@@ -65,9 +68,11 @@ from waggle.messages.labels import Tempo
 
 MAX_ALLOWED_BINDINGS = 32  # One per slot a Warden's sub-bees can fill; the slot enum is smaller.
 MAX_SEAT_RESERVATIONS = 32  # One per shared source a grant reserves on; a handful in practice.
+MAX_AUDIT_RAISES = 16  # One per Capping tier at most; the tier table names fewer than this.
 
 __all__ = [
     "MAX_ALLOWED_BINDINGS",
+    "MAX_AUDIT_RAISES",
     "MAX_SEAT_RESERVATIONS",
     "ForageReply",
     "ForageRequest",
@@ -119,6 +124,21 @@ class GrantIssued(WaggleMessage):
         description="When the grant returns to the pool unless renewed by heartbeat."
     )
     reason: _Reason = Field(description="Why these terms: the allocator's decision.")
+    audit_raises: tuple[RaisedAuditRate, ...] = Field(
+        default=(),
+        max_length=MAX_AUDIT_RAISES,
+        description="PROTOCOL_MINOR 8: every Capping audit-rate raise in force at issue time, at "
+        "most one per tier; the holder's gate samples at the higher of its table's rate and "
+        "these. Defaults to empty, so an envelope from before this field existed validates.",
+    )
+
+    @model_validator(mode="after")
+    def _one_raise_per_tier(self) -> GrantIssued:
+        """Refuse two raises for one tier: which of the two holds would be the receiver's guess."""
+        tiers = [raised.tier for raised in self.audit_raises]
+        if len(tiers) != len(set(tiers)):
+            raise ValueError("audit_raises names a tier more than once.")
+        return self
 
 
 class GrantRevoked(WaggleMessage):

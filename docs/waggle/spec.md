@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.7`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.8`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.7"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.8"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.7"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 7` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.8"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 8` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -203,6 +203,11 @@ validates every message a newer one sends it, as long as the sender honours the 
   episode its memory is suspect from. A receiver that meets an `InterventionAction` it does not
   know refuses the whole frame (`waggle.codec.invalid_payload`); it never reads an unknown lever
   as a cancel, or as any other lever.
+- **1.8**: `GrantIssued.audit_raises` and its value model `RaisedAuditRate` (roadmap step 10.6,
+  ADR-0035): every Capping audit-rate raise the Guard Bee has in force when a grant is issued
+  travels on it, so the Warden holding the grant, a Virtual Cell's in-Cell Warden included, samples
+  that tier at the raised rate until the raise lapses. A tier travels by name, not as an enum, so
+  a receiver that does not know a tier ignores that raise rather than refusing the grant.
 
 ## 5. Wire format and size limit
 
@@ -907,6 +912,13 @@ Family enums and value models:
   equivalent of a seat is requests and tokens per minute.
   - `source_id` (`str`, max 128), `seats` (`int`, at least 0), `requests_per_minute`
     (`int | None`, at least 0), `tokens_per_minute` (`int | None`, at least 0).
+- `RaisedAuditRate` (`PROTOCOL_MINOR` 8): one Capping tier's sampled-audit rate, raised Hive-wide
+  by the Guard Bee until it lapses.
+  - `tier` (`str`): the Capping risk tier by name, pattern `^[A-Z][A-Z0-9_]*$`, max 64. A receiver
+    ignores a tier it does not know (receiver rule).
+  - `rate` (`float`): the raised sampled-audit rate. Above 0, at most 1.
+  - `until` (`datetime`): when the raise lapses; a receiver ignores one already past (receiver
+    rule).
 - `RevocationCause`: `EXPIRED`, `HOLDER_OFFLINE`, `RECLAIMED`, `RELEASED`, `STING_CUT`.
 - `ForageRequestKind`: `SHARED_SEATS`, `SPEND`, `BINDING`, `SUB_BEES`.
 - `ForageDelta`: the delta wanted or granted; one model serves both so a partial grant has the
@@ -965,6 +977,12 @@ lease with an expiry; the same `grant_id` with a higher revision replaces the pr
   `MAX_SUB_BEES_ON_WIRE`.
 - `expires_at` (`datetime`): when the grant returns to the pool unless renewed by heartbeat.
 - `reason` (`str`): why these terms: the allocator's decision.
+- `audit_raises` (`tuple[RaisedAuditRate, ...]`, `PROTOCOL_MINOR` 8): every Capping audit-rate
+  raise in force when the grant was issued. Max 16; at most one per tier (validator). Defaults to
+  empty, so an envelope from before this field existed still validates. The holder's Capping gate
+  samples each terminal proposal of a raised tier at the higher of its own tier table's rate and
+  the raise, until `until`, keeping per tier the highest raise in force among every grant issued
+  to it (receiver rule).
 
 #### GrantRevoked
 

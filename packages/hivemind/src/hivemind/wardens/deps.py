@@ -69,6 +69,7 @@ from hivemind.supervision import EscalationPolicy
 from hivemind.supervision.capping import (
     AuditRates,
     AuditSampler,
+    CarriedAuditRaises,
     FakeJudgeReviewer,
     FindingsSink,
     InMemoryFindingsSink,
@@ -143,6 +144,7 @@ class WardenDeps:
             fresh `InMemoryFindingsSink()` (the Honey Store's own Nectar intake is phase 7).
         audit_rates: Per-tier sampled/failed counts, the Guard Bee's own future read model
             (phase 10). Defaults to a fresh `AuditRates()`.
+        carried_raises: The Guard Bee's audit-rate raises its grants carried (step 10.6).
         lane_for_grant: Builds a grant-attributed `CallGate` for one sub-bee
             (`hivemind.llm.fanner.Fanner.lane(tempo, grant_id=, goal_id=)`, closed over this
             Warden's own Fanner); `hivemind.wardens.spawn.spawn_sub_bee` calls it once per
@@ -240,6 +242,7 @@ class WardenDeps:
     audit_sampler: AuditSampler = field(default_factory=AuditSampler)
     findings_sink: FindingsSink = field(default_factory=InMemoryFindingsSink)
     audit_rates: AuditRates = field(default_factory=AuditRates)
+    carried_raises: CarriedAuditRaises = field(default_factory=CarriedAuditRaises)
     # Roadmap step 4.8's own wiring step (per-grant lane attribution): additive, defaulted to an
     # unmetered DirectCallGate that ignores grant_id/goal_id (matching `call_gate`'s own default
     # in every builder that never names either field), so a WardenDeps built before this dispatch

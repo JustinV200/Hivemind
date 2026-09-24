@@ -14,21 +14,14 @@ seam and ships an in-memory implementation), records a `capping.audited` trail e
 `Alarm` of kind `AUDIT_FAILED` on a `REJECT` verdict, through the same `record_alarm_event` path
 every other supervisor uses. `AuditRates` is the read model the Guard Bee (phase 10, part of
 `hivemind.guard`, the Hive's policy engine) will read to raise a tier's `audit_rate` when its
-failure rate climbs; this module only counts, it does not decide. Roadmap step 10.6 adds the other
-half of that sentence: `AuditRateRaise` is what a Guard Bee raise carries on the trail
-(`guard.audit_rate_raised`: the tier, the rate it rose from and to, until when, and the report
-behind it), and `raised_audit_rate` is how a Warden's gate reads it back from the trail it records
-to, so a proposal is sampled at the higher of the tier table's rate and a live raise. A raise only
-ever raises: the model refuses one that does not, and the reader takes the maximum.
+failure rate climbs; this module only counts, it does not decide. The raise itself (roadmap step
+10.6) lives in `hivemind.supervision.capping.raises`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Called
     by whichever composition root schedules audit sampling (a later dispatch's Warden tick, or
-    `hive capping audit --sample`, roadmap step 4.11) once a proposal reaches a terminal state;
-    `raised_audit_rate` by `hivemind.wardens.spawn.audited_gate`, and `AuditRateRaise` by the
-    Guard Bee (`hivemind.workers.roles.guard_bee`) when it raises a rate. Calls into
-    `hivemind.cell` (CellIdentity), `hivemind.guard.report` (the report id pattern),
-    `hivemind.pheromone` (CappingEvent, PheromoneEvent, PheromoneTrail, TrailQuery),
+    `hive capping audit --sample`, roadmap step 4.11) once a proposal reaches a terminal state.
+    Calls into `hivemind.cell` (CellIdentity), `hivemind.pheromone` (CappingEvent, PheromoneTrail),
     `hivemind.supervision.alarm`, `hivemind.supervision.alarm_trail`, `hivemind.supervision.
     capping.checks.judge`, `.checks.rubrics`, `.errors`, `.proposal`, `.tiers` and waggle only;
     never `hivemind.memory` or `hivemind.honey_store` (`FindingsSink` is the seam a later phase
@@ -41,14 +34,13 @@ Key invariants:
     - audit_completed never raises for an ordinary REJECT verdict: that path deposits a finding and
       raises an Alarm, it does not propagate an exception; a judge that cannot answer at all
       (JudgeAnswerError) is recorded as an inconclusive sample, never propagated, since an audit
-      runs after the work landed and a missed sample must not crash the Worker. It raises
+      runs after the work landed and a missed sample must not crash the Worker; so is a judge
+      that cannot be asked at all (JudgeUnavailableError, a Warden with no model-backed reviewer
+      wired, as a Virtual Cell's in-Cell Warden is today). It raises
       CappingError only when the sampled tier has no configured rubric at all.
     - The capping.audited trail event's payload carries only the tier, the verdict outcome and the
       rubric id -- never JudgeVerdict.reasons or .notes (codingrules section 12: no event ever
       carries text).
-    - `raised_audit_rate` never lowers anything: it returns the highest live raise for one tier,
-      or 0.0, and a gate samples at the higher of that and the tier table's rate; an expired or
-      malformed raise is skipped, never trusted.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "What cannot be gated is sampled."
@@ -65,15 +57,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
 from random import Random
-from typing import Protocol, Self
+from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import CellIdentity
-from hivemind.guard.report import GUARD_REPORT_ID_PATTERN
-from hivemind.pheromone import CappingEvent, PheromoneEvent, PheromoneTrail, TrailQuery
+from hivemind.pheromone import CappingEvent, PheromoneTrail
 from hivemind.supervision.alarm import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from hivemind.supervision.alarm_trail import record_alarm_event
 from hivemind.supervision.capping.checks.judge import (
@@ -83,7 +73,11 @@ from hivemind.supervision.capping.checks.judge import (
     JudgeVerdict,
 )
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
-from hivemind.supervision.capping.errors import CappingError, JudgeAnswerError
+from hivemind.supervision.capping.errors import (
+    CappingError,
+    JudgeAnswerError,
+    JudgeUnavailableError,
+)
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec
 from waggle.clock import Clock
@@ -91,23 +85,14 @@ from waggle.ids import MessageId, new_alarm_id, new_event_id
 from waggle.messages.base import UtcDatetime
 from waggle.messages.supervision import AlarmContext
 
-AUDIT_RATE_RAISED_KIND = "guard.audit_rate_raised"  # The trail kind a Guard Bee raise is.
-# Raises are rare (a rule consumes the burst that fired it): the newest 64 always include each
-# tier's newest live raise, which is its highest, since every raise starts from the rate in force.
-MAX_RAISES_READ = 64
-
 __all__ = [
-    "AUDIT_RATE_RAISED_KIND",
-    "MAX_RAISES_READ",
     "AuditDeps",
     "AuditFinding",
-    "AuditRateRaise",
     "AuditRates",
     "AuditSampler",
     "FindingsSink",
     "InMemoryFindingsSink",
     "audit_completed",
-    "raised_audit_rate",
 ]
 
 
@@ -231,75 +216,6 @@ class AuditRates:
         return self.failed(tier) / total if total else 0.0
 
 
-class AuditRateRaise(BaseModel):
-    """One Guard Bee raise of one tier's sampled-audit rate: the `guard.audit_rate_raised` payload.
-
-    Written by the Guard Bee (roadmap step 10.6) when a rule sees a tier's failures climb, and read
-    back by `raised_audit_rate` wherever a gate samples; the trail is the only channel between the
-    two, so the raise survives a restart of either side and needs no shared object.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    tier: RiskTier = Field(description="The tier whose sampling rate rose.")
-    from_rate: float = Field(ge=0.0, lt=1.0, description="The rate in force before the raise.")
-    to_rate: float = Field(gt=0.0, le=1.0, description="The rate in force until `until`.")
-    until: UtcDatetime = Field(description="When the raise lapses and the table's rate returns.")
-    report_id: str = Field(pattern=GUARD_REPORT_ID_PATTERN, description="The report behind it.")
-    rule: str = Field(
-        pattern=r"^[a-z][a-z0-9_.]*$", max_length=64, description="The rule that raised it."
-    )
-
-    @model_validator(mode="after")
-    def _only_ever_raises(self) -> Self:
-        """Refuse a 'raise' that does not raise: lowering a rate would widen what goes unaudited."""
-        if self.to_rate <= self.from_rate:
-            raise ValueError(f"A raise must raise: {self.to_rate} is not above {self.from_rate}.")
-        return self
-
-    def to_payload(self) -> dict[str, JsonValue]:
-        """Return the raise as a trail payload: a tier name, two rates, a time and two ids."""
-        return self.model_dump(mode="json")
-
-    @classmethod
-    def from_event(cls, event: PheromoneEvent) -> AuditRateRaise | None:
-        """Read a raise back from a `guard.audit_rate_raised` event; None when it is malformed.
-
-        Args:
-            event: One trail event of kind `AUDIT_RATE_RAISED_KIND`.
-
-        Returns:
-            The raise, or None for a payload this model refuses (a foreign or damaged row, which
-            a reader skips rather than trusts).
-        """
-        try:
-            return cls.model_validate(event.payload)
-        except ValidationError:
-            return None
-
-
-async def raised_audit_rate(trail: PheromoneTrail, tier: RiskTier, now: datetime) -> float:
-    """Return the highest live Guard Bee raise of `tier`'s sampled-audit rate, or 0.0.
-
-    Args:
-        trail: The trail the calling gate records to; on the Hive Stand that is the Queen's own
-            trail, where the Guard Bee records every raise.
-        tier: The tier a terminal proposal is being considered for sampling at.
-        now: The reference time; a raise whose `until` has passed is ignored.
-
-    Returns:
-        The largest `to_rate` among `tier`'s raises still in force, or 0.0 with none.
-    """
-    # Latency: one indexed local read of at most MAX_RAISES_READ rows (the kind index), once per
-    # terminal proposal, after its outcome is already decided.
-    events = await trail.query(
-        TrailQuery(kind=AUDIT_RATE_RAISED_KIND, newest_first=True, limit=MAX_RAISES_READ)
-    )
-    raises = (AuditRateRaise.from_event(event) for event in events)
-    live = [r.to_rate for r in raises if r is not None and r.tier is tier and r.until > now]
-    return max(live, default=0.0)
-
-
 @dataclass(frozen=True, slots=True)
 class AuditDeps:
     """Everything one audit_completed call needs, bundled (codingrules section 5.1)."""
@@ -335,12 +251,14 @@ async def audit_completed(
         return None  # Not sampled: nothing to review, deposit or record for this proposal.
     try:
         verdict = await _review(deps, proposal)
-    except JudgeAnswerError as exc:
-        # The judge could not produce a verdict (its structured-output ladder ran dry). An audit
-        # is a sample taken after the proposal already landed, so a missed sample changes nothing
-        # about the work; it is recorded as inconclusive and the Worker carries on. Found by a
-        # scratch_write audit (2 % sampling) against a scripted provider with no judge answer:
-        # the error propagated out of the gate and crashed the Drone mid-task (2026-09-22).
+    except (JudgeAnswerError, JudgeUnavailableError) as exc:
+        # The judge could not produce a verdict (its structured-output ladder ran dry), or there
+        # is none to ask (a Warden wired with no model-backed reviewer: a Virtual Cell's in-Cell
+        # one, roadmap step 10.6's raise found it). An audit is a sample taken after the proposal
+        # already landed, so a missed sample changes nothing about the work; it is recorded as
+        # inconclusive and the Worker carries on. Found by a scratch_write audit (2 % sampling)
+        # against a scripted provider with no judge answer: the error propagated out of the gate
+        # and crashed the Drone mid-task (2026-09-22).
         await _record_inconclusive_event(deps, proposal, exc)
         return None
     rates.record_sample(proposal.risk_tier, failed=verdict.outcome is JudgeOutcome.REJECT)
@@ -401,7 +319,7 @@ async def _record_audited_event(deps: AuditDeps, proposal: Proposal, verdict: Ju
 
 
 async def _record_inconclusive_event(
-    deps: AuditDeps, proposal: Proposal, error: JudgeAnswerError
+    deps: AuditDeps, proposal: Proposal, error: JudgeAnswerError | JudgeUnavailableError
 ) -> None:
     """Record capping.audited with `judge_error` set: the sample was taken but never judged."""
     event = CappingEvent(

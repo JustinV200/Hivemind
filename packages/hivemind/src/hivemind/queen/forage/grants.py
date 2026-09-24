@@ -56,7 +56,9 @@ from hivemind.forage import ForageGrant
 from hivemind.forage.grant_state import GrantState, assert_transition
 from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.queen.trail import record_forage_event
+from hivemind.supervision.capping import live_audit_raises
 from waggle.ids import WardenId
+from waggle.messages.forage import GrantIssued, RaisedAuditRate
 from waggle.messages.forage.values import RevocationCause
 
 if TYPE_CHECKING:
@@ -65,7 +67,38 @@ if TYPE_CHECKING:
     # a real (non-TYPE_CHECKING) import here would cycle back through queen/forage/__init__.py.
     from hivemind.queen.deps import QueenDeps
 
-__all__ = ["activate", "renew_grants_for_warden", "revise", "revoke", "sweep_expired"]
+__all__ = [
+    "activate",
+    "grant_message",
+    "renew_grants_for_warden",
+    "revise",
+    "revoke",
+    "sweep_expired",
+]
+
+
+async def grant_message(deps: QueenDeps, grant: ForageGrant) -> GrantIssued:
+    """Build the `GrantIssued` a grant's holder receives: its terms, and the raises in force.
+
+    Roadmap step 10.6 (Waggle 1.8): every Capping audit-rate raise the Guard Bee has in force
+    rides on every grant the Queen issues, so a Warden that never sees her trail (a Virtual Cell's
+    in-Cell one) still samples a raised tier at the raised rate.
+
+    Args:
+        deps: The Queen's collaborators; her Forage map, trail and clock are read.
+        grant: The grant, at the revision being sent.
+
+    Returns:
+        The wire message, each binding's source from her map, `audit_raises` from her trail.
+    """
+    # Every binding's wire form names its whole source, read from her map as it stands now.
+    sources = {binding.source_id: deps.map.get(binding.source_id) for binding in grant.allowed}
+    raises = await live_audit_raises(deps.trail, deps.clock.now())
+    carried = tuple(
+        RaisedAuditRate(tier=raised.tier.value, rate=raised.to_rate, until=raised.until)
+        for raised in raises
+    )
+    return grant.to_wire(sources).model_copy(update={"audit_raises": carried})
 
 
 def activate(grant: ForageGrant) -> ForageGrant:

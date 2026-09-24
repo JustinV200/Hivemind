@@ -29,19 +29,21 @@ GUARD_REVIEW_TITLE = "The Guard Bee's Judge"  # The first heading of the guard_r
 QUICK_ROUND_S = 0.05  # About one Queen tick in the fake manifests' cadence.
 
 
-def quick_rounds(manifest_path: Path, interval_s: float = QUICK_ROUND_S) -> Path:
-    """Append `[guard.bee] interval_s` to a written manifest, and return its path.
+def quick_rounds(manifest_path: Path, interval_s: float = QUICK_ROUND_S, extra: str = "") -> Path:
+    """Append a `[guard.bee]` table with `interval_s` to a written manifest, and return its path.
 
     Args:
         manifest_path: A manifest `fake_manifest` (or one built on it) wrote, with no
             `[guard.bee]` table of its own.
         interval_s: Seconds between two Guard Bee rounds.
+        extra: More `[guard.bee]` lines (`audit_raise_step = 1.0`, say), each ending in a newline.
 
     Returns:
         `manifest_path`, for chaining into `load_manifest`.
     """
     text = manifest_path.read_text(encoding="utf-8")
-    manifest_path.write_text(f"{text}\n[guard.bee]\ninterval_s = {interval_s}\n", encoding="utf-8")
+    table = f"\n[guard.bee]\ninterval_s = {interval_s}\n{extra}"
+    manifest_path.write_text(text + table, encoding="utf-8")
     return manifest_path
 
 
