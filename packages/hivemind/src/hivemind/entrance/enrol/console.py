@@ -1,0 +1,290 @@
+"""Bootstrap the operator and the Hive Stand console device, change the password, unlock the key.
+
+The Hive Stand (the machine the Queen, the orchestrator, runs on) has its own console, and it is a
+device like any other (ADR-0033): it holds an Ed25519 key, logs in with that key plus the operator
+password, and is recorded APPROVED and **loopback-bound**, so its sessions open only on the loopback
+listener. That is how the first remote device ever gets approved without a special path.
+``bootstrap_operator`` sets it all up once: it checks the password's strength before writing
+anything, mints the console key and stores it in the secret store **wrapped** under the password
+(``hivemind.entrance.auth.wrap``: bees, the Hive's agent processes, share the Hive Stand's
+operating-system user, so a key kept in the clear would be theirs too), records the console device,
+and writes the password hash **last**, because that row is what marks the operator as initialised:
+an interrupted bootstrap is simply run again, reusing a console key it can open and replacing a
+record that key does not match. ``change_operator_password`` proves the current password and
+re-wraps the console key under the new one in the same operation; ``unlock_console_key`` opens it
+for a console login. Console sessions are never persisted by anything: the console's session lives
+in the memory of the process that opened it, and the unwrapped key only as long as that session
+does.
+
+Fits into the Hive:
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol``. Called by
+    ``hive entrance operator password`` (and later ``hive init``, roadmap 14.2) and by the
+    console's login. Calls into ``hivemind.entrance.auth`` (password hashing, key wrapping),
+    ``hivemind.common.secrets`` and the Entrance tables through ``EntranceStore``.
+
+Key invariants:
+    - The password hash is written last; its presence means a bootstrap completed, so a second
+      bootstrap raises ``OperatorAlreadyInitialisedError`` and writes nothing.
+    - The console's private key is never stored in the clear and never leaves this module except
+      as the signer ``unlock_console_key`` returns.
+    - The console is the operator at the Hive Stand's keyboard, so it holds every capability the
+      operator uses and **no spend cap**: a cap would only stop the operator spending their own
+      money from their own machine, while caps exist to bound a remote program's blast radius;
+      step-up still applies above ``step_up_spend`` (codingrules 8.15).
+
+See Also:
+    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the console
+      device and the wrapped key.
+    - hivemind.entrance.auth.wrap for the blob format.
+"""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from hivemind.common.logging import get_logger
+from hivemind.common.secrets import SecretStore
+from hivemind.entrance.auth.canonical import b64url_encode
+from hivemind.entrance.auth.keys import KeyKind
+from hivemind.entrance.auth.password import PasswordHasher, check_password_strength
+from hivemind.entrance.auth.wrap import unwrap_private_key, wrap_private_key
+from hivemind.entrance.enrol.models import DeviceDescription, EnrolledDevice
+from hivemind.entrance.enrol.state import DeviceStatus
+from hivemind.entrance.errors import (
+    KeyUnwrapError,
+    OperatorAlreadyInitialisedError,
+    OperatorNotInitialisedError,
+    OperatorPasswordMismatchError,
+)
+from waggle.clock import Clock
+from waggle.ids import new_device_id
+from waggle.signing import Ed25519Signer
+
+if TYPE_CHECKING:
+    # Type-only: hivemind.entrance.store imports this package's models, so a runtime import here
+    # would be a cycle; this module only calls the store through its protocol's methods.
+    from hivemind.entrance.store.protocol import EntranceStore
+
+CONSOLE_KEY_NAME = "console.ed25519"  # The secret store name of the console's wrapped key.
+CONSOLE_DEVICE_NAME = "Hive Stand console"  # How the console appears in every device list.
+CONSOLE_USER_AGENT = "hivemind"  # The console is the Hive's own code, not a browser.
+# Everything the operator does at the Hive Stand, as capability strings (hivemind.guard's grammar,
+# not imported here): submit and answer, push, steward, every observation, both Cell kinds, every
+# Comb Shield tier and any spend.
+CONSOLE_CAPABILITIES = (
+    "cell:comb_shield:*",
+    "cell:hive_stand",
+    "cell:virtual",
+    "entrance:answer",
+    "entrance:push",
+    "entrance:steward",
+    "entrance:submit",
+    "observe",
+    "observe:honey:*",
+    "observe:thoughts",
+    "spend:*",
+)
+
+log = get_logger(__name__)
+
+__all__ = [
+    "CONSOLE_CAPABILITIES",
+    "CONSOLE_DEVICE_NAME",
+    "CONSOLE_KEY_NAME",
+    "ConsoleDeps",
+    "bootstrap_operator",
+    "change_operator_password",
+    "unlock_console_key",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ConsoleDeps:
+    """What the operator and console operations need, built by the composition root.
+
+    Attributes:
+        store: The Entrance tables.
+        secrets: The Hive's secret store (``[hive] secrets_dir``), where the wrapped key lives.
+        hasher: The Entrance's one PasswordHasher, whose semaphore bounds every derivation.
+        clock: Stamps the operator row and the console record.
+    """
+
+    store: EntranceStore
+    secrets: SecretStore
+    hasher: PasswordHasher
+    clock: Clock
+
+
+async def bootstrap_operator(deps: ConsoleDeps, password: str) -> EnrolledDevice:
+    """Set the operator password and record the Hive Stand console, once per Hive.
+
+    Args:
+        deps: The Entrance tables, secret store, hasher and clock.
+        password: The operator password, typed at the Hive Stand.
+
+    Returns:
+        The console's record: APPROVED, loopback-bound, interactive, Ed25519, uncapped.
+
+    Raises:
+        OperatorAlreadyInitialisedError: The operator password is already set; changing it is
+            ``change_operator_password``.
+        WeakPasswordError: The password breaks the length rule; nothing was written.
+    """
+    # Latency: one local read of the Entrance tables (SQLite's own busy timeout bounds it); a
+    # row here means an earlier bootstrap finished, since the password is written last.
+    if await deps.store.get_operator() is not None:
+        raise OperatorAlreadyInitialisedError(
+            "The operator is already initialised; change the password with "
+            "change_operator_password (hive entrance operator password)."
+        )
+    # Checked before the first write, so a weak password never leaves a half-made console.
+    check_password_strength(password)
+    # Latency: one or two Argon2id derivations (about 0.1 s each, in worker threads) and a few
+    # local writes; none of it touches the network.
+    signer = await _console_signer(deps, password)
+    device = await _record_console(deps, signer)
+    # Last on purpose: this row is what says "initialised" (module docstring).
+    await deps.store.set_operator_password_hash(await deps.hasher.hash(password), deps.clock.now())
+    return device
+
+
+async def change_operator_password(deps: ConsoleDeps, old: str, new: str) -> None:
+    """Change the operator password and re-wrap the console key under it, in one operation.
+
+    The key is re-wrapped before the hash changes. If the process dies between the two, running
+    the same change again finishes it: the key already opens with ``new``, so only the hash is
+    left to write.
+
+    Args:
+        deps: The Entrance tables, secret store, hasher and clock.
+        old: The current password.
+        new: The new password.
+
+    Raises:
+        OperatorNotInitialisedError: No operator yet, or the console key is missing.
+        OperatorPasswordMismatchError: ``old`` is not the current password.
+        WeakPasswordError: ``new`` breaks the length rule; nothing was written.
+        KeyUnwrapError: The console key opens with neither password (it was damaged).
+    """
+    # Latency: one local read, then one Argon2id verification (about 0.1 s in a worker thread).
+    operator = await deps.store.get_operator()
+    if operator is None:
+        raise OperatorNotInitialisedError("The operator has no password to change yet.")
+    if not await deps.hasher.verify(old, operator.password_hash):
+        raise OperatorPasswordMismatchError("The current operator password is not correct.")
+    check_password_strength(new)
+    # Latency: one small secret-store read, then two or three derivations to re-wrap and hash.
+    blob = await _require_console_blob(deps.secrets)
+    try:
+        private_key = await unwrap_private_key(deps.hasher, old, CONSOLE_KEY_NAME, blob)
+    except KeyUnwrapError:
+        # An earlier run of this same change re-wrapped the key and died before the hash: the
+        # key already opens with `new`, which proves it; anything else propagates as damaged.
+        await unwrap_private_key(deps.hasher, new, CONSOLE_KEY_NAME, blob)
+    else:
+        rewrapped = await wrap_private_key(deps.hasher, new, CONSOLE_KEY_NAME, private_key)
+        await deps.secrets.put(CONSOLE_KEY_NAME, rewrapped)
+    await deps.store.set_operator_password_hash(await deps.hasher.hash(new), deps.clock.now())
+
+
+async def unlock_console_key(
+    secrets: SecretStore, hasher: PasswordHasher, password: str
+) -> Ed25519Signer:
+    """Open the console's wrapped key with the operator password, for a console login.
+
+    Args:
+        secrets: The Hive's secret store.
+        hasher: The Entrance's PasswordHasher.
+        password: The operator password, typed at the Hive Stand.
+
+    Returns:
+        The console's signer; keep it only for the life of the session it opens.
+
+    Raises:
+        OperatorNotInitialisedError: There is no console key yet (no bootstrap).
+        KeyUnwrapError: The password does not open it; never says more than that.
+    """
+    # Latency: one small secret-store read and one Argon2id derivation (about 0.1 s).
+    blob = await _require_console_blob(secrets)
+    return Ed25519Signer(await unwrap_private_key(hasher, password, CONSOLE_KEY_NAME, blob))
+
+
+async def _console_signer(deps: ConsoleDeps, password: str) -> Ed25519Signer:
+    """Reuse a console key an interrupted bootstrap left (if it opens), or mint and wrap one."""
+    blob = await deps.secrets.get(CONSOLE_KEY_NAME)
+    # A blob already here means an interrupted bootstrap: keep its key if this password opens it.
+    if blob is not None:
+        try:
+            return Ed25519Signer(
+                await unwrap_private_key(deps.hasher, password, CONSOLE_KEY_NAME, blob)
+            )
+        except KeyUnwrapError:
+            # Sealed under another password by an interrupted attempt; no password was ever set,
+            # so nothing can have logged in with that key and it is safe to replace.
+            log.debug("entrance.console_key_replaced", secret=CONSOLE_KEY_NAME)
+    # First bootstrap (or an unopenable leftover): mint from the CSPRNG and store it only wrapped.
+    signer = Ed25519Signer.generate()
+    wrapped = await wrap_private_key(
+        deps.hasher, password, CONSOLE_KEY_NAME, signer.private_key_bytes
+    )
+    await deps.secrets.put(CONSOLE_KEY_NAME, wrapped)
+    return signer
+
+
+async def _record_console(deps: ConsoleDeps, signer: Ed25519Signer) -> EnrolledDevice:
+    """Return the console record for ``signer``, revoking stale ones and creating it if missing."""
+    public_key = b64url_encode(signer.public_key_bytes)
+    # Every live console record an earlier, interrupted bootstrap may have left behind.
+    consoles = [
+        device
+        for device in await deps.store.list_devices(DeviceStatus.APPROVED)
+        if device.loopback_bound
+    ]
+    # Reuse the record holding this key; revoke any holding another, so one console stays live.
+    for existing in consoles:
+        # An interrupted bootstrap already recorded this very key: reuse it as is.
+        if existing.public_key == public_key:
+            return existing
+        # A console whose key is not the one in the secret store can never log in; revoking it
+        # keeps exactly one live console.
+        await deps.store.update_device_status(
+            existing.id, DeviceStatus.APPROVED, DeviceStatus.REVOKED
+        )
+    device = _console_device(deps.clock, public_key)
+    await deps.store.put_device(device)
+    return device
+
+
+def _console_device(clock: Clock, public_key: str) -> EnrolledDevice:
+    """Build the console's record: approved now, loopback-bound, interactive, uncapped."""
+    now = clock.now()
+    return EnrolledDevice(
+        id=new_device_id(clock),
+        name=CONSOLE_DEVICE_NAME,
+        status=DeviceStatus.APPROVED,
+        key_kind=KeyKind.ED25519,
+        public_key=public_key,
+        interactive=True,
+        capabilities=CONSOLE_CAPABILITIES,
+        spend_cap_usd_per_day=None,
+        expires_at=None,
+        loopback_bound=True,
+        description=DeviceDescription(
+            name=CONSOLE_DEVICE_NAME, platform=sys.platform, user_agent=CONSOLE_USER_AGENT
+        ),
+        created_at=now,
+        approved_at=now,
+    )
+
+
+async def _require_console_blob(secrets: SecretStore) -> bytes:
+    """Return the console's wrapped key, or say there is no console yet."""
+    blob = await secrets.get(CONSOLE_KEY_NAME)
+    if blob is None:
+        raise OperatorNotInitialisedError(
+            f"There is no console key ({CONSOLE_KEY_NAME!r}) in {secrets!r}; bootstrap the "
+            "operator first (hive entrance operator password)."
+        )
+    return blob

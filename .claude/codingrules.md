@@ -1121,7 +1121,7 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   the invite route); only loopback reopens it, with step-up. Narrowing access is always safe, so
   autopilot may do it without judgement. Lockout after `lockout_attempts` failures per device,
   rate limits per device and per address, and every enrolment, approval, denial, revocation,
-  lockout, step-up and reduction is a `guard.entrance.*` trail event pushed to every other
+  lockout, step-up and reduction is a `guard.entrance_*` trail event pushed to every other
   enrolled device. The optional travel lock (`travel_lock = true`) forces step-up and a
   notification when a known device appears from a new network; it never approves anything.
 - **Versioned and described.** Routes live under `/v1/`. `entrance/landing_board.py` generates
@@ -1787,7 +1787,7 @@ transaction as the state change.
 | Knowledge tier | Memory and Honey Store | `HOT → BEE_BREAD → HONEY`; `NECTAR → HONEY` | A pipeline, not a strict machine; demotion is a House Bee duty. |
 | Cell Wax note | Memory, `memory/cell_wax.py` | `PROPOSED → WRITTEN → CLEARED / EXPIRED`; `PROPOSED → REJECTED` | Only the Queen writes, rejects or clears; every edge is a `memory.wax_*` event; cleared and expired notes are ripened into Honey at `cell:<id>` scope. |
 | Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
-| Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → REVOKED` | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance.*` event pushed to every other device. |
+| Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `INVITED → EXPIRED / REVOKED` (the invite lapsed unredeemed, or the operator cancelled it); `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → EXPIRED / REVOKED` (the approval's own expiry, or the operator) | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance_*` event pushed to every other device. |
 | Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | Persisted in the Entrance tables, so a restart resumes the mode it left; `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up; a failed remote listener reduces rather than stopping the Queen. |
 
 Where state lives, and what survives a Queen crash:

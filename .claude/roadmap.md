@@ -1485,7 +1485,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
 - [ ] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
   capabilities on Night Veil Cells (`geo:*`, Wi-Fi scan, host metadata access), and reject task
   tool plans that request them.
-- [ ] **10.4 Principals, the operator and device keys.** Principals: the human operator, Queen,
+- [x] **10.4 Principals, the operator and device keys.** Principals: the human operator, Queen,
   Warden, Worker, Swarm device, and **enrolled client device**. Brood 1.0 has exactly one
   operator; the password is Argon2id-hashed in the Entrance tables and set at `hive init`.
   Clients never hold a shared API key: each enrolled device holds its own keypair, a WebAuthn

@@ -1,23 +1,114 @@
-"""Cover device-key-plus-password login and step-up authentication for the Landing Board.
+"""Hold the Entrance's credential primitives: signed strings, device keys, passwords, passkeys.
 
-Sessions and step-up checks together gate any higher-risk Landing Board action before it runs.
+Login at the Hive Entrance (the Hive's one HTTP door) is two factors, the device's key and the
+operator's password (ADR-0033), and every request is signed by a key bound to the session. This
+package holds the pieces those checks are built from, each pure or thin: ``canonical`` (every signed
+string and its encodings), ``keys`` (key kinds, the Ed25519 and P-256 verifiers, the key
+fingerprint), ``password`` (Argon2id hashing behind a two-slot semaphore), ``wrap`` (a private key
+sealed under the password), ``passkeys`` (the WebAuthn ceremonies through the ``webauthn`` library)
+and ``fake`` (``SoftPasskey``, a software authenticator for tests and demos). Sessions, challenges
+and step-up are later steps (roadmap 10.5e) built on these.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside the entrance package. Handles login,
-    sessions and step-up checks for higher-risk Landing Board routes. Called by entrance's
-    public API on behalf of whatever calls entrance itself; calls into sibling packages at Layer
-    7 or below, never back up into entrance's other sub-packages directly.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Used by
+    ``hivemind.entrance.enrol`` (the console bootstrap) and, later, the enrolment and login
+    routes; clients reuse ``canonical``. Calls into ``hivemind.entrance.errors``, waggle,
+    ``cryptography`` and ``webauthn`` only, never back into the rest of the Entrance.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 10 adds its first public name.
+    - This file holds re-exports and ``__all__`` only.
+    - Nothing here stores, logs or raises a password, a private key or a session secret.
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under entrance.
-    - .claude/roadmap.md phase 10 for the work that first populates it.
+    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decisions.
+    - .claude/roadmap.md steps 10.4 and 10.5e for what this package serves.
 
-Public API: none yet; first populated in phase 10.
+Public API:
+    - b64url_encode, b64url_decode, sha256_hex, new_nonce, path_and_query: the wire encodings.
+    - enrol_string, login_string, request_string, websocket_string, webhook_string: every signed
+      string, plus their tags (ENROL_TAG, LOGIN_TAG, REQUEST_TAG, WEBSOCKET_TAG, WEBHOOK_TAG) and
+      MIN_NONCE_BYTES, NONCE_BYTES.
+    - KeyKind, verify_ed25519, verify_p256, key_fingerprint: device keys and their checks.
+    - PasswordHasher, check_password_strength, MIN_PASSWORD_CHARS, MAX_PASSWORD_CHARS: the
+      operator password.
+    - wrap_private_key, unwrap_private_key: a private key sealed under the password.
+    - RelyingParty, PasskeyRegistration, StoredPasskey, registration_options,
+      authentication_options, verify_registration, verify_authentication: WebAuthn.
+    - SoftPasskey: a software WebAuthn authenticator for tests and demos.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 10 adds the first public name.
-__all__: list[str] = []
+from hivemind.entrance.auth.canonical import (
+    ENROL_TAG,
+    LOGIN_TAG,
+    MIN_NONCE_BYTES,
+    NONCE_BYTES,
+    REQUEST_TAG,
+    WEBHOOK_TAG,
+    WEBSOCKET_TAG,
+    b64url_decode,
+    b64url_encode,
+    enrol_string,
+    login_string,
+    new_nonce,
+    path_and_query,
+    request_string,
+    sha256_hex,
+    webhook_string,
+    websocket_string,
+)
+from hivemind.entrance.auth.fake import SoftPasskey
+from hivemind.entrance.auth.keys import KeyKind, key_fingerprint, verify_ed25519, verify_p256
+from hivemind.entrance.auth.passkeys import (
+    PasskeyRegistration,
+    RelyingParty,
+    StoredPasskey,
+    authentication_options,
+    registration_options,
+    verify_authentication,
+    verify_registration,
+)
+from hivemind.entrance.auth.password import (
+    MAX_PASSWORD_CHARS,
+    MIN_PASSWORD_CHARS,
+    PasswordHasher,
+    check_password_strength,
+)
+from hivemind.entrance.auth.wrap import unwrap_private_key, wrap_private_key
+
+__all__ = [
+    "ENROL_TAG",
+    "LOGIN_TAG",
+    "MAX_PASSWORD_CHARS",
+    "MIN_NONCE_BYTES",
+    "MIN_PASSWORD_CHARS",
+    "NONCE_BYTES",
+    "REQUEST_TAG",
+    "WEBHOOK_TAG",
+    "WEBSOCKET_TAG",
+    "KeyKind",
+    "PasskeyRegistration",
+    "PasswordHasher",
+    "RelyingParty",
+    "SoftPasskey",
+    "StoredPasskey",
+    "authentication_options",
+    "b64url_decode",
+    "b64url_encode",
+    "check_password_strength",
+    "enrol_string",
+    "key_fingerprint",
+    "login_string",
+    "new_nonce",
+    "path_and_query",
+    "registration_options",
+    "request_string",
+    "sha256_hex",
+    "unwrap_private_key",
+    "verify_authentication",
+    "verify_ed25519",
+    "verify_p256",
+    "verify_registration",
+    "webhook_string",
+    "websocket_string",
+    "wrap_private_key",
+]
