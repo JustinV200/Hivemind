@@ -258,6 +258,28 @@ async def test_audit_completed_records_an_inconclusive_sample_when_the_judge_can
     assert alarms == ()
 
 
+async def test_audit_completed_records_an_inconclusive_sample_for_an_unscripted_reviewer() -> None:
+    # WardenDeps.judge_reviewer defaults to a bare FakeJudgeReviewer() (wardens/deps.py): a
+    # Virtual Cell's Warden has no ModelJudgeReviewer wired, so any sampled proposal there hits
+    # this, not _SilentReviewer's JudgeAnswerError -- found on a real Docker Virtual Cell run
+    # (2026-09-24), where it crashed the Drone the same way the 2026-09-22 flake did.
+    deps, trail = _deps(FakeJudgeReviewer())
+    proposal = make_proposal(risk_tier=RiskTier.SCRATCH_WRITE)
+    tier = TierSpec(checks=(), floor=(), audit_rate=1.0)
+    rates = AuditRates()
+
+    verdict = await audit_completed(deps, proposal, tier, rates)
+
+    assert verdict is None
+    assert rates.sampled(RiskTier.SCRATCH_WRITE) == 0  # Inconclusive: neither passed nor failed.
+    events = await trail.query(TrailQuery(subject_id=proposal.id))
+    audited = [event for event in events if event.kind == "capping.audited"]
+    assert len(audited) == 1
+    assert audited[0].payload["judge_error"] is True
+    alarms = await trail.query(TrailQuery(family="alarm"))
+    assert alarms == ()
+
+
 async def test_audit_completed_hands_recorded_evidence_to_the_judge() -> None:
     reviewer = FakeJudgeReviewer(make_judge_verdict())
     deps, _trail = _deps(reviewer)
@@ -322,6 +344,20 @@ async def test_review_applied_fails_closed_when_the_judge_cannot_answer() -> Non
     verdict = await review_applied(deps, make_proposal(risk_tier=RiskTier.IRREVERSIBLE), None)
 
     # Unlike a sampled audit, nobody vouched for an action that cannot be undone: a REJECT.
+    assert verdict.outcome is JudgeOutcome.REJECT
+    assert verdict.reasons[0].startswith("the judge could not answer")
+    assert verdict.rubric_id == "irreversible-test"
+    assert [event.payload["outcome"] for event in await trail.query(TrailQuery())] == ["REJECT"]
+
+
+async def test_review_applied_fails_closed_for_an_unscripted_reviewer() -> None:
+    # Same WardenDeps default gap as test_audit_completed_records_an_inconclusive_sample_for_an_
+    # unscripted_reviewer, but on the never-sampled, always-reviewed irreversible path: it must
+    # fail closed (a REJECT), not propagate JudgeUnavailableError and crash the Drone.
+    deps, trail = _review_deps(FakeJudgeReviewer())
+
+    verdict = await review_applied(deps, make_proposal(risk_tier=RiskTier.IRREVERSIBLE), None)
+
     assert verdict.outcome is JudgeOutcome.REJECT
     assert verdict.reasons[0].startswith("the judge could not answer")
     assert verdict.rubric_id == "irreversible-test"

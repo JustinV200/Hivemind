@@ -35,8 +35,10 @@ Key invariants:
       tier and rate, so tests never need a fixed seed or a retry loop.
     - audit_completed never raises for an ordinary REJECT verdict: that path deposits a finding and
       raises an Alarm, it does not propagate an exception; a judge that cannot answer at all
-      (JudgeAnswerError) is recorded as an inconclusive sample, never propagated, since an audit
-      runs after the work landed and a missed sample must not crash the Worker. It raises
+      (JudgeAnswerError, or JudgeUnavailableError from a WardenDeps default-constructed
+      FakeJudgeReviewer -- a Virtual Cell with no ModelJudgeReviewer wired, found on a real
+      Docker run, 2026-09-24) is recorded as an inconclusive sample, never propagated, since an
+      audit runs after the work landed and a missed sample must not crash the Worker. It raises
       CappingError only when the sampled tier has no configured rubric at all.
     - The capping.audited trail event's payload carries only the tier, the verdict outcome and the
       rubric id -- never JudgeVerdict.reasons or .notes (codingrules section 12: no event ever
@@ -76,7 +78,11 @@ from hivemind.supervision.capping.checks.judge import (
     JudgeVerdict,
 )
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
-from hivemind.supervision.capping.errors import CappingError, JudgeAnswerError
+from hivemind.supervision.capping.errors import (
+    CappingError,
+    JudgeAnswerError,
+    JudgeUnavailableError,
+)
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec
 from waggle.clock import Clock
@@ -260,12 +266,17 @@ async def audit_completed(
         return None  # Not sampled: nothing to review, deposit or record for this proposal.
     try:
         verdict = await _review(deps, proposal, evidence)
-    except JudgeAnswerError as exc:
-        # The judge could not produce a verdict (its structured-output ladder ran dry). An audit
-        # is a sample taken after the proposal already landed, so a missed sample changes nothing
-        # about the work; it is recorded as inconclusive and the Worker carries on. Found by a
-        # scratch_write audit (2 % sampling) against a scripted provider with no judge answer:
-        # the error propagated out of the gate and crashed the Drone mid-task (2026-09-22).
+    except (JudgeAnswerError, JudgeUnavailableError) as exc:
+        # The judge could not produce a verdict: its structured-output ladder ran dry
+        # (JudgeAnswerError), or deps.reviewer is a WardenDeps default-constructed
+        # FakeJudgeReviewer with nothing scripted (JudgeUnavailableError) -- a Virtual Cell's
+        # Warden has no ModelJudgeReviewer wired at all today, so any sampled proposal on one
+        # hits exactly this. An audit is a sample taken after the proposal already landed, so a
+        # missed sample changes nothing about the work; it is recorded as inconclusive and the
+        # Worker carries on. Found by a scratch_write audit (2 % sampling) against a scripted
+        # provider with no judge answer: the error propagated out of the gate and crashed the
+        # Drone mid-task (2026-09-22); found again for the FakeJudgeReviewer case on a real
+        # Docker Virtual Cell run, the same crash under a different exception type (2026-09-24).
         await _record_inconclusive_event(deps, proposal, exc)
         return None
     rates.record_sample(proposal.risk_tier, failed=verdict.outcome is JudgeOutcome.REJECT)
@@ -300,8 +311,9 @@ async def review_applied(
     """
     try:
         verdict = await _review(deps, proposal, evidence)
-    except JudgeAnswerError as exc:
+    except (JudgeAnswerError, JudgeUnavailableError) as exc:
         # _review found the rubric before the judge failed, so its id names what was attempted.
+        # Both exception shapes count as "could not answer" here (module docstring's own note).
         reason = f"the judge could not answer: {exc}"[:MAX_JUDGE_REASON_CHARS]
         rubric_id = deps.rubrics[proposal.risk_tier].rubric_id
         verdict = JudgeVerdict(outcome=JudgeOutcome.REJECT, reasons=(reason,), rubric_id=rubric_id)
@@ -369,7 +381,7 @@ async def _record_audited_event(deps: AuditDeps, proposal: Proposal, verdict: Ju
 
 
 async def _record_inconclusive_event(
-    deps: AuditDeps, proposal: Proposal, error: JudgeAnswerError
+    deps: AuditDeps, proposal: Proposal, error: JudgeAnswerError | JudgeUnavailableError
 ) -> None:
     """Record capping.audited with `judge_error` set: the sample was taken but never judged."""
     event = CappingEvent(
