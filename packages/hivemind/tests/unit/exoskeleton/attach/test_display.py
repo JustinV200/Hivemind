@@ -15,6 +15,7 @@ from hivemind.exoskeleton.attach.display import (
     borrow_running_display,
     start_lease_display,
 )
+from hivemind.exoskeleton.attach.openbox import RC_FILE
 from hivemind.exoskeleton.attach.ready import Deadline
 from hivemind.exoskeleton.errors import AttachError
 from hivemind.exoskeleton.geometry import ScreenSize
@@ -45,7 +46,9 @@ async def test_a_lease_display_is_private_and_ready_for_input(tmp_path: Path) ->
     assert xvfb.argv[0] == "Xvfb"
     assert xvfb.argv[6:8] == ("-nolisten", "tcp")
     assert "-auth" in xvfb.argv
-    assert wm.argv == ("openbox", "--sm-disable")
+    rc = layout.x11_dir / RC_FILE
+    assert wm.argv == ("openbox", "--sm-disable", "--config-file", str(rc))
+    assert b"Execute" not in await session.get_file(rc)  # The lease's own, launching nothing.
     assert wm.env["HOME"] == str(layout.home)
     assert wm.env["DISPLAY"] == f":{DISPLAY_NUMBER}"
     assert len(await session.get_file(layout.authority)) == 44  # One wildcard cookie entry.

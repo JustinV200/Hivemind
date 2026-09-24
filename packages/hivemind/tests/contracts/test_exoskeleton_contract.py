@@ -120,6 +120,19 @@ async def test_antennae_click_leaves_the_pointer_at_the_click(desktop: Desktop) 
     assert await desktop.antennae.pointer() == Point(50, 60)
 
 
+async def test_the_desktop_opens_nothing_on_any_click_or_key(desktop: Desktop) -> None:
+    # A window manager's desktop menu launches programs (a terminal, a browser, every installed
+    # application); a lease display's must never show one, whatever the bee clicks or presses.
+    whole = Region(x=0, y=0, width=SCREEN.width, height=SCREEN.height)
+    before = await desktop.eye.region_digest(whole)
+
+    for button in (MouseButton.RIGHT, MouseButton.MIDDLE):
+        await desktop.antennae.click(Point(SCREEN.width // 2, SCREEN.height // 2), button)
+    await desktop.antennae.press("super+e")  # Bound by the system configuration to a launcher.
+
+    assert await desktop.eye.region_digest(whole) == before
+
+
 @pytest.mark.parametrize(
     "act",
     [

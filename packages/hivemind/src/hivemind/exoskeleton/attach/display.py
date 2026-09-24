@@ -4,7 +4,8 @@ A desktop Exoskeleton needs an X display the CompoundEye can capture and the Ant
 For a lease display, attach writes a fresh MIT cookie into the lease's scratch, starts Xvfb with
 `-displayfd 1` (Xvfb picks a free display number itself and prints it once it accepts clients),
 `-nolisten tcp` and `-auth` on that cookie file, reads the number back from Xvfb's log, then starts
-openbox against it with HOME inside scratch. The window manager is load-bearing: without one,
+openbox against it with HOME inside scratch and the lease's own configuration (`attach.openbox`),
+whose desktop and keys launch nothing. The window manager is load-bearing: without one,
 `xdotool mousemove` succeeds and the pointer never moves (ADR-0031). So readiness is the one check
 that matters to a bee: the pointer is moved to a probe point and read back until it is there.
 Borrowing the operator's running display (`DisplaySource.RUNNING`) starts nothing: it reads the
@@ -14,11 +15,12 @@ Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.exoskeleton.attach`.
     Called by `attach.core`. Calls into `hivemind.cell` (CellSession, BackgroundSpec, ExecSpec,
     run), `hivemind.common.logging`, `hivemind.exoskeleton.antennae.xdotool`, `.commands`,
-    `.errors`, `.geometry`, `.scratch`, `.x11` and `attach.ready` only.
+    `.errors`, `.geometry`, `.scratch`, `.x11`, `attach.openbox` and `attach.ready` only.
 
 Key invariants:
     - Every process started here is stopped again before an error leaves this module.
     - The display listens on no TCP port and admits only holders of this lease's cookie.
+    - Openbox never reads the system configuration: its menus would launch any installed program.
     - X11_PROGRAMS and WINDOW_MANAGER match what `hivemind.cell.local.probe` requires before it
       reports `can_start_display` (a test holds them together).
 
@@ -37,6 +39,7 @@ from pathlib import Path
 from hivemind.cell import BackgroundProcess, BackgroundSpec, CellSession, ExecSpec, run
 from hivemind.common.logging import get_logger
 from hivemind.exoskeleton.antennae.xdotool import XdotoolAntennae
+from hivemind.exoskeleton.attach.openbox import write_openbox_config
 from hivemind.exoskeleton.attach.ready import Deadline, start_process, stop_all
 from hivemind.exoskeleton.commands import sanitised
 from hivemind.exoskeleton.errors import AttachError, PeripheralError
@@ -100,8 +103,10 @@ async def start_lease_display(
         display = X11Display(name=f":{number}", authority=layout.authority, size=screen)
         env = {**layout.home_environment(), **display.environment()}
         log = layout.x11_dir / "openbox.log"
-        wm_spec = BackgroundSpec(argv=(WINDOW_MANAGER, "--sm-disable"), env=env, log_path=log)
-        wm = await start_process(session, wm_spec)
+        # WHY: the lease's own configuration, never the system one, whose menus launch programs.
+        rc = await write_openbox_config(session, layout)
+        argv = (WINDOW_MANAGER, "--sm-disable", "--config-file", str(rc))
+        wm = await start_process(session, BackgroundSpec(argv=argv, env=env, log_path=log))
         started.append(wm)
         await _await_pointer(session, display, deadline)
     except BaseException:

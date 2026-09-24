@@ -34,7 +34,10 @@ that have no API; it is not a stealth layer (codingrules 15; the Pheromone Mask 
   otherwise a private display when the Cell can start one and the bee holds `exoskeleton:display`.
   A browser-only need starts the browser alone, headless.
 - **Private per lease.** Xvfb picks its own display number (`-displayfd`), listens on no TCP port
-  and admits only holders of a fresh cookie in scratch. PulseAudio runs with no default config, a
+  and admits only holders of a fresh cookie in scratch. Openbox runs on the lease's own
+  configuration (`attach/openbox.py`), never the system one, whose desktop menu and keys launch a
+  terminal, a browser and every installed application: new windows take focus and a press focuses
+  a window, and nothing else is bound. PulseAudio runs with no default config, a
   socket in scratch, rewinds disabled on its null sinks (otherwise a short `listen` hears
   nothing), and refuses later module loads or exit requests.
 - **Left as found.** HOME and the XDG directories of every started process point into scratch, so
