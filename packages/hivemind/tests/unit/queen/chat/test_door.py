@@ -25,9 +25,10 @@ from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.attach import detach_warden
-from hivemind.queen.chat import CANCEL_GRACE_S, REVOKED_CODE, ChatKind, ChatQuery
+from hivemind.queen.chat import CANCEL_GRACE_S, ECHO_PREFIX, REVOKED_CODE, ChatKind, ChatQuery
 from hivemind.queen.intake import (
     GoalRequestState,
+    GoalSource,
     InvalidGoalRequestTransitionError,
     hold,
     receive,
@@ -170,3 +171,30 @@ async def test_an_edge_from_a_stale_copy_fails_instead_of_overwriting_a_refusal(
         await start_planning(deps, request)
 
     assert (await deps.goal_requests.get(request.id)).state is GoalRequestState.REFUSED
+
+
+async def test_request_echoed_goal_is_held_and_echoed_before_it_returns_and_wakes_nobody() -> None:
+    channel = RecordingHumanChannel()
+    deps, _link, _warden_end = make_queen_deps(human_channel=channel)
+    queen = Queen(deps)
+    spoken = make_goal_request(deps.clock, source=GoalSource.SPOKEN, needs_confirmation=True)
+    deps.wake.clear()  # Starts set (her first tick runs at once); cleared to see who sets it.
+
+    held = await queen.request_echoed_goal(spoken)
+
+    assert held.state is GoalRequestState.AWAITING_CONFIRMATION
+    assert (await deps.goal_requests.get(spoken.id)).state is held.state
+    [echo] = await deps.chat.read(ChatQuery())
+    assert echo.text == f"{ECHO_PREFIX}{spoken.text}" and echo.ref == spoken.id
+    assert channel.names() == ["goal_request_held"]
+    assert not deps.wake.is_set()  # Nothing to plan until the human says yes.
+
+
+async def test_request_echoed_goal_refuses_a_request_that_needs_no_confirmation() -> None:
+    deps, _link, _warden_end = make_queen_deps()
+    typed = make_goal_request(deps.clock)
+
+    with pytest.raises(ValueError, match="needs no confirmation"):
+        await Queen(deps).request_echoed_goal(typed)
+
+    assert await deps.trail.query(TrailQuery()) == ()

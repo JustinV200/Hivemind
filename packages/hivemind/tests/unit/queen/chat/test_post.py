@@ -14,16 +14,18 @@ from __future__ import annotations
 
 import json
 
-from builders.human import RecordingHumanChannel
+from builders.human import RecordingHumanChannel, make_goal_request
 from builders.queen import make_queen_deps
 from builders.supervision import make_alarm
 from builders.tasks import make_question
 
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.chat import (
+    ECHO_PREFIX,
     ChatAuthor,
     ChatKind,
     ChatQuery,
+    echo_goal,
     post_alarm,
     post_message,
     post_notice,
@@ -33,6 +35,7 @@ from hivemind.queen.chat import (
 )
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.intake import GoalRequestState, GoalSource, hold, receive
 from waggle.ids import new_device_id, new_task_id
 
 _WORDS = "My sister Beatrice arrives on Tuesday."  # Personal words that must never reach the trail.
@@ -127,3 +130,34 @@ async def test_resolve_alarm_resolves_it_once_records_it_and_tells_the_channel()
     assert event.subject_id == alarm.id
     assert event.payload["by"] == "human"
     assert channel.calls == [("alarm_acknowledged", alarm.id)]
+
+
+async def test_echo_goal_posts_the_echo_then_holds_the_request_and_tells_the_channel() -> None:
+    deps, channel = _deps()
+    spoken = make_goal_request(deps.clock, source=GoalSource.SPOKEN, needs_confirmation=True)
+    await receive(deps, spoken)
+
+    held = await echo_goal(deps, spoken)
+
+    assert held is not None and held.state is GoalRequestState.AWAITING_CONFIRMATION
+    [echo] = await deps.chat.read(ChatQuery())
+    assert (echo.kind, echo.ref, echo.text) == (
+        ChatKind.NOTICE,
+        spoken.id,
+        f"{ECHO_PREFIX}{spoken.text}",
+    )
+    assert channel.calls == [("goal_request_held", held)]
+    kinds = [event.kind for event in await deps.trail.query(TrailQuery())]
+    assert kinds == ["queen.goal_request_received", "queen.goal_request_held"]
+
+
+async def test_echo_goal_leaves_a_request_that_moved_on_and_tells_nobody() -> None:
+    deps, channel = _deps()
+    spoken = make_goal_request(deps.clock, source=GoalSource.SPOKEN, needs_confirmation=True)
+    await hold(deps, await receive(deps, spoken))
+
+    held = await echo_goal(deps, spoken)
+
+    assert held is None  # Already held by someone else: that state stands.
+    assert (await deps.goal_requests.get(spoken.id)).state is GoalRequestState.AWAITING_CONFIRMATION
+    assert channel.calls == []
