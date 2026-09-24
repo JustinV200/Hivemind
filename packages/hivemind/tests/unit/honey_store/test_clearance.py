@@ -1,4 +1,4 @@
-"""Tests for hivemind.honey_store.clearance: intake floor/label, raise_label, ceiling, lowering.
+"""Tests for hivemind.honey_store.clearance: intake, raise_label, ceiling, lowering, floor-held.
 
 Fits into the Hive:
     Mirrors src/hivemind/honey_store/clearance.py (codingrules section 3).
@@ -13,18 +13,20 @@ See Also:
 from __future__ import annotations
 
 import pytest
+from builders.honey import make_nectar
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.honey_store.clearance import (
     LabelApprover,
     check_lowering,
+    held_by_floor_alone,
     intake_floor,
     intake_label,
     raise_label,
     reader_ceiling,
 )
 from hivemind.honey_store.errors import LabelLoweringError
-from hivemind.honey_store.models import NectarOrigin
+from hivemind.honey_store.models import Nectar, NectarOrigin
 from hivemind.manifest.schema.security import ClearanceMatrix
 from waggle.messages import CombShieldLevel as WireCombShieldLevel
 from waggle.messages import HoneyClearance as WireHoneyClearance
@@ -168,3 +170,60 @@ def test_check_lowering_rejects_a_target_that_is_higher() -> None:
 def test_check_lowering_rejects_no_approver() -> None:
     with pytest.raises(LabelLoweringError):
         check_lowering(HoneyClearance.C2, HoneyClearance.C0, None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# held_by_floor_alone
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _stand_deposit(**overrides: object) -> Nectar:
+    """A received C2 Hive Stand deposit declared C1: only the Real Cell floor holds it at C2."""
+    fields: dict[str, object] = {
+        "clearance": HoneyClearance.C2,
+        "declared_clearance": HoneyClearance.C1,
+        "floor_clearance": HoneyClearance.C2,
+    }
+    fields.update(overrides)
+    return make_nectar(None, **fields)
+
+
+def test_held_by_floor_alone_for_a_real_cell_deposit_declared_below_its_label() -> None:
+    # Unripened and with no reading yet: ripening asks before the model has read it.
+    assert held_by_floor_alone(_stand_deposit())
+
+
+def test_held_by_floor_alone_is_false_when_the_depositor_declared_the_label() -> None:
+    assert not held_by_floor_alone(_stand_deposit(declared_clearance=HoneyClearance.C2))
+
+
+def test_held_by_floor_alone_is_false_when_something_else_raised_the_label() -> None:
+    # A Virtual Cell deposit the Ripener raised to C1: the floor (C0) holds nothing up.
+    nectar = _stand_deposit(
+        clearance=HoneyClearance.C1,
+        declared_clearance=HoneyClearance.C0,
+        floor_clearance=HoneyClearance.C0,
+    )
+
+    assert not held_by_floor_alone(nectar)
+
+
+@pytest.mark.parametrize("fact", ["declared_clearance", "floor_clearance"])
+def test_held_by_floor_alone_is_false_when_a_labelling_fact_is_unknown(fact: str) -> None:
+    # A row written before ADR-0034 recorded these facts.
+    assert not held_by_floor_alone(_stand_deposit(**{fact: None}))
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"tainted": True},
+        {"origin_tier": CombShieldLevel.NIGHT_VEIL},
+        {"origin": NectarOrigin.HUMAN},
+        {"origin": NectarOrigin.WATCH},
+    ],
+)
+def test_held_by_floor_alone_is_false_for_tainted_night_veil_human_and_watch_rows(
+    overrides: dict[str, object],
+) -> None:
+    assert not held_by_floor_alone(_stand_deposit(**overrides))

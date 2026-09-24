@@ -39,9 +39,8 @@ Key invariants:
     - `pump_until_done` never blocks forever: it gives up and raises `AssertionError` after
       `limit` clock advances, matching `builders.queen.WardenEnd.pump_until`'s own contract.
     - Every rarely-needed override (a second worker binding, a memory handoff threshold, a slower
-      heartbeat cadence, a lower Ripener summary threshold) is grouped on `ManifestTuning` rather
-      than added to `fake_manifest`'s own signature (codingrules 5.1's parameter cap); see that
-      class's own docstring for each field.
+      heartbeat cadence) is grouped on `ManifestTuning` rather than added to `fake_manifest`'s own
+      signature (codingrules 5.1's parameter cap); see that class's own docstring for each field.
 
 See Also:
     - .claude/codingrules.md section 14.5 for the builders-over-fixtures rule this module follows.
@@ -137,17 +136,11 @@ class ManifestTuning:
             compose.run_goal`'s own poll loop calls `sync_answers_from_chamber` every 50ms
             regardless of this manifest's heartbeat cadence, so slowing only the heartbeat-driven
             wake reliably lets that poll loop win the race instead of leaving it to chance.
-        summarise_min_chars: When given, writes `[honey.ripening] summarise_min_chars`, so a
-            deposit shorter than the default 400 characters (a short verified outcome) is
-            summarised on the RIPENER slot, which records the Ripener's own reading of its label
-            (ADR-0034's label lowering starts from that reading); omitted writes no `[honey]`
-            section at all.
     """
 
     worker_fallback: bool = False
     handoff_threshold: float | None = None
     heartbeat_interval_s: float | None = None
-    summarise_min_chars: int | None = None
 
 
 def fake_manifest(
@@ -186,7 +179,6 @@ def fake_manifest(
         worker_fallback=active_tuning.worker_fallback,
         handoff_threshold=active_tuning.handoff_threshold,
         heartbeat_interval_s=active_tuning.heartbeat_interval_s,
-        summarise_min_chars=active_tuning.summarise_min_chars,
     )
     manifest_path = tmp_path / "hive.toml"
     manifest_path.write_text(_render(spec), encoding="utf-8")
@@ -205,7 +197,6 @@ class _ManifestSpec:
     worker_fallback: bool
     handoff_threshold: float | None
     heartbeat_interval_s: float | None
-    summarise_min_chars: int | None
 
 
 def _render(spec: _ManifestSpec) -> str:
@@ -223,7 +214,6 @@ def _render(spec: _ManifestSpec) -> str:
         _forage_section(),
         _supervision_section(heartbeat_s),
         _memory_section(spec.handoff_threshold),
-        _honey_section(spec.summarise_min_chars),
     ]
     return "\n".join(sections)
 
@@ -266,13 +256,6 @@ def _memory_section(handoff_threshold: float | None) -> str:
     if handoff_threshold is None:
         return ""
     return f"[memory]\nhandoff_threshold = {handoff_threshold}\n"
-
-
-def _honey_section(summarise_min_chars: int | None) -> str:
-    """Build `[honey.ripening]`, only when `summarise_min_chars` was given (ManifestTuning)."""
-    if summarise_min_chars is None:
-        return ""
-    return f"[honey.ripening]\nsummarise_min_chars = {summarise_min_chars}\n"
 
 
 def _forage_section() -> str:

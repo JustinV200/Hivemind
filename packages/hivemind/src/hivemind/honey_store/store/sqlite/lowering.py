@@ -46,7 +46,7 @@ from pydantic import TypeAdapter
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.common.sqlite import transaction
-from hivemind.honey_store.clearance import LabelApprover
+from hivemind.honey_store.clearance import HUMAN_ONLY_ORIGINS, LabelApprover
 from hivemind.honey_store.errors import (
     LoweringIneligibleError,
     LoweringNotFoundError,
@@ -60,7 +60,7 @@ from hivemind.honey_store.lowering.models import (
     LoweringId,
     LoweringProposal,
 )
-from hivemind.honey_store.lowering.rules import HUMAN_ONLY_ORIGINS, lowering_target
+from hivemind.honey_store.lowering.rules import lowering_target
 from hivemind.honey_store.lowering.state import LoweringState, assert_transition
 from hivemind.honey_store.models import Nectar, NectarState
 from hivemind.honey_store.store.protocol import LoweringEvents

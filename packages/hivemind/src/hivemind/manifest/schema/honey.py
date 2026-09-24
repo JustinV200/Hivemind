@@ -152,7 +152,9 @@ class HoneyRipeningSection(BaseModel):
     summarise_min_chars: int = Field(
         default=DEFAULT_SUMMARISE_MIN_CHARS,
         ge=0,
-        description="Deposits shorter than this are their own summary; no model call is made.",
+        description="Deposits shorter than this are their own summary and get no model call, "
+        "except one whose label only the Real Cell floor holds up: the ripener's reading of it "
+        "is the only way that label may come down (ADR-0034).",
     )
     summarise_max_input_chars: int = Field(
         default=DEFAULT_SUMMARISE_MAX_INPUT_CHARS,

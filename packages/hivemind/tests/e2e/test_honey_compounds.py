@@ -1,24 +1,26 @@
 """End-to-end tests for phase 7's exit criteria and ADR-0034: knowledge compounds through Honey.
 
-Roadmap phase 7's first two exit criteria, run for real. (a) A goal run twice on the Hive Stand
-(the machine the Queen runs on, a Real Cell, so borrowed) at C2: the first run's Drone has to
-discover the fact it needs with a command, the Queen deposits the verified outcome into the Honey
-Store (the Hive's searchable knowledge base), one House Bee pass turns it into Honey, and the
-second run's `TaskAssign` carries it, `queen.honey_consulted` is on the trail, and the second
-Drone goes straight to the answer in fewer model calls. Phase 6's Forager does not exist yet, so a
-Drone stands in for it. (b) The same at C1 attaches nothing from the first run: everything
-gathered on the borrowed Hive Stand is labelled C2 at intake, and a C1 task may not read C2 (ADR-
-0031's "the rule working as written"); the Ripener records no reading of that outcome, so nothing
-is proposed for lowering either. (c) A Handoff written through `memory.write_checkpoint` (phase
-4's path) is, a day later, deposited by the House Bee's sweep on the Queen's own housekeeping
-tick, ripened, and returned by a query with its full provenance.
+Roadmap phase 7's first two exit criteria, run for real. (a) A goal run twice on the Hive Stand (the
+machine the Queen runs on, a Real Cell, so borrowed) at C2: the first run's Drone has to discover
+the fact it needs with a command, the Queen deposits the verified outcome into the Honey Store (the
+Hive's searchable knowledge base), one House Bee pass turns it into Honey, and the second run's
+`TaskAssign` carries it, `queen.honey_consulted` is on the trail, and the second Drone goes straight
+to the answer in fewer model calls. Phase 6's Forager does not exist yet, so a Drone stands in for
+it. (b) The same at C1 attaches nothing from the first run: everything gathered on the borrowed Hive
+Stand is labelled C2 at intake, and a C1 task may not read C2 (ADR-0031's "the rule working as
+written"); the scripted Ripener gives no reading of that outcome, so nothing is proposed for
+lowering either. (c) A Handoff written through `memory.write_checkpoint` (phase 4's path) is, a day
+later, deposited by the House Bee's sweep on the Queen's own housekeeping tick, ripened, and
+returned by a query with its full provenance.
 
-ADR-0034's judge-reviewed label lowering, run the same way at C1, the default. (d) The Ripener
-reads the first run's outcome as C1, the House Bee's pass files a proposal and the clearance judge
-(the JUDGE slot) approves it, so the second run's `TaskAssign` carries the first run's outcome,
-lowered to C1, and the trail holds `honey.lowering_proposed` and `honey.label_lowered` with
-approver JUDGE. (e) The same with the judge rejecting: nothing from the first run is attached,
-`honey.lowering_rejected` is on the trail, and `hive honey review` lists the proposal REJECTED.
+ADR-0034's judge-reviewed label lowering, run the same way at C1, the default, on default ripening
+settings: the verified outcome is shorter than `summarise_min_chars`, but only the Real Cell floor
+holds its label up, so the Ripener still reads it. (d) The Ripener reads the first run's outcome as
+C1, the House Bee's pass files a proposal and the clearance judge (the JUDGE slot) approves it, so
+the second run's `TaskAssign` carries the first run's outcome, lowered to C1, and the trail holds
+`honey.lowering_proposed` and `honey.label_lowered` with approver JUDGE. (e) The same with the judge
+rejecting: nothing from the first run is attached, `honey.lowering_rejected` is on the trail, and
+`hive honey review` lists the proposal REJECTED.
 
 (a), (b), (d) and (e) build a whole Hive with `hivemind.cli.compose.build_hive` over a real Hive
 Stand lease, real SQLite and the real Queen, Warden, Drones and House Bee, every model call
@@ -48,7 +50,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from builders.cli import ManifestTuning, fake_manifest
+from builders.cli import fake_manifest
 from builders.memory import make_handoff
 from builders.queen import make_queen_deps
 from builders.tasks import make_graph_draft
@@ -105,9 +107,6 @@ from waggle.messages.honey import HoneyHit
 pytestmark = pytest.mark.e2e
 
 _DAY = timedelta(days=1)
-# Every text deposit is summarised on the RIPENER slot (the default skips one under 400
-# characters, a short verified outcome among them), so the Ripener records its own reading.
-_SUMMARISED = ManifestTuning(summarise_min_chars=1)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -188,7 +187,7 @@ def test_d_at_c1_a_judge_approved_lowering_lets_the_second_run_read_the_first(
     """(d) ADR-0034: the Ripener reads the outcome as C1, the judge approves, C1 reads it."""
     script = CompoundScript("C1", reading="C1", verdict="APPROVE")
     assignments = capture_assignments(monkeypatch)
-    hive = scripted_hive(tmp_path, script, tuning=_SUMMARISED)
+    hive = scripted_hive(tmp_path, script)
 
     runs = asyncio.run(run_twice(hive, script, HoneyClearance.C1))
 
@@ -212,7 +211,7 @@ def test_e_at_c1_a_judge_rejection_keeps_the_first_outcome_from_the_second_run(
     """(e) ADR-0034: the judge rejects, so the outcome stays C2 and the C1 run discovers again."""
     script = CompoundScript("C1", reading="C1", verdict="REJECT")
     assignments = capture_assignments(monkeypatch)
-    hive = scripted_hive(tmp_path, script, tuning=_SUMMARISED)
+    hive = scripted_hive(tmp_path, script)
 
     runs = asyncio.run(run_twice(hive, script, HoneyClearance.C1))
 

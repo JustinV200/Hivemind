@@ -6,17 +6,20 @@ whole of ADR-0031's labelling rule, pure and with no I/O: `intake_floor`/`intake
 a fresh deposit is labelled; `raise_label` is the one direction ripening may move a label on its
 own; `reader_ceiling` decides the highest label a request may actually see; `check_lowering` is
 the one check standing between a lowering and `LabelLoweringError`, so the store (which trusts its
-caller ran this first) never has to re-derive the rule itself.
+caller ran this first) never has to re-derive the rule itself. `held_by_floor_alone` is ADR-0034's
+half of that rule that needs no model: whether only the Real Cell floor holds a label up.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
-    by `hivemind.honey_store.nectar` (intake, a later dispatch, for `intake_label`), by
-    `hivemind.honey_store.ripening` (a later dispatch, for `raise_label`), by whatever assembles a
-    query's clearance ceiling (`reader_ceiling`) and by `hive honey relabel`/the Capping-reviewed
-    lowering flow (`check_lowering`, a later dispatch). Calls into `hivemind.cell` (HoneyClearance,
+    by `hivemind.honey_store.nectar` (intake, for `intake_label`), by `hivemind.honey_store.
+    ripening` (`raise_label`, and `held_by_floor_alone` to decide a short deposit is still worth a
+    model reading), by whatever assembles a query's clearance ceiling (`reader_ceiling`), by
+    `hivemind.honey_store.lowering` (`held_by_floor_alone`, `HUMAN_ONLY_ORIGINS`) and by
+    `hive honey relabel` and the judge-reviewed lowering (`check_lowering`). It lives here, not in
+    `lowering`, because `lowering` imports `ripening`. Calls into `hivemind.cell` (HoneyClearance,
     CombShieldLevel), `hivemind.honey_store.errors` (LabelLoweringError), `hivemind.honey_store.
-    models.nectar` (NectarOrigin) and `hivemind.manifest.schema.security` (ClearanceMatrix, for the
-    wire-form matrix a Hive Manifest carries) only.
+    models.nectar` (Nectar, NectarOrigin) and `hivemind.manifest.schema.security` (ClearanceMatrix,
+    for the wire-form matrix a Hive Manifest carries) only.
 
 Key invariants:
     - Every comparison here is by `.rank`, never by member identity or wire value (codingrules
@@ -25,9 +28,12 @@ Key invariants:
       clearance below `intake_floor`'s own result.
     - `check_lowering` raises unless `target.rank < current.rank` AND an approver was given; the
       store trusts the caller ran it and never re-derives the rule (ADR-0031).
+    - `held_by_floor_alone` is False whenever any labelling fact it reads is unknown (a row from
+      before ADR-0034), so such a row is never proposed for lowering.
 
 See Also:
     - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the labelling rule this implements.
+    - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for the lowering rule.
     - .claude/codingrules.md section 8.9 for "a model may raise a label; only a judge verdict or a
       human may lower one."
     - hivemind.cell.tiers for HoneyClearance/CombShieldLevel and their own from_wire/to_wire.
@@ -41,13 +47,15 @@ from enum import Enum
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.honey_store.errors import LabelLoweringError
-from hivemind.honey_store.models.nectar import NectarOrigin
+from hivemind.honey_store.models.nectar import Nectar, NectarOrigin
 from hivemind.manifest.schema.security import ClearanceMatrix
 from waggle.messages import CombShieldLevel as WireCombShieldLevel
 
 __all__ = [
+    "HUMAN_ONLY_ORIGINS",
     "LabelApprover",
     "check_lowering",
+    "held_by_floor_alone",
     "intake_floor",
     "intake_label",
     "raise_label",
@@ -62,6 +70,10 @@ _DEFAULT_CEILING_WITHOUT_ROW: dict[CombShieldLevel, HoneyClearance] = {
     CombShieldLevel.PROPOLIS: HoneyClearance.C2,
     CombShieldLevel.NIGHT_VEIL: HoneyClearance.C1,
 }
+
+# ADR-0034: their C2 is the content's own nature -- a person's words, or observations of the
+# operator's machine -- so only the human ever lowers them.
+HUMAN_ONLY_ORIGINS = frozenset({NectarOrigin.HUMAN, NectarOrigin.WATCH})
 
 
 class LabelApprover(Enum):
@@ -111,6 +123,36 @@ def intake_label(
     """
     base = declared if declared is not None else default_label
     return raise_label(base, intake_floor(origin, from_borrowed_cell))
+
+
+def held_by_floor_alone(nectar: Nectar) -> bool:
+    """Say whether only the Real Cell floor holds `nectar`'s label up, so a judge may lower it.
+
+    The half of ADR-0034's eligibility that needs no model reading, whatever the Nectar's state:
+    `hivemind.honey_store.lowering.lowering_target` adds the rest (ripened, and a Ripener reading
+    below the label). Ripening asks it first, so a deposit too short to summarise is still read
+    by the model when that reading is the only way its label could ever come down.
+
+    Args:
+        nectar: The stored Nectar, as the store reads it now.
+
+    Returns:
+        True when it is untainted, not from a Night Veil Cell, not of HUMAN or WATCH origin, its
+        declared and floor labels are both known, the floor reaches its label and its declared
+        label does not; False otherwise.
+    """
+    # A tainted row is suspect, a Night Veil export stays exactly as it crossed, and a person's
+    # words or the operator's own machine are C2 by nature: none of them is the floor's doing.
+    if nectar.tainted or nectar.origin_tier is CombShieldLevel.NIGHT_VEIL:
+        return False
+    if nectar.origin in HUMAN_ONLY_ORIGINS:
+        return False
+    declared, floor = nectar.declared_clearance, nectar.floor_clearance
+    # A row from before ADR-0034 has facts nobody knows: never lower it.
+    if declared is None or floor is None:
+        return False
+    # The floor reaches the label and no depositor did.
+    return floor.rank >= nectar.clearance.rank > declared.rank
 
 
 def raise_label(current: HoneyClearance, proposed: HoneyClearance) -> HoneyClearance:

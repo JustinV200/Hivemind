@@ -13,7 +13,8 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.lowering`.
     Called by the lowering service (`review`, when filing) and the store's apply transaction
     (`hivemind.honey_store.store.sqlite.lowering`). Calls into `hivemind.cell`,
-    `hivemind.honey_store.clearance` (raise_label) and `hivemind.honey_store.models` only; no I/O.
+    `hivemind.honey_store.clearance` (held_by_floor_alone, raise_label) and
+    `hivemind.honey_store.models` only; no I/O.
 
 Key invariants:
     - A returned target always ranks strictly below the Nectar's current label and never below its
@@ -26,30 +27,27 @@ Key invariants:
 
 See Also:
     - docs/adr/0034-honey-label-lowering-is-a-judge-reviewed-proposal.md for the rule itself.
-    - hivemind.honey_store.clearance for intake_floor and raise_label, the rules it builds on.
+    - hivemind.honey_store.clearance for intake_floor, held_by_floor_alone and raise_label, the
+      rules it builds on.
     - hivemind.honey_store.models.nectar for the three facts it reads.
 """
 
 from __future__ import annotations
 
-from hivemind.cell import CombShieldLevel, HoneyClearance
-from hivemind.honey_store.clearance import raise_label
-from hivemind.honey_store.models import Nectar, NectarOrigin, NectarState
+from hivemind.cell import HoneyClearance
+from hivemind.honey_store.clearance import held_by_floor_alone, raise_label
+from hivemind.honey_store.models import Nectar, NectarState
 
-__all__ = ["HUMAN_ONLY_ORIGINS", "lowering_target"]
-
-# ADR-0034: their C2 is the content's own nature -- a person's words, or observations of the
-# operator's machine -- so only the human ever lowers them.
-HUMAN_ONLY_ORIGINS = frozenset({NectarOrigin.HUMAN, NectarOrigin.WATCH})
+__all__ = ["lowering_target"]
 
 
 def lowering_target(nectar: Nectar) -> HoneyClearance | None:
     """Return the label a judge may be asked to lower `nectar` to, or None when it is not eligible.
 
-    Eligible when all of these hold (ADR-0034): it is ripened, not tainted and not from a Night
-    Veil Cell; its origin is neither the human nor watch mode; its label is held up by the Real
-    Cell floor alone (no depositor declared it, the floor reaches it); and the Ripener's own
-    reading of the text ranks below it.
+    Eligible when all of these hold (ADR-0034): it is ripened; its label is held up by the Real
+    Cell floor alone (`held_by_floor_alone`: untainted, not from a Night Veil Cell, not of HUMAN
+    or WATCH origin, the floor reaching the label and no depositor declaring it); and the
+    Ripener's own reading of the text ranks below it.
 
     Args:
         nectar: The stored Nectar, as the store reads it now.
@@ -62,23 +60,13 @@ def lowering_target(nectar: Nectar) -> HoneyClearance | None:
         A C2 Hive Stand deposit declared C1 that the Ripener read at C0 gets C1: the judge is
         asked whether the text may carry C1, never C0, because its depositor said C1.
     """
-    # Only settled, trusted Nectar outside the Night Veil boundary: an unripened row has no
-    # reading, a tainted one is suspect, and a Night Veil export stays exactly as it crossed.
-    if nectar.state is not NectarState.RIPENED or nectar.tainted:
+    # Only a settled row the floor alone holds up: an unripened one has no reading yet.
+    if nectar.state is not NectarState.RIPENED or not held_by_floor_alone(nectar):
         return None
-    if nectar.origin_tier is CombShieldLevel.NIGHT_VEIL or nectar.origin in HUMAN_ONLY_ORIGINS:
-        return None
-    declared, floor = nectar.declared_clearance, nectar.floor_clearance
-    reading = nectar.ripener_clearance
-    # A row from before ADR-0034 (or with no model reading) has facts nobody knows: never lower it.
-    if declared is None or floor is None or reading is None:
-        return None
-    current = nectar.clearance
-    # Held up by the Real Cell floor alone: the floor reaches the label and no depositor did.
-    if floor.rank < current.rank or declared.rank >= current.rank:
-        return None
-    # The Ripener must have read the text itself as less sensitive than its label.
-    if reading.rank >= current.rank:
+    declared, reading = nectar.declared_clearance, nectar.ripener_clearance
+    # The Ripener must have read the text itself as less sensitive than its label; `declared` is
+    # known already (held_by_floor_alone refuses a row without it), the check only narrows it.
+    if declared is None or reading is None or reading.rank >= nectar.clearance.rank:
         return None
     # Both rank below the label, so the higher of them does too: never below what was declared.
     return raise_label(declared, reading)

@@ -29,7 +29,7 @@ See Also:
     - hivemind.llm.prompts's `judge_clearance.md` for the judge's rubric.
 
 Public API:
-    - lowering_target, HUMAN_ONLY_ORIGINS (rules): which Nectar may be proposed, and to what.
+    - lowering_target (rules): which Nectar may be proposed, and to what.
     - LoweringState, TRANSITIONS, TERMINAL_STATES, can_transition, assert_transition (state): a
       proposal's one transition table.
     - LoweringProposal, LoweringId, LoweringFiling, LoweringDecision, ClearanceJudgeRequest,
@@ -85,7 +85,7 @@ from hivemind.honey_store.lowering.review import (
     LoweringDeps,
     ReviewOutcome,
 )
-from hivemind.honey_store.lowering.rules import HUMAN_ONLY_ORIGINS, lowering_target
+from hivemind.honey_store.lowering.rules import lowering_target
 from hivemind.honey_store.lowering.state import (
     TERMINAL_STATES,
     TRANSITIONS,
@@ -97,7 +97,6 @@ from hivemind.honey_store.lowering.state import (
 __all__ = [
     "CLEARANCE_JUDGE_OUTPUT_TOKENS",
     "CLEARANCE_JUDGE_TIMEOUT_S",
-    "HUMAN_ONLY_ORIGINS",
     "LABEL_LOWERED_KIND",
     "LOWERING_ID_PREFIX",
     "LOWERING_PROPOSED_KIND",

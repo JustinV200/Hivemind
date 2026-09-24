@@ -19,7 +19,8 @@ import pytest
 from builders.honey import make_nectar
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
-from hivemind.honey_store.lowering.rules import HUMAN_ONLY_ORIGINS, lowering_target
+from hivemind.honey_store.clearance import HUMAN_ONLY_ORIGINS
+from hivemind.honey_store.lowering.rules import lowering_target
 from hivemind.honey_store.models import Nectar, NectarOrigin, NectarState
 
 

@@ -253,6 +253,24 @@ async def test_summarise_keeps_the_models_own_reading_whatever_the_label(
     )
 
 
+async def test_summarise_reads_a_short_text_whose_label_only_the_floor_holds_up(
+    deps: RipenerDeps,
+) -> None:
+    # ADR-0034: with no reading a short Hive Stand outcome could never be proposed for lowering.
+    provider = FakeLLMProvider()
+    provider.script(_reply())
+    nectar = make_nectar(
+        clearance=HoneyClearance.C2,
+        declared_clearance=HoneyClearance.C1,
+        floor_clearance=HoneyClearance.C2,
+    )
+
+    outcome = await summarise(nectar, "A short note.", _with(deps, ripener=_ripener(provider)))
+
+    assert outcome.summarised and len(provider.calls) == 1
+    assert outcome.reading is not None and outcome.reading.clearance is HoneyClearance.C1
+
+
 async def test_summarise_has_no_reading_when_no_model_wrote_it(deps: RipenerDeps) -> None:
     outcome = await summarise(make_nectar(), _LONG_TEXT, deps)
 

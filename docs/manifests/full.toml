@@ -399,7 +399,8 @@ max_attempts = 3
 chunk_chars = 1600
 chunk_overlap_chars = 200
 # Whether the ripener slot writes titles, summaries and key facts, and below what length a
-# deposit is its own summary, and how much of a deposit the ripener is shown.
+# deposit is its own summary, and how much of a deposit the ripener is shown. A deposit whose
+# label only the Real Cell floor holds up is read however short it is (ADR-0034).
 summarise = true
 summarise_min_chars = 400
 summarise_max_input_chars = 12000

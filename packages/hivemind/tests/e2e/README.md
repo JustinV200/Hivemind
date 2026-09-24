@@ -52,19 +52,20 @@ exist to catch problems that only show up when every layer runs at once.
   Queen's first grant compute to `max_sub_bees = 0`; asserts `run_goal` returns FAILED with a
   readable reason well inside its own timeout, never a timeout itself, and that `forage.denied`
   and `task.failed` both land on the trail.
-- `test_honey_compounds.py` (`@pytest.mark.e2e`) -- roadmap phase 7's first two exit criteria:
-  (a) a goal run twice on the Hive Stand at C2 -- the first Drone discovers a fact with a command,
-  the Queen deposits the verified outcome, one ripening pass turns it into Honey, and the second
-  run's `TaskAssign` carries it (`queen.honey_consulted` on the trail) and the second Drone makes
-  fewer model calls; run at both capability levels, the 8,192-token "none" window included; (b)
-  the same at C1 attaches nothing (Hive Stand Honey is C2 by provenance, and a Ripener that
-  records no reading proposes no lowering); (c) a Handoff written at t0 is deposited by the House
-  Bee's sweep a day later, ripened, and found with full provenance; (d) at the default C1, the
+- `test_honey_compounds.py` (`@pytest.mark.e2e`) -- roadmap phase 7's first two exit criteria: (a) a
+  goal run twice on the Hive Stand at C2 -- the first Drone discovers a fact with a command, the
+  Queen deposits the verified outcome, one ripening pass turns it into Honey, and the second run's
+  `TaskAssign` carries it (`queen.honey_consulted` on the trail) and the second Drone makes fewer
+  model calls; run at both capability levels, the 8,192-token "none" window included; (b) the same
+  at C1 attaches nothing (Hive Stand Honey is C2 by provenance, and a Ripener that records no
+  reading proposes no lowering); (c) a Handoff written at t0 is deposited by the House Bee's sweep a
+  day later, ripened, and found with full provenance; (d) at the default C1 and on default ripening
+  settings (the short outcome is read because only the Real Cell floor holds its label up), the
   Ripener reads the first outcome as C1 and the clearance judge approves the lowering proposal
   (ADR-0034), so the second run's `TaskAssign` carries it, with `honey.lowering_proposed` and
   `honey.label_lowered` (approver JUDGE) on the trail; (e) the same with the judge rejecting
-  attaches nothing, and `hive honey review` shows the proposal REJECTED. `honey_runs.py` is not
-  a test module: it holds the scripted two-run Hive (the plan, the Drone, the RIPENER's and both
+  attaches nothing, and `hive honey review` shows the proposal REJECTED. `honey_runs.py` is not a
+  test module: it holds the scripted two-run Hive (the plan, the Drone, the RIPENER's and both
   judges' replies) the cases share.
 - `test_honey_wire.py` (`@pytest.mark.e2e`) -- roadmap step 7.8: a real Queen tick handler, a real
   Warden running its own loop and a real `WorkerRuntime` using the real `recall`/`remember` tools,
