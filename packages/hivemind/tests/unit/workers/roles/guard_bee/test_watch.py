@@ -2,7 +2,8 @@
 
 The first read rebuilds every kind over its own horizon and hands back the Guard Bee's own alerts
 (never another node's); later reads keep each event once; a segment a known Virtual Cell's Warden
-ships late, older than what was already read, is still read; so is a new node's backlog, the
+ships late, older than what was already read, is still read; so is a new node's first segment,
+though every event in it is older than what was read; so is a new node's older backlog, the
 moment the node is first heard from; and what every horizon has passed is let go.
 
 Fits into the Hive:
@@ -24,7 +25,7 @@ from builders.cells import make_identity
 from builders.guard_bee import TrailSeeder, make_guard_bee, seed_episode
 
 from hivemind.pheromone import GuardEvent, MemoryPheromoneTrail, TrailQuery, TrailSegment
-from hivemind.workers.roles.guard_bee import TrailWatch, load_guard_rules
+from hivemind.workers.roles.guard_bee import LATE_LAG_S, TrailWatch, load_guard_rules
 from waggle.clock import FakeClock
 from waggle.ids import new_node_id
 
@@ -110,12 +111,29 @@ async def test_a_known_nodes_late_segment_is_read_though_older_than_what_was_rea
     assert len(watch.facts_of("guard.denied")) == 1 + 1 + 3
 
 
+async def test_a_new_nodes_first_segment_is_read_though_older_than_what_was_read() -> None:
+    rig = make_guard_bee()
+    watch = _watch(rig.identity.node_id)
+    await watch.read(rig.trail, rig.clock.now())
+    rig.clock.advance(30.0)
+    await rig.seed.denied((await seed_episode(rig.seed)).bee)  # The Hive Stand moves on.
+    await watch.read(rig.trail, rig.clock.now())
+    # A new Virtual Cell's first segment lands a heartbeat late: every event older than the last.
+    first = await _segment(rig.clock, 3, start_offset_s=-20.0)
+    await rig.trail.merge_segment(first)
+
+    await watch.read(rig.trail, rig.clock.now())
+
+    assert len(watch.facts_of("guard.denied")) == 1 + 3
+
+
 async def test_a_new_nodes_backlog_is_read_the_moment_it_is_first_heard_from() -> None:
     rig = make_guard_bee()
     watch = _watch(rig.identity.node_id)
-    rig.clock.advance(120.0)
+    rig.clock.advance(LATE_LAG_S * 3)
     await watch.read(rig.trail, rig.clock.now())
-    backlog = await _segment(rig.clock, 4, start_offset_s=-100.0)  # All older than the rebuild.
+    # All older than the rebuild, and further back than any round reads again.
+    backlog = await _segment(rig.clock, 4, start_offset_s=-(LATE_LAG_S + 100.0))
     await rig.trail.merge_segment(backlog)
     await watch.read(rig.trail, rig.clock.now())
     unheard = len(watch.facts_of("guard.denied"))

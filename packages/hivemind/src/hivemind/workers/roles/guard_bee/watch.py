@@ -14,9 +14,12 @@ store of its own would only be a copy of the trail that could drift from it.
 Following is per node. A node's events reach the Queen's trail in that node's own order (the Hive
 Stand's as they happen, a Virtual Cell Warden's in the segments it ships), but not in trail order:
 a segment merged late carries times older than events already read. So besides one read of
-everything since the newest time seen, the watch keeps a read position per remote node, and reads a
-node seen for the first time back over the whole horizon. A late segment from a known node is read
-on the next round; one from a new node as soon as that node is first seen.
+everything since a little before the newest time seen (`LATE_LAG_S`: a Cell's Warden ships on
+every heartbeat, so a new node's first segment lands well inside it), the watch keeps a position per
+remote node, and reads a node seen for the first time back over the whole horizon. A late segment
+from a known node is read on the next round, however late; one from a new node as soon as any of
+its events falls inside the lag (a Cell's first segment, landing after the Hive Stand has moved on,
+can hold nothing newer than what was read, and without the lag would go unseen until its next).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.guard_bee`. Owned by
@@ -54,10 +57,14 @@ PAGE_SIZE = 2_000  # Rows per trail read: a sub-second local read, and few pages
 INDEX_HORIZON_S = 86_400.0  # A day of joins: a task attempt older than a day loses its bee.
 ALERT_KIND = "guard.alert"  # What the Guard Bee records for every finding.
 MAX_FACTS_PER_KIND = 50_000  # Past this the oldest facts of one kind are let go (logged once).
+# How far behind the newest time seen every round reads again, for a node not yet heard from: a
+# Virtual Cell's Warden ships its segment on every heartbeat (15 s by default in a Cell), so its
+# first segment lands well inside this.
+LATE_LAG_S = 120.0
 
 log = get_logger(__name__)
 
-__all__ = ["ALERT_KIND", "INDEX_HORIZON_S", "PAGE_SIZE", "TrailWatch", "read_pages"]
+__all__ = ["ALERT_KIND", "INDEX_HORIZON_S", "LATE_LAG_S", "PAGE_SIZE", "TrailWatch", "read_pages"]
 
 
 class TrailWatch:
@@ -137,10 +144,13 @@ class TrailWatch:
         return tuple(alert for alert in alerts if alert.node_id == self._own_node)
 
     async def _follow(self, trail: PheromoneTrail) -> None:
-        """Read everything since the newest time seen, then every remote node since its own."""
+        """Read everything since just before the newest time seen, then each remote node's own."""
         assert self._since is not None  # noqa: S101 - _follow only runs after _rebuild set it.
         newest = self._since
-        for event in await read_pages(trail, TrailQuery(since=self._since)):
+        # Read again from a lag back, so a new node's first segment, shipped late, is heard from;
+        # what was already kept is skipped by id.
+        since = self._since - timedelta(seconds=LATE_LAG_S)
+        for event in await read_pages(trail, TrailQuery(since=since)):
             if event.node_id != self._own_node and event.node_id not in self._nodes:
                 # A node heard from for the first time: its earlier events may predate this read.
                 await self._backfill(trail, event.node_id, event.at)

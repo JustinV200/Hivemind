@@ -34,7 +34,8 @@ Public API (roadmap 10.6):
     - GuardRules, GuardRule, Matcher, RuleShape, GroupKey, Measure, load_guard_rules,
       NARROWING_ACTIONS, RULES_FILENAME: the rules as data (rules).
     - TrailFact, EpisodeIndex, fact_from_event, INDEX_KINDS: what it reads and joins (facts).
-    - TrailWatch, read_pages, ALERT_KIND, INDEX_HORIZON_S: how it reads the trail (watch).
+    - TrailWatch, read_pages, ALERT_KIND, INDEX_HORIZON_S, LATE_LAG_S: how it reads the trail
+      (watch).
     - Finding, Mark, Sighting, Targets, evaluate, targets_of, allowed_actions, HIVE_KEY: the
       decision, and how far a rule's findings are reported (evaluate).
     - GuardJudge, ModelGuardJudge, JudgeCase, JudgeReply, Verdict, render_case: the awake episode
@@ -109,6 +110,7 @@ from hivemind.workers.roles.guard_bee.sink import (
 from hivemind.workers.roles.guard_bee.watch import (
     ALERT_KIND,
     INDEX_HORIZON_S,
+    LATE_LAG_S,
     TrailWatch,
     read_pages,
 )
@@ -122,6 +124,7 @@ __all__ = [
     "INDEX_HORIZON_S",
     "INDEX_KINDS",
     "JUDGE_NEED",
+    "LATE_LAG_S",
     "NARROWING_ACTIONS",
     "REDUCE_ORDERED_KIND",
     "RULES_FILENAME",

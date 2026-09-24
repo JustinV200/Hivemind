@@ -5,7 +5,8 @@ an in-memory C2 sink and a scriptable judge slot; `TrailSeeder` records the even
 count as their real producers write them; `SHIPPED_RULE_SEEDERS` seeds, per shipped rule, a trail
 it fires on or one it just stays quiet on; `guard_bee_for_queen` builds the one a composition
 root would build for a running Queen, from her own parts; `quick_rounds` and `GuardReviews` run
-the composed Hive's own Guard Bee in a test.
+the composed Hive's own Guard Bee in a test; `lure_call` and `lure_script` drive a real Drone into
+the injection correlation.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped.
@@ -18,6 +19,7 @@ See Also:
 """
 
 from builders.guard_bee.hive import GUARD_REVIEW_TITLE, GuardReviews, quick_rounds
+from builders.guard_bee.lure import INJECTED, LINGER_S, LURE_CALLS, lure_call, lure_script
 from builders.guard_bee.queen import guard_bee_for_queen
 from builders.guard_bee.rig import (
     GuardBeeRig,
@@ -32,6 +34,9 @@ from builders.guard_bee.shipped import SHIPPED_RULE_SEEDERS, Seeder
 
 __all__ = [
     "GUARD_REVIEW_TITLE",
+    "INJECTED",
+    "LINGER_S",
+    "LURE_CALLS",
     "SHIPPED_RULE_SEEDERS",
     "Episode",
     "GuardBeeRig",
@@ -42,6 +47,8 @@ __all__ = [
     "TrailSeeder",
     "guard_bee_for_queen",
     "judge_reply",
+    "lure_call",
+    "lure_script",
     "make_guard_bee",
     "quick_rounds",
     "restart_guard_bee",
