@@ -29,6 +29,8 @@ Public API:
     - CellBackend: protocol every provisioning backend implements (hivemind.hive.backends.base).
     - BackendCapabilities, VirtualCellRecord: the capability-declaration and list_cells value
       types every implementation shares (hivemind.hive.backends.base).
+    - EgressCutter: the optional capability to cut a running Cell's egress to its control link
+      alone, and restore it (hivemind.hive.backends.base, roadmap step 10.6a).
     - FakeCellBackend: the in-memory reference implementation (hivemind.hive.backends.fake).
     - CellBootstrap, QueenEndpoint, ReadinessGate, CellReadyInfo, mint_cell_bootstrap: the
       backend-independent provisioning seam (hivemind.hive.backends.bootstrap).
@@ -41,7 +43,12 @@ Public API:
       directly, not re-exported here -- see that package's own README.
 """
 
-from hivemind.hive.backends.base import BackendCapabilities, CellBackend, VirtualCellRecord
+from hivemind.hive.backends.base import (
+    BackendCapabilities,
+    CellBackend,
+    EgressCutter,
+    VirtualCellRecord,
+)
 from hivemind.hive.backends.bootstrap import (
     CellBootstrap,
     CellReadyInfo,
@@ -59,6 +66,7 @@ __all__ = [
     "CellBootstrap",
     "CellReadyInfo",
     "DockerCellBackend",
+    "EgressCutter",
     "FakeCellBackend",
     "FakeReadinessGate",
     "QemuCellBackend",

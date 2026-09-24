@@ -11,8 +11,11 @@ to take. Three switches simulate failure without touching real infrastructure:
 `set_destroy_failure` does the same for `destroy()`; `set_provision_delay` makes `provision()`
 await `clock.sleep()` before returning, so a test can prove a slow-to-ready Cell still finishes
 within `spec.ready_timeout_s` -- or times out when the delay exceeds it. Every call is recorded
-(`provision_calls`, `destroy_calls`, `pause_calls`, `resume_calls`) so a test can assert on what
-was actually asked for.
+(`provision_calls`, `destroy_calls`, `pause_calls`, `resume_calls`, `egress_calls`) so a test can
+assert on what was actually asked for. It is also the reference `EgressCutter` (roadmap step
+10.6a): `cut_egress`/`restore_egress` flip a per-Cell flag (`egress_is_cut`) standing in for a
+network whose only remaining destination is the Queen's Waggle listener, and the fake declares
+`can_cut_egress` by default.
 
 Roadmap step 5's own e2e slice (this branch) adds an optional `endpoint` constructor argument:
 when given, `provision()` also mints a real `hivemind.hive.backends.bootstrap.CellBootstrap` via
@@ -54,6 +57,9 @@ Key invariants:
       list_cells, matching what a real backend's own infrastructure would report.
     - pause()/resume() raise BackendCapabilityError whenever capabilities.can_pause is False,
       before touching the table or the recorded call lists.
+    - cut_egress()/restore_egress() raise BackendCapabilityError whenever
+      capabilities.can_cut_egress is False, before touching the table (the call is still
+      recorded, like pause's).
     - FakeReadinessGate.forget() is idempotent: forgetting a Cell never `expect`-ed, or already
       forgotten, is a no-op, matching ReadinessGate's own documented contract.
 
@@ -129,6 +135,7 @@ class _TrackedCell:
     status: VirtualCellStatus
     labels: dict[str, str]
     created_at: datetime
+    egress_cut: bool = False  # Roadmap step 10.6a: only the control link is reachable while set.
 
 
 class FakeCellBackend:
@@ -147,7 +154,8 @@ class FakeCellBackend:
         Args:
             clock: Source of every minted CellId and every recorded timestamp.
             capabilities: What this fake declares it can do; defaults to can_snapshot=False,
-                can_pause=True, headroom=None (unbounded) so most tests need not think about it.
+                can_pause=True, headroom=None (unbounded) and can_cut_egress=True, so most tests
+                need not think about it.
             endpoint: When given, `provision()` also mints a real `CellBootstrap` for every Cell
                 it builds (module docstring's own e2e slice addition); `None` (the default) skips
                 that entirely, matching every pre-existing caller's own behaviour. May be a plain
@@ -175,7 +183,9 @@ class FakeCellBackend:
         self._capabilities = (
             capabilities
             if capabilities is not None
-            else BackendCapabilities(can_snapshot=False, can_pause=True, headroom=None)
+            else BackendCapabilities(
+                can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True
+            )
         )
         self._endpoint = endpoint
         self._gate = gate
@@ -191,6 +201,7 @@ class FakeCellBackend:
         self.destroy_calls: list[CellId] = []
         self.pause_calls: list[CellId] = []
         self.resume_calls: list[CellId] = []
+        self.egress_calls: list[tuple[str, CellId]] = []  # ("cut" | "restore", cell) in order.
         self.bootstraps: dict[CellId, CellBootstrap] = {}
 
     @property
@@ -326,6 +337,39 @@ class FakeCellBackend:
         tracked = self._cells.get(cell_id)
         if tracked is not None:
             tracked.status = VirtualCellStatus.READY
+
+    async def cut_egress(self, cell_id: CellId) -> None:
+        """Mark `cell_id`'s egress cut to its control link alone; see `EgressCutter.cut_egress`."""
+        self.egress_calls.append(("cut", cell_id))
+        self._require_egress_capability(cell_id)
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.egress_cut = True
+
+    async def restore_egress(self, cell_id: CellId) -> None:
+        """Give `cell_id` its own policy's egress back; see `EgressCutter.restore_egress`."""
+        self.egress_calls.append(("restore", cell_id))
+        self._require_egress_capability(cell_id)
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.egress_cut = False
+
+    def egress_is_cut(self, cell_id: CellId) -> bool:
+        """Return whether `cell_id`'s egress is cut right now; False for a Cell never tracked.
+
+        Args:
+            cell_id: The Cell to look up.
+
+        Returns:
+            True while only the Cell's control link is reachable (roadmap step 10.6a).
+        """
+        tracked = self._cells.get(cell_id)
+        return tracked is not None and tracked.egress_cut
+
+    def _require_egress_capability(self, cell_id: CellId) -> None:
+        """Raise BackendCapabilityError unless this fake declares can_cut_egress."""
+        if not self._capabilities.can_cut_egress:
+            raise BackendCapabilityError(self.name, "egress cut", cell_id=cell_id)
 
     def _require_pause_capability(self, cell_id: CellId) -> None:
         """Raise BackendCapabilityError unless this fake declares can_pause."""

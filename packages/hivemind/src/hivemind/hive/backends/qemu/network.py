@@ -15,6 +15,13 @@ VM is `10.0.2.15`, the virtual router (and QEMU's own alias for "the host") is `
 every Cell this backend makes never collides -- the same reasoning Docker's `host.docker.internal`
 alias relies on for every container.
 
+Cutting a RUNNING VM's egress (isolation, roadmap step 10.6a) is not offered either, so
+`QemuCellBackend` does not declare `can_cut_egress`: `restrict=on` is fixed when the `-netdev` is
+created, and the runtime levers QMP has (`set_link` off, or `netdev_del` and a fresh `netdev_add`)
+take the guest's one NIC down with every connection on it, the Waggle link included. A real
+implementation needs the same thing Docker's does (`hivemind.hive.backends.docker.network`): an
+egress control beside the hypervisor that can drop the VM's traffic except the control link's.
+
 What each policy really enforces at the QEMU level, and what it does not:
 
     NONE: `-netdev user,...,restrict=on`. QEMU's own docs: with `restrict=on` "the guest will be

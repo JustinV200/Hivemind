@@ -44,6 +44,23 @@ What each policy really enforces at the Docker level, and what it does not:
     `"night-veil-ubuntu"` before ever reaching here (defensive: the in-image kill-switch is the
     only real enforcement, so a spec that does not boot that image must never be accepted at all).
 
+Cutting a RUNNING Cell's egress (isolation, roadmap step 10.6a) is not something this backend
+offers, so `DockerCellBackend` does not declare `can_cut_egress`, and isolation records that the
+Cell's egress stayed as it was. Docker fixes a network's options when it creates it: `internal`
+(the one flag above that withholds outbound NAT) cannot be set on an existing network (the Engine
+has no network-update call), and nothing in the Engine API scopes a running container's egress
+(`container update` changes resources and the restart policy only). The one runtime lever is
+`network connect`/`disconnect`, and it cuts the very link isolation must keep: moving the container
+onto a fresh `internal` network means disconnecting it from the network its Waggle WebSocket was
+opened over, and that connection dies with the interface; on native Linux the redial then has no
+route either, because an `internal` network gives a container no path to the host-gateway address
+(`docker0`'s, outside its subnet) that `host.docker.internal` resolves to. A real implementation
+needs an egress control the Hive Stand owns beside Docker: host firewall rules in the `DOCKER-USER`
+chain for the Cell's own bridge subnet (each Cell already has its own network, so its subnet names
+it) that drop everything except the Queen's listener address and port, installed and removed by a
+privileged helper; or an egress proxy every Cell's traffic goes through from provision on, whose
+per-Cell policy isolation flips to "control link only". Either leaves the established link alone.
+
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.backends.docker`. Called by
     `hivemind.hive.backends.docker.backend.DockerCellBackend`. Calls into hivemind.hive.models

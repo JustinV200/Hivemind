@@ -64,6 +64,9 @@ Public API:
       into a sub-bee's `hivemind.supervision.capping.gate.GateDeps.snapshotter`, so Capping never
       imports `hive`; `SqliteSnapshotLedger` is the durable `SnapshotLedgerPort` a rollback in a
       separate CLI process needs.
+    - EgressCutter, CellEgress, EgressOutcome, LifecycleEgress, EGRESS_TIMEOUT_S: cutting a
+      running Virtual Cell's egress to its control link alone for isolation, and restoring it,
+      by declared capability (roadmap step 10.6a; hivemind.hive.egress).
     - CheckStatus, CheckResult, Attestation, CHECK_NAMES, attest, NightVeilProbe,
       FakeNightVeilProbe, SessionProbeConfig, SessionNightVeilProbe, run_checks, attest_cell:
       deterministic Night Veil bootstrap attestation, roadmap step 5.7b (hivemind.hive.night_veil).
@@ -75,6 +78,7 @@ from hivemind.hive.backends import (
     CellBootstrap,
     CellReadyInfo,
     DockerCellBackend,
+    EgressCutter,
     FakeCellBackend,
     FakeReadinessGate,
     QemuCellBackend,
@@ -93,6 +97,7 @@ from hivemind.hive.cell_state import (
     can_enter_dormant,
     can_transition,
 )
+from hivemind.hive.egress import EGRESS_TIMEOUT_S, CellEgress, EgressOutcome, LifecycleEgress
 from hivemind.hive.errors import (
     BackendCapabilityError,
     CellDestroyError,
@@ -149,6 +154,7 @@ from hivemind.hive.snapshot import (
 
 __all__ = [
     "CHECK_NAMES",
+    "EGRESS_TIMEOUT_S",
     "TRANSITIONS",
     "Attestation",
     "BackendCapabilities",
@@ -158,6 +164,7 @@ __all__ = [
     "CellBackendFactory",
     "CellBootstrap",
     "CellDestroyError",
+    "CellEgress",
     "CellLifecycle",
     "CellProvisionError",
     "CellReadyInfo",
@@ -170,12 +177,15 @@ __all__ = [
     # roadmap step 5.9 (hivemind.hive.overwinter): appended as its own block, not interleaved
     # alphabetically above, so a concurrent edit to the rest of this list never conflicts with it.
     "DormantCell",
+    "EgressCutter",
+    "EgressOutcome",
     "FakeCellBackend",
     "FakeNightVeilProbe",
     "FakeReadinessGate",
     "HiveError",
     "InvalidCellTransitionError",
     "LifecycleDormantCell",
+    "LifecycleEgress",
     "LifecycleVirtualBackend",
     "LiveVirtualCell",
     "NetworkPolicy",
