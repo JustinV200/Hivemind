@@ -6,12 +6,16 @@ there. `complete`/`fail` each require the caller's `TaskOutcome`
 (`hivemind.brood_chamber.task.model.TaskOutcome`) to already carry the matching terminal status,
 since the Warden that ran acceptance checks is the one that decided it, not this chamber; `cancel`
 is the odd one out, building its own `TaskOutcome` from a plain `reason` string because cancelling
-carries no separate verification step.
+carries no separate verification step. `cancel_stranded` cancels, one by one, every PENDING task
+that can never run because something it depends on ended FAILED or CANCELLED
+(`hivemind.brood_chamber.task.graph.stranded_tasks`); the Queen calls it every tick, so a goal
+whose early task failed ends instead of waiting out its whole timeout.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
-    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.task.state` and
+    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.store.protocol` (TaskFilter),
+    `hivemind.brood_chamber.task.graph` (stranded_tasks), `hivemind.brood_chamber.task.state` and
     `hivemind.common.errors` only.
 
 Key invariants:
@@ -35,6 +39,8 @@ from collections.abc import Mapping
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
+from hivemind.brood_chamber.store.protocol import TaskFilter
+from hivemind.brood_chamber.task.graph import stranded_tasks
 from hivemind.brood_chamber.task.model import Task, TaskOutcome
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.common.errors import InvariantViolationError
@@ -44,7 +50,7 @@ __all__: list[str] = []  # Private mixin: nothing here is part of the package's 
 
 
 class _OutcomesMixin(_ChamberBase):
-    """BroodChamber's three terminal-status methods: complete, fail and cancel."""
+    """BroodChamber's terminal-status methods: complete, fail, cancel and cancel_stranded."""
 
     async def complete(self, task_id: TaskId, outcome: TaskOutcome) -> Task:
         """Move a task RUNNING -> SUCCEEDED, recording `outcome`.
@@ -104,6 +110,23 @@ class _OutcomesMixin(_ChamberBase):
             cell_id=None,
             pending_question_id=None,
         )
+
+    async def cancel_stranded(self, goal_id: TaskId | None = None) -> tuple[Task, ...]:
+        """Cancel every PENDING task a FAILED or CANCELLED dependency left unable to ever run.
+
+        Args:
+            goal_id: Only this goal's tasks; None considers every task in the chamber.
+
+        Returns:
+            The tasks just cancelled, each naming the dependency that stranded it in its reason.
+        """
+        tasks = await self._store.list_tasks(TaskFilter(goal_id=goal_id))
+        cancelled: list[Task] = []
+        # One transition (and one task.cancelled event) per stranded task, in creation order.
+        for task, cause in stranded_tasks(tasks):
+            reason = f"Dependency {cause} did not succeed, so this task can never run."
+            cancelled.append(await self.cancel(task.id, reason))
+        return tuple(cancelled)
 
     async def _finish(
         self,

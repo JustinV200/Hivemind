@@ -4,10 +4,10 @@ A Task (the Hive's one unit of work, `hivemind.brood_chamber.task.model.Task`) i
 four modules split by responsibility: `model` holds the pydantic shapes (`TaskSpec`, `TaskOutcome`,
 `Task`, and the `TaskDraft`/`TaskGraphDraft` JSON-submission family), `state` holds the state
 machine (`TaskStatus` and `TRANSITIONS`), `graph` holds the pure functions over a task graph
-(`is_acyclic_edges`, `is_acyclic`, `ready_tasks`, `descendants`), and `goal_set` (roadmap step
-10.3) holds the canonical form of the capability set a goal carries. This file is the package's
-face: a caller writes `from hivemind.brood_chamber.task import Task` without knowing the split,
-while every name stays defined in the module that names it (codingrules 5.2, 5.4).
+(`is_acyclic_edges`, `is_acyclic`, `ready_tasks`, `descendants`, `stranded_tasks`), and `goal_set`
+(roadmap step 10.3) holds the canonical form of the capability set a goal carries. This file is
+the package's face: a caller writes `from hivemind.brood_chamber.task import Task` without knowing
+the split, while every name stays defined in the module that names it (codingrules 5.2, 5.4).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.brood_chamber`. Used by
@@ -34,8 +34,8 @@ Public API:
       MAX_GRAPH_TASKS, KEY_PATTERN): the task model (model).
     - TaskStatus, TERMINAL_STATUSES, TRANSITIONS, can_transition, assert_transition, is_terminal:
       the task state machine (state).
-    - is_acyclic_edges, is_acyclic, ready_tasks, descendants: pure functions over a task graph
-      (graph).
+    - is_acyclic_edges, is_acyclic, ready_tasks, descendants, stranded_tasks: pure functions over
+      a task graph (graph).
     - GoalCapabilities, canonical_goal_set, MAX_GOAL_CAPABILITIES, MAX_CAPABILITY_CHARS: a goal's
       capability set as a task stores it (goal_set).
     - GoalRequestId, GoalRequestRef, GoalSpendCap, new_goal_request_id, GOAL_REQUEST_ID_PATTERN,
@@ -57,7 +57,13 @@ from hivemind.brood_chamber.task.goal_set import (
     GoalCapabilities,
     canonical_goal_set,
 )
-from hivemind.brood_chamber.task.graph import descendants, is_acyclic, is_acyclic_edges, ready_tasks
+from hivemind.brood_chamber.task.graph import (
+    descendants,
+    is_acyclic,
+    is_acyclic_edges,
+    ready_tasks,
+    stranded_tasks,
+)
 from hivemind.brood_chamber.task.model import (
     KEY_PATTERN,
     MAX_ACCEPTANCE_ITEMS,
@@ -122,4 +128,5 @@ __all__ = [
     "is_terminal",
     "new_goal_request_id",
     "ready_tasks",
+    "stranded_tasks",
 ]
