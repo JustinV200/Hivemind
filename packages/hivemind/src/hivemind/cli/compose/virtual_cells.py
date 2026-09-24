@@ -217,7 +217,8 @@ class VirtualCellsParts:
         retire_all: Awaited by `run_hive` at shutdown to tear down every Virtual Cell this
             process still tracks, dormant ones included (hivemind.queen.cell_gate.shutdown).
         night_veil: The Night Veil boundary every Virtual Cell's records pass through; its
-            segments become `QueenDeps.night_veil`, and an Absconding purges through it.
+            segments sit behind the `VeiledTrail` every Queen-side writer records through, and
+            an Absconding purges through it.
     """
 
     registry: BackendRegistry
