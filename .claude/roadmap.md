@@ -1605,7 +1605,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   gains `SECURITY` and the wire's `InterventionAction` gains `QUARANTINE` (10.6c), a waggle minor
   bump since both are wire enums; the Hive-side `PolicyAction` gains `ISOLATE` and `QUARANTINE`,
   which no wire enum mirrors (ADR-0035).
-- [ ] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
+- [x] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
   never a Guard Bee's or a Warden's: revoke the Warden's grant, checkpoint and pause every bee on
   the Cell, write a `BLOCK` Cell Wax so nothing is placed there, set a Virtual Cell's network
   policy to `none`, and keep the lease and its scratch intact for forensics. Recorded as
@@ -1621,6 +1621,16 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   goal on the Hive Stand, and raising a `CRITICAL` Alarm to the human with the report. Tests: a
   Guard request never isolates without a Queen decision on the trail; a tainted Handoff is
   refused; the Hive Stand path is human-only and the fallback fires instead.
+  *Landed as `hivemind.queen.isolation` (the one path, checked at `EnforcementPoint.ISOLATION`;
+  the human's lift; `IsolationDoor`) and `hivemind.queen.guard_requests` (the durable request
+  table, its `GUARD_REQUEST` items, the decision by rule, episode or fallback, and
+  `GuardRequestDoor.report_to_human` for a CRITICAL report, shown once per report id), with the
+  human's `POST /v1/cells/{cell_id}/isolate` and `/lift` (interactive, step-up,
+  `entrance:steward`). The Hive Stand's fallback holds goals through `PlacementHold` rows that
+  placement reads; a quarantine checkpoint a judge clears resumes its task on the Queen's tick.
+  The taint reaches the Hive's own memory tables; a Virtual Cell's in-Cell store is a seam (its
+  Warden must run the setter on a new Waggle order). Only the fake backend cuts a running Cell's
+  egress: Docker and QEMU declare why not, and what a real cut needs.*
 - [x] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
   every point where outside text enters a prompt, tool results in the Worker runtime (3.16),
   session output, Honey hits at assembly (7.7), Nectar intake (7.4) and Landing Board messages
