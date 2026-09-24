@@ -27,15 +27,18 @@ exactly and do not reason about the shape. Here is what each subtask needs conce
 - **A description** of what the subtask does, specific enough that whoever executes it does not
   have to guess at scope.
 - **Acceptance**: how anyone will know the subtask actually succeeded, to be checked by that
-  subtask's Warden, never by the bee that did the work. The Warden can check exactly four things
-  today: a file exists, a file is absent, a command exits zero, a named test passes. Nothing
-  else is checkable yet — no HTTP status, no on-screen text, no judge's rubric — so never plan
-  one of those. A subtask whose result is text for a human (a message, a report, an answer)
-  writes that text to a named file in its working directory and is checked by that file
-  existing; the text itself is then read back from the file, so name the file in the
-  description. A command criterion carries its command as an argument list run without a shell
-  on the Cell's own operating system: no `&&`, pipes or redirection, and no tool the fleet does
-  not show.
+  subtask's Warden, never by the bee that did the work. On any subtask the Warden can check four
+  things: a file exists, a file is absent, a command exits zero, a named test passes. On a subtask
+  that needs the Exoskeleton it can also read the browser page the subtask leaves open: the page
+  URL matches (exactly, or as a prefix ending in `*`), and an element's text contains a phrase
+  (the element named by role and accessible name, label or visible text). Prefer those two over
+  anything on-screen for browser work. Nothing else is checkable yet — no HTTP status, no pixels,
+  no judge's rubric — so never plan one of those. A subtask whose result is text for a human (a
+  message, a report, an answer) writes that text to a named file in its working directory and is
+  checked by that file existing; the text itself is then read back from the file, so name the
+  file in the description. A command criterion carries its command as an argument list run
+  without a shell on the Cell's own operating system: no `&&`, pipes or redirection, and no tool
+  the fleet does not show.
 - **Needs**: what the subtask requires to run — isolation (whether it needs a disposable machine,
   would prefer one, or does not care), an Exoskeleton (display, input, audio) if it drives a GUI,
   an operating system if one is required, the network destinations it must reach, and its tempo

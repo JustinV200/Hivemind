@@ -63,8 +63,9 @@ Public API:
     - PostconditionOutcome, check_postcondition: checking one assertion after applying
       (postconditions).
     - CappingGate, GateDeps, GateOutcome: the gate itself (gate).
-    - GuiSurface, GuiApplyResult, GUI_POSTCONDITION_KINDS, required_capabilities: the seam a GUI
-      proposal is applied, verified and rolled back through (gui, roadmap step 6.5).
+    - GuiSurface, GuiApplyResult, GUI_POSTCONDITION_KINDS, ACCEPTANCE_GUI_KINDS,
+      required_capabilities: the seam a GUI proposal is applied, verified and rolled back through,
+      and the GUI kinds a task's acceptance may state (gui, roadmap steps 6.5 and 6.7).
     - GuiAllowlistCheck: the allowlist rung for GUI steps (checks).
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
       audit_completed, review_applied: the after-the-fact sampled audit, and the unsampled
@@ -118,6 +119,7 @@ from hivemind.supervision.capping.errors import (
 )
 from hivemind.supervision.capping.gate import CappingGate, GateDeps, GateOutcome
 from hivemind.supervision.capping.gui import (
+    ACCEPTANCE_GUI_KINDS,
     GUI_POSTCONDITION_KINDS,
     GuiApplyResult,
     GuiSurface,
@@ -147,6 +149,7 @@ from hivemind.supervision.capping.tiers import (
 )
 
 __all__ = [
+    "ACCEPTANCE_GUI_KINDS",
     "CHECKABLE_KINDS",
     "GUI_POSTCONDITION_KINDS",
     "MAX_EVIDENCE_CHARS",

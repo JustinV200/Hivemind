@@ -24,7 +24,8 @@ Fits into the Hive:
     `hivemind.queen.planner.plan.plan_goal`'s own `context={"scratch_root": ...}` when the caller
     supplied one) and by `hivemind.queen.planner.plan._to_graph_draft` (as the value it converts).
     Calls into `hivemind.brood_chamber.task.model` (KEY_PATTERN), `hivemind.cell` (HoneyClearance,
-    TaskNeeds) and `waggle.messages` (PlannedLeaving, Postcondition, PostconditionKind) only.
+    TaskNeeds), `hivemind.supervision.capping` (the checkable kinds) and `waggle.messages`
+    (PlannedLeaving, Postcondition, PostconditionKind, ElementTarget) only.
 
 Key invariants:
     - `PlannedPostcondition` and `PlannedTask` are frozen and forbid extras, like every boundary
@@ -34,7 +35,9 @@ Key invariants:
       rules live in `waggle.messages.labels` only. It adds two planning-only rules on top: the
       kind must be one `hivemind.supervision.capping.CHECKABLE_KINDS` can verify today (a kind
       the gate reports as unsupported would fail every acceptance run), and a command kind must
-      carry an `argv`, since Capping runs `argv` and never `subject`.
+      carry an `argv`, since Capping runs `argv` and never `subject`. The structural kinds
+      (URL_MATCHES, ELEMENT_TEXT: `capping.ACCEPTANCE_GUI_KINDS`) are checkable too, but only
+      through an attached Exoskeleton, so `PlannedTask` allows them only when its needs set one.
     - `PlannedTask.key` carries `TaskDraft.KEY_PATTERN` for the same reason: a key the model gets
       wrong is retried inside the ladder, not rejected by `plan.py` afterwards.
     - `PlannedTask.acceptance` never accepts an empty tuple (`min_length=1`): roadmap step 3.18's
@@ -69,9 +72,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validat
 
 from hivemind.brood_chamber.task.model import KEY_PATTERN
 from hivemind.cell import HoneyClearance, TaskNeeds
-from hivemind.supervision.capping import CHECKABLE_KINDS
+from hivemind.supervision.capping import ACCEPTANCE_GUI_KINDS, CHECKABLE_KINDS
 from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind
 from waggle.messages.base import MAX_PATH_CHARS
+from waggle.messages.capping import ElementTarget
 from waggle.messages.labels import MAX_ARGV_ITEM_CHARS, MAX_ARGV_ITEMS, MAX_EXPECTED_CHARS
 
 MAX_KEY_CHARS = 64  # A short, url-safe draft key; matches TaskDraft.key's own scale.
@@ -86,6 +90,10 @@ MAX_PLAN_TASKS = 64  # A generous single goal's worth of subtasks.
 # The kinds whose Capping check runs `argv` (supervision.capping.postconditions); mirrors
 # waggle.messages.labels' own private set, which that module deliberately does not export.
 _COMMAND_KINDS = frozenset({PostconditionKind.COMMAND_EXITS_ZERO, PostconditionKind.TEST_PASSES})
+# Every kind a Warden can check: on any Cell, plus the structural ones it checks through an
+# attached Exoskeleton's browser (ADR-0032), which PlannedTask allows only on Exoskeleton subtasks.
+_PLANNABLE_KINDS = CHECKABLE_KINDS | ACCEPTANCE_GUI_KINDS
+_GUI_KIND_VALUES = frozenset(kind.value for kind in ACCEPTANCE_GUI_KINDS)
 
 __all__ = [
     "MAX_ACCEPTANCE_ITEMS",
@@ -109,9 +117,12 @@ class PlannedPostcondition(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: PostconditionKind = Field(
-        description="What is asserted. Only FILE_EXISTS/FILE_ABSENT (the path in `subject`) and "
+        description="What is asserted. FILE_EXISTS/FILE_ABSENT (the path in `subject`) and "
         "COMMAND_EXITS_ZERO/TEST_PASSES (the command in `argv`, never in `subject`, which is only "
-        "a short label) can be checked by this Hive today; HTTP_STATUS, ELEMENT_TEXT and "
+        "a short label) work on any subtask. Only on a subtask whose needs set `exoskeleton`: "
+        "URL_MATCHES (subject 'page', `expected` the URL, or a prefix ending in '*') and "
+        "ELEMENT_TEXT (subject names the element, e.g. 'role=heading;name=Welcome' or "
+        "'label=Email'; `expected` is text it contains). HTTP_STATUS, REGION_CHANGED and "
         "JUDGE_RUBRIC are refused. A result meant for a human is written to a file and checked "
         "with FILE_EXISTS."
     )
@@ -138,8 +149,8 @@ class PlannedPostcondition(BaseModel):
         # A kind the Capping gate can only report as "unsupported in v0" would make every claim
         # fail acceptance, retry, and fail again; refusing it here (with the way out) turns that
         # into one ladder retry at planning time instead. CHECKABLE_KINDS is the gate's own list.
-        if self.kind not in CHECKABLE_KINDS:
-            checkable = ", ".join(sorted(kind.value for kind in CHECKABLE_KINDS))
+        if self.kind not in _PLANNABLE_KINDS:
+            checkable = ", ".join(sorted(kind.value for kind in _PLANNABLE_KINDS))
             raise ValueError(
                 f"A {self.kind.value} postcondition cannot be checked by this Hive yet; use one of "
                 f"{checkable}. For a result a human reads, have the subtask write it to a file and "
@@ -157,6 +168,10 @@ class PlannedPostcondition(BaseModel):
                 f"A {self.kind.value} postcondition requires a non-empty `argv`: the command as "
                 "an argument list, never a shell string in `subject`."
             )
+        if self.kind is PostconditionKind.ELEMENT_TEXT:
+            # The Warden parses the subject when it checks; a subject that cannot name an element
+            # is corrected here, where the ladder can retry, not discovered as a failed run.
+            ElementTarget.from_subject(self.subject)
         return self
 
 
@@ -201,6 +216,25 @@ class PlannedTask(BaseModel):
         "lease is released ('install X', 'set up a project in Y') -- never working files, logs "
         "or anything scratch could hold instead. Empty unless the goal truly asks for it.",
     )
+
+    @model_validator(mode="after")
+    def _structural_acceptance_needs_the_exoskeleton(self) -> PlannedTask:
+        """Refuse URL_MATCHES or ELEMENT_TEXT acceptance on a subtask with no Exoskeleton.
+
+        ADR-0032: the Warden checks them through the browser attached for the subtask, before it
+        detaches; a subtask without an Exoskeleton has no page to read, so the criterion could
+        only ever fail.
+        """
+        if self.needs.exoskeleton:
+            return self
+        structural = sorted({item.kind.value for item in self.acceptance} & _GUI_KIND_VALUES)
+        if structural:
+            raise ValueError(
+                f"Acceptance {', '.join(structural)} reads a browser page, so it is allowed only "
+                "on a subtask whose needs set `exoskeleton` (and `browser_only` when it needs no "
+                "desktop). Set those needs, or check a file the subtask writes instead."
+            )
+        return self
 
     @model_validator(mode="after")
     def _leaves_stay_outside_scratch(self, info: ValidationInfo) -> PlannedTask:

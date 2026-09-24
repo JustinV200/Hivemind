@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell.fake import FakeSession
+from hivemind.supervision.capping import PostconditionOutcome
 from hivemind.wardens.acceptance import run_acceptance
 from waggle.clock import FakeClock
 from waggle.messages.labels import Postcondition, PostconditionKind
@@ -89,3 +90,34 @@ async def test_run_acceptance_reports_every_criterion_even_when_one_fails() -> N
     assert report.passed is False
     assert len(report.failing) == 1
     assert report.failing[0].index == 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Page criteria: checked on the task's Exoskeleton (roadmap step 6.7)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_ARRIVED = _postcondition(
+    kind=PostconditionKind.URL_MATCHES, subject="page", expected="http://127.0.0.1:8000/home*"
+)
+
+
+async def test_a_page_criterion_goes_to_the_exoskeleton_and_the_rest_to_the_session() -> None:
+    session = _session()
+    await session.put_file(Path("output.txt"), b"hello")
+    seen: list[tuple[int, PostconditionKind]] = []
+
+    async def gui_check(index: int, criterion: Postcondition) -> PostconditionOutcome:
+        seen.append((index, criterion.kind))
+        return PostconditionOutcome(index=index, kind=criterion.kind, has_held=True, observed="ok")
+
+    report = await run_acceptance(session, (_postcondition(), _ARRIVED), gui_check)
+
+    assert report.passed is True
+    assert seen == [(1, PostconditionKind.URL_MATCHES)]  # FILE_EXISTS never reached it.
+
+
+async def test_a_page_criterion_with_no_exoskeleton_fails_closed() -> None:
+    report = await run_acceptance(_session(), (_ARRIVED,))
+
+    assert report.passed is False
+    assert report.failing[0].observed == "no Exoskeleton is attached to check it on"

@@ -51,6 +51,10 @@ GUI_POSTCONDITION_KINDS = frozenset(
         PostconditionKind.REGION_CHANGED,
     }
 )
+# The GUI kinds a task's acceptance may state (ADR-0032, "Acceptance can be structural"): the ones
+# that read the state a subtask leaves behind. REGION_CHANGED compares against a before-digest
+# only a proposal has, so it is never an acceptance criterion.
+ACCEPTANCE_GUI_KINDS = frozenset({PostconditionKind.URL_MATCHES, PostconditionKind.ELEMENT_TEXT})
 _DESKTOP_OPS = frozenset(
     {GuiOp.MOVE, GuiOp.CLICK, GuiOp.DOUBLE_CLICK, GuiOp.TYPE, GuiOp.PRESS, GuiOp.SCROLL}
 )
@@ -60,6 +64,7 @@ _BROWSER_OPS = frozenset(
 _OFF_CELL_SCHEMES = frozenset({"http", "https"})  # file:// and about:blank never leave the Cell.
 
 __all__ = [
+    "ACCEPTANCE_GUI_KINDS",
     "GUI_POSTCONDITION_KINDS",
     "GuiApplyResult",
     "GuiSurface",

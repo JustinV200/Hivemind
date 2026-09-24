@@ -11,15 +11,17 @@ influence whether its own claim of completion is accepted. An assignment with no
 criteria at all passes vacuously (`waggle.messages.task.assignment.TaskAssign.acceptance` is itself
 never empty by construction, `MIN_ACCEPTANCE_ITEMS = 1`, but `run_acceptance` is also called
 directly by tests with an empty sequence, and an empty ladder is trivially "everything held"); an
-unsupported `PostconditionKind` (`HTTP_STATUS`, `ELEMENT_TEXT`, `JUDGE_RUBRIC` in v0) reports
-`has_held=False`, so acceptance fails closed rather than silently passing something nobody actually
-checked.
+unsupported `PostconditionKind` (`HTTP_STATUS`, `JUDGE_RUBRIC` in v0) reports `has_held=False`, so
+acceptance fails closed rather than silently passing something nobody actually checked. The GUI
+kinds (`URL_MATCHES`, `ELEMENT_TEXT`; ADR-0032, roadmap step 6.7) are checked through `gui_check`,
+which the caller builds over the Exoskeleton the Warden attached for the task, through its own
+session; with no Exoskeleton attached they fail closed the same way.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Called
     by `hivemind.wardens.ticks.results` once a sub-bee's `TaskResult(CLAIMED)` arrives. Calls into
     `hivemind.cell` (CellSession) and `hivemind.supervision.capping` (check_postcondition,
-    PostconditionOutcome) and waggle only.
+    PostconditionOutcome, GUI_POSTCONDITION_KINDS) and waggle only.
 
 Key invariants:
     - `run_acceptance` never raises for a failing or unsupported criterion; every outcome (held or
@@ -39,15 +41,22 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import CellSession
-from hivemind.supervision.capping import PostconditionOutcome, check_postcondition
+from hivemind.supervision.capping import (
+    GUI_POSTCONDITION_KINDS,
+    PostconditionOutcome,
+    check_postcondition,
+)
 from waggle.messages.labels import Postcondition
 
-__all__ = ["AcceptanceReport", "run_acceptance"]
+# Checks one GUI criterion (its index, the criterion) on the task's attached Exoskeleton.
+GuiCheck = Callable[[int, Postcondition], Awaitable[PostconditionOutcome]]
+
+__all__ = ["AcceptanceReport", "GuiCheck", "run_acceptance"]
 
 
 class AcceptanceReport(BaseModel):
@@ -65,7 +74,9 @@ class AcceptanceReport(BaseModel):
 
 
 async def run_acceptance(
-    session: CellSession, postconditions: Sequence[Postcondition]
+    session: CellSession,
+    postconditions: Sequence[Postcondition],
+    gui_check: GuiCheck | None = None,
 ) -> AcceptanceReport:
     """Check every acceptance criterion on the Warden's own session.
 
@@ -74,15 +85,32 @@ async def run_acceptance(
             work never verifies it (codingrules section 8.12).
         postconditions: The task's acceptance criteria, from `TaskAssign.acceptance`; an empty
             sequence passes vacuously.
+        gui_check: Checks a GUI criterion on the Exoskeleton attached for the task; None when
+            the task has none, and then every GUI criterion fails closed.
 
     Returns:
         An AcceptanceReport: every outcome, whether all held, and which (if any) did not.
     """
     outcomes = tuple(
         [
-            await check_postcondition(session, index, criterion)
+            await _check_one(session, index, criterion, gui_check)
             for index, criterion in enumerate(postconditions)
         ]
     )
     failing = tuple(outcome for outcome in outcomes if not outcome.has_held)
     return AcceptanceReport(outcomes=outcomes, passed=not failing, failing=failing)
+
+
+async def _check_one(
+    session: CellSession, index: int, criterion: Postcondition, gui_check: GuiCheck | None
+) -> PostconditionOutcome:
+    """Route one criterion: a GUI kind to the Exoskeleton, every other kind to the session."""
+    if criterion.kind not in GUI_POSTCONDITION_KINDS:
+        return await check_postcondition(session, index, criterion)
+    if gui_check is None:
+        # A page criterion on a task nothing attached a browser for: it can never be checked.
+        observed = "no Exoskeleton is attached to check it on"
+        return PostconditionOutcome(
+            index=index, kind=criterion.kind, has_held=False, observed=observed
+        )
+    return await gui_check(index, criterion)
