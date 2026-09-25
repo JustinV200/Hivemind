@@ -1,8 +1,10 @@
 """Tests for hivemind.queen.dispatcher.provisions: Virtual Cells acquired beside the Queen's tick.
 
 The defects these pin down: a Virtual Cell's provision ran inside the dispatch pass, so a slow one
-stalled the Queen's whole tick (her inbox, her Wardens' liveness, the Entrance's goals); and a Cell
-made for a task that was cancelled, or whose grant was then denied, was left behind for good.
+stalled the Queen's whole tick (her inbox, her Wardens' liveness, the Entrance's goals); a Cell
+made for a task that was cancelled, or whose grant was then denied, was left behind for good; and
+a Cell was made for a task whose grant there could run no bee (its seat wait spent, or its spec
+too small), only to be denied and released.
 Every scenario drives the real dispatch path over `builders.queen`'s fakes and a Virtual provider
 whose acquisition lands only when the test says so, waiting on state for a bounded number of loop
 turns, never on a timer.
@@ -50,6 +52,7 @@ from waggle.messages.supervision import Heartbeat, WardenState
 from waggle.transport.memory import MemoryTransport
 
 _POLL_LIMIT = 4_000  # Loop turns a state wait may take before the test fails instead of hanging.
+_SOURCE_ID = "fake-worker"  # builders.queen's one Forage map source.
 
 
 @dataclass
@@ -98,8 +101,13 @@ def _rig(
     cells: int = 1,
     limit: int = 4,
     fixed: ForageCapacity | None = None,
+    promised: ForageCapacity | None = None,
 ) -> _Rig:
-    """Build deps that place every task on a fresh Virtual Cell, at most `limit` at once."""
+    """Build deps that place every task on a fresh Virtual Cell, at most `limit` at once.
+
+    `fixed` is the capacity each fresh Cell reports once made; `promised`, the one its spec
+    promises before (both `builders.forage.make_capacity()` when None).
+    """
     base, stand, stand_end = make_queen_deps(clock)
     pairs = [_fresh_cell(base, fixed) for _ in range(cells)]
     provider = _GatedProvider(cells=[link for link, _end in pairs])
@@ -107,7 +115,7 @@ def _rig(
     deps = dataclasses.replace(
         base,
         virtual_provider=provider,
-        virtual_backends=(_backend(base),),
+        virtual_backends=(_backend(base, promised or make_capacity()),),
         placement_policy=PlacementPolicy(prefer="virtual"),
         on_task_finished=releases,
     )
@@ -133,14 +141,14 @@ def _fresh_cell(deps: QueenDeps, fixed: ForageCapacity | None) -> tuple[WardenLi
     return link, WardenEnd(warden_end, hop, deps.clock)
 
 
-def _backend(deps: QueenDeps) -> VirtualBackendCandidate:
-    """One Virtual backend with room to spare, so `prefer = "virtual"` provisions on it."""
+def _backend(deps: QueenDeps, promised: ForageCapacity) -> VirtualBackendCandidate:
+    """One Virtual backend with room to spare, its spec promising `promised`."""
     spec = VirtualCellSpec(
         image="base-ubuntu",
         cpu_cores=1.0,
         memory_bytes=1024**3,
         disk_bytes=8 * 1024**3,
-        capacity=make_capacity(),
+        capacity=promised,
         hive_id=deps.identity.hive_id,
     )
     capabilities = BackendCapabilities(can_snapshot=False, can_pause=True)
@@ -162,6 +170,11 @@ async def _wait_until(condition: Callable[[], bool | Awaitable[bool]]) -> None:
 async def _status(deps: QueenDeps, task: Task) -> TaskStatus:
     """The task's status as the Brood Chamber holds it now."""
     return (await deps.chamber.get(task.id)).status
+
+
+async def _denials(deps: QueenDeps) -> list[PheromoneEvent]:
+    """Every `forage.denied` on the trail, oldest first."""
+    return list(await deps.trail.query(TrailQuery(kind="forage.denied")))
 
 
 async def _released(deps: QueenDeps) -> list[PheromoneEvent]:
@@ -238,6 +251,48 @@ async def test_a_cell_made_for_a_task_whose_grant_is_denied_is_released() -> Non
     [released] = await _released(rig.deps)
     assert released.payload["cause"] == "grant_denied"
     assert rig.deps.dispatch.provisions.jobs == {}
+
+
+async def test_no_cell_is_made_for_a_task_whose_seat_wait_ran_out() -> None:
+    # Every seat its tempo may use stays busy past [forage] zero_grant_patience_s.
+    clock = FakeClock()
+    rig = _rig(clock)
+    await rig.deps.map.set_abundance(_SOURCE_ID, seats_free=0)
+    [task] = await rig.deps.chamber.submit(make_graph_draft({"root": ()}))
+    await dispatch_ready(rig.deps, (rig.stand,))  # The wait begins.
+    clock.advance(rig.deps.dispatch.waits.patience_s + 1)
+
+    await dispatch_ready(rig.deps, (rig.stand,))
+
+    # Nothing was started for it: no acquisition in the lane, no call to the provider.
+    assert rig.deps.dispatch.provisions.jobs == {}
+    assert rig.provider.calls == []
+    refused = await rig.deps.chamber.get(task.id)
+    assert refused.status is TaskStatus.CANCELLED
+    assert refused.outcome is not None and "after waiting" in refused.outcome.summary
+    _wait, denial = await _denials(rig.deps)
+    assert denial.subject_id == task.id
+    assert denial.payload["deferred"] is False
+    assert denial.payload["limited_by"] == "seats"
+    assert denial.payload["cell_id"] is None
+    waited_s = denial.payload["waited_s"]
+    assert isinstance(waited_s, float) and waited_s >= rig.deps.dispatch.waits.patience_s
+
+
+async def test_no_cell_is_made_whose_own_figures_could_run_no_bee() -> None:
+    # The spec promises one sub-bee: the headroom margin leaves no whole bee of it, for good.
+    rig = _rig(promised=make_capacity(max_sub_bees=1))
+    [task] = await rig.deps.chamber.submit(make_graph_draft({"root": ()}))
+
+    await dispatch_ready(rig.deps, (rig.stand,))
+
+    assert rig.deps.dispatch.provisions.jobs == {}  # Nothing was started for it.
+    assert rig.provider.calls == []
+    assert await _status(rig.deps, task) is TaskStatus.CANCELLED
+    [denial] = await _denials(rig.deps)
+    assert denial.payload["limited_by"] == "cell_cap"
+    assert denial.payload["deferred"] is False
+    assert denial.payload["waited_s"] is None
 
 
 async def test_her_tick_keeps_hearing_her_warden_while_a_cell_is_provisioned() -> None:

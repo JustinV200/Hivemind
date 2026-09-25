@@ -12,7 +12,10 @@ so a live reading that zeroed its grant would only fail running work on a busy m
 defect a fresh dispatch's wait removes. `SizedGrant` keeps the allocator's own limits
 (`hivemind.forage.SubBeeLimits`: each of the five limits, now and at best) beside the grant, and
 whether the reading was live, so `hivemind.queen.dispatcher.zero_grant` can tell a grant a passing
-shortfall zeroed from one no wait could ever lift.
+shortfall zeroed from one no wait could ever lift. `size_for_capacity` sizes the grant a fresh
+Virtual Cell would get before any is made, from the capacity its spec promises (the very figures
+the Cell reports once running: its reservation's), so a Cell is never provisioned for a task only
+for its grant to be denied there.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -30,6 +33,8 @@ Key invariants:
     - `SizedGrant.is_live` is True only when the caller asked for a live reading and the link
       carries a reader for its Cell (`WardenLink.live_capacity`); it is never read off the Cell's
       kind (codingrules 8.7).
+    - A grant `size_for_capacity` sizes is never recorded or sent: no Cell or Warden exists yet,
+      so its ids are placeholders minted for the computation alone.
 
 See Also:
     - hivemind.forage.allocate for grant and sub_bee_limits, the pure computation this wraps.
@@ -52,10 +57,10 @@ from hivemind.forage import (
 )
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.intake import goal_budgets
-from waggle.ids import new_grant_id
+from waggle.ids import CellId, WardenId, new_cell_id, new_grant_id, new_warden_id
 from waggle.messages.task import WorkerRole
 
-__all__ = ["SizedGrant", "size_grant"]
+__all__ = ["SizedGrant", "size_for_capacity", "size_grant"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +106,7 @@ async def size_grant(
     # memory and free disk); None means no live reading, so the link's own Cell is the figure.
     live = await reader() if reader is not None else None
     capacity = live if live is not None else link.cell.capacity
-    inputs = _grant_inputs(deps, link, capacity, task)
+    inputs = _grant_inputs(deps, capacity, task, (link.warden_id, link.cell.id))
     return SizedGrant(
         inputs=inputs,
         grant=grant(inputs),
@@ -110,10 +115,30 @@ async def size_grant(
     )
 
 
+def size_for_capacity(deps: QueenDeps, capacity: ForageCapacity, task: Task) -> SizedGrant:
+    """Size the grant a Cell promising `capacity` would get for `task`, before the Cell exists.
+
+    Args:
+        deps: The Queen's collaborators.
+        capacity: The capacity a fresh Virtual Cell's spec promises, fixed for its whole life.
+        task: The task whose tempo and goal caps size the grant.
+
+    Returns:
+        The grant, its inputs and its limits, never live: nothing re-reads a spec.
+    """
+    # Placeholders minted for this computation alone (module docstring): no Warden or Cell yet.
+    placeholder = (new_warden_id(deps.clock), new_cell_id(deps.clock))
+    inputs = _grant_inputs(deps, capacity, task, placeholder)
+    return SizedGrant(
+        inputs=inputs, grant=grant(inputs), limits=sub_bee_limits(inputs), is_live=False
+    )
+
+
 def _grant_inputs(
-    deps: QueenDeps, link: WardenLink, capacity: ForageCapacity, task: Task
+    deps: QueenDeps, capacity: ForageCapacity, task: Task, holder: tuple[WardenId, CellId]
 ) -> GrantInputs:
     """Build one task's GrantInputs from its Cell's reading, its Tempo and its goal's budgets."""
+    warden_id, cell_id = holder
     return GrantInputs(
         cell_capacity=capacity,
         role=WorkerRole.DRONE,
@@ -123,8 +148,8 @@ def _grant_inputs(
         reserve=deps.reserve,
         # Roadmap step 10.5: a requested goal's own budget narrows the manifest's per-goal cap.
         budgets=goal_budgets(deps.budgets, task.spec),
-        holder=link.warden_id,
-        cell_id=link.cell.id,
+        holder=warden_id,
+        cell_id=cell_id,
         task_id=task.id,
         grant_id=new_grant_id(deps.clock),
         now=deps.clock.now(),

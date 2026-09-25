@@ -19,17 +19,22 @@ zero_grant_patience_s` and then fails the task like a lasting shortfall, the wai
 summary, so nothing waits for ever unseen; a wait on the goal's own allowance ends when one of its
 tasks does. Busy seats are read from the Forage map, never from a Cell, so they are waited out
 before any Cell is chosen (`hold_for_room`), exactly like the goal's allowance: a Cell acquired
-for a task that then waits for a seat would sit idle. Which limit was tightest comes from the
-allocator itself as data (`hivemind.forage.SubBeeLimits`), never from parsing a reason string.
+for a task that then waits for a seat would sit idle. A fresh Virtual Cell is sized the same way
+before it is provisioned, from the capacity its spec promises (`ready_to_provision`): a grant that
+could run no bee there, for good or once its wait's patience is spent, refuses the task then and
+there instead of provisioning a Cell only to deny its grant and release it. Such a task never left
+PENDING, so it is cancelled (PENDING's one edge to an end) with the denial as its reason, after the
+same `forage.denied` a denial on a Cell records. Which limit was tightest comes from the allocator
+itself as data (`hivemind.forage.SubBeeLimits`), never from parsing a reason string.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` on every dispatch pass. Calls into
     `hivemind.brood_chamber` (Task, TaskFilter, TaskOutcome, TaskStatus), `hivemind.forage`
     (GrantBound, RoyalReserve, SubBeeLimits, goal_limit, seat_limit), `hivemind.queen.deps`
-    (GrantWait, QueenDeps), `hivemind.queen.dispatcher.sizing` (SizedGrant),
-    `hivemind.queen.intake` (goal_budgets), `hivemind.queen.trail` (record_forage_event) and
-    waggle only.
+    (GrantWait, QueenDeps), `hivemind.queen.dispatcher.sizing` (SizedGrant, size_for_capacity),
+    `hivemind.queen.intake` (goal_budgets), `hivemind.queen.placement` (Placement,
+    ProvisionVirtual), `hivemind.queen.trail` (record_forage_event) and waggle only.
 
 Key invariants:
     - A wait records exactly one `forage.denied` (`deferred = true`) when it starts, or when it
@@ -42,7 +47,8 @@ Key invariants:
     - A wait on a passing figure ends in a grant or, once `patience_s` has passed, in
       `deny_zero_grant`; the task never waits on one for longer.
     - `deny_zero_grant` always records `forage.denied` before it fails the task, so the cause is
-      on the trail before the outcome is.
+      on the trail before the outcome is; `ready_to_provision` does the same before it cancels.
+    - No fresh Virtual Cell is provisioned for a task whose grant there could run no bee.
 
 See Also:
     - .claude/phase-4-handoff.md section 4.2 item 1 for the silent park the denial still prevents.
@@ -61,8 +67,9 @@ from pydantic import JsonValue
 from hivemind.brood_chamber import Task, TaskFilter, TaskOutcome, TaskStatus
 from hivemind.forage import GrantBound, RoyalReserve, SubBeeLimits, goal_limit, seat_limit
 from hivemind.queen.deps import GrantWait, QueenDeps
-from hivemind.queen.dispatcher.sizing import SizedGrant
+from hivemind.queen.dispatcher.sizing import SizedGrant, size_for_capacity
 from hivemind.queen.intake import goal_budgets
+from hivemind.queen.placement import Placement, ProvisionVirtual
 from hivemind.queen.trail import record_forage_event
 from waggle.ids import TaskId
 
@@ -82,7 +89,14 @@ _HOLDS_A_BEE = frozenset(
     {TaskStatus.ASSIGNED, TaskStatus.RUNNING, TaskStatus.BLOCKED, TaskStatus.PAUSED}
 )
 
-__all__ = ["deny_zero_grant", "forget_waits", "hold_for_room", "settle_wait", "waits_on"]
+__all__ = [
+    "deny_zero_grant",
+    "forget_waits",
+    "hold_for_room",
+    "ready_to_provision",
+    "settle_wait",
+    "waits_on",
+]
 
 
 def waits_on(limits: SubBeeLimits, *, is_live: bool) -> GrantBound | None:
@@ -158,6 +172,44 @@ async def _hold_for_seats(deps: QueenDeps, task: Task) -> bool:
     # Past its patience the task is placed after all: its grant, sized on the same seats, is then
     # denied with the figures by settle_wait, the same end a wait on the host's figures meets.
     return (deps.clock.now() - wait.since).total_seconds() < deps.dispatch.waits.patience_s
+
+
+async def ready_to_provision(deps: QueenDeps, task: Task, placement: Placement) -> bool:
+    """Return whether the Virtual Cell `placement` names may be made for `task` (module docstring).
+
+    Args:
+        deps: The Queen's collaborators.
+        task: The PENDING task the Cell would be made for.
+        placement: A Virtual Placement; a fresh provision is sized from its spec's capacity. A
+            dormant Cell's figures are its lifecycle's, not placement's, so it is resumed and
+            sized once its link exists, as an attached Cell is.
+
+    Returns:
+        True when the Cell may be made; False when the task waits (busy seats, within their
+        patience) or has been refused for good (`forage.denied` recorded, the task cancelled).
+    """
+    if not isinstance(placement, ProvisionVirtual):
+        return True
+    settled = await settle_wait(deps, task, size_for_capacity(deps, placement.spec.capacity, task))
+    if settled is None:
+        return False  # A passing shortfall: still PENDING, and nothing is made meanwhile.
+    if settled.grant.max_sub_bees >= 1:
+        return True
+    bound = _blame(settled)
+    # The task is the subject: no grant was issued, and its placeholder ids name nothing real.
+    figures = {**_figures(settled), "warden_id": None, "cell_id": None}
+    limited_by = bound.value if bound is not None else None
+    await record_forage_event(
+        deps,
+        "forage.denied",
+        task.id,
+        deferred=False,
+        limited_by=limited_by,
+        waited_s=settled.waited_s,
+        **figures,
+    )
+    await deps.chamber.cancel(task.id, _denial_summary(settled, bound))
+    return False
 
 
 async def settle_wait(deps: QueenDeps, task: Task, sized: SizedGrant) -> SizedGrant | None:
