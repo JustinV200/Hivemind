@@ -1,10 +1,10 @@
 """Hold the Guard's shipped data: the policy a Hive falls back to and the scanner's patterns.
 
 `policy.toml` is the Guard policy (`hivemind.guard.policy`) every Hive starts from: each policy
-role's default capability set, the hive-wide deny list and the escalation table (ADR-0031). A
+role's default capability set, the hive-wide deny list and the escalation table (ADR-0039). A
 Hive's manifest may overlay it with a `[guard]` table or replace it with `[guard] policy_file`,
 which is the exception: policy is data an operator *may* override, not data every operator must
-supply. `untrusted-content.toml` (roadmap step 10.6b, ADR-0035) is the untrusted-content
+supply. `untrusted-content.toml` (roadmap step 10.6b, ADR-0043) is the untrusted-content
 scanner's pattern families, one table each with its weight and seed examples; the manifest's
 `[guard.untrusted_content]` sets the thresholds they are scored against, never the patterns.
 Both are read through `importlib.resources.files("hivemind.guard.defaults")`, which is why this is

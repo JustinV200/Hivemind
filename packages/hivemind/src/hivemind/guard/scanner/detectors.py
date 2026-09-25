@@ -211,7 +211,7 @@ def _blob_length(run: str) -> int:
 
 
 def _reachable(host: str, targets: CapabilitySet) -> bool:
-    """Return whether `targets` holds a `net` capability covering `host` (ADR-0031's grammar)."""
+    """Return whether `targets` holds a `net` capability covering `host` (ADR-0039's grammar)."""
     if host_error(host) is not None:
         return False  # Not a host the grammar can name, so no capability can cover it.
     return targets.allows(Capability(family=CapabilityFamily.NET, scope=host))

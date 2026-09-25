@@ -12,7 +12,7 @@ leftover adds `shrink_grant_id`/`shrink_amount`, set only when `action` is `GRAN
 contested `ForageRequest`'s own episode (`hivemind.queen.ticks.forage`) hands the model the live
 grants for that request's dimension in its prompt (`hivemind.queen.awake.episode.EpisodeExtras.
 system_hint`), and the model names which one to shrink, and by how much, to free the headroom the
-requester needs. Roadmap step 10.5 (ADR-0032) adds `message`: the words of a `REPLY`, the Queen
+requester needs. Roadmap step 10.5 (ADR-0040) adds `message`: the words of a `REPLY`, the Queen
 answering the human in the chat as Monarch.
 
 Fits into the Hive:

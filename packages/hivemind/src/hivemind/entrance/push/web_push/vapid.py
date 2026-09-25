@@ -27,7 +27,7 @@ Key invariants:
 
 See Also:
     - RFC 8292 sections 2 and 3 for the JWT and the header.
-    - docs/adr/0034-landing-board-versioning-and-push.md for where the key comes from.
+    - docs/adr/0042-landing-board-versioning-and-push.md for where the key comes from.
 """
 
 from __future__ import annotations

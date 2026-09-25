@@ -1,6 +1,6 @@
 """Test the steward route: a remote steward approves after full step-up, within its own set.
 
-ADR-0033 and roadmap 10.5d: with ``[entrance] steward_devices`` on, a device holding
+ADR-0041 and roadmap 10.5d: with ``[entrance] steward_devices`` on, a device holding
 ``entrance:steward`` may approve a pending device through its own route on the remote listener,
 only after full step-up, only up to its own set inside the device ceiling, never granting
 stewardship itself, and never more spend per day than its own. A device without stewardship is

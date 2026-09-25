@@ -1,6 +1,6 @@
 """Keep a laptop's remote Hive profiles: where each Entrance is, and the device key it enrolled.
 
-A laptop reaches a Hive the way every client does, as an enrolled device (ADR-0033): it holds an
+A laptop reaches a Hive the way every client does, as an enrolled device (ADR-0041): it holds an
 Ed25519 key the Hive Stand approved, and remembers which Entrance (the Hive's HTTP door) it
 belongs to. A ``RemoteProfile`` is that memory, one per Hive: the Entrance's origin, the CA file
 its TLS is pinned to (for a Hive that runs its own authority), the Hive's id (which every login
@@ -26,7 +26,7 @@ Key invariants:
     - A profile's key is in the store before the profile file names it, and leaves after it.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md: "an Ed25519 key in
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md: "an Ed25519 key in
       a program's secure storage".
 """
 

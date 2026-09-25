@@ -202,7 +202,7 @@ def _guard_request(clock: FakeClock, item_id: str) -> InboxItem:
 async def test_order_ranks_a_guard_request_above_a_critical_alarm_and_any_human_message() -> None:
     clock = FakeClock()
     # The Alarm and the message are the oldest items here, and both name a task: every term
-    # that could lift them is present, and the request still comes first (ADR-0035).
+    # that could lift them is present, and the request still comes first (ADR-0043).
     alarm = make_inbox_item(
         kind=InboxKind.ALARM,
         clock=clock,

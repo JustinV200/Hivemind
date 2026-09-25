@@ -95,5 +95,5 @@ def test_memory_event_kinds_include_the_phase_4_4_addition() -> None:
 
 
 def test_memory_event_kinds_include_the_taint_label() -> None:
-    # Roadmap step 10.6d (ADR-0035): one label, set by three paths and cleared only by a judge.
+    # Roadmap step 10.6d (ADR-0043): one label, set by three paths and cleared only by a judge.
     assert {"memory.tainted", "memory.taint_cleared"} <= MemoryEvent.KINDS

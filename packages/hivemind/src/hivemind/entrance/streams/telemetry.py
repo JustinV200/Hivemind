@@ -1,7 +1,7 @@
 """Provide TelemetryBoard: every Heartbeat the Queen receives, kept per Warden and fanned out live.
 
 A Heartbeat (a Warden's periodic self-report, with one row per sub-bee) never reaches the
-Pheromone Trail, so the stream hub cannot follow it (ADR-0032: "Telemetry and episode records come
+Pheromone Trail, so the stream hub cannot follow it (ADR-0040: "Telemetry and episode records come
 from the same hub through hooks the composition root wires"). The Queen hands every Heartbeat she
 records to ``QueenDeps.on_heartbeat``; the composition root sets that hook to a board's ``record``.
 The board keeps each Warden's newest sample (the Wardens read and the Cell pages read how many

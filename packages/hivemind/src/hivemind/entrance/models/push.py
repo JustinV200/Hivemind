@@ -1,7 +1,7 @@
 """Define the push resource's bodies: subscribing to push, and the keys a device verifies with.
 
 A device holding ``entrance:push`` registers where it wants to hear that something is waiting
-(ADR-0034): a webhook URL for a program, or a browser's Web Push subscription (its endpoint and
+(ADR-0042): a webhook URL for a program, or a browser's Web Push subscription (its endpoint and
 keys, exactly as ``PushSubscription.toJSON()`` gives them). The destination guard vets every
 endpoint before it is stored. The two keys a device needs are public: the VAPID application
 server key a browser subscribes with, and the Hive's Ed25519 key a webhook receiver verifies

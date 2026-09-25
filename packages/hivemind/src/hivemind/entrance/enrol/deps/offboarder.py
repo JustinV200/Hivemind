@@ -1,6 +1,6 @@
 """Define DeviceOffboarder: the seam that cuts a device off when it stops being approved.
 
-ADR-0033: leaving APPROVED (a lock, a revocation, an expiry) ends every session the device holds
+ADR-0041: leaving APPROVED (a lock, a revocation, an expiry) ends every session the device holds
 and deletes its push subscriptions in the same step, and every WebSocket of those sessions closes.
 Enrolment decides *when* a device leaves; the sessions (roadmap step 10.5e) and the push
 subscriptions (roadmap step 10.5b) are later steps' tables. ``DeviceOffboarder`` is the seam
@@ -20,7 +20,7 @@ Key invariants:
       offboarded again, harmlessly, when it is revoked or expires.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "leaving APPROVED
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "leaving APPROVED
       ends the device's sessions and deletes its push subscriptions in the same step".
 """
 

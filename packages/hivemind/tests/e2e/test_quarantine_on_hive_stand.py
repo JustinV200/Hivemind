@@ -27,7 +27,7 @@ Key invariants:
 See Also:
     - tests.unit.wardens.quarantine for the same path over fakes, refusal by refusal.
     - tests.e2e.test_kernel_on_hive_stand for the scripting this reuses.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
 """
 
 from __future__ import annotations

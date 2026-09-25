@@ -1,6 +1,6 @@
 """Serve enrolment's decisions: mint invites, list who asks to join, approve or deny them.
 
-Devices are enrolled, then approved at the Hive Stand (ADR-0033). Minting and cancelling invites,
+Devices are enrolled, then approved at the Hive Stand (ADR-0041). Minting and cancelling invites,
 registering a device offline (its public key and certificate request, copied off a device that can
 reach no enrolment listener), approving and denying pending requests exist only on the loopback
 listener: the remote application never mounts them, so they answer 404 there, not 403. The loopback
@@ -209,9 +209,9 @@ async def steward_approve(
         if body.capabilities is not None
         else proposed_set(policy)
     )
-    # ADR-0033: at most the steward's own set, inside the ceiling, never stewardship itself.
+    # ADR-0041: at most the steward's own set, inside the ceiling, never stewardship itself.
     granted = steward_grant(caller.device, asked, device_ceiling(policy))
-    # Nor more spend per day, or a longer life, than the steward's own approval (ADR-0031).
+    # Nor more spend per day, or a longer life, than the steward's own approval (ADR-0039).
     steward_terms(caller.device, body.spend_cap_usd_per_day, body.expires_at)
     request = _approval(body, granted, caller.device.id)
     return device_view(await approve(services.enrolment, device_id, request))

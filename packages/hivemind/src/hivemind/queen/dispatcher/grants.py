@@ -1,6 +1,6 @@
 """Define authorize_grant: the grant_issue enforcement point, before a fresh grant is ever sent.
 
-Roadmap step 10.3 (ADR-0031): the Queen issues a `ForageGrant` to one Warden for one task, and a
+Roadmap step 10.3 (ADR-0039): the Queen issues a `ForageGrant` to one Warden for one task, and a
 grant names the model bindings (`AllowedBinding`: a slot, the source it draws on) its sub-bees may
 be bound to. Binding a slot is `llm:<slot>`, so the Queen, acting at the `grant_issue` point,
 checks every binding against the receiving Warden's set (which she computes from its Cell's access
@@ -29,7 +29,7 @@ Key invariants:
       computed.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the grant_issue
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the grant_issue
       point.
     - hivemind.forage.allocate for grant, which computes the bindings this narrows.
 """

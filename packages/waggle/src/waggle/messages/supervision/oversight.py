@@ -106,7 +106,7 @@ class InterventionAction(Enum):
     # (this lever targets the recipient itself, never one of its sub-bees), matching CANCEL's own
     # shape rather than REBIND's (no slot). See waggle.messages.cell for the lease it releases.
     RELEASE_LEASE = "RELEASE_LEASE"
-    # PROTOCOL_MINOR 7 (roadmap step 10.6c, ADR-0035): the Queen tells a Warden to quarantine one
+    # PROTOCOL_MINOR 9 (roadmap step 10.6c, ADR-0043): the Queen tells a Warden to quarantine one
     # of its sub-bees -- checkpoint, stop and kill it, taint its memory from suspect_episode_id on
     # and hold its task paused. The Warden carries it out itself; it is never relayed to a Worker.
     QUARANTINE = "QUARANTINE"
@@ -235,7 +235,7 @@ class Intervene(WaggleMessage):
     over their sub-bees minus takeover with the Queen's slot. `binding` (PROTOCOL_MINOR 2)
     is an optional, additional REBIND hint: a `[llm.slots]` manifest key the sender already
     resolved (the Queen's own fallback-chain lookup, for instance), so a receiving Warden can
-    respawn on it directly instead of searching its own grant. QUARANTINE (PROTOCOL_MINOR 7, the
+    respawn on it directly instead of searching its own grant. QUARANTINE (PROTOCOL_MINOR 9, the
     Queen -> Warden lever only) names the bee by `subject` or `task_id` and carries
     `suspect_episode_id`, the episode from which that bee's memory is suspect.
     """
@@ -284,7 +284,7 @@ class Intervene(WaggleMessage):
 
     @model_validator(mode="after")
     def _quarantine_names_its_bee_and_episode(self) -> Intervene:
-        """Require a suspect episode, and a bee, exactly for QUARANTINE (PROTOCOL_MINOR 7)."""
+        """Require a suspect episode, and a bee, exactly for QUARANTINE (PROTOCOL_MINOR 9)."""
         quarantining = self.action is InterventionAction.QUARANTINE
         # Without the episode the receiver cannot say which memory to taint, and an episode on any
         # other lever would be read by nobody and hints the sender meant a quarantine.

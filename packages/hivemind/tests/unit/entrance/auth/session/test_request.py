@@ -1,7 +1,7 @@
 """Tests for hivemind.entrance.auth.session.request: signed requests and a socket's first frame.
 
 Roadmap 10.5e's first named test lives here: a stolen session token without the device key is
-refused. So does every refusal ADR-0033 lists for a request: a replayed nonce (also after the
+refused. So does every refusal ADR-0041 lists for a request: a replayed nonce (also after the
 tables are reopened), a timestamp outside the skew, the other listener, an idle or expired
 session, a revoked device, and a browser socket from a foreign origin.
 

@@ -19,13 +19,13 @@ a BLOCK, a Worker's proposal, a proposal about another Cell, or a clear may pick
 `ForageRequest` resolves once `hivemind.queen.awake` judges it: shrink another live grant (named
 by `QueenDecision.shrink_grant_id`/`.shrink_amount`) to free the headroom the request needs, or
 deny it with a reason; `hivemind.queen.ticks.forage` is the one place either is acted on.
-`REPLY` (roadmap step 10.5, ADR-0032) is the Queen answering the human in the chat, with the words
+`REPLY` (roadmap step 10.5, ADR-0040) is the Queen answering the human in the chat, with the words
 in `QueenDecision.message`: only ever an awake decision (autopilot has no rule for free text), and
 `hivemind.queen.ticks.chat.reply` is the one place it is acted on. `QUARANTINE_BEE` (roadmap
 step 10.6c, the row a `PolicyAction.QUARANTINE` maps to) orders the Warden of an Alarm's task to
 quarantine the bee it names (`hivemind.queen.quarantine.order`), and `PAUSE_TASK` holds a task
 PAUSED in the Brood Chamber once its Warden reports it held (`hivemind.queen.quarantine.hold`).
-`ISOLATE_CELL` (roadmap step 10.6a, ADR-0035, the row a `PolicyAction.ISOLATE` maps to) isolates
+`ISOLATE_CELL` (roadmap step 10.6a, ADR-0043, the row a `PolicyAction.ISOLATE` maps to) isolates
 one Cell through the one isolation path (`hivemind.queen.isolation`), and `DISMISS` settles a Guard
 request that needs nothing done (the report stays on the trail); with `QUARANTINE_BEE` they are
 the three ways her decision on a Guard request resolves (`hivemind.queen.guard_requests`).

@@ -1,6 +1,6 @@
 """Define goal_spend_cap and goal_budgets: a requested goal's own budget, applied to its grants.
 
-A goal request may name a budget in US dollars (`GoalRequest.budget_usd`, docs/adr/0032): the
+A goal request may name a budget in US dollars (`GoalRequest.budget_usd`, docs/adr/0040): the
 goal's own spend cap. Every task planned from the request carries it (`TaskSpec.spend_cap_usd`),
 and the Queen applies it wherever she sizes a goal's spend from `[forage] spend_cap_per_goal_usd`
 (`QueenDeps.budgets.spend_cap_usd`): a fresh grant's budgets (`hivemind.queen.dispatcher`), a

@@ -13,9 +13,9 @@ dropped `asyncio.create_task` handle (codingrules section 11) -- before sending 
 first `TaskAssign` over the Warden's own end of the pair. It writes the one `worker.*` trail event
 the runtime itself never does: `worker.spawned` (`hivemind.workers.runtime.reporter.Reporter`
 writes every other `worker.*` kind; this is the one transition that happens before a
-`WorkerRuntime` exists to record it itself). Roadmap step 10.3 (ADR-0031): the slice is read off
+`WorkerRuntime` exists to record it itself). Roadmap step 10.3 (ADR-0039): the slice is read off
 the assignment by `hivemind.wardens.spawn.attenuate` (the task's network scopes and its goal's set
-now travel on it, Waggle 1.6), and before anything is started the binding passes the Guard's
+now travel on it, Waggle 1.8), and before anything is started the binding passes the Guard's
 `slot_binding` point (`hivemind.wardens.spawn.binding.authorize_binding`); a refused binding
 raises `BindingRefusedError` with nothing started. The sub-bee's own `WorkerContext` carries the
 Warden's `Enforcer`, which its tools call at `tool_invocation` and `session_outside_scratch`.

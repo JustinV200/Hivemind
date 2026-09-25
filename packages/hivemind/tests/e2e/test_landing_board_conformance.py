@@ -1,7 +1,7 @@
 """End-to-end: a program written from the committed OpenAPI document alone uses the Landing Board.
 
 Roadmap step 10.5c's conformance test. The Landing Board (the Hive Entrance's versioned API,
-ADR-0034) promises that a third-party program written from ``docs/entrance/openapi.json`` alone
+ADR-0042) promises that a third-party program written from ``docs/entrance/openapi.json`` alone
 works. ``e2e.landing_client`` is that program: it imports no Hive code, finds every operation by
 method and path in the committed document, signs from ``x-hive-signing`` alone, and accepts a
 reply only when its status is declared and its body matches the declared schema. Against

@@ -5,7 +5,7 @@ party wrote: what a device said about itself when it redeemed an invite (from a 
 trusts yet), a question or reply the Queen relays (which can quote a model's words). On a
 terminal, a control character, an escape sequence or a bidirectional override inside such a
 string could rewrite what the operator sees at the moment it matters, an approval or an answer
-(ADR-0033: "escapes every string the device supplied"), so ``shown`` escapes everything Python
+(ADR-0041: "escapes every string the device supplied"), so ``shown`` escapes everything Python
 does not call printable and bounds the length. And failures: ``describe`` turns what a command
 caught into the one line it prints, naming a refused value by its field and never repeating the
 value itself (it may be a password a model validated, or a device's words).
@@ -19,7 +19,7 @@ Key invariants:
     - ``describe`` never returns a refused value, only where it was.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
 """
 
 from __future__ import annotations

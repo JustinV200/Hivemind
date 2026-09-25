@@ -1,6 +1,6 @@
 """Define the taint label: TaintMarker, its TaintSource and TaintState, and what it can be put on.
 
-Roadmap step 10.6d (ADR-0035): memory written while a bee may have been compromised (under an
+Roadmap step 10.6d (ADR-0043): memory written while a bee may have been compromised (under an
 injected instruction) must never come back through a later prompt. `TaintMarker` is the one label
 that says so: which of the three closed `TaintSource`s set it (the Queen isolating a Cell, a
 quarantine of one bee, or the Queen acting on a Guard report about a Honey item), why, the
@@ -28,7 +28,7 @@ Key invariants:
       hold every module to that (tests/unit/memory/taint/test_only_setter.py).
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.memory.taint.state for the label's transition table (Appendix C, "Taint label").
     - hivemind.memory.taint.set and .clear for the one setter and the one clearer.
 """
@@ -60,7 +60,7 @@ __all__ = [
 
 
 class TaintSource(Enum):
-    """Who may label memory tainted: a closed set of three, and nothing else (ADR-0035)."""
+    """Who may label memory tainted: a closed set of three, and nothing else (ADR-0043)."""
 
     ISOLATION = "isolation"  # The Queen isolating one Cell (queen/isolation/, roadmap 10.6a).
     QUARANTINE = "quarantine"  # The one Quarantine code path in wardens/ (roadmap 10.6c).

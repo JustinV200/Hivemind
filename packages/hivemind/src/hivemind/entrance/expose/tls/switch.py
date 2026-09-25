@@ -1,6 +1,6 @@
 """Swap the remote listener's TLS context without restarting it: how a revocation takes effect.
 
-A listening socket keeps the TLS context it was started with, and a revocation (ADR-0033) must
+A listening socket keeps the TLS context it was started with, and a revocation (ADR-0041) must
 reach the very next handshake without dropping the listener. ``ContextSwitch`` holds the context
 the listener was started with and the current one, and installs itself as the listener context's
 ``sni_callback``: OpenSSL calls it on every ClientHello, with or without a server name, before the
@@ -25,7 +25,7 @@ Key invariants:
       only the certificate and the trust store (authority and list) from the current one.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "a revocation
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "a revocation
       rebuilds the TLS context, which new handshakes pick up through an sni_callback".
     - hivemind.entrance.expose.tls.context for the contexts swapped here.
 """

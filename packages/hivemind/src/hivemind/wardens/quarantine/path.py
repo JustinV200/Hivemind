@@ -1,6 +1,6 @@
 """Quarantine one sub-bee: the one code path, and the three entry points that reach it.
 
-ADR-0035, "Quarantine is one intervention": "One code path in wardens/ does it all: checkpoint,
+ADR-0043, "Quarantine is one intervention": "One code path in wardens/ does it all: checkpoint,
 cancel, kill the tracked process, revoke the bee's slice of the grant, taint every checkpoint,
 Handoff and Nectar from that episode on, move the task to PAUSED, record warden.intervened and
 memory.tainted." `quarantine_bee` is that path, in exactly that order, once the Guard's
@@ -37,7 +37,7 @@ Key invariants:
     - An order for a bee or task already quarantined here changes nothing (idempotent).
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/tainted-memory.md for the label and its one clearer.
     - hivemind.wardens.quarantine.gate for the only way out.
 """

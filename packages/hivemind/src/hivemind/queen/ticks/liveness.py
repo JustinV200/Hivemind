@@ -337,7 +337,7 @@ async def check_liveness(
             continue  # Paused by the Hive itself: its silence is her own doing, never an Alarm.
         if _crossed_miss_limit(deps, liveness, link.warden_id, now):
             # The transition only: one Alarm per Warden per outage, not one per later check;
-            # it reaches the human in the chat too (roadmap step 10.5, ADR-0032).
+            # it reaches the human in the chat too (roadmap step 10.5, ADR-0040).
             alarm = _offline_alarm(deps, link)
             human_inbox.add_alarm(alarm)
             await post_alarm(deps, alarm)

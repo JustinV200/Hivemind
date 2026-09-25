@@ -1,6 +1,6 @@
 """Hold the Entrance's in-memory limits: rate limits, and the denial burst that locks a device.
 
-The Hive Entrance (the Hive's one HTTP door) bounds how hard anything may knock (ADR-0033):
+The Hive Entrance (the Hive's one HTTP door) bounds how hard anything may knock (ADR-0041):
 ``rate`` is ``RateLimiter``, token buckets per device (``rate_limit_per_device``), per address
 (``rate_limit_per_address``) and per device's seconds of audio (``[entrance.voice]
 audio_seconds_per_minute``); ``denials`` is ``DenialCounter``, which locks a device whose
@@ -16,7 +16,7 @@ Key invariants:
     - This file holds re-exports and ``__all__`` only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
       limits, travel lock".
 
 Public API:

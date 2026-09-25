@@ -1,6 +1,6 @@
 """Define the Night Veil facts and checks the dispatcher adds before a Cell is chosen or armed.
 
-Roadmap steps 10.3a and 10.3c (ADR-0030, ADR-0031): Night Veil work starts only from a human's
+Roadmap steps 10.3a and 10.3c (ADR-0030, ADR-0039): Night Veil work starts only from a human's
 own durable goal request naming the tier, and runs only on a fresh Virtual Cell whose control
 link is the Hive Stand's hidden service reached through Tor. The Guard's floors judge both from
 the request's context, so `tier_context` adds to `hivemind.queen.authority.task_context` the two

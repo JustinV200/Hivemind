@@ -2,7 +2,7 @@
 
 Anything that needs the human (a question, an Alarm that reached the human, a reply from the
 Queen, a finished goal, an Entrance security event) must reach whichever device they are on
-without the device polling (ADR-0034). A push carries a notice, never content: an event id, a
+without the device polling (ADR-0042). A push carries a notice, never content: an event id, a
 kind, the id of the item and a time; the device fetches the item itself over its authenticated
 session when the human looks. ``models`` defines the notice and the subscription; ``base`` the
 ``PushChannel`` protocol; ``webhook`` (programs, signed with the Hive's key), ``web_push``
@@ -27,7 +27,7 @@ Key invariants:
     - Nothing here logs a key, an auth secret, an endpoint or a payload.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the decisions.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the decisions.
     - .claude/codingrules.md section 8.15 ("Push, not polling") and section 8.1 (PushChannel).
 
 Public API:

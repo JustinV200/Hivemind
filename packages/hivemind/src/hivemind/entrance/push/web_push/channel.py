@@ -4,7 +4,7 @@ A browser (or a phone's UnifiedPush distributor, roadmap 12.12) subscribes with 
 public key and registers the endpoint and keys it got back; ``WebPush`` then POSTs each notice to
 that endpoint, encrypted so the push service cannot read it (RFC 8291, ``ece``), signed so the
 push service knows it is the Hive (RFC 8292, ``vapid``), and shaped so the push service learns as
-little as possible (ADR-0034): every plaintext is the notice JSON padded to exactly
+little as possible (ADR-0042): every plaintext is the notice JSON padded to exactly
 ``NOTICE_PADDED_BYTES`` before encryption, so every body has the same length whatever the kind;
 the ``Topic`` is keyed (``topic``), so it lets a ``withdrawn`` notice replace an undelivered
 original without being an identifier anyone else can compute. ``TTL`` and ``Urgency`` are set
@@ -28,7 +28,7 @@ Key invariants:
 
 See Also:
     - RFC 8030 section 5 (TTL, Urgency, Topic), RFC 8291, RFC 8292.
-    - docs/adr/0034-landing-board-versioning-and-push.md for the padding, Topic and header rules.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the padding, Topic and header rules.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from hivemind.entrance.push.web_push.ece import ReceiverKeys, encrypt
 from hivemind.entrance.push.web_push.topic import topic_for
 from hivemind.entrance.push.web_push.vapid import VapidSigner
 
-NOTICE_PADDED_BYTES = 512  # ADR-0034: every plaintext is padded to this, so lengths reveal nothing.
+NOTICE_PADDED_BYTES = 512  # ADR-0042: every plaintext is padded to this, so lengths reveal nothing.
 WEB_PUSH_TIMEOUT_S = 10.0  # One POST to a push service; they answer in well under a second.
 WAITING_TTL_S = 24 * 60 * 60  # A push service holds a "something is waiting" notice for a day.
 # A withdrawal must still reach a phone that was off for days, to clear the notice it shows.

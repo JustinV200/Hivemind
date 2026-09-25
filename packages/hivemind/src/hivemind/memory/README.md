@@ -49,7 +49,7 @@ nothing accumulates as a conversation.
 - `checkpoint.py` -- `write_checkpoint`/`read_handoff`, the write and read paths for a `Handoff`;
   `write_checkpoint` also deposits the Handoff (and, when given one, its transcript) into Bee Bread.
   `read_handoff` refuses a tainted Handoff with `TaintedMemoryError` (roadmap step 10.6d).
-- `taint/` -- the taint label (roadmap step 10.6d, ADR-0035, docs/guard/tainted-memory.md):
+- `taint/` -- the taint label (roadmap step 10.6d, ADR-0043, docs/guard/tainted-memory.md):
   `TaintMarker` (state, closed `TaintSource`, reason, the `memory.tainted` event that set it) on
   every Handoff, episode record and Bee Bread entry (and, from phase 7, Nectar and Honey items);
   its transition table (`state`); `TaintScope` (which slice of memory one taint covers, by author,

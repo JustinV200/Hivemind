@@ -1,7 +1,7 @@
 """Provide RateLimiter: token buckets per device and per network address, bounded in memory.
 
 The Hive Entrance (the Hive's one HTTP door) limits how often one device, and one network address,
-may knock (ADR-0033): ``rate_limit_per_device`` requests a minute per enrolled device, and
+may knock (ADR-0041): ``rate_limit_per_device`` requests a minute per enrolled device, and
 ``rate_limit_per_address`` per address, which also bounds every unauthenticated route (enrolment,
 login challenges). Each key has a token bucket holding up to a minute's allowance and refilling at
 that rate, so a device may burst a minute's worth and then keeps its steady rate. An invalid login
@@ -31,7 +31,7 @@ Key invariants:
     - Synchronous and never awaiting, so each call is atomic on the event loop without a lock.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
       limits, travel lock".
 """
 

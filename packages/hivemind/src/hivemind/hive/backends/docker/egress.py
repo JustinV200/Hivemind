@@ -1,6 +1,6 @@
 """Cut and restore a dual-homed Docker Cell's egress, leaving its control network alone.
 
-Isolation (roadmap step 10.6a, ADR-0035) sets a Cell's egress to none except its Waggle link. A
+Isolation (roadmap step 10.6a, ADR-0043) sets a Cell's egress to none except its Waggle link. A
 Docker Cell of a Hive with a control subnet is dual-homed (`hivemind.hive.backends.docker.network`
 has the design): its link rides the per-Hive internal control network, and everything else rides
 its own per-policy network, which carries the default route. Cutting is detaching the container

@@ -1,7 +1,7 @@
 """Tell the human's devices that something is waiting: the Queen's channel and security notices.
 
 The Hive Entrance (the Hive's one HTTP door) pushes "something is waiting" to the human's devices
-(ADR-0034) for two callers: the Queen, through her ``HumanChannel`` seam (a reply, a question, an
+(ADR-0042) for two callers: the Queen, through her ``HumanChannel`` seam (a reply, a question, an
 Alarm, a goal's outcome), and the Entrance's own flows, through enrolment's ``SecurityNotifier``
 seam (a device asking to join, a lock, a held request, a reduction). Both only queue: ``outbox``
 holds the ``PushOutbox`` the Entrance runs in the background, delivering through the
@@ -20,7 +20,7 @@ Key invariants:
     - Nothing here awaits a delivery on a caller's path, and no notice carries content.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the notice and its audiences.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the notice and its audiences.
     - hivemind.queen.chat.channel for the HumanChannel seam.
 
 Public API:

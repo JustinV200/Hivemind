@@ -1,6 +1,6 @@
 """Serve the auth resource: the login ceremony, logout, and step-up on an open session.
 
-Login is two unauthenticated calls on either listener (ADR-0033): ``POST /v1/auth/challenge`` issues
+Login is two unauthenticated calls on either listener (ADR-0041): ``POST /v1/auth/challenge`` issues
 a single-use, 60-second challenge for a device (a browser registers its session's WebCrypto key in
 the same call), and ``POST /v1/auth/login`` answers it with the device's proof and the operator
 password, the proof checked first; the session opened is bound to the device's key and to the
@@ -19,7 +19,7 @@ Key invariants:
     - A token is answered once, by login, and never logged.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the ceremony.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the ceremony.
     - hivemind.entrance.models.auth for the bodies.
 """
 

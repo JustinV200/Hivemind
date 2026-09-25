@@ -27,7 +27,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md step 10.5b for the push channel that implements this protocol.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
 """
 
 from __future__ import annotations

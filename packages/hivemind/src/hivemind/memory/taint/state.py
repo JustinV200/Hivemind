@@ -1,6 +1,6 @@
 """Define the taint label's one transition table: unlabelled or CLEARED -> TAINTED -> CLEARED.
 
-Appendix C's "Taint label" row (roadmap step 10.6d, ADR-0035). The label is a small state machine
+Appendix C's "Taint label" row (roadmap step 10.6d, ADR-0043). The label is a small state machine
 codingrules section 9 requires a single table for, built like `hivemind.memory.cell_wax.state`: an
 item with no marker (`None`) may become TAINTED (the one setter, `hivemind.memory.taint.set.
 taint_memory`); a TAINTED item may become CLEARED (the one clearer, `hivemind.memory.taint.clear.

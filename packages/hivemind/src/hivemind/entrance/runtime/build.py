@@ -21,7 +21,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.runtime.parts for what is passed in.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the process shape.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the process shape.
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ hands its `definitions()` to `hivemind.llm.run_tool_loop` as the tools a model m
 validates a call's schema itself before ever invoking a `ToolExecutor`, but this registry validates
 again on `execute` (codingrules section 15: "Tool calls proposed by a model are validated against
 the tool's schema and the Worker's capabilities before execution" -- true whichever caller reaches
-`ToolRegistry.execute` directly, not only through the ladder). Roadmap step 10.3 (ADR-0031):
+`ToolRegistry.execute` directly, not only through the ladder). Roadmap step 10.3 (ADR-0039):
 `execute` is the `tool_invocation` enforcement point -- the Worker must hold `tool:<name>` before a
 tool runs, checked through the Guard's `Enforcer`, and a refusal comes back to the model as a clear
 line (and onto the trail as `guard.denied`), never an exception. `ToolInvocation` is the one bundle
@@ -13,7 +13,7 @@ every `ToolRunner` receives: a Worker's tools need the current `TaskAssign` (for
 and clearance, when they build a Capping `Proposal`) as well as `WorkerContext`, and codingrules
 section 8.7's "never a provider, a subprocess handle" pattern for `WorkerContext` itself argues
 against stashing one task's assignment onto that shared value, so it travels alongside instead.
-Roadmap step 10.6b (ADR-0035): every result a tool returns is outside text, so `execute` hands it
+Roadmap step 10.6b (ADR-0043): every result a tool returns is outside text, so `execute` hands it
 to the untrusted-content scanner (`hivemind.workers.tools.screen`) before the model sees it; a
 `ToolSpec` names where its text comes from (`scan_source`: the Cell's own session, or any other
 tool result), and a flagged result comes back labelled harder or withheld.

@@ -1,7 +1,7 @@
 """Define what the Entrance reads directly: the Hive's stores, and the Queen's live tables.
 
 Reads never change state, so the Hive Entrance reads the stores directly instead of asking the
-Queen (ADR-0032): the Brood Chamber, the Pheromone Trail, memory (episode records), the Queen's
+Queen (ADR-0040): the Brood Chamber, the Pheromone Trail, memory (episode records), the Queen's
 goal-request table and chat log, and her Forage ledger. Two things the Hive keeps have no store:
 which Wardens are attached, with their pulse (the Queen is the only global view, codingrules 8.8,
 and keeps them in memory), and each Warden's newest Heartbeat (it never reaches the trail).
@@ -23,7 +23,7 @@ Key invariants:
     - No field holds an API key or a secret: providers are names and kinds.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "The Entrance lives in the
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "The Entrance lives in the
       Queen's process and every write goes through her".
 """
 

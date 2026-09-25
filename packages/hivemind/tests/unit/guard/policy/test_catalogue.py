@@ -1,6 +1,6 @@
 """Tests for hivemind.guard.policy.catalogue: every trail kind placed, every built point wired.
 
-Roadmap step 10.3 (ADR-0031, "Every state-changing action has a named enforcement point"). The
+Roadmap step 10.3 (ADR-0039, "Every state-changing action has a named enforcement point"). The
 first test is the gap-closer: a new trail kind that nobody placed -- neither authorised at a point
 nor explained as no action -- fails here, as does a kind placed twice or a placed kind the trail no
 longer defines. The second half holds, in this file on purpose, the registry of call sites

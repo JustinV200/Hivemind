@@ -1,6 +1,6 @@
 """Contract suite for SessionTable: one contract, run over every implementation.
 
-Sessions and the nonces their requests spend (roadmap 10.5e, ADR-0033): a session is put open and
+Sessions and the nonces their requests spend (roadmap 10.5e, ADR-0041): a session is put open and
 once, ends once and is never touched again, and a nonce is granted once until it expires. The suite
 runs over ``EntranceStore.sessions`` of both stores and over ``SplitSessionTable``, which also
 proves the console's volatile sessions stay out of the durable table.

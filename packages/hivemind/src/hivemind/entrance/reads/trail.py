@@ -1,6 +1,6 @@
 """Read the Pheromone Trail a page at a time, from a cursor, filtered as the caller asks.
 
-The trail route pages the Hive's audit log (ADR-0032) without an offset, which a live log would
+The trail route pages the Hive's audit log (ADR-0040) without an offset, which a live log would
 shift under the reader. The trail's order is ``(at, node_id)`` with ties kept as recorded, and many
 events share one instant, so a cursor that is only a time would skip or repeat them. A cursor here
 is an instant and how many events at exactly that instant were already read (``TrailCursor``):

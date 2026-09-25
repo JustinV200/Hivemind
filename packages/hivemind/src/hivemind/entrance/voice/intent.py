@@ -1,6 +1,6 @@
 """Define VoiceIntent: what a person means by a clip, a goal, an answer to a question, or chat.
 
-A clip at the Landing Board (the Hive Entrance's versioned API) arrives with an intent (ADR-0032):
+A clip at the Landing Board (the Hive Entrance's versioned API) arrives with an intent (ADR-0040):
 ``goal`` (the words are a goal, echoed back for confirmation before anything is spent),
 ``answer:<question id>`` (the words answer a question waiting on the human, straight through, as a
 typed answer does) or ``chat`` (the words are a message to the Queen, entering her inbox as typed
@@ -19,7 +19,7 @@ Key invariants:
     - ``INTENT_PATTERN`` accepts no text that ``VoiceIntent.parse`` would not.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, the audio intents.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, the audio intents.
     - hivemind.entrance.voice.door for what each intent leads to.
 """
 

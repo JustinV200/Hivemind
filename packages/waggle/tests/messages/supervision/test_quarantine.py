@@ -1,6 +1,6 @@
-"""Tests for Waggle 1.7's quarantine lever: SECURITY, QUARANTINE and Intervene.suspect_episode_id.
+"""Tests for Waggle 1.9's quarantine lever: SECURITY, QUARANTINE and Intervene.suspect_episode_id.
 
-Roadmap steps 10.6 and 10.6c (ADR-0035) bump the protocol one minor: `AlarmKind` gains `SECURITY`,
+Roadmap steps 10.6 and 10.6c (ADR-0043) bump the protocol one minor: `AlarmKind` gains `SECURITY`,
 `InterventionAction` gains `QUARANTINE`, and `Intervene` gains `suspect_episode_id`, the episode
 from which the quarantined bee's memory is suspect. These tests pin the new field's round trip and
 its refusals (required exactly for QUARANTINE, which must also name its bee), that a 1.6 frame
@@ -67,7 +67,7 @@ def _quarantine(**changes: object) -> Intervene:
 
 def test_the_protocol_is_at_minor_seven_or_later() -> None:
     # Minor 7 introduced the lever; every later minor still carries it unchanged (additive only).
-    assert PROTOCOL_MINOR >= 7 and f"1.{PROTOCOL_MINOR}" == PROTOCOL_VERSION
+    assert PROTOCOL_MINOR >= 9 and f"1.{PROTOCOL_MINOR}" == PROTOCOL_VERSION
 
 
 def test_a_quarantine_round_trips_with_its_suspect_episode() -> None:

@@ -3,7 +3,7 @@
 A capability can spell a loopback host many ways the string grammar never sees through (`127.1`,
 `2130706433`, `0x7f.1`, or a DNS name whose answer is 127.0.0.1), so a tool that is about to
 connect resolves the host first and asks the Guard about every address it got back
-(ADR-0033: bees never reach the Hive Stand's own state). `Resolver` is that seam: one async call
+(ADR-0041: bees never reach the Hive Stand's own state). `Resolver` is that seam: one async call
 from a name to its addresses. `system_resolver` is the production implementation, the operating
 system's own resolver on the running event loop; `hivemind.guard.net.fake.FakeResolver` answers
 from a table in tests, so nothing under test ever performs a real lookup. `resolve_host` is what a

@@ -290,7 +290,7 @@ rm -f token auth.header
 ## 7. Step-up and held requests
 
 Some requests need a *step-up*: both factors again, fresh, within the last
-`[entrance] step_up_window_minutes` (5 by default). ADR-0033 lists them. They include a goal whose
+`[entrance] step_up_window_minutes` (5 by default). ADR-0041 lists them. They include a goal whose
 `budget_usd` is above `[entrance] step_up_spend`, a goal that would take the device past its daily
 spend cap, capability and key changes, reopening a reduced Entrance, locking another device, and
 the break-glass actions. Without a step-up the answer is `403`, with `ErrorBody.error`

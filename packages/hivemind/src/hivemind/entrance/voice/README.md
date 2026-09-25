@@ -73,7 +73,7 @@ clip; a durable implementation takes the same seam once the Honey Store's Nectar
 ## Voice off
 
 With `[entrance.voice] enabled = false` the route is never mounted (`Switch.VOICE`), so it is a
-404 on both listeners, like any row a listener does not serve (ADR-0034); the published contract
+404 on both listeners, like any row a listener does not serve (ADR-0042); the published contract
 still describes it, with `x-hive-switch`. A push-to-talk hold is refused on the socket with the
 same 404 (`hivemind.entrance.voice_not_served`), and the chat socket serves on.
 

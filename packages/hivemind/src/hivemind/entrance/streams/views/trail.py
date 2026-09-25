@@ -1,7 +1,7 @@
 """Stream the Pheromone Trail as it is written: ``/v1/trail/stream``.
 
 The Observation Hive's trail view follows the audit log live (codingrules 8.11). The stream hub
-already follows the trail once for every view (ADR-0032); this view subscribes to the events a
+already follows the trail once for every view (ADR-0040); this view subscribes to the events a
 client asked for (a family, a kind, or everything) and sends each as a ``TrailFrame``, carrying
 exactly what ``GET /v1/trail`` answers for it. It needs ``observe``: trail events carry no content
 by construction. A client that falls behind is closed with FELL_BEHIND and reconnects, reading

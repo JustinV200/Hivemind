@@ -1,6 +1,6 @@
 """Define PushError and every way the Entrance's push channel refuses something on purpose.
 
-The push channel (ADR-0034) tells an enrolled device that something is waiting for the human, over
+The push channel (ADR-0042) tells an enrolled device that something is waiting for the human, over
 a live WebSocket, a signed webhook or Web Push. It refuses a few things by design: a registration
 from a device that may not subscribe, a destination that points inside the Hive, a subscription
 recorded twice, a malformed push key. Every such refusal is one class here, rooted at
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.errors for the Entrance's root and its other refusals.
-    - docs/adr/0034-landing-board-versioning-and-push.md for what the push channel refuses.
+    - docs/adr/0042-landing-board-versioning-and-push.md for what the push channel refuses.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Serve the devices resource: list devices, read your own, lock, unlock, revoke, re-grant.
 
-Every client is an enrolled device (ADR-0033). ``GET /v1/devices`` lists them (``observe``); ``GET
+Every client is an enrolled device (ADR-0041). ``GET /v1/devices`` lists them (``observe``); ``GET
 /v1/devices/me`` is any session's own record, and ``GET /v1/devices/me/certificate`` its own
 mutual-TLS client certificate, issued at approval, which a device fetches over the listener it
 enrolled on and presents on every connection to a remote listener demanding one. Locking is

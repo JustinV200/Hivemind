@@ -3,7 +3,7 @@
 Codingrules 8.11: every Observation Hive view is data-shaped, one pydantic read model the web app
 renders through TypeScript types generated from the committed OpenAPI document. The Entrance's
 read routes and live views answer with these models, so the Entrance imports them, through
-``hivemind.observation``'s face only (codingrules 4's same-layer corollary, listed in ADR-0032);
+``hivemind.observation``'s face only (codingrules 4's same-layer corollary, listed in ADR-0040);
 nothing here imports the Entrance. Each view carries only what its access allows: the observe
 views hold ids, states, figures and times; anything written from the human's words (a task's
 brief, an episode record, a bee's goal line) is its own model behind ``honey:clearance:c2``.
@@ -16,7 +16,7 @@ Fits into the Hive:
 
 Key invariants:
     - This file holds re-exports and ``__all__`` only.
-    - A change here is a contract change: additive within ``/v1/`` (ADR-0034).
+    - A change here is a contract change: additive within ``/v1/`` (ADR-0042).
 
 See Also:
     - .claude/codingrules.md 8.11 for the views these models serve.

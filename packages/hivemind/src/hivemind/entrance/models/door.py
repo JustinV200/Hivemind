@@ -1,6 +1,6 @@
 """Define the entrance resource's bodies: the door's mode, invites, approvals and held requests.
 
-The ``/v1/entrance`` routes administer the Hive Entrance itself (ADR-0033): its mode (``OPEN`` or
+The ``/v1/entrance`` routes administer the Hive Entrance itself (ADR-0041): its mode (``OPEN`` or
 ``REDUCED``), reducing and reopening it, minting invites, approving or denying the devices asking
 to join (loopback only, or a steward device after full step-up when the manifest allows), and the
 requests held for a person's confirmation. An invite's code is answered once, to the loopback

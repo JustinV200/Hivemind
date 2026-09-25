@@ -1,7 +1,7 @@
 """Wrap each listener's application: security headers, the loopback check, rate and body limits.
 
 Four checks run on every request before any route sees it, as plain ASGI wrappers around the
-FastAPI application so no response, a server error included, escapes them (ADR-0033):
+FastAPI application so no response, a server error included, escapes them (ADR-0041):
 ``SecurityHeaders`` adds ``Content-Security-Policy: default-src 'self'; object-src 'none';
 frame-ancestors 'none'`` (and ``nosniff``, ``no-referrer``) to every response, so nothing can run
 foreign script in the Entrance's origin or frame it; ``LoopbackGate`` (loopback listener only)
@@ -25,7 +25,7 @@ Key invariants:
     - No header value is logged.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never means
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never means
       the open internet" and "Browsers get nothing that can run foreign script".
     - hivemind.entrance.expose.loopback for the Host and forwarding-header rule.
 """

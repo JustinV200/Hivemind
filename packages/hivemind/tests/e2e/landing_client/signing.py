@@ -1,13 +1,13 @@
 """Build every signed string, header and first frame from the document's ``x-hive-signing``.
 
 Every authenticated call to the Landing Board (the Hive Entrance's versioned API) is signed by the
-session's binding key, and enrolment and login are signed by the device key (ADR-0033). A program
+session's binding key, and enrolment and login are signed by the device key (ADR-0041). A program
 written from ``docs/entrance/openapi.json`` alone learns how from its ``x-hive-signing`` extension:
 the tag and field list of each signed string, the header names, and the encodings (lowercase hex
 SHA-256 digests, unpadded base64url nonces and signatures, integer Unix seconds). ``SigningRules``
 reads exactly that. Each field the document lists is filled by its description, through a table
 this client was written against, so a field the document renames or adds makes signing refuse
-(changing a signed string is a breaking change, ADR-0034). Before anything is signed, the rules
+(changing a signed string is a breaking change, ADR-0042). Before anything is signed, the rules
 rebuild the document's own worked example and refuse to start if the result differs from the
 string the document prints, which proves the join and the encodings were read right.
 

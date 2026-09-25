@@ -8,7 +8,7 @@ Key invariants:
 
 See Also:
     - hivemind.queen.dispatcher.grants for the module under test.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for grant_issue.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for grant_issue.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Expose the Hive Entrance beyond loopback only as ADR-0033 allows: never on the open internet.
+"""Expose the Hive Entrance beyond loopback only as ADR-0041 allows: never on the open internet.
 
 The Hive Entrance (the Hive's one HTTP door) always runs its loopback listener, where approval
 lives; ``[entrance] expose`` may add a remote listener: ``vpn`` (recommended: an overlay address on
@@ -26,7 +26,7 @@ Key invariants:
     - No private key, passphrase or tunnel token appears in a log line, an error or a ``repr``.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
       means the open internet".
     - .claude/codingrules.md section 8.15 ("Never on the open internet").
 

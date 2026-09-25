@@ -1,7 +1,7 @@
 """Provide ``hive entrance invite|register|pending|approve|deny``: admit a device, on loopback.
 
 Enrolment at the Hive Entrance (the Hive's HTTP door) is invite, key, pending, approval on
-loopback (ADR-0033). ``invite`` mints a single-use code for a named device and prints it once:
+loopback (ADR-0041). ``invite`` mints a single-use code for a named device and prints it once:
 grouped for reading aloud, as the enrolment link with the code in its fragment, as a terminal QR
 code of that link, with the Hive's id and the ``hive remote enrol`` line a laptop or program runs.
 ``pending`` lists the devices that redeemed an invite and wait. ``approve`` shows the waiting
@@ -29,7 +29,7 @@ Key invariants:
       and the bundle itself goes only to an owner-only file.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Enrolment is
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Enrolment is
       invite, key, pending, approval on loopback".
     - hivemind.entrance.routes.entrance.enrolments for the routes.
 """

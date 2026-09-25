@@ -10,7 +10,7 @@ sub-bee for the same task through `hivemind.wardens.spawn.spawn_sub_bee`, reusin
 grant. `send_alarm_to_queen` mints a brand-new Alarm (a Warden's own, such as `CELL_UNREACHABLE`,
 never a sub-bee's forwarded one); forwarding a sub-bee's own Alarm keeps its `alarm_id` and
 `origin` unchanged and only increments `attempts` (ADR-0012: "the same alarm_id travels unchanged
-at every hop... so no level handles it twice"). Roadmap step 10.3 (ADR-0031): every rebind passes
+at every hop... so no level handles it twice"). Roadmap step 10.3 (ADR-0039): every rebind passes
 the Guard's `slot_binding` point -- a Warden's own REBIND before the old sub-bee is retired (a
 refused target escalates exactly like "no allowed binding left"), a Queen-sent one inside
 `spawn_sub_bee` (a refusal reports the task FAILED with the reason, `report_refused`) -- and a

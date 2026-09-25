@@ -1,6 +1,6 @@
 """Provide FakeInterfaces, a LocalInterfaces answering from a table instead of the operating system.
 
-The exposure check needs a host's interfaces to decide ``vpn`` and ``lan`` (ADR-0033), and a test,
+The exposure check needs a host's interfaces to decide ``vpn`` and ``lan`` (ADR-0041), and a test,
 a demo or ``hive doctor`` needs to put any host in front of it: a laptop on Tailscale, a server with
 carrier-grade NAT on its WAN port, a Mac whose overlay is ``utun4``. ``FakeInterfaces`` is that
 host, built from a mapping of interface names to address strings and parsed exactly as the real

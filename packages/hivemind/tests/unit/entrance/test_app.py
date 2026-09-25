@@ -83,7 +83,7 @@ def test_route_table_declares_listeners_and_access_for_every_row() -> None:
         assert route.path.startswith(API_PREFIX)
         assert Listener.LOOPBACK in route.listeners
         assert route.access.authenticated or route.access.capability is None
-    # Exactly ADR-0033's loopback-only set, so a route joins or leaves it only on purpose: invite
+    # Exactly ADR-0041's loopback-only set, so a route joins or leaves it only on purpose: invite
     # minting (and cancelling, and registering a device offline by its key), approval, denial,
     # unlock, capability widening, revocation, reopening and operator add.
     assert {(route.method, route.path) for route in routes if route.listeners == LOOPBACK_ONLY} == {

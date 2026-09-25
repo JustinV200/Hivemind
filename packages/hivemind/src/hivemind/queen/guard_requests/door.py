@@ -1,6 +1,6 @@
 """Implement GuardRequestDoor for the Queen: file a request durably; show a CRITICAL report once.
 
-ADR-0035: the Guard Bee (the Hive's security watcher, run in the Queen's process) can only
+ADR-0043: the Guard Bee (the Hive's security watcher, run in the Queen's process) can only
 **request** an action aimed at one Cell or one bee, and `hivemind.guard.GuardRequestDoor` is the one
 seam such a request crosses. `QueenGuardDoor` is the Queen's side of it: it refuses a report that
 asks for nothing, writes the request to her own table (`QueenDeps.guard.requests`), committed
@@ -8,7 +8,7 @@ before it returns, so a request filed just before a restart is still decided aft
 her wake signal so her next tick decides it at once. It never decides anything itself: the
 decision is hers, on her own tick, where a request outranks every Alarm and every human message.
 `report_to_human` is the door's other half: a report at CRITICAL confidence reaches the human
-whatever it recommends (ADR-0035), as a SECURITY Alarm naming it, pushed to every device, durable
+whatever it recommends (ADR-0043), as a SECURITY Alarm naming it, pushed to every device, durable
 before the call returns and shown at most once per report id (`.show`). A CRITICAL request is
 filed rather than shown here, so the one Alarm the human gets for it comes from her decision and
 says what she did. `GuardDoor` is the same door as a mixin `hivemind.queen.queen.Queen` inherits,
@@ -85,7 +85,7 @@ class QueenGuardDoor:
             )
         request = GuardRequest(report=report, filed_at=self._deps.clock.now())
         # One local transaction (the Queen's own SQLite file in production), committed before
-        # this returns: that is what "durable before it returns" means (ADR-0035).
+        # this returns: that is what "durable before it returns" means (ADR-0043).
         filed = await self._deps.guard.requests.file(request)
         log.info("queen.guard_request_filed", report_id=report.id, rule=report.rule, fresh=filed)
         # Woken either way: a repeat filing still means the Guard Bee wants a decision soon.
@@ -106,7 +106,7 @@ class QueenGuardDoor:
                 "report is shown to the human; the Guard Bee records the rest alone."
             )
         if report.is_request:
-            # Shown once, by her decision on it, which also says what she did (ADR-0035).
+            # Shown once, by her decision on it, which also says what she did (ADR-0043).
             await self.file_guard_request(report)
             return
         alert = SecurityAlert(

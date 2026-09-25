@@ -25,7 +25,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md, "Answered anywhere, withdrawn
+    - docs/adr/0042-landing-board-versioning-and-push.md, "Answered anywhere, withdrawn
       everywhere".
     - tests.unit.entrance.push.dispatch.test_end_to_end for the dispatcher alone, restart included.
 """

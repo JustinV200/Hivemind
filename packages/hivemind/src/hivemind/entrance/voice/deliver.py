@@ -1,7 +1,7 @@
 """Deliver what a clip said: a goal echoed back (or submitted), an answer, or a chat line.
 
 Once a clip is heard (roadmap step 10.5f), its words go where the same words typed would go, through
-the Queen's door (ADR-0032: every write the Hive Entrance makes goes to her). A spoken goal is a
+the Queen's door (ADR-0040: every write the Hive Entrance makes goes to her). A spoken goal is a
 goal request with source ``spoken``: weighed first against its device's day by the typed goal's own
 rule (``hivemind.entrance.intake.goal_spend``), and refused pending a step-up before anything is
 heard when the device is interactive (a person steps up and speaks again), or held as a pending

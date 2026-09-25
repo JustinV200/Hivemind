@@ -14,7 +14,7 @@ forever; a Warden's `TaskProgress` at stage `PAUSED` (its task held by a quarant
 10.6c) is `PAUSE_TASK`, and any other stage `RECORD`; a `Question` is `BLOCK_ON_QUESTION`; an
 `Answer` is `ROUTE_ANSWER`; a human's chat
 message (`waggle.messages.control.HumanMessage`, roadmap step 10.5) is `NEEDS_JUDGEMENT` by an
-explicit rule, since free text has no deterministic answer (ADR-0032); anything this table has
+explicit rule, since free text has no deterministic answer (ADR-0040); anything this table has
 never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
 (`hivemind.brood_chamber.TERMINAL_STATUSES`) makes a `TaskResult`/`AlarmRaised` about it a no-op
 `RECORD`: a stale or duplicate report about work the Queen already closed out is not a fresh
@@ -67,7 +67,7 @@ __all__ = ["decide"]
 # autopilot-level meaning here: the Queen's own takeover lever (Supervisor.intervene's Takeover) is
 # a considered decision, so a policy row that names it is treated as "this needs a human's
 # attention", the same conservative choice CANCEL's own ESCALATE fallback would make. QUARANTINE
-# is hers to order, never to carry out: the Warden of the Alarm's task does that (ADR-0035).
+# is hers to order, never to carry out: the Warden of the Alarm's task does that (ADR-0043).
 # ISOLATE is hers alone to carry out, through the one isolation path (roadmap step 10.6a).
 _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
     PolicyAction.RETRY: QueenAction.RETRY_TASK,
@@ -125,7 +125,7 @@ def decide(
     if isinstance(payload, Heartbeat):
         return QueenAction.RECORD
     if isinstance(payload, HumanMessage):
-        # ADR-0032: autopilot has no rule for free text; the human's words always wake a model.
+        # ADR-0040: autopilot has no rule for free text; the human's words always wake a model.
         return QueenAction.NEEDS_JUDGEMENT
     # A kind this table has never seen: hand off to queen.awake rather than silently dropping it.
     return QueenAction.NEEDS_JUDGEMENT

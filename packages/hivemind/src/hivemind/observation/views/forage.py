@@ -2,7 +2,7 @@
 
 Forage is the Hive's capacity in several dimensions (codingrules 8.10), divided by the Queen by
 grant. Her ledger is the live book of it, and ``ForageView`` is that book as the Observation Hive's
-Forage view reads it (ADR-0032: reads go to the stores directly): every Cell's latest capacity
+Forage view reads it (ADR-0040: reads go to the stores directly): every Cell's latest capacity
 report, every live grant (a lease with an expiry and budgets), the headroom those leave in the
 shared pool, and the Royal Reserve held back first. A grant's reason and its model bindings stay
 out: the reason is the allocator's prose and the bindings name model ids that belong to the LLM

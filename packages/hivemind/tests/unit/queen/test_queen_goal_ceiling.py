@@ -1,8 +1,8 @@
 """Tests for a goal's capability set on the Queen's side: carried, placed under, refused by.
 
-Roadmap step 10.3 (ADR-0031, "A goal carries a ceiling"): `Queen.submit_goal` threads the
+Roadmap step 10.3 (ADR-0039, "A goal carries a ceiling"): `Queen.submit_goal` threads the
 submitter's set to every planned task, the dispatcher sends it (and the task's network scopes) on
-the Waggle 1.6 `task.assign`, and a goal whose set admits no Cell fails placement with one
+the Waggle 1.8 `task.assign`, and a goal whose set admits no Cell fails placement with one
 `guard.denied` per capability it lacked, once: the task is cancelled with the reason, because a
 goal's set never changes and a PENDING task would be refused again on every tick.
 

@@ -35,7 +35,7 @@ def _slice(deps: WardenDeps, assignment: TaskAssign, level: AccessLevel) -> Capa
 
 
 def test_a_tasks_network_scope_reaches_the_worker_as_net_on_a_full_cell() -> None:
-    # Waggle 1.6: before it, a task's network needs never reached its Warden at all.
+    # Waggle 1.8: before it, a task's network needs never reached its Warden at all.
     deps, _queen_end, _warden_id = make_warden_deps()
     assignment = make_assignment(network_scopes=("api.example.com",))
 

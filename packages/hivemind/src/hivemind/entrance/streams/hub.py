@@ -1,7 +1,7 @@
 """Provide StreamHub: follow the Pheromone Trail once and fan its events out to every subscriber.
 
 Clients never poll (codingrules 8.11): each live view of the Hive Entrance is a WebSocket fed from
-durable state. ``StreamHub`` is the one reader of the trail for all of them (ADR-0032): ``run``
+durable state. ``StreamHub`` is the one reader of the trail for all of them (ADR-0040): ``run``
 follows it with ``hivemind.pheromone.follow`` from the moment it starts, and hands every event to
 every ``StreamSubscription`` whose filter accepts it. Each subscription is a bounded queue: a
 subscriber that falls ``backlog`` events behind is closed with a reason instead of slowing the
@@ -21,7 +21,7 @@ Key invariants:
     - Closing is idempotent, and a closed subscription is dropped from the hub.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view, fed
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view, fed
       from durable state".
     - hivemind.pheromone.trail.tail for ``follow``.
 """

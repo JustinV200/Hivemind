@@ -1,6 +1,6 @@
 """Refuse every bee the Hive's own state: its files, its entry points, its loopback and addresses.
 
-ADR-0033, "Bees never touch the Hive's own state", as a floor (ADR-0031): whatever a Warden's or a
+ADR-0041, "Bees never touch the Hive's own state", as a floor (ADR-0039): whatever a Warden's or a
 Worker's set holds, it is refused `fs:read` and `fs:write` on the Hive's state paths (the database
 and its SQLite siblings, the secret store and everything under it, the manifest), `exec` of the
 Hive's own entry points (`hive`, and every `hivemind-*` console script, matched on the basename of
@@ -15,7 +15,7 @@ is compared in `comparable_path` form; a write is also refused on a directory th
 (replacing or removing it would take the state with it), and a scope that is itself a glob
 pattern is refused whenever its literal prefix could reach state, because a pattern proves
 nothing about which paths it will name. This narrows what an injected bee can do with its tools;
-it cannot parse every command a bee might run (ADR-0033 records that limit).
+it cannot parse every command a bee might run (ADR-0041 records that limit).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.guard.policy.floors`.
@@ -31,7 +31,7 @@ Key invariants:
     - Refuses and never allows: an action this floor does not refuse still has to be held.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
     - hivemind.guard.policy.hive_state for HiveState and comparable_path.
     - hivemind.guard.net for the address predicates.
 """

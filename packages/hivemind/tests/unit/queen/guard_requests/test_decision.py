@@ -1,6 +1,6 @@
 """Tests for the Queen's decision on a Guard request: rule, judgement, fallback, trail and human.
 
-Roadmap step 10.6a (ADR-0035). A request under a dire pattern isolates by rule, with no model
+Roadmap step 10.6a (ADR-0043). A request under a dire pattern isolates by rule, with no model
 asked; any other is judged by one awake episode with the report's facts attached, which may
 isolate, quarantine or dismiss; when no episode can decide (her model is clustered, it fails, or it
 answers outside those three) the fallback isolates. Every decision is `queen.decided` with the

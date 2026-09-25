@@ -1,11 +1,11 @@
 """Serve the human's two Cell isolation levers: isolate a Cell, and lift its isolation.
 
-ADR-0035 (roadmap step 10.6a) leaves two things to the human alone: isolating the Hive Stand's own
+ADR-0043 (roadmap step 10.6a) leaves two things to the human alone: isolating the Hive Stand's own
 lease (the Queen isolates any other Cell herself, never that one) and lifting any isolation (the
 Queen never lifts on her own). ``POST /v1/cells/{cell_id}/isolate`` and ``/lift`` are those levers.
 Both need an interactive device inside its step-up window (``require_step_up`` with nothing to
 hold: a program cannot step up, so it is refused, never queued) and ``entrance:steward``, the
-access family ADR-0031 reserves to the human alone (the operator and the devices approved with it;
+access family ADR-0039 reserves to the human alone (the operator and the devices approved with it;
 no bee ever holds it): isolating or lifting a Cell is stewardship of the Hive, not giving it work
 (``entrance:submit``) or reading it (``observe``). Both are served on both listeners, like every
 other lever an interactive device pulls (locking a lost phone). Each goes through the Queen's door
@@ -46,7 +46,7 @@ from hivemind.entrance.routes.isolation.views import (
 )
 from waggle.ids import CellId
 
-STEWARD = "entrance:steward"  # The human's own family (ADR-0031): no bee ever holds it.
+STEWARD = "entrance:steward"  # The human's own family (ADR-0039): no bee ever holds it.
 
 CellIdPath = Annotated[
     str, Path(pattern=r"^cell_[0-9A-HJKMNP-TV-Z]{26}$", description="The Cell's id.")

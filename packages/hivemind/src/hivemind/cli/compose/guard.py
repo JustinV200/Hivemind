@@ -1,7 +1,7 @@
 """Build the Hive's Guard policy from a manifest, with the Hive's own state named on it.
 
 Roadmap step 10.3 builds the Guard policy from `[guard]` (its policy file, or the shipped one,
-overlaid); ADR-0033 adds what no bee may touch or reach, whatever its set says: the Hive's own
+overlaid); ADR-0041 adds what no bee may touch or reach, whatever its set says: the Hive's own
 state. `hive_state` names it from the manifest and this machine: the resolved `[hive] db` file
 (with its SQLite siblings), the resolved `[hive] secrets_dir` and everything under it, the
 manifest file itself, and every address this machine's own interfaces answer on (the Hive
@@ -41,7 +41,7 @@ Key invariants:
       made before it was bound rather than drop a request.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
       the Hive's own state".
     - hivemind.guard.policy.hive_state for HiveState, what this builds.
 """

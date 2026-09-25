@@ -2,7 +2,7 @@
 
 Under mutual TLS (``lan`` and ``tunnel`` always, ``vpn`` when ``mutual_tls`` is on) the remote
 listener admits only devices holding a client certificate from the Hive's own authority, and
-login is the gate behind that one (ADR-0033). ``authority`` creates the authority once (its key in
+login is the gate behind that one (ADR-0041). ``authority`` creates the authority once (its key in
 the secret store) and loads it after; ``issue`` signs a device's certificate from its request, or
 seals a fresh key and certificate into a PKCS#12 bundle for a browser; ``revocation`` builds the
 list of certificates taken back; ``context`` builds the listener's TLS context from the plan, the
@@ -21,7 +21,7 @@ Key invariants:
       speaks TLS 1.3 only and never resumes a session.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "lan and tunnel:
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "lan and tunnel:
       mutual TLS on top".
     - hivemind.entrance.expose.plan for the TLS settings a context is built from.
 

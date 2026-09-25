@@ -1,6 +1,6 @@
 """Tests for the taint order: an isolation tells the Cell's Warden to taint its own memory store.
 
-Roadmap step 10.6a (ADR-0035). A Virtual Cell's Warden keeps its memory inside the Cell, where the
+Roadmap step 10.6a (ADR-0043). A Virtual Cell's Warden keeps its memory inside the Cell, where the
 Queen's label on the Hive's tables cannot reach, so isolating a Cell sends its Warden a
 `CellTaintOrder` naming the very scope and cause she labelled with: the Cell's bees and tasks,
 from the first cited event (or the isolation's start), caused by `cell.isolated`, which keeps that

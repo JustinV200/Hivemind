@@ -1,11 +1,11 @@
-# ADR-0034: The Landing Board is versioned by path and pushes only "something is waiting"
+# ADR-0042: The Landing Board is versioned by path and pushes only "something is waiting"
 
 - Status: Accepted
 - Date: 2026-09-24
 
 ## Context
 
-The Landing Board (the Hive Entrance's public API contract, ADR-0032) is used by programs the Hive
+The Landing Board (the Hive Entrance's public API contract, ADR-0040) is used by programs the Hive
 does not ship: a home automation hub, another agent framework, a script on a laptop. They are
 written from `docs/entrance/openapi.json` alone, so the document is a promise, and changing a
 route breaks someone we cannot see. Anything that needs the human (a question, an Alarm that
@@ -27,7 +27,7 @@ a breaking change and ships as `/v2/`, with `/v1/` kept for one Brood release be
 committed as `docs/entrance/openapi.json` and a test fails when the generated document differs
 from the committed one, so every route change is a visible contract diff in review. The document
 declares the authentication scheme (`securitySchemes`, plus an `x-hive-signing` extension giving
-every signed string and encoding of ADR-0033), and each operation carries `x-hive-capability` (the
+every signed string and encoding of ADR-0041), and each operation carries `x-hive-capability` (the
 capability a device must hold) and `x-hive-listeners` (`loopback`, or `loopback` and `remote`); a
 loopback-only operation is still described, so a client knows it exists, while the remote
 listener answers it with a 404.
@@ -48,7 +48,7 @@ subscription)`, `withdraw(ref, subscription)`), with:
 - `websocket.py` for live clients: an authenticated `/v1/push/stream` socket; delivery is a frame.
 - `webhook.py` for programs: an HTTPS POST of the notice JSON to the URL the device registered,
   signed with the Hive's Ed25519 key over `hive-webhook-v1`, the subscription id, the event id, a
-  timestamp and the body's SHA-256 (ADR-0033's encodings), in `X-Hive-Signature` with the timestamp
+  timestamp and the body's SHA-256 (ADR-0041's encodings), in `X-Hive-Signature` with the timestamp
   in `X-Hive-Timestamp`. Every attempt is signed afresh with a new timestamp, so a retry never
   arrives expired; the event id stays the same (receivers dedupe on it); and because the
   subscription id is signed, a notice captured from one receiver cannot be replayed to another.

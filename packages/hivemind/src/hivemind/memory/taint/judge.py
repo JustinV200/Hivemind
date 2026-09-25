@@ -1,6 +1,6 @@
 """Define the taint judge: TaintJudge, what it is shown, its verdict, and the model-backed one.
 
-Roadmap step 10.6d (ADR-0035): "Only a judge verdict on the taint rubric, with no shared context,
+Roadmap step 10.6d (ADR-0043): "Only a judge verdict on the taint rubric, with no shared context,
 clears it." This is the same judge machinery the Capping gate's independent review uses
 (`hivemind.wardens.judge.ModelJudgeReviewer`, roadmap 4.10), applied to memory: `ModelTaintJudge`
 builds one request fresh from a `TaintReview` alone (the item's kind, who labelled it and why,

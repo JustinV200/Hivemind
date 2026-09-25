@@ -2,7 +2,7 @@
 
 The Pheromone Trail is the Hive's audit log (codingrules 12), and it carries no content by
 construction: ids, kinds, times and bounded identifier-only payloads. ``GET /v1/trail`` reads it
-directly (ADR-0032) under ``observe``: filtered by family, kind and subject, bounded by ``since``
+directly (ADR-0040) under ``observe``: filtered by family, kind and subject, bounded by ``since``
 and ``until``, oldest first or newest first, a page at a time from a cursor. Each page's ``next``
 names where the following page starts (an instant, and how many events at exactly that instant
 the caller already has), to be passed back with the same filters. The query string is one

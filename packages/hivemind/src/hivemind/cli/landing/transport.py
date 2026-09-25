@@ -2,7 +2,7 @@
 
 A CLI device talks to exactly one Entrance (the Hive's HTTP door): the loopback listener on the
 Hive Stand (``http://localhost:<port>``) or a remote listener on a VPN overlay (``https://`` on a
-DNS name, ADR-0033). ``EntranceAddress`` is that choice, validated once: plain ``http`` only for a
+DNS name, ADR-0041). ``EntranceAddress`` is that choice, validated once: plain ``http`` only for a
 loopback host (the one place TLS is not needed, because the traffic never leaves the machine), and
 ``https`` everywhere else, verified either against the system's trust store or, for a Hive that
 runs its own certificate authority, against only the CA file the operator named. A device holding
@@ -24,7 +24,7 @@ Key invariants:
     - Certificates are always verified; there is no switch that turns verification off.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
       means the open internet, and remote always means TLS on a name".
 """
 

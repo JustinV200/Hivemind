@@ -1,6 +1,6 @@
 """Classify every Pheromone Trail event kind: the point that authorises it, or why it is no action.
 
-ADR-0031 closes the "a new action ships without a check" gap through the one list every
+ADR-0039 closes the "a new action ships without a check" gap through the one list every
 state-changing action already has to join: the trail vocabulary (codingrules section 12 makes
 every such action a trail event). This module is that classification as plain data. Each kind is
 either authorised at a named `EnforcementPoint` (the action it records only happens once that
@@ -25,7 +25,7 @@ Key invariants:
       either wired at a named call site or pending with the step that wires it.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Every state-changing
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Every state-changing
       action has a named enforcement point".
     - hivemind.pheromone.events.families for the vocabulary classified here.
     - hivemind.guard.policy.points for EnforcementPoint.

@@ -10,7 +10,7 @@ envelope id too, because `waggle.messages.supervision.Answer` is a reply
 the id of *some* request envelope, even though the receiving sub-bee's own `hivemind.workers.
 runtime.mailbox.Mailbox.resolve_answer` only ever matches on `answer.question_id` itself.
 
-Roadmap step 10.3 (ADR-0031): forwarding is the `question_routing` enforcement point, the Worker
+Roadmap step 10.3 (ADR-0039): forwarding is the `question_routing` enforcement point, the Worker
 at the Warden -- a Question goes up the chain toward the human only when the asking sub-bee's own
 set holds `question:human`, checked through the Guard's `Enforcer`. A refused Question is answered
 straight back down the sub-bee's own link as a WARDEN Answer naming the reason (already a

@@ -1,6 +1,6 @@
 """Drive the Landing Board as a third-party program would: from the committed document alone.
 
-The Landing Board (the Hive Entrance's versioned HTTP and WebSocket API, ADR-0034) promises that a
+The Landing Board (the Hive Entrance's versioned HTTP and WebSocket API, ADR-0042) promises that a
 program written from ``docs/entrance/openapi.json`` alone works. This package is that program, kept
 honest by what it imports: the standard library, ``httpx``, ``websockets`` and ``cryptography``,
 never ``hivemind``, ``waggle`` or the test builders (a test asserts it). ``LandingBoard`` reads the

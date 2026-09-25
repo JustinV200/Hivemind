@@ -1,6 +1,6 @@
 """Define authorize_binding: the slot_binding enforcement point, before a sub-bee is bound.
 
-Roadmap step 10.3 (ADR-0031): binding a sub-bee to a model is `llm:<slot>`, and a binding must stay
+Roadmap step 10.3 (ADR-0039): binding a sub-bee to a model is `llm:<slot>`, and a binding must stay
 inside two limits at once -- the Forage grant it runs under (a grant names the slots its sub-bees
 may draw on, `GrantIssued.allowed`) and the sub-bee's own capability set (a Drone holds
 `llm:worker`, never `llm:queen`). Every binding goes through here: a sub-bee's first binding at
@@ -31,7 +31,7 @@ Key invariants:
       called local: the Night Veil floor fails closed on it.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for slot binding.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for slot binding.
     - hivemind.forage.map.slot_for_binding for how a named binding resolves to its slot.
 """
 

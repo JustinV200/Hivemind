@@ -18,18 +18,18 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   `Postcondition`, `PlannedLeaving` (roadmap step 5.0b: one path a task's plan declares should
   stay on its Cell, carried unchanged by a `TaskDraft`, a stored `Task` and a `task.assign`),
   `PlatformReport`, `HostCapacityReport`, ...), so no family file imports another.
-- Waggle 1.6 (roadmap step 10.3): `task.assign` carries `capabilities` (the task's goal set, bounded
+- Waggle 1.8 (roadmap step 10.3): `task.assign` carries `capabilities` (the task's goal set, bounded
   in count and length; None from an older peer or the operator's own path) and `network_scopes`
   (the task's needs, so a Worker can be given `net` at all), both in `task/assignment.py`.
-- Waggle 1.7 (roadmap steps 10.6 and 10.6c, ADR-0035): `supervision/alarms.py`'s `AlarmKind` gains
+- Waggle 1.9 (roadmap steps 10.6 and 10.6c, ADR-0043): `supervision/alarms.py`'s `AlarmKind` gains
   `SECURITY`, and `supervision/oversight.py`'s `InterventionAction` gains `QUARANTINE`, whose
   `Intervene` names the bee (`subject` or `task_id`) and carries `suspect_episode_id`, the episode
   from which that bee's memory is suspect (required exactly for `QUARANTINE`, by validator).
-- Waggle 1.8 (roadmap step 10.6): `forage.grant_issued` carries `audit_raises`, every Capping
+- Waggle 1.10 (roadmap step 10.6): `forage.grant_issued` carries `audit_raises`, every Capping
   audit-rate raise the Guard Bee has in force when the grant is issued (`RaisedAuditRate`, in
   `forage/values.py`: the tier by name, the raised rate, when it lapses; at most one per tier, by
   validator), so every Warden's gate, a Virtual Cell's in-Cell one included, samples at it.
-- Waggle 1.8 (roadmap step 10.6a, ADR-0035): `cell/taint.py` adds `cell.taint_order`
+- Waggle 1.10 (roadmap step 10.6a, ADR-0043): `cell/taint.py` adds `cell.taint_order`
   (`CellTaintOrder`), the Queen's order to an isolated Cell's Warden to taint the memory store it
   keeps inside the Cell: the Cell, the `cell.isolated` event as the cause, `suspect_at`, and the
   bees and tasks it covers (bounded; at least one, by validator).

@@ -1,6 +1,6 @@
 """Load the Guard policy: the shipped TOML or an operator's file, with `[guard]` applied on top.
 
-The Guard policy is data (ADR-0031): each policy role's default capability set, a hive-wide deny
+The Guard policy is data (ADR-0039): each policy role's default capability set, a hive-wide deny
 list and what a denial at each enforcement point escalates to. Every Hive starts from the file
 shipped in `hivemind.guard.defaults`; an operator may replace it (`[guard] policy_file`) and may
 overlay it from the manifest (`[guard.roles.<role>]` replaces a role's list, `deny` adds denials,
@@ -25,7 +25,7 @@ Key invariants:
       ever adds to the file's, so a manifest cannot remove a denial the policy file makes.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the policy model.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the policy model.
     - hivemind.guard.defaults for the shipped policy.toml.
     - hivemind.manifest.schema.guard for GuardSection, the shape both sources share.
     - hivemind.supervision.policy.load_policy for the same shipped-or-file pattern.

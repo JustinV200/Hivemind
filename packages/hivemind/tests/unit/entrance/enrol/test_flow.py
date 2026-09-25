@@ -18,7 +18,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.enrol for the package under test.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the lifecycle.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the lifecycle.
 """
 
 from __future__ import annotations

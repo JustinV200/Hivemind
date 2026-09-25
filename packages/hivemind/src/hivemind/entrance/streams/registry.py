@@ -1,6 +1,6 @@
 """Provide SocketRegistry: every live WebSocket, so each one closes the moment its session ends.
 
-ADR-0033: every socket of a session closes when the session ends for any reason (logout, expiry,
+ADR-0041: every socket of a session closes when the session ends for any reason (logout, expiry,
 revocation, lock, reduction), and a reduction closes every socket on the remote listener within one
 second. The registry is how the rest of the Entrance reaches a socket it did not open: each socket
 registers a ``LiveSocket`` (its listener, device and session) while it is served, and the logout

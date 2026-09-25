@@ -1,10 +1,10 @@
 """Define GoalRequestId and the request terms every task of a requested goal carries.
 
 A goal the Hive Entrance accepts is written first as a durable goal request in the Queen's own
-tables (docs/adr/0032, "A goal is durable before it is acknowledged") and only then planned. Every
+tables (docs/adr/0040, "A goal is durable before it is acknowledged") and only then planned. Every
 task planned from it carries two facts of that request. Its id, `goal_request_id`: the Queen finds
 a goal she already planned by it after a crash, so a request is never planned twice, and Night
-Veil placement cites it as the human request that asked for the tier (docs/adr/0031). Its budget,
+Veil placement cites it as the human request that asked for the tier (docs/adr/0039). Its budget,
 `spend_cap_usd`: the goal's own spend cap, which only ever lowers the manifest's per-goal cap.
 `GoalRequestId` lives here, not in `hivemind.queen.intake` (the table that owns requests), because
 the Brood Chamber sits four layers below the Queen and must validate the reference without
@@ -24,7 +24,7 @@ Key invariants:
       locally (`hive run`, `hive tasks submit`) has no request row and no budget of its own.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the goal request.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the goal request.
     - hivemind.queen.intake for GoalRequest, the row these ids name.
     - hivemind.brood_chamber.task.goal_set for GoalCapabilities, the goal's other ceiling.
 """
@@ -78,7 +78,7 @@ GoalRequestRef = Annotated[
     GoalRequestId | None,
     Field(
         pattern=GOAL_REQUEST_ID_PATTERN,
-        description="The goal request this task was planned from (roadmap step 10.5, ADR-0032); "
+        description="The goal request this task was planned from (roadmap step 10.5, ADR-0040); "
         "None for a goal the operator submitted locally, which has no request row.",
     ),
 ]

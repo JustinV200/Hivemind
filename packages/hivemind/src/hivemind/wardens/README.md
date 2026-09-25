@@ -91,7 +91,7 @@ Warden never provisions Cells itself.
   the Pheromone Trail (`hivemind.supervision.record_alarm_event`); `control.forward_control` turns
   a Queen-sent `Intervene(REBIND)` into a real respawn on the binding the Queen already resolved,
   rather than only relaying it to the sub-bee to checkpoint and stop.
-- `wardens.quarantine` (roadmap step 10.6c, ADR-0035's "Quarantine is one intervention"): the
+- `wardens.quarantine` (roadmap step 10.6c, ADR-0043's "Quarantine is one intervention"): the
   one quarantine code path, `quarantine_bee(warden, order) -> QuarantineRecord | None`, and
   nothing composed by hand anywhere else. In order: authorise at the `quarantine` point, write the
   checkpoint (a Handoff the Warden composes, carrying the bee's last one forward when it can
@@ -112,7 +112,7 @@ Warden never provisions Cells itself.
   checkpoint and `read_handoff` reads that checkpoint as CLEARED by a judge (`clear_taint`);
   any other respawn is refused at the `quarantine` point (`guard.scope.quarantine_checkpoint`),
   its grant dropped, and the Queen told again that the task is held.
-- `wardens.isolation` (roadmap step 10.6a, ADR-0035's "Only the Queen isolates a Cell"): an
+- `wardens.isolation` (roadmap step 10.6a, ADR-0043's "Only the Queen isolates a Cell"): an
   isolated Cell's Warden carries out the Queen's `CellTaintOrder` (`taint.taint_own_memory`: the
   isolation setter over the store the Warden keeps, `TaintSource.ISOLATION`, the order's bees and
   tasks plus itself and the bees it runs now, from the order's instant, caused by her
@@ -145,7 +145,7 @@ Cell's kind) and the `[llm.slots]` rows (`bindings`) a binding key resolves agai
   and the order must name a current sub-bee (`guard.scope.sub_bee`); a respawn of a quarantined
   task that is not the one way out is refused here too (`guard.scope.quarantine_checkpoint`).
 - A sub-bee's slice (`spawn.attenuate`) now reads the task's `network_scopes` (so a Worker can hold
-  `net` at all) and the goal's set off Waggle 1.6's `TaskAssign`, and keeps a candidate only where
+  `net` at all) and the goal's set off Waggle 1.8's `TaskAssign`, and keeps a candidate only where
   the Warden's set and the goal's both allow it.
 
 ## How to test this

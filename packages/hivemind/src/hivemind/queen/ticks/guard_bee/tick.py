@@ -1,6 +1,6 @@
 """Define run_guard_bee: one Guard Bee round on the Queen's own tick, when she has a Guard Bee.
 
-The Guard Bee (the Hive's security watcher, roadmap step 10.6, ADR-0035) runs in the Queen's
+The Guard Bee (the Hive's security watcher, roadmap step 10.6, ADR-0043) runs in the Queen's
 process on the Hive Stand, driven by her tick exactly as the House Bee's sweep is
 (`hivemind.queen.ticks.housekeeping`, which calls this beside it), so no Cell action can take it
 down and it always reads the central trail. `run_guard_bee` asks the Guard Bee on

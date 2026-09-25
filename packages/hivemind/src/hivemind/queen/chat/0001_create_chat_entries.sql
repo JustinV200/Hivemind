@@ -1,4 +1,4 @@
--- Roadmap step 10.5 (docs/adr/0032, "The chat is the human end of the Queen's inbox"): the one
+-- Roadmap step 10.5 (docs/adr/0040, "The chat is the human end of the Queen's inbox"): the one
 -- append-only chat log, in the Queen's own tables. `seq` is the log's own position, assigned on
 -- append as one more than the last (lines are never deleted, so a position is never reused): the
 -- cursor /v1/chat pages by and its stream follows. `body` is the line's full

@@ -31,9 +31,9 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment,
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment,
       login and the two listeners.
-    - docs/adr/0034-landing-board-versioning-and-push.md for Web Push.
+    - docs/adr/0042-landing-board-versioning-and-push.md for Web Push.
 """
 
 from __future__ import annotations

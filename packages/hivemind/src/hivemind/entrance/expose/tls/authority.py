@@ -1,7 +1,7 @@
 """Hold the Hive's own certificate authority: create it once, load it after, sign with it.
 
 Under mutual TLS (``lan`` and ``tunnel`` always, ``vpn`` when ``mutual_tls`` is on) the remote
-listener admits only a client certificate chaining to the Hive's own authority (ADR-0033), issued
+listener admits only a client certificate chaining to the Hive's own authority (ADR-0041), issued
 to a device when it is approved. ``load_or_create_authority`` creates that authority on first use,
 an EC P-256 key in the secret store as ``entrance.ca_key`` and a self-signed certificate as
 ``entrance.ca_cert`` (basic constraints ``ca=True, path_length=0``: it signs device certificates and
@@ -25,7 +25,7 @@ Key invariants:
       subject and serial.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "The Hive runs its
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "The Hive runs its
       own certificate authority".
     - hivemind.common.secrets for the store the key lives in.
 """

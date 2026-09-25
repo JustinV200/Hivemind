@@ -1,6 +1,6 @@
 """Provide the Queen's side of a Guard request: her door, her durable table, and her inbox items.
 
-ADR-0035: the Guard Bee (the Hive's security watcher) acts alone only to narrow the whole Hive;
+ADR-0043: the Guard Bee (the Hive's security watcher) acts alone only to narrow the whole Hive;
 anything aimed at one Cell or one bee it can only ask the Queen for, through
 `hivemind.guard.GuardRequestDoor`. This sub-package is where that request lands. `door` is her
 implementation of the door (`QueenGuardDoor`, the `GuardDoor` mixin that makes the running Queen a
@@ -25,7 +25,7 @@ Key invariants:
     - Nothing here decides: the Queen decides on her own tick (`decision`).
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/isolation.md for the request path end to end.
 
 Public API (roadmap step 10.6a):

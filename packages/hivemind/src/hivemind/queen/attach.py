@@ -1,7 +1,7 @@
 """Define attach_warden and detach_warden: admit one Warden to a Queen, and remove it again.
 
 `attach_warden` is `hivemind.queen.queen.Queen.attach_warden`'s own body (roadmap step 10.3): the
-`warden_spawn` enforcement point (ADR-0031). The Queen never creates Wardens or Cells herself
+`warden_spawn` enforcement point (ADR-0039). The Queen never creates Wardens or Cells herself
 (CLAUDE.md), but every Warden she supervises joins her tree only here, so this is where she
 checks that her own set holds `warden:spawn` through the Guard's `Enforcer` (a refusal is a
 `guard.denied` on the trail and a `WardenSpawnRefusedError` to the caller, and nothing is
@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     from hivemind.queen.deps import WardenLink
     from hivemind.queen.queen import Queen
 
-# The one capability admitting a Warden to the Queen's tree needs (ADR-0031's warden:spawn flag).
+# The one capability admitting a Warden to the Queen's tree needs (ADR-0039's warden:spawn flag).
 _WARDEN_SPAWN = Capability(family=CapabilityFamily.WARDEN_SPAWN)
 
 __all__ = ["attach_warden", "detach_warden"]

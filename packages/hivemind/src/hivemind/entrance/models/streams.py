@@ -1,6 +1,6 @@
 """Define the frames the Entrance's live streams send: chat lines and security events.
 
-A live view sends JSON text frames, one model per stream (ADR-0032), so a client parses a stream
+A live view sends JSON text frames, one model per stream (ADR-0040), so a client parses a stream
 from the published contract alone. ``/v1/chat/stream`` sends a ``ChatFrame`` per new chat line
 (with its position, so a client that reconnects resumes from where it was); ``/v1/entrance/stream``
 sends a ``SecurityFrame`` per Entrance security event, the ``guard.*`` trail event itself (its kind,

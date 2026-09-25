@@ -1,6 +1,6 @@
 """Taint an isolated Cell's memory from the first event that justified isolating it, both halves.
 
-ADR-0035, "Taint is one label": isolation (roadmap step 10.6a) is one of its three setters, and
+ADR-0043, "Taint is one label": isolation (roadmap step 10.6a) is one of its three setters, and
 this module is the isolation's one call to `hivemind.memory.taint.taint_memory` on the Hive's own
 tables. What it covers is the Cell's memory from the instant the isolation suspects (the Guard
 report's oldest evidence, or, with none, the moment the isolation began, so the checkpoints its
@@ -38,7 +38,7 @@ Key invariants:
 
 See Also:
     - hivemind.wardens.isolation.taint for the Warden's half.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Hold the Entrance's live streams: the trail follower, the sockets, and one view per stream.
 
-Clients of the Hive Entrance never poll (codingrules 8.11, ADR-0032): every live view is a WebSocket
+Clients of the Hive Entrance never poll (codingrules 8.11, ADR-0040): every live view is a WebSocket
 fed from durable state. ``hub`` is the ``StreamHub`` that follows the Pheromone Trail once and fans
 its events out to bounded per-subscriber queues (``subscription``), closing a subscriber that falls
 behind; ``telemetry`` is the board the Queen's Heartbeats reach through the hook the composition
@@ -10,7 +10,7 @@ live socket so each closes the moment its session ends (and is the Entrance Redu
 within the deadline, five seconds, then the view races the client, the registry and a session
 watchdog); ``views`` holds every view (the chat, push and security views, and the Hive's trail,
 telemetry, Forage, task-graph, episode and Cell-status views) as ``VIEWS``; ``orders`` is the
-follower that obeys a Guard Bee's ``guard.reduce_ordered`` (ADR-0035); ``errors`` names why a
+follower that obeys a Guard Bee's ``guard.reduce_ordered`` (ADR-0043); ``errors`` names why a
 stream closes.
 
 Fits into the Hive:
@@ -23,7 +23,7 @@ Key invariants:
     - The trail is followed once, however many views are open.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
 
 Public API:
     - StreamHub, EventFilter: the trail follower (hub).

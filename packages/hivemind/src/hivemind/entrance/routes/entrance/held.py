@@ -1,7 +1,7 @@
 """Serve the requests held for a person: list them, confirm one, or decline it.
 
 A device no person types at cannot step up, so what it asks for that needs step-up waits as a
-pending confirmation (ADR-0033): a program's goal above its spend cap, or the network the travel
+pending confirmation (ADR-0041): a program's goal above its spend cap, or the network the travel
 lock flagged. A person lists them (``C2``: the payload is shown, so they know what they confirm)
 and confirms one only from an interactive device inside its step-up window; the confirmation is
 settled once, and the held action is carried out exactly once: a goal is committed under the id

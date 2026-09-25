@@ -1,6 +1,6 @@
 """Build the Hive Entrance's two applications from one route table.
 
-The Hive Entrance serves two listeners (ADR-0032): loopback, always on, and remote, only while the
+The Hive Entrance serves two listeners (ADR-0040): loopback, always on, and remote, only while the
 Entrance is exposed and not reduced. Both are FastAPI applications built here from the same
 ``RouteTable``, the HTTP rows of ``hivemind.entrance.routes`` and the views of
 ``hivemind.entrance.streams``: the loopback application mounts every row, the remote one only the
@@ -26,7 +26,7 @@ Key invariants:
       Content-Security-Policy header.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the two listeners.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the two listeners.
     - hivemind.entrance.gate.spec for what each row declares.
 """
 
@@ -62,7 +62,7 @@ from hivemind.entrance.routes import RESOURCE_ROUTES
 from hivemind.entrance.streams import VIEWS
 
 LANDING_BOARD_TITLE = "HiveMind Landing Board"  # The OpenAPI document's title.
-LANDING_BOARD_VERSION = "v1"  # ADR-0034: the path version; additive changes stay within it.
+LANDING_BOARD_VERSION = "v1"  # ADR-0042: the path version; additive changes stay within it.
 OPENAPI_PATH = "/v1/openapi.json"  # Where each listener serves the committed document.
 SESSION_SCHEME = "HiveSession"  # The security scheme every authenticated operation names.
 # The headers a signed request carries: CORS must let the remote listener's own origin send them.
@@ -190,7 +190,7 @@ def build_listener_app(
     # Mounted last, so every route matches first; the build may not exist yet.
     if options.web_root is not None and options.web_root.is_dir():
         app.mount("/", StaticFiles(directory=options.web_root, html=True), name="observation")
-    # CORS for public_url alone, on the remote listener alone (ADR-0033).
+    # CORS for public_url alone, on the remote listener alone (ADR-0041).
     if options.cors_origin is not None:
         app.add_middleware(
             CORSMiddleware,

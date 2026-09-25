@@ -1,7 +1,7 @@
 """Hold step-up: when it is required, how a session steps up, and the break-glass phrases.
 
 A step-up at the Hive Entrance (the Hive's one HTTP door) re-runs the device's factors and keeps a
-session stepped up for ``step_up_window_minutes`` (ADR-0033). ``rules`` decides, purely, when a
+session stepped up for ``step_up_window_minutes`` (ADR-0041). ``rules`` decides, purely, when a
 request needs one (a goal over ``step_up_spend`` or the device's daily cap, key and capability
 changes, Supersedure, Sting Cut, Absconding, reopening, locking another device, and a session the
 travel lock flagged); ``ceremony`` is the step-up itself, for interactive devices only;
@@ -17,7 +17,7 @@ Key invariants:
     - A device no person types at never steps up; its requests wait as pending confirmations.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
 
 Public API:

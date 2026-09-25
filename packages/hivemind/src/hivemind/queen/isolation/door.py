@@ -1,6 +1,6 @@
 """Give the human their two isolation levers on the running Queen: isolate a Cell, and lift it.
 
-ADR-0035 leaves two things to the human alone: isolating the Hive Stand's own lease (the Queen may
+ADR-0043 leaves two things to the human alone: isolating the Hive Stand's own lease (the Queen may
 isolate any other Cell herself, never that one) and lifting any isolation. Both arrive from the
 Hive Entrance (`POST /v1/cells/{cell_id}/isolate` and `/lift`, an interactive device inside its
 step-up window), through `hivemind.entrance.gate.QueenDoor`, and end on the one isolation path and

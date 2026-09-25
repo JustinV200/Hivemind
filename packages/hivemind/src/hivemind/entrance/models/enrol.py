@@ -1,6 +1,6 @@
 """Define the enrol resource's bodies: the Hive's id, a passkey's options, redeeming an invite.
 
-A device joins by redeeming the single-use invite the operator minted on loopback (ADR-0033): a
+A device joins by redeeming the single-use invite the operator minted on loopback (ADR-0041): a
 program sends its Ed25519 public key with a signature over ``enrol_string`` (``hive-enrol-v1``, the
 Hive id, the code's SHA-256, the key in hex), and may send a certificate signing request for its
 mutual-TLS client certificate; a browser first asks for WebAuthn creation options for the code, then

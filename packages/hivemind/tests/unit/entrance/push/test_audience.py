@@ -1,4 +1,4 @@
-"""Tests for hivemind.entrance.push.audience: who hears which kind of notice (ADR-0034).
+"""Tests for hivemind.entrance.push.audience: who hears which kind of notice (ADR-0042).
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/push/audience.py (codingrules section 3).

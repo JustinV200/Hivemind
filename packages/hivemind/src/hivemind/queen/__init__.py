@@ -78,7 +78,7 @@ Public API (roadmap step 3.20):
       (cluster).
     - resume_paused: the dispatcher-path entry point a Clustering resume goes through so no work
       is redone (dispatcher).
-    - Roadmap step 10.5 (ADR-0032), the human end: GoalRequest, GoalRequestState, GoalSource,
+    - Roadmap step 10.5 (ADR-0040), the human end: GoalRequest, GoalRequestState, GoalSource,
       GoalRequestStore, GoalRequestQuery, InMemoryGoalRequestStore, SqliteGoalRequestStore (the
       durable goal requests `Queen.request_goal` commits and her own tick plans; intake);
       ChatEntry, ChatAuthor, ChatKind, ChatLog, ChatQuery, InMemoryChatLog, SqliteChatLog (the

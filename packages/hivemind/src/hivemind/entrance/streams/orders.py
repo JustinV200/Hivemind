@@ -1,7 +1,7 @@
 """Provide ReduceOrderFollower: carry out every ``guard.reduce_ordered`` a Guard Bee records.
 
 A Guard Bee (a Worker watching the Hive's security signals) cannot import the Hive Entrance, and
-does not need to (ADR-0035): when one of its rules decides the door must narrow, it records a
+does not need to (ADR-0043): when one of its rules decides the door must narrow, it records a
 ``guard.reduce_ordered`` trail event, and the Entrance, which follows the trail anyway, reduces
 itself. Narrowing access is always safe to do without judgement, so the follower obeys every order
 at once, and a subscription that fell behind (orders may have been missed) reduces too before it
@@ -19,7 +19,7 @@ Key invariants:
     - The follower never reopens anything.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md for the order.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md for the order.
     - hivemind.entrance.reducer for what reducing does.
 """
 

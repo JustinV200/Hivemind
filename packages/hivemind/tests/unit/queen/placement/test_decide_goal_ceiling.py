@@ -1,4 +1,4 @@
-"""Tests for hivemind.queen.placement.decide's goal ceiling (roadmap step 10.3, ADR-0031).
+"""Tests for hivemind.queen.placement.decide's goal ceiling (roadmap step 10.3, ADR-0039).
 
 A goal's capability set is a ceiling on where its tasks may run: the Hive Stand needs
 `cell:hive_stand`, any other Real Cell `cell:real:<cell id>`, a Virtual Cell `cell:virtual`, and a
@@ -13,7 +13,7 @@ Key invariants:
 
 See Also:
     - hivemind.queen.placement.rules for goal_lacks, placement_needs and virtual_placement_needs.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "A goal carries a
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "A goal carries a
       ceiling".
 """
 

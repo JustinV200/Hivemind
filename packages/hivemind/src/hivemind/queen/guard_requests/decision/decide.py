@@ -1,6 +1,6 @@
 """Decide one Guard request on the Queen's tick: rule, judgement or fallback, then act and stamp.
 
-Roadmap step 10.6a (ADR-0035). Every undecided request is a GUARD_REQUEST item in the Queen's
+Roadmap step 10.6a (ADR-0043). Every undecided request is a GUARD_REQUEST item in the Queen's
 inbox, ordered above every Alarm and every human message; her tick hands each one here. The
 decision rests on one of three bases: the autopilot rule (a report whose rule is one of
 `[guard] dire_patterns` isolates without a model), one awake episode with the report's facts

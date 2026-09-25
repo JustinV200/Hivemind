@@ -1,4 +1,4 @@
-# ADR-0035: The Guard Bee watches and requests; only the Queen isolates; tainted memory never reaches a prompt
+# ADR-0043: The Guard Bee watches and requests; only the Queen isolates; tainted memory never reaches a prompt
 
 - Status: Accepted
 - Date: 2026-09-24
@@ -31,7 +31,7 @@ manifest may pin to a different provider from `WORKER` so blind spots do not cor
 file reports, and it never calls a model on the hot path.
 
 **It acts alone only to narrow the whole Hive.** By autopilot rule it may raise a Capping tier's
-sampled-audit rate, and it may order the Entrance Reducer (ADR-0033) by recording a
+sampled-audit rate, and it may order the Entrance Reducer (ADR-0041) by recording a
 `guard.reduce_ordered` trail event that the Entrance, which follows the trail, carries out; a
 Worker cannot import the Entrance, and does not need to. Narrowing is always safe. Everything
 aimed at one Cell or one bee (isolate, quarantine, Sting Cut) is a **request**: a `GuardReport`
@@ -46,7 +46,7 @@ one. The Guard Bee can never widen anything. Every report is a `guard.alert` tra
 acts on, or one at `CRITICAL`, reaches the human as an Alarm pushed to every device. `AlarmKind`
 gains `SECURITY` (on the wire and in the Hive's mirror) and the wire's `InterventionAction` gains
 `QUARANTINE`, whose `Intervene` carries the episode id from which memory is suspect: one Waggle
-minor version bump (1.7). The Hive-side `PolicyAction` of the escalation tables gains `ISOLATE`
+minor version bump (1.9). The Hive-side `PolicyAction` of the escalation tables gains `ISOLATE`
 and `QUARANTINE`, which no wire enum mirrors, so every table that maps it gains rows in the same
 change, and a Warden's policy refuses to load an `ISOLATE` row.
 

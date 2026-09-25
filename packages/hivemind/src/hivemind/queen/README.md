@@ -127,7 +127,7 @@ every assignment goes to a Warden, over Waggle.
   (read through the chamber) and Alarms (held in memory) awaiting the human; `propose_wax_from_chat`
   (roadmap step 4.2a) is the smallest hook for a human-typed Cell Wax proposal, building the same
   wire `CellWaxProposed` shape (`origin=HUMAN`, `proposer=None`) `queen.ticks.wax` judges either way.
-- `queen.chat` (roadmap step 10.5, ADR-0032): the human end of her inbox, reached by the Hive
+- `queen.chat` (roadmap step 10.5, ADR-0040): the human end of her inbox, reached by the Hive
   Entrance through `ChatDoor`. When a device is revoked, `withdraw.refuse_unplanned` refuses its
   goal requests not planned yet (RECEIVED, AWAITING_CONFIRMATION, PLANNING) and
   `withdraw.stop_goal` stops a goal's unfinished tasks, telling each placed one's Warden with a
@@ -229,7 +229,7 @@ every assignment goes to a Warden, over Waggle.
   never raises out of the tick: compaction is skipped for that sweep (demotion and wax expiry
   still run), logged once via `deps.housekeeping.ripener_unbound_warned`. The very first tick only
   seeds `deps.housekeeping.last_sweep_at` rather than sweeping immediately.
-- `queen.quarantine` (roadmap step 10.6c, ADR-0035): the Queen's side of the one quarantine.
+- `queen.quarantine` (roadmap step 10.6c, ADR-0043): the Queen's side of the one quarantine.
   `order_quarantine(deps, wardens, lever, alarm_id=None) -> bool` sends `Intervene(QUARANTINE)`
   (`hivemind.supervision.to_intervene`) to the Warden the Brood Chamber places the lever's task
   on, and records `queen.decided` (action `QUARANTINE_BEE`); it returns False, sending nothing,
@@ -245,7 +245,7 @@ every assignment goes to a Warden, over Waggle.
   10.6a orchestrates it: `resume_cleared(deps, wardens)` (`release.py`), run on every tick, resumes
   each PAUSED task whose `warden.intervened` checkpoint a `memory.taint_cleared` names, when that
   verdict is newer than the task's last pause and its Cell is not isolated.
-- `queen.guard_requests` (roadmap step 10.6a, ADR-0035, `docs/guard/isolation.md`): the Queen's
+- `queen.guard_requests` (roadmap step 10.6a, ADR-0043, `docs/guard/isolation.md`): the Queen's
   side of a Guard request. `QueenGuardDoor`/`GuardDoor` (the running `Queen` *is* the Guard Bee's
   `hivemind.guard.GuardRequestDoor`, handed over as `Hive.guard_door`) file a request into her own
   durable table (`GuardRequestStore`: `InMemoryGuardRequestStore`, `SqliteGuardRequestStore` on the
@@ -275,13 +275,13 @@ every assignment goes to a Warden, over Waggle.
 
 ## Enforcement points (roadmap step 10.3)
 
-The Queen passes seven of ADR-0031's points through `QueenDeps.enforcer` (the Guard's `Enforcer`,
+The Queen passes seven of ADR-0039's points through `QueenDeps.enforcer` (the Guard's `Enforcer`,
 built by the composition root); `queen.authority` names what each principal holds there (her
 `queen` role default; a Warden's set as `warden_set` computes it from its Cell's access level; a
 goal's set, or None for the operator's own local path) and builds her requests.
 
 - `submit_goal(..., capabilities=)` carries the submitter's set to every planned task
-  (`TaskSpec.capabilities`); the dispatcher sends it, and the task's network scopes, on Waggle 1.6's
+  (`TaskSpec.capabilities`); the dispatcher sends it, and the task's network scopes, on Waggle 1.8's
   `task.assign`.
 - `placement`: `placement.decide` excludes any candidate the goal's set does not allow; when that
   alone leaves none, `dispatcher.ready` records `queen.decided` with the full reason and one

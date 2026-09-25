@@ -16,7 +16,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md phase 10 exit criteria, verbatim, for the bullet this module proves.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the points.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the points.
     - tests.e2e.test_virtual_cells for the Virtual Cell wiring criterion 1b reuses.
 """
 

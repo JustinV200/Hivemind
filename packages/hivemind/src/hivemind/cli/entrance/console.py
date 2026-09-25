@@ -2,12 +2,12 @@
 
 On the Hive Stand (the machine the Queen, the orchestrator, runs on) ``hive entrance ...`` is the
 operator at the keyboard, and the Hive Entrance knows that operator only as the **console
-device** (ADR-0033): an Ed25519 key wrapped under the operator password in the Hive's secret store,
+device** (ADR-0041): an Ed25519 key wrapped under the operator password in the Hive's secret store,
 recorded APPROVED and loopback-bound. ``console_session`` is how every administering command
 enters: it finds the running ``hive serve`` by its serve record, opens the console key with the
 password, looks up the console's record for that key, and logs in over the loopback listener
 exactly as any device would, so every decision goes through the Landing Board's own routes and
-leaves the same trail. ``offline_console`` is the other door, for the two operations ADR-0033 runs
+leaves the same trail. ``offline_console`` is the other door, for the two operations ADR-0041 runs
 with ``hive serve`` stopped (``--reset``, ``unlock --console``): it holds the serve lock for the
 block, so no serve can start meanwhile, and hands over the Entrance tables directly.
 ``run_console`` and ``run_offline`` wrap a command's work in either, turning every refusal into one
@@ -25,7 +25,7 @@ Key invariants:
     - The unwrapped console key and the password live only for the command, in memory.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the console
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the console
       device and the offline operations.
     - hivemind.cli.entrance.serving for the serve lock and record.
 """

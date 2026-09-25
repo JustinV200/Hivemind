@@ -1,4 +1,4 @@
-"""The Guard: the Hive's capability model, access-level data and policy engine (ADR-0031).
+"""The Guard: the Hive's capability model, access-level data and policy engine (ADR-0039).
 
 Every action in the Hive is authorised against an explicit capability model. A capability is one
 thing a principal (the operator, the Queen, a Warden, a Worker, a Swarm device or an enrolled
@@ -29,7 +29,7 @@ Key invariants:
       start); `enforcer` is the one module that writes, and only to the Pheromone Trail.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the decision.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the decision.
     - .claude/codingrules.md section 4 for the layer 2 row this package occupies, and section 15
       for the least-privilege rules it encodes.
     - .claude/roadmap.md phase 10 steps 10.1, 10.2 and 10.7 for this package's scope, and 10.3

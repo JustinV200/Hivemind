@@ -18,7 +18,7 @@ into a `WardenLink` (`virtual_provider`, a `VirtualCellProvider`, defined here b
 rather than in `hivemind.queen.placement` since it names `WardenLink`/`Task` and that package must
 never import this one back). `WardenLink` is the Queen-side half of one attached Warden's own
 Waggle link: `hivemind.wardens.deps.WardenDeps.queen_link`/`.hop` is the Warden's own end of the
-exact same pair. Roadmap step 10.5 (ADR-0032) adds her human end: the durable goal-request table
+exact same pair. Roadmap step 10.5 (ADR-0040) adds her human end: the durable goal-request table
 (`goal_requests`), the chat log (`chat`), the seam that tells the human's devices something is
 waiting (`human_channel`), and two small pieces of her own runtime bookkeeping kept here beside
 `housekeeping`: the in-process `wake` signal her tick awaits beside her Warden links, and the
@@ -543,10 +543,10 @@ class QueenDeps:
             inside scratch is refused while planning, and by `hivemind.queen.authority` to fill
             a Warden's `{scratch}` entries when she computes its set (roadmap step 10.3).
         enforcer: The Guard's adapter every one of the Queen's enforcement points calls (roadmap
-            step 10.3, ADR-0031): placement, grant issue, Forage requests, Warden spawn, question
+            step 10.3, ADR-0039): placement, grant issue, Forage requests, Warden spawn, question
             routing and Comb Shield egress. Its policy is the one every set she computes is built
             from, and it records each refusal as `guard.denied` on this Queen's own trail.
-        goal_requests: The durable goal-request table (roadmap step 10.5, ADR-0032): what
+        goal_requests: The durable goal-request table (roadmap step 10.5, ADR-0040): what
             `Queen.request_goal` commits and her intake drain plans (`hivemind.queen.intake`).
         chat: The chat log, the human end of her inbox (`hivemind.queen.chat`): human messages
             in, her replies, questions and Alarms out.
@@ -616,11 +616,11 @@ class QueenDeps:
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.
-        wake: The in-process signal her tick awaits beside her Warden links (ADR-0032), set by a
+        wake: The in-process signal her tick awaits beside her Warden links (ADR-0040), set by a
             goal request, a human message or a finished plan; it starts set, so her first tick
             drains whatever rows a crash left behind.
         planning: Her one in-flight goal plan (`PlanningLane`).
-        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0035) a human's chat
+        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0043) a human's chat
             words pass through before her awake episode reads them (`hivemind.queen.ticks.awake.
             scan_human_text`); the composition root's, keyed from the Hive's secret store. Defaults
             to the shipped patterns and thresholds with an in-memory key.
@@ -635,7 +635,7 @@ class QueenDeps:
         intake_lock: Serialises her goal-request edges (`hivemind.queen.intake.writes`): intake, a
             plan landing beside her tick and a revocation each move the row as it stands.
         guard: Her Guard requests, dire patterns, egress seam and pause bound (roadmap step
-            10.6a, ADR-0035); an in-memory table and the shipped patterns by default.
+            10.6a, ADR-0043); an in-memory table and the shipped patterns by default.
     """
 
     chamber: BroodChamber
@@ -691,7 +691,7 @@ class QueenDeps:
     # and provisions outlive any one pass (DispatchBook's own docstring).
     dispatch: DispatchBook = field(default_factory=DispatchBook)
     keep_root: Path | None = None  # Roadmap step 5.0e: the planner's, never TaskAssign's.
-    # Roadmap step 10.5 (ADR-0032): the human end. Defaulted so a composition root that wires no
+    # Roadmap step 10.5 (ADR-0040): the human end. Defaulted so a composition root that wires no
     # Hive Entrance (hive run, every test) tells nobody, and so the Queen's own mutable wake and
     # planning bookkeeping live here beside `housekeeping`, one per Queen.
     human_channel: HumanChannel = field(default_factory=NullHumanChannel)
@@ -705,4 +705,4 @@ class QueenDeps:
     on_heartbeat: OnHeartbeat | None = None
     intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
-    guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0035).
+    guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0043).

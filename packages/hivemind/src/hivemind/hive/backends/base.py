@@ -13,7 +13,7 @@ caller branches on what a backend can do, never on which one it is (codingrules 
 "capabilities are declared, not assumed" applied to Cell backends instead of LLM providers).
 Roadmap step 10.6a adds one narrow, optional capability for a RUNNING Cell: `EgressCutter`, which a
 backend declaring `can_cut_egress` implements, cuts the Cell's egress to its Waggle control link
-alone (isolation, ADR-0035: the link checkpointing, pausing and forensics need stays up) and puts
+alone (isolation, ADR-0043: the link checkpointing, pausing and forensics need stays up) and puts
 the Cell's own network policy back when the human lifts it. It is a separate Protocol, not two more
 `CellBackend` members, because most backends cannot do it to a running Cell at all (Docker can
 only by dual-homing its Cells on a control network, `hivemind.hive.backends.docker.network`; QEMU
@@ -41,7 +41,7 @@ Key invariants:
       capabilities.can_pause is False: callers branch on capabilities, never on backend name.
     - cut_egress() never touches the Cell's Waggle control link, and neither it nor
       restore_egress() touches the Cell's lease, disk or scratch: isolation keeps them for
-      forensics (ADR-0035).
+      forensics (ADR-0043).
 
 See Also:
     - .claude/codingrules.md Appendix A.1, which this module implements almost verbatim, extended
@@ -148,7 +148,7 @@ class EgressCutter(Protocol):
         """Leave `cell_id` able to reach its Waggle control link and nothing else.
 
         Idempotent: cutting an already-cut Cell changes nothing. The lease, the disk and the
-        scratch directory are left exactly as they are, for forensics (ADR-0035).
+        scratch directory are left exactly as they are, for forensics (ADR-0043).
 
         Args:
             cell_id: The running Cell to cut off.

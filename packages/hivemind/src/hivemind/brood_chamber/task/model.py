@@ -160,10 +160,10 @@ class TaskSpec(BaseModel):
     capabilities: GoalCapabilities = Field(
         default=None,
         description="The capability set of the goal this task was planned from (roadmap step "
-        "10.3, ADR-0031), sorted capability strings: placement and the Warden never let the "
+        "10.3, ADR-0039), sorted capability strings: placement and the Warden never let the "
         "task do more. None means the operator's own local submission, with no device ceiling.",
     )
-    # Roadmap step 10.5 (ADR-0032): the request this task's goal was planned from, and the budget
+    # Roadmap step 10.5 (ADR-0040): the request this task's goal was planned from, and the budget
     # it set; both ride in the task's JSON body, so neither store needs a migration.
     goal_request_id: GoalRequestRef = None
     spend_cap_usd: GoalSpendCap = None

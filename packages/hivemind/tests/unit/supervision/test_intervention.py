@@ -190,7 +190,7 @@ def test_from_wire_raises_when_a_rebind_has_no_slot() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Quarantine (roadmap step 10.6c) and the refusal of an unknown lever (ADR-0035)
+# Quarantine (roadmap step 10.6c) and the refusal of an unknown lever (ADR-0043)
 # ──────────────────────────────────────────────────────────────────────────────
 
 

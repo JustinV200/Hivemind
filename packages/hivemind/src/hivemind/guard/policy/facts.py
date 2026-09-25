@@ -1,6 +1,6 @@
 """Define the facts a tier floor reads beyond a Cell's tier: a control link and a goal request.
 
-Two Night Veil floors (roadmap steps 10.3a and 10.3c, ADR-0031) need facts that neither the held
+Two Night Veil floors (roadmap steps 10.3a and 10.3c, ADR-0039) need facts that neither the held
 set nor a Cell's tier can express, so the enforcement point that knows them states them on the
 request's `PolicyContext`. `ControlLink` is the Waggle control channel a Cell about to be
 provisioned will dial the Queen through: the host its client dials and the SOCKS proxy it dials
@@ -21,7 +21,7 @@ Key invariants:
     - A `ControlLink` states what the endpoint IS, never what it should be: the floor decides.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
       a set says".
     - docs/adr/0030-night-veil-retention-and-clearance-boundary.md for the hidden-service link.
     - hivemind.guard.policy.models for PolicyContext, which carries both.

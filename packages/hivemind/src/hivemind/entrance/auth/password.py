@@ -1,7 +1,7 @@
 """Hash and verify the operator's password with Argon2id, off the event loop and one at a time.
 
 Brood 1.0 has one operator and one password, the second factor of every login at the Hive Entrance
-(the Hive's one HTTP door; ADR-0033). The Entrance tables keep only its Argon2id hash, as the PHC
+(the Hive's one HTTP door; ADR-0041). The Entrance tables keep only its Argon2id hash, as the PHC
 string ``cryptography``'s ``Argon2id`` produces (``$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>``),
 so the stored value carries its own parameters and no password library is added. The parameters are
 RFC 9106's second recommended profile: 3 passes over 64 MiB with 4 lanes, a 16-byte random salt and
@@ -35,7 +35,7 @@ Key invariants:
     - No message, log line or error here ever carries the password or the hash.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
     - RFC 9106 section 4 for the parameter profile.
 """
 
@@ -59,7 +59,7 @@ SALT_BYTES = 16  # RFC 9106's recommended 128-bit salt, fresh from the CSPRNG fo
 HASH_BYTES = 32  # A 256-bit tag: also the AES-256 key length the wrapping key needs.
 MIN_PASSWORD_CHARS = 12  # Below this an offline guess against a stolen hash gets cheap.
 MAX_PASSWORD_CHARS = 1024  # Longer is a mistake or an attack, never a password someone types.
-DEFAULT_CONCURRENCY = 2  # ADR-0033: two derivations at once, 128 MiB ceiling, for any burst.
+DEFAULT_CONCURRENCY = 2  # ADR-0041: two derivations at once, 128 MiB ceiling, for any burst.
 _NORMAL_FORM: Final = "NFKC"  # NIST SP 800-63B: normalise before hashing so devices agree.
 # One derivation at a time in the whole process: OpenSSL draws every derivation's lanes from one
 # process-wide thread pool, which two 4-lane derivations at once can exhaust (a deadlock, or a

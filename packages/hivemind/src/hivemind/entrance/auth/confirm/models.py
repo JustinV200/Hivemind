@@ -3,7 +3,7 @@
 When a device no person types at asks for something that needs step-up, the Entrance does not
 refuse it outright: it holds the request as a ``PendingConfirmation`` (the device, the action's
 kind, a bounded JSON payload the caller needs to carry it out later, and an expiry), answers ``403
-step_up_required`` with its id, and pushes it to the human (ADR-0033). A person confirms it from an
+step_up_required`` with its id, and pushes it to the human (ADR-0041). A person confirms it from an
 interactive device that has just stepped up; the confirmation hands back the ``HeldAction`` for the
 caller to carry out, once. ``Settlement`` is one status change a settler asks the pending table
 for. Ids are ``pend_`` plus a ULID, so they sort by when the request was held.
@@ -20,7 +20,7 @@ Key invariants:
       when it is CONFIRMED.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
     - hivemind.entrance.auth.confirm.flow for hold, confirm, cancel and expiry.
 """

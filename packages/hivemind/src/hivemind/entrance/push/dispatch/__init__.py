@@ -1,6 +1,6 @@
 """Dispatch push notices: register subscriptions, push to an audience, withdraw everywhere.
 
-The push channel's entry point (ADR-0034), split by responsibility: ``dispatcher`` holds
+The push channel's entry point (ADR-0042), split by responsibility: ``dispatcher`` holds
 ``PushDispatcher`` (register, push, withdraw, forget a device, re-validate at start); ``courier``
 delivers one notice to many destinations concurrently and settles the outcomes (delete what is
 gone, record what arrived); ``refs`` keeps the in-memory bookkeeping per ref (one lock so a push
@@ -17,7 +17,7 @@ Key invariants:
     - No channel's failure stops another channel's delivery.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the decisions.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the decisions.
 
 Public API:
     - PushDispatcher, MAX_SUBSCRIPTIONS_PER_DEVICE, MAX_LIVE_REFS: the entry point.

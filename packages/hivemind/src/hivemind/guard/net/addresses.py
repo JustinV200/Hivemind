@@ -1,6 +1,6 @@
 """Classify hosts and addresses: loopback, unspecified, link-local, metadata, the Hive Stand's own.
 
-Two Guard floors judge where a bee's network traffic would go (ADR-0031, ADR-0033): the Hive-state
+Two Guard floors judge where a bee's network traffic would go (ADR-0039, ADR-0041): the Hive-state
 floor refuses every bee a host that reaches the Hive Stand itself (a loopback name or address, the
 unspecified address that some stacks send to the local host, a link-local address where cloud
 metadata services live, or one of the Hive Stand's own addresses), and the Night Veil location
@@ -28,7 +28,7 @@ Key invariants:
       `127.0.0.1` by its value; resolving one into the other is the caller's job.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
       the Hive's own state".
     - hivemind.guard.net.resolve for the resolver seam that turns a name into addresses.
     - hivemind.entrance.push.destinations for the webhook guard that first used this approach.

@@ -1,6 +1,6 @@
 """Tests for the human's lift: placement and egress come back, tainted memory stays tainted.
 
-Roadmap step 10.6a (ADR-0035). While a Cell is isolated, placement refuses it outright (its BLOCK
+Roadmap step 10.6a (ADR-0043). While a Cell is isolated, placement refuses it outright (its BLOCK
 wax); the human's lift clears that wax, gives a Virtual Cell its egress back, records
 `cell.isolation_lifted` naming the isolation it ended, and placement lands there again. What the
 isolation tainted stays tainted and what it paused stays paused. A lift also releases the

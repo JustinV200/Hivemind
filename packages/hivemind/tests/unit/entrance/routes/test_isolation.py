@@ -1,6 +1,6 @@
 """Test hivemind.entrance.routes.isolation: the human's isolate and lift levers, over real sockets.
 
-Roadmap step 10.6a (ADR-0035). ``POST /v1/cells/{cell_id}/isolate`` and ``/lift`` need an
+Roadmap step 10.6a (ADR-0043). ``POST /v1/cells/{cell_id}/isolate`` and ``/lift`` need an
 interactive device inside its step-up window holding ``entrance:steward``: without step-up both
 answer ``403 step_up_required`` and nothing changes; a program, which no person types at, can
 never step up and is refused outright (nothing is held for it); a device without stewardship is

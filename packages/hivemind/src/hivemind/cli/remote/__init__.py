@@ -1,7 +1,7 @@
 """Reach a remote Hive from this laptop, as a device it enrolled: enrol, run a goal, answer.
 
 Every client of the Hive Entrance (the Hive's one HTTP door) is a device enrolled with its own key
-and approved at the Hive Stand, logging in with that key plus the operator's password (ADR-0033);
+and approved at the Hive Stand, logging in with that key plus the operator's password (ADR-0041);
 a laptop's ``hive`` is one. ``hive remote enrol`` mints the laptop's Ed25519 key and redeems the
 invite the operator minted, keeping a profile (the Entrance, the Hive's id, the device id) with the
 key beside it in the laptop's own secret store; ``hive run --remote`` submits a goal through the
@@ -20,7 +20,7 @@ Key invariants:
 
 See Also:
     - hivemind.cli.landing for the signing client.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
 
 Public API:
     - app, RemoteRun, remote_run, remote_inbox, remote_answer, remote_acknowledge, CA_FILE: the

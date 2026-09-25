@@ -3,7 +3,7 @@
 Every edge of the enrolled-device state machine is a ``guard.entrance_*`` event on the Pheromone
 Trail (the Hive's audit log), written in the same atomic step as the status change (codingrules
 Appendix C), pushed to every other device (codingrules 8.15), and, when the device leaves APPROVED,
-followed by the end of its sessions and push subscriptions (ADR-0033). Doing those four things in
+followed by the end of its sessions and push subscriptions (ADR-0041). Doing those four things in
 the right order in every flow is exactly the kind of repetition that drifts, so this module does
 them once: ``apply_transition`` builds the edge's event from a ``Transition``, has the Entrance
 tables apply the change and the event together, offboards the device when it left an approval,
@@ -120,7 +120,7 @@ async def apply_transition(
     device = await records.store.update_device_status(
         transition.device_id, transition.expected, transition.new, event, **changes
     )
-    # A lock, a revocation or an expiry ends the device's sessions and subscriptions (ADR-0033).
+    # A lock, a revocation or an expiry ends the device's sessions and subscriptions (ADR-0041).
     # Latency: local table deletes and socket closes in this process; nothing waits on a device.
     if transition.expected in _ADMITTED and transition.new is not DeviceStatus.APPROVED:
         await deps.seams.offboarder.offboard(device.id, transition.new)

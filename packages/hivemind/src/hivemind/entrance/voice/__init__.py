@@ -2,7 +2,7 @@
 
 Roadmap step 10.5f, codingrules 8.15 ("Voice is transcribed at the door"): an enrolled device may
 speak instead of typing, a whole clip on ``POST /v1/chat/audio`` (a raw body with its media type,
-ADR-0032) or a push-to-talk hold on its chat socket (audio frames, then an end frame). Both reach
+ADR-0040) or a push-to-talk hold on its chat socket (audio frames, then an end frame). Both reach
 one door, ``hear``: the intent (``goal``, ``answer:<question id>`` or ``chat``) and every limit a
 clip must pass are checked first, so a refused clip never reaches a model; the clip is transcribed
 once on ``ModelSlot.TRANSCRIBER`` through the Hive's registry and Fanner, the Hive Stand's own
@@ -29,7 +29,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.15 for the rule.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the intents.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the intents.
     - hivemind.llm.transcription and hivemind.llm.fanner.transcription for the transcriber.
 
 Public API:

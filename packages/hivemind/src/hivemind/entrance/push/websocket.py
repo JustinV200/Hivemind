@@ -1,7 +1,7 @@
 """Hold every live push socket per device, and send a notice to each socket of a device.
 
 A device with the Observation Hive or an app open keeps an authenticated ``/v1/push/stream``
-WebSocket (ADR-0034); a notice for that device is one text frame of ``notice_json`` on every socket
+WebSocket (ADR-0042); a notice for that device is one text frame of ``notice_json`` on every socket
 it has open. ``LivePush`` is the in-memory hub of those sockets: the route that authenticates a
 socket attaches a sender (an async callable that writes one frame) and keeps the returned
 ``LiveAttachment`` to detach it when the socket closes; ``deliver`` writes the frame to every
@@ -24,8 +24,8 @@ Key invariants:
       can interleave, and ``deliver`` sends to a snapshot of the senders.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the live channel.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for how a push socket
+    - docs/adr/0042-landing-board-versioning-and-push.md for the live channel.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for how a push socket
       authenticates and why it closes when its session ends.
 """
 

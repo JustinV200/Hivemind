@@ -1,7 +1,7 @@
 """Run one listener: a uvicorn server on a socket the Entrance bound, inside the Hive's own loop.
 
 Both of the Hive Entrance's listeners are uvicorn servers running in the same event loop as the
-Queen (ADR-0032), each on a socket the Entrance binds itself, so a loopback listener that cannot
+Queen (ADR-0040), each on a socket the Entrance binds itself, so a loopback listener that cannot
 bind is known before anything starts, and a port the operating system chose (tests) is known
 before the application's Host check is built. uvicorn's own signal handling is off (``hive serve``
 owns SIGINT and SIGTERM, and a listener must never exit the process), its lifespan is off, it
@@ -18,7 +18,7 @@ Key invariants:
     - A server never installs a signal handler.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "Two listeners are two
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "Two listeners are two
       applications built from one route table".
 """
 
@@ -35,7 +35,7 @@ from starlette.types import ASGIApp
 
 from hivemind.common.logging import get_logger
 
-GRACEFUL_SHUTDOWN_S = 1  # ADR-0032: a listener's graceful shutdown is bounded to one second.
+GRACEFUL_SHUTDOWN_S = 1  # ADR-0040: a listener's graceful shutdown is bounded to one second.
 STOP_TIMEOUT_S = 2.0  # The graceful second, uvicorn's own ticks, then a forced exit.
 LISTEN_BACKLOG = 128  # Pending connections a listener queues; a Hive has few clients.
 WEBSOCKET_MAX_BYTES = 1_048_576  # A frame larger than 1 MiB is refused: frames here are small.

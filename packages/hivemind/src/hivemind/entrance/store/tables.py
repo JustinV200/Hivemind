@@ -18,7 +18,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.store.protocol for EntranceStore.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for what they hold.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for what they hold.
 """
 
 from __future__ import annotations

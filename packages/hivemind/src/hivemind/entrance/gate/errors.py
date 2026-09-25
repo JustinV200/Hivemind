@@ -2,7 +2,7 @@
 
 Most refusals a Landing Board route answers with come from the flows below it (enrolment, login,
 the Queen's own bookkeeping) and are mapped to a status by their ``hivemind.common.errors``
-category. Three are the gate's own: ``StepUpRequiredError`` (ADR-0033's ``403 step_up_required``,
+category. Three are the gate's own: ``StepUpRequiredError`` (ADR-0041's ``403 step_up_required``,
 carrying the reason and, for a device that cannot step up, the pending confirmation a person must
 confirm), ``CapabilityDeniedError`` (the Guard refused the route at the Entrance route enforcement
 point) and ``RateLimitedError`` (a device or an address is over its rate).
@@ -16,7 +16,7 @@ Key invariants:
     - Every error has a stable ``code``; none carries a credential or a request's content.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
     - hivemind.entrance.gate.handlers for the statuses they are answered with.
 """

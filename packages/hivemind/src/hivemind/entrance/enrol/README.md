@@ -1,7 +1,7 @@
 # hivemind.entrance.enrol
 
 Every client of the Hive Entrance is a device enrolled with its own key and approved at the Hive
-Stand (codingrules 8.15, ADR-0033). This package is that whole lifecycle (roadmap 10.5d): the
+Stand (codingrules 8.15, ADR-0041). This package is that whole lifecycle (roadmap 10.5d): the
 device record and its state machine, the Hive Stand console's bootstrap, and the flows that move a
 device through the machine, each one recorded on the Pheromone Trail as a `guard.entrance_*` event
 in the same step as the change, pushed to every other device, and followed by cutting the device

@@ -1,6 +1,6 @@
 """Build the LLM view: every provider and how the Queen judges it, and every slot binding.
 
-The Queen already keeps what the LLM view shows (ADR-0032: read it, never ask her): her health
+The Queen already keeps what the LLM view shows (ADR-0040: read it, never ask her): her health
 poller counts each provider's consecutive DOWN readings, and her Clustering state names the
 providers whose bees she paused because one went down with no fallback (roadmap 4.9). A provider
 is judged DOWN while it is clustered, DEGRADED while the poller has a failure on record, and

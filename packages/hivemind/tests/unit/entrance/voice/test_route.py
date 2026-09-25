@@ -1,6 +1,6 @@
 """Test hivemind.entrance.voice.route: POST /v1/chat/audio over real listeners and a real Queen.
 
-A clip arrives as a raw body with its media type (ADR-0032): a WAV is measured by its own header, a
+A clip arrives as a raw body with its media type (ADR-0040): a WAV is measured by its own header, a
 compressed clip by the length its query declares, and every clip the Hive cannot take is refused
 with its status before the transcriber (a ``FakeTranscription`` recording every call) hears
 anything. While ``[entrance.voice]`` is off the route is never mounted: a 404 on both listeners.

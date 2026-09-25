@@ -1,6 +1,6 @@
 """Tests for hivemind.entrance.auth.login.flow: the key proof first, then the password.
 
-Every ADR-0033 login rule has a test here: an invalid proof never reaches the password check,
+Every ADR-0041 login rule has a test here: an invalid proof never reaches the password check,
 never counts against the device and is charged to its address; five valid proofs with a wrong
 password lock the device (through the enrolment step's lock); a success resets the count; the
 console logs in only on loopback; a device that is not approved, a reused challenge, a missing

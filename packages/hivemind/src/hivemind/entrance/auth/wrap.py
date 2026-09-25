@@ -2,7 +2,7 @@
 
 Bees (the Hive's agent processes) on the Hive Stand (the machine the Queen, the orchestrator, runs
 on) run as the Hive's own operating-system user, so any key the Hive keeps on
-disk in the clear, a bee can read (ADR-0033). The Hive Stand console's Ed25519 device key is one
+disk in the clear, a bee can read (ADR-0041). The Hive Stand console's Ed25519 device key is one
 factor of the operator's own login, so it is never stored in the clear: ``wrap_private_key``
 derives a 32-byte key from the operator password with Argon2id (the password hash's profile, with
 its own random salt) and seals the private key with AES-256-GCM (a random 96-bit nonce, the secret's
@@ -26,7 +26,7 @@ Key invariants:
       password, a wrong name, a truncated blob, an unknown version and a flipped bit.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for why the console
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for why the console
       key is wrapped.
     - hivemind.entrance.auth.password.PasswordHasher for the derivation and its semaphore.
 """

@@ -5,7 +5,7 @@ the Hive's capacity as data, in several dimensions and never one number, and the
 it is divided by grant: a lease with an expiry that the Queen (the central orchestrator) issues
 to a Warden (the always-on supervisor of one Cell, a unit of compute), re-issues to grow, shrink
 or top up, and can take back entirely. The four messages here are that grant's life:
-``GrantIssued`` (every revision of the terms, and from minor 8 the Capping audit-rate raises in
+``GrantIssued`` (every revision of the terms, and from minor 10 the Capping audit-rate raises in
 force when it was issued), ``GrantRevoked`` (the whole grant withdrawn),
 ``ForageRequest`` (a Warden asks for shared Forage beyond its grant, with the task's Tempo, its
 speed-against-accuracy setting, as an allocator input) and ``ForageReply`` (granted, partly
@@ -127,7 +127,7 @@ class GrantIssued(WaggleMessage):
     audit_raises: tuple[RaisedAuditRate, ...] = Field(
         default=(),
         max_length=MAX_AUDIT_RAISES,
-        description="PROTOCOL_MINOR 8: every Capping audit-rate raise in force at issue time, at "
+        description="PROTOCOL_MINOR 10: every Capping audit-rate raise in force at issue time, at "
         "most one per tier; the holder's gate samples at the higher of its table's rate and "
         "these. Defaults to empty, so an envelope from before this field existed validates.",
     )

@@ -1,6 +1,6 @@
 """Build the Hive's certificate revocation list over every device certificate taken back.
 
-Revoking a device (ADR-0033) must shut the mutual-TLS gate on it as well as ending its sessions:
+Revoking a device (ADR-0041) must shut the mutual-TLS gate on it as well as ending its sessions:
 the remote listener's TLS context checks every client certificate against a revocation list
 signed by the Hive's own authority (``VERIFY_CRL_CHECK_LEAF``), and a revocation rebuilds the list
 and the context (``hivemind.entrance.expose.tls.switch``). ``build_crl`` is that list. It never

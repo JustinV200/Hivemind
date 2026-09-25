@@ -1,7 +1,7 @@
 """Build the Cells and Wardens views: each Cell and Warden, from every place that knows about it.
 
 No single store holds a Cell's whole standing, so the census joins them, reading each directly
-(ADR-0032): the Queen's attached Warden links (each carries its Cell record: kind, source, tier,
+(ADR-0040): the Queen's attached Warden links (each carries its Cell record: kind, source, tier,
 access level, capabilities), the Virtual Cell lifecycle's table (a Virtual Cell's status, and
 Virtual Cells with no Warden attached yet or any more), the Pheromone Trail (a Cell's newest
 lease edge and lifecycle event, its Warden's newest mode edge), the Brood Chamber (unfinished

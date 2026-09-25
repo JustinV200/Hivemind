@@ -2,7 +2,7 @@
 
 A bee that read an injected instruction may have written it into its memory: a Handoff it will
 resume from, an episode record, a checkpoint's transcript, a Nectar deposit. Roadmap step 10.6d
-(ADR-0035) labels such memory tainted, and a tainted item is refused outright by `memory.assemble`,
+(ADR-0043) labels such memory tainted, and a tainted item is refused outright by `memory.assemble`,
 by retrieval and by every Handoff loader, whatever its relevance, until a judge verdict on the
 taint rubric clears it. `marker` holds the one label (`TaintMarker`: its closed `TaintSource`, its
 reason, the `memory.tainted` event that set it and when) and what it can sit on (`TaintedKind`,
@@ -28,7 +28,7 @@ Key invariants:
     - A TAINTED item never reaches a prompt or a resumed bee.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/tainted-memory.md for the label's life, the scopes and the seams.
     - .claude/codingrules.md Appendix C, "Taint label" row.
 

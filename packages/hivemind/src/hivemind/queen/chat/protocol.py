@@ -1,7 +1,7 @@
 """Define ChatLog, the persistence seam for the chat: one append-only log, read by cursor or time.
 
 The chat (`hivemind.queen.chat.model.ChatEntry`) is one append-only log in the Queen's own tables
-(docs/adr/0032). This protocol is its whole surface: `append` writes a line (with, for a human
+(docs/adr/0040). This protocol is its whole surface: `append` writes a line (with, for a human
 message or a reply, its trail event in the same transaction) and returns it with its position
 (`seq`) assigned; `read` pages it by position or by time (`ChatQuery`), which is what the Hive
 Entrance's `/v1/chat` serves and its stream follows; `unhandled` and `mark_handled` are the
@@ -23,7 +23,7 @@ Key invariants:
     - An event given to `append` commits with its line, or neither commits.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
     - hivemind.queen.chat.memory and hivemind.queen.chat.sqlite for the two implementations.
 """
 

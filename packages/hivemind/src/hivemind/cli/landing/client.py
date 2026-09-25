@@ -1,7 +1,7 @@
 """Hold one device's side of the Landing Board: redeem an invite, log in, sign, step up, log out.
 
 Every client of the Hive Entrance (the Hive's one HTTP door) is an enrolled device that logs in
-with its own key plus the operator's password and signs every request (ADR-0033); the CLI is no
+with its own key plus the operator's password and signs every request (ADR-0041); the CLI is no
 exception, on a laptop or as the Hive Stand's own console. ``LandingClient`` speaks the four
 unauthenticated or session-opening calls (redeem an invite with an Ed25519 key, ask for a login
 challenge, answer it with the key's signature and the password, step up the same way) and sends
@@ -24,7 +24,7 @@ Key invariants:
     - No token, password or signature is logged, printed or put in an error.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the login and
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the login and
       step-up rules.
     - hivemind.entrance.routes for the routes called here.
 """

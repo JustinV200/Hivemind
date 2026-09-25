@@ -1,9 +1,9 @@
 """Serve the goals resource: submit a goal, read how far it got, confirm or decline a held one.
 
-``POST /v1/goals`` is how a device gives the Hive work (ADR-0032). The goal becomes a durable
+``POST /v1/goals`` is how a device gives the Hive work (ADR-0040). The goal becomes a durable
 ``GoalRequest`` in the Queen's own tables, carrying the device's approved set as its ceiling
-(ADR-0031), and the Entrance answers ``202`` with its id only after the row is committed; the Queen
-plans it on her own tick. Before that, ADR-0033's step-up rules apply: a budget above
+(ADR-0039), and the Entrance answers ``202`` with its id only after the row is committed; the Queen
+plans it on her own tick. Before that, ADR-0041's step-up rules apply: a budget above
 ``step_up_spend``, or a goal that would take the device past its daily cap (weighed over the goals
 it submitted in the last day, each counted at its budget or the manifest's per-goal cap), needs a
 step-up; a program cannot step up, so its goal is held as a pending confirmation, submitted exactly
@@ -23,7 +23,7 @@ Key invariants:
     - A device reads only the goal requests it submitted.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "A goal is durable before
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "A goal is durable before
       it is acknowledged".
     - hivemind.queen.intake for the goal request.
 """
@@ -79,7 +79,7 @@ async def submit_goal(
     Returns:
         The goal request's id, once its row is committed.
     """
-    # ADR-0031: only a device holding the Night Veil tier may ask for it; a refusal is trailed.
+    # ADR-0039: only a device holding the Night Veil tier may ask for it; a refusal is trailed.
     if body.comb_shield is CombShieldLevel.NIGHT_VEIL:
         await authorise(services, caller, NIGHT_VEIL_CAPABILITY)
     request_id = new_goal_request_id(services.clock)

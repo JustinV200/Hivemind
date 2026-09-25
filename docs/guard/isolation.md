@@ -1,6 +1,6 @@
 # Guard requests and Cell isolation
 
-Roadmap step 10.6a, [ADR-0035](../adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
+Roadmap step 10.6a, [ADR-0043](../adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
 Code: `hivemind.queen.guard_requests` (the request, its decision), `hivemind.queen.isolation`
 (the one isolation path and the lift), `hivemind.wardens.isolation` (a Cell's Warden tainting its
 own store and refusing a tainted resume), `hivemind.hive.backends.docker` (the control network and
@@ -77,7 +77,7 @@ human's lever. In order:
    decision and every step's result.
 8. The Cell's memory is tainted from the first cited event on (`TaintSource.ISOLATION`, caused by
    `cell.isolated`, which keeps that instant as `suspect_at`), first on the Hive's own tables. Then
-   the Cell's Warden gets a `CellTaintOrder` (Waggle 1.8) naming the same bees, tasks, instant and
+   the Cell's Warden gets a `CellTaintOrder` (Waggle 1.10) naming the same bees, tasks, instant and
    cause, and runs the same setter over the memory store it keeps inside the Cell, which the
    Hive's label cannot reach. An order lost to a closed link is sent again whenever the Warden
    attaches while the isolation stands; the setter is idempotent. See
@@ -186,7 +186,7 @@ names the Cell's tasks and bees, and the human's lift finds what to lift. Three 
 ## The human's levers
 
 Both levers need an interactive device inside its step-up window, holding `entrance:steward`, the
-family ADR-0031 reserves to the human. A program can never step up, so nothing is held for it.
+family ADR-0039 reserves to the human. A program can never step up, so nothing is held for it.
 Both are served on both listeners, and both go through the Queen's door.
 
 | Method | Path | Does |
@@ -206,7 +206,7 @@ hive cells isolate CELL_ID --reason "why, in a short phrase" [--report GUARD_REP
 hive cells lift CELL_ID [--json]
 ```
 
-Each acts as the Hive Stand's console device (ADR-0033: its key is wrapped under the operator
+Each acts as the Hive Stand's console device (ADR-0041: its key is wrapped under the operator
 password, approved and loopback-bound) over the running serve's loopback listener, exactly as
 `hive entrance` commands do. It logs in with the operator password and steps up with the same
 password when the route asks; `--password-stdin` reads it once, for both. A malformed report id is

@@ -9,7 +9,7 @@ compact) over hot state and Bee Bread. Roadmap step 5.8 adds the third,
 releases Real Cell leases, idempotently, with retries, and the Queen-startup sweep that finds
 orphans of both kinds. Roadmap step 10.6 adds the fourth, `hivemind.workers.roles.guard_bee.
 GuardBee`, the security watcher: it runs in the Queen's process on her tick rather than on a Cell,
-reads the central trail against rules shipped as data, and reports or requests (ADR-0035). It is
+reads the central trail against rules shipped as data, and reports or requests (ADR-0043). It is
 not a `Worker`-protocol implementation, because a Worker is handed a Cell and a session, exactly
 what the Guard Bee must never hold.
 

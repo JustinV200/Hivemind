@@ -4,7 +4,7 @@ The Capping gate checks a command's `exec` and a write's `fs:write` against the 
 tools ask the Guard's floors alone first (`hivemind.workers.tools.authorize.floor_refusal_text`):
 a command that runs the Hive's own entry point, and a write or a keep that lands on the Hive's own
 state, are refused as `guard.denied` before anything is proposed, whatever the Worker holds
-(ADR-0033). What the floors leave alone still goes through the gate exactly as before.
+(ADR-0041). What the floors leave alone still goes through the gate exactly as before.
 
 Fits into the Hive:
     Mirrors src/hivemind/workers/tools/session.py and keep.py (codingrules section 5.1: one

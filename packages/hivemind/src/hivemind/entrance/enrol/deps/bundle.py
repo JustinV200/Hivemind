@@ -1,10 +1,10 @@
 """Define EnrolmentDeps: everything the enrolment flows are built from, in four small bundles.
 
-Device enrolment at the Hive Entrance (the Hive's one HTTP door; ADR-0033) touches a lot: the
+Device enrolment at the Hive Entrance (the Hive's one HTTP door; ADR-0041) touches a lot: the
 Entrance tables and the Pheromone Trail (audit log) it records on, the Guard policy whose
 ``device`` role bounds every approval, the ``[entrance]`` lifetimes of an invite and of a waiting
 request, the base URL an invite link starts with, the Hive's own public key (returned to a
-redeeming program so it pins it, ADR-0034), the WebAuthn relying party and the challenge book a
+redeeming program so it pins it, ADR-0042), the WebAuthn relying party and the challenge book a
 passkey is registered against, three seams later steps implement (who is told, who is cut off,
 whose goals are cancelled), and the certifier that issues a device's mutual-TLS certificate at
 approval. A constructor stays within five parameters (codingrules 5.1), so these
@@ -26,7 +26,7 @@ Key invariants:
       ``guard.entrance_*`` event of this Hive lands on one trail.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment.
     - hivemind.entrance.enrol.console for ConsoleDeps, the operator bootstrap's own bundle.
 """
 
@@ -123,7 +123,7 @@ class EnrolmentCeremony:
 
     Attributes:
         hive_public_key: The Hive's own Ed25519 public key, raw; returned to every redeeming
-            device so a program pins it and can verify the Hive's webhooks (ADR-0034).
+            device so a program pins it and can verify the Hive's webhooks (ADR-0042).
         relying_party: The WebAuthn relying party a browser's passkey is registered for.
         challenges: Where each passkey registration's challenge waits, bound to its invite.
     """

@@ -1,6 +1,6 @@
 """Define GuardDeps: the Queen's collaborators for Guard requests and Cell isolation, in one field.
 
-Roadmap step 10.6a (ADR-0035) gives the Queen a table of durable Guard requests, a rule for the
+Roadmap step 10.6a (ADR-0043) gives the Queen a table of durable Guard requests, a rule for the
 dire patterns `[guard] dire_patterns` names, a seam that cuts a Virtual Cell's egress when she
 isolates it, and a bound on how long isolation waits for the Cell's bees to acknowledge their
 pause. `GuardDeps` holds those four together so `QueenDeps` gains one defaulted field rather than

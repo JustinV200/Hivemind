@@ -1,6 +1,6 @@
 """Run the Hive Entrance inside ``hive serve``: its parts, its wiring, its listeners, its life.
 
-The Hive Entrance runs in the Queen's own process and event loop (ADR-0032). ``parts`` defines what
+The Hive Entrance runs in the Queen's own process and event loop (ADR-0040). ``parts`` defines what
 the ``hive serve`` composition root hands it (the tables, the Hive, the keys, what the manifest
 decides); ``build`` wires every collaborator once over those parts and the loopback socket the root
 bound; ``entrance`` is ``HiveEntrance``, the running Entrance from its start-up checks to a clean
@@ -20,8 +20,8 @@ Key invariants:
     - Every task the Entrance starts belongs to ``HiveEntrance.run``'s task group.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the process shape.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for exposure.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the process shape.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for exposure.
 
 Public API:
     - EntranceParts, EntranceSettings, EntranceTables, EntranceHive, EntranceKeys, IPAddress: what

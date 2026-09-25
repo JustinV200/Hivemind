@@ -1,6 +1,6 @@
 """Tests for a Warden's half of its Cell's isolation: a revoked grant, and a pause it ships at once.
 
-Roadmap step 10.6a (ADR-0035). When the Queen isolates this Warden's Cell she revokes its grants
+Roadmap step 10.6a (ADR-0043). When the Queen isolates this Warden's Cell she revokes its grants
 and says so with `GrantRevoked`: the Warden's autopilot records it (bookkeeping, never a model's
 call), forgets the grant, drops the assignment parked for it and starts nothing new under it; a
 stale replay of an older revision changes nothing. She also waits a bounded time for each bee's

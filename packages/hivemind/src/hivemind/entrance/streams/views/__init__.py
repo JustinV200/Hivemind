@@ -1,6 +1,6 @@
 """Hold the live views: one WebSocket stream per view, each declaring its access like a route.
 
-Clients never poll (codingrules 8.11, ADR-0032): every live view of the Hive Entrance is a
+Clients never poll (codingrules 8.11, ADR-0040): every live view of the Hive Entrance is a
 WebSocket fed from durable state, declared as a ``SocketSpec`` (its path, listeners and access,
 checked on its first frame exactly as a route's) and served through the shared lifecycle in
 ``hivemind.entrance.streams.socket``. ``landing`` holds the Landing Board's own traffic (the chat,
@@ -22,7 +22,7 @@ Key invariants:
       FELL_BEHIND and never slows the feed.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
 
 Public API:
     - VIEWS: every view's row, in the order the document lists them (registry).

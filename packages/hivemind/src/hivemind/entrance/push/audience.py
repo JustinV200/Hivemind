@@ -1,7 +1,7 @@
 """Decide which enrolled devices a notice of each kind may reach: the push audience rules.
 
 A push says only that something is waiting, but even that says something (a question exists, the
-chat moved), so ADR-0034 limits who hears it to devices that may act on it or read it:
+chat moved), so ADR-0042 limits who hears it to devices that may act on it or read it:
 ``question_waiting`` goes to devices holding ``entrance:answer``; ``reply_waiting`` only to devices
 that may read the chat (``entrance:submit`` and ``honey:clearance:c2``); ``goal_completed`` only to
 the device that submitted the goal; ``security_event`` and ``alarm_waiting`` to every approved
@@ -25,7 +25,7 @@ Key invariants:
     - ``withdrawn`` never has an audience; ``goal_completed`` needs its submitting device.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md, "Subscriptions are per device ...
+    - docs/adr/0042-landing-board-versioning-and-push.md, "Subscriptions are per device ...
       filtered by what the device may read".
     - hivemind.guard.capabilities for the capability grammar parsed here.
 """

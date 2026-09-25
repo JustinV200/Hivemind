@@ -1,6 +1,6 @@
 """Refuse to resume a bee from a Handoff this Cell's own store labels tainted.
 
-ADR-0035: a tainted item never reaches a prompt or a resumed bee. The Hive's own loaders refuse one
+ADR-0043: a tainted item never reaches a prompt or a resumed bee. The Hive's own loaders refuse one
 outright (`hivemind.memory.read_handoff`), and so does a Worker's first read of its resume
 Handoff; this is the Warden's half (roadmap step 10.6a), in front of every `TaskAssign` before
 anything spawns, the way its quarantine gate stands in front of a quarantined task's. An

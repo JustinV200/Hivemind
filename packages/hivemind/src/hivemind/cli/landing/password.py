@@ -1,6 +1,6 @@
 """Read the operator's password at the terminal: a hidden prompt, or one line of stdin per password.
 
-Every login at the Landing Board is the device key plus the operator's password (ADR-0033), so
+Every login at the Landing Board is the device key plus the operator's password (ADR-0041), so
 every CLI command that talks to it, and every offline operation on the Hive Stand, needs the
 password. It is never taken from a command-line argument (the process list and the shell history
 would keep it) nor from an environment variable (any child process inherits it); it is typed at a
@@ -19,7 +19,7 @@ Key invariants:
     - An empty password is refused here, before any Argon2id work or network call.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the
       device key plus the password".
 """
 

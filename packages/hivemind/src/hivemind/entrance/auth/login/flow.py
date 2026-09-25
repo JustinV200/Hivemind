@@ -1,7 +1,7 @@
 """Log a device in: issue its challenge, then check its key proof first and the password second.
 
 Login at the Hive Entrance (the Hive's one HTTP door) is the device's key plus the operator's
-password (ADR-0033). ``begin_login`` issues a single-use, 60-second challenge from the login
+password (ADR-0041). ``begin_login`` issues a single-use, 60-second challenge from the login
 ``ChallengeBook``, bound to the device and, for a browser, to the WebCrypto P-256 key its session
 will be bound to (registering it here ties that key to the ceremony), with WebAuthn request
 options for a passkey device; it refuses a device that is unknown, not APPROVED or lapsed, the
@@ -27,7 +27,7 @@ Key invariants:
     - The token is returned once and never stored, logged or recorded.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
       key plus the password, the key proof first".
 """
 
@@ -155,7 +155,7 @@ async def finish_login(
         raise await refuse(deps, failure)
     hive_id = deps.records.identity.hive_id
     verified = verify_proof(deps.ceremony, hive_id, device, proof, challenge)
-    # The device proof first (ADR-0033): a bad one never reaches the password check.
+    # The device proof first (ADR-0041): a bad one never reaches the password check.
     if verified is None:
         raise await refuse_proof(deps, arrival, FailureStep.LOGIN, device.id)
     if not await password_holds(deps.ceremony.hasher, deps.records.store, password):
@@ -183,7 +183,7 @@ async def login_refusal(
         return FailureReason.DEVICE
     if device.expires_at is not None and device.expires_at <= now:
         return FailureReason.DEVICE
-    # ADR-0033: the console's sessions open only on the loopback listener.
+    # ADR-0041: the console's sessions open only on the loopback listener.
     if device.loopback_bound and arrival.listener is Listener.REMOTE:
         return FailureReason.LISTENER
     if device.key_kind is KeyKind.PASSKEY and deps.ceremony.relying_party(device.rp_id) is None:

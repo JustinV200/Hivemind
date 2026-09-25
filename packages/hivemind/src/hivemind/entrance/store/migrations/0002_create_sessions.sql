@@ -1,5 +1,5 @@
 -- Roadmap step 10.5e: the tables login, sessions, step-up and the Entrance Reducer keep, in the
--- Entrance's own series beside 0001's operator, devices and invites (ADR-0033).
+-- Entrance's own series beside 0001's operator, devices and invites (ADR-0041).
 --
 -- Sessions are plain columns rather than a JSON body (unlike 0001's rows): every authenticated
 -- request moves last_seen_at and spends a nonce, and a guarded column update needs no decode.
@@ -11,7 +11,7 @@
 
 -- One row per session a login opened (hivemind.entrance.auth.session.models.Session), keyed by
 -- the SHA-256 of its bearer token: the token itself is never stored. The Hive Stand console's
--- sessions are never written here (ADR-0033: kept in memory only). An ended session keeps its row
+-- sessions are never written here (ADR-0041: kept in memory only). An ended session keeps its row
 -- as history; ended_at and end_reason are set together, once.
 CREATE TABLE IF NOT EXISTS entrance_sessions (
     token_hash TEXT PRIMARY KEY,

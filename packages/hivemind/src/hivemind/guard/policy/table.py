@@ -25,7 +25,7 @@ Key invariants:
       never wider than its `allow` (the loader guarantees both).
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Two roots, and sets
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Two roots, and sets
       only narrow below them".
     - hivemind.guard.defaults for the shipped policy.toml this is usually built from.
     - hivemind.guard.policy.roles for role_set and warden_set, which build a principal's set.
@@ -89,7 +89,7 @@ class GuardPolicy:
             enforcement point before the held set, and removed from every Warden's set.
         escalation: What a denial at a point escalates to; a point absent here refuses.
         hive_state: The Hive's own state paths and the Hive Stand's own addresses, which the
-            Hive-state floor refuses every bee (roadmap step 10.3a, ADR-0033); empty until a
+            Hive-state floor refuses every bee (roadmap step 10.3a, ADR-0041); empty until a
             composition root states them, which still leaves the fixed parts of that floor on.
     """
 

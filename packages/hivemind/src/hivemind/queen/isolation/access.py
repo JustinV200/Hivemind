@@ -1,6 +1,6 @@
 """Take an isolated Cell's access away: revoke its Warden's grants, and write the BLOCK wax.
 
-Two of an isolation's steps (roadmap step 10.6a, ADR-0035) remove access rather than stop work.
+Two of an isolation's steps (roadmap step 10.6a, ADR-0043) remove access rather than stop work.
 `revoke_cell_grants` takes back every shared Forage grant the Cell's Warden holds: each moves to
 REVOKED in the Queen's ledger through `hivemind.queen.forage.grants.revoke` (the one place a grant
 is revoked, with its `forage.revoked` row; a grant still ISSUED is activated first, because

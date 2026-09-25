@@ -1,6 +1,6 @@
 """Define CapabilityFamily and ScopeKind: every kind of grant, and how each one's scope matches.
 
-A capability (one thing a bee is allowed to do) is written `family` or `family:scope` (ADR-0031).
+A capability (one thing a bee is allowed to do) is written `family` or `family:scope` (ADR-0039).
 This module is the grammar's table. `CapabilityFamily` names every family the Hive knows, from a
 Worker's tools to an enrolled device's Entrance routes; `ScopeKind` names the seven ways a scope
 is written and matched (`net` has a kind of its own, `HOST`, because a glob or a prefix over host
@@ -28,7 +28,7 @@ Key invariants:
       rank order, lowest first.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the family table.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the family table.
     - hivemind.guard.capabilities.scopes for what each ScopeKind accepts and how it matches.
     - hivemind.guard.capabilities.hosts for the HOST kind's own grammar.
     - hivemind.guard.capabilities.capability for Capability.parse, which walks PARSE_ORDER.
@@ -48,7 +48,7 @@ __all__ = ["FAMILIES_BY_KIND", "PARSE_ORDER", "CapabilityFamily", "ScopeKind"]
 
 
 class ScopeKind(Enum):
-    """How a family's scope is written, and when a held scope satisfies a needed one (ADR-0031)."""
+    """How a family's scope is written, and when a held scope satisfies a needed one (ADR-0039)."""
 
     FLAG = "flag"  # No scope at all: holding the family is the whole grant.
     GLOB = "glob"  # A glob over a path or a name, matched with fnmatch on its POSIX form.
@@ -63,7 +63,7 @@ class CapabilityFamily(Enum):
     """The kind of thing one Capability grants; its value is the capability string's prefix.
 
     The first seven members are phase 3's (roadmap step 3.13a) and keep their values; the rest are
-    ADR-0031's, added by roadmap step 10.1. `scope_kind` and `scope_values` read the tables below.
+    ADR-0039's, added by roadmap step 10.1. `scope_kind` and `scope_values` read the tables below.
     """
 
     TOOL = "tool"  # Calling one named tool from a Worker's registry.
@@ -125,7 +125,7 @@ class CapabilityFamily(Enum):
         return _SCOPE_VALUES.get(self, ())
 
 
-# ADR-0031's table, one entry per ScopeKind, so this and the ADR can be compared row by row.
+# ADR-0039's table, one entry per ScopeKind, so this and the ADR can be compared row by row.
 FAMILIES_BY_KIND: Mapping[ScopeKind, frozenset[CapabilityFamily]] = MappingProxyType(
     {
         ScopeKind.FLAG: frozenset(
@@ -181,7 +181,7 @@ FAMILIES_BY_KIND: Mapping[ScopeKind, frozenset[CapabilityFamily]] = MappingProxy
     }
 )
 
-# Longest family string first: the order Capability.parse tries families in (ADR-0031). sorted()
+# Longest family string first: the order Capability.parse tries families in (ADR-0039). sorted()
 # is stable, so families of equal length keep declaration order; none of them can both match one
 # string anyway, since two different prefixes of the same length never prefix the same text.
 PARSE_ORDER: tuple[CapabilityFamily, ...] = tuple(

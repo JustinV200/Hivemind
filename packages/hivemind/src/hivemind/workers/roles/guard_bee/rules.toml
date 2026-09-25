@@ -1,4 +1,4 @@
-# The Guard Bee's rules (roadmap step 10.6, ADR-0035): what it counts on the Pheromone Trail, over
+# The Guard Bee's rules (roadmap step 10.6, ADR-0043): what it counts on the Pheromone Trail, over
 # what window, and what it recommends when a count crosses its threshold. Read through
 # importlib.resources by hivemind.workers.roles.guard_bee.rules; explained rule by rule in
 # docs/guard/guard-bee.md. A manifest's [guard.bee.rules.<key>] table overrides any field of one

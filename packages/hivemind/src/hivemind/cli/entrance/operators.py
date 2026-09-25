@@ -1,7 +1,7 @@
 """Provide ``hive entrance operator password|add``: the one operator's password, at the Hive Stand.
 
 Brood 1.0 has exactly one operator, and every login at the Hive Entrance is a device key plus that
-operator's password (ADR-0033). ``operator password`` sets it the first time (minting the Hive
+operator's password (ADR-0041). ``operator password`` sets it the first time (minting the Hive
 Stand console's key, wrapped under it, and recording the console device), and afterwards changes
 it only on presentation of the current one (re-wrapping the console key in the same step); both
 work whether or not ``hive serve`` runs, because a running Entrance reads the operator row afresh
@@ -23,7 +23,7 @@ Key invariants:
     - No password is taken from an argument or the environment, or printed.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "One operator, one
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "One operator, one
       password".
     - hivemind.entrance.enrol.console for what each operation writes.
 """

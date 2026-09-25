@@ -1,7 +1,7 @@
 """Refuse activating a weaker tier's egress for a task bound to a stronger one (roadmap 10.3b).
 
 Codingrules 8.7: tier is bound to the Cell, and a task inherits the `CombShieldLevel` of the Cell
-where it executes; ADR-0031's tier-inheritance floor: "a runtime path that would weaken a control
+where it executes; ADR-0039's tier-inheritance floor: "a runtime path that would weaken a control
 after placement is evaluated against the bound tier and denied". The bound tier travels on every
 later check for the task (`PolicyContext.bound_tier`), so the slot-binding, clearance and location
 floors already judge a rebind or a grant revision against it. What remains is egress itself: the
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.7, "Comb Shield is a Cell property".
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Tier inheritance".
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Tier inheritance".
 """
 
 from __future__ import annotations

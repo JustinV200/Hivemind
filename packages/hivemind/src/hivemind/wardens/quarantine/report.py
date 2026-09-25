@@ -1,6 +1,6 @@
 """Record a quarantine on the trail and tell the Queen: `warden.intervened`, PAUSED and SECURITY.
 
-Three reports close the one quarantine code path (roadmap step 10.6c, ADR-0035). `record_intervened`
+Three reports close the one quarantine code path (roadmap step 10.6c, ADR-0043). `record_intervened`
 writes `warden.intervened`, the audit row of the whole intervention (the task, the bee, the action,
 the suspect episode, the checkpoint and the revoked grant, ids only); it is recorded before the
 bee's memory is tainted so every `memory.tainted` row can name it as its cause. `report_paused`
@@ -8,7 +8,7 @@ sends the Queen (the orchestrator, who alone holds the Brood Chamber, the task s
 `task.progress` at stage `PAUSED`: a Warden never writes the chamber itself (a Virtual Cell's Warden
 runs inside its container, ADR-0027), so this is how the task moves to PAUSED there, through the
 wire's own "Warden -> Queen: report a stage change". `raise_security_alarm` is "the Queen is told
-either way": a `SECURITY` Alarm (Waggle 1.7), which every shipped policy row sends up the chain and
+either way": a `SECURITY` Alarm (Waggle 1.9), which every shipped policy row sends up the chain and
 on to the human, since a report the Queen acts on reaches the human as an Alarm (roadmap 10.6).
 
 Fits into the Hive:

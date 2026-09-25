@@ -121,7 +121,7 @@ async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
         grant: The GrantIssued to record.
     """
     warden._grants[grant.grant_id] = grant
-    # Roadmap step 10.6 (Waggle 1.8): the raises in force travel on the grant; every gate this
+    # Roadmap step 10.6 (Waggle 1.10): the raises in force travel on the grant; every gate this
     # Warden builds samples at them, since its own trail never sees the Queen's.
     warden._deps.carried_raises.carry(grant.audit_raises, warden._deps.clock.now())
     # Read before resize(): SubBeeSlots.resize's own docstring leaves in_use as-is even when the

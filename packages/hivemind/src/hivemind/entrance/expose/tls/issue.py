@@ -1,7 +1,7 @@
 """Issue device client certificates from the Hive's authority: from a CSR, or as a PKCS#12 bundle.
 
 A device that will reach the remote listener under mutual TLS receives its client certificate at
-approval (ADR-0033). A program (the CLI, a script) holds its own key and sends a certificate signing
+approval (ADR-0041). A program (the CLI, a script) holds its own key and sends a certificate signing
 request: ``issue_client_certificate`` checks the request's signature, which proves the sender holds
 the key, and signs a certificate for that key alone. ``check_certificate_request`` runs the same
 checks without signing anything, so a request is refused when it arrives (at redemption, or at an
@@ -30,7 +30,7 @@ Key invariants:
       and generated key never appear in a message, a log line or a ``repr``.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "receives its
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "receives its
       client certificate at approval".
     - hivemind.entrance.expose.tls.revocation for taking a certificate back.
 """

@@ -1,6 +1,6 @@
 """Hold the Landing Board's request, response and frame models, one module per resource.
 
-The Landing Board (the Hive Entrance's versioned API) is a published contract (ADR-0034): programs
+The Landing Board (the Hive Entrance's versioned API) is a published contract (ADR-0042): programs
 are written from ``docs/entrance/openapi.json`` alone, and FastAPI generates that document from
 these pydantic v2 models. Keeping them apart from the routes keeps each route module to its thin
 handlers, and lets the stream views send the same shapes the routes answer with. Every model
@@ -15,10 +15,10 @@ Fits into the Hive:
 
 Key invariants:
     - This file holds re-exports and ``__all__`` only.
-    - A change here is a contract change: additive within ``/v1/`` (ADR-0034).
+    - A change here is a contract change: additive within ``/v1/`` (ADR-0042).
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the versioning rule.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the versioning rule.
 
 Public API:
     - ChallengeRequest, ChallengeView, LoginRequest, OpenedSessionView, StepUpRequest,

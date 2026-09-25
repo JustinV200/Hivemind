@@ -1,6 +1,6 @@
 """Let a quarantined task out once a judge clears its checkpoint: the Queen's half of the way out.
 
-ADR-0035: "the only way out is a respawn from a Handoff the judge has cleared". The Warden's gate
+ADR-0043: "the only way out is a respawn from a Handoff the judge has cleared". The Warden's gate
 (`hivemind.wardens.quarantine.gate`) admits exactly that respawn and nothing else; this module is
 what sends it (roadmap step 10.6a, closing 10.6c's un-orchestrated way out). The trigger is the
 trail, not a caller: a judge's verdict records `memory.taint_cleared` about the checkpoint the

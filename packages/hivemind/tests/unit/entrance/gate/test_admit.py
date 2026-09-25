@@ -1,6 +1,6 @@
 """Test hivemind.entrance.gate.admit: every request is signed, bound, standing and authorised.
 
-ADR-0033's refusals, over real listeners: a token alone is useless without the binding key, a
+ADR-0041's refusals, over real listeners: a token alone is useless without the binding key, a
 signature must cover the request exactly as sent with a fresh timestamp and a single-use nonce, a
 session works only on the listener it was opened on, and only an APPROVED device's session admits
 anything: a pending device cannot log in, and locking or revoking a device ends its session at

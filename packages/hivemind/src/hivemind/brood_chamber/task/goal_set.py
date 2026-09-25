@@ -1,6 +1,6 @@
 """Define GoalCapabilities: the capability set a goal's submitter set, as every task stores it.
 
-A goal carries a ceiling (ADR-0031, roadmap step 10.3): the capability set of the principal that
+A goal carries a ceiling (ADR-0039, roadmap step 10.3): the capability set of the principal that
 submitted it, an approved device's set through the Hive Entrance, and every task planned from the
 goal carries that set so placement and the Warden can narrow what the task may do to it. A task
 stores it as sorted, de-duplicated capability strings (`family` or `family:scope`), the same form
@@ -21,7 +21,7 @@ Key invariants:
       `MAX_CAPABILITY_CHARS`), so a stored set always fits the task.assign that carries it.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "A goal carries a
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "A goal carries a
       ceiling".
     - hivemind.guard.capabilities for the grammar every string must parse under.
 """

@@ -3,7 +3,7 @@
 When the untrusted-content scanner flags a text (roadmap step 10.6b), the trail records a hash of
 it, never the text (codingrules section 12). A plain hash would let anyone holding the trail
 confirm a guess ("was it this exact string?") by hashing the guess; an HMAC under a key only this
-node holds cannot be checked that way (ADR-0035: "a keyed hash of the content ... so the hash
+node holds cannot be checked that way (ADR-0043: "a keyed hash of the content ... so the hash
 cannot be used to confirm a guess"). The key lives in the secret store (`hivemind.common.secrets`)
 under `SCANNER_KEY_NAME`, never in the manifest, a log or the trail; it is minted from the CSPRNG
 the first time a text is flagged and read back on every later run, so a Hive Stand's hashes stay

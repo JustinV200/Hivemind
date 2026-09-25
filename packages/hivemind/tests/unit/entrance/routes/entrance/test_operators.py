@@ -23,5 +23,5 @@ async def test_operator_add_is_refused_at_the_hive_stand_and_absent_remotely() -
 
     assert local.status_code == 409, local.text
     assert local.json()["error"] == "hivemind.entrance.single_operator"
-    # ADR-0033: a loopback-only row does not exist on the remote listener at all.
+    # ADR-0041: a loopback-only row does not exist on the remote listener at all.
     assert remote.status_code == 404

@@ -1,7 +1,7 @@
 """Deliver notices to programs as HTTPS POSTs signed with the Hive's key, retried with backoff.
 
 A program device (a home automation hub, another agent framework, a script) registers a URL and
-receives each notice there as JSON (ADR-0034). The Hive signs every delivery with its own Ed25519
+receives each notice there as JSON (ADR-0042). The Hive signs every delivery with its own Ed25519
 key over ``hivemind.entrance.auth.canonical.webhook_string``: the subscription id, the event id, a
 timestamp and the body's SHA-256, sent as ``X-Hive-Signature`` (base64url) beside
 ``X-Hive-Timestamp`` (integer Unix seconds) and ``X-Hive-Event-Id``. WHY every attempt is signed
@@ -24,7 +24,7 @@ Key invariants:
     - ``deliver`` never raises for a failed delivery, and never logs the URL or the body.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the webhook contract.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the webhook contract.
     - hivemind.entrance.auth.canonical.webhook_string for the signed string.
 """
 

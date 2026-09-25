@@ -1,6 +1,6 @@
 """Define QuarantineOrder: one order to quarantine a sub-bee, and the three ways a Warden gets one.
 
-A quarantine (roadmap step 10.6c, ADR-0035) is one intervention with one code path
+A quarantine (roadmap step 10.6c, ADR-0043) is one intervention with one code path
 (`hivemind.wardens.quarantine.path`), but three things can ask a Warden (the supervisor of one
 Cell) for it: the Queen (the Hive's orchestrator), with a `waggle.messages.supervision.Intervene`
 whose action is `QUARANTINE`; this Warden's own escalation policy, when a row names
@@ -27,7 +27,7 @@ Key invariants:
       memory to be suspect from the Alarm's own event, or else from that bee's `worker.spawned`.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Quarantine is
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Quarantine is
       one intervention".
     - hivemind.wardens.quarantine.path for the one code path every order goes through.
 """

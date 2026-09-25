@@ -21,7 +21,7 @@ how every attempt fared (`hivemind.queen.dispatcher.backoff`): a provision that 
 backend back before the retry decides, so the retry and every placement after it see the rest,
 and one that succeeds ends its backend's run of failed rounds.
 
-Roadmap step 10.3 (ADR-0031): provisioning or resuming a Virtual Cell activates its Comb Shield
+Roadmap step 10.3 (ADR-0039): provisioning or resuming a Virtual Cell activates its Comb Shield
 tier's egress policy for the task, so before any `acquire` call -- the first or the retry -- the
 Queen, acting for the goal, passes the `comb_shield_egress` enforcement point: the task's goal
 set, when it carries one, must hold `cell:comb_shield:<tier>` for the tier the Cell will carry.

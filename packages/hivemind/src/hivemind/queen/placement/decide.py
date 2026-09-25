@@ -3,7 +3,7 @@
 `decide(needs, inventory, forage, policy) -> Placement` is ADR-0028's own ordered pipeline: Night
 Veil first (hard rule 2, always a fresh Virtual Cell), then isolation (hard rule 1, excludes every
 Real Cell), then each side's own candidates are filtered first by the goal's capability set
-(roadmap step 10.3, ADR-0031: a candidate the goal does not allow is excluded before anything
+(roadmap step 10.3, ADR-0039: a candidate the goal does not allow is excluded before anything
 else, whatever `prefer` says, with a reason naming the missing capability) and then by the hard
 rules in
 `hivemind.queen.placement.rules` (a `BLOCK` Cell Wax or `allow_hive_stand = false`, then fit, then

@@ -32,7 +32,7 @@ Key invariants:
       in these models (the operator's hash is also left out of ``repr``).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for every field.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for every field.
     - hivemind.entrance.enrol.state for DeviceStatus and the transition table.
 """
 
@@ -214,7 +214,7 @@ class EnrolledDevice(BaseModel):
         ge=0,
         description="The most it may spend per day, in USD, on its own two factors: a goal "
         "past it needs a human's step-up (or a pending confirmation a human steps up to "
-        "confirm, ADR-0033); None is uncapped, which only the console is.",
+        "confirm, ADR-0041); None is uncapped, which only the console is.",
     )
     expires_at: UtcDatetime | None = Field(
         default=None,

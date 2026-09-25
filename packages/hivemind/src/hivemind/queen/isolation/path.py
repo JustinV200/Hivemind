@@ -1,6 +1,6 @@
 """Isolate one Cell: the one code path every isolation takes, the Queen's and the human's alike.
 
-ADR-0035, "Only the Queen isolates a Cell" (roadmap step 10.6a). A Guard Bee only requests; a
+ADR-0043, "Only the Queen isolates a Cell" (roadmap step 10.6a). A Guard Bee only requests; a
 Warden's policy never loads an ISOLATE row; the Queen's decision on a Guard request, her own
 escalation policy and the human's lever at the Hive Entrance all end here, in this order:
 
@@ -39,7 +39,7 @@ Key invariants:
     - `cell.isolated` is recorded before any memory is tainted, and names every step's result.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/isolation.md for the operator's view of an isolated Cell.
 """
 

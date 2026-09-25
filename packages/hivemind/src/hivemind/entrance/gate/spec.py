@@ -1,6 +1,6 @@
 """Define the route table's rows: what every HTTP route and WebSocket view declares about itself.
 
-The Hive Entrance (the Hive's one HTTP door) serves two listeners from one table (ADR-0032): every
+The Hive Entrance (the Hive's one HTTP door) serves two listeners from one table (ADR-0040): every
 row names its method and path, the listeners that serve it (``LOOPBACK`` alone, or ``LOOPBACK`` and
 ``REMOTE``), who may call it (``Access``: no session at all, or a session whose device holds a
 capability, plus ``honey:clearance:c2`` for routes that return personal content) and what it
@@ -27,7 +27,7 @@ Key invariants:
     - A raw body is taken only by an authenticated row that mutates, and names at least one type.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "Two listeners are two
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "Two listeners are two
       applications built from one route table".
     - .claude/codingrules.md 8.11 for the route test the effects serve.
 """
@@ -42,7 +42,7 @@ from pydantic import BaseModel
 
 from hivemind.entrance.auth.session.models import Listener
 
-API_PREFIX = "/v1/"  # ADR-0034: every route lives under /v1/; a breaking change is /v2/.
+API_PREFIX = "/v1/"  # ADR-0042: every route lives under /v1/; a breaking change is /v2/.
 LOOPBACK_ONLY = frozenset({Listener.LOOPBACK})  # Approval, unlock, widening, invites, reopening.
 BOTH_LISTENERS = frozenset({Listener.LOOPBACK, Listener.REMOTE})  # Everything else.
 C2_CAPABILITY = "honey:clearance:c2"  # What a route returning personal content also needs.

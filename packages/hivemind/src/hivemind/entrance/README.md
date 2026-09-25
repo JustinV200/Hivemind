@@ -5,8 +5,8 @@ The Hive Entrance is the only door into the Hive: two listeners, loopback (alway
 device enrolment, auth, push delivery, exposure control and the human inbox. Approval routes never
 exist on the remote listener. Every client, the Hive Stand's own console included, is a device
 enrolled with its own key and approved at the Hive Stand, and logs in with that key plus the
-operator's password (codingrules 8.15, `docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md`).
-It runs inside `hive serve`, in the Queen's own process and event loop (ADR-0032), and every write
+operator's password (codingrules 8.15, `docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md`).
+It runs inside `hive serve`, in the Queen's own process and event loop (ADR-0040), and every write
 it makes into the Hive goes through the Queen's door.
 
 Roadmap steps 10.4, 10.5a (remote exposure), 10.5b (push), 10.5d (device enrolment), 10.5e
@@ -86,7 +86,7 @@ Heartbeat (the Wardens read counts its sub-bees from it) and fans every one out 
 The view models live in `hivemind.observation.views` (codingrules 8.11), and the Entrance, which
 answers with them and publishes them in the OpenAPI document, imports them from the
 `hivemind.observation` face only: the import-linter ranks `entrance` over `observation` and holds
-the edge to the face (ADR-0032 lists it); nothing in `observation` imports the Entrance.
+the edge to the face (ADR-0040 lists it); nothing in `observation` imports the Entrance.
 
 ## When a listener fails
 

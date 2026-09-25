@@ -1,6 +1,6 @@
 """Tests for `report_to_human`: a CRITICAL Guard report reaches the human once, pushed and durable.
 
-ADR-0035: a report at CRITICAL confidence is shown to the human whatever it recommends. The
+ADR-0043: a report at CRITICAL confidence is shown to the human whatever it recommends. The
 Queen's door shows a CRITICAL finding that asks for nothing (a raised audit rate, an Entrance
 reduce order, an observation) as a SECURITY Alarm naming the report, pushed to every device and
 committed before the call returns; showing is idempotent by report id, across a new door and a

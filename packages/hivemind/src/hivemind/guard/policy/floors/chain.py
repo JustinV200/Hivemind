@@ -1,8 +1,8 @@
 """Run every floor in order: the first to refuse decides, before any other Guard rule runs.
 
-`hivemind.guard.policy.evaluate` runs the floors first (ADR-0031: "floors, the access-level
+`hivemind.guard.policy.evaluate` runs the floors first (ADR-0039: "floors, the access-level
 ceiling, the deny list, then the held set"), because a floor refuses whatever the principal holds.
-`FLOORS` is their one order, hardest and cheapest first: the Hive's own state (ADR-0033: a bee
+`FLOORS` is their one order, hardest and cheapest first: the Hive's own state (ADR-0041: a bee
 never touches it, on any Cell, at any tier), then who may start Night Veil work at all, then what
 Night Veil work may do, then tier inheritance. `floor_refusal` walks the list and returns the
 first refusal, so an action one floor refuses is never asked of another, and the trail records one
@@ -18,7 +18,7 @@ Key invariants:
     - Returns only refusals: nothing here can turn a request into an allow.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
       a set says".
 """
 

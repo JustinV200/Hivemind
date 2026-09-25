@@ -1,11 +1,11 @@
-# ADR-0033: Devices enrol with their own key, log in with it plus the operator's password, and reach the Entrance over a VPN
+# ADR-0041: Devices enrol with their own key, log in with it plus the operator's password, and reach the Entrance over a VPN
 
 - Status: Accepted
 - Date: 2026-09-24
 
 ## Context
 
-The Hive Entrance (ADR-0032) is the only door into the Hive, and it can spend money, run commands
+The Hive Entrance (ADR-0040) is the only door into the Hive, and it can spend money, run commands
 on borrowed machines and read personal data. Brood 1.0 has exactly one human, the operator, and a
 handful of clients: the Observation Hive in a browser, the `hive` CLI on a laptop, a phone, a
 program. Codingrules 8.15 and 15 fix the goals: no sign-up, enrolment approved only at the Hive
@@ -46,7 +46,7 @@ approved and **loopback-bound** (its sessions open only on the loopback listener
 sessions in memory only. A bee that reads the secret store therefore holds nothing usable, and
 the first remote device is approved without any special path.
 
-**Bees never touch the Hive's own state.** A `[guard]` floor (ADR-0031) denies every bee principal
+**Bees never touch the Hive's own state.** A `[guard]` floor (ADR-0039) denies every bee principal
 `fs:read` and `fs:write` on the Hive's state paths (the database and its WAL and SHM files, the
 secret store, the manifest), `exec` of the `hive` and `hivemind-*` entry points, and `net` to any
 loopback address or the Hive Stand's own addresses, whatever its role set says. This narrows what
@@ -65,7 +65,7 @@ over a challenge the Entrance issued for that code, or an Ed25519 public key plu
 over `hive-enrol-v1`, the Hive id, the code's hash and the key) and a self-description; the
 record moves to `PENDING`, the device shows its key's fingerprint, and every approved device
 receives a `security_event` push ("a device is asking to join"). Approval binds the device's name,
-its `CapabilitySet` (never wider than the `device` role's ceiling in `[guard]`, ADR-0031), a daily
+its `CapabilitySet` (never wider than the `device` role's ceiling in `[guard]`, ADR-0039), a daily
 spend cap, an expiry and whether it is **interactive** (a human types the password at it: true for
 passkey devices and the console, false for program keys unless the operator says otherwise).
 Every approval surface shows the key fingerprint and the backup flags and escapes every string
@@ -80,7 +80,7 @@ steward_devices = true`, off by default, holding `entrance:steward`) may approve
 separate steward route that is mounted on the remote listener only when the switch is on, only
 after full step-up, granting at most its own set intersected with the device ceiling and never
 `entrance:steward` itself, and no higher daily spend cap and no later expiry than its own (a
-grant never exceeds its grantor, ADR-0031); nothing else approves remotely. The state machine is
+grant never exceeds its grantor, ADR-0039); nothing else approves remotely. The state machine is
 `entrance/enrol/state.py`: `INVITED → PENDING → APPROVED`, `INVITED → EXPIRED | REVOKED`,
 `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`, `APPROVED | LOCKED → EXPIRED | REVOKED`; every
 edge is a `guard.entrance_*` trail event (a trail kind has exactly one dot), and leaving
@@ -189,7 +189,7 @@ in the Entrance tables so a restart comes back in the mode it left. Reducing sto
 listener and the tunnel child, revokes every session opened on the remote listener and closes
 their WebSocket streams within one second. `hive entrance reduce` on the Hive Stand reduces; so
 does the Guard Bee, by recording a `guard.reduce_ordered` trail event the Entrance follows
-(ADR-0035), because narrowing access is always safe to do without judgement and the Guard, a
+(ADR-0043), because narrowing access is always safe to do without judgement and the Guard, a
 Worker, cannot import the Entrance; so does a remote listener that fails to bind or crashes, which
 also raises an Alarm and never stops the Queen. The Guard's lockout rule counts only valid-proof
 lockouts, so garbage logins cannot be used to slam the door on the operator. Reopening is a

@@ -1,6 +1,6 @@
 """Judge one Guard Bee finding in an awake episode on the judge slot, shown its facts and no more.
 
-A rule that asks for judgement (roadmap step 10.6, ADR-0035) hands each finding to one awake
+A rule that asks for judgement (roadmap step 10.6, ADR-0043) hands each finding to one awake
 episode (a bounded, stateless model call) before it is reported. `ModelGuardJudge` renders the
 Guard review prompt (`PromptName.GUARD_REVIEW`) around the finding's facts and nothing else: the
 rule, what it counts and measured, the kinds and number of the events it cites, the ids of what it

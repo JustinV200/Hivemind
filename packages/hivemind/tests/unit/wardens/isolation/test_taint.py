@@ -1,6 +1,6 @@
 """Tests for the in-Cell isolation setter: a Warden taints its own store on the Queen's order.
 
-Roadmap step 10.6a (ADR-0035). The Queen isolating a Cell sends its Warden a `CellTaintOrder`; the
+Roadmap step 10.6a (ADR-0043). The Queen isolating a Cell sends its Warden a `CellTaintOrder`; the
 Warden labels the memory its own store holds (here, a Handoff checkpointed for its task) TAINTED
 from the order's instant on, with `TaintSource.ISOLATION` and the Queen's `cell.isolated` event as
 the cause, and the loader every resume goes through refuses it from then on. Memory written

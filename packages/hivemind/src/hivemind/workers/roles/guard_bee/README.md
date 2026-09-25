@@ -1,6 +1,6 @@
 # hivemind.workers.roles.guard_bee
 
-The Guard Bee (roadmap step 10.6, [ADR-0035](../../../../../../../docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md)):
+The Guard Bee (roadmap step 10.6, [ADR-0043](../../../../../../../docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md)):
 the Hive's security watcher. It runs in the Queen's process on the Hive Stand, driven by her tick
 beside the House Bee's sweep, and reads the central Pheromone Trail against deterministic rules
 shipped as data. Every finding becomes a `GuardReport`, a `guard.alert` and a C2 deposit. It acts
@@ -114,7 +114,7 @@ highest of its tier table's rate, the live raise it reads back from its own trai
 Warden, from the next proposal on. The Hive Stand's Warden records to the Queen's own trail, so a
 raise takes effect there at once. A Virtual Cell's Warden records to its own local segment and never
 sees the central trail, so the Queen carries the raises to it: every `GrantIssued` holds
-`audit_raises` (Waggle 1.8), the highest live raise per tier (`live_audit_raises`), by tier name,
+`audit_raises` (Waggle 1.10), the highest live raise per tier (`live_audit_raises`), by tier name,
 with its expiry. The Warden keeps the highest live one per tier (`CarriedAuditRaises`), ignoring a
 tier it does not know, so a raise applies there from its next grant. An in-Cell Warden has no
 model-backed judge yet, so each sample it draws is recorded as inconclusive (`judge_error`).

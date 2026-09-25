@@ -1,6 +1,6 @@
 """Decide a Guard request by rule: a dire pattern isolates at once, anything else needs judgement.
 
-ADR-0035 (roadmap step 10.6a): a Guard request is the Queen's to decide, by autopilot first and by
+ADR-0043 (roadmap step 10.6a): a Guard request is the Queen's to decide, by autopilot first and by
 an awake episode second, like every item in her inbox (codingrules 8.8). The rule is short on
 purpose. A report whose rule the manifest lists among `[guard] dire_patterns` is decided without a
 model: ISOLATE_CELL when the report's target Cell is known, QUARANTINE_BEE when it names only a
@@ -22,7 +22,7 @@ Key invariants:
     - Never returns DISMISS: only a judgement dismisses a request; a rule never does.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.manifest.schema.guard for `[guard] dire_patterns`.
 """
 

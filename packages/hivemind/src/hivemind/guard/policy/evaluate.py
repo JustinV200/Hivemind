@@ -1,6 +1,6 @@
 """Decide one action: the Guard's pure policy function, returning the rule that decided and why.
 
-`evaluate` is ADR-0031's "policy is a pure function with a reason": given who is acting, at which
+`evaluate` is ADR-0039's "policy is a pure function with a reason": given who is acting, at which
 enforcement point, the capability the action needs, the set the principal holds and where the
 action happens, it answers allow or deny with a stable rule id, a sentence a human can read on
 the trail, and what a denial escalates to (the policy's per-point table, `REFUSE` by default).
@@ -36,7 +36,7 @@ Key invariants:
       still holds.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Policy is a pure
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Policy is a pure
       function with a reason" and "Floors hold whatever a set says".
     - hivemind.guard.enforcer for the adapter that records a denial before returning it.
 """
@@ -93,7 +93,7 @@ def evaluate(request: PolicyRequest, policy: GuardPolicy) -> PolicyDecision:
 
     Returns:
         A PolicyDecision: allowed by `guard.held` when the held set covers the need and no
-        refusing rule applies; otherwise refused by the first rule that applies, in ADR-0031's
+        refusing rule applies; otherwise refused by the first rule that applies, in ADR-0039's
         order (a floor, the access-level ceiling, the deny list), or by `guard.not_held`.
         Its escalation is the point's configured action, REFUSE when it has none.
 
@@ -193,7 +193,7 @@ def _deny_list(request: PolicyRequest, policy: GuardPolicy) -> _Verdict | None:
     return None
 
 
-# ADR-0031's order for the rules that can only refuse: floors, the access ceiling, the deny list.
+# ADR-0039's order for the rules that can only refuse: floors, the access ceiling, the deny list.
 _REFUSING_RULES: tuple[Callable[[PolicyRequest, GuardPolicy], _Verdict | None], ...] = (
     _floors,
     _access_level_ceiling,

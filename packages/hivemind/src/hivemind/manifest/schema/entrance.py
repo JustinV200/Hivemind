@@ -27,7 +27,7 @@ Key invariants:
     - ``mutual_tls`` is always a plain bool once a section is built: an omitted value is filled
       from ``expose`` before validation, so every reader sees what the mode asks for.
     - ``EntranceExposure`` has no public member, and ``remote_bind`` is never a wildcard address,
-      so no manifest can put the Entrance on every interface (codingrules 8.15, ADR-0033); it may
+      so no manifest can put the Entrance on every interface (codingrules 8.15, ADR-0041); it may
       be a loopback address, because tunnel mode binds it there for the local tunnel client.
     - ``bind`` always names a loopback host: the loopback listener, where approval lives, can
       never be moved onto a routable address.
@@ -36,9 +36,9 @@ Key invariants:
       ``HIVEMIND_*`` variables, never this section (codingrules section 13).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for every decision
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for every decision
       these fields parameterise.
-    - docs/adr/0034-landing-board-versioning-and-push.md for the push channels.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the push channels.
     - .claude/codingrules.md section 13 for the documented example of this section.
     - hivemind.entrance.expose for the start-time refusals this schema leaves to it.
 """
@@ -63,7 +63,7 @@ __all__ = [
 ]
 
 DEFAULT_ENTRANCE_BIND = "127.0.0.1:8710"  # codingrules 13's documented loopback listener address.
-# Tailscale's IPv4 CGNAT range and its IPv6 unique-local prefix: the documented overlay (ADR-0033),
+# Tailscale's IPv4 CGNAT range and its IPv6 unique-local prefix: the documented overlay (ADR-0041),
 # so a Tailscale address passes `vpn` mode's check with no configuration at all.
 DEFAULT_VPN_CIDRS = ("100.64.0.0/10", "fd7a:115c:a1e0::/48")
 _LOOPBACK_HOSTNAME = "localhost"  # The one hostname accepted as loopback; everything else is an IP.
@@ -82,7 +82,7 @@ _MUTUAL_TLS_BY_DEFAULT = frozenset({"lan", "tunnel"})
 
 
 class EntranceExposure(Enum):
-    """How the remote listener is exposed; there is deliberately no public mode (ADR-0033)."""
+    """How the remote listener is exposed; there is deliberately no public mode (ADR-0041)."""
 
     LOOPBACK = "loopback"  # No remote listener at all: the default.
     VPN = "vpn"  # Bound to an overlay (Tailscale or WireGuard) address only: the recommended mode.
@@ -110,7 +110,7 @@ class EntranceTlsSection(BaseModel):
 
 
 class EntrancePushSection(BaseModel):
-    """``[entrance.push]``: which push channels the Entrance offers devices (ADR-0034)."""
+    """``[entrance.push]``: which push channels the Entrance offers devices (ADR-0042)."""
 
     model_config = _MODEL_CONFIG
 
@@ -126,7 +126,7 @@ class EntrancePushSection(BaseModel):
         max_length=_MAX_WEBHOOK_ALLOWLIST,
         description="Hosts or CIDR networks a webhook may target beyond the default rule (an "
         "https URL, or an address inside vpn_cidrs); never loopback, link-local or the Hive "
-        "Stand's own addresses, whatever this lists (ADR-0034).",
+        "Stand's own addresses, whatever this lists (ADR-0042).",
     )
 
 
@@ -339,7 +339,7 @@ class EntranceSection(BaseModel):
             return value
         host, _ = split_host_port(value)
         address = ipaddress.ip_address(host)
-        # A wildcard listens on every interface, the open internet included (ADR-0033). A
+        # A wildcard listens on every interface, the open internet included (ADR-0041). A
         # loopback address is allowed here: tunnel mode binds the remote listener to loopback
         # for its local tunnel client, and expose.py checks each mode's own address rule.
         if address.is_unspecified:

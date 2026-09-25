@@ -3,7 +3,7 @@
 `AccessLevel` (`hivemind.cell.tiers`: `READ_ONLY`, `SCRATCH`, `FULL`) is set when a Real Cell (an
 existing device the Hive borrows and leaves exactly as found) joins, is stored with the node and
 every lease, and caps every capability set issued for that Cell; a Virtual Cell is always `FULL`.
-ADR-0031 fixes what it caps: only the families that act on the machine itself
+ADR-0039 fixes what it caps: only the families that act on the machine itself
 (`CELL_EFFECT_FAMILIES`: filesystem reads and writes, exec, network, devices, paths outside
 scratch, the Exoskeleton, location and host metadata). Every other family (a tool, a model slot, a
 question to the human, a spend ceiling, a tactic, watch) passes through untouched, so a
@@ -39,7 +39,7 @@ Key invariants:
     - Pure: `scratch_root` is only written into a scope string, never read from disk.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Access levels narrow
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Access levels narrow
       only what touches the Cell".
     - .claude/codingrules.md section 8.7 for what each AccessLevel means for a Real Cell.
     - .claude/roadmap.md step 10.7 for the access-level data and watch mode's bound.
@@ -58,7 +58,7 @@ from hivemind.guard.capabilities import CapabilityFamily, CapabilitySet, glob_li
 SCRATCH_PLACEHOLDER = "{scratch}"  # Stands for a lease's POSIX scratch root inside a capability.
 _SAMPLE_SCRATCH_ROOT = PurePosixPath("/scratch")  # Any root will do where only families matter.
 
-# The families that act on the machine itself (ADR-0031): the only ones an AccessLevel caps.
+# The families that act on the machine itself (ADR-0039): the only ones an AccessLevel caps.
 CELL_EFFECT_FAMILIES: frozenset[CapabilityFamily] = frozenset(
     {
         CapabilityFamily.FS_READ,

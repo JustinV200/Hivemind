@@ -1,11 +1,11 @@
 """Decide, purely, whether a request needs a step-up the session does not have.
 
 A step-up re-runs the device's factors and keeps a session stepped up for
-``step_up_window_minutes`` (ADR-0033). It is required for: a goal whose budget exceeds
+``step_up_window_minutes`` (ADR-0041). It is required for: a goal whose budget exceeds
 ``step_up_spend``; a goal that would take the submitting device past its daily spend cap (the caller
 supplies what the device has spent today); key and capability changes; Supersedure; Sting Cut;
 Absconding; reopening a reduced Entrance; locking another device; isolating a Cell or lifting an
-isolation (ADR-0035, roadmap step 10.6a: the human's own levers). The travel lock adds one more: a
+isolation (ADR-0043, roadmap step 10.6a: the human's own levers). The travel lock adds one more: a
 session opened from a network the device has not used before must step up before anything else.
 ``ActionKind`` names those actions (and ``NEW_NETWORK``, the travel lock's own, which a person
 confirms for a device that cannot step up); ``requires_step_up`` answers with the reason, or None.
@@ -24,7 +24,7 @@ Key invariants:
       (break-glass still needs its phrase).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
     - hivemind.entrance.auth.step_up.ceremony for the step-up itself.
 """
@@ -111,7 +111,7 @@ def action_step_up(
     Raises:
         ValueError: ``action`` is ``GOAL`` and ``spend`` is None.
     """
-    # Every action but a goal is sensitive by itself (ADR-0033's list).
+    # Every action but a goal is sensitive by itself (ADR-0041's list).
     if action is not ActionKind.GOAL:
         return StepUpReason.SENSITIVE_ACTION
     if spend is None:

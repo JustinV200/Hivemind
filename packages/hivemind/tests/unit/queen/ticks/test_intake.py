@@ -127,7 +127,7 @@ async def test_the_request_terms_reach_every_task_of_its_goal() -> None:
 
     goal_id = (await _state(rig, request)).goal_id
     [task] = await rig.deps.chamber.list(TaskFilter(goal_id=goal_id))
-    # ADR-0031's floor reads exactly these: a human origin, the requested tier and the request.
+    # ADR-0039's floor reads exactly these: a human origin, the requested tier and the request.
     assert task.spec.origin is RequestOrigin.HUMAN
     assert task.spec.needs.comb_shield is CombShieldLevel.NIGHT_VEIL
     assert task.spec.needs.isolation is Isolation.REQUIRED

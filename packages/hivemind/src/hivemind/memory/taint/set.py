@@ -1,6 +1,6 @@
 """Label memory tainted: taint_memory, the one function that ever sets the taint label.
 
-Roadmap step 10.6d (ADR-0035): "Taint is one label with three setters and one clearer." The three
+Roadmap step 10.6d (ADR-0043): "Taint is one label with three setters and one clearer." The three
 setters are callers, not code paths: the Queen isolating a Cell (10.6a), the one quarantine
 intervention (10.6c), and the Queen acting on a Guard report about a Honey item (10.6, phase 7).
 Each calls `taint_memory` with its closed `TaintSource`, a `TaintScope` naming the slice of memory
@@ -28,7 +28,7 @@ Key invariants:
       id; never any of the item's content.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Taint is one
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Taint is one
       label with three setters and one clearer".
     - hivemind.memory.taint.clear for clear_taint, the one clearer.
     - hivemind.memory.taint.scope for the scope shapes the two next callers use.

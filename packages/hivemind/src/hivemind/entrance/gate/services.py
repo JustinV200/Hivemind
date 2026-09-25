@@ -1,6 +1,6 @@
 """Define what every route and view is handed: the Entrance's services, per listener and shared.
 
-A Landing Board route is thin (ADR-0032): it validates, authorises, calls a subsystem's public API
+A Landing Board route is thin (ADR-0040): it validates, authorises, calls a subsystem's public API
 and shapes the reply. What it calls is here, built once by the composition root: ``QueenDoor``
 (the Queen's methods the Entrance writes through), ``HiveReads`` (the stores and live tables it
 reads directly, since reading never changes state; ``hivemind.entrance.gate.reads``),
@@ -26,7 +26,7 @@ Key invariants:
     - A route never reaches for a service outside this bundle.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "The Entrance lives in the
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "The Entrance lives in the
       Queen's process and every write goes through her".
     - hivemind.entrance.app for where each application binds its own services.
 """
@@ -227,7 +227,7 @@ class StreamServices:
         hub: Follows the trail once and fans events out to every view.
         sockets: Every live socket, by session, device and listener, so each closes on time.
         hello_deadline_s: How long a socket may take to send its authenticating first frame
-            (ADR-0033's five seconds, from the settings; a test injects a short one).
+            (ADR-0041's five seconds, from the settings; a test injects a short one).
         backlog: How far a view's subscription may fall behind before it is closed.
     """
 

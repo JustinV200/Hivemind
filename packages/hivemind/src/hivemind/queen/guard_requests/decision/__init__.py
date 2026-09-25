@@ -1,6 +1,6 @@
 """Decide a Guard request on the Queen's tick: by rule, by one awake episode, or by the fallback.
 
-ADR-0035 (roadmap step 10.6a): a Guard Bee only requests; the Queen decides. `decide` is the one
+ADR-0043 (roadmap step 10.6a): a Guard Bee only requests; the Queen decides. `decide` is the one
 entry her tick calls for every GUARD_REQUEST item: it finds the request's target (`target`), rules
 on it (`hivemind.queen.autopilot.guard`: a dire pattern isolates without a model), judges the rest
 in one awake episode with the report's facts attached (`judge`), falls back to isolation when no

@@ -1,8 +1,8 @@
-"""Tests for Waggle 1.8's GrantIssued.audit_raises and its RaisedAuditRate value model.
+"""Tests for Waggle 1.10's GrantIssued.audit_raises and its RaisedAuditRate value model.
 
 A grant carries every Capping audit-rate raise in force when it is issued: a tier by name, the
 raised rate and when it lapses, at most one per tier. It round-trips and crosses the codec
-unchanged; a grant from before minor 8, with no such field, still validates with none; and every
+unchanged; a grant from before minor 10, with no such field, still validates with none; and every
 bound the spec names holds.
 
 Fits into the Hive:
@@ -61,7 +61,7 @@ def _grant(**changes: object) -> GrantIssued:
 
 
 def test_the_protocol_is_at_minor_eight() -> None:
-    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.8", 8)
+    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.10", 10)
 
 
 def test_a_grant_carrying_raises_round_trips(

@@ -1,6 +1,6 @@
 """Build the one row a resource the contract names, before its phase lands, answers with.
 
-ADR-0032: a Landing Board resource whose subsystem is not built yet answers ``501 Not
+ADR-0040: a Landing Board resource whose subsystem is not built yet answers ``501 Not
 Implemented`` naming the roadmap phase that fills it, so the contract names every resource from
 the start: a client written against the document sees ``/v1/tools``, ``/v1/honey`` and
 ``/v1/swarm`` now, and learns from the answer when they arrive. ``not_built_row`` builds that row

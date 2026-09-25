@@ -1,7 +1,7 @@
 """Keep the operator's password and the Hive Stand console: bootstrap, change, reset, unlock.
 
 The Hive Stand (the machine the Queen, the orchestrator, runs on) has its own console, and it is a
-device like any other (ADR-0033): it holds an Ed25519 key, logs in with that key plus the operator
+device like any other (ADR-0041): it holds an Ed25519 key, logs in with that key plus the operator
 password, and is recorded APPROVED and **loopback-bound**, so its sessions open only on the loopback
 listener. That is how the first remote device ever gets approved without a special path.
 ``bootstrap_operator`` sets it all up once: it checks the password's strength before writing
@@ -20,7 +20,7 @@ new one in the same operation; ``unlock_console_key`` opens it for a console log
 running Entrance holds in memory: ``reset_operator`` is ``--reset`` for a lost password (every
 device leaves, its sessions end, a new console key is minted under the new password and recorded
 as a new console, and the hash is written last), and ``unlock_console`` unlocks a console locked
-out by wrong passwords, which could otherwise never log in to unlock itself (ADR-0033). Console
+out by wrong passwords, which could otherwise never log in to unlock itself (ADR-0041). Console
 sessions are never persisted by anything: the console's session lives in the memory of the process
 that opened it, and the unwrapped key only as long as that session does.
 
@@ -46,7 +46,7 @@ Key invariants:
       step-up still applies above ``step_up_spend`` (codingrules 8.15).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the console
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the console
       device and the wrapped key.
     - hivemind.entrance.auth.wrap for the blob format.
 """
@@ -95,7 +95,7 @@ CONSOLE_USER_AGENT = "hivemind"  # The console is the Hive's own code, not a bro
 CONSOLE_REPLACED = "console_replaced"  # Why a stale console record is revoked, on the trail.
 OPERATOR_RESET = "operator_reset"  # Why a reset moves every device out, on the trail.
 # Where a reset moves each device that is not already terminal: every one leaves, the console
-# included, because its key is sealed under the lost password (ADR-0033). A request still waiting
+# included, because its key is sealed under the lost password (ADR-0041). A request still waiting
 # is denied (PENDING has no edge to REVOKED); every other standing is revoked.
 _RESET_EDGES: Mapping[DeviceStatus, DeviceStatus] = MappingProxyType(
     {

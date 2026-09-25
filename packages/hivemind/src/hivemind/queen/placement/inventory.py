@@ -191,7 +191,7 @@ class ForageView:
     compiling and behaving exactly as before this step. `hivemind.queen.dispatcher.snapshot.
     build_forage_view` fills both from the task (`task.spec.origin`, and a `NightVeilHostingView`
     from `hivemind.queen.forage.night_veil.night_veil_local_only` once the task's Cell has a
-    written plan). Roadmap step 10.3 adds `goal_capabilities` (ADR-0031, "a goal carries a
+    written plan). Roadmap step 10.3 adds `goal_capabilities` (ADR-0039, "a goal carries a
     ceiling"): the capability set the task's goal carries, which every candidate must be allowed
     by before any other rule looks at it, defaulting to None (no ceiling).
 

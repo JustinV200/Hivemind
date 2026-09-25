@@ -20,7 +20,7 @@ Key invariants:
       always points at a real default set.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Two roots, and sets
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Two roots, and sets
       only narrow below them".
     - hivemind.guard.policy.models for PrincipalRef and its id-matches-kind rule.
 """

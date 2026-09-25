@@ -2,7 +2,7 @@
 
 A valid device proof with a wrong password at the Hive Entrance (the Hive's one HTTP door) is a
 failure of that device, and ``lockout_attempts`` in a row lock it; the travel lock asks whether a
-device has used a network before (ADR-0033). Both facts are persisted, so a restart neither resets
+device has used a network before (ADR-0041). Both facts are persisted, so a restart neither resets
 an attacker's guesses nor forgets where a device has been. ``protocol`` defines ``LoginTable``;
 ``sqlite`` keeps it in the Entrance tables (``entrance_login_failures``,
 ``entrance_device_networks``, migration 0002); ``memory`` in dicts.
@@ -16,7 +16,7 @@ Key invariants:
     - This file holds re-exports and ``__all__`` only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
       limits, travel lock".
 
 Public API:

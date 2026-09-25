@@ -1,4 +1,4 @@
-"""Tests for a Warden's rebinds at the slot_binding point (roadmap step 10.3, ADR-0031).
+"""Tests for a Warden's rebinds at the slot_binding point (roadmap step 10.3, ADR-0039).
 
 Every rebind stays inside the grant's `allowed` bindings and the sub-bee's own `llm:<slot>`: a
 Queen-sent `Intervene(REBIND)` (`hivemind.wardens.ticks.alarms.rebind_sub_bee`, reached through

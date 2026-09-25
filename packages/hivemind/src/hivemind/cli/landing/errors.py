@@ -3,7 +3,7 @@
 The Landing Board (the Hive Entrance's HTTP contract) answers every refusal with the same body,
 ``hivemind.entrance.gate.ErrorBody``: a stable code, one sentence, and for a step-up the reason
 and, when the device cannot step up itself, the id of the pending confirmation holding its
-request (ADR-0033). ``LandingRefusedError`` carries that body to the CLI's commands, and its message
+request (ADR-0041). ``LandingRefusedError`` carries that body to the CLI's commands, and its message
 adds what the code means for the person at the terminal: a failed login never says which factor
 failed (so the message lists what it may be: a wrong password, a device still pending approval,
 locked or revoked), and a held request names the confirmation a person must give.
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.gate.handlers for the refusal body and each status.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
 """
 
@@ -37,11 +37,11 @@ from pydantic import ValidationError
 from hivemind.common.errors import HiveMindError, PermissionDeniedError
 from hivemind.entrance.gate import NOT_FOUND_CODE, ErrorBody
 
-STEP_UP_CODE = "hivemind.entrance.step_up_required"  # ADR-0033's 403 step_up_required.
+STEP_UP_CODE = "hivemind.entrance.step_up_required"  # ADR-0041's 403 step_up_required.
 AUTHENTICATION_CODE = "hivemind.entrance.authentication_failed"  # A refused login or session.
 CAPABILITY_CODE = "hivemind.entrance.capability_denied"  # The device lacks the route's capability.
 RATE_CODE = "hivemind.entrance.rate_limited"  # Past the per-device or per-address rate.
-# What a refused login or session may mean: the Entrance never says which (ADR-0033).
+# What a refused login or session may mean: the Entrance never says which (ADR-0041).
 AUTHENTICATION_HINT = (
     "the password may be wrong, or this device may be pending approval, locked or revoked "
     "(the Entrance never says which)"

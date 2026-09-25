@@ -5,7 +5,7 @@ in `hivemind.supervision.attendant.scoring`'s module docstring): a base weight p
 per-principal multiplier, how much a second of age is worth, a weight per `AlarmSeverity`, how
 much a latency budget's urgency counts, a flat bonus for an item that names a task, and (roadmap
 step 10.6a) the kinds this supervisor refuses outright: a Guard Bee's request (`GUARD_REQUEST`) is
-the Queen's alone to decide (ADR-0035), so a Warden's table refuses it and its Attendant never
+the Queen's alone to decide (ADR-0043), so a Warden's table refuses it and its Attendant never
 orders one. `Priority`
 is one item's scored outcome: the number the Attendant orders by, plus the list of factors that
 contributed to it, so a supervisor's own logs or the Observation Hive's Attendant view can show
@@ -29,7 +29,7 @@ Key invariants:
       tests check each).
     - warden_default gives every InboxKind the same base weight (a Warden's inbox is smaller and
       more uniform than the Queen's, codingrules section 8.8) and applies no principal
-      favouritism; it refuses GUARD_REQUEST, which never reaches a Warden (ADR-0035).
+      favouritism; it refuses GUARD_REQUEST, which never reaches a Warden (ADR-0043).
 
 See Also:
     - .claude/codingrules.md section 8.8 for "the Queen's Attendant weighs human messages heavily
@@ -46,13 +46,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.supervision.alarm import AlarmSeverity
 from hivemind.supervision.attendant.items import InboxKind
 
-# ADR-0035: a Guard request outranks every Alarm and every human message. 100 clears the highest
+# ADR-0043: a Guard request outranks every Alarm and every human message. 100 clears the highest
 # either reaches on the Queen's table (a CRITICAL Alarm: 10 + 15 + 1.5 for its task link; the
 # Queen's items carry no latency budget) by a margin age alone takes most of a day to close.
 GUARD_REQUEST_WEIGHT = 100.0
 GUARD_PRINCIPAL = "guard"  # The principal every Guard request is scored under (the Guard Bee).
 # The Guard principal's own multiplier: neutral by default, named so an operator's override has a
-# row to tune (ADR-0035: a noisy Guard could crowd the Queen's attention; this is one lever).
+# row to tune (ADR-0043: a noisy Guard could crowd the Queen's attention; this is one lever).
 GUARD_PRINCIPAL_WEIGHT = 1.0
 
 __all__ = [
@@ -99,7 +99,7 @@ class WeightTable(BaseModel):
     refused_kinds: frozenset[InboxKind] = Field(
         default_factory=frozenset,
         description="Kinds this supervisor never scores or acts on: `score_item` refuses one and "
-        "`Attendant.order` drops it (a Warden refuses GUARD_REQUEST, ADR-0035).",
+        "`Attendant.order` drops it (a Warden refuses GUARD_REQUEST, ADR-0043).",
     )
 
     def refuses(self, kind: InboxKind) -> bool:
@@ -121,7 +121,7 @@ class WeightTable(BaseModel):
         can still edge out a routine human message, and a CRITICAL Alarm's severity bonus (15.0)
         puts a critical Alarm well clear of any human message regardless of age or task linkage --
         "human input carries heavy weight but not absolute priority" (README, "The Queen"). A
-        Guard request (roadmap step 10.6a, ADR-0035) sits above all of them at a fixed
+        Guard request (roadmap step 10.6a, ADR-0043) sits above all of them at a fixed
         `GUARD_REQUEST_WEIGHT`, with the Guard principal's multiplier on top; its item carries no
         task and no latency budget (`InboxItem`'s own validator), so only age orders two of them.
 
@@ -161,7 +161,7 @@ class WeightTable(BaseModel):
         and a CRITICAL Alarm outranks everything, because a supervisor that lets an old heartbeat
         queue ahead of a fresh postcondition failure is not supervising. Everything else is flat,
         so age, task linkage and latency urgency do the ordering work. A Guard request is refused
-        outright: it is the Queen's alone to decide (ADR-0035), so a Warden's Attendant never
+        outright: it is the Queen's alone to decide (ADR-0043), so a Warden's Attendant never
         orders one, whatever reached its inbox.
 
         Returns:
@@ -186,7 +186,7 @@ class WeightTable(BaseModel):
             },
             latency_weight=1.0,
             task_link_weight=1.0,
-            refused_kinds=frozenset({InboxKind.GUARD_REQUEST}),  # The Queen's alone (ADR-0035).
+            refused_kinds=frozenset({InboxKind.GUARD_REQUEST}),  # The Queen's alone (ADR-0043).
         )
 
 

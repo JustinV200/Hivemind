@@ -1,6 +1,6 @@
 # Tainted memory
 
-Roadmap step 10.6d, [ADR-0035](../adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
+Roadmap step 10.6d, [ADR-0043](../adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
 Code: `hivemind.memory.taint`. State machine: [codingrules Appendix C](../../.claude/codingrules.md),
 "Taint label" row.
 
@@ -85,7 +85,7 @@ Only a judge verdict clears it. `clear_taint(TaintClearRequest(target, clearer, 
 TaintClearDeps(judge, enforcer, ctx, ledger=None))` is the one path:
 
 1. It reads the item and refuses unless it is tainted.
-2. It asks the Guard at the `taint_clear` enforcement point (ADR-0031). The clearer (the Queen, or
+2. It asks the Guard at the `taint_clear` enforcement point (ADR-0039). The clearer (the Queen, or
    a Warden for its own sub-bee's respawn) must hold `honey:clearance:<c>` at the item's own
    clearance, because clearing sends the item's whole text to the judge. A refusal is a
    `guard.denied` row, and no model is called.

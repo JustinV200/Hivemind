@@ -1,7 +1,7 @@
 """Define PeerEndpointSource: who can tell the travel lock where a device really connects from.
 
 On the Tailscale overlay a device keeps its overlay address wherever it roams, so the address a
-request arrives from says nothing about where the device is (ADR-0033). The travel lock therefore
+request arrives from says nothing about where the device is (ADR-0041). The travel lock therefore
 asks something that sees real endpoints: for the overlay address a request came from, the network
 the peer is reaching the Hive Stand from right now (its current endpoint's /24 or /64, or
 ``derp:<region>`` when tailscaled relays it). ``PeerEndpointSource`` is that seam (codingrules
@@ -19,7 +19,7 @@ Key invariants:
       travel lock treats as a new network.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
     - hivemind.entrance.auth.travel.tailscale for the real source.
 """
 

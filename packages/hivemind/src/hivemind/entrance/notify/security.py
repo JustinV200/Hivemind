@@ -20,7 +20,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.enrol.deps.notifier for the seam and the notice.
-    - docs/adr/0034-landing-board-versioning-and-push.md for ``security_event``'s audience.
+    - docs/adr/0042-landing-board-versioning-and-push.md for ``security_event``'s audience.
 """
 
 from __future__ import annotations

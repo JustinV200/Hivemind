@@ -10,7 +10,7 @@ slot (the named role a model is bound to) with a source and an effort cap; ``Sea
 holds seats on one shared server or hosted provider, where the hosted equivalent of a seat is
 requests and tokens per minute; ``ForageDelta`` is the delta a Warden asks for and the Queen
 grants, one shape for both so a partial grant has the shape of the ask; ``RaisedAuditRate``
-(minor 8) is one Capping tier's sampled-audit rate the Guard Bee raised Hive-wide, which a grant
+(minor 10) is one Capping tier's sampled-audit rate the Guard Bee raised Hive-wide, which a grant
 carries to the Warden holding it so its Capping gate samples at that rate until it lapses. The
 enums are the closed sets those models and the grant messages carry. The family's other values (a
 Cell's capacity, its ceilings and the chains of a hosting plan) live in

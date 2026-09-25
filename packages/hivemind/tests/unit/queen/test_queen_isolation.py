@@ -1,6 +1,6 @@
 """Tests for the Queen's own ISOLATE policy row: an escalated Alarm isolates the Cell it names.
 
-Roadmap step 10.6a (ADR-0035). `PolicyAction.ISOLATE` is the Queen's alone (a Warden's policy
+Roadmap step 10.6a (ADR-0043). `PolicyAction.ISOLATE` is the Queen's alone (a Warden's policy
 never loads it); in her escalation policy it maps to `QueenAction.ISOLATE_CELL`, which records her
 decision and isolates the Alarm's Cell through the one isolation path. An Alarm that names no
 Cell, or names the Hive Stand's own (the human's alone), reaches the human instead.

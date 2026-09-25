@@ -1,6 +1,6 @@
 # The Guard Bee
 
-Roadmap step 10.6, [ADR-0035](../adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
+Roadmap step 10.6, [ADR-0043](../adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
 Code: `hivemind.workers.roles.guard_bee` ([README](../../packages/hivemind/src/hivemind/workers/roles/guard_bee/README.md)).
 Rules: [`rules.toml`](../../packages/hivemind/src/hivemind/workers/roles/guard_bee/rules.toml), read
 through `importlib.resources`. Settings: `[guard]` and `[guard.bee]` in the Hive Manifest
@@ -251,7 +251,7 @@ Every Warden's auditing Capping gate samples a terminal proposal at the highest 
 table's rate, the live raise it reads from its own trail, and the live raises the Queen carried to
 it. The Hive Stand's Warden records to the Queen's trail, so a raise applies there from the next
 proposal. A Virtual Cell's Warden records to its own local segment, so the Queen carries the raises
-to it: every `GrantIssued` she sends a Warden holds `audit_raises` (Waggle 1.8), the highest live
+to it: every `GrantIssued` she sends a Warden holds `audit_raises` (Waggle 1.10), the highest live
 raise per tier, by tier name, with its expiry. The Warden keeps the highest live one per tier from
 every grant it receives, and a raise applies there from its next grant. A tier the Warden does not
 know is ignored. A Warden inside a Virtual Cell has no model-backed judge of its own yet, so a

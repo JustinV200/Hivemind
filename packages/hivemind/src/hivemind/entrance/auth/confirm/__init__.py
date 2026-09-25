@@ -1,6 +1,6 @@
 """Hold pending confirmations: requests a device cannot step up for, until a person confirms them.
 
-A device no person types at cannot step up (ADR-0033), so a request of its that needs step-up
+A device no person types at cannot step up (ADR-0041), so a request of its that needs step-up
 waits as a pending confirmation, pushed to the human and carried out only once a person confirms
 it from an interactive device that has just stepped up. ``state`` is its state machine (``PENDING``
 settled once: ``CONFIRMED``, ``EXPIRED`` or ``CANCELLED``); ``models`` the records
@@ -17,7 +17,7 @@ Key invariants:
     - A held action is handed back at most once, and never for a device no longer approved.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
 
 Public API:

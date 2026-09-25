@@ -4,7 +4,7 @@ The Observation Hive's Fleet list and Cell pages read Cells here (codingrules 8.
 Real and Virtual, with its Comb Shield tier (always shown), access level and mode, Pheromone Mask
 state (null until roadmap 6.13 tracks it), lease or Virtual status, Warden and the unfinished
 tasks placed on it. The census joins these from the stores and the Queen's live tables, read
-directly (ADR-0032). Both routes need ``observe``; nothing here is personal. Isolating a Cell and
+directly (ADR-0040). Both routes need ``observe``; nothing here is personal. Isolating a Cell and
 lifting isolation are later steps (10.6a), not read routes, so they are not here.
 
 Fits into the Hive:

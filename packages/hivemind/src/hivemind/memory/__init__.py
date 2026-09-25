@@ -25,7 +25,7 @@ a Queen-written caution about one Cell, its state machine (`PROPOSED -> WRITTEN 
 CLEARED | EXPIRED`, `PROPOSED -> REJECTED`) and the five functions that walk it; it enters hot
 state, through `hot_state`'s own `CellWaxSummary` and `HotStateSources.wax`, only while its Cell is
 in `AssembleRequest.cells_in_play`. `store` is the durable half, six SQLite tables plus an
-in-memory fake for tests. `taint` (roadmap step 10.6d, ADR-0035) is the one label that keeps memory
+in-memory fake for tests. `taint` (roadmap step 10.6d, ADR-0043) is the one label that keeps memory
 written while a bee may have been compromised out of every later prompt: `taint_memory` sets it on
 every checkpoint, Handoff, episode record and Bee Bread deposit a `TaintScope` covers, and only
 `clear_taint`, on a judge verdict, clears it; until then `assemble`, every Bee Bread lookup,

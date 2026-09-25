@@ -2,7 +2,7 @@
 
 A phone reaches the Hive Entrance (the Hive's one HTTP door) through its remote listener, which
 `hive serve` opens only in a remote mode, on an overlay (VPN) address with TLS on a DNS name
-(ADR-0033): `plan_exposure` refuses anything less, rightly, and a test host has no overlay interface
+(ADR-0041): `plan_exposure` refuses anything less, rightly, and a test host has no overlay interface
 to bind. `serve_exposed` runs `serve_hive` itself over the Hive `build_served_hive` built (a real
 Queen, the orchestrator; her Warden, supervising the Hive Stand, the machine she runs on; a Drone,
 the worker bee doing the task; the Hive's own SQLite file and secret store; the push transport and

@@ -2,7 +2,7 @@
 
 A request reaches the Hive Entrance (the Hive's one HTTP door) from a network address. Two things
 are derived from it here, both pure. A device's **network** is what a session records and the
-travel lock compares (ADR-0033): the /24 of an IPv4 address or the /64 of an IPv6 one, or, when
+travel lock compares (ADR-0041): the /24 of an IPv4 address or the /64 of an IPv6 one, or, when
 tailscaled reports that a peer's traffic is relayed rather than direct, ``derp:<region>`` (the
 DERP relay region carrying it), since a relayed peer has no endpoint of its own to take a prefix
 of. A **trail address** is the address as the Pheromone Trail (the Hive's audit log) records it:
@@ -23,7 +23,7 @@ Key invariants:
       ``MAX_ADDRESS_CHARS``.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
     - hivemind.entrance.auth.travel for the lock that compares networks.
 """
 
@@ -32,7 +32,7 @@ from __future__ import annotations
 import ipaddress
 import re
 
-IPV4_NETWORK_PREFIX = 24  # ADR-0033: a device's network is the /24 of an IPv4 address...
+IPV4_NETWORK_PREFIX = 24  # ADR-0041: a device's network is the /24 of an IPv4 address...
 IPV6_NETWORK_PREFIX = 64  # ...and the /64 of an IPv6 one.
 RELAY_PREFIX = "derp:"  # A relayed peer's network: its DERP region, e.g. "derp:nyc".
 MAX_ADDRESS_CHARS = 64  # An IPv6 address with its zone fits; anything longer is not an address.

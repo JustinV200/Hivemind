@@ -208,7 +208,7 @@ def test_cap_to_access_keeps_governed_entries_the_ceiling_allows() -> None:
 
 
 def test_cap_to_access_leaves_every_ungoverned_family_untouched() -> None:
-    # A READ_ONLY Warden still holds question:human and llm:warden (ADR-0031).
+    # A READ_ONLY Warden still holds question:human and llm:warden (ADR-0039).
     requested = CapabilitySet.parse(
         "question:human", "llm:warden", "tool:*", "spend:*", "tactic:*", "watch:node1", "exec:*"
     )

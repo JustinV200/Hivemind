@@ -1,7 +1,7 @@
 """Render a taintable memory item as the text a taint judge reviews: its own words, nothing more.
 
 The taint judge (`hivemind.memory.taint.judge`, roadmap step 10.6d) decides whether a tainted item
-may reach prompts again from the item alone, "with no shared context" (ADR-0035). This module is
+may reach prompts again from the item alone, "with no shared context" (ADR-0043). This module is
 what "the item alone" means for each kind the memory tables hold: a Handoff's goal, progress,
 decisions, lists and notes; an episode record's trigger (the outside words it carried included,
 since those are what an injection would ride in on), reasoning summary, decision and action; a

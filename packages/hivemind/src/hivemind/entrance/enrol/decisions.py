@@ -1,7 +1,7 @@
 """Decide a pending request at the Hive Stand: approve it with what it may do, or deny it.
 
 A redeemed invite leaves a PENDING request that only the operator decides, on the loopback listener
-(ADR-0033; the steward route is the one remote exception, and it grants through
+(ADR-0041; the steward route is the one remote exception, and it grants through
 ``hivemind.entrance.enrol.grants.steward_grant``). ``approve`` binds, in one step, everything the
 device will be held to: its name, its ``CapabilitySet`` (never wider than the ``device`` role's
 ceiling; the role's ``proposed`` set when the operator names none), its daily spend cap, its expiry,
@@ -30,7 +30,7 @@ Key invariants:
       (``DeviceStatusConflictError``) instead of overwriting another.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for approval.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for approval.
     - hivemind.entrance.enrol.grants for the ceiling and steward rules.
 """
 
@@ -84,7 +84,7 @@ __all__ = [
 
 
 class ApprovalRequest(BaseModel):
-    """What the operator binds when approving a pending device (ADR-0033).
+    """What the operator binds when approving a pending device (ADR-0041).
 
     Built by ``hive entrance approve`` or the Observation Hive on loopback from what the operator
     chose; every string in it is shown on approval surfaces again, so it is display text.

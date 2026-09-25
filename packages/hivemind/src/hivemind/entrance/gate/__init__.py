@@ -1,6 +1,6 @@
 """Hold the Entrance's gate: what every request passes before a route and what a route is handed.
 
-Every Landing Board route and view goes through the same gate (ADR-0032, ADR-0033). ``spec`` defines
+Every Landing Board route and view goes through the same gate (ADR-0040, ADR-0041). ``spec`` defines
 the route table's rows (method, path, listeners, access, effect); ``middleware`` wraps each
 listener's application (security headers on every response, the loopback listener's Host and
 forwarding-header check, the per-address rate limit); ``admit`` is the authentication dependency
@@ -21,7 +21,7 @@ Key invariants:
     - No header value, token, signature or body is logged or answered back.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
 
 Public API:
     - RouteSpec, SocketSpec, RouteTable, Access, RouteEffect, Switch, RawBody, PUBLIC,

@@ -3,7 +3,7 @@
 The Fleet list and the Cell pages are redrawn from Cell status deltas (roadmap 12.4, 12.6). What
 changes a Cell's view is always on the trail: its own lifecycle and lease edges (``cell.*``), its
 Warden's mode edges (``warden.*``) and the tasks placed on it and leaving it (``task.*``). So the
-view follows those families through the stream hub (ADR-0032), rebuilds the Cells' views from
+view follows those families through the stream hub (ADR-0040), rebuilds the Cells' views from
 the stores (the census, as ``GET /v1/cells`` does) whenever a batch arrives, and sends a
 ``CellFrame`` for each Cell whose view differs from the one it last sent. It subscribes first and
 then sends every Cell once, so a client needs no separate read to start and misses nothing in

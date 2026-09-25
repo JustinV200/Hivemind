@@ -9,7 +9,7 @@ these views lives separately, in packages/observation-web.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Used by ``hivemind.entrance`` (its routes, read
-    side and live views), the one same-layer import ADR-0032 lists; never imports the Entrance.
+    side and live views), the one same-layer import ADR-0040 lists; never imports the Entrance.
     Calls into the Hive's record types (Brood Chamber, Cells, Forage, memory, the trail, the
     Queen's ledger and mode) and pydantic.
 

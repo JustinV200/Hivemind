@@ -1,6 +1,6 @@
 # Untrusted content: the scanner
 
-Roadmap step 10.6b, [ADR-0035](../adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
+Roadmap step 10.6b, [ADR-0043](../adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md).
 Code: `hivemind.guard.scanner`. Patterns:
 [`packages/hivemind/src/hivemind/guard/defaults/untrusted-content.toml`](../../packages/hivemind/src/hivemind/guard/defaults/untrusted-content.toml),
 read through `importlib.resources`, so a checkout, a wheel and a manifest elsewhere all see the
@@ -67,7 +67,7 @@ The scan is CPU-bound, local and bounded, so it runs inline.
 | `secret_exfiltration` | proximity | 4.0 | 1 | A credential file (`~/.ssh/id_rsa`, `~/.aws/credentials`, `/etc/shadow`, a `.env`, the Hive's own key names) within 160 characters of a way out (`curl`, `scp`, "upload", "send", `requests.post`, `base64`). Either half alone is ordinary in documentation. The anchors are concrete files, never the bare words "password" or "token". |
 | `encoded_blob` | run | 1.5 | 1 | An unbroken base64 or hex run of at least 200 characters with at least 12 distinct characters. Certificates and keys are long too, so this only tips a text that trips something else. |
 | `tool_call_shaped` | patterns | 2.5 | 1 | JSON or tags shaped like a tool call (`"tool_calls":`, `<invoke`, `<function_calls>`), or the Hive's own tool names called with arguments. Nothing outside the Hive has a reason to spell `write_file(` with arguments. |
-| `outside_hosts` | hosts | 1.0 | 2 | A URL whose host the consuming bee holds no `net:` capability for (ADR-0031's host grammar), counted once per distinct host. Links are everywhere, so this also only tips a text. Skipped when there is no task to measure against (chat). |
+| `outside_hosts` | hosts | 1.0 | 2 | A URL whose host the consuming bee holds no `net:` capability for (ADR-0039's host grammar), counted once per distinct host. Links are everywhere, so this also only tips a text. Skipped when there is no task to measure against (chat). |
 
 The weights are set so that one clear imperative, role override or exfiltration line reaches the
 default `meadow` label threshold by itself, while a lone link, a lone blob or a lone tool-call-shaped

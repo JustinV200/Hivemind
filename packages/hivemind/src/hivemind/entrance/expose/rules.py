@@ -1,7 +1,7 @@
 """Name every rule the exposure check enforces, each with the one sentence a refusal quotes.
 
 ``[entrance] expose`` chooses how the Hive Entrance (the Hive's one HTTP door) is reached from
-other machines: ``loopback`` (not at all), ``vpn``, ``lan`` or ``tunnel`` (ADR-0033). Each remote
+other machines: ``loopback`` (not at all), ``vpn``, ``lan`` or ``tunnel`` (ADR-0041). Each remote
 mode has prerequisites the manifest schema cannot check on its own, because they depend on this
 host (its interfaces, its TLS files) or on several fields at once; ``plan_exposure`` checks them
 when the Entrance starts and refuses with exactly one ``ExposureRule``. The rules live here, apart
@@ -19,7 +19,7 @@ Key invariants:
       environment, so a refusal can never quote a secret.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
       means the open internet".
     - hivemind.entrance.expose.plan for the order the rules are checked in.
 """

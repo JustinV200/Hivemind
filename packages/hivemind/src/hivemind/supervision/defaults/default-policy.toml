@@ -121,7 +121,7 @@ kind = "QUOTA_EXCEEDED"
 min_attempts = 1
 action = "CANCEL"
 
-# SECURITY (roadmap steps 10.6 and 10.6c, ADR-0035): a security event, such as a bee its Warden
+# SECURITY (roadmap steps 10.6 and 10.6c, ADR-0043): a security event, such as a bee its Warden
 # quarantined. Never retried, respawned or rebound at any level: a Warden sends it up to the Queen,
 # and the Queen sends it on to the human, who is told of every quarantine. One row covers every
 # attempt count, since a kind's own rows are always searched before any wildcard row; a fresh

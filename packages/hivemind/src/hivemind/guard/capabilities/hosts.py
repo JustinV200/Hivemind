@@ -1,6 +1,6 @@
 """Validate and match `net` scopes: a host, a domain's subdomains, an IP literal or a network.
 
-`net` (reaching the network) has a scope kind of its own, `ScopeKind.HOST` (ADR-0031), because
+`net` (reaching the network) has a scope kind of its own, `ScopeKind.HOST` (ADR-0039), because
 neither a glob nor a prefix over text can say what a network grant means: `net:*.example.com`
 must cover `a.example.com` but never `badexample.com`, and `net:10.0.0.0/8` must cover the address
 `10.1.2.3`, which shares no text prefix with it. A held scope is one of five shapes: `*` (any
@@ -24,7 +24,7 @@ Key invariants:
     - IPv4 and IPv6 never cover each other either; an IPv4-mapped IPv6 literal is IPv6.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the grammar.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the grammar.
     - hivemind.guard.capabilities.scopes for the other six kinds, and the dispatch to this one.
 """
 

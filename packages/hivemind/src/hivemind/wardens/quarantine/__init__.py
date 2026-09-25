@@ -1,4 +1,4 @@
-"""Quarantine one sub-bee: ADR-0035's one intervention, and its one way out.
+"""Quarantine one sub-bee: ADR-0043's one intervention, and its one way out.
 
 A bee that may have read an injected instruction is quarantined by its Warden (the always-on
 supervisor of its Cell) through one code path (roadmap step 10.6c): checkpoint it, cancel it and
@@ -24,7 +24,7 @@ Key invariants:
     - Checked at `EnforcementPoint.QUARANTINE` before anything is cut.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.supervision.intervention for the Quarantine lever and its wire form.
     - hivemind.queen.quarantine for the Queen's side: ordering one, and pausing the task.
 

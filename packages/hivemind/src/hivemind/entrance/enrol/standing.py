@@ -1,6 +1,6 @@
 """Change an admitted device's standing: revoke it, lock and unlock it, and expire what lapsed.
 
-Once approved, a device's standing changes four ways (ADR-0033, codingrules Appendix C).
+Once approved, a device's standing changes four ways (ADR-0041, codingrules Appendix C).
 ``revoke`` withdraws it for good on the loopback listener: every goal request it submitted that is
 not planned yet is refused (so its work never starts), the goals it submitted that are still open
 are listed and, when the operator asks, cancelled in the same step (placed work is stopped on its
@@ -30,7 +30,7 @@ Key invariants:
       read it is left to that decision.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for each edge.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for each edge.
     - hivemind.entrance.enrol.deps.goals for the goal ledger revocation uses.
 """
 

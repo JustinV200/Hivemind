@@ -1,7 +1,7 @@
 """Judge a Guard request no rule decides: one awake episode with the report's facts attached.
 
 Codingrules 8.8: an item autopilot cannot decide runs one stateless awake episode, assembled from
-durable state plus the triggering event. For a Guard request (roadmap step 10.6a, ADR-0035) the
+durable state plus the triggering event. For a Guard request (roadmap step 10.6a, ADR-0043) the
 event is the report's facts: its id, rule, confidence, recommendation, the Cell, bees, tasks and
 grants it names, how many trail events it cites and the rule's own sentence built from ids and
 counts. No content reaches the episode, because the trail the report was built from carries none.

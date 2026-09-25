@@ -1,6 +1,6 @@
 """Authenticate a signed request, or a WebSocket's first frame, against its session.
 
-A stolen session token at the Hive Entrance (the Hive's one HTTP door) is useless alone (ADR-0033):
+A stolen session token at the Hive Entrance (the Hive's one HTTP door) is useless alone (ADR-0041):
 every authenticated request carries ``Authorization: Bearer <token>``, ``X-Hive-Timestamp``,
 ``X-Hive-Nonce`` and ``X-Hive-Signature``, the session's binding key's signature over
 ``request_string`` (the method, the raw path and query exactly as sent, the timestamp, the nonce and
@@ -29,7 +29,7 @@ Key invariants:
     - No header value, token, signature or body appears in an event, a log line or an error.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
       to a key, and every request is signed".
     - hivemind.entrance.auth.canonical for the signed strings.
 """
@@ -68,7 +68,7 @@ from hivemind.entrance.auth.session.token import bearer_credential, token_hash
 from hivemind.entrance.errors import AuthenticationFailedError
 from hivemind.guard import CapabilitySet
 
-SOCKET_HELLO_DEADLINE_S = 5.0  # ADR-0033: a socket with no valid first frame by then is closed.
+SOCKET_HELLO_DEADLINE_S = 5.0  # ADR-0041: a socket with no valid first frame by then is closed.
 MAX_FIRST_FRAME_CHARS = 2_048  # Four short fields; anything longer is refused unread.
 AUTHORIZATION_HEADER = "authorization"  # Header names, lower-cased as they are compared.
 TIMESTAMP_HEADER = "x-hive-timestamp"
@@ -317,7 +317,7 @@ async def _admit(book: SessionBook, presented: _Presented, now: datetime) -> Liv
 def _in_bounds(book: SessionBook, live: LiveSession, presented: _Presented, now: datetime) -> bool:
     """Check the listener, the clock skew and, for a browser's socket, the Origin."""
     session = live.session
-    # A session works only on the listener it was opened on (ADR-0033).
+    # A session works only on the listener it was opened on (ADR-0041).
     if session.listener is not presented.arrival.listener:
         return False
     if abs(now.timestamp() - presented.timestamp) > book.rules.request_skew.total_seconds():

@@ -1,9 +1,9 @@
 """Sign what a CLI device sends the Landing Board, byte for byte as the Entrance verifies it.
 
-The Landing Board (the Hive Entrance's versioned HTTP contract, ADR-0032) admits only enrolled
+The Landing Board (the Hive Entrance's versioned HTTP contract, ADR-0040) admits only enrolled
 devices, and every one of them signs: its enrolment (``hive-enrol-v1``), its login challenge
 (``hive-login-v1``), every authenticated request (``hive-request-v1``) and every WebSocket's first
-frame (``hive-ws-v1``), ADR-0033. The strings themselves are built by
+frame (``hive-ws-v1``), ADR-0041. The strings themselves are built by
 ``hivemind.entrance.auth``'s canonical builders, never re-implemented here, so the CLI can never
 sign a message the Entrance would build differently. This module only adds what a signer does
 around them: the Ed25519 signature in the wire's one encoding (unpadded base64url of the raw 64
@@ -24,7 +24,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.auth.canonical for every signed string and encoding.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for where each one is
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for where each one is
       signed and checked.
 """
 

@@ -1,4 +1,4 @@
--- Roadmap step 10.5b: the push tables (codingrules Appendix C, "push subscriptions"; ADR-0034), in
+-- Roadmap step 10.5b: the push tables (codingrules Appendix C, "push subscriptions"; ADR-0042), in
 -- their own migration series, "entrance_push", beside the Entrance tables in the Hive's one file.
 --
 -- Rows follow the Entrance tables' shape: the columns a query filters or orders by, plus `body`,

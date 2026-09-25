@@ -1,4 +1,4 @@
-"""Tests for hivemind.cli.compose.guard: the Guard policy names the Hive's own state (ADR-0033).
+"""Tests for hivemind.cli.compose.guard: the Guard policy names the Hive's own state (ADR-0041).
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/compose/guard.py (codingrules section 3).

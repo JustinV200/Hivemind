@@ -1,6 +1,6 @@
 """Serve the inbox resource: what waits on the human, and the human's answers and acknowledgements.
 
-The human's inbox (ADR-0032) holds the questions the Queen routed to the human and the Alarms that
+The human's inbox (ADR-0040) holds the questions the Queen routed to the human and the Alarms that
 climbed the whole chain. ``GET /v1/inbox`` reads both (``C2``: a question may quote the human's own
 data). Answering a question goes to the Queen with source ``HUMAN`` and clearance ``C2``: she
 records it, forwards it to the asking Warden, resumes the task and withdraws the question from every

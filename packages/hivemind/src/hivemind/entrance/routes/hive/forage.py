@@ -1,7 +1,7 @@
 """Serve the forage resource: the Queen's Forage ledger as it stands.
 
 Forage is the Hive's capacity, divided by the Queen by grant (codingrules 8.10). ``GET
-/v1/forage`` reads her ledger directly (ADR-0032): every Cell's latest capacity report, every
+/v1/forage`` reads her ledger directly (ADR-0040): every Cell's latest capacity report, every
 live grant (its holder, budgets and spend, and its expiry), the headroom those leave in the shared
 pool, and the Royal Reserve held back first. It needs ``observe``; changes to the ledger stream on
 ``/v1/forage/stream``.

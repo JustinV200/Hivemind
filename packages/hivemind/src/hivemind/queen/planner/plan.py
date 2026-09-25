@@ -121,12 +121,12 @@ class PlanBrief:
     # the goal's own artefact belongs there, which then rides to the Drone unchanged on
     # `TaskAssign.leaves` (roadmap step 5.0b), exactly like any other declared leaving.
     keep_root: Path | None = None
-    # Roadmap step 10.3 (ADR-0031, "a goal carries a ceiling"): the submitter's capability set,
+    # Roadmap step 10.3 (ADR-0039, "a goal carries a ceiling"): the submitter's capability set,
     # copied onto every planned subtask the way `origin` is, never read off the model's reply (a
     # planned task has no way to widen its own goal's set). None is the operator's own local
     # path (`hive run`), which has no device ceiling.
     capabilities: tuple[str, ...] | None = None
-    # Roadmap step 10.5 (ADR-0032): the durable goal request this goal comes from. Its tier (when
+    # Roadmap step 10.5 (ADR-0040): the durable goal request this goal comes from. Its tier (when
     # it names one) overrides every planned task's own, since the human asked for it and a model
     # has no say over it; its id and budget are copied onto every task, never read off the reply.
     comb_shield: CombShieldLevel | None = None

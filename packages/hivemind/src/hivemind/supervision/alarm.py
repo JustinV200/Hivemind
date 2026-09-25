@@ -101,7 +101,7 @@ class AlarmKind(Enum):
     AUDIT_FAILED = "AUDIT_FAILED"
     CELL_UNREACHABLE = "CELL_UNREACHABLE"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"  # A lease's scratch directory outgrew its configured quota.
-    # Waggle 1.7 (roadmap steps 10.6 and 10.6c, ADR-0035): a security event, such as a bee its
+    # Waggle 1.9 (roadmap steps 10.6 and 10.6c, ADR-0043): a security event, such as a bee its
     # Warden quarantined. Every shipped policy row sends it up the chain, never retried or rebound.
     SECURITY = "SECURITY"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.

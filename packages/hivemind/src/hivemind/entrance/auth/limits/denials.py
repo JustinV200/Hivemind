@@ -2,7 +2,7 @@
 
 A device that is refused by the Guard again and again, in a short time, is not behaving like the
 device the operator approved: a submit-only program suddenly calling observe routes is the ADR's
-example (ADR-0033). ``DenialCounter.record`` is called once per capability denial of a device;
+example (ADR-0041). ``DenialCounter.record`` is called once per capability denial of a device;
 when ``lockout_denials`` of them fall inside ``lockout_denial_window_s``, it locks the device
 (reason ``denial_burst``) through the enrolment step's ``lock``, which records
 ``guard.entrance_locked``, ends the device's sessions and tells every other device. Only a
@@ -26,7 +26,7 @@ Key invariants:
     - A window is cleared when it locks its device, so a later unlock starts from nothing.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
       limits, travel lock".
     - hivemind.entrance.enrol.standing for the lock itself.
 """

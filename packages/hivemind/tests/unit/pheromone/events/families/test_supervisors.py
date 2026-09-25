@@ -39,7 +39,7 @@ def test_queen_event_kinds_include_the_phase_3_20_additions() -> None:
 
 
 def test_queen_event_kinds_hold_one_kind_per_goal_request_edge_and_the_chat_pair() -> None:
-    # Roadmap step 10.5 (ADR-0032): every edge of hivemind.queen.intake.state is its own kind,
+    # Roadmap step 10.5 (ADR-0040): every edge of hivemind.queen.intake.state is its own kind,
     # plus a finished goal, a human message arriving and the Queen's reply.
     assert {
         "queen.goal_request_received",
@@ -116,5 +116,5 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
 
 
 def test_warden_event_kinds_include_the_quarantine_record() -> None:
-    # Roadmap step 10.6c (ADR-0035): a quarantine is the one intervention a Warden records itself.
+    # Roadmap step 10.6c (ADR-0043): a quarantine is the one intervention a Warden records itself.
     assert "warden.intervened" in WardenEvent.KINDS

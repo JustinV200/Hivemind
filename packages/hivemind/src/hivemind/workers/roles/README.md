@@ -50,7 +50,7 @@ which runs in the Queen's process rather than on a Cell (see `guard_bee/`).
   the full shape, including the ten-line adapter `LeavingsRemover` documents for
   `hivemind.cell.leavings.LeavingsStore` once that (unmerged, another-branch) module lands.
 
-- `guard_bee/` -- `GuardBee` (roadmap step 10.6, ADR-0035): the security watcher. It runs in the
+- `guard_bee/` -- `GuardBee` (roadmap step 10.6, ADR-0043): the security watcher. It runs in the
   Queen's process on her tick (`hivemind.queen.ticks.guard_bee`), beside the House Bee's sweep,
   reads the central trail against rules shipped as data (`rules.toml`, overridden by
   `[guard.bee.rules]`), and turns every finding into a `GuardReport`, a `guard.alert` and a C2

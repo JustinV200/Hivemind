@@ -1,6 +1,6 @@
 """Define the seam a Guard report is deposited through as C2 Nectar for the Honey browser.
 
-Every Guard Bee report (roadmap step 10.6, ADR-0035) is a `guard.alert` on the trail and also a
+Every Guard Bee report (roadmap step 10.6, ADR-0043) is a `guard.alert` on the trail and also a
 `C2` deposit (the Hive's most sensitive clearance, the one every security record carries) on the
 Honey browser's path, so the human can read the Guard's findings where they read everything else
 the Hive knows. Nectar intake (the Hive's raw material before it ripens into Honey) lands in

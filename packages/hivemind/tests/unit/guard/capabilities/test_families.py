@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.guard.capabilities.families for the module under test.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the table these
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the table these
       tests pin.
 """
 
@@ -29,7 +29,7 @@ from hivemind.guard.capabilities.families import (
     _index_kinds,  # White-box test of the import-time table check only; not public API.
 )
 
-# ADR-0031's table, row by row, as the strings a reviewer compares against the ADR itself.
+# ADR-0039's table, row by row, as the strings a reviewer compares against the ADR itself.
 _ADR_TABLE: dict[ScopeKind, set[str]] = {
     ScopeKind.FLAG: {
         "tool:request",

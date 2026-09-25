@@ -275,7 +275,7 @@ async def test_stop_kills_a_child_that_ignores_sigterm_after_the_grace_period(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGTERM to ignore.")
 async def test_stop_is_bounded_on_the_real_clock_as_the_reducer_needs(tmp_path: Path) -> None:
-    # The Entrance Reducer cuts the door within a second (ADR-0033): even a child that ignores
+    # The Entrance Reducer cuts the door within a second (ADR-0041): even a child that ignores
     # SIGTERM must be gone that fast. Twice the bound leaves room for a loaded host.
     ready = tmp_path / "ready"
     supervisor = TunnelSupervisor(

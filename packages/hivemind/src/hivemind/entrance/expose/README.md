@@ -1,6 +1,6 @@
 # hivemind.entrance.expose
 
-How the Hive Entrance is reached from other machines, and nothing more (ADR-0033, codingrules
+How the Hive Entrance is reached from other machines, and nothing more (ADR-0041, codingrules
 8.15). The loopback listener, where approval lives, is always on; `[entrance] expose` may add a
 remote listener, and only in one of three shapes. There is no public mode: the schema has no such
 value, and every remote mode is TLS on a DNS name.

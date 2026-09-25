@@ -333,7 +333,7 @@ layers = [
     # Layer 7, inner half: the HTTP and dashboard edges, as ordered sub-ranks (the guard-over-cell
     # pattern below): the Entrance answers its read routes and streams with the Observation Hive's
     # read models (codingrules 8.11) and publishes them in the OpenAPI document, so it imports
-    # observation, the one same-layer edge ADR-0032 lists; observation never imports the Entrance.
+    # observation, the one same-layer edge ADR-0040 lists; observation never imports the Entrance.
     "entrance",
     "observation",
     "queen",  # Layer 6: the kernel; the only global view; divides Forage.
@@ -463,7 +463,7 @@ ignore_imports = [
     "hivemind.cell.** -> subprocess",
     "hivemind.hive.backends.** -> subprocess",
     "hivemind.royal_jelly.quarantine_comb.sandbox_subprocess -> subprocess",
-    # The tunnel client the Entrance supervises in `tunnel` mode (ADR-0033): the one Entrance
+    # The tunnel client the Entrance supervises in `tunnel` mode (ADR-0041): the one Entrance
     # module that starts a process, and only the argv the manifest's tunnel_command names.
     "hivemind.entrance.expose.tunnel -> subprocess",
 ]

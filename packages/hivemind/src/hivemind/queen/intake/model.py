@@ -1,11 +1,11 @@
 """Define GoalRequest: one goal a human asked for, durable before the Hive acknowledges it.
 
-Docs/adr/0032, "A goal is durable before it is acknowledged": `POST /v1/goals` writes one of these
+Docs/adr/0040, "A goal is durable before it is acknowledged": `POST /v1/goals` writes one of these
 in the Queen's own tables (the text, its budget, its requested Comb Shield tier, its origin, the
 submitting device, the device's capability set as the goal's ceiling, and a state) and answers
 `202` with its id only once the row is committed; the Queen then plans it herself, so a crash
 after the `202` loses nothing. The row is also what Night Veil placement cites as the human
-request that asked for the tier (docs/adr/0031), what "goal completed" is pushed to, and what a
+request that asked for the tier (docs/adr/0039), what "goal completed" is pushed to, and what a
 device revocation's `--cancel-goals` reads. `GoalSource` says whether the human typed it or spoke
 it (a spoken goal is usually echoed back before it becomes a task). The id is minted by
 `hivemind.brood_chamber.task.new_goal_request_id` because every task of the goal stores it too.
@@ -20,7 +20,7 @@ Fits into the Hive:
 Key invariants:
     - `goal_id` is set exactly when the state is PLANNED; `refusal` exactly when it is REFUSED;
       `finished_at` only on a PLANNED request; `confirmed_at` only on one that needed confirming.
-    - A request for NIGHT_VEIL must come from a human (origin HUMAN, ADR-0031's floor): a Queen
+    - A request for NIGHT_VEIL must come from a human (origin HUMAN, ADR-0039's floor): a Queen
       or Warden origin with that tier is refused at construction, before anything is stored.
     - `budget_usd` is the goal's own spend cap; the Queen only ever applies it as the lower of it
       and `[forage] spend_cap_per_goal_usd` (`hivemind.queen.intake.budget`), so it never widens.
@@ -28,7 +28,7 @@ Key invariants:
       and the planner's prompt, never on the trail or in a log line.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the row's fields.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the row's fields.
     - hivemind.queen.intake.state for GoalRequestState and its transition table.
     - hivemind.queen.intake.writes for the functions that create and move one.
 """
@@ -92,7 +92,7 @@ class GoalRequest(BaseModel):
     comb_shield: CombShieldLevel | None = Field(
         default=None,
         description="The Comb Shield tier the human asked for; every planned task needs it. "
-        "Only a human request may name NIGHT_VEIL (ADR-0031). None leaves tiers to the planner.",
+        "Only a human request may name NIGHT_VEIL (ADR-0039). None leaves tiers to the planner.",
     )
     clearance: HoneyClearance = Field(
         description="The goal's data-sensitivity ceiling; every planned task is at or below it."
@@ -107,7 +107,7 @@ class GoalRequest(BaseModel):
     )
     capabilities: GoalCapabilities = Field(
         default=None,
-        description="The submitting device's capability set, the goal's ceiling (ADR-0031), as "
+        description="The submitting device's capability set, the goal's ceiling (ADR-0039), as "
         "sorted capability strings; None for the operator's own path, with no device ceiling.",
     )
     source: GoalSource = Field(default=GoalSource.TYPED, description="Typed or spoken.")
@@ -177,13 +177,13 @@ def _check_confirmation(request: GoalRequest) -> None:
 
 
 def _check_night_veil_origin(request: GoalRequest) -> None:
-    """Refuse NIGHT_VEIL from anyone but a human: ADR-0031's initiation floor, structurally."""
+    """Refuse NIGHT_VEIL from anyone but a human: ADR-0039's initiation floor, structurally."""
     if request.comb_shield is CombShieldLevel.NIGHT_VEIL and request.origin is not (
         RequestOrigin.HUMAN
     ):
         raise ValueError(
             f"Goal request {request.id} asks for NIGHT_VEIL with origin {request.origin.value}: "
-            "only a human request may initiate Night Veil work (ADR-0031)."
+            "only a human request may initiate Night Veil work (ADR-0039)."
         )
 
 

@@ -1,7 +1,7 @@
 """Hold the Hive's read routes: tasks, Cells, Wardens, Forage, episodes, the trail and the LLM.
 
 Codingrules 8.11: everything the Observation Hive shows besides the chat is a live read, over the
-streams and these routes. One module per resource (ADR-0032), each declaring its rows: every row
+streams and these routes. One module per resource (ADR-0040), each declaring its rows: every row
 is a GET on both listeners, reads the Hive's stores or the Queen's live tables directly (never
 through the Queen's door), needs ``observe`` (``observe:thoughts`` for episode records) and also
 ``honey:clearance:c2`` wherever it answers a human's words (a task's brief, an episode record).

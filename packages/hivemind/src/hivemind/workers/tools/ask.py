@@ -6,7 +6,7 @@ the same thing to the model). `ask` builds a `waggle.messages.supervision.Questi
 fresh so it survives re-wrapping at every hop, its `task_id` and `clearance` taken from the current
 assignment -- and awaits `ctx.asker.ask(question)`, which blocks the calling coroutine (and so the
 whole tool loop) until a matching `Answer` arrives. There is no Proposal here: asking a question has
-no side effect the Capping gate needs to check. Roadmap step 10.3 (ADR-0031): asking is the
+no side effect the Capping gate needs to check. Roadmap step 10.3 (ADR-0039): asking is the
 `question_routing` enforcement point at its source -- the Worker must hold `question:human`,
 checked through the Guard's `Enforcer`, or the tool answers with the refusal (the Warden checks the
 same capability again before forwarding, for a Question a tool did not raise).

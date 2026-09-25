@@ -1,7 +1,7 @@
 """Define the goals resource's bodies: submitting a goal, and reading how far it has got.
 
 A goal submitted at the Landing Board becomes a durable ``GoalRequest`` in the Queen's own tables
-before the Entrance answers ``202`` (ADR-0032); the Queen plans it on her own tick. A submission
+before the Entrance answers ``202`` (ADR-0040); the Queen plans it on her own tick. A submission
 names the goal in the human's words, and optionally a budget (it only ever lowers the manifest's
 per-goal cap), a Comb Shield tier (``night_veil`` needs ``cell:comb_shield:night_veil``) and a
 clearance. ``GoalView`` is the request's progress without its text, so a program that may submit but

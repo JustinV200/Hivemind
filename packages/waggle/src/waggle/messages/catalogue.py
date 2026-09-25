@@ -175,7 +175,7 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("cell.snapshot_reply", CellSnapshotReply, _REPLY, "cell.snapshot_request"),
     ("cell.rollback_request", CellRollbackRequest, _REQUEST, None),
     ("cell.rollback_reply", CellRollbackReply, _REPLY, "cell.rollback_request"),
-    # PROTOCOL_MINOR 8: the Queen's order to an isolated Cell's Warden to taint its own store.
+    # PROTOCOL_MINOR 10: the Queen's order to an isolated Cell's Warden to taint its own store.
     ("cell.taint_order", CellTaintOrder, _EVENT, None),
     # session (spec section 8.6): the terminal session a Warden drives on a device.
     ("session.open", SessionOpen, _REQUEST, None),

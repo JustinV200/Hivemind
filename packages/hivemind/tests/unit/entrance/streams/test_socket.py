@@ -1,6 +1,6 @@
 """Test hivemind.entrance.streams.socket: a socket authenticates first, and closes on time.
 
-ADR-0033 over a real listener: the first frame is the session's token and a signature over the
+ADR-0041 over a real listener: the first frame is the session's token and a signature over the
 socket's opening; anything else closes the socket as unauthenticated, a browser's socket from a
 foreign origin too, and so does sending nothing until the first-frame deadline (shortened here
 through the Entrance's settings), a device without the view's capability is closed as forbidden,
@@ -28,7 +28,7 @@ from hivemind.entrance.streams import CloseReason
 
 _SECURITY = "/v1/entrance/stream"  # Any observing device may open it.
 _WAIT_S = 3.0  # Generous: every close here is immediate.
-_SHORT_DEADLINE_S = 0.2  # The first-frame deadline a test waits out, instead of ADR-0033's 5 s.
+_SHORT_DEADLINE_S = 0.2  # The first-frame deadline a test waits out, instead of ADR-0041's 5 s.
 
 
 async def _close_code(socket: ClientConnection) -> int | None:

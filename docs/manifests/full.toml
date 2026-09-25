@@ -478,7 +478,7 @@ max_dormant_s = 3600.0
 disk_budget_mb = 8192
 
 [entrance]
-# The Hive Entrance (roadmap phase 10, ADR-0032 and ADR-0033): the one door every client uses.
+# The Hive Entrance (roadmap phase 10, ADR-0040 and ADR-0041): the one door every client uses.
 # The loopback listener; always on, and always a loopback address. Approval of new devices,
 # unlocking, capability widening and reopening after a reduction exist only here.
 bind = "127.0.0.1:8710"
@@ -561,7 +561,7 @@ max_clip_seconds = 120.0
 audio_seconds_per_minute = 120.0
 
 [guard]
-# The Guard policy's overrides (roadmap step 10.2, ADR-0031). Every Hive starts from the policy
+# The Guard policy's overrides (roadmap step 10.2, ADR-0039). Every Hive starts from the policy
 # shipped in hivemind.guard.defaults: each role's default capability set, a hive-wide deny list
 # and what a denial at each enforcement point escalates to. `policy_file` replaces it outright
 # with a file of the same shape, resolved relative to this file's own directory; left unset here
@@ -572,7 +572,7 @@ audio_seconds_per_minute = 120.0
 # and removed from every Warden's set. Here: no Exoskeleton on a Real Cell's own display, and no
 # host under one internal domain.
 deny = ["exoskeleton:real_display", "net:*.internal.example"]
-# The Guard Bee (roadmap step 10.6, ADR-0035; docs/guard/guard-bee.md) acts alone only to narrow
+# The Guard Bee (roadmap step 10.6, ADR-0043; docs/guard/guard-bee.md) acts alone only to narrow
 # the whole Hive; anything aimed at one Cell or one bee it files as a request the Queen decides
 # on. `request_confidence` is the floor such a report must reach to be filed ("low", "medium",
 # "high" or "critical"); a weaker one is a guard.alert and nothing more. `requests_per_hour` caps
@@ -581,7 +581,7 @@ deny = ["exoskeleton:real_display", "net:*.internal.example"]
 request_confidence = "high"
 requests_per_hour = 6
 # The Guard Bee rule keys whose requests the Queen acts on by autopilot rule, with no awake episode
-# (roadmap step 10.6a, ADR-0035): she isolates the Cell the report names (revokes its Warden's grant,
+# (roadmap step 10.6a, ADR-0043): she isolates the Cell the report names (revokes its Warden's grant,
 # pauses its bees, writes a BLOCK Cell Wax, cuts a Virtual Cell's egress to its control link, taints
 # its memory from the report's first cited event on). On the Hive Stand, whose own lease only the
 # human may isolate, she quarantines the implicated bee, holds its goal off the Hive Stand and puts a
@@ -636,7 +636,7 @@ audit_raise_hold_s = 86400.0
 threshold = 8
 
 [guard.untrusted_content]
-# The untrusted-content scanner (roadmap step 10.6b, ADR-0035): every tool result, Cell session
+# The untrusted-content scanner (roadmap step 10.6b, ADR-0043): every tool result, Cell session
 # output and chat message is scored against the pattern families shipped in hivemind.guard.defaults
 # (untrusted-content.toml, explained in docs/guard/untrusted-content.md) before a model reads it.
 # How many characters of one text are read before matching; the rest is never matched and never

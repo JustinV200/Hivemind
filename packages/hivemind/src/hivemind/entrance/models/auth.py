@@ -1,6 +1,6 @@
 """Define the auth resource's request and response bodies: login, logout and step-up.
 
-Login at the Landing Board (the Hive Entrance's versioned API) is two calls (ADR-0033): a challenge
+Login at the Landing Board (the Hive Entrance's versioned API) is two calls (ADR-0041): a challenge
 for the device (a browser registers the WebCrypto P-256 key its session will be bound to in the same
 call), then the device's proof over it plus the operator password, which opens a session and hands
 its token back once. Step-up repeats the ceremony on an open session. Every model forbids unknown
@@ -17,7 +17,7 @@ Key invariants:
     - No model carries a private key.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
       key plus the password, the key proof first".
     - hivemind.entrance.auth.login for the flow these bodies drive.
 """

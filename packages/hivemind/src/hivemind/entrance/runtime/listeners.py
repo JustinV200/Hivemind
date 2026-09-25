@@ -7,7 +7,7 @@ as long as the Entrance runs, and because it is the only door the Hive is admini
 loopback listener that fails after start is restarted on the same address with bounded backoff
 (half a second, doubling to at most thirty), for as long as the Entrance runs; the failure handler
 is told once per outage. The remote one exists only when the exposure plan names it and the
-Entrance is OPEN (ADR-0033): ``start`` builds its TLS context over a fresh revocation list, binds
+Entrance is OPEN (ADR-0041): ``start`` builds its TLS context over a fresh revocation list, binds
 its socket, serves it, and in tunnel mode starts the tunnel client as a supervised child; ``stop``
 stops the server and the child together, within about a second. These two are the Entrance
 Reducer's ``RemoteListenerControl``. After start, a listener that fails never stops the Queen: the
@@ -27,7 +27,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.reducer for ``RemoteListenerControl``.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never means
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never means
       the open internet".
 """
 

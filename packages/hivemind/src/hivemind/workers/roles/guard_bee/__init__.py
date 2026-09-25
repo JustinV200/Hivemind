@@ -6,7 +6,7 @@ rules shipped as data, and turns every finding into a `hivemind.guard.GuardRepor
 trail event and a C2 deposit for the Honey browser. It acts alone only to narrow the whole Hive (it
 raises a Capping tier's sampled-audit rate, and it orders the Entrance Reducer through the trail);
 anything aimed at one Cell or one bee it files as a request through the Queen's door, and she
-decides (ADR-0035). Rules that ask for judgement get one awake episode on the judge slot, beside
+decides (ADR-0043). Rules that ask for judgement get one awake episode on the judge slot, beside
 the Queen's tick. The package splits by responsibility (codingrules 5.2): `rules` (the rule data and
 its loader), `facts` (what an event becomes, the joins between events, and who may have recorded
 it), `watch` (reading the trail and every living Night Veil Cell's segment: rebuilt on start,
@@ -26,7 +26,7 @@ Key invariants:
     - Every finding is a report and a `guard.alert`; only a request reaches the Queen's inbox.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/guard-bee.md for every shipped rule.
     - hivemind.guard.report for GuardReport and GuardRequestDoor, the contract it builds against.
 

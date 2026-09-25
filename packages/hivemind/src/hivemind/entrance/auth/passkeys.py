@@ -1,7 +1,7 @@
 """Run the Entrance's side of WebAuthn: passkey options out, registrations and assertions checked.
 
 The Hive Entrance is the Hive's one HTTP door. A browser enrols with a passkey and logs in by
-asserting it (ADR-0033). This module is a thin, fixed-policy wrapper over the ``webauthn`` library:
+asserting it (ADR-0041). This module is a thin, fixed-policy wrapper over the ``webauthn`` library:
 registration options for an invite (user verification REQUIRED, ``none`` attestation, a resident key
 PREFERRED, EdDSA, ES256 and RS256), authentication options for one stored credential, the two
 verifications, each refusing a ceremony without user verification and turning every library failure
@@ -27,7 +27,7 @@ Key invariants:
     - Every refusal is a ``PasskeyRejectedError``; no library exception escapes.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
     - hivemind.entrance.auth.fake for SoftPasskey, the software authenticator tests drive.
 """
 
@@ -60,7 +60,7 @@ from hivemind.entrance.errors import PasskeyRejectedError
 
 MIN_CHALLENGE_BYTES = 16  # WebAuthn's floor for a challenge; the Entrance issues 32.
 REGISTRATION_TIMEOUT_MS = 120_000  # A first passkey setup can take a person a minute or two.
-AUTHENTICATION_TIMEOUT_MS = 60_000  # ADR-0033: a login challenge lives 60 seconds.
+AUTHENTICATION_TIMEOUT_MS = 60_000  # ADR-0041: a login challenge lives 60 seconds.
 # EdDSA, then ES256, then RS256: every algorithm a current platform authenticator offers, and
 # nothing weaker; the same list gates which keys a registration may carry.
 SUPPORTED_ALGORITHMS = (

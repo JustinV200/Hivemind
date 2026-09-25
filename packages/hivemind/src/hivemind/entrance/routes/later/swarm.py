@@ -1,7 +1,7 @@
 """Name the swarm resource in the contract before the Swarm lands (phase 11): a 501.
 
 The Swarm is the operator's own devices enrolled as Real Cells through a Pollen Packet (roadmap
-phase 11). Until then ``GET /v1/swarm`` answers ``501`` naming that phase (ADR-0032), so the
+phase 11). Until then ``GET /v1/swarm`` answers ``501`` naming that phase (ADR-0040), so the
 contract lists the resource now.
 
 Fits into the Hive:

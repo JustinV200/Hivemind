@@ -1,6 +1,6 @@
 """Hold the push tables: the SubscriptionStore protocol, its SQLite and in-memory implementations.
 
-Push subscriptions are per device and persisted (codingrules Appendix C, ADR-0034), and each
+Push subscriptions are per device and persisted (codingrules Appendix C, ADR-0042), and each
 notice's recipients are remembered so a withdrawal reaches exactly them. ``protocol`` defines
 ``SubscriptionStore``; ``sqlite`` is the durable store in the Hive's own database file under its
 own migration series (``entrance_push``); ``memory`` is the fake for tests and demos. Both pass

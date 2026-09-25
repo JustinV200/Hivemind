@@ -89,7 +89,7 @@ __all__ = [
 async def grant_message(deps: QueenDeps, grant: ForageGrant) -> GrantIssued:
     """Build the `GrantIssued` a grant's holder receives: its terms, and the raises in force.
 
-    Roadmap step 10.6 (Waggle 1.8): every Capping audit-rate raise the Guard Bee has in force
+    Roadmap step 10.6 (Waggle 1.10): every Capping audit-rate raise the Guard Bee has in force
     rides on every grant the Queen issues, so a Warden that never sees her trail (a Virtual Cell's
     in-Cell one) still samples a raised tier at the raised rate.
 

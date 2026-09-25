@@ -2,7 +2,7 @@
 
 The Guard (``hivemind.guard``, the Hive's policy engine) starts from a policy shipped inside the
 package: each role's default capability set, a hive-wide deny list and an escalation table
-(ADR-0031). ``[guard]`` is how an operator changes it without touching code: ``policy_file``
+(ADR-0039). ``[guard]`` is how an operator changes it without touching code: ``policy_file``
 replaces the shipped policy with a file of the same shape, ``[guard.roles.<role>]`` replaces one
 role's ``allow`` list (and, for the ``device`` role, its ``proposed`` list), ``deny`` adds
 capabilities no principal may exercise, and ``[guard.escalation]`` maps an enforcement point to
@@ -11,18 +11,18 @@ capability entry is a non-empty string with no whitespace. Whether an entry pars
 role, point or action name exists, is decided by ``hivemind.guard`` when it builds the policy
 (``load_guard_policy``), because the manifest sits a layer below ``guard`` and may not import it;
 that build runs in the composition root, so a bad table still stops the Hive at start and the
-error names the offending entry. ``[guard.untrusted_content]`` (roadmap step 10.6b, ADR-0035) is
+error names the offending entry. ``[guard.untrusted_content]`` (roadmap step 10.6b, ADR-0043) is
 the untrusted-content scanner's own slice: how much outside text it reads before matching, and the
 score at which it labels text harder or drops it, per Comb Shield tier (the Cell's security tier).
 Its patterns are not here: they ship as data inside ``hivemind.guard.defaults``. Roadmap step 10.6
-(ADR-0035) adds the Guard Bee's (the Hive's security watcher's) slice: ``request_confidence``, the
+(ADR-0043) adds the Guard Bee's (the Hive's security watcher's) slice: ``request_confidence``, the
 floor a report aimed at one Cell or one bee must reach before it is filed as a request to the
 Queen, ``requests_per_hour``, the cap on those requests, and ``[guard.bee]``, its cadence, its
 judge's bound, how far it raises a Capping tier's sampled-audit rate, and
 ``[guard.bee.rules.<key>]`` overrides of the rules it ships as data. Confidence and action names
 are spelled here as the literal values of ``hivemind.guard.GuardConfidence`` and ``GuardAction``,
 since this layer may not import them; a test holds the two spellings in step.
-``dire_patterns`` (roadmap step 10.6a, ADR-0035) names the Guard Bee's rule keys whose requests the
+``dire_patterns`` (roadmap step 10.6a, ADR-0043) names the Guard Bee's rule keys whose requests the
 Queen acts on by autopilot rule, with no awake episode: isolate the Cell (or, on the Hive Stand,
 quarantine the bee and hold its goal off it); every other request is judged awake.
 
@@ -48,7 +48,7 @@ Key invariants:
       in the composition root, so a bad override stops the Hive at start.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the policy model.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the policy model.
     - hivemind.guard.policy.defaults for load_guard_policy, which validates the names and entries.
     - hivemind.guard.defaults for the shipped policy.toml these fields overlay, and for
       untrusted-content.toml, the scanner's patterns ``untrusted_content`` scores against.
@@ -68,7 +68,7 @@ DEFAULT_MAX_SCAN_CHARS = 65_536
 MIN_MAX_SCAN_CHARS = 1_024  # Below this the scanner would miss an injection placed past a header.
 MAX_MAX_SCAN_CHARS = 1_048_576  # Above this a hostile document could make the scanner slow.
 # Roadmap step 10.6: only a rule that is sure files a request, so a noisy rule cannot crowd the
-# Queen's attention (ADR-0035's Consequences); every weaker report is still a guard.alert.
+# Queen's attention (ADR-0043's Consequences); every weaker report is still a guard.alert.
 DEFAULT_REQUEST_CONFIDENCE: Final = "high"
 DEFAULT_REQUESTS_PER_HOUR = 6  # One every ten minutes: far above a healthy Hive's rate of findings.
 MAX_REQUESTS_PER_HOUR = 600  # Past one every six seconds a cap no longer caps anything.
@@ -200,7 +200,7 @@ class GuardBeeRuleOverride(BaseModel):
 class GuardBeeSection(BaseModel):
     """``[guard.bee]``: how the Guard Bee reads the trail, judges, narrows, and which rules differ.
 
-    The Guard Bee (roadmap step 10.6, ADR-0035) runs on the Queen's tick; this table sets its
+    The Guard Bee (roadmap step 10.6, ADR-0043) runs on the Queen's tick; this table sets its
     cadence, the bound on one awake episode, how far one raise lifts a Capping tier's sampled-audit
     rate and for how long, the window in which repeats of one rule against one Cell are coalesced
     into one request, and per-rule overrides of the shipped rule data.
@@ -352,7 +352,7 @@ class GuardSection(BaseModel):
         "('refuse', 'alarm' or 'ask_human'); a point absent here keeps the policy's own action, "
         "and one the policy does not name refuses.",
     )
-    # Roadmap step 10.6 (ADR-0035): the Guard Bee's floor and cap on requests, and its own table.
+    # Roadmap step 10.6 (ADR-0043): the Guard Bee's floor and cap on requests, and its own table.
     request_confidence: GuardConfidenceName = Field(
         default=DEFAULT_REQUEST_CONFIDENCE,
         description="The confidence a Guard Bee report aimed at one Cell or one bee must reach to "

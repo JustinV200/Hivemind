@@ -1,6 +1,6 @@
 """Define AuthDeps: everything login and step-up are built from, in small frozen bundles.
 
-Login and step-up at the Hive Entrance (the Hive's one HTTP door) touch a lot (ADR-0033): the
+Login and step-up at the Hive Entrance (the Hive's one HTTP door) touch a lot (ADR-0041): the
 Entrance tables, the Pheromone Trail and the enrolment seams (a lockout goes through the enrolment
 step's ``lock``), the session book, the challenge book a login is answered against, the WebAuthn
 relying parties a passkey can be bound to, the password hasher (worker threads behind a
@@ -19,7 +19,7 @@ Key invariants:
     - The login challenge book is not enrolment's: a login challenge lives 60 seconds.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for login.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for login.
     - hivemind.entrance.enrol.deps for the enrolment bundle this one wraps.
 """
 
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     # Type-only: the travel lock is optional, and only its instance is ever held here.
     from hivemind.entrance.auth.travel.lock import TravelLock
 
-# ADR-0033: a login challenge is single use and lives 60 seconds (the passkey options say so too).
+# ADR-0041: a login challenge is single use and lives 60 seconds (the passkey options say so too).
 LOGIN_CHALLENGE_TTL = timedelta(milliseconds=AUTHENTICATION_TIMEOUT_MS)
 
 __all__ = ["LOGIN_CHALLENGE_TTL", "AuthDeps", "LoginCeremony", "LoginGuards"]

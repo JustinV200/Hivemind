@@ -1,6 +1,6 @@
 """Tests for a quarantine a Warden orders itself: its own policy row, for its own sub-bee.
 
-ADR-0035: "a Warden may apply it to its own sub-bee by its own policy row (it may already cancel
+ADR-0043: "a Warden may apply it to its own sub-bee by its own policy row (it may already cancel
 one), and the Queen is told either way." A sub-bee raises a SECURITY Alarm (a scanner correlation
 noted on its telemetry); this Warden's policy maps SECURITY to QUARANTINE; the one code path runs
 with the Warden itself as the orderer, from the bee's own `worker.spawned` (the Alarm names no

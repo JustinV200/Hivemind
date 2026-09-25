@@ -30,7 +30,7 @@ take the schema's repo-root-relative default.
   local model's honest shape: no native tool calls, no schema-enforced output, JSON mode only.
 - **`full.toml`** -- every section and every field the schema supports, one comment per field.
   Kept honest by a test that round-trips it through `model_dump`/`model_validate`, `[entrance]`
-  (roadmap phase 10, ADR-0033) and `[guard]` (ADR-0031) included.
+  (roadmap phase 10, ADR-0041) and `[guard]` (ADR-0039) included.
 
 ## `[placement]` and `[virtual_cells]` (roadmap step 5.7)
 
@@ -56,9 +56,9 @@ passes an `environ` mapping; nothing reads `os.environ` implicitly.
 | `HIVEMIND_HIVE_STAND_SCRATCH_ROOT` | `[hive_stand] scratch_root` | A path. |
 | `HIVEMIND_LOG_LEVEL` | Nothing in the manifest | Read by the process's own logging setup, not folded into `HiveManifest`; there is no `[logging]` section (yet). |
 | `HIVEMIND_ENV` | `[hive] env` | Must be `dev` or `prod`. |
-| `HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY` | Nothing in the manifest | The Entrance's Web Push VAPID private key: base64url of the raw 32-byte P-256 scalar (what `web-push generate-vapid-keys` prints as the private key). Used instead of the `entrance.vapid` key minted into the secret store; set it to keep browser subscriptions working across a reinstall. A secret: read into a `SecretStr`, never logged (ADR-0034). |
+| `HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY` | Nothing in the manifest | The Entrance's Web Push VAPID private key: base64url of the raw 32-byte P-256 scalar (what `web-push generate-vapid-keys` prints as the private key). Used instead of the `entrance.vapid` key minted into the secret store; set it to keep browser subscriptions working across a reinstall. A secret: read into a `SecretStr`, never logged (ADR-0042). |
 | `HIVEMIND_ENTRANCE_VAPID_SUBJECT` | Nothing in the manifest | The VAPID contact a push service may use: a `mailto:` or `https:` URI (RFC 8292). |
-| `HIVEMIND_ENTRANCE_TUNNEL_<NAME>` | Nothing in the manifest | Handed to the tunnel client the Entrance runs in `expose = "tunnel"` mode, as `<NAME>`: the prefix is removed, so the client finds the variable it documents (`HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN` reaches cloudflared as `TUNNEL_TOKEN`). No shell expands variables in `[entrance] tunnel_command`, so this is how a token reaches the client without appearing in its argv or the manifest (ADR-0033). Any number may be set; the bare prefix with no name is an error. Secrets: read into `SecretStr`, never logged. The client's environment is the Hive's own minus every other `HIVEMIND_*` variable, plus these. |
+| `HIVEMIND_ENTRANCE_TUNNEL_<NAME>` | Nothing in the manifest | Handed to the tunnel client the Entrance runs in `expose = "tunnel"` mode, as `<NAME>`: the prefix is removed, so the client finds the variable it documents (`HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN` reaches cloudflared as `TUNNEL_TOKEN`). No shell expands variables in `[entrance] tunnel_command`, so this is how a token reaches the client without appearing in its argv or the manifest (ADR-0041). Any number may be set; the bare prefix with no name is an error. Secrets: read into `SecretStr`, never logged. The client's environment is the Hive's own minus every other `HIVEMIND_*` variable, plus these. |
 
 ## Secrets
 
@@ -78,18 +78,18 @@ file, flushed, then renamed over the old one):
 - `hive.ed25519`: the Hive's own Ed25519 identity key, minted on the first `hive run` with a
   Virtual side configured. The Queen signs every Virtual Cell frame with it, so a Cell that
   outlives a Queen restart still verifies the next Queen. The Entrance signs every webhook it
-  delivers with the same key (ADR-0034).
+  delivers with the same key (ADR-0042).
 - `console.ed25519`: the Hive Stand console's device key, never stored in the clear: it is sealed
   with AES-256-GCM under a key derived from the operator password (Argon2id, its own salt), so a
-  bee that reads the directory holds nothing usable (ADR-0033).
+  bee that reads the directory holds nothing usable (ADR-0041).
 - `entrance.vapid`: the Entrance's Web Push VAPID private key (the raw 32-byte P-256 scalar),
   minted on first use unless `HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY` supplies one. Every browser
   subscription is bound to its public half, so losing it silently ends Web Push to every device
-  (ADR-0034).
+  (ADR-0042).
 - `entrance.push_topic`: 32 random bytes keying the Web Push `Topic` header, so a push service
-  cannot compute or correlate it (ADR-0034); minted on first use.
+  cannot compute or correlate it (ADR-0042); minted on first use.
 - `entrance.ca_key` and `entrance.ca_cert`: the Hive's own certificate authority for mutual TLS
-  (ADR-0033): an EC P-256 private key (PKCS#8 DER) and its self-signed CA certificate (PEM, ten
+  (ADR-0041): an EC P-256 private key (PKCS#8 DER) and its self-signed CA certificate (PEM, ten
   years, `path_length=0`). It signs every device's client certificate (90 days) for the remote
   listener in `lan` and `tunnel` mode, and in `vpn` mode with `mutual_tls = true`. Minted on first
   use; never replaced: losing the key means minting a new authority (remove both) and re-issuing

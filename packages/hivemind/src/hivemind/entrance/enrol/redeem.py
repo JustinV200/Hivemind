@@ -1,7 +1,7 @@
 """Redeem an invite: a device presents the code with its own key and becomes a PENDING request.
 
 A device holding an invite code opens the Entrance and proves it holds the key it wants to enrol
-(ADR-0033). A program signs ``enrol_string(hive_id, sha256(code), public_key_hex)`` with its new
+(ADR-0041). A program signs ``enrol_string(hive_id, sha256(code), public_key_hex)`` with its new
 Ed25519 key (``redeem_ed25519``); a browser asks for passkey options (``passkey_options``, whose
 challenge the ``ChallengeBook`` keeps bound to the invite) and answers them with a new passkey,
 created with user verification (``redeem_passkey``). Either way the invite must exist, be unused and
@@ -12,7 +12,7 @@ is spent in the same atomic step, ``guard.entrance_pending`` is recorded and eve
 told "a device is asking to join". The device gets back its id, its key's fingerprint (to compare
 with what the operator sees) and the Hive's public key (to pin). A program may send a certificate
 signing request with its key, checked here and kept on its record, which its mutual-TLS client
-certificate is signed from at approval. ``register_offline`` is ADR-0033's third way in, for a
+certificate is signed from at approval. ``register_offline`` is ADR-0041's third way in, for a
 device that can reach no enrolment listener (under mutual TLS nothing reaches the remote one without
 a certificate, and nothing may forward into loopback): the operator registers the device's public
 key and certificate request at the Hive Stand, an invite is minted and spent in one step on the
@@ -36,7 +36,7 @@ Key invariants:
     - No trail payload, log line or message here carries the code, a key or a signature.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for redemption.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for redemption.
     - hivemind.entrance.enrol.invite for the code and its hash.
 """
 
@@ -268,7 +268,7 @@ async def redeem_ed25519(
     # A proof that does not verify is refused like every other failure; only the trail says why.
     if not _ed25519_proof_holds(deps, invite, proof):
         raise await _refuse(deps, attempt, RedeemFailure.BAD_PROOF, invite.device_id)
-    # A program key is not interactive until the operator approves it as such (ADR-0033).
+    # A program key is not interactive until the operator approves it as such (ADR-0041).
     changes: DeviceChanges = {
         "key_kind": KeyKind.ED25519,
         "public_key": b64url_encode(bytes.fromhex(proof.public_key_hex)),

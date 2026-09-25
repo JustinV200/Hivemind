@@ -1,8 +1,8 @@
 """Define HiveState: the Hive's own state paths and addresses, which no bee may touch or reach.
 
-ADR-0033, "Bees never touch the Hive's own state": every bee principal (a Warden or a Worker) is
+ADR-0041, "Bees never touch the Hive's own state": every bee principal (a Warden or a Worker) is
 refused `fs:read` and `fs:write` on the Hive's state paths, `exec` of the Hive's own entry points
-and `net` to loopback or to the Hive Stand's own addresses, whatever its role set says (ADR-0031's
+and `net` to loopback or to the Hive Stand's own addresses, whatever its role set says (ADR-0039's
 floors). The entry points and the loopback forms are fixed; the paths and the addresses depend on
 the manifest and the machine, so a composition root states them once in a `HiveState` and the
 `GuardPolicy` carries it to every floor decision. Inside a Virtual Cell the Hive Stand is also a
@@ -31,7 +31,7 @@ Key invariants:
       points and every loopback form are refused with no data at all.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
     - hivemind.guard.policy.floors.hive_state for the floor that reads this.
 """
 

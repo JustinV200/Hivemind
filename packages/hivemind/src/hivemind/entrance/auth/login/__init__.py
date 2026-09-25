@@ -1,7 +1,7 @@
 """Hold login: a device's key proof first, then the operator's password, then a bound session.
 
 Login at the Hive Entrance (the Hive's one HTTP door) is two factors, the device's own key and the
-operator's password, the key proof first (ADR-0033). ``deps`` bundles what it needs (``AuthDeps``,
+operator's password, the key proof first (ADR-0041). ``deps`` bundles what it needs (``AuthDeps``,
 shared with step-up and the confirmations); ``factors`` checks the device proof (an Ed25519
 signature over ``login_string``, or a WebAuthn assertion) and the password; ``refusals`` charges a
 failure to the right party (an invalid proof to its address, a wrong password to its device, with a
@@ -17,7 +17,7 @@ Key invariants:
     - An invalid proof never reaches the password check and never counts against its device.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
       key plus the password, the key proof first".
 
 Public API:

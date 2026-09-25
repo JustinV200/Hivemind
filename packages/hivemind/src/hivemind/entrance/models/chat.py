@@ -1,6 +1,6 @@
 """Define the chat resource's bodies: a chat line, a page of them, and a message to the Queen.
 
-The chat is the human end of the Queen's inbox (ADR-0032): the human's messages, her replies, her
+The chat is the human end of the Queen's inbox (ADR-0040): the human's messages, her replies, her
 questions and the Alarms that reached the human, in one conversation ordered by the log's own
 position (``seq``), which is the cursor a page is read by and ``/v1/chat/stream`` resumes from.
 Every line is ``C2`` (the human's own words, or words about their work), so reading it needs

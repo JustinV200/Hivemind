@@ -1,7 +1,7 @@
 """Hold the Entrance's authentication: credential primitives, login, sessions, step-up and limits.
 
 Login at the Hive Entrance (the Hive's one HTTP door) is two factors, the device's key and the
-operator's password (ADR-0033), and every request is signed by a key bound to the session. The
+operator's password (ADR-0041), and every request is signed by a key bound to the session. The
 modules directly here are the primitives those checks are built from, each pure or thin, calling
 nothing else in the Entrance: ``canonical`` (every signed string and its encodings), ``keys`` (key
 kinds, the Ed25519 and P-256 verifiers, the key fingerprint), ``network`` (a device's network and a
@@ -32,7 +32,7 @@ Key invariants:
       says why); sessions, spent nonces, login failures and pending confirmations are persisted.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decisions.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decisions.
     - .claude/roadmap.md steps 10.4 and 10.5e for what this package serves.
 
 Public API:

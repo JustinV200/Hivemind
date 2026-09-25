@@ -1,6 +1,6 @@
 """Admit a request: authenticate its session, then check its rate, its step-up and its capability.
 
-Every authenticated Landing Board route depends on this module's gate (ADR-0033): the request is
+Every authenticated Landing Board route depends on this module's gate (ADR-0041): the request is
 authenticated over the raw method, path and query exactly as sent, the headers and the body's
 SHA-256 (``authenticate_request``, which also refuses a session opened on the other listener); its
 device is held to ``rate_limit_per_device``; a session the travel lock flagged must step up before
@@ -21,8 +21,8 @@ Key invariants:
     - No header value, token, signature or body reaches a log line or an error.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the point.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the point.
 """
 
 from __future__ import annotations
@@ -190,7 +190,7 @@ async def police(services: EntranceServices, caller: Caller, access: Access) -> 
     """
     if not services.guards.limiter.allow_device(caller.device.id):
         raise RateLimitedError()
-    # The travel lock's flag first: a new network steps up before anything else (ADR-0033).
+    # The travel lock's flag first: a new network steps up before anything else (ADR-0041).
     if caller.session.needs_step_up and not access.step_up_exempt:
         raise await _new_network(services, caller)
     for capability in access.needs():

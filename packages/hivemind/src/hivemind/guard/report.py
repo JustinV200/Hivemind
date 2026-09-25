@@ -1,6 +1,6 @@
 """Define GuardReport: what the Guard Bee saw, and what it asks the Queen to do about it.
 
-ADR-0035: the Guard Bee watches the Pheromone Trail from the Queen's process and acts alone only
+ADR-0043: the Guard Bee watches the Pheromone Trail from the Queen's process and acts alone only
 to narrow the whole Hive (raise a Capping tier's sampled-audit rate, order the Entrance Reducer).
 Anything aimed at one Cell or one bee (isolate a Cell, quarantine a bee, Sting Cut a Cell) is a
 **request** the Queen decides on. Every report, acted on alone or filed as a request, carries the
@@ -24,7 +24,7 @@ Key invariants:
     - Every field is bounded, so a burst of events can never make a report unbounded.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "It acts alone
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "It acts alone
       only to narrow the whole Hive".
     - .claude/roadmap.md steps 10.6 (the Guard Bee) and 10.6a (Cell isolation).
 """
@@ -79,7 +79,7 @@ class GuardAction(Enum):
     QUARANTINE_BEE = "quarantine_bee"  # A request: the Queen quarantines one bee (10.6c).
     STING_CUT = "sting_cut"  # A request: cut one Cell off entirely (phase 13 carries it out).
     RAISE_AUDIT_RATE = "raise_audit_rate"  # Narrows the whole Hive: the Guard Bee does it alone.
-    REDUCE_ENTRANCE = "reduce_entrance"  # Narrows the whole Hive: the Entrance Reducer (ADR-0033).
+    REDUCE_ENTRANCE = "reduce_entrance"  # Narrows the whole Hive: the Entrance Reducer (ADR-0041).
     OBSERVE = "observe"  # Nothing to do: an alert kept for the record and the human's view.
 
 
@@ -119,7 +119,7 @@ class GuardReport(BaseModel):
             the Alarm that shows it to the human.
         rule: The key of the rule that fired, as the Guard Bee's rule data names it.
         event_ids: The trail events that made the rule fire, oldest first; isolation taints
-            memory from the first of them on (ADR-0035).
+            memory from the first of them on (ADR-0043).
         cell_id: The Cell the finding is about, when it is about one.
         bee_ids: The Wardens and Workers it implicates.
         task_ids: Their tasks.
@@ -169,7 +169,7 @@ class GuardRequestDoor(Protocol):
     the one way a request reaches her inbox: durable before it returns, so a request filed just
     before a restart is still decided after it, and it decides nothing itself (she decides on her
     own tick, where a request outranks every Alarm and every human message). `report_to_human`
-    is how a CRITICAL report reaches the human (ADR-0035: a report at CRITICAL confidence is shown
+    is how a CRITICAL report reaches the human (ADR-0043: a report at CRITICAL confidence is shown
     to the human whatever it recommends): a SECURITY Alarm naming the report id, pushed to every
     enrolled device, shown at most once per report id, by whichever path shows it first (a
     CRITICAL request is shown once, by the Queen's decision on it, never also when filed).

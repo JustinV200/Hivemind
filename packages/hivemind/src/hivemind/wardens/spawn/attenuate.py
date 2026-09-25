@@ -1,10 +1,10 @@
 """Define sub_bee_capabilities: one sub-bee's capability slice, read from its TaskAssign.
 
 A Worker's set is its role default plus what its task needs, kept only where its Warden's set and
-its goal's set both allow it (ADR-0031). `hivemind.workers.capabilities.worker_capabilities` does
+its goal's set both allow it (ADR-0039). `hivemind.workers.capabilities.worker_capabilities` does
 that narrowing; this module reads its inputs off the assignment a Warden is spawning: the role
 default from the Warden's own Guard policy (`role_set`, `{scratch}` filled with the lease's scratch
-root), the task's network needs (Waggle 1.6's `TaskAssign.network_scopes`, roadmap step 10.3 --
+root), the task's network needs (Waggle 1.8's `TaskAssign.network_scopes`, roadmap step 10.3 --
 before it, a task's network needs never reached its Warden, so no Worker ever held `net`), the
 goal's set (`TaskAssign.capabilities`; None when the goal carries no ceiling) and the declared
 write roots (roadmap step 5.0e: the manifest's `keep_root` and each declared leaving's root).
@@ -25,7 +25,7 @@ Key invariants:
     - An unreadable goal set narrows to nothing, never to "no ceiling".
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "A goal carries a
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "A goal carries a
       ceiling".
     - hivemind.workers.capabilities for worker_capabilities, the narrowing itself.
 """

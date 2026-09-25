@@ -1,7 +1,7 @@
 """Define LoginTable: each device's consecutive login failures and the networks it has used.
 
 Two facts about a device's logins at the Hive Entrance (the Hive's one HTTP door) outlive any one
-session (ADR-0033). The **consecutive failure count**: a valid device proof followed by a wrong
+session (ADR-0041). The **consecutive failure count**: a valid device proof followed by a wrong
 password is a failure of that device, and ``lockout_attempts`` of them in a row lock it; a success
 resets the count. It is persisted, so restarting ``hive serve`` does not hand an attacker a fresh
 set of guesses. The **known networks**: the travel lock asks whether a device is logging in from a
@@ -19,7 +19,7 @@ Key invariants:
     - Only a canonical device network (``hivemind.entrance.auth.network``) is ever remembered.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
       limits, travel lock".
     - hivemind.entrance.store.logins.sqlite for the tables.
 """

@@ -21,7 +21,7 @@ MAX_REF_IDS`). `InvalidWaxTransitionError` (roadmap step 4.2a) is `hivemind.memo
 assert_transition`'s own refusal, mirroring `hivemind.forage.errors.InvalidGrantTransitionError`
 exactly; `WaxTextTooLongError` is `hivemind.memory.cell_wax.writes.propose_wax`'s refusal of a
 proposal whose text exceeds the manifest's own (possibly lower than the wire shape's)
-`[memory] wax_text_cap_chars`. Roadmap step 10.6d (ADR-0035) adds the taint label's four:
+`[memory] wax_text_cap_chars`. Roadmap step 10.6d (ADR-0043) adds the taint label's four:
 `TaintedMemoryError` is what every Handoff loader and item lookup raises for an item labelled
 tainted (refused outright, whatever its relevance or clearance), `InvalidTaintTransitionError` is
 `hivemind.memory.taint.state.assert_transition`'s refusal of an illegal label edge,

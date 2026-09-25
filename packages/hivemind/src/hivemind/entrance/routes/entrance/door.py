@@ -1,6 +1,6 @@
 """Serve the Entrance's mode: read it, reduce the door, and reopen it from loopback.
 
-The Hive Entrance can be narrowed at once (ADR-0033): reducing drops it to loopback only, ends every
+The Hive Entrance can be narrowed at once (ADR-0041): reducing drops it to loopback only, ends every
 remote session, stops the remote listener and closes every remote socket within a second. Narrowing
 is always safe, so a steward's session may reduce from either listener without step-up. Reopening
 exists only on the loopback listener and needs a step-up, so a compromised remote session can

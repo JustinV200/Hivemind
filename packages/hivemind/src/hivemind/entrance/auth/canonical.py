@@ -3,7 +3,7 @@
 A signature only works when signer and verifier build byte-for-byte the same message, and the Hive
 Entrance (the Hive's one HTTP door) has five signers (a program enrolling, a device logging in,
 every authenticated request, a WebSocket's first frame, the Hive signing a webhook) and clients
-written in other languages from the published contract alone (ADR-0033). So every signed string, and
+written in other languages from the published contract alone (ADR-0041). So every signed string, and
 every encoding inside one, is defined here and nowhere else. Each string is a version tag, then its
 fields, one per line (joined with a single line feed, U+000A) and encoded as UTF-8. Timestamps are
 integer Unix seconds in decimal; digests are lowercase hex SHA-256; nonces are base64url without
@@ -29,7 +29,7 @@ Key invariants:
       only the one canonical spelling of each value (no padding, no stray bits).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for where each string
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for where each string
       is signed and checked.
     - hivemind.entrance.auth.keys for the verifiers that consume these messages.
 """
@@ -45,13 +45,13 @@ import secrets
 from waggle.errors import InvalidIdError
 from waggle.ids import IdKind, parse_id
 
-ENROL_TAG = "hive-enrol-v1"  # A program proves it holds the key it enrols (ADR-0033).
+ENROL_TAG = "hive-enrol-v1"  # A program proves it holds the key it enrols (ADR-0041).
 LOGIN_TAG = "hive-login-v1"  # A device proves it holds its key over a login challenge.
 REQUEST_TAG = "hive-request-v1"  # A session's binding key signs every authenticated request.
 WEBSOCKET_TAG = "hive-ws-v1"  # A WebSocket's first frame, since a browser cannot set headers.
 WEBHOOK_TAG = "hive-webhook-v1"  # The Hive signs every webhook it delivers with its own key.
-MIN_NONCE_BYTES = 16  # ADR-0033's floor: 128 random bits make a nonce collision a non-event.
-NONCE_BYTES = 32  # new_nonce's default: a login challenge's 32 random bytes (ADR-0033).
+MIN_NONCE_BYTES = 16  # ADR-0041's floor: 128 random bits make a nonce collision a non-event.
+NONCE_BYTES = 32  # new_nonce's default: a login challenge's 32 random bytes (ADR-0041).
 SHA256_HEX_CHARS = 64  # A SHA-256 digest in lowercase hex.
 
 _BASE64URL = re.compile(r"[A-Za-z0-9_-]*")  # The unpadded base64url alphabet, nothing else.

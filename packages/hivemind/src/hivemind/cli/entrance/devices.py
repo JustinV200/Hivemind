@@ -1,7 +1,7 @@
 """Provide ``hive entrance devices|revoke|steward|unlock``: an admitted device's standing.
 
 Once a device is approved its standing changes only on the Hive Stand's loopback listener
-(ADR-0033), and each command here is the console device calling one of those routes. ``devices``
+(ADR-0041), and each command here is the console device calling one of those routes. ``devices``
 lists every enrolled device with its status, key fingerprint and daily cap. ``revoke`` withdraws a
 device for good and says what became of its open goals (``--cancel-goals`` cancels them in the same
 step). ``steward`` grants or withdraws ``entrance:steward``, the capability that lets a device
@@ -22,7 +22,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.routes.devices for the routes.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the steward rule.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the steward rule.
 """
 
 from __future__ import annotations

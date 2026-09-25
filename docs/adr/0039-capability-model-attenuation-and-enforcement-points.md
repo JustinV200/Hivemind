@@ -1,4 +1,4 @@
-# ADR-0031: One capability grammar, attenuated down the tree, checked at named enforcement points
+# ADR-0039: One capability grammar, attenuated down the tree, checked at named enforcement points
 
 - Status: Accepted
 - Date: 2026-09-24
@@ -57,7 +57,7 @@ the work families (`cell:*`, `tool`, `net`, `fs:*`, `exec`, `llm`, `honey:*`, `q
 Worker gets its role default filtered by the goal's set and its Warden's set. Placement reads it:
 a task whose set lacks `cell:hive_stand` never lands on the Hive Stand and one lacking
 `cell:virtual` never provisions a Virtual Cell, whatever `prefer` says. A device's spend control
-is its daily cap, stored with the device (ADR-0033), not a `spend` capability.
+is its daily cap, stored with the device (ADR-0041), not a `spend` capability.
 
 **Access levels narrow only what touches the Cell.** `guard/access.py` names the families that act
 on the machine (`fs:*`, `exec`, `net`, `device`, `cell:outside_scratch`, `exoskeleton*`, `geo`,
@@ -79,7 +79,7 @@ the human). Nothing in the rule order can turn a deny into an allow except holdi
 - **The Hive's own state.** Every bee is denied `fs:read` and `fs:write` on the Hive's state paths
   (the database and its WAL and SHM files, the secret store, the manifest), `exec` of the `hive`
   and `hivemind-*` entry points, and `net` to loopback and the Hive Stand's own addresses
-  (ADR-0033).
+  (ADR-0041).
 - **Night Veil.** When a task's bound or requested tier is `NIGHT_VEIL`: it is placed only on a
   Virtual Cell (its set must hold `cell:virtual`, and no `cell:real` or `cell:hive_stand` it holds
   can place it on a Real Cell); every slot binding must be local; the Waggle link must go through
@@ -126,7 +126,7 @@ longest-prefix parsing reserves two tool-name shapes. Tasks and the `task.assign
 a capability set, so the Brood Chamber stores one more column and Waggle takes a minor version.
 Classifying every trail kind is a small tax on every future event, which is the point. The
 state-path floor narrows what a bee's tools can reach on the Hive Stand but cannot parse every
-command a bee might run (ADR-0033 records that risk).
+command a bee might run (ADR-0041 records that risk).
 
 ## Alternatives considered
 

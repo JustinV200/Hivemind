@@ -2,7 +2,7 @@
 
 The Queen tells the human's devices that something is waiting from inside her own tick, and an
 enrolment flow does so from inside a request; neither may wait on a webhook that retries for half a
-minute (ADR-0034's retries). ``PushOutbox`` is the queue between them and the ``PushDispatcher``
+minute (ADR-0042's retries). ``PushOutbox`` is the queue between them and the ``PushDispatcher``
 (the push channel's entry point): ``push`` and ``withdraw`` only enqueue and return, and ``run``,
 owned by the Hive Entrance's task group, delivers each job with a bounded number in flight. Jobs
 for one ``ref`` (the question, Alarm, goal or security event a notice points at) are delivered in
@@ -25,7 +25,7 @@ Key invariants:
       carries content, and nothing here logs a destination.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for what a notice is and who hears it.
+    - docs/adr/0042-landing-board-versioning-and-push.md for what a notice is and who hears it.
     - hivemind.entrance.push.dispatch for the dispatcher every job ends in.
 """
 

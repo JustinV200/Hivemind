@@ -1,6 +1,6 @@
 """Tests for hivemind.queen.queen.Queen's goal requests: durable first, planned once, by her tick.
 
-Roadmap step 10.5 (ADR-0032, "A goal is durable before it is acknowledged"): `request_goal`
+Roadmap step 10.5 (ADR-0040, "A goal is durable before it is acknowledged"): `request_goal`
 commits a row and wakes the Queen, and she plans it herself on her own tick, with no Warden
 traffic needed to start one. A request held for the human's yes waits until it is confirmed or
 declined, and a Queen that died after the row was committed leaves a successor exactly one plan to

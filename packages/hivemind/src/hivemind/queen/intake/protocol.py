@@ -1,7 +1,7 @@
 """Define GoalRequestStore, the persistence seam for the Queen's durable goal requests.
 
 A goal request (`hivemind.queen.intake.model.GoalRequest`) is only useful if it is durable before
-the Hive Entrance acknowledges it (docs/adr/0032), and every one of its transitions is a trail
+the Hive Entrance acknowledges it (docs/adr/0040), and every one of its transitions is a trail
 event written in the same transaction as the row (codingrules Appendix C). This protocol is that
 seam: `insert` and `update` take the row and its `queen.goal_request_*` event together and commit
 both or neither, `get` reads one back by id, and `list_requests` reads a filtered page

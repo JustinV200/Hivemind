@@ -2,7 +2,7 @@
 
 The Guard Bee (a Worker specialised in security and monitoring, roadmap step 10.6) watches the
 Pheromone Trail (the Hive's append-only audit log) with deterministic rules, and the rules are
-data (ADR-0035): `rules.toml`, shipped beside this module and read through `importlib.resources`,
+data (ADR-0043): `rules.toml`, shipped beside this module and read through `importlib.resources`,
 holds one table per rule, and the manifest's `[guard.bee.rules.<key>]` tables override any field
 but what a rule counts. A rule names the trail kinds it counts (each a `Matcher`: a kind and,
 optionally, the values some of its payload fields must hold), the key it groups them by, a window,
@@ -23,14 +23,14 @@ Fits into the Hive:
 
 Key invariants:
     - A rule that narrows the whole Hive (raise_audit_rate, reduce_entrance) never needs
-      judgement: narrowing is always safe to do by rule alone (codingrules 8.15, ADR-0035).
+      judgement: narrowing is always safe to do by rule alone (codingrules 8.15, ADR-0043).
     - A raise_audit_rate rule groups by tier, because a raise names exactly one Capping tier.
     - Every matcher's kind is a declared trail kind, or the one kind the Guard Bee derives
       (`SUBJECT_FORGED_KIND`); loading fails, naming the rule, otherwise.
 
 See Also:
     - docs/guard/guard-bee.md for every shipped rule, what it counts and what it recommends.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.workers.roles.guard_bee.evaluate for how a rule is evaluated against the trail.
 """
 
@@ -53,7 +53,7 @@ RULES_FILENAME = "rules.toml"  # The shipped rule data, inside this package.
 _RULES_PACKAGE = "hivemind.workers.roles.guard_bee"  # Addressed by name: same from a wheel.
 MAX_TITLE_CHARS = 100  # A rule's title is a noun phrase for a human, never prose about content.
 MAX_WHERE_VALUES = 16  # Accepted values per matched field: enum names, never a list of hosts.
-# The actions that narrow the whole Hive: the Guard Bee takes them alone, by rule (ADR-0035).
+# The actions that narrow the whole Hive: the Guard Bee takes them alone, by rule (ADR-0043).
 NARROWING_ACTIONS = frozenset({GuardAction.RAISE_AUDIT_RATE, GuardAction.REDUCE_ENTRANCE})
 # The one kind the Guard Bee derives rather than reads (roadmap step 10.6): an event a Cell's node
 # recorded about what another Cell owns, as evidence against the recording node's Cell. Its family

@@ -41,7 +41,7 @@ def test_queen_default_ranks_alarm_above_human_message_above_waggle_message() ->
 def test_queen_default_names_only_the_guard_principal_and_favours_nobody() -> None:
     weights = WeightTable.queen_default()
 
-    # ADR-0035: the Guard principal's multiplier is named, so it can be tuned; neutral as shipped.
+    # ADR-0043: the Guard principal's multiplier is named, so it can be tuned; neutral as shipped.
     assert weights.principal_weights == {GUARD_PRINCIPAL: 1.0}
 
 

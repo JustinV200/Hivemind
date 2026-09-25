@@ -1,6 +1,6 @@
 # hivemind.guard
 
-The Guard is the Hive's capability model and policy engine (ADR-0031). Every action is authorised
+The Guard is the Hive's capability model and policy engine (ADR-0039). Every action is authorised
 against an explicit capability: one thing a principal (the operator, the Queen, a Warden, a
 Worker, a Swarm device or an enrolled client device) may do, written `family` or `family:scope`.
 Sets only narrow down the tree, and "why was this refused" is always a trail row with a rule and a
@@ -13,7 +13,7 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
 ## Public API (roadmap steps 10.1, 10.2, 10.3, 10.3a-d, 10.6b and 10.7)
 
 - **Capabilities** (`hivemind.guard.capabilities`, a package since 10.1): `CapabilityFamily`
-  (every family in ADR-0031's table; phase 3's seven keep their values), `ScopeKind` (`FLAG`,
+  (every family in ADR-0039's table; phase 3's seven keep their values), `ScopeKind` (`FLAG`,
   `GLOB`, `PREFIX`, `HOST`, `ENUMERATED`, `ORDERED`, `AMOUNT`) and `FAMILIES_BY_KIND`;
   `Capability` (`parse` tries the longest family name first, so `tool:request` and
   `tool:scope:cell` are their own families; a flag is its bare name; every accepted string
@@ -37,7 +37,7 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   `watch_permits(level, observation)`: watch mode observes the process list, resource use, and
   logs and file-change events under the roots it may read, at every level exactly what
   `READ_ONLY` allows, and never the screen or the input (a separate, explicit grant).
-- **Reports** (`hivemind.guard.report`, roadmap 10.6 and 10.6a, ADR-0035): `GuardReport` is one
+- **Reports** (`hivemind.guard.report`, roadmap 10.6 and 10.6a, ADR-0043): `GuardReport` is one
   Guard Bee finding (the rule that fired, the trail events it cites, the Cell, bees, tasks and
   grants it touches, the recommended `GuardAction` and a `GuardConfidence`), ids and counts only.
   Only `REQUEST_ACTIONS` (isolate a Cell, quarantine a bee, Sting Cut) ask the Queen for anything,
@@ -47,7 +47,7 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   shows it as a SECURITY Alarm naming the report id, pushed to every device, durable before it
   returns and shown at most once per report id (a CRITICAL request is shown once, by the Queen's
   decision on it, which says what she did).
-- **Scanner** (`hivemind.guard.scanner`, roadmap 10.6b, ADR-0035, `docs/guard/untrusted-content.md`):
+- **Scanner** (`hivemind.guard.scanner`, roadmap 10.6b, ADR-0043, `docs/guard/untrusted-content.md`):
   the deterministic, model-free untrusted-content scanner. `load_scan_patterns` reads
   `defaults/untrusted-content.toml` (six weighted families; every repetition bounded; each
   family's `examples` must fire it); `score_text` is pure (input bounded to `max_scan_chars`,
@@ -61,14 +61,14 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   left to fill, the hive-wide deny list, the escalation table), `load_guard_policy(path,
   section)` (the shipped `defaults/policy.toml` or an operator's file, with the manifest's
   `[guard]` applied on top; refuses an unknown role, point or action, or an entry that is not a
-  capability, with `GuardPolicyError`), `EnforcementPoint` (every point ADR-0031 names; step 10.3
+  capability, with `GuardPolicyError`), `EnforcementPoint` (every point ADR-0039 names; step 10.3
   wires them), the request and decision models (`PrincipalKind`, `PrincipalRef`,
   `PolicyContext`, `PolicyRequest`, `EscalationAction`, `PolicyDecision`), the pure `evaluate`
   and `refusal` (a point's own out-of-reach refusal, rule `guard.scope.<scope>`), `role_set`,
   `warden_set`, `proposed_set`, `worker_role_name`, `QUEEN_ROLE`/`WARDEN_ROLE`, and (step 10.3)
   `queen_principal`, `warden_principal`, `worker_principal` and the classification catalogue
   (`AUTHORISED_AT`, `NOT_ACTIONS`, `PENDING_POINTS`, `classify`).
-- **Floors** (`hivemind.guard.policy.floors`, roadmap steps 10.3a-d and ADR-0033): pure
+- **Floors** (`hivemind.guard.policy.floors`, roadmap steps 10.3a-d and ADR-0041): pure
   functions `evaluate` runs before anything else, each refusing under its own rule id whatever
   the held set says (see "Floors" below); `floor_decision(request, policy)` runs them alone.
   `GuardPolicy.hive_state` is a `HiveState` (the Hive's own state files and directories, kept in
@@ -115,7 +115,7 @@ Only holding the capability turns a request into an allow. A Warden's own set is
 lease's access level, less the deny list. A Worker's is its role default (`role_set`) plus what
 its task needs, kept only where its Warden's set allows (`hivemind.workers.capabilities`).
 
-## Floors (roadmap steps 10.3a-d, ADR-0031 and ADR-0033)
+## Floors (roadmap steps 10.3a-d, ADR-0039 and ADR-0041)
 
 Floors hold whatever a set says: each reads the request's context and the policy's data, never
 the shape of the held set, and only ever refuses. They run in this order, the first refusal
@@ -168,7 +168,7 @@ own trail segment).
 | `comb_shield_egress` | the Queen, for the goal | `cell:comb_shield:<tier>`; the floors for every task, the operator's own included | `queen.dispatcher.acquire` |
 
 A goal carries a ceiling: `TaskSpec.capabilities` (the submitter's set, `None` for the operator's
-own local path) travels on every task and on Waggle 1.6's `task.assign`, so placement, grant
+own local path) travels on every task and on Waggle 1.8's `task.assign`, so placement, grant
 issue and the Warden's `worker_capabilities` all narrow to it. `policy/catalogue.py` classifies
 every trail kind as authorised at a point or as no action (with the reason), and names the
 points whose subsystem is not built (`PENDING_POINTS`); `tests/unit/guard/policy/test_catalogue.py`

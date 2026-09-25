@@ -1,6 +1,6 @@
 """Provide SplitSessionTable: the console's sessions in memory, every other session in the tables.
 
-ADR-0033: the Hive Stand's own console "keeps its sessions in memory only", and the console
+ADR-0041: the Hive Stand's own console "keeps its sessions in memory only", and the console
 bootstrap promises that "console sessions are never persisted by anything". Every other device's
 sessions are persisted, so they survive a restart and their spent nonces keep a replay window
 closed.

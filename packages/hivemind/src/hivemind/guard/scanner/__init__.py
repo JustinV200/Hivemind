@@ -4,7 +4,7 @@ Outside text reaches a bee's prompt at a handful of places: a tool's result, a C
 output, a human's chat message through the Landing Board (the Hive Entrance's public contract),
 and in phase 7 a Honey hit (the cold knowledge tier) at assembly and Nectar (raw material waiting
 to ripen) at intake. Roadmap step 10.6b puts one deterministic scanner, with no model, at each of
-them (ADR-0035). Its patterns are data (`hivemind.guard.defaults/untrusted-content.toml`, one
+them (ADR-0043). Its patterns are data (`hivemind.guard.defaults/untrusted-content.toml`, one
 family per table, each with a weight: imperatives addressed to the model, role and identity
 overrides, secret paths beside exfiltration verbs, encoded blobs over a size, tool-call-shaped
 text, hosts outside the task's targets); a text's score is the sum of the families it trips, and
@@ -29,7 +29,7 @@ Key invariants:
     - The trail sees ids, counts, family names and a keyed hash; never the scanned text.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/untrusted-content.md for the families, thresholds and seams, explained.
     - .claude/roadmap.md step 10.6b.
 

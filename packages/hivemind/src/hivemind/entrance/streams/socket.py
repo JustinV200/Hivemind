@@ -1,7 +1,7 @@
 """Serve one WebSocket view: authenticate its first frame, run the view, close it on time.
 
-Every live view of the Hive Entrance shares one lifecycle (ADR-0033). The socket is accepted, then
-must send a first frame within the deadline (``StreamServices.hello_deadline_s``: ADR-0033's
+Every live view of the Hive Entrance shares one lifecycle (ADR-0041). The socket is accepted, then
+must send a first frame within the deadline (``StreamServices.hello_deadline_s``: ADR-0041's
 ``SOCKET_HELLO_DEADLINE_S``, five seconds) carrying its session's token and a signature over
 ``hive-ws-v1``, the path, a timestamp and a nonce (a browser cannot set headers on a
 socket); a browser session's ``Origin`` must be the Entrance's own. The session is then policed
@@ -24,7 +24,7 @@ Key invariants:
     - No token, signature or frame content is logged.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
       to a key, and every request is signed".
     - hivemind.entrance.streams.registry for how a socket is told to close.
 """
@@ -158,7 +158,7 @@ async def _hello(
     """Read and check the first frame; close the socket and return None when it fails."""
     arrival = arrival_of(websocket.client.host if websocket.client else None, here.listener)
     try:
-        # ADR-0033: a socket that has not authenticated within the deadline is closed.
+        # ADR-0041: a socket that has not authenticated within the deadline is closed.
         async with asyncio.timeout(services.streams.hello_deadline_s):
             frame = await websocket.receive_text()
     except (TimeoutError, KeyError, *_GONE):

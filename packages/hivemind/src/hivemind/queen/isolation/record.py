@@ -1,6 +1,6 @@
 """Define an isolated Cell's two states, and read and write the trail events that move it.
 
-A Cell (a unit of compute) is OPEN or ISOLATED (roadmap step 10.6a, ADR-0035; codingrules
+A Cell (a unit of compute) is OPEN or ISOLATED (roadmap step 10.6a, ADR-0043; codingrules
 Appendix C, "Cell isolation"). OPEN -> ISOLATED is `cell.isolated`, recorded by the one isolation
 path once the Cell's grant is revoked, its bees paused, its `BLOCK` Cell Wax written and its egress
 cut: the reason, who ordered it, the Guard report it answers, the trail ids that justified it and

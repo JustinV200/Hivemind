@@ -1,6 +1,6 @@
 """Test hivemind.entrance.runtime.entrance: the running Entrance narrows its door on time.
 
-ADR-0033 over real uvicorn listeners: a reduction closes every live remote socket and stops the
+ADR-0041 over real uvicorn listeners: a reduction closes every live remote socket and stops the
 remote listener within a second, the loopback listener serving on; a remote listener that fails
 (here: one that cannot bind) reduces the Entrance and puts an Alarm in front of the human, while
 the Queen runs on; reopening from loopback, after step-up, brings the remote listener back.

@@ -36,7 +36,7 @@ builds, migration runners, and similar). Hygiene checkers landed in step 0.3, ru
 
 - `write_landing_board.py` -- renders the Landing Board's OpenAPI document from the Hive
   Entrance's route table and writes `docs/entrance/openapi.json` when it drifted; `--check` writes
-  nothing and exits 1 on drift (ADR-0034: the contract is generated, never hand-written). Run as
+  nothing and exits 1 on drift (ADR-0042: the contract is generated, never hand-written). Run as
   `uv run --frozen python scripts/write_landing_board.py [--check]` after changing a route or model.
 
 Tests for all of the above live under `scripts/tests/`.

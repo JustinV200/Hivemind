@@ -9,7 +9,7 @@ the task over with its acceptance criteria, its Tempo (a speed-against-accuracy 
 clearance, its Forage grant (Forage is capacity as data: cores, memory, GPU, model seats and
 spend), its Leavings (roadmap step 5.0b: what the plan declared should stay on the Cell once the
 lease is released, a `PlannedLeaving` tuple carried unchanged from the plan), its goal's
-capability set and the network scopes its needs name (PROTOCOL_MINOR 6, roadmap step 10.3: the
+capability set and the network scopes its needs name (PROTOCOL_MINOR 8, roadmap step 10.3: the
 ceiling a goal's submitter set on every task planned from it, and the hosts the task must reach,
 so the Warden can attenuate its Worker's set to both) and an optional Handoff (the document a
 bee writes before its context is reset) to resume from; ``TaskCancel``,
@@ -33,7 +33,7 @@ Key invariants:
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A task never resumes from a Handoff labelled above its own clearance (TaskAssign).
     - ``TaskAssign.capabilities`` of None and of ``()`` mean different things: None is "no goal
-      ceiling travels" (the operator's own local submission, or a peer older than minor 6), an
+      ceiling travels" (the operator's own local submission, or a peer older than minor 8), an
       empty tuple is a goal allowed nothing. The strings are opaque here; the Guard parses them.
 
 See Also:
@@ -69,7 +69,7 @@ MAX_ACCEPTANCE_ITEMS = 32  # More criteria than one task should carry; split the
 MAX_ACCEPTANCE_CHARS = 65_536  # 64 KiB across every criterion, so an assign always fits one frame.
 MAX_LEAVES_ITEMS = 16  # roadmap 5.0b: a task that leaves more than a handful of paths behind is
 # really declaring a whole directory, not enumerating files one by one.
-MAX_CAPABILITIES = 64  # A goal's capability set (PROTOCOL_MINOR 6): the device role's own ceiling
+MAX_CAPABILITIES = 64  # A goal's capability set (PROTOCOL_MINOR 8): the device role's own ceiling
 # is about two dozen entries, so this leaves room without letting one assign crowd a frame.
 MAX_CAPABILITY_CHARS = 1_024  # One capability string: a family and a scope, a path glob at most.
 MIN_ATTEMPT = 1  # The first try is attempt 1, so 0 can never pass for a real attempt.
@@ -111,7 +111,7 @@ _Reason = Annotated[str, Field(max_length=MAX_REASON_CHARS)]
 # A model slot (the named role a model is bound to) as the conventions fix it: a short
 # UPPER_SNAKE name; the slot travels as data, and the manifest resolves it to a model.
 _Slot = Annotated[str, Field(max_length=MAX_SLOT_CHARS, pattern=SLOT_PATTERN)]
-# One capability string (`family` or `family:scope`, ADR-0031): opaque text on the wire, bounded
+# One capability string (`family` or `family:scope`, ADR-0039): opaque text on the wire, bounded
 # here and parsed by the receiving Warden's Guard, which refuses one it cannot read.
 _Capability = Annotated[str, Field(min_length=1, max_length=MAX_CAPABILITY_CHARS)]
 # One network scope a task's needs name (a host, `*.domain`, an address or a network), bounded
@@ -123,7 +123,7 @@ class TaskAssign(WaggleMessage):
     """Hand a placed task to the Warden of its Cell, then to its Worker (task.assign, a request).
 
     Carries the acceptance criteria, Tempo, clearance, grant and optional Handoff to resume from,
-    and (PROTOCOL_MINOR 6) the goal's capability set and the task's network scopes; the Warden
+    and (PROTOCOL_MINOR 8) the goal's capability set and the task's network scopes; the Warden
     re-issues it to the Worker it spawns. A task reaches SUCCEEDED only after its Warden, never
     the Worker that did the work, has run the acceptance checks.
     """
@@ -166,12 +166,12 @@ class TaskAssign(WaggleMessage):
         description="The capability set of the goal this task was planned from (PROTOCOL_MINOR "
         "6), as sorted capability strings: a Worker is given only what its Warden's own set and "
         "this set both allow. None means no goal ceiling travels (the operator's own local "
-        "submission, or a peer older than minor 6); an empty tuple is a goal allowed nothing.",
+        "submission, or a peer older than minor 8); an empty tuple is a goal allowed nothing.",
     )
     network_scopes: tuple[_NetworkScope, ...] = Field(
         default=(),
         max_length=MAX_NETWORK_SCOPES,
-        description="The network scopes this task's needs name (PROTOCOL_MINOR 6), so its "
+        description="The network scopes this task's needs name (PROTOCOL_MINOR 8), so its "
         "Warden can offer the Worker a net capability for each one both sets allow; empty by "
         "default so an older peer's task.assign still validates.",
     )

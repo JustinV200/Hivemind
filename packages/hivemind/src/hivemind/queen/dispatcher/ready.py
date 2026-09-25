@@ -72,14 +72,14 @@ point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a fina
 `chamber.assign` binds the task to its Cell's tier, and `queen.placed` names the goal request a
 placement stands on.
 
-Roadmap step 10.3 (ADR-0031) wires two enforcement points through here. `placement`: a
+Roadmap step 10.3 (ADR-0039) wires two enforcement points through here. `placement`: a
 `PlacementError` now records its own message on `queen.decided` (it used to record only
 "placement_failed"), and when the task's goal set alone left no candidate (`PlacementError.
 denied`) the Queen, acting for the goal, checks each missing capability through her `Enforcer`,
 which records the `guard.denied`. `grant_issue`: every fresh grant passes `hivemind.queen.
 dispatcher.grants.authorize_grant` before it is sent, and one left with no model binding is
 refused at once like a lasting zero-bee grant (`forage.denied`, the task failed). The
-`TaskAssign` carries the goal's capability set and the task's network scopes (Waggle 1.6), so the
+`TaskAssign` carries the goal's capability set and the task's network scopes (Waggle 1.8), so the
 Warden can attenuate its Worker's set to both.
 
 Fits into the Hive:
@@ -468,7 +468,7 @@ async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> N
     else:
         payload["cell_id"] = placement.cell_id
     if task.spec.goal_request_id is not None:
-        # ADR-0031: the durable request a placement stands on (a Night Veil one's human ask).
+        # ADR-0039: the durable request a placement stands on (a Night Veil one's human ask).
         payload["goal_request_id"] = task.spec.goal_request_id
     await record_event(deps, "queen.placed", task.id, **payload)
 
@@ -583,7 +583,7 @@ def _task_assign(
         objective=task.spec.objective,
         acceptance=task.spec.acceptance,
         leaves=task.spec.leaves,
-        # Waggle 1.6 (roadmap step 10.3): the goal's own ceiling and the task's network needs,
+        # Waggle 1.8 (roadmap step 10.3): the goal's own ceiling and the task's network needs,
         # so the Warden attenuates its Worker's set to both.
         capabilities=task.spec.capabilities,
         network_scopes=task.spec.needs.network_scopes,

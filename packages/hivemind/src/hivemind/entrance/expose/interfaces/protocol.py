@@ -1,6 +1,6 @@
 """Define LocalInterfaces, the seam that lists this host's network interfaces and their addresses.
 
-Two exposure modes are judged against the host's own network interfaces (ADR-0033): ``vpn`` binds
+Two exposure modes are judged against the host's own network interfaces (ADR-0041): ``vpn`` binds
 the remote listener only to an address assigned to the overlay's interface (``tailscale0``, say),
 and ``lan`` only to an address assigned to some interface of this host. Reading interfaces is an
 operating-system call that differs between Linux, Windows and macOS, so it is one small protocol
@@ -21,7 +21,7 @@ Key invariants:
       an empty address set.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the vpn and lan
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the vpn and lan
       rules.
     - hivemind.entrance.expose.plan for the check that reads a snapshot.
 """

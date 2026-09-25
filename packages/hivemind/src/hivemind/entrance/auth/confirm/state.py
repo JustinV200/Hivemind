@@ -1,7 +1,7 @@
 """Define PendingStatus and the one transition table a pending confirmation's life follows.
 
 A pending confirmation is how a device no person types at gets something that needs step-up
-(ADR-0033): its request is held, pushed to the human, and carried out only once a person confirms
+(ADR-0041): its request is held, pushed to the human, and carried out only once a person confirms
 it from an interactive device that has just stepped up. This module is its state machine in the
 shape codingrules section 9 requires: one ``Enum`` and one table, each edge commented with who
 takes it, tested edge by edge. A confirmation is settled exactly once, from PENDING: confirmed,
@@ -20,7 +20,7 @@ Key invariants:
       own event when the caller carries it out.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
     - hivemind.entrance.auth.confirm.flow for hold, confirm, cancel and the expiry sweep.
 """

@@ -701,7 +701,7 @@ index 27cf746..23a7e83 100644
 +
 +async def test_a_takeover_the_guard_refuses_is_reported_failed_never_orphaned() -> None:
 +    # A Takeover's fresh bee binds the supervisor's own slot, the Warden's, which a Drone's set
-+    # never holds (ADR-0031): the Guard refuses it at spawn, so the task goes back to the Queen
++    # never holds (ADR-0039): the Guard refuses it at spawn, so the task goes back to the Queen
 +    # FAILED, with the reason and the Handoff, rather than sitting RUNNING with no bee.
 +    resumed: list[Handoff] = []
 +    first = make_assignment()
@@ -912,7 +912,7 @@ index bdc1a52..670b349 100644
  `hivemind.queen.autopilot.actions.QueenAction`. The table is keyed by the wrapped payload's own
  type: a `Heartbeat` is `RECORD`; a `TaskResult` resolves to `COMPLETE_TASK`, `RETRY_TASK` or
  `FAIL_TASK`; an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`, exactly the
-@@ -18,7 +19,10 @@ explicit rule, since free text has no deterministic answer (ADR-0032); anything
+@@ -18,7 +19,10 @@ explicit rule, since free text has no deterministic answer (ADR-0040); anything
  never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
  (`hivemind.brood_chamber.TERMINAL_STATUSES`) makes a `TaskResult`/`AlarmRaised` about it a no-op
  `RECORD`: a stale or duplicate report about work the Queen already closed out is not a fresh
@@ -2553,7 +2553,7 @@ index 99c00cd..82f3c9e 100644
 +"""Define attach_warden, detach_warden and frozen_cell: admit a Warden, remove it, hold it.
  
  `attach_warden` is `hivemind.queen.queen.Queen.attach_warden`'s own body (roadmap step 10.3): the
- `warden_spawn` enforcement point (ADR-0031). The Queen never creates Wardens or Cells herself
+ `warden_spawn` enforcement point (ADR-0039). The Queen never creates Wardens or Cells herself
 @@ -18,7 +18,10 @@ free functions taking `queen: Queen` rather than method bodies on `Queen` itself
  over; `queen.py`'s own `_stop_queen`/`_send_intervene` already live as module-level delegates for
  the same class-size reason, these are one file further out for the same file-size reason.
@@ -2584,7 +2584,7 @@ index 99c00cd..82f3c9e 100644
  
  if TYPE_CHECKING:
 @@ -74,7 +78,7 @@ if TYPE_CHECKING:
- # The one capability admitting a Warden to the Queen's tree needs (ADR-0031's warden:spawn flag).
+ # The one capability admitting a Warden to the Queen's tree needs (ADR-0039's warden:spawn flag).
  _WARDEN_SPAWN = Capability(family=CapabilityFamily.WARDEN_SPAWN)
  
 -__all__ = ["attach_warden", "detach_warden"]

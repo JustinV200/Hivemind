@@ -102,7 +102,7 @@ class PolicyError(SupervisionError):
 class UnknownInterventionError(SupervisionError):
     """Raise when a wire intervention names a lever the Hive's `Intervention` union does not model.
 
-    Raised by `hivemind.supervision.intervention.from_wire` (ADR-0035: "decoding an intervention
+    Raised by `hivemind.supervision.intervention.from_wire` (ADR-0043: "decoding an intervention
     the Hive does not know is an error, never a silent cancel"): a lever read as some other lever
     would carry out an order nobody gave, so the whole message is refused instead.
     """

@@ -1,7 +1,7 @@
 """Register every live view: adding a stream to the Landing Board is one line here.
 
 The Hive Entrance builds both applications, and the Landing Board's OpenAPI document, from one
-table (ADR-0032). ``VIEWS`` is its WebSocket half, as ``hivemind.entrance.routes.RESOURCE_ROUTES``
+table (ADR-0040). ``VIEWS`` is its WebSocket half, as ``hivemind.entrance.routes.RESOURCE_ROUTES``
 is its HTTP half: each view module declares its own ``SocketSpec`` and joins by being named once
 below; ``hivemind.entrance.app`` joins the two into the ``RouteTable``, and the document lists the
 views in this order under ``x-hive-streams``.

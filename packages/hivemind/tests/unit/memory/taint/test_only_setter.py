@@ -1,6 +1,6 @@
 """Walk the source tree: nothing but the one setter and the one clearer ever writes a taint label.
 
-Roadmap step 10.6d (ADR-0035): "Set by isolation (10.6a), by quarantine (10.6c), or by the Queen
+Roadmap step 10.6d (ADR-0043): "Set by isolation (10.6a), by quarantine (10.6c), or by the Queen
 on a Guard report about a Honey item, and by nothing else; a test asserts no other path writes it."
 This is that test. It parses every module under `hivemind/` and fails when a label is written
 anywhere but the two functions allowed to: a `write_taint(...)` call or a `TaintMarker(...)` built
@@ -42,7 +42,7 @@ _WRITERS = ("hivemind/memory/taint/set.py", "hivemind/memory/taint/clear.py")
 _LABEL_STORES = ("hivemind/memory/store/",)  # The stores that persist a label they were handed.
 # Roadmap 10.6a's in-Cell half: the Warden runs the setter on its own store at the Queen's order.
 _IN_CELL_ISOLATION_TAINT = "hivemind/wardens/isolation/taint.py"
-# The three setters (ADR-0035), by module, each with the only TaintSource it may pass. 10.6c's is
+# The three setters (ADR-0043), by module, each with the only TaintSource it may pass. 10.6c's is
 # built; 10.6a lands the first, and the Queen's Guard-report path lands with phase 7.
 _SETTER_CALLERS: dict[str, str] = {
     "hivemind/queen/isolation/": "ISOLATION",

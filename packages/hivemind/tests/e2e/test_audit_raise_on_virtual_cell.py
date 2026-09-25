@@ -5,7 +5,7 @@ container-spawning fake backend, so every Virtual Cell runs a real in-Cell Warde
 its own segment, which never sees the Queen's. Sampled audits of SCRATCH_WRITE start failing on the
 Queen's trail (recorded as a Warden records them); the composed Hive's own Guard Bee raises the
 tier's audit rate to 1.0 there. A goal then lands on a Virtual Cell: the grant the Queen issues for
-it carries the raise (Waggle 1.8's `GrantIssued.audit_raises`), and the in-Cell Warden's gate
+it carries the raise (Waggle 1.10's `GrantIssued.audit_raises`), and the in-Cell Warden's gate
 samples every one of its Drone's writes, where the shipped tier table alone samples 2 in 100. The
 Cell's `capping.audited` rows reach the Queen's trail in its shipped segment. An in-Cell Warden has
 no model-backed judge wired yet, so each sample is recorded inconclusive (`judge_error`) rather

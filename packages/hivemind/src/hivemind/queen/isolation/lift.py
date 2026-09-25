@@ -1,6 +1,6 @@
 """Lift a Cell's isolation, or the Queen's placement holds on it: the human's lever alone.
 
-ADR-0035: "lifting an isolation is the human's, with step-up; the Queen never lifts on her own."
+ADR-0043: "lifting an isolation is the human's, with step-up; the Queen never lifts on her own."
 The human's lift at the Hive Entrance (`POST /v1/cells/{cell_id}/lift`, an interactive device
 inside its step-up window) reaches the Queen's isolation door and ends here. It releases every
 placement hold the Queen left on the Cell (the Hive Stand's fallback, where she may not isolate),

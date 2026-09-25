@@ -8,7 +8,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - docs/waggle/spec.md section 8.5, "CellTaintOrder (PROTOCOL_MINOR 8)".
+    - docs/waggle/spec.md section 8.5, "CellTaintOrder (PROTOCOL_MINOR 10)".
 """
 
 from __future__ import annotations

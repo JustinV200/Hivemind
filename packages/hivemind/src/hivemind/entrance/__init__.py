@@ -5,7 +5,7 @@ when explicitly exposed), serve the Landing Board (the versioned public API cont
 enrolment, auth, push delivery, exposure control and the human inbox. Approval routes never exist on
 the remote listener. Every client, the Hive Stand's (the machine the Queen, the orchestrator, runs
 on) own console included, is a device enrolled with its own key and approved at the Hive Stand, and
-logs in with that key plus the operator's password (ADR-0033). Phase 10's steps so far land what
+logs in with that key plus the operator's password (ADR-0041). Phase 10's steps so far land what
 this face re-exports: the credential primitives and the ceremony challenge book (``auth``), device
 enrolment end to end (``enrol``: the enrolled-device model and state machine, the console
 bootstrap, invites, redemption by Ed25519 key or passkey, the operator's decisions and the expiry
@@ -32,7 +32,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md sections 8.15 and 15 for the Entrance's rules.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment,
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment,
       login and exposure.
     - hivemind.entrance.auth, hivemind.entrance.enrol and hivemind.entrance.store for the
       sub-packages behind this face; hivemind.entrance.push and hivemind.entrance.expose for the

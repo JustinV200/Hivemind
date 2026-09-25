@@ -6,7 +6,7 @@ edited." Nectar (raw material waiting to be ripened into Honey, the cold knowled
 Honey Store arrive in phase 7, so this module only declares the duty's shape, as a Protocol the
 House Bee's sweep will implement then; nothing implements or calls it yet, on purpose (a fake here
 would be a second, untested Honey Store). The contract it fixes now, so phase 7 builds against it:
-the old deposit is retired whole and never edited (forensics keep the evidence, ADR-0035); the new
+the old deposit is retired whole and never edited (forensics keep the evidence, ADR-0043); the new
 item inherits the old one's `TaintSource` through `hivemind.memory.taint.set.taint_memory` (a
 label carried over, which the only-setter test will allow for the sweep's module alone); and it
 reaches prompts only after `hivemind.memory.taint.clear.clear_taint` returns CLEARED for it.

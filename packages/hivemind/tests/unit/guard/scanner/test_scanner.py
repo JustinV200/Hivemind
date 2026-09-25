@@ -1,6 +1,6 @@
 """Tests for hivemind.guard.scanner.scanner and .hasher: every flag recorded by keyed hash only.
 
-Roadmap step 10.6b (ADR-0035): `guard.injection_suspected` carries the source, the consuming bee
+Roadmap step 10.6b (ADR-0043): `guard.injection_suspected` carries the source, the consuming bee
 and a keyed hash of the content (HMAC under a key minted on first use in the secret store), never
 the text; a PASS records nothing.
 

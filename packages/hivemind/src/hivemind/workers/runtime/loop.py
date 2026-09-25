@@ -291,7 +291,7 @@ def _pull_lever(runtime: WorkerRuntime, intervene: Intervene) -> None:
     of its own. A Quarantine is its Warden's to carry out and is never relayed to a Worker (roadmap
     10.6c); one that arrives anyway is read as the one thing it certainly means for this bee, stop
     now, and logged. A lever the Hive has no variant for is refused and logged, never read as a
-    cancel (ADR-0035: an unknown intervention is an error, not a silent cancel).
+    cancel (ADR-0043: an unknown intervention is an error, not a silent cancel).
     """
     try:
         lever = intervention_from_wire(intervene)

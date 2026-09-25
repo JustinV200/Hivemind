@@ -235,7 +235,7 @@ def open_memory(db: Path) -> MemoryStore:
 def open_goal_requests(db: Path) -> SqliteGoalRequestStore:
     """Open `db` and return the Queen's durable goal-request table, trail migrations first.
 
-    Roadmap step 10.5 (ADR-0032): `hivemind.cli.compose.deps.open_default_stores` calls this so a
+    Roadmap step 10.5 (ADR-0040): `hivemind.cli.compose.deps.open_default_stores` calls this so a
     goal request is committed on the Hive's own file before the Hive Entrance acknowledges it.
 
     Args:
@@ -280,7 +280,7 @@ def open_guard_requests(db: Path) -> SqliteGuardRequestStore:
     """Open `db` and return the Queen's durable Guard request table (roadmap step 10.6a).
 
     `hivemind.cli.compose.guard.build_guard_deps` calls this so a Guard request is committed on the
-    Hive's own file before the Guard Bee's filing returns (ADR-0035), and survives a restart. The
+    Hive's own file before the Guard Bee's filing returns (ADR-0043), and survives a restart. The
     table records no trail event of its own (the Guard Bee's `guard.alert` and the Queen's
     `queen.decided` are the audit rows), so no trail migration has to run first.
 

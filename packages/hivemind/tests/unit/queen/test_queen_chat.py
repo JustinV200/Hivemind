@@ -1,6 +1,6 @@
 """Tests for hivemind.queen.queen.Queen's human end: the chat, her REPLY, what reaches the human.
 
-Roadmap step 10.5 (ADR-0032, "The chat is the human end of the Queen's inbox"): a message the
+Roadmap step 10.5 (ADR-0040, "The chat is the human end of the Queen's inbox"): a message the
 human posts wakes her through her own wake signal, with no Warden traffic at all; autopilot has no
 rule for free text, so an awake episode decides, and a REPLY's words come back as a chat line.
 Her questions and the Alarms that reached the human are appended to the same log, and every one
@@ -232,7 +232,7 @@ async def test_the_in_process_answer_path_remembers_keep_for_this_whole_goal() -
     await warden_end.send(_question(deps.clock, goal_id, link.warden_id, leave=True))
     await _wait_until_blocked(deps, goal_id)
     [pending] = await queen.human_inbox.pending_questions(deps.chamber)
-    # The Hive Entrance answers through exactly this call (ADR-0032), never `hive inbox answer`.
+    # The Hive Entrance answers through exactly this call (ADR-0040), never `hive inbox answer`.
     await queen.answer_question(
         pending.id,
         LEAVE_QUESTION_OPTIONS[_KEEP_FOR_GOAL],

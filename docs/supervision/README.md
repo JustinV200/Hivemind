@@ -26,7 +26,7 @@ over the wildcard rows; failing that, `default`. The file's own header and per-r
 why each threshold and action were chosen; `tests/unit/supervision/test_policy.py` loads it and
 checks a table of `(kind, attempts) -> action` pairs, including the default case.
 
-Roadmap step 10.6c adds the `SECURITY` kind (Waggle 1.7) and its one row: `ESCALATE` from the
+Roadmap step 10.6c adds the `SECURITY` kind (Waggle 1.9) and its one row: `ESCALATE` from the
 first attempt, so a security Alarm is never retried, respawned or rebound at any level; a Warden
 sends it to the Queen, and she sends it on to the human. It also adds `QUARANTINE` to the actions a
 row may name: on a Warden's own row it quarantines that Warden's sub-bee through the one quarantine

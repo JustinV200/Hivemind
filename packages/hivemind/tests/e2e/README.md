@@ -126,7 +126,7 @@ Drone's grant without a free core.
   while pending, locked by five wrong passwords (unlocked on loopback) and revoked. The follower is
   a child process because `CliRunner` swaps the process's standard streams while a command runs.
 - `test_mutual_tls.py` (`@pytest.mark.e2e`; skipped on a machine with no private IPv4 address) --
-  mutual-TLS device certificates on real sockets (roadmap 10.5a/10.5d, ADR-0033): `hive serve`'s
+  mutual-TLS device certificates on real sockets (roadmap 10.5a/10.5d, ADR-0041): `hive serve`'s
   own composition in `lan` mode, its remote listener bound to this machine's own private address
   behind a throwaway authority's server certificate the laptop pins with `--ca-file` (no trust
   store or hosts file is touched). A laptop enrolled on loopback gets its certificate at

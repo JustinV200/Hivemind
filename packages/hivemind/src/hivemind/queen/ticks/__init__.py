@@ -19,7 +19,7 @@ autopilot.wax.decide_wax_proposal`); `decide`'s own fallback for an unrecognised
 step 4.3's own wiring step) is `run_housekeeping`, the single call `queen.py`'s own tick makes in
 place of the Clustering-only `run_cluster_tick` it used to call directly: it still runs
 `run_cluster_tick` first, then a House Bee sweep (demotion, Cell Wax expiry, compaction) whenever
-the manifest's own `sweep_interval_s` is due. Roadmap step 10.5 (ADR-0032) adds the human end:
+the manifest's own `sweep_interval_s` is due. Roadmap step 10.5 (ADR-0040) adds the human end:
 `awake` (`run_awake`, one stateless episode per `NEEDS_JUDGEMENT` item, a human message's words
 fenced and labelled untrusted in its trigger), `chat` (the human's waiting messages into the inbox,
 a `REPLY`'s words out, each message stamped handled once decided) and `intake` (every durable goal

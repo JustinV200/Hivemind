@@ -1,6 +1,6 @@
 """Define ChatEntry: one line of the chat, the human end of the Queen's inbox.
 
-Docs/adr/0032, "The chat is the human end of the Queen's inbox, not a side channel": a message
+Docs/adr/0040, "The chat is the human end of the Queen's inbox, not a side channel": a message
 the human types (or speaks) is appended here and enters the Queen's inbox as a `HumanMessage`;
 her replies, her questions and the Alarms that reached the human are appended to the same log,
 so the human reads one conversation. `ChatEntry` is one line of it: who wrote it (`ChatAuthor`:
@@ -25,7 +25,7 @@ Key invariants:
       questions and Alarms are read beside them (codingrules 8.9); nothing launders one lower.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
     - hivemind.queen.chat.protocol for ChatLog, the store these lines live in.
     - waggle.messages.control.hive for HumanMessage, the wire form a human line becomes.
 """

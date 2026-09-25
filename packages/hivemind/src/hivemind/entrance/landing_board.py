@@ -1,6 +1,6 @@
 """Generate the Landing Board's OpenAPI document from the route table, deterministically.
 
-The Landing Board (the Hive Entrance's versioned API) is a published contract (ADR-0034): programs
+The Landing Board (the Hive Entrance's versioned API) is a published contract (ADR-0042): programs
 are written from ``docs/entrance/openapi.json`` alone, so the document is generated, never
 hand-written, from the same route table both listeners are built from, and committed; a test fails
 when the generated document differs from the committed one, so every route change is a visible
@@ -11,7 +11,7 @@ they exist) with ``x-hive-capability`` (absent where a session alone, or nothing
 extension (every signed string, its fields and encodings, with worked examples built by the very
 functions the Entrance verifies with), ``x-hive-streams`` (the WebSocket views, their first frame,
 their frames, and for the chat view the push-to-talk frames a client sends and the frames that
-answer them) and what a client must know that no schema says: ``x-hive-versioning`` (ADR-0034's
+answer them) and what a client must know that no schema says: ``x-hive-versioning`` (ADR-0042's
 additive rule, read from the client's side), ``x-hive-socket-close`` (every close code a view sends)
 and ``x-hive-bare-refusals`` (the refusals answered before routing, which carry no body). Every
 object a client reads (a response body or a stream frame) is published open, because a later
@@ -31,8 +31,8 @@ Key invariants:
       Hive.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the document's role.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the signing rules.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the document's role.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the signing rules.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ _EXAMPLE_BODY = b'{"text":"tidy the garden"}'  # A goal submission's body.
 _EXAMPLE_TYPED_CODE = "aaaq eaye auda ocaj bifq ydio b4"
 _DOCUMENT = TypeAdapter(dict[str, JsonValue])  # FastAPI's dict, checked into plain JSON values.
 _SCHEMA_PREFIX = "#/components/schemas/"  # Where a reference into the components points.
-# The enums whose vocabulary may grow within /v1/ (ADR-0034: a new member is additive only for an
+# The enums whose vocabulary may grow within /v1/ (ADR-0042: a new member is additive only for an
 # enum the document marks open). State machines and security tiers stay closed: a new state or
 # tier changes what every client must do, so it waits for /v2/.
 _OPEN_ENUMS: Mapping[str, str] = MappingProxyType(
@@ -226,7 +226,7 @@ def _invite_code() -> dict[str, JsonValue]:
 
 
 def _versioning() -> dict[str, JsonValue]:
-    """State ADR-0034's additive rule as a client must read it."""
+    """State ADR-0042's additive rule as a client must read it."""
     return {
         "additive": "Within /v1/ only additive changes ship: a new route, a new optional request "
         "field, a new response field, a new member of an enum marked x-hive-open. Anything else "
@@ -289,7 +289,7 @@ def _bare_refusals() -> list[JsonValue]:
 
 
 def _open_what_is_read(document: dict[str, JsonValue], schemas: dict[str, JsonValue]) -> None:
-    """Open every object a client reads, and mark each enum that may grow (ADR-0034).
+    """Open every object a client reads, and mark each enum that may grow (ADR-0042).
 
     FastAPI publishes every model closed (``additionalProperties: false``), which a client that
     validates what it reads would take as a promise that no field is ever added. Only a request

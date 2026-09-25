@@ -4,7 +4,7 @@ Codingrules section 8.12: "deterministic validators in autopilot (schema, lint, 
 size caps)." `SchemaCheck` confirms a proposal's action kind is one v0 can actually apply (waggle's
 own `ProposedAction` validators already enforce that the right field is populated for its kind).
 `PathAllowlistCheck` and `CommandAllowlistCheck` enforce codingrules section 15's least privilege
-on the paths and command a proposal touches. Roadmap step 10.3 (ADR-0031) adds three things: a
+on the paths and command a proposal touches. Roadmap step 10.3 (ADR-0039) adds three things: a
 write outside scratch needs `cell:outside_scratch:<path>` as well as `fs:write:<path>`; a network
 step -- one `"<METHOD> <url>"` step proposed on the `NETWORK_EGRESS` tier, the HTTP tool's only
 shape, whose apply is the authorisation itself -- passes `SchemaCheck` when well formed, and

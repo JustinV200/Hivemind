@@ -1,6 +1,6 @@
 """Judge DNS names for exposure: public_url's host, a certificate's names, and the relying party.
 
-Remote always means TLS on a DNS name (ADR-0033): browsers give passkeys, WebCrypto and push only
+Remote always means TLS on a DNS name (ADR-0041): browsers give passkeys, WebCrypto and push only
 to a secure context, and WebAuthn refuses an IP address as a relying party. Three name questions
 follow, answered here as pure functions. What host does ``public_url`` name, in the one form a
 browser sends and a certificate lists (lowercase ASCII, no trailing dot), and is it a DNS name at

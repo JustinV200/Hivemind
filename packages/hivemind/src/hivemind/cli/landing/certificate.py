@@ -2,7 +2,7 @@
 
 In ``lan`` and ``tunnel`` modes (and ``vpn`` when the operator turns mutual TLS on) the remote
 listener completes a handshake only with a client certificate from the Hive's own authority
-(ADR-0033), and login is the gate behind it. A CLI device's certificate certifies the same Ed25519
+(ADR-0041), and login is the gate behind it. A CLI device's certificate certifies the same Ed25519
 key it signs every request with, so there is one key to keep: ``certificate_request`` builds the
 PKCS#10 request for that key (its subject is the device's name, which the Hive ignores; the
 request's signature is what proves the key), and the Hive signs the certificate at approval.
@@ -27,7 +27,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.expose.tls.issue for how the Hive signs the request.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "lan and tunnel".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "lan and tunnel".
 """
 
 from __future__ import annotations

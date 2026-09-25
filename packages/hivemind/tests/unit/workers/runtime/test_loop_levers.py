@@ -2,7 +2,7 @@
 
 A Quarantine is its Warden's to carry out and is never relayed to a Worker; one that arrives anyway
 stops the role at once. An intervention the Hive's union has no lever for (RELEASE_LEASE, a
-Warden's own order) is refused and logged, never read as a cancel (ADR-0035), and the Worker keeps
+Warden's own order) is refused and logged, never read as a cancel (ADR-0043), and the Worker keeps
 working. Split by feature (codingrules 14.2) from `test_loop.py`, whose scenario shape this reuses.
 
 Fits into the Hive:
@@ -126,7 +126,7 @@ async def test_a_lever_the_hive_does_not_model_is_refused_and_the_worker_keeps_w
     for _ in range(_ROUNDS):
         await asyncio.sleep(0)
 
-    # Before ADR-0035's rule this read as a Cancel and killed the attempt.
+    # Before ADR-0043's rule this read as a Cancel and killed the attempt.
     assert runtime.state is WorkerState.RUNNING
     runtime.stop()
     await asyncio.wait_for(task, timeout=1)

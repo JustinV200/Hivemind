@@ -5,7 +5,7 @@ Virtual; (2) `comb_shield = NIGHT_VEIL` is always a fresh Virtual Cell; (3) a `B
 excludes a Cell and `allow_hive_stand = false` excludes the Hive Stand; (4) a candidate must fit --
 OS, network scopes, a display or the ability to start one; (5) Forage must cover the grant; (6)
 otherwise honour `prefer`, rank a `CAUTION`ed Cell behind a clean one, and prefer a dormant Cell
-over a fresh provision. ADR-0031 adds one rule ahead of all six (roadmap step 10.3): a goal's
+over a fresh provision. ADR-0039 adds one rule ahead of all six (roadmap step 10.3): a goal's
 capability set is a ceiling, so a candidate the goal does not allow -- the Hive Stand without
 `cell:hive_stand`, any other Real Cell without `cell:real:<cell id>`, any Virtual Cell without
 `cell:virtual`, any Cell at a tier without `cell:comb_shield:<tier>` -- is excluded first,
@@ -52,7 +52,7 @@ from hivemind.queen.placement.inventory import RealCandidate, WaxMention
 from hivemind.queen.placement.policy import PlacementPolicy
 from waggle.ids import CellId
 
-# The two flag capabilities a Cell of each source asks of a goal (ADR-0031's placement families).
+# The two flag capabilities a Cell of each source asks of a goal (ADR-0039's placement families).
 _CELL_VIRTUAL = Capability(family=CapabilityFamily.CELL_VIRTUAL)
 _CELL_HIVE_STAND = Capability(family=CapabilityFamily.CELL_HIVE_STAND)
 

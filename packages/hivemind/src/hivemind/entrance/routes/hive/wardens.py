@@ -2,7 +2,7 @@
 
 A Warden (the always-on supervisor of one Cell) is known only to the Queen, through its link and
 its Heartbeats (codingrules 8.8: she is the only global view). ``GET /v1/wardens`` reads her live
-tables directly, never through a method that acts (ADR-0032): each Warden's newest reported state
+tables directly, never through a method that acts (ADR-0040): each Warden's newest reported state
 (OFFLINE once she marked it so), when she last heard from it and how many Heartbeats it missed,
 its Cell, how many sub-bees its last Heartbeat listed and the live grants it holds. It needs
 ``observe``: the telemetry text a Heartbeat carries is on the telemetry stream, behind

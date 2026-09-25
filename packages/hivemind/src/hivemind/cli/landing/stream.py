@@ -4,7 +4,7 @@ The Hive Entrance pushes, clients do not poll (codingrules 8.15): the chat, the 
 the security events each have a live view at ``/v1/.../stream``. A socket carries no headers a
 browser could set, so it authenticates with its first frame instead: the session's token and the
 binding key's signature over ``hive-ws-v1``, the path and query exactly as requested, a timestamp
-and a nonce, sent within five seconds of opening (ADR-0033). ``open_view`` opens the socket (the
+and a nonce, sent within five seconds of opening (ADR-0041). ``open_view`` opens the socket (the
 same origin and TLS as the device's HTTP client, and never through an environment proxy), sends
 that frame, and yields a ``View`` whose ``next`` reads one frame parsed as the view's model. A
 socket the Entrance closes says why with a code (``hivemind.entrance.streams.CloseReason``), which
@@ -22,7 +22,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.streams.socket for the server half of this lifecycle.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "A WebSocket
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "A WebSocket
       authenticates with a first frame".
 """
 

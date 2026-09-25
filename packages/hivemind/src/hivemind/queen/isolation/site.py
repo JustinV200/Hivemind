@@ -1,6 +1,6 @@
 """Define IsolationSite and alert_human: where an isolation runs, and how the human hears of it.
 
-An isolation (roadmap step 10.6a, ADR-0035) needs three things only the running Queen holds
+An isolation (roadmap step 10.6a, ADR-0043) needs three things only the running Queen holds
 together: her collaborators, the Wardens attached to her right now (the isolated Cell's own
 Warden relays the pause and hears of the revoked grant), and her inbox of Alarms waiting on the
 human. `IsolationSite` bundles them for the one path, the lift and the Queen's decision on a Guard

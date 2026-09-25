@@ -21,7 +21,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the login.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the login.
     - tests.e2e.test_hive_serve for a program's side of the same Entrance.
 """
 

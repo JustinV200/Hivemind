@@ -1,7 +1,7 @@
 """Hold the travel lock: a device seen on a network it never used must step up, and all are told.
 
 On the Tailscale overlay a device keeps its address wherever it roams, so the Hive Entrance (the
-Hive's one HTTP door) asks tailscaled where each peer really connects from (ADR-0033). ``source``
+Hive's one HTTP door) asks tailscaled where each peer really connects from (ADR-0041). ``source``
 defines ``PeerEndpointSource``; ``tailscale`` is the real one (tailscaled's local API over its Unix
 socket) and the builder that refuses where it cannot see endpoints; ``fake`` places peers by hand
 for tests; ``lock`` is ``TravelLock`` and ``open_travel_lock``, which judge a remote login's network
@@ -16,7 +16,7 @@ Key invariants:
     - This file holds re-exports and ``__all__`` only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
 
 Public API:
     - PeerEndpointSource: where a peer really connects from (source).

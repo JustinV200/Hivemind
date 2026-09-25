@@ -8,7 +8,7 @@ Key invariants:
 
 See Also:
     - hivemind.wardens.spawn.binding for the module under test.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for slot binding.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for slot binding.
 """
 
 from __future__ import annotations

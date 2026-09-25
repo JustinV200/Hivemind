@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.8`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.10`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.8"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.10"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.8"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 8` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.10"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 10` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -194,16 +194,16 @@ validates every message a newer one sends it, as long as the sender honours the 
 - **1.4**: `ActionKind.COPY` and `ProposedAction.copy_sha256`/`copy_size` (roadmap step 5.0e).
 - **1.5**: the snapshot relay (`cell.snapshot_request`/`_reply`, `cell.rollback_request`/`_reply`)
   and `InterventionAction.RELEASE_LEASE` (roadmap steps 5.10 and 5.13).
-- **1.6**: `TaskAssign.capabilities` and `TaskAssign.network_scopes` (roadmap step 10.3,
-  ADR-0031): a goal's capability set and a task's network needs reach the Warden that
+- **1.8**: `TaskAssign.capabilities` and `TaskAssign.network_scopes` (roadmap step 10.3,
+  ADR-0039): a goal's capability set and a task's network needs reach the Warden that
   attenuates its Worker's set to them.
-- **1.7**: `AlarmKind.SECURITY`, `InterventionAction.QUARANTINE` and `Intervene.suspect_episode_id`
-  (roadmap steps 10.6 and 10.6c, ADR-0035): a security Alarm always goes up to the Queen and on
+- **1.9**: `AlarmKind.SECURITY`, `InterventionAction.QUARANTINE` and `Intervene.suspect_episode_id`
+  (roadmap steps 10.6 and 10.6c, ADR-0043): a security Alarm always goes up to the Queen and on
   to the human, and the Queen may order a Warden to quarantine one of its sub-bees from the
   episode its memory is suspect from. A receiver that meets an `InterventionAction` it does not
   know refuses the whole frame (`waggle.codec.invalid_payload`); it never reads an unknown lever
   as a cancel, or as any other lever.
-- **1.8** (both additive, roadmap steps 10.6 and 10.6a, ADR-0035):
+- **1.10** (both additive, roadmap steps 10.6 and 10.6a, ADR-0043):
   - `GrantIssued.audit_raises` and its value model `RaisedAuditRate`: every Capping audit-rate
     raise the Guard Bee has in force when a grant is issued travels on it, so the Warden holding
     the grant, a Virtual Cell's in-Cell Warden included, samples that tier at the raised rate
@@ -583,7 +583,7 @@ Family enums and value models:
 #### TaskAssign
 
 Hand a placed task, with its acceptance criteria, Tempo, clearance, grant, its goal's capability
-set and network needs (`PROTOCOL_MINOR` 6) and optional Handoff to resume from, to the Warden
+set and network needs (`PROTOCOL_MINOR` 8) and optional Handoff to resume from, to the Warden
 that owns the chosen Cell, which re-issues it to the Worker it spawns.
 
 - `task_id` (`TaskId`): the task being assigned.
@@ -602,13 +602,13 @@ that owns the chosen Cell, which re-issues it to the Worker it spawns.
   on this Cell once the lease is released, carried unchanged from the plan. Max 16 items;
   defaults to empty, so an envelope from before this field existed still validates. A Drone
   cannot widen this set, only raise a `Question`.
-- `capabilities` (`tuple[str, ...] | None`, `PROTOCOL_MINOR` 6): the capability set of the goal
-  this task was planned from (ADR-0031), as sorted capability strings (`family` or
+- `capabilities` (`tuple[str, ...] | None`, `PROTOCOL_MINOR` 8): the capability set of the goal
+  this task was planned from (ADR-0039), as sorted capability strings (`family` or
   `family:scope`); the Warden gives the task's Worker only what its own set and this set both
   allow. Max 64 entries of 1 to 1,024 characters each; opaque to the codec, parsed by the
   receiving Warden's Guard. Defaults to None, which means no goal ceiling travels (the operator's
-  own local submission, or a peer older than minor 6); an empty tuple is a goal allowed nothing.
-- `network_scopes` (`tuple[str, ...]`, `PROTOCOL_MINOR` 6): the network scopes the task's needs
+  own local submission, or a peer older than minor 8); an empty tuple is a goal allowed nothing.
+- `network_scopes` (`tuple[str, ...]`, `PROTOCOL_MINOR` 8): the network scopes the task's needs
   name (a host, `*.domain`, an address or a network), so the Warden can offer its Worker a
   `net:<scope>` for each one its own set and the goal's allow. Max 32 entries of 1 to 256
   characters each; defaults to empty, so an envelope from before this field existed still
@@ -729,7 +729,7 @@ Family enums and value models:
   `AUDIT_FAILED`, `CELL_UNREACHABLE`, `QUOTA_EXCEEDED` (a lease's scratch directory outgrew its
   configured quota; added in a minor 1 bump, roadmap step 3.11), `SECURITY` (a security event,
   such as a bee its Warden quarantined; it always goes up to the Queen and on to the human, never
-  retried or rebound; PROTOCOL_MINOR 7, roadmap step 10.6), `OTHER`. The closed set the
+  retried or rebound; PROTOCOL_MINOR 9, roadmap step 10.6), `OTHER`. The closed set the
   escalation policy keys on; `OTHER` carries anything new until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:
@@ -745,7 +745,7 @@ Family enums and value models:
 - `InterventionAction`: `COMPACT`, `CHECKPOINT`, `HANDOFF`, `REBIND`, `TAKEOVER`, `CANCEL`,
   `RELEASE_LEASE` (PROTOCOL_MINOR 5: Queen -> Warden only, stop every sub-bee and release the
   recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None),
-  `QUARANTINE` (PROTOCOL_MINOR 7, roadmap step 10.6c: Queen -> Warden only; the Warden carries it
+  `QUARANTINE` (PROTOCOL_MINOR 9, roadmap step 10.6c: Queen -> Warden only; the Warden carries it
   out on the sub-bee `subject` or `task_id` names, and never relays it to a Worker: it checkpoints
   the bee, stops and kills it, revokes its slice of the grant, taints the bee's memory from
   `suspect_episode_id` on, holds the task paused (a `task.progress` at stage `PAUSED` to the
@@ -829,7 +829,7 @@ Return the requested bee's telemetry and compacted view, labelled with its clear
 
 Pull one of the supervisor's levers on a child or one of its sub-bees: compact, checkpoint,
 handoff, rebind to a slot, takeover, cancel, (PROTOCOL_MINOR 5, Queen -> Warden only) release
-the recipient's own lease, or (PROTOCOL_MINOR 7, Queen -> Warden only) quarantine one of its
+the recipient's own lease, or (PROTOCOL_MINOR 9, Queen -> Warden only) quarantine one of its
 sub-bees. Wardens hold the same levers over their sub-bees minus takeover with the Queen's slot;
 a Warden quarantines its own sub-bee by its own escalation policy, never by sending this.
 
@@ -845,7 +845,7 @@ a Warden quarantines its own sub-bee by its own escalation policy, never by send
   64 characters.
 - `alarm_id` (`AlarmId | None`): the Alarm this intervention answers, so the trail links the two.
 - `reason` (`str`): why the supervisor intervenes.
-- `suspect_episode_id` (`EventId | None`, PROTOCOL_MINOR 7): the episode from which the bee's
+- `suspect_episode_id` (`EventId | None`, PROTOCOL_MINOR 9): the episode from which the bee's
   memory is suspect (an episode record's id, EventId-shaped, or the trail event that best marks
   it); everything the bee wrote from then on is tainted. Required when `action` is `QUARANTINE`,
   None otherwise (validator); a `QUARANTINE` names its bee by `subject` or `task_id`, never
@@ -921,7 +921,7 @@ Family enums and value models:
   equivalent of a seat is requests and tokens per minute.
   - `source_id` (`str`, max 128), `seats` (`int`, at least 0), `requests_per_minute`
     (`int | None`, at least 0), `tokens_per_minute` (`int | None`, at least 0).
-- `RaisedAuditRate` (`PROTOCOL_MINOR` 8): one Capping tier's sampled-audit rate, raised Hive-wide
+- `RaisedAuditRate` (`PROTOCOL_MINOR` 10): one Capping tier's sampled-audit rate, raised Hive-wide
   by the Guard Bee until it lapses.
   - `tier` (`str`): the Capping risk tier by name, pattern `^[A-Z][A-Z0-9_]*$`, max 64. A receiver
     ignores a tier it does not know (receiver rule).
@@ -986,7 +986,7 @@ lease with an expiry; the same `grant_id` with a higher revision replaces the pr
   `MAX_SUB_BEES_ON_WIRE`.
 - `expires_at` (`datetime`): when the grant returns to the pool unless renewed by heartbeat.
 - `reason` (`str`): why these terms: the allocator's decision.
-- `audit_raises` (`tuple[RaisedAuditRate, ...]`, `PROTOCOL_MINOR` 8): every Capping audit-rate
+- `audit_raises` (`tuple[RaisedAuditRate, ...]`, `PROTOCOL_MINOR` 10): every Capping audit-rate
   raise in force when the grant was issued. Max 16; at most one per tier (validator). Defaults to
   empty, so an envelope from before this field existed still validates. The holder's Capping gate
   samples each terminal proposal of a raised tier at the higher of its own tier table's rate and
@@ -1299,9 +1299,9 @@ Report whether the rollback succeeded.
 - `error` (`str | None`): why the rollback failed -- an unknown Cell, an unknown snapshot id, or a
   backend failure; set exactly when `ok` is False (validator). Min 1, max `MAX_REASON_CHARS`.
 
-#### CellTaintOrder (PROTOCOL_MINOR 8)
+#### CellTaintOrder (PROTOCOL_MINOR 10)
 
-The Queen has isolated the receiver's Cell (roadmap step 10.6a, ADR-0035) and orders its Warden to
+The Queen has isolated the receiver's Cell (roadmap step 10.6a, ADR-0043) and orders its Warden to
 label the memory it keeps in its own store tainted, so no later prompt or resumed bee reads what
 was written under suspicion there: every Handoff, episode record and checkpoint deposit written at
 or after `suspect_at` by one of `authors` or about one of `task_ids`. The Warden runs the same
@@ -2250,7 +2250,7 @@ Shared shapes:
     only; the seats, VRAM and measured speed follow in the `forage.capacity_report` a promotion
     always triggers, so no model-server value model crosses families.
 13. **`TaskNeedsReport` and `IsolationNeed` stay in `cell/status.py`** because `task.assign` carries no
-    needs in phase 1; a task inherits its tiers from the placed Cell. `PROTOCOL_MINOR` 6 adds only
+    needs in phase 1; a task inherits its tiers from the placed Cell. `PROTOCOL_MINOR` 8 adds only
     `TaskAssign.network_scopes`, the one need a Warden acts on (it sizes the Worker's `net`
     capabilities); the rest of a task's needs stay placement's business.
 14. **Shared bounds** live in `messages/base.py`: `MAX_REASON_CHARS`, `MAX_CHUNK_BYTES`,
@@ -2286,7 +2286,7 @@ Registry and shapes:
 24. **Demotion rides `swarm.nuc_promote`** with `action = DEMOTE`; there is no separate kind.
 25. **Wax rejection is a `control.error`** with code `hive.memory.wax_rejected`; no
     `cell.wax_rejected` kind.
-26. **`TaskAssign` carried no capabilities field** until `PROTOCOL_MINOR` 6: the Warden attenuated
+26. **`TaskAssign` carried no capabilities field** until `PROTOCOL_MINOR` 8: the Warden attenuated
     its own set locally in phase 3, and roadmap step 10.3 added `capabilities` (the goal's set)
     as the additive minor this note anticipated.
 27. **`ForageRequestKind` keeps `SUB_BEES`**; the phase 4 exit criterion needs a Warden to ask

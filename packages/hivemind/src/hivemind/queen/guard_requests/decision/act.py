@@ -1,6 +1,6 @@
 """Carry out the Queen's decision on a Guard request: isolate, quarantine, or dismiss.
 
-Roadmap step 10.6a (ADR-0035). The decision is already on the trail (`queen.decided`) when this
+Roadmap step 10.6a (ADR-0043). The decision is already on the trail (`queen.decided`) when this
 runs. ISOLATE_CELL goes through the one isolation path (`hivemind.queen.isolation.isolate_cell`)
 as the Queen's order, citing the report and its evidence; when the `isolation` point refuses her
 because the Cell is the Hive Stand's own, the Hive Stand fallback runs instead (`.hive_stand`).
@@ -93,7 +93,7 @@ async def _isolate(
     except UnknownCellError:
         return ActOutcome(outcome="cell_not_attached", acted=False, alarmed=False)
     if outcome.refusal is IsolationRefusal.HIVE_STAND:
-        # ADR-0035: only the human isolates the Hive Stand; the Queen does what she may there.
+        # ADR-0043: only the human isolates the Hive Stand; the Queen does what she may there.
         return await hive_stand_fallback(site, report, target, decided_event_id)
     if outcome.refusal is not None:
         return ActOutcome(outcome="isolation_refused", acted=False, alarmed=False)

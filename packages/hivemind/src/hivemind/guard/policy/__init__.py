@@ -1,6 +1,6 @@
 """The Guard's policy engine: who may do what, where, decided by a pure function with a reason.
 
-ADR-0031 splits authorisation into data and one pure decision. The data is a `GuardPolicy`:
+ADR-0039 splits authorisation into data and one pure decision. The data is a `GuardPolicy`:
 each policy role's default capability set, a hive-wide deny list and what a denial at each
 enforcement point escalates to, loaded from the shipped `policy.toml` (or an operator's file) with
 the manifest's `[guard]` table on top (`defaults`). The decision is `evaluate` (`evaluate`), over a
@@ -30,7 +30,7 @@ Key invariants:
       allow.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the decision.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the decision.
     - hivemind.guard.enforcer for the effectful adapter around `evaluate`.
     - hivemind.guard.defaults for the shipped policy.toml.
 

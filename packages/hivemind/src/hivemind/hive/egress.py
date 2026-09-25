@@ -1,6 +1,6 @@
 """Cut and restore a running Virtual Cell's egress through its own backend, or say why not.
 
-Isolating a Cell (roadmap step 10.6a, ADR-0035) sets a Virtual Cell's (a container or VM the Hive
+Isolating a Cell (roadmap step 10.6a, ADR-0043) sets a Virtual Cell's (a container or VM the Hive
 provisioned) egress to none except its Waggle control link, which checkpointing, pausing and
 forensics need; lifting the isolation gives the Cell its own network policy back. Only a backend
 that declares `BackendCapabilities.can_cut_egress` and implements
@@ -27,7 +27,7 @@ Key invariants:
     - Every backend call is bounded by `EGRESS_TIMEOUT_S`; neither method ever raises.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Only the
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Only the
       Queen isolates a Cell".
     - hivemind.hive.backends.docker.network for how Docker declares it: dual-homing, when the
       Hive sets a control subnet.

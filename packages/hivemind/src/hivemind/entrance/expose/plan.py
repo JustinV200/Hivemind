@@ -1,7 +1,7 @@
 """Decide which listeners the Hive Entrance runs, where, and with what TLS, or refuse to start.
 
 The Hive Entrance (the Hive's one HTTP door) always runs its loopback listener, where approval
-lives, and runs a remote listener only when ``[entrance] expose`` asks for one (ADR-0033):
+lives, and runs a remote listener only when ``[entrance] expose`` asks for one (ADR-0041):
 ``loopback`` runs nothing else; ``vpn`` (recommended) binds a specific address that must be inside
 ``vpn_cidrs`` and assigned to the overlay's own interface, because Tailscale's IPv4 range is also
 carrier-grade NAT space a WAN port can hold; ``lan`` binds a private-network address this host
@@ -29,7 +29,7 @@ Key invariants:
       switches, the remote listener's address, public_url and rp_id, then the TLS files.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never
       means the open internet".
     - hivemind.entrance.expose.rules for every rule and its sentence.
 """
@@ -240,7 +240,7 @@ def _check_vpn_address(section: EntranceSection, facts: ExposureFacts, address: 
     if address.is_loopback:
         _refuse(section, ExposureRule.REMOTE_BIND_LOOPBACK, f"{where}.")
     # Checked before the ranges, since vpn_cidrs is the operator's to widen: whatever it says, an
-    # address the whole internet can route to is never an overlay-only door (ADR-0033).
+    # address the whole internet can route to is never an overlay-only door (ADR-0041).
     if address.is_global:
         _refuse(section, ExposureRule.VPN_BIND_GLOBAL, f"{where}.")
     if not any(address in ipaddress.ip_network(cidr) for cidr in section.vpn_cidrs):
@@ -253,7 +253,7 @@ def _check_vpn_address(section: EntranceSection, facts: ExposureFacts, address: 
     interface = facts.interface(name)
     if interface is None:
         _refuse(section, ExposureRule.VPN_INTERFACE_ABSENT, f"No interface is named {name!r}.")
-    # The check that counts (ADR-0033): the address must be the overlay's own, not merely in
+    # The check that counts (ADR-0041): the address must be the overlay's own, not merely in
     # its range, because 100.64.0.0/10 is also carrier-grade NAT space on ordinary WAN ports.
     if address not in interface.addresses:
         held = ", ".join(sorted(str(item) for item in interface.addresses)) or "no address"

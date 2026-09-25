@@ -310,7 +310,7 @@ def test_task_assign_leaves_defaults_to_empty_so_an_older_peers_message_still_va
 def test_task_assign_minor_six_fields_are_optional_so_an_older_peers_message_still_validates(
     field: str,
 ) -> None:
-    # roadmap step 10.3: both fields are additive (PROTOCOL_MINOR 6), so a payload built before
+    # roadmap step 10.3: both fields are additive (PROTOCOL_MINOR 8), so a payload built before
     # they existed -- one with neither key at all -- must still validate, to the "no goal
     # ceiling" None and the "no network needs" empty tuple respectively.
     payload = _example(TaskAssign).model_dump(mode="json")

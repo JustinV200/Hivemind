@@ -2,7 +2,7 @@
 
 The Hive Entrance is the Hive's one HTTP door, and on the Hive Stand (the machine the Queen, the
 orchestrator, runs on) the operator keeps it with ``hive entrance``: the operator password, device
-enrolment and standing, and the door's mode and exposure (roadmap 10.8, ADR-0033). Every command
+enrolment and standing, and the door's mode and exposure (roadmap 10.8, ADR-0041). Every command
 that decides something acts as the Hive Stand's console device over the loopback listener of a
 running ``hive serve``, logging in with the console key the password opens, so every decision is
 the Landing Board's own route and leaves the same trail as any device's; only the operator's
@@ -21,7 +21,7 @@ Key invariants:
       holds in memory: those steps hold the serve lock.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
     - hivemind.cli.landing for the device client the console uses.
 
 Public API:

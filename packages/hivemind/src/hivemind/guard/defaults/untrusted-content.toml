@@ -1,4 +1,4 @@
-# The untrusted-content scanner's patterns (roadmap step 10.6b, ADR-0035).
+# The untrusted-content scanner's patterns (roadmap step 10.6b, ADR-0043).
 #
 # Outside text (a tool result, a Cell session's output, a human's chat message; Honey hits and
 # Nectar intake from phase 7) is scored against these families before a model reads it. Each
@@ -151,7 +151,7 @@ examples = [
 # Hosts outside the task's targets
 # ──────────────────────────────────────────────────────────────────────────────
 
-# A URL whose host the consuming bee holds no `net:` capability for (ADR-0031's host grammar).
+# A URL whose host the consuming bee holds no `net:` capability for (ADR-0039's host grammar).
 # Counted once per distinct host, at most `max_hits` times; skipped when the text has no task to
 # measure against (a human's chat message).
 [outside_hosts]

@@ -130,12 +130,12 @@ class HiveManifest(BaseModel):
     entrance: EntranceSection = Field(
         default_factory=EntranceSection,
         description="The Hive Entrance's listeners, exposure, sessions and thresholds (roadmap "
-        "phase 10, ADR-0033); loopback-only by default.",
+        "phase 10, ADR-0041); loopback-only by default.",
     )
     guard: GuardSection = Field(
         default_factory=GuardSection,
         description="The Guard policy's overrides: a replacement policy file, per-role default "
-        "sets, hive-wide denials and escalation per point (roadmap step 10.2, ADR-0031); the "
+        "sets, hive-wide denials and escalation per point (roadmap step 10.2, ADR-0039); the "
         "shipped policy when omitted.",
     )
     source_path: Path | None = Field(

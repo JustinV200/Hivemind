@@ -1,6 +1,6 @@
 """Define the inbox resource's bodies: what waits on the human, and the human's answers.
 
-The human's inbox at the Landing Board (ADR-0032) is what the Queen could not settle herself: the
+The human's inbox at the Landing Board (ADR-0040) is what the Queen could not settle herself: the
 questions routed to the human (a task is blocked on each) and the Alarms that climbed the whole
 chain. Reading it needs ``entrance:answer`` and ``honey:clearance:c2`` (a question may quote the
 human's own data); answering goes to the Queen, who forwards it to the asking Warden and withdraws

@@ -1,6 +1,6 @@
 """Serve the entrance resource: the Hive Entrance administering its own door.
 
-``/v1/entrance`` is the door itself (ADR-0033), split by responsibility: ``door`` (the mode,
+``/v1/entrance`` is the door itself (ADR-0041), split by responsibility: ``door`` (the mode,
 reducing, and reopening from loopback after step-up), ``enrolments`` (invites, the devices asking
 to join, approval and denial on loopback, and the steward route), ``held`` (the requests held for
 a person's confirmation) and ``operators`` (operator add, loopback only, refused while the Hive
@@ -16,7 +16,7 @@ Key invariants:
     - This file holds re-exports and ``__all__`` only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the door's rules.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the door's rules.
 
 Public API:
     - DOOR_ROUTES: the mode, reduce and reopen rows (door).

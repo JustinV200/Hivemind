@@ -1,7 +1,7 @@
 """Clear the taint label: clear_taint, the one path by which a tainted item may be used again.
 
-Roadmap step 10.6d (ADR-0035): "Only a judge verdict on the taint rubric, with no shared context,
-clears it." `clear_taint` is that path, and the `taint_clear` enforcement point (ADR-0031) guards
+Roadmap step 10.6d (ADR-0043): "Only a judge verdict on the taint rubric, with no shared context,
+clears it." `clear_taint` is that path, and the `taint_clear` enforcement point (ADR-0039) guards
 it. It reads the item from its ledger and refuses outright unless it is TAINTED; asks the Guard's
 `Enforcer` whether the clearer (the Queen, or a Warden for its own sub-bee's respawn) may clear an
 item at that clearance, since clearing sends the item's whole text to the judge (the clearer must
@@ -27,7 +27,7 @@ Key invariants:
       never the item's content or the judge's reasons (those are returned to the caller).
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the point.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the point.
     - hivemind.memory.taint.set for taint_memory, the one setter.
     - hivemind.memory.taint.judge for ModelTaintJudge and the rubric.
 """

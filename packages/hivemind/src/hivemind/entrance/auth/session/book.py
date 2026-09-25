@@ -1,6 +1,6 @@
 """Provide SessionBook: open sessions, judge whether one is still alive, and end them.
 
-Every session at the Hive Entrance (the Hive's one HTTP door) passes through here (ADR-0033). A
+Every session at the Hive Entrance (the Hive's one HTTP door) passes through here (ADR-0041). A
 login hands ``open`` a ``SessionGrant`` (the device, its binding key, how it arrived, its network,
 whether the travel lock owes a step-up) and gets the token back once; only the token's SHA-256 is
 kept. ``live`` is the judgement every request starts from: the session must be open, inside
@@ -30,7 +30,7 @@ Key invariants:
     - No event carries a token, its hash, a binding key or a signature.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
       to a key".
     - hivemind.entrance.enrol.deps.offboarder for the seam ``offboard`` implements.
 """
@@ -246,7 +246,7 @@ class SessionBook:
             last_seen_at=now,
             expires_at=expires_at,
             needs_step_up=grant.needs_step_up,
-            # ADR-0033: the loopback-bound console keeps its sessions in memory only.
+            # ADR-0041: the loopback-bound console keeps its sessions in memory only.
             volatile=grant.device.loopback_bound,
         )
         # Latency: one local insert (or an in-memory one for the console).

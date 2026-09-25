@@ -23,7 +23,7 @@
    - `.claude/codingrules.md`
    - `.claude/roadmap.md` phase 10, lines 1439-1755 (its exit criteria start at 1720)
    - `.claude/subagents.md`
-   - ADR-0031 to ADR-0035 in `docs/adr/`
+   - ADR-0039 to ADR-0043 in `docs/adr/`
 
    These are normative, and the ADRs were amended this session. See "Decisions taken".
 2. **Confirm the head is green.** Run `uv sync --frozen --all-groups`, then the gates (see "How
@@ -106,7 +106,7 @@
   - Note: C2 deposits are a seam until phase 7.
 - **10.6a Isolation.**
   - Docker cuts egress on a per-Hive control network.
-  - The in-Cell taint travels by Waggle 1.8's `cell.taint_order`.
+  - The in-Cell taint travels by Waggle 1.10's `cell.taint_order`.
   - QEMU declares why it cannot cut egress.
 - **10.6b to 10.6d:** from before this session.
 - **10.7 Access levels.** The note names the phase 11 and 12 seams.
@@ -286,9 +286,9 @@ are named by the roadmap step that owns them.
 
 - **View read models** live in `observation/views/` (codingrules 8.11). The Entrance imports them
   only through the `hivemind.observation` face. import-linter ranks `entrance` over
-  `observation`, and a forbidden contract keeps the edge to the face. ADR-0032 lists it.
+  `observation`, and a forbidden contract keeps the edge to the face. ADR-0040 lists it.
 - **A steward's approval** may grant no more spend per day and no later expiry than the
-  steward's own (`enrol.grants.steward_terms`). ADR-0033 was amended to say so.
+  steward's own (`enrol.grants.steward_terms`). ADR-0041 was amended to say so.
 - **`operator add`** is a loopback-only route that always answers 409 while the Hive keeps one
   operator.
 - **CLI help** renders as plain text (`rich_markup_mode=None`). A test fails if a `[section]`
@@ -300,7 +300,7 @@ are named by the roadmap step that owns them.
 - **Docker egress cut.** Opt-in via `[virtual_cells] control_subnet`. Each Cell is dual-homed on
   the control network plus its own egress network, and the cut is `network disconnect`.
 - **Night Veil Cells** are never offered to placement for any task. QEMU refuses NIGHT_VEIL.
-- **Waggle 1.8** adds `GrantIssued.audit_raises` and `cell.taint_order` (both additive).
+- **Waggle 1.10** adds `GrantIssued.audit_raises` and `cell.taint_order` (both additive).
 - **Guard Bee attribution.** Ownership is learned only from Hive Stand records. A fact about
   another Cell's subject becomes `guard_bee.subject_forged` against the Cell that recorded it
   (rule `subject_forgery`).
@@ -367,7 +367,7 @@ echo "== RC=$rc"; exit $rc
   - `tests/integration/test_docker_egress.py` also needs `HIVEMIND_TEST_CELL_IMAGE=<tag>` of an
     image built from the same code as the Hive.
   - A Cell runs the Hive's own code, so an image built from another commit can disagree on
-    Waggle 1.8.
+    Waggle 1.10.
 - **CLI argument order:** group options come before subcommands, for example
   `hive inbox --remote --password-stdin answer ID TEXT`. `hive entrance revoke` has no `--yes`.
 

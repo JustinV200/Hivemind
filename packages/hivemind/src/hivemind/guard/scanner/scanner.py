@@ -1,7 +1,7 @@
 """Scan outside text before a model reads it and record every flag: the effectful edge.
 
 `ContentScanner.scan` is what every entry point for outside text calls (roadmap step 10.6b,
-ADR-0035): a Worker's tool results and session output, the Queen's chat messages, and (phase 7)
+ADR-0043): a Worker's tool results and session output, the Queen's chat messages, and (phase 7)
 Honey hits at assembly and Nectar at intake. It scores the text with the pure `score_text`, maps
 the score to PASS, LABEL or DROP for the reading bee's Comb Shield tier (the Cell's security tier),
 and for anything flagged records `guard.injection_suspected` on the reading bee's own trail before
@@ -28,7 +28,7 @@ Key invariants:
       ephemeral segment, purged at teardown (codingrules 12), never the Queen's surviving trail.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.guard.scanner.score for the pure decision this wraps.
     - hivemind.memory.render_untrusted for how a verdict is applied to a prompt.
     - docs/guard/untrusted-content.md for the families, the thresholds and the event.

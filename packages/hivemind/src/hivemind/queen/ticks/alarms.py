@@ -317,7 +317,7 @@ async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRais
         deps, "queen.decided", subject, action="ESCALATE_TO_HUMAN", alarm_id=alarm.id
     )
     await record_alarm_event(deps.trail, _identity(deps), deps.clock, alarm, "alarm.escalated")
-    # Roadmap step 10.5 (ADR-0032): the chain's last hop is the chat, and the human's devices.
+    # Roadmap step 10.5 (ADR-0040): the chain's last hop is the chat, and the human's devices.
     await post_alarm(deps, alarm)
 
 

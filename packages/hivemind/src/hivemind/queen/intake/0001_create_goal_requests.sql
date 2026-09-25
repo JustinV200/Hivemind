@@ -1,4 +1,4 @@
--- Roadmap step 10.5 (docs/adr/0032, "A goal is durable before it is acknowledged"): the Queen's
+-- Roadmap step 10.5 (docs/adr/0040, "A goal is durable before it is acknowledged"): the Queen's
 -- own goal-request table. One row per request, committed together with its
 -- queen.goal_request_received event before the Hive Entrance answers 202, so a crash after that
 -- answer loses nothing. `body` is the row's full GoalRequest.model_dump_json(), the source of

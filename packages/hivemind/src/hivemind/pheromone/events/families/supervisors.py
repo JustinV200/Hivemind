@@ -16,7 +16,7 @@ Vocabulary (family -> kind -> when it is recorded):
         from the existing `woke`, reserved for other Queen lifecycle wake-ups); leave_remembered
         (the Queen answered a leave Question herself from "keep for this whole goal" memory,
         roadmap step 5.0d; carries the goal id, Cell id and the original wire question id the
-        remembered answer derives from). Roadmap step 10.5 (ADR-0032, the human inbox) adds one
+        remembered answer derives from). Roadmap step 10.5 (ADR-0040, the human inbox) adds one
         kind per edge of a goal request's state machine (`hivemind.queen.intake.state`), each
         written in the same transaction as the row: goal_request_received (a goal request was
         committed, RECEIVED, before the Entrance acknowledged it; carries the request id, origin,
@@ -40,7 +40,7 @@ Vocabulary (family -> kind -> when it is recorded):
         moved to another host, a Supersedure or promotion step); stopped (it is shutting down);
         intervened (it quarantined one of its bees: checkpointed, cancelled, killed, its slice of
         the grant revoked and its memory from the suspect episode on tainted; carries the task, the
-        bee, the action and that episode id, roadmap step 10.6c, ADR-0035).
+        bee, the action and that episode id, roadmap step 10.6c, ADR-0043).
     capping: proposed (a Proposal entered CHECKING); checked (one tier check ran, pass or fail);
         capped (every required check passed, CAPPED); applied (the proposal's side effect ran);
         verified (postconditions held after applying); rejected (a check failed, before applying);
@@ -54,7 +54,7 @@ Vocabulary (family -> kind -> when it is recorded):
         capping.* record kept through a Night Veil teardown, codingrules section 12).
     guard: denied (an enforcement point refused an action; carries the principal's kind, id and
         role, the point, the capability, the rule, the reason and the escalation, never content,
-        ADR-0031). Reserved, declared now so the later phase 10 steps that record them never race
+        ADR-0039). Reserved, declared now so the later phase 10 steps that record them never race
         on this file: alert (a Guard Bee report, roadmap step 10.6); injection_suspected (the
         untrusted-content scanner flagged outside text, 10.6b); audit_rate_raised (a Guard Bee
         rule raised a Capping tier's sampled-audit rate, 10.6); reduced (the Entrance Reducer
@@ -69,7 +69,7 @@ Vocabulary (family -> kind -> when it is recorded):
         invite redemption was refused: an unknown, expired or used code, or a bad key proof; the
         address and the reason, never the code, 10.5d; the Guard Bee's invite-abuse signal);
         reduce_ordered (a Guard Bee rule ordered the Entrance Reducer, which the Entrance carries
-        out by following the trail, ADR-0035); entrance_login (a login passed both factors and
+        out by following the trail, ADR-0043); entrance_login (a login passed both factors and
         opened a session: the device and the listener, never the token); entrance_session_ended
         (a session ended: logout, expiry, idling out, or its device leaving APPROVED; carries the
         reason); entrance_held (a non-interactive device's request that needs step-up was held as
@@ -93,12 +93,12 @@ Fits into the Hive:
 
 Key invariants:
     - Every class's KINDS contains only strings whose family segment equals its own FAMILY.
-    - Every kind here is classified by `hivemind.guard.policy.catalogue` (ADR-0031): the point
+    - Every kind here is classified by `hivemind.guard.policy.catalogue` (ADR-0039): the point
       that authorises its action, or why it records none; a new kind joins that table too.
 
 See Also:
     - .claude/codingrules.md section 8.12 for the Capping state machine capping.* mirrors.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the queen.goal_*
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the queen.goal_*
       and chat kinds.
     - hivemind.pheromone.events.families.codec for EVENT_FAMILIES and the JSON codec.
 """
@@ -131,7 +131,7 @@ class QueenEvent(PheromoneEvent):
             "queen.assigned",
             "queen.awake",
             "queen.leave_remembered",
-            # roadmap step 10.5 (ADR-0032): one per goal request edge, then the chat's two.
+            # roadmap step 10.5 (ADR-0040): one per goal request edge, then the chat's two.
             "queen.goal_request_received",
             "queen.goal_request_held",
             "queen.goal_request_confirmed",
@@ -160,7 +160,7 @@ class WardenEvent(PheromoneEvent):
             "warden.reconnected",
             "warden.migrated",
             "warden.stopped",
-            "warden.intervened",  # Roadmap step 10.6c: a bee quarantined (ADR-0035).
+            "warden.intervened",  # Roadmap step 10.6c: a bee quarantined (ADR-0043).
         }
     )
 

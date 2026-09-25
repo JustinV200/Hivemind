@@ -2,7 +2,7 @@
 
 Authentication at the Hive Entrance. Login is two factors, the device's own key and the operator's
 password, the key proof first; every authenticated request is signed by a key bound to its
-session; sensitive actions need a step-up a person performs (ADR-0033). The modules directly here
+session; sensitive actions need a step-up a person performs (ADR-0041). The modules directly here
 are the credential primitives, pure or thin, calling nothing else in the Entrance; the
 sub-packages are the flows built on them and on the enrolled-device model (roadmap 10.5e).
 
@@ -39,7 +39,7 @@ sub-packages are the flows built on them and on the enrolled-device model (roadm
 |---|---|
 | `session/` | `models` (`Session`, `Arrival`, `AuthenticatedSession`, `NonceClaim`, `Listener`, `BindingKind`, `EndReason`), `token` (256-bit tokens, stored only as their SHA-256), `book` (`SessionBook`: open, judge alive, end; the sessions half of the enrolment step's `DeviceOffboarder`; `end_remote` for the Reducer; `revalidate` at start), `request` (`authenticate_request`, `authenticate_websocket`: token, liveness, device still APPROVED, signature under the binding key, listener, skew, persisted nonce, a browser socket's `Origin`), `failures` (`guard.entrance_login_failed` with a reason category, never a credential). |
 | `login/` | `deps` (`AuthDeps`: enrolment, session book, ceremony, guards), `factors` (the Ed25519 or WebAuthn proof, the binding key, the password), `refusals` (who a failure counts against, and the lockout through `enrol.standing.lock`), `flow` (`begin_login`, `finish_login`). |
-| `step_up/` | `rules` (`requires_step_up`: ADR-0033's list, the travel lock's flag first), `ceremony` (`step_up_challenge`, `step_up`), `phrases` (break-glass phrases, `check_break_glass`). |
+| `step_up/` | `rules` (`requires_step_up`: ADR-0041's list, the travel lock's flag first), `ceremony` (`step_up_challenge`, `step_up`), `phrases` (break-glass phrases, `check_break_glass`). |
 | `confirm/` | Pending confirmations: `state` (`PENDING` settled once), `models`, `flow` (`hold`, `confirm`, `cancel`, `expire_pending`). |
 | `limits/` | `RateLimiter` (token buckets per device and per address) and `DenialCounter` (a burst of capability denials locks the device); both in memory by design. |
 | `travel/` | `PeerEndpointSource`, `TailscaleEndpointSource` (tailscaled's local API over its Unix socket), `FakePeerEndpointSource`, `TravelLock` and `open_travel_lock` (refuses to build outside `vpn` mode, on Windows, or without the socket). |

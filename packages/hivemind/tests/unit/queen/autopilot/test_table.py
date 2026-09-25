@@ -354,7 +354,7 @@ def test_an_unrecognised_payload_needs_judgement() -> None:
 
 
 def test_a_human_message_always_needs_judgement() -> None:
-    """Roadmap step 10.5 (ADR-0032): free text has no deterministic answer, so a model decides."""
+    """Roadmap step 10.5 (ADR-0040): free text has no deterministic answer, so a model decides."""
     clock = FakeClock()
     message = HumanMessage(text="Is it done?", task_id=None, device_id=new_device_id(clock))
     item = make_inbox_item(InboxKind.HUMAN_MESSAGE, clock=clock, payload=message)

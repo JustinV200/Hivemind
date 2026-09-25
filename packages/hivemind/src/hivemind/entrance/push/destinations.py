@@ -1,7 +1,7 @@
 """Refuse every push destination that could reach inside the Hive, and pin the one that passes.
 
 Webhook URLs and Web Push endpoints are chosen by devices, and the Hive posts to them from inside
-the operator's network (ADR-0034), so a destination is a server-side request forgery waiting to
+the operator's network (ADR-0042), so a destination is a server-side request forgery waiting to
 happen: ``https://localhost:8710/`` would reach the loopback listener where approval lives, and
 ``http://169.254.169.254/`` a cloud metadata service. The guard allows a URL only when it is
 ``https``, or every address it resolves to is inside ``[entrance] vpn_cidrs`` (the overlay
@@ -29,7 +29,7 @@ Key invariants:
     - A vetted request connects to exactly the address that was checked, never to a new lookup.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md, "A webhook cannot be aimed inside the
+    - docs/adr/0042-landing-board-versioning-and-push.md, "A webhook cannot be aimed inside the
       Hive".
     - hivemind.manifest.schema.entrance.EntrancePushSection for ``webhook_allowlist``.
 """

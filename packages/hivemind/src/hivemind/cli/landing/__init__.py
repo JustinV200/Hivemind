@@ -1,8 +1,8 @@
 """Talk to the Landing Board from the CLI, as an enrolled device: sign, log in, step up, follow.
 
-The Landing Board is the Hive Entrance's versioned HTTP contract (ADR-0032), and every client of
+The Landing Board is the Hive Entrance's versioned HTTP contract (ADR-0040), and every client of
 it is a device enrolled with its own key and approved at the Hive Stand, which logs in with that
-key plus the operator's password and signs every request (ADR-0033). The ``hive`` CLI is two such
+key plus the operator's password and signs every request (ADR-0041). The ``hive`` CLI is two such
 clients: the Hive Stand's own console (``hive entrance ...``, over the loopback listener) and a
 laptop's enrolled key (``hive remote``, ``hive run --remote``, ``hive inbox --remote``). This
 package is what both share: the signing (every string built by ``hivemind.entrance.auth``), the
@@ -22,7 +22,7 @@ Key invariants:
     - Nothing here logs or prints a token, a password, a key or a signature.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
     - docs/entrance/openapi.json for the contract these calls follow.
 
 Public API:

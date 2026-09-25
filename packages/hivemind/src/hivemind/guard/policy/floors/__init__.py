@@ -1,7 +1,7 @@
-"""The Guard's floors: what no principal may do, whatever its capability set holds (ADR-0031).
+"""The Guard's floors: what no principal may do, whatever its capability set holds (ADR-0039).
 
 `hivemind.guard.policy.evaluate` runs the floors before every other rule, and only ever to
-refuse. Two families of floor live here. The Hive-state floor (`hive_state`, ADR-0033) refuses
+refuse. Two families of floor live here. The Hive-state floor (`hive_state`, ADR-0041) refuses
 every bee (a Warden or a Worker) the Hive's own state: its database, secret store and manifest
 paths, its `hive` and `hivemind-*` entry points, and every loopback name or address, the
 unspecified and link-local addresses and the Hive Stand's own addresses, judged on what a host
@@ -25,9 +25,9 @@ Key invariants:
     - Every floor only refuses; the held set is the one rule that can allow.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
       a set says".
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
       the Hive's own state".
     - docs/adr/0030-night-veil-retention-and-clearance-boundary.md for Night Veil's boundary.
 

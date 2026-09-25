@@ -1,6 +1,6 @@
 """Test hivemind.cli.compose.entrance's refusals: `hive serve` itself refuses every unsafe exposure.
 
-ADR-0033: every remote mode needs TLS on a DNS name, lan and tunnel also mutual TLS, tunnel a
+ADR-0041: every remote mode needs TLS on a DNS name, lan and tunnel also mutual TLS, tunnel a
 command to run; a mode whose prerequisites do not hold refuses to start, naming the rule, before
 any socket is bound. ``test_plan_refusals`` proves the pure check makes every refusal from facts it
 is handed; this module proves ``serve_hive`` makes every one from what it reads itself, one case

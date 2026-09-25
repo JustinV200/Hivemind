@@ -12,7 +12,7 @@ Key invariants:
 
 See Also:
     - hivemind.workers.roles.guard_bee for the Guard Bee itself.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
 
 Public API (roadmap 10.6):
     - run_guard_bee: one Guard Bee round, when one is due, with a failed round contained (tick).

@@ -1,6 +1,6 @@
-"""Refuse a login or a step-up the way ADR-0033 says: charge the right party, record, lock.
+"""Refuse a login or a step-up the way ADR-0041 says: charge the right party, record, lock.
 
-Which party a failure counts against is the heart of ADR-0033's lockout rule. An **invalid device
+Which party a failure counts against is the heart of ADR-0041's lockout rule. An **invalid device
 proof** never reaches the password check and never counts against the device it names, because
 device ids are not secret and anyone could otherwise lock the operator out: it is charged to the
 requesting address's rate limit instead and recorded for the Guard Bee. A **valid proof with a
@@ -21,7 +21,7 @@ Key invariants:
     - The failure is on the trail before the lock, and the lock before the refusal returns.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Lockout, rate
       limits, travel lock".
 """
 

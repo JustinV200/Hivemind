@@ -3,7 +3,7 @@
 `worker_capabilities` is the one function that turns a Warden's own `CapabilitySet`, the Worker
 role's default set and a task's `TaskNeeds` into the strict, narrower slice one Worker receives
 (codingrules section 15: "Capabilities and Forage only attenuate down the tree"). The role default
-comes from the Guard policy (`hivemind.guard.policy.role_set`, ADR-0031; a Drone's is its scratch
+comes from the Guard policy (`hivemind.guard.policy.role_set`, ADR-0039; a Drone's is its scratch
 writes, reads anywhere, commands, every tool, its model slot and the rest of its `[guard.roles]`
 table), built by the caller with the lease's scratch root filled in. On top of it, a network scope
 (`TaskNeeds.network_scopes`) or an Exoskeleton attachment (`TaskNeeds.exoskeleton`) is added only
@@ -11,11 +11,11 @@ when the task actually needs it, and roadmap step 5.0e's `extra_write_roots` add
 `fs:write` candidate per root (the manifest's own `keep_root` and each of the task's declared
 `leaves` roots): without them, a Worker's own `fs:write` never reaches past scratch regardless of
 the Cell's `AccessLevel`, since `TaskNeeds` itself carries no field for "this task may write
-outside scratch". Roadmap step 10.3 (ADR-0031) makes an outside-scratch write need
+outside scratch". Roadmap step 10.3 (ADR-0039) makes an outside-scratch write need
 `cell:outside_scratch:<path>` as well as `fs:write:<path>`, so each extra root also offers that
 pair, for exactly the roots `fs:write` is offered for and no others. Every candidate, the role
 default's included, is kept only when the Warden itself already holds it -- never invented, never
-wider -- and, when the task's goal carries a capability set (`goal`, ADR-0031's "a goal carries a
+wider -- and, when the task's goal carries a capability set (`goal`, ADR-0039's "a goal carries a
 ceiling"), only when that set allows it too. The final call is
 `CapabilitySet.attenuate`, which either returns the computed slice unchanged or raises
 `CapabilityWideningError`; calling it here is deliberately defensive (the slice is already

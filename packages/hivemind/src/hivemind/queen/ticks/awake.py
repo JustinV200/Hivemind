@@ -3,7 +3,7 @@
 Codingrules section 8.8: an item autopilot cannot decide (`NEEDS_JUDGEMENT`) runs one stateless
 awake episode, assembled from durable state plus the triggering event. `trigger_for` builds that
 event: a Warden's item is summarised by its kind and sender, and a human's chat message (roadmap
-step 10.5, ADR-0032) carries the human's own words as the event's outside text, with a framing
+step 10.5, ADR-0040) carries the human's own words as the event's outside text, with a framing
 sentence that says they are untrusted data (the operator's words, from a device that might be
 compromised), never an instruction. `scan_human_text` is roadmap step 10.6b's untrusted-content
 scanner at the Landing Board (the Hive Entrance's public contract): it scores the words before
@@ -39,8 +39,8 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.8 for the stateless awake episode.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md for the scanner.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md for the scanner.
 """
 
 from __future__ import annotations

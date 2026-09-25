@@ -1,7 +1,7 @@
 """Provide MemorySessionTable: sessions and spent nonces in dicts, for tests, demos and the console.
 
 Codingrules 14.4 keeps fakes beside their protocol, honest and production quality, and this one is
-also production code: the Hive Stand console's sessions are volatile by design (ADR-0033: the
+also production code: the Hive Stand console's sessions are volatile by design (ADR-0041: the
 console "keeps its sessions in memory only"), so ``SplitSessionTable`` keeps them here and they
 end with the process. It applies exactly what ``SqliteSessionTable`` applies, so the contract suite
 runs unchanged over both: a session is put open and once, an ended session is never touched again,

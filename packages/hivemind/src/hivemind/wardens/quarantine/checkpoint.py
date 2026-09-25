@@ -1,7 +1,7 @@
 """Write a quarantined bee's checkpoint: the Handoff written before anything is cut.
 
 Codingrules Appendix C, rule 1: in-flight work is covered by a Handoff on every intervention, and
-ADR-0035's quarantine (roadmap step 10.6c) starts with exactly that: "checkpoint, cancel, kill".
+ADR-0043's quarantine (roadmap step 10.6c) starts with exactly that: "checkpoint, cancel, kill".
 The bee may be compromised, so its Warden (the supervisor of its Cell) does not ask it to write
 one: a bee that would not comply, or would take its time, must not delay being stopped. The
 Warden composes the Handoff itself from what it holds: the bee's own last Handoff when it can

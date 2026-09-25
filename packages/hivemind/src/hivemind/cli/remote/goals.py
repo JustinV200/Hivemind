@@ -30,7 +30,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.routes.goals and hivemind.entrance.streams.views for the server half.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md.
 """
 
 from __future__ import annotations

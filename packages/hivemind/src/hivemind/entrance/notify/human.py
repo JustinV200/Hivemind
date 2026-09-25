@@ -1,8 +1,8 @@
 """Provide PushHumanChannel: the Queen's HumanChannel, told to the human's devices by push.
 
 The Queen tells the human's end of her inbox (the ``HumanChannel`` seam, a no-op until now) that a
-reply, a question, an Alarm or a goal's outcome is waiting. This is its Hive Entrance side (ADR-0032
-and ADR-0034): each call becomes a content-free push notice queued on the ``PushOutbox``, and every
+reply, a question, an Alarm or a goal's outcome is waiting. This is its Hive Entrance side (ADR-0040
+and ADR-0042): each call becomes a content-free push notice queued on the ``PushOutbox``, and every
 close (an answered question, an acknowledged Alarm, a settled request) becomes a withdrawal, which
 reaches exactly the subscriptions that received the original. Who hears what is ``audience_for``'s
 rule: a reply goes to devices that may read the chat, a question to devices that may answer, an
@@ -21,7 +21,7 @@ Key invariants:
 
 See Also:
     - hivemind.queen.chat.channel for the HumanChannel protocol and when the Queen calls it.
-    - docs/adr/0034-landing-board-versioning-and-push.md for the notice kinds and audiences.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the notice kinds and audiences.
 """
 
 from __future__ import annotations

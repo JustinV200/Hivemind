@@ -2,7 +2,7 @@
 
 Every model call goes through a slot bound to a provider and a model (codingrules 8.6). ``GET
 /v1/llm`` shows that wiring and the Queen's own judgement of each provider, from her health poller
-and Clustering state, read directly (ADR-0032) and never by probing a provider. It needs
+and Clustering state, read directly (ADR-0040) and never by probing a provider. It needs
 ``observe``. A provider appears by its manifest name and kind: never an API key, the variable that
 holds one, or a base URL.
 

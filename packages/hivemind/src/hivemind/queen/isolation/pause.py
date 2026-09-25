@@ -1,6 +1,6 @@
 """Checkpoint and pause every bee on an isolated Cell, waiting a bounded time for each to answer.
 
-An isolation (roadmap step 10.6a, ADR-0035) stops the Cell's work without destroying it: every
+An isolation (roadmap step 10.6a, ADR-0043) stops the Cell's work without destroying it: every
 task placed on the Cell is asked to checkpoint and pause with the levers the Queen already pulls
 for Clustering (codingrules 8.9, "one mechanism, many names"): `Intervene(HANDOFF)` so the bee
 writes its Handoff, then `TaskPause`, both relayed by the Cell's own Warden. A bee answers by

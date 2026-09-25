@@ -1,6 +1,6 @@
 """Define ScanSource, ScanAction and ScanVerdict: where outside text came from and what was decided.
 
-The untrusted-content scanner (roadmap step 10.6b, ADR-0035) reads outside text before a model
+The untrusted-content scanner (roadmap step 10.6b, ADR-0043) reads outside text before a model
 does: a tool's result, a Cell session's own output, a human's chat message, and (phase 7) a Honey
 hit or a Nectar deposit. `ScanSource` names those entry points as a closed set, so the trail and
 the Guard Bee (the Hive's security watcher, roadmap 10.6) can say where a flag came from without
@@ -26,7 +26,7 @@ Key invariants:
     - `ScanSource` values are stable once shipped: they are recorded on the trail.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md for the scanner.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md for the scanner.
     - hivemind.guard.scanner.scanner for ContentScanner, the producer.
     - docs/guard/untrusted-content.md for what each family and action means.
 """

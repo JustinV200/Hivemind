@@ -1,6 +1,6 @@
 """Define authorize and refusal_text: a Worker's tools ask the Guard before they act.
 
-Roadmap step 10.3 (ADR-0031) wires a Worker's own enforcement points through the Guard's `Enforcer`,
+Roadmap step 10.3 (ADR-0039) wires a Worker's own enforcement points through the Guard's `Enforcer`,
 which its Warden hands down on `WorkerContext.enforcer`: `tool_invocation` (a tool must be held as
 `tool:<name>` before it runs, and the HTTP tool's `net:<host>`), `session_outside_scratch` (a read
 outside scratch needs `fs:read:<path>`; the Capping gate's allowlist refusals are recorded here too)
@@ -27,7 +27,7 @@ Key invariants:
       does that) and never raise on a refusal.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the points.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the points.
     - hivemind.guard.enforcer for Enforcer, the adapter every call here goes through.
 """
 

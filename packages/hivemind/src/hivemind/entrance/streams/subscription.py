@@ -1,6 +1,6 @@
 """Provide StreamSubscription: one subscriber's bounded queue, closed with a reason when it lags.
 
-Every live view of the Hive Entrance reads from a feed that must never wait on it (ADR-0032): the
+Every live view of the Hive Entrance reads from a feed that must never wait on it (ADR-0040): the
 stream hub following the Pheromone Trail, and the telemetry board the Queen's Heartbeats reach.
 Each subscriber gets a ``StreamSubscription``: the feed ``offer``s it every item it accepts, and
 the view takes them in batches with ``next_batch``. The queue is bounded: a subscriber that falls

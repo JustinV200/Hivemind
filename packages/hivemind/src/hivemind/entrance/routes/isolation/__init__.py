@@ -1,4 +1,4 @@
-"""The Cell isolation resource: the human's two levers on a Cell (roadmap step 10.6a, ADR-0035).
+"""The Cell isolation resource: the human's two levers on a Cell (roadmap step 10.6a, ADR-0043).
 
 ``POST /v1/cells/{cell_id}/isolate`` and ``POST /v1/cells/{cell_id}/lift``, each for an
 interactive device inside its step-up window holding ``entrance:steward``, each through the

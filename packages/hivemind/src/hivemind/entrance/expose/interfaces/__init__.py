@@ -1,6 +1,6 @@
 """List this host's interfaces and addresses for the exposure check: protocol, adapter, fake.
 
-``vpn`` and ``lan`` exposure (ADR-0033) are decided against the interfaces of the host the Hive
+``vpn`` and ``lan`` exposure (ADR-0041) are decided against the interfaces of the host the Hive
 Entrance runs on: ``vpn`` binds only to an address on the overlay's own interface, ``lan`` only to
 an address this host really has. ``protocol`` defines ``LocalInterfaces`` and the snapshot value;
 ``system`` is the adapter over ``psutil`` (the standard library cannot list interface addresses
@@ -16,7 +16,7 @@ Key invariants:
     - No address in a snapshot carries an IPv6 zone.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the rules.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the rules.
     - hivemind.entrance.expose.plan for the check that reads a snapshot.
 
 Public API:

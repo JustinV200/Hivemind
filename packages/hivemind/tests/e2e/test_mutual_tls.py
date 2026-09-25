@@ -1,7 +1,7 @@
 """End-to-end: mutual-TLS device certificates on ``hive serve``'s remote listener, on real sockets.
 
 In ``lan`` and ``tunnel`` modes the remote listener completes a handshake only with a client
-certificate from the Hive's own authority (ADR-0033). ``hive serve``'s own composition runs the
+certificate from the Hive's own authority (ADR-0041). ``hive serve``'s own composition runs the
 Hive Stand (a real Queen over a scripted provider, the Hive's SQLite file) with the remote listener
 bound to a private address this machine really has, behind a server certificate from a throwaway
 authority the laptop pins with ``--ca-file``; a second config directory is the laptop. Covered:
@@ -19,7 +19,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "lan and tunnel".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "lan and tunnel".
     - builders.entrance.mtls for the address, the throwaway authority and the manifest.
 """
 

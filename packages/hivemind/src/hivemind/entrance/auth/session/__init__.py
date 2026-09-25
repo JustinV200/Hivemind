@@ -2,7 +2,7 @@
 
 A login at the Hive Entrance (the Hive's one HTTP door) opens a session: a 256-bit bearer token kept
 only as its SHA-256, bound to a key, tied to its listener, with an absolute expiry and an idle
-timeout (ADR-0033). ``models`` holds the records (``Session``, ``Arrival``,
+timeout (ADR-0041). ``models`` holds the records (``Session``, ``Arrival``,
 ``AuthenticatedSession``, ``NonceClaim`` and the enums); ``token`` mints, hashes and reads tokens;
 ``book`` is ``SessionBook``, which opens sessions, judges whether one is alive and ends them (it is
 the sessions half of the enrolment step's ``DeviceOffboarder``, and what the Entrance Reducer ends
@@ -20,7 +20,7 @@ Key invariants:
     - No token, signature, header value or password is stored, logged, raised or recorded.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
       to a key, and every request is signed".
 
 Public API:

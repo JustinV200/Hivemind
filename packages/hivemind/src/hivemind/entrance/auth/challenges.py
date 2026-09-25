@@ -2,7 +2,7 @@
 
 A ceremony at the Hive Entrance (the Hive's one HTTP door) proves possession of a key over fresh
 random bytes the Entrance chose: a browser's passkey registration when it redeems an invite, and,
-from roadmap step 10.5e, every login (ADR-0033: 32 random bytes, single use, short-lived). The
+from roadmap step 10.5e, every login (ADR-0041: 32 random bytes, single use, short-lived). The
 ``ChallengeBook`` is where those bytes wait between being handed out and being answered. Each
 ``Challenge`` is bound to a subject (an invite's code hash while enrolling, a device id at login)
 and optionally to a binding public key (a browser registers its session-binding key with its
@@ -28,7 +28,7 @@ Key invariants:
     - Synchronous and never awaiting, so each call is atomic on the event loop without a lock.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the ceremonies.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the ceremonies.
     - hivemind.entrance.enrol.redeem for the passkey redemption that takes these challenges.
 """
 
@@ -85,7 +85,7 @@ class ChallengeBook:
         Args:
             clock: Stamps each challenge's expiry and decides when one has lapsed.
             ttl: How long a challenge stays answerable; must be > 0. A login uses 60 seconds
-                (ADR-0033); a passkey registration covers a person setting one up (two minutes).
+                (ADR-0041); a passkey registration covers a person setting one up (two minutes).
             capacity: The most open challenges kept at once; must be >= 1.
 
         Raises:

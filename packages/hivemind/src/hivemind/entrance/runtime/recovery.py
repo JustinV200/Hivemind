@@ -1,6 +1,6 @@
 """Carry out, on start, the confirmed goals a crash kept from being submitted.
 
-A program's goal that needs a person's step-up is held as a pending confirmation (ADR-0033), and a
+A program's goal that needs a person's step-up is held as a pending confirmation (ADR-0041), and a
 person confirming it does two things in turn: the confirmation is settled CONFIRMED (the held
 action is handed back once, never twice), then its goal request is committed in the Queen's table
 under the id minted when it was held. A crash between the two would lose the goal: the

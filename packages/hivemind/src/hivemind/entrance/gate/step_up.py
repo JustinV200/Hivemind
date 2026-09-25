@@ -1,6 +1,6 @@
 """Guard a sensitive action with step-up: pass it, refuse it, or hold it for a person.
 
-ADR-0033's rules (``requires_step_up``) say when a request needs a step-up the session does not
+ADR-0041's rules (``requires_step_up``) say when a request needs a step-up the session does not
 have: a goal above ``step_up_spend`` or past the device's daily cap, a key or capability change,
 reopening, locking another device. ``require_step_up`` applies them for a route: an interactive
 device that has not stepped up gets ``403 step_up_required`` and steps up; a device no person types

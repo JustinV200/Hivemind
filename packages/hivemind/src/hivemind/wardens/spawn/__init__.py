@@ -8,7 +8,7 @@ carve a grant slice, resolve the assignment's slot to a live model, build the Ca
 `WorkerContext`, start the `WorkerRuntime` and send the sub-bee its first `TaskAssign`;
 `stop_sub_bee` (`spawn.py`) is its counterpart, stopping that runtime cooperatively before falling
 back to a bounded cancel (codingrules section 11: never left cancelled-but-unawaited). Roadmap
-step 10.3 (ADR-0031) adds `attenuate` (a sub-bee's capability slice, read off its assignment: the
+step 10.3 (ADR-0039) adds `attenuate` (a sub-bee's capability slice, read off its assignment: the
 goal's set and the task's network scopes narrow it) and `binding` (the `slot_binding` point every
 binding passes, first or rebound, before anything is started).
 `InCellSpawnSource` (`in_cell.py`, roadmap step 5.5) is a different kind of "spawn" decision: which

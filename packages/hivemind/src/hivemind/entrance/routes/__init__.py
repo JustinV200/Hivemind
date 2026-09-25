@@ -1,6 +1,6 @@
 """Hold the Landing Board's HTTP routes: one module per resource, every route declaring its door.
 
-The Landing Board is the Hive Entrance's versioned public API (ADR-0032, ADR-0034): every route
+The Landing Board is the Hive Entrance's versioned public API (ADR-0040, ADR-0042): every route
 lives under ``/v1/`` in one module per resource, and every route declares its method, path, the
 listeners that serve it and the capability a device must hold (``hivemind.entrance.gate.spec``).
 Handlers are thin: validate (the models in ``hivemind.entrance.models``), authorise (the gate),
@@ -25,7 +25,7 @@ Key invariants:
       mounted on the remote listener.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the route rules.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the route rules.
     - hivemind.entrance.gate.spec for what a row declares.
 
 Public API:

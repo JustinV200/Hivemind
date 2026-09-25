@@ -1,6 +1,6 @@
 """Run the Guard Bee: read the trail on the Queen's tick, evaluate its rules, report what fires.
 
-The Guard Bee (a Worker specialised in security and monitoring, roadmap step 10.6, ADR-0035)
+The Guard Bee (a Worker specialised in security and monitoring, roadmap step 10.6, ADR-0043)
 watches from the Queen's process and never touches a Cell: it runs in the Queen's process on the
 Hive Stand, driven by her tick like the House Bee's sweep, so no Cell action can take it down and it
 always reads the central trail. One round, at most every `[guard.bee] interval_s`: read what is new
@@ -30,7 +30,7 @@ Key invariants:
     - It never awaits a model inside a round: an episode runs in its lane, beside the tick.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/guard-bee.md for the rules and what each recommends.
     - hivemind.queen.ticks.housekeeping for the House Bee's sweep, the shape this mirrors.
 """

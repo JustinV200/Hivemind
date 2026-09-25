@@ -1,6 +1,6 @@
 """Define the answer of a resource the contract names before the phase that fills it lands.
 
-ADR-0032: a Landing Board resource whose subsystem is not built yet (``tools`` before phase 9,
+ADR-0040: a Landing Board resource whose subsystem is not built yet (``tools`` before phase 9,
 ``honey`` before phase 7, ``swarm`` before phase 11) answers ``501 Not Implemented`` naming the
 phase that fills it, so the contract names every resource from the start and a client can be
 written against the whole of it. ``NotBuiltView`` is that answer; it shares ``error`` and
@@ -15,7 +15,7 @@ Key invariants:
     - ``error`` is always ``NOT_BUILT_CODE``; ``phase`` is the roadmap phase that fills it.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "Routes, one module per
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "Routes, one module per
       resource".
 """
 

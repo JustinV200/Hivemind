@@ -1,7 +1,7 @@
 """Name what each principal holds at the Queen's enforcement points: her set, a Warden's, a goal's.
 
 Roadmap step 10.3 wires the Queen's own enforcement points (placement, grant issue, Forage
-requests, Warden spawn, question routing and Comb Shield egress, ADR-0031) through her
+requests, Warden spawn, question routing and Comb Shield egress, ADR-0039) through her
 `hivemind.guard.Enforcer`. Each point asks the same few questions: what the Queen herself holds
 (her `queen` role default), what a Warden holds as she sees it (the `warden` role default narrowed
 to its Cell's access level, the guard's own `warden_set`), what a goal allows (the capability set
@@ -24,7 +24,7 @@ Key invariants:
       Queen-side point ever needs, so the Hive Stand's own root stands in for every Cell's.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the principals and
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the principals and
       the goal ceiling.
     - hivemind.guard.policy.roles for role_set and warden_set.
 """

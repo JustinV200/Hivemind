@@ -1,6 +1,6 @@
 """Write (or check) the Landing Board's committed OpenAPI document, docs/entrance/openapi.json.
 
-The Landing Board (the Hive Entrance's versioned API, ADR-0034) is a published contract: programs
+The Landing Board (the Hive Entrance's versioned API, ADR-0042) is a published contract: programs
 are written from the committed document alone, so it is generated from the route table both
 listeners are built from, never edited by hand. Run this after changing a route, a model or a
 signed string, and commit the result; `--check` writes nothing and exits 1 when the committed
@@ -19,7 +19,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.landing_board for how the document is built.
-    - docs/adr/0034-landing-board-versioning-and-push.md for the contract's role.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the contract's role.
 """
 
 from __future__ import annotations

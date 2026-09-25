@@ -1,6 +1,6 @@
 """Test hivemind.cli.compose.entrance: `hive serve` starts the Entrance in every mode it can honour.
 
-ADR-0033: loopback serves on its own; every remote mode serves TLS on a DNS name from the remote
+ADR-0041: loopback serves on its own; every remote mode serves TLS on a DNS name from the remote
 listener, and lan and tunnel (and vpn when the operator turns it on) complete a handshake only with
 a client certificate from the Hive's own authority. Each test composes the Hive `hive serve` runs
 (the fake provider, the Hive's own SQLite file) and enters ``serve_hive`` on this host, with a

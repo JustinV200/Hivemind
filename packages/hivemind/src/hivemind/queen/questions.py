@@ -8,7 +8,7 @@ Queen has not yet forwarded and sends an Answer envelope to the Warden that aske
 `block_on_question` (moved here from `hivemind.queen.queen` for that file's size cap) is where a
 forwarded Question arrives: a leave Question the Queen already has a "keep for this whole goal"
 answer for is answered at once (roadmap step 5.0d); anything else is the `question_routing`
-enforcement point (roadmap step 10.3, ADR-0031), the Warden at the Queen: the forwarding Warden's
+enforcement point (roadmap step 10.3, ADR-0039), the Warden at the Queen: the forwarding Warden's
 set, as she computes it from its Cell, must hold `question:human`, or the Question is refused
 back down the same link as a QUEEN Answer naming the reason (the Guard has already recorded
 `guard.denied`), so the asking bee unblocks instead of waiting on a human who will never see it.

@@ -413,7 +413,7 @@ running a goal and reading the Queen's reply over real sockets and the Hive's SQ
 
 ## Command groups (phase 10 step 10.8)
 
-The CLI is an enrolled device like any other client of the Hive Entrance (ADR-0033): on the Hive
+The CLI is an enrolled device like any other client of the Hive Entrance (ADR-0041): on the Hive
 Stand it acts as the **console device**, and on a laptop as the laptop's own device. The operator
 password is only ever typed at a hidden prompt or read from standard input with
 `--password-stdin` (never an argument or an environment variable); session tokens live in memory
@@ -481,7 +481,7 @@ prints the public half in hex, the form a peer pins).
   trail's vocabulary has no key-lifecycle kind yet, so creation and revocation are logged (name
   and fingerprint), not recorded on the trail.
 
-Mutual-TLS device certificates (roadmap 10.5a/10.5d, ADR-0033). In `lan` and `tunnel` (and `vpn`
+Mutual-TLS device certificates (roadmap 10.5a/10.5d, ADR-0041). In `lan` and `tunnel` (and `vpn`
 with `mutual_tls = true`) the remote listener completes a handshake only with a client certificate
 from the Hive's own authority, issued at approval:
 

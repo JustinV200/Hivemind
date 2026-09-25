@@ -13,7 +13,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.expose.plan for the module under test.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the rules.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the rules.
 """
 
 from __future__ import annotations

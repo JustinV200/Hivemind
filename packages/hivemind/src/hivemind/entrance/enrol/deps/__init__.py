@@ -1,6 +1,6 @@
 """Hold what device enrolment is built from: its dependency bundle, its identity and its seams.
 
-Enrolment at the Hive Entrance (the Hive's one HTTP door; ADR-0033) is a set of functions over one
+Enrolment at the Hive Entrance (the Hive's one HTTP door; ADR-0041) is a set of functions over one
 ``EnrolmentDeps``: the Entrance tables and the Pheromone Trail (audit log), the Guard policy and
 the ``[entrance]`` lifetimes, the Hive's key and the passkey ceremony's relying party and challenge
 book, and three seams that later roadmap steps implement: ``SecurityNotifier`` (push "something
@@ -23,8 +23,8 @@ Key invariants:
       before the steps that implement those seams exist.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment.
-    - docs/adr/0034-landing-board-versioning-and-push.md for what a security push carries.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for enrolment.
+    - docs/adr/0042-landing-board-versioning-and-push.md for what a security push carries.
 
 Public API:
     - EnrolmentDeps, EnrolmentRecords, EnrolmentRules, EnrolmentCeremony, EnrolmentSeams: the

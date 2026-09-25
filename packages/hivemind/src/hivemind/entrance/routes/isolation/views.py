@@ -1,6 +1,6 @@
 """Define the Cell isolation levers' bodies: what the human asks for, and what came of it.
 
-The human's two levers on a Cell (roadmap step 10.6a, ADR-0035) take one small body and answer
+The human's two levers on a Cell (roadmap step 10.6a, ADR-0043) take one small body and answer
 with what the Queen's one isolation path, or her lift, actually did. `IsolateBody` names why, in
 the human's own short words for the trail, and optionally the Guard report the order answers (the
 Hive Stand fallback's CRITICAL Alarm names one; citing it dates the taint from its first event).

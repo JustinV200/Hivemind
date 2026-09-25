@@ -149,7 +149,7 @@ class HiveStores:
         memory: Where every Pin, Note, Handoff and episode this Hive writes lives.
         leavings: The Leavings ledger `build_hive_stand_source` hands to every
             `HiveStandLeaseReleaser` this Hive builds (roadmap step 5.0a).
-        goal_requests: The Queen's durable goal-request table (roadmap step 10.5, ADR-0032).
+        goal_requests: The Queen's durable goal-request table (roadmap step 10.5, ADR-0040).
         chat: The Queen's chat log, the human end of her inbox (roadmap step 10.5); the Hive
             Entrance reads both directly, since reading never changes state.
     """

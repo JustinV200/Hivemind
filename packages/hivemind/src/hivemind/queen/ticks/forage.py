@@ -9,7 +9,7 @@ module is the wire-and-trail half of that: it records `forage.requested` on rece
 the ledger update), then sends the wire reply -- a fresh `GrantIssued` plus a `ForageReply(GRANTED)`
 on a grant, or a `ForageReply(DENIED)` otherwise -- and records `forage.granted`/`forage.denied`.
 
-Roadmap step 10.3 (ADR-0031) puts the `forage_request` enforcement point in front of all of that:
+Roadmap step 10.3 (ADR-0039) puts the `forage_request` enforcement point in front of all of that:
 the requesting Warden must hold `forage:request` in its set (which the Queen computes from its
 Cell's access level, `hivemind.queen.authority.warden_held`) and must be the holder of the grant it
 asks to grow -- before this, any attached Warden could top up any grant by naming its id. Either

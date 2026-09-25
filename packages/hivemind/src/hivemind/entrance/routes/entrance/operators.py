@@ -1,7 +1,7 @@
-"""Serve operator add: the loopback-only row that refuses a second operator (ADR-0033).
+"""Serve operator add: the loopback-only row that refuses a second operator (ADR-0041).
 
 The Hive has one operator: one password, set at the Hive Stand, behind every device's login.
-ADR-0033 lists ``operator add`` among the routes that exist only on the loopback listener, beside
+ADR-0041 lists ``operator add`` among the routes that exist only on the loopback listener, beside
 approval and reopening, so that the day a Brood supports a second operator it arrives through the
 one door no remote session can reach. Until then the row refuses, as ``hive entrance operator
 add`` does, whatever ``[entrance] operators`` says: this Brood keeps a single operator credential.

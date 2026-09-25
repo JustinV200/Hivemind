@@ -1,7 +1,7 @@
 """Refuse what a Night Veil task may never do: the tier's floors (roadmap steps 10.3a and 10.3d).
 
 A task whose bound or requested tier is `NIGHT_VEIL`, or any action on a Night Veil Cell, gets
-these floors whatever its set says (ADR-0031): it is placed only on a fresh Virtual Cell, so a
+these floors whatever its set says (ADR-0039): it is placed only on a fresh Virtual Cell, so a
 `cell:hive_stand` or `cell:real:*` need is refused (`night_veil_virtual_only`; holding
 `cell:virtual` is left to the held set); every model it binds must be local, in the binding
 process or served on the Cell itself, never hosted and never the Hive Stand's
@@ -28,7 +28,7 @@ Key invariants:
 
 See Also:
     - docs/adr/0030-night-veil-retention-and-clearance-boundary.md for the tier's boundary.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the floors.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the floors.
     - hivemind.guard.policy.floors.initiation for who may start Night Veil work at all.
 """
 
@@ -58,7 +58,7 @@ LOCAL_SLOTS_FLOOR = "night_veil_local_slots"  # Every binding local: never hoste
 CLEARANCE_FLOOR = "night_veil_clearance"  # Honey at c0 and c1 only.
 LOCATION_FLOOR = "night_veil_location"  # geo, wifi:scan, host:metadata, metadata endpoints.
 CONTROL_LINK_FLOOR = "night_veil_control_link"  # Waggle over Tor to a .onion hidden service.
-# The capability families that reveal where a Cell is (ADR-0031's location families).
+# The capability families that reveal where a Cell is (ADR-0039's location families).
 LOCATION_FAMILIES = frozenset(
     {CapabilityFamily.GEO, CapabilityFamily.WIFI_SCAN, CapabilityFamily.HOST_METADATA}
 )
@@ -107,7 +107,7 @@ def night_veil_floor(request: PolicyRequest, policy: GuardPolicy) -> FloorRefusa
     del policy  # ADR-0030 fixes these floors; nothing in [guard] may loosen them.
     if not is_night_veil(request.context):
         return None
-    # Each check is one floor; the first that refuses decides, in ADR-0031's own order.
+    # Each check is one floor; the first that refuses decides, in ADR-0039's own order.
     for check in _CHECKS:
         refusal = check(request.needed, request.context)
         if refusal is not None:
@@ -205,7 +205,7 @@ def _link_problem(link: ControlLink) -> str | None:
     return None if on_loopback else "its SOCKS proxy is off the Cell's own loopback"
 
 
-# ADR-0031's order for the Night Veil floors: where it runs, what it binds, what it reads, what it
+# ADR-0039's order for the Night Veil floors: where it runs, what it binds, what it reads, what it
 # may learn about its place, and how it talks home.
 _CHECKS: tuple[Callable[[Capability, PolicyContext], FloorRefusal | None], ...] = (
     _virtual_only,

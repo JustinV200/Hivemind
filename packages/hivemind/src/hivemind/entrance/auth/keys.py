@@ -1,7 +1,7 @@
 """Name the kinds of device key, verify their signatures, and fingerprint them for humans.
 
 Every client of the Hive Entrance (the Hive's one HTTP door) is a device holding its own key
-(ADR-0033): a program or the CLI holds an Ed25519 key; a browser holds a WebAuthn passkey for login
+(ADR-0041): a program or the CLI holds an Ed25519 key; a browser holds a WebAuthn passkey for login
 and, per session, a non-extractable WebCrypto ECDSA P-256 key that signs every request (the
 session's binding key). This module holds the pure checks for the two raw signature schemes:
 ``verify_ed25519`` and ``verify_p256`` answer yes or no and never raise, because a malformed key or
@@ -23,7 +23,7 @@ Key invariants:
       first 10 bytes of the key's SHA-256; the same key always gives the same fingerprint.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for which key signs
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for which key signs
       what.
     - hivemind.entrance.auth.canonical for the signed strings and the wire encodings.
 """

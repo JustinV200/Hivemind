@@ -3,7 +3,7 @@
 Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle dance). When the
 Queen (the central orchestrator) isolates a Cell (a unit of compute) she labels the memory written
 there tainted from the isolation's first cited event on, so it never reaches a prompt or a resumed
-bee until a judge clears it (ADR-0035). A Virtual Cell's Warden (its always-on supervisor) keeps
+bee until a judge clears it (ADR-0043). A Virtual Cell's Warden (its always-on supervisor) keeps
 its own memory store inside the Cell (ADR-0027), which her label on the Hive's tables cannot reach,
 so she sends this order: the Warden runs the same setter over its own store, with the same scope
 (the bees and tasks she names, from the instant she names) and the same cause (her `cell.isolated`
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.5 for the normative fields and bounds.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
 """
 
 from __future__ import annotations

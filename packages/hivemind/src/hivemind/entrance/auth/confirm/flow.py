@@ -1,7 +1,7 @@
 """Hold a request a device cannot step up for, and let a person confirm it, once.
 
 A device no person types at (a program key) cannot step up, so a request of its that needs step-up
-is not refused outright and not let through on its own two factors either (ADR-0033): ``hold`` keeps
+is not refused outright and not let through on its own two factors either (ADR-0041): ``hold`` keeps
 it as a pending confirmation (the action's kind, a bounded payload the caller needs later, an
 expiry), records ``guard.entrance_held`` with it, tells every other approved device (the human
 must be reached) and returns its id, which the route answers ``403 step_up_required`` with.
@@ -28,7 +28,7 @@ Key invariants:
       the device and the action, never the held request's content.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
     - hivemind.entrance.auth.confirm.state for the state machine and its trail kinds.
 """
@@ -125,7 +125,7 @@ async def hold(
     event = _event(records, pending, HELD_KIND, device.id, extra)
     # Latency: one local transaction writing the held request and its event together.
     await records.store.pending.put(pending, event)
-    # Every other approved device hears that a request waits for a person (ADR-0033).
+    # Every other approved device hears that a request waits for a person (ADR-0041).
     await notify(deps, device.id, event)
     log.info("entrance.held", pending_id=pending.id, device_id=device.id, action=action.value)
     return pending.id
@@ -139,7 +139,7 @@ def _check_holdable(device: EnrolledDevice, action: ActionKind, ttl: timedelta) 
         )
     if device.status is not DeviceStatus.APPROVED:
         raise ConfirmationRefusedError(f"Device {device.id} is {device.status.name}, not APPROVED.")
-    # ADR-0033: break-glass only ever comes from an interactive device, so it is never held.
+    # ADR-0041: break-glass only ever comes from an interactive device, so it is never held.
     if action in BREAK_GLASS_ACTIONS or ttl <= timedelta(0):
         raise ConfirmationRefusedError(f"{action.value} cannot be held for device {device.id}.")
 

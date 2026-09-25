@@ -8,7 +8,7 @@ other tool in `hivemind.workers.tools` that has a side effect (`write_file`, `ru
 `http_request`) builds its own `waggle.messages.capping.ProposedAction` and postconditions, then
 calls `make_proposal` and `cap` here rather than talking to `ctx.capping` directly, so the id
 minting, the Proposal's fixed fields (task id, Cell id, proposer, tempo, clearance, spend estimate)
-and the human-readable outcome text are written once. Roadmap step 10.3 (ADR-0031): the gate's
+and the human-readable outcome text are written once. Roadmap step 10.3 (ADR-0039): the gate's
 ALLOWLIST rung is a capability check, so when it refuses because the Worker's set lacks one
 capability (`CheckResultRecord.denied_capability`), `cap` also records that refusal through the
 Guard's `Enforcer` as `guard.denied` -- at `session_outside_scratch` for an outside-scratch write,

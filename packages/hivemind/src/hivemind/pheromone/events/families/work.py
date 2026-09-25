@@ -29,7 +29,7 @@ Vocabulary (family -> kind -> when it is recorded):
         evicted or destroyed, roadmap step 5.8); isolated (the Queen isolated the Cell: its
         Warden's grant revoked, its bees checkpointed and paused, a BLOCK Cell Wax written, a
         Virtual Cell's egress cut to its Waggle link; carries the reason, the GuardReport id and
-        the trail ids that justified it, roadmap step 10.6a, ADR-0035); isolation_lifted (the human
+        the trail ids that justified it, roadmap step 10.6a, ADR-0043); isolation_lifted (the human
         lifted an isolation, with step-up; the Queen never lifts one herself, 10.6a).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
@@ -102,7 +102,7 @@ class CellEvent(PheromoneEvent):
             # cell.destroyed, which is meant for a normal CellBackend.destroy call.
             "cell.evicted",
             "cell.orphans_swept",
-            "cell.isolated",  # Roadmap step 10.6a: the Queen isolated the Cell (ADR-0035).
+            "cell.isolated",  # Roadmap step 10.6a: the Queen isolated the Cell (ADR-0043).
             "cell.isolation_lifted",  # Roadmap step 10.6a: the human lifted it, with step-up.
         }
     )

@@ -1,6 +1,6 @@
 """Define ChatDoor: the Queen's human-facing methods, the ones the Hive Entrance calls.
 
-Docs/adr/0032: every write the Entrance makes goes to the Queen (codingrules 8.11), and the chat
+Docs/adr/0040: every write the Entrance makes goes to the Queen (codingrules 8.11), and the chat
 is the human's way to request tasks, ask and answer (README, "Chat"). `ChatDoor` is that door, a
 mixin `hivemind.queen.queen.Queen` inherits so her own class stays within codingrules 5.1's size
 limits (the same composition `hivemind.brood_chamber.BroodChamber` uses): `request_goal` commits a
@@ -33,7 +33,7 @@ Key invariants:
       Entrance (or a request handler failing) can never kill planning.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
     - hivemind.queen.ticks.intake and hivemind.queen.ticks.chat for what the wake leads to.
 """
 
@@ -69,7 +69,7 @@ class ChatDoor:
     _wardens: dict[WardenId, WardenLink]
 
     async def request_goal(self, request: GoalRequest) -> GoalRequestId:
-        """Commit a goal request durably, then wake the Queen to plan it (ADR-0032).
+        """Commit a goal request durably, then wake the Queen to plan it (ADR-0040).
 
         Args:
             request: A fresh request, RECEIVED, built by the Hive Entrance from a device's body.
@@ -186,7 +186,7 @@ class ChatDoor:
 
         Args:
             alarm: The Alarm, HANDLING; e.g. the Hive Entrance's remote listener failed and the
-                Entrance was reduced to loopback only (ADR-0033).
+                Entrance was reduced to loopback only (ADR-0041).
         """
         await escalate_alarm(self._deps, self._human_inbox, alarm)
 

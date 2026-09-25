@@ -1,6 +1,6 @@
 """Define IsolationOrder and what isolating or lifting a Cell reports back.
 
-Isolation (roadmap step 10.6a, ADR-0035) is the Queen's action on one Cell (a unit of compute:
+Isolation (roadmap step 10.6a, ADR-0043) is the Queen's action on one Cell (a unit of compute:
 a Virtual Cell the Hive provisioned, or a Real Cell it borrows), never a Guard Bee's or a
 Warden's. An `IsolationOrder` is one such isolation as data: the Cell, who ordered it (the Queen,
 deciding a Guard request or following her own escalation policy, or the human at the Entrance,
@@ -23,7 +23,7 @@ Key invariants:
     - An outcome is `isolated` exactly when it carries the `cell.isolated` event id.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.queen.isolation.path for the one code path.
 """
 
@@ -93,7 +93,7 @@ class IsolationOrder(BaseModel):
         default=(),
         max_length=MAX_EVIDENCE_EVENTS,
         description="The trail ids that justified it, oldest first: the Cell's memory is tainted "
-        "from the first of them on (ADR-0035).",
+        "from the first of them on (ADR-0043).",
     )
     decision_event_id: EventIdField | None = Field(
         default=None, description="The queen.decided event that decided it, for her orders."

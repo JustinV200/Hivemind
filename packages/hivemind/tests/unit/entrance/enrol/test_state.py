@@ -34,7 +34,7 @@ from hivemind.entrance.errors import InvalidDeviceTransitionError
 from hivemind.pheromone import GuardEvent
 
 _S = DeviceStatus
-# ADR-0033 and codingrules Appendix C, written out edge by edge: the table must be exactly this.
+# ADR-0041 and codingrules Appendix C, written out edge by edge: the table must be exactly this.
 _DOCUMENTED_EDGES = {
     (_S.INVITED, _S.PENDING),
     (_S.INVITED, _S.EXPIRED),

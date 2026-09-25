@@ -1,4 +1,4 @@
-# The Guard policy every Hive starts from (ADR-0031, roadmap step 10.2).
+# The Guard policy every Hive starts from (ADR-0039, roadmap step 10.2).
 #
 # One table per policy role gives that role's default capability set; `deny` lists capabilities no
 # principal may exercise whatever it holds; `[escalation]` says what a denial at each enforcement
@@ -215,7 +215,7 @@ allow = [
     "honey:clearance:c2",
 ]
 
-# Watches from the Queen's process and never touches a Cell (roadmap 10.6, ADR-0035): no writes,
+# Watches from the Queen's process and never touches a Cell (roadmap 10.6, ADR-0043): no writes,
 # no commands, no Cell Wax. It reads the trail in-process, which no capability gates, so it holds
 # no device family either. Its awake episodes run on the judge slot, never the worker one.
 [roles.guard_bee]

@@ -1,6 +1,6 @@
 """The Queen's side of a quarantine: order one, and hold the task when its Warden reports it held.
 
-ADR-0035's quarantine (roadmap step 10.6c) is one intervention carried out by one code path in the
+ADR-0043's quarantine (roadmap step 10.6c) is one intervention carried out by one code path in the
 Warden (`hivemind.wardens.quarantine`). The Queen, the Hive's orchestrator, only orders it and then
 keeps her task store true: `order` sends a Warden the `Intervene(QUARANTINE)` (a
 `QueenAction.QUARANTINE_BEE` decision, or a Guard report she acts on) and `hold` moves the task to
@@ -21,7 +21,7 @@ Key invariants:
     - The Queen never quarantines a bee herself: she has no session and no sub-bee, only the order.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.wardens.quarantine for the one code path.
 
 Public API (roadmap step 10.6c):

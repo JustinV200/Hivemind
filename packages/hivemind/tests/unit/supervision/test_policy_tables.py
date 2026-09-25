@@ -1,6 +1,6 @@
 """Every table keyed by PolicyAction or AlarmKind covers every member, and SECURITY always goes up.
 
-`PolicyAction` is the Hive's own vocabulary, mirrored by no wire enum (ADR-0035), so nothing but a
+`PolicyAction` is the Hive's own vocabulary, mirrored by no wire enum (ADR-0043), so nothing but a
 test notices a member some dispatch table forgot: that would surface as a `KeyError` in a tick,
 the first time a policy row named it. These tests walk the enums themselves, so a member added
 without its rows fails here, for both tables that map one: the Warden's autopilot

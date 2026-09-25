@@ -1,7 +1,7 @@
 """Define PendingTable: where held requests wait for a person to confirm them.
 
 A device no person types at cannot step up, so what it asks for that needs step-up is held as a
-pending confirmation until a person confirms it from an interactive device (ADR-0033).
+pending confirmation until a person confirms it from an interactive device (ADR-0041).
 ``PendingTable`` keeps them (codingrules 8.1), implemented by ``SqlitePendingTable`` and
 ``MemoryPendingTable``. The pure functions here are the rules both apply inside their own atomic
 step: ``check_new_pending`` (a confirmation is put PENDING, with its ``guard.entrance_held``

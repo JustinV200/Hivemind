@@ -26,7 +26,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 12 for the audit-log rules this vocabulary follows.
     - hivemind.pheromone.events.base for PheromoneEvent, LlmUsage and the shared validators.
-    - hivemind.guard.policy.catalogue for where each kind's action is authorised (ADR-0031).
+    - hivemind.guard.policy.catalogue for where each kind's action is authorised (ADR-0039).
 
 Public API:
     - CellEvent, TaskEvent, AlarmEvent, WorkerEvent: the work and where it runs (work).

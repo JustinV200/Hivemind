@@ -1,7 +1,7 @@
 """Mint and cancel device invites: a single-use code, its link and QR codes, an INVITED record.
 
 Enrolment starts on the Hive Stand's loopback listener (the machine the Queen, the orchestrator,
-runs on; ADR-0033): ``hive entrance invite --device "phone"`` mints a 128-bit, single-use code and
+runs on; ADR-0041): ``hive entrance invite --device "phone"`` mints a 128-bit, single-use code and
 shows it once, as grouped text and as a QR code of the Entrance's enrolment link with the code in
 the URL fragment (a fragment never reaches a server log or a proxy). Only the code's SHA-256 is
 stored. The device record is created INVITED with the label as its provisional name and the
@@ -24,7 +24,7 @@ Key invariants:
       once (``hivemind.entrance.store``).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the invite.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the invite.
     - hivemind.entrance.enrol.redeem for how a device presents it.
 """
 
@@ -52,7 +52,7 @@ from hivemind.entrance.enrol.record import (
 from hivemind.entrance.enrol.state import INVITED_TRAIL_KIND, DeviceStatus
 from waggle.ids import DeviceId, new_device_id
 
-INVITE_CODE_BYTES = 16  # 128 random bits (ADR-0033): unguessable in an invite's minutes of life.
+INVITE_CODE_BYTES = 16  # 128 random bits (ADR-0041): unguessable in an invite's minutes of life.
 INVITE_CODE_GROUP_CHARS = 4  # "ABCD-EFGH-...": groups a person compares and types at a glance.
 INVITE_PATH = "/enrol"  # The Entrance page a device opens to enrol; the code rides the fragment.
 INVITE_CANCELLED = "invite_cancelled"  # The reason cancel_invite records on the trail.

@@ -3,7 +3,7 @@
 The thoughts view's "follow" mode streams new episodes as they happen (roadmap 12.3). An episode
 record is written to memory together with its ``memory.episode`` trail event (codingrules 12: the
 trail records that an episode happened, never its text), so the view follows those events through
-the stream hub (ADR-0032) and reads each new record back from memory, the durable state, rather
+the stream hub (ADR-0040) and reads each new record back from memory, the durable state, rather
 than from anything a bee kept in hand. A batch of events is matched against memory's newest records
 (the record's id is the event's subject); a record already purged or tainted by then is not sent,
 since memory never hands one out. A client may follow one bee (``principal``). Records may quote

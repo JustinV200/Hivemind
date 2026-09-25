@@ -1,6 +1,6 @@
 """An isolated Cell's Warden: taint its own memory on the Queen's order, refuse a tainted resume.
 
-Only the Queen isolates a Cell (ADR-0035, roadmap step 10.6a), and her isolation taints the memory
+Only the Queen isolates a Cell (ADR-0043, roadmap step 10.6a), and her isolation taints the memory
 written there from the report's first cited event on. A Virtual Cell's Warden (the supervisor of
 one Cell) keeps its own memory store inside the Cell (ADR-0027), which her label on the Hive's
 tables cannot reach, so she orders it (`waggle.messages.cell.CellTaintOrder`) and it runs the same
@@ -20,7 +20,7 @@ Key invariants:
     - A resume from a TAINTED Handoff never spawns on this Warden.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.queen.isolation for the one isolation path, which sends the order.
     - docs/guard/isolation.md.
 

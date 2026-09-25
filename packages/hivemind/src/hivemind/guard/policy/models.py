@@ -1,6 +1,6 @@
 """Define the policy engine's request and decision: who asks, for what, where, and the answer.
 
-`evaluate` (the Guard's pure decision function, ADR-0031) takes one `PolicyRequest` and returns one
+`evaluate` (the Guard's pure decision function, ADR-0039) takes one `PolicyRequest` and returns one
 `PolicyDecision`. A request names the principal acting (`PrincipalRef`: its kind, its id and the
 policy role its set came from), the enforcement point it is passing, the one capability that
 action needs, the set the principal holds, and the context the tier floors and the access-level
@@ -32,7 +32,7 @@ Key invariants:
       it is only acted on when `allowed` is False.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Policy is a pure
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Policy is a pure
       function with a reason".
     - hivemind.guard.policy.evaluate for the function these models feed.
     - hivemind.guard.enforcer for the adapter that records a denial on the trail.

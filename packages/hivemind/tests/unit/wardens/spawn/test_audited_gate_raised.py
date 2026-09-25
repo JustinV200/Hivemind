@@ -4,7 +4,7 @@ Roadmap step 10.6: the Guard Bee raises a Capping tier's sampled-audit rate by r
 `guard.audit_rate_raised` on the Queen's trail, and a Warden whose gate records to that same trail
 (the Hive Stand's) samples at the higher of the tier table's rate and the live raise, from the
 next terminal proposal on. A Warden whose trail never sees the Queen's (a Virtual Cell's in-Cell
-one) samples at a raise its grant carried instead (Waggle 1.8). An expired raise leaves the
+one) samples at a raise its grant carried instead (Waggle 1.10). An expired raise leaves the
 table's rate, and a raise never lowers it.
 
 Fits into the Hive:

@@ -1,7 +1,7 @@
 """Keep the remote listener's TLS context current: built on start, rebuilt on every revocation.
 
 In every remote mode the remote listener speaks TLS on a DNS name, and under mutual TLS it demands
-a client certificate chaining to the Hive's own authority and not revoked (ADR-0033). The context
+a client certificate chaining to the Hive's own authority and not revoked (ADR-0041). The context
 is built inside a ``ContextSwitch`` whose ``listener_context`` uvicorn is started with; every
 ClientHello moves to the switch's current context, so a rebuilt one (with a fresh revocation
 list) reaches the next handshake without restarting the listener. ``RemoteTls`` builds the context

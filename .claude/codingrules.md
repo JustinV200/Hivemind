@@ -268,7 +268,7 @@ Layer 0  common                                                       (primitive
   importable only from `hivemind.cell.*` (the local and in-cell sessions),
   `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`,
   `hivemind.entrance.expose.tunnel` (the tunnel client the Entrance supervises in `tunnel` mode,
-  ADR-0033), `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its
+  ADR-0041), `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its
   session; `lint-imports` rejects anything else.
 - Autopilot never awaits a model. Any module under a directory named `autopilot/` may not import
   `hivemind.llm`, directly or transitively; `lint-imports` enforces it. This is what keeps the
@@ -1118,7 +1118,7 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   reach the Entrance), `lan` and `tunnel` (both require mutual TLS with the device certificate on
   top of login). There is no `public` value, and the Entrance refuses to start exposed without
   TLS on a DNS name, in every remote mode: browsers get passkeys, WebCrypto and push only in a
-  secure context, and WebAuthn refuses an IP address as a relying party (ADR-0033). The loopback
+  secure context, and WebAuthn refuses an IP address as a relying party (ADR-0041). The loopback
   listener refuses a non-loopback `Host` and any proxy-forwarding header, so nothing can front it.
 - **Guard Bees watch the door; the Entrance Reducer narrows it.** `entrance/reducer.py` drops
   the Entrance to loopback only and kills every remote session, on `hive entrance reduce` or on a

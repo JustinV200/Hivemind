@@ -15,7 +15,7 @@ Key invariants:
 
 See Also:
     - hivemind.workers.roles.guard_bee.requests for RequestLedger.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
 """
 
 from __future__ import annotations

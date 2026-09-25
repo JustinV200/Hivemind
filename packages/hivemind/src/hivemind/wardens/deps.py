@@ -13,7 +13,7 @@ how it moves a stuck sub-bee to a stronger binding within its own grant (`rebind
 and threshold constants its tick handlers read (`handoff_threshold`, `heartbeat_interval_s`,
 `worker_heartbeat_interval_s`, `missed_heartbeats_before_stalled`), the Guard policy its own
 capability set and every sub-bee's role default are built from (`guard`), and (roadmap step 10.3,
-ADR-0031) the Guard's `Enforcer` its enforcement points and its sub-bees' tools call
+ADR-0039) the Guard's `Enforcer` its enforcement points and its sub-bees' tools call
 (`enforcer`), the capability its own Cell's lease needs (`lease_capability`) and the `[llm.slots]`
 rows a rebind's target is resolved to a slot against (`bindings`), and (roadmap step 10.6b) the
 untrusted-content scanner its sub-bees' tool results pass through (`scanner`), and (roadmap step
@@ -183,7 +183,7 @@ class WardenDeps:
             RelaySnapshotter` in instead: a Virtual Cell's own Warden cannot reach the host
             backend itself (ADR-0027), so it asks the Queen over `queen_link` (roadmap step
             5.10's own follow-up gap).
-        guard: The Guard policy (ADR-0031, roadmap step 10.2) this Warden's own set is built
+        guard: The Guard policy (ADR-0039, roadmap step 10.2) this Warden's own set is built
             from at `start()` (`hivemind.guard.policy.warden_set`: the `warden` role default
             narrowed to its lease's access level, less the deny list) and every sub-bee's role
             default at spawn (`role_set`). Defaults to the shipped policy

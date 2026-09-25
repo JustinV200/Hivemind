@@ -1,7 +1,7 @@
 """Serve the push resource: register and delete push destinations, and the keys to verify with.
 
 A device holding ``entrance:push`` tells the Entrance where it wants to hear that something is
-waiting (ADR-0034): a webhook URL (a program) or a Web Push subscription (a browser or phone).
+waiting (ADR-0042): a webhook URL (a program) or a Web Push subscription (a browser or phone).
 Registration goes through the push dispatcher's gate (the device's standing, the channel being
 offered, and the destination guard, which refuses any endpoint that resolves inside the Hive). A
 device deletes only its own subscriptions. The VAPID public key is what a browser subscribes with;

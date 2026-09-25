@@ -1,6 +1,6 @@
 """Define the intake half of the Queen's tick: she plans every durable goal request herself.
 
-Docs/adr/0032, "A goal is durable before it is acknowledged": the Hive Entrance commits a goal
+Docs/adr/0040, "A goal is durable before it is acknowledged": the Hive Entrance commits a goal
 request and wakes the Queen, and `drain_goal_requests` is what that wake leads to, on every tick.
 It settles the request she was planning (`PlanningLane`: one plan at a time, run beside her tick
 because a plan is one long model call that would otherwise hold every Warden's Heartbeat unread),
@@ -36,7 +36,7 @@ Key invariants:
     - A request refused meanwhile never has its goal run: the goal is stopped instead of PLANNED.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
     - hivemind.queen.intake for the request, its state machine and every write.
     - hivemind.queen.goal_submission for plan_goal_graph, the plan itself.
 """

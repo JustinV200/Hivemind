@@ -2,7 +2,7 @@
 
 Thoughts are memory, not audit (codingrules 12): every awake episode and every autopilot decision
 leaves an episode record, and the Observation Hive's thoughts view reads them in full for any bee
-(codingrules 8.11). ``GET /v1/episodes`` reads them from memory directly (ADR-0032), newest first,
+(codingrules 8.11). ``GET /v1/episodes`` reads them from memory directly (ADR-0040), newest first,
 optionally one bee's (``principal``). A record may quote the human, so the route needs
 ``observe:thoughts`` and ``honey:clearance:c2``; a record tainted by isolation or quarantine is
 never answered (memory refuses it). New records stream on ``/v1/episodes/stream``.

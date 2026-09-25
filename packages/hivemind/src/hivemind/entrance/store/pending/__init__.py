@@ -1,7 +1,7 @@
 """Hold the pending-confirmation table: requests held until a person confirms them.
 
 A device no person types at cannot step up, so what it asks for that needs step-up waits here
-until a person confirms it from an interactive device that has just stepped up (ADR-0033).
+until a person confirms it from an interactive device that has just stepped up (ADR-0041).
 ``protocol`` defines ``PendingTable`` and the two rules every implementation applies (put PENDING,
 settle once along an edge from the expected status); ``sqlite`` keeps it in the Entrance tables
 (``entrance_pending``, migration 0002); ``memory`` in a dict.

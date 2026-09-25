@@ -3,7 +3,7 @@
 A goal reaches the Hive Entrance (the Hive's one door) three ways: typed on ``POST /v1/goals``,
 spoken on ``POST /v1/chat/audio`` or the chat socket (roadmap step 10.5f), or held for a person's
 step-up and confirmed later. Every one becomes a durable ``GoalRequest`` in the Queen's own tables
-before the Entrance answers (ADR-0032), and every one is weighed against ADR-0033's spend rules
+before the Entrance answers (ADR-0040), and every one is weighed against ADR-0041's spend rules
 first. This module is what those paths share, so the rules are written once: ``goal_spend`` weighs
 a goal against the device's last day of goals (each counted at its budget or the manifest's
 per-goal cap, failing closed when the page could hide more), ``goal_request`` builds the request
@@ -22,9 +22,9 @@ Key invariants:
     - A device's daily cap is never read short: a full page of recent goals counts as unlimited.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "A goal is durable before
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "A goal is durable before
       it is acknowledged".
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
 """
 

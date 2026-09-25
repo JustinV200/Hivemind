@@ -2,7 +2,7 @@
 
 A session token at the Hive Entrance (the Hive's one HTTP door) is 32 random bytes from the CSPRNG,
 handed to the device once, as unpadded base64url, and never stored: the Entrance keeps only its
-SHA-256 (ADR-0033), so a copy of the Entrance tables holds nothing a client could present. Every
+SHA-256 (ADR-0041), so a copy of the Entrance tables holds nothing a client could present. Every
 authenticated request carries it as ``Authorization: Bearer <token>``. Parsing is strict (the one
 canonical spelling of exactly 32 bytes) so garbage is refused before any table is read, and so
 one token can never be presented two ways.
@@ -18,7 +18,7 @@ Key invariants:
     - Nothing here logs or raises a token: errors name the rule, never the value.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the token.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the token.
     - hivemind.entrance.auth.session.book for where tokens are minted.
 """
 
@@ -28,7 +28,7 @@ import secrets
 
 from hivemind.entrance.auth.canonical import b64url_decode, b64url_encode, sha256_hex
 
-TOKEN_BYTES = 32  # ADR-0033: a random 256-bit bearer token.
+TOKEN_BYTES = 32  # ADR-0041: a random 256-bit bearer token.
 TOKEN_CHARS = 43  # 32 bytes in unpadded base64url; anything else is refused unread.
 _BEARER_SCHEME = "bearer"  # RFC 6750's scheme name, compared case-insensitively (RFC 9110).
 

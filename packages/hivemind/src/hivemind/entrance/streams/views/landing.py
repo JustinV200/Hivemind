@@ -29,7 +29,7 @@ Key invariants:
       raises escapes into the push outbox.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, "One stream per view".
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Tests for hivemind.hive.egress and the fake backend's EgressCutter: cut, restore, or say why not.
 
-Roadmap step 10.6a (ADR-0035): isolating a Virtual Cell sets its egress to none except its Waggle
+Roadmap step 10.6a (ADR-0043): isolating a Virtual Cell sets its egress to none except its Waggle
 control link, and lifting the isolation gives its own policy back. The fake backend is the
 reference `EgressCutter`; `LifecycleEgress` asks a tracked Cell's backend by its declared
 capability, and reports UNTRACKED, UNSUPPORTED or FAILED rather than raising.
@@ -83,7 +83,7 @@ async def test_the_fake_backend_cuts_and_restores_one_cells_egress() -> None:
 
     assert cut and not backend.egress_is_cut(cell.id)
     assert backend.egress_calls == [("cut", cell.id), ("cut", cell.id), ("restore", cell.id)]
-    # The Cell itself is untouched by the cut: still there, kept for forensics (ADR-0035).
+    # The Cell itself is untouched by the cut: still there, kept for forensics (ADR-0043).
     assert listed_while_cut == [cell.id]
 
 

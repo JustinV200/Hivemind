@@ -1,6 +1,6 @@
 """Check a quarantine at the Guard's `quarantine` enforcement point, or refuse it with a reason.
 
-ADR-0031 gives every state-changing action a named enforcement point; ADR-0035's quarantine (roadmap
+ADR-0039 gives every state-changing action a named enforcement point; ADR-0043's quarantine (roadmap
 step 10.6c) is checked at `EnforcementPoint.QUARANTINE` through this Warden's `Enforcer`, with the
 principal that ordered it (the Queen, or this Warden itself). What a quarantine needs is authority
 over the Cell (the unit of compute this Warden supervises) the bee runs on: the capability that
@@ -10,7 +10,7 @@ Worker holds. Two refusals the held set cannot express are reached here and reco
 (`Enforcer.refuse`, a `guard.denied` row with a `guard.scope.<why>` rule): an order naming no
 sub-bee this Warden supervises (`guard.scope.sub_bee`), and a respawn of a quarantined task that
 does not resume from its own quarantine checkpoint cleared by a judge
-(`guard.scope.quarantine_checkpoint`), the only way out ADR-0035 allows.
+(`guard.scope.quarantine_checkpoint`), the only way out ADR-0043 allows.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -23,7 +23,7 @@ Key invariants:
     - Every refusal here is a `guard.denied` row before the caller sees it.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the points.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the points.
     - hivemind.guard.policy.catalogue, where `warden.intervened` is authorised at this point.
     - tests/unit/guard/policy/test_catalogue.py, whose call-site registry names `authorize`.
 """

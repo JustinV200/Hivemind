@@ -1,6 +1,6 @@
 """Find what a Guard request is aimed at: its Cell, and the tasks it implicates on that Cell.
 
-A Guard report (ADR-0035) names its target by ids: a Cell for `ISOLATE_CELL` or `STING_CUT`, bees
+A Guard report (ADR-0043) names its target by ids: a Cell for `ISOLATE_CELL` or `STING_CUT`, bees
 or tasks for `QUARANTINE_BEE`, and whichever of them the rule saw. The Queen's decision needs two
 answers from those ids. `target_cell` is the Cell an isolation would cut off: the one the report
 names, else the Cell the first of its tasks is placed on (the Brood Chamber records where every

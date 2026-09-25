@@ -159,10 +159,10 @@ class WorkerContext:
             (`hivemind.llm.ladders.run_tool_loop`'s own `gate` option); the Warden passes its own
             `hivemind.llm.FannerLane` (the seat meter, roadmap step 3.12a) or a bare
             `hivemind.llm.DirectCallGate` when no metering is wired up yet.
-        enforcer: The Guard's adapter (roadmap step 10.3, ADR-0031) every one of this Worker's
+        enforcer: The Guard's adapter (roadmap step 10.3, ADR-0039) every one of this Worker's
             tools calls before acting; its Warden's own, so each refusal is a `guard.denied` row
             on the same trail the Warden records to.
-        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0035) every tool result
+        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0043) every tool result
             passes through before the model reads it (`hivemind.workers.tools.screen`); its
             Warden's own, so one key hashes every flag on the node. Defaults to the shipped
             patterns and thresholds with an in-memory key, for a context built without a Warden.

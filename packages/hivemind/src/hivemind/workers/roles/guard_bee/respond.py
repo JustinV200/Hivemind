@@ -3,16 +3,16 @@
 Every finding becomes a `GuardReport` (the rule, the events it cites oldest first, the Cell, bees,
 tasks and grants it touches, the recommended action and a confidence), a `C2` deposit through the
 `GuardReportSink` seam, and a `guard.alert` trail event carrying ids, the rule, the action, the
-confidence, the counts and what became of it (ADR-0035). The Guard Bee acts alone only to narrow the
+confidence, the counts and what became of it (ADR-0043). The Guard Bee acts alone only to narrow the
 whole Hive: `raise_audit_rate` records `guard.audit_rate_raised` (the tier's rate in force, raised
 by `[guard.bee] audit_raise_step`, capped at 1.0, for `audit_raise_hold_s`), which the Hive Stand's
 Capping gates read back from this same trail and every other Warden's receives on its next grant
-(`GrantIssued.audit_raises`, Waggle 1.8); `reduce_entrance` records `guard.reduce_ordered`, which
+(`GrantIssued.audit_raises`, Waggle 1.10); `reduce_entrance` records `guard.reduce_ordered`, which
 the Hive Entrance follows. A report aimed at one Cell or one bee is a request filed through
 the Queen's `GuardRequestDoor` when `RequestLedger` admits it, and only a `guard.alert` otherwise.
 A recommendation whose target the finding does not name falls back to `observe`, never to a guess.
 A report at CRITICAL confidence that asks for nothing (a raise, a reduce order, an observation) is
-also shown to the human through the door's `report_to_human` (ADR-0035); a CRITICAL request is
+also shown to the human through the door's `report_to_human` (ADR-0043); a CRITICAL request is
 not, because the Queen shows it herself, once, with her decision. The order is fixed: act (file,
 raise or order), show, deposit, then record the alert that marks the finding reported, so a crash
 in between repeats an action (a narrowing is safe to repeat, a duplicate request is still only a

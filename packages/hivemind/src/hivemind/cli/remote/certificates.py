@@ -2,7 +2,7 @@
 
 A Hive whose remote listener demands client certificates (``lan`` and ``tunnel``, and ``vpn`` when
 the operator turns mutual TLS on) admits this laptop only with the certificate its Hive signed at
-approval (ADR-0033), and the laptop keeps it beside its profile (``profiles``), presenting it on
+approval (ADR-0041), and the laptop keeps it beside its profile (``profiles``), presenting it on
 every call (``hivemind.cli.landing.certificate``). A laptop that enrolled over a listener it can
 reach ``fetch``-es it from there once approved (``GET /v1/devices/me/certificate``, logged in as
 the device). A laptop that could reach no enrolment listener (``hive remote enrol --offline``)

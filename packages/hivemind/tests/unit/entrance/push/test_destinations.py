@@ -119,7 +119,7 @@ async def test_vet_refuses_a_name_that_does_not_resolve() -> None:
 
 
 async def test_vet_refuses_loopback_even_when_the_allowlist_lists_it() -> None:
-    # ADR-0034: never loopback, whatever webhook_allowlist lists.
+    # ADR-0042: never loopback, whatever webhook_allowlist lists.
     loopback = (ipaddress.ip_network("127.0.0.0/8"),)
 
     reason = await _refusal("http://127.0.0.1/hook", policy=make_policy(allowed_networks=loopback))

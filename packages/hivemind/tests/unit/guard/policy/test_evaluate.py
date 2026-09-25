@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.guard.policy.evaluate for the module under test.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the rule order.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the rule order.
 """
 
 from __future__ import annotations
@@ -272,7 +272,7 @@ def test_an_allow_always_means_held_undenied_and_admitted(
 
     decision = evaluate(request, policy)
 
-    # Nothing but holding the capability turns a request into an allow (ADR-0031).
+    # Nothing but holding the capability turns a request into an allow (ADR-0039).
     assert decision.allowed is (decision.rule == HELD_RULE)
     if decision.allowed:
         assert request.held.allows(request.needed)

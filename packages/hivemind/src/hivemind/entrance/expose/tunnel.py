@@ -1,6 +1,6 @@
 """Supervise the tunnel client the Entrance runs in tunnel mode: start it, restart it, stop it.
 
-In ``tunnel`` mode (ADR-0033) the remote listener binds loopback and a TCP-forwarding tunnel client
+In ``tunnel`` mode (ADR-0041) the remote listener binds loopback and a TCP-forwarding tunnel client
 (cloudflared, frp, bore, an SSH reverse tunnel) carries connections to it from a relay, so TLS,
 mutual TLS included, stays end to end: the client forwards bytes, never HTTP. The Entrance runs
 that client as its child. ``TunnelSupervisor`` starts ``[entrance] tunnel_command`` as an argument
@@ -32,7 +32,7 @@ Key invariants:
       the cancellation propagates.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, ``tunnel``.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, ``tunnel``.
     - hivemind.manifest.env for ``HIVEMIND_ENTRANCE_TUNNEL_*``.
     - hivemind.entrance.expose.plan for the checks ``tunnel_command`` passes first.
 """
@@ -61,7 +61,7 @@ MAX_RESTART_DELAY_S = 60.0  # The pause never grows past a minute, so a mended n
 STABLE_RUN_S = 60.0  # A child that ran this long was healthy: its exit starts the backoff over.
 # After SIGTERM, time for the client to close its relay session; then SIGKILL, and at most this
 # long again for the kernel to reap it. Together they bound stop() to one second, the Entrance
-# Reducer's bound for cutting the door (ADR-0033); a forwarder with nothing in flight exits in
+# Reducer's bound for cutting the door (ADR-0041); a forwarder with nothing in flight exits in
 # milliseconds, and one still draining requests is cut, which is what reducing means.
 STOP_GRACE_S = 0.5
 KILL_WAIT_S = 0.5

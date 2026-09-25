@@ -1,12 +1,12 @@
 """Define FloorRefusal and the two rule-id families every floor refuses under.
 
-A floor (ADR-0031, "Floors hold whatever a set says") refuses an action whatever the principal
+A floor (ADR-0039, "Floors hold whatever a set says") refuses an action whatever the principal
 holds, so its answer is only ever a refusal: a stable rule id for the trail and the end of a
 reason sentence for the human. `FloorRefusal` is that answer. Rule ids come in two families:
 `guard.tier_floor.<floor>` for what a Comb Shield tier forbids (Night Veil's Virtual-only
 placement, local-only slots, clearance, location blindness, control link and initiation, and tier
 inheritance) and `guard.state_floor.<floor>` for the Hive's own state, which no bee may touch
-(ADR-0033). `Floor` is the one signature every floor function shares, so
+(ADR-0041). `Floor` is the one signature every floor function shares, so
 `hivemind.guard.policy.floors.chain` can run them as an ordered list.
 
 Fits into the Hive:
@@ -20,7 +20,7 @@ Key invariants:
       `PolicyDecision.rule`'s bound.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Floors hold whatever
       a set says".
     - hivemind.guard.policy.floors.chain for the order the floors run in.
 """

@@ -1,6 +1,6 @@
 """Provide ``hive remote enrol|profiles|set-url|forget|certificate``, and remote ``run``, ``inbox``.
 
-A laptop's ``hive`` is an enrolled device like any other client of the Hive Entrance (ADR-0033).
+A laptop's ``hive`` is an enrolled device like any other client of the Hive Entrance (ADR-0041).
 ``hive remote enrol URL --name NAME [--code CODE] [--hive HIVE]`` mints its key and redeems the
 invite the operator read out (with a certificate request for the same key), then says what the
 operator must do: approve it on the Hive Stand, comparing the key fingerprint printed here. With
@@ -28,7 +28,7 @@ Key invariants:
     - Every refusal is one stderr line and exit 1 (2 for bad usage).
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
 """
 
 from __future__ import annotations

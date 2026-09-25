@@ -2,7 +2,7 @@
 
 Honey is the Hive's ripened, retrievable knowledge, browsed by provenance and filtered by the
 viewer's ``observe:honey:<scope>`` capabilities and clearance (codingrules 8.11). It arrives with
-roadmap phase 7; until then ``GET /v1/honey`` answers ``501`` naming that phase (ADR-0032).
+roadmap phase 7; until then ``GET /v1/honey`` answers ``501`` naming that phase (ADR-0040).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes.later``.

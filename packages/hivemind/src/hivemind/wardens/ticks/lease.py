@@ -4,7 +4,7 @@
 Warden leases the one Cell its source reports, opens its session and computes its own capability
 set from the lease (`hivemind.guard.warden_set`); with no Cell, or a lease the source refuses, it
 moves to WATCH instead and never raises (codingrules section 8.8: the Hive Stand's Warden exists
-whenever the Queen runs). Roadmap step 10.3 (ADR-0031) puts the `lease_creation` enforcement point
+whenever the Queen runs). Roadmap step 10.3 (ADR-0039) puts the `lease_creation` enforcement point
 in front of the lease: the capability this Warden's Cell needs (`WardenDeps.lease_capability`,
 set by the composition root that built the source: `cell:hive_stand`, `cell:virtual`, ...) must
 be allowed by the `warden` role's default through the Guard's `Enforcer`, with the Cell's own tier
@@ -27,7 +27,7 @@ Key invariants:
       scratch root, exists yet, and no lease capability is a scratch-scoped one.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for lease_creation.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for lease_creation.
     - hivemind.wardens.deps for WardenDeps.lease_capability and WardenDeps.enforcer.
     - hivemind.wardens.warden for Warden.start, this function's one caller.
 """

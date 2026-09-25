@@ -1,6 +1,6 @@
 """Provide the chat: the human end of the Queen's inbox, and her door for the Hive Entrance.
 
-Docs/adr/0032, "The chat is the human end of the Queen's inbox, not a side channel": a message
+Docs/adr/0040, "The chat is the human end of the Queen's inbox, not a side channel": a message
 from the human is appended to one chat log and enters the Queen's inbox as a `HumanMessage` her
 Attendant scores; autopilot has no rule for free text, so an awake episode decides, and may REPLY
 with words appended to the same log. Her questions and the Alarms that reached the human are
@@ -26,7 +26,7 @@ Key invariants:
     - The Queen never imports the Hive Entrance: she calls `HumanChannel`, which it implements.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
     - hivemind.queen.ticks.chat for the tick that drains human messages and acts on REPLY.
     - hivemind.queen.intake for the goal requests `ChatDoor.request_goal` commits.
 

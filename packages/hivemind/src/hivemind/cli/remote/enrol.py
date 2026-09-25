@@ -1,6 +1,6 @@
 """Enrol this laptop with a Hive: mint its key, redeem the invite, and keep the profile.
 
-``hive remote enrol`` is the device's side of ADR-0033's enrolment. The operator ran ``hive
+``hive remote enrol`` is the device's side of ADR-0041's enrolment. The operator ran ``hive
 entrance invite`` on the Hive Stand and read out (or pasted) the Entrance's URL and the single-use
 code; the invite link itself (``<origin>/enrol#code=...``) is accepted in place of the URL and the
 code. The Hive's id, which every signature names, is asked of the Entrance itself (``GET
@@ -31,7 +31,7 @@ Key invariants:
     - The invite code is never printed, logged or kept.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Enrolment is
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Enrolment is
       invite, key, pending, approval on loopback".
 """
 

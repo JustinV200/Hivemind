@@ -3,7 +3,7 @@
 The Observation Hive's Forage view redraws from deltas (codingrules 8.11). Every change to the
 Queen's ledger that matters is a ``forage.*`` trail event recorded with it (a grant issued, grown
 or shrunk, revoked or expired, a capacity report, a hosting plan, ceilings), so the view follows
-those through the stream hub (ADR-0032) and sends, per event, a ``ForageFrame``: the event, the
+those through the stream hub (ADR-0040) and sends, per event, a ``ForageFrame``: the event, the
 grant it names as the ledger now holds it (null once the grant is gone, or when it names none),
 and the shared pool's headroom after it. It needs ``observe``; the whole ledger is ``GET
 /v1/forage``, which a client reads once and then follows here.

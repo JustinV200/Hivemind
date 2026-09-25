@@ -1,7 +1,7 @@
 """Decide whether a device may register a push subscription, and vet where it points.
 
 A subscription is a standing instruction for the Hive to send requests somewhere on a device's
-behalf, so registering one is gated (ADR-0034): the device must be APPROVED and hold
+behalf, so registering one is gated (ADR-0042): the device must be APPROVED and hold
 ``entrance:push``; ``[entrance.push]`` must offer the channel it asks for; the keys must fit the
 channel (a Web Push subscription brings its ``p256dh`` and ``auth`` keys and an https endpoint, a
 webhook brings none); and the destination must pass the destination guard. The guard is applied
@@ -20,7 +20,7 @@ Key invariants:
     - A refusal says why without echoing the URL or the keys.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for who may subscribe.
+    - docs/adr/0042-landing-board-versioning-and-push.md for who may subscribe.
     - hivemind.entrance.push.destinations for the destination rules.
 """
 
@@ -98,7 +98,7 @@ def registration_refusal(
     # Only an approved device may subscribe; a locked or pending one hears nothing.
     if device.status is not DeviceStatus.APPROVED:
         return f"it is {device.status.name}, not APPROVED"
-    # ADR-0034: entrance:push is what lets a device hear anything at all.
+    # ADR-0042: entrance:push is what lets a device hear anything at all.
     if not held_capabilities(device).allows(PUSH_CAPABILITY):
         return "it does not hold entrance:push"
     # The operator may turn either channel off; a channel that is off takes no new subscriptions.

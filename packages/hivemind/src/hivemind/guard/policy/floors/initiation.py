@@ -1,6 +1,6 @@
 """Refuse Night Veil work nobody but a human asked for: the initiation floor (roadmap step 10.3c).
 
-ADR-0031, "Night Veil is initiated only by a human, structurally": only a goal request that asked
+ADR-0039, "Night Veil is initiated only by a human, structurally": only a goal request that asked
 for `comb_shield = NIGHT_VEIL` explicitly, submitted by a human (an enrolled device holding
 `cell:comb_shield:night_veil`, or the operator's own CLI), may produce Night Veil work. A chat
 message never initiates it, because a model reading possibly injected text would then be the
@@ -24,7 +24,7 @@ Key invariants:
       `cell:comb_shield:night_veil` held (the goal's set, when it carries one).
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Night Veil is
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Night Veil is
       initiated only by a human, structurally".
     - hivemind.queen.dispatcher for the placement point that states the goal request's facts.
 """
@@ -50,13 +50,13 @@ def initiation_floor(request: PolicyRequest, policy: GuardPolicy) -> FloorRefusa
 
     Args:
         request: The action: its point and context (origin, goal request facts) are read.
-        policy: Unused: who may initiate Night Veil is fixed by ADR-0031, never configured.
+        policy: Unused: who may initiate Night Veil is fixed by ADR-0039, never configured.
 
     Returns:
         A `guard.tier_floor.night_veil_initiation` refusal, or None when it does not apply or
         every fact holds.
     """
-    del policy  # ADR-0031 fixes the initiation rule; nothing in [guard] may loosen it.
+    del policy  # ADR-0039 fixes the initiation rule; nothing in [guard] may loosen it.
     if request.point not in INITIATION_POINTS or not is_night_veil(request.context):
         return None
     problem = _missing_fact(request.context)

@@ -1,6 +1,6 @@
 """Provide the Queen's durable goal requests: a goal is written down before it is acknowledged.
 
-Docs/adr/0032, "A goal is durable before it is acknowledged": the Hive Entrance hands a goal to
+Docs/adr/0040, "A goal is durable before it is acknowledged": the Hive Entrance hands a goal to
 `Queen.request_goal`, which commits a `GoalRequest` row (with its trail event, in one transaction)
 and wakes the Queen, and only then does the Entrance answer `202`. The Queen plans every RECEIVED
 request herself on her own tick (`hivemind.queen.ticks.intake`): PLANNING, then `submit_goal`'s
@@ -24,7 +24,7 @@ Key invariants:
     - Nothing here ever puts a request's or a refusal's words on the trail or in a log.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the decision.
     - .claude/codingrules.md Appendix C for the "Goal request" state machine row.
     - hivemind.queen.ticks.intake for the drain that plans requests.
     - hivemind.queen.chat for the Queen's human-facing door and the chat log.

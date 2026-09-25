@@ -44,5 +44,5 @@ def test_task_event_kinds_hold_a_blocked_and_answered_pair_for_questions() -> No
 
 
 def test_cell_event_kinds_record_an_isolation_and_its_lifting() -> None:
-    # Roadmap step 10.6a (ADR-0035): only the Queen isolates, and only the human lifts it.
+    # Roadmap step 10.6a (ADR-0043): only the Queen isolates, and only the human lifts it.
     assert {"cell.isolated", "cell.isolation_lifted"} <= CellEvent.KINDS

@@ -1,6 +1,6 @@
 """Define the push channel's records: the notice, the subscription, and how a delivery ended.
 
-A push tells an enrolled device that something is waiting for the human, never what (ADR-0034):
+A push tells an enrolled device that something is waiting for the human, never what (ADR-0042):
 ``PushNotice`` has an event id, a kind, the id of the thing it points at (``ref``) and a time, and
 no content field at all, so there is nothing a push service or a webhook receiver could read beyond
 "the Hive wants this device's attention". ``notice_json`` is the one byte form every channel sends
@@ -28,7 +28,7 @@ Key invariants:
       capability URL; ``auth`` is a shared secret).
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the notice and the channels.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the notice and the channels.
     - hivemind.entrance.push.base for the PushChannel protocol these records cross.
 """
 

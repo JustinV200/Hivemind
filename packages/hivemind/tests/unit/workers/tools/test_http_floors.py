@@ -1,6 +1,6 @@
 """Unit tests for hivemind.workers.tools.http's hardening: no request ever reaches the Hive Stand.
 
-Roadmap step 10.3a (ADR-0033): a capability string can spell a loopback host many ways the grammar
+Roadmap step 10.3a (ADR-0041): a capability string can spell a loopback host many ways the grammar
 never sees through, so the HTTP tool checks the name, resolves it, and has the Guard's floors judge
 every address it got back; a refusal is `guard.denied` under `guard.state_floor.loopback` and
 nothing is sent. The name is checked first, so a host the Worker does not hold is never looked up.

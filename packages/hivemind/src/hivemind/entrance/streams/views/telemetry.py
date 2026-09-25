@@ -2,7 +2,7 @@
 
 "Full read access to any bee" means every episode record and every telemetry sample (codingrules
 8.11). A Heartbeat never reaches the trail, so this view is fed by the telemetry board the Queen's
-``on_heartbeat`` hook fills (ADR-0032: hooks the composition root wires where the trail is not the
+``on_heartbeat`` hook fills (ADR-0040: hooks the composition root wires where the trail is not the
 source), not by the hub. Each Heartbeat becomes one frame per bee: the Warden's own report, then
 one per sub-bee row, each with its context use, spend, state and its own goal line, last actions
 and blockers. Those words are the bee's, which may quote the human, so the view needs

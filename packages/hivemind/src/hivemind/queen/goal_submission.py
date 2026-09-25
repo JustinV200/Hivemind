@@ -5,7 +5,7 @@ functions, mirroring `hivemind.queen.dispatcher.dispatch_ready`, so `queen.py` (
 codingrules 5.1's file cap) never grows to carry a new `PlanBrief` field (roadmap step 5.0b:
 `scratch_root`, so a plan that declares a leaving inside the Hive Stand's own scratch is refused
 while planning; roadmap step 5.0e: `keep_root`; roadmap step 10.3: the submitter's capability
-set, every planned task's ceiling). Roadmap step 10.5 (ADR-0032) splits the work in two and
+set, every planned task's ceiling). Roadmap step 10.5 (ADR-0040) splits the work in two and
 groups what a goal is planned under into `GoalTerms`: `plan_goal_graph` plans and persists (the
 half the Queen's own intake drain runs for a durable goal request, beside her tick, with the
 request's budget, tier, origin, device, ceiling and id), and `submit_goal` adds the immediate

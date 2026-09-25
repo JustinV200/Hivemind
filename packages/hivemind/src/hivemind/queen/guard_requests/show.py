@@ -1,6 +1,6 @@
 """Show the human a SECURITY Alarm about a Guard report, or an isolation, at most once per report.
 
-ADR-0035: a report the Queen acts on, or one at CRITICAL confidence, reaches the human as a
+ADR-0043: a report the Queen acts on, or one at CRITICAL confidence, reaches the human as a
 SECURITY Alarm pushed to every device. Several paths can reach the human about the same report:
 the Guard Bee's `report_to_human` for a CRITICAL finding, the Queen's decision on a request, the
 isolation she carries out on it, the Hive Stand's fallback. `show_alert` is the one way all of

@@ -1,6 +1,6 @@
 """Define the tasks resource's read models: a task without its words, a page, and its C2 brief.
 
-A task's record mixes two kinds of field (ADR-0032's reads, codingrules 8.11's views). Its
+A task's record mixes two kinds of field (ADR-0040's reads, codingrules 8.11's views). Its
 identifiers, status, placement, tiers, counts, spend and times say where work stands and carry
 nothing personal, so ``TaskView`` holds them under ``observe``. Everything written from the human's
 goal is ``C2`` (codingrules 6.1: any personal detail is C2, and the planner writes a task's title,

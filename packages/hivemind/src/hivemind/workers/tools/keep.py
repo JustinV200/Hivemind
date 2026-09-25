@@ -15,7 +15,7 @@ policy does not persist -- `describe()`'s own leave-decision line (`hivemind.wor
 proposals`) is what tells the model plainly whether the file will actually remain. Roadmap step
 10.3a: the gate checks the destination's `fs:write` is held, so the tool first asks the Guard's
 floors alone, and a destination that is the Hive's own state is refused as `guard.denied` before
-anything is read or proposed (ADR-0033).
+anything is read or proposed (ADR-0041).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by

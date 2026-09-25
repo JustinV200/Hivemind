@@ -36,7 +36,7 @@ both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this pac
   and `to_wire`/`to_intervene`/`from_wire` against `waggle.messages.supervision.Intervene`
   (`to_intervene` also names the task and the Alarm an order answers). `from_wire` raises
   `UnknownInterventionError` for an action it has no lever for, so a newer peer's lever is never
-  mistaken for a cancel (ADR-0035). A Worker's runtime refuses one it cannot pull and logs it;
+  mistaken for a cancel (ADR-0043). A Worker's runtime refuses one it cannot pull and logs it;
   a `Quarantine` that reaches a bee's own runtime is carried out by its Warden, which only ever
   cancels the bee there.
 - **Policy** (`policy.py`): `PolicyAction` (`QUARANTINE` since roadmap step 10.6c: a Warden's own
@@ -46,7 +46,7 @@ both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this pac
   pure `decide(policy, alarm) -> PolicyAction`. `PolicyAction` mirrors no wire enum, so every
   table that maps it (the Warden's and the Queen's autopilot) is walked member by member in
   `tests/unit/supervision/test_policy_tables.py`, and the shipped policy's `SECURITY` row (an
-  `AlarmKind` since Waggle 1.7) always goes up: never retried, respawned or rebound.
+  `AlarmKind` since Waggle 1.9) always goes up: never retried, respawned or rebound.
 - **Attendant** (`attendant/`): `InboxKind`, `InboxItem`, `WeightTable` (with
   `queen_default()`/`warden_default()`), `Priority`, `TieBreaker` (the model-tie-break seam),
   `Attendant` (`score(item, now)`, `async order(items)`), pure `score_item`.

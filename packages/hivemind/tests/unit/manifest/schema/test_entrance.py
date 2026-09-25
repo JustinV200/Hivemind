@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.manifest.schema.entrance for the module under test.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the rules the
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the rules the
       validators encode.
 """
 
@@ -103,7 +103,7 @@ def test_entrance_remote_bind_rejects_wildcards_and_names(remote_bind: str, reas
 
 
 def test_entrance_remote_bind_accepts_loopback_for_a_tunnel_client() -> None:
-    # Tunnel mode binds the remote listener to loopback for the local tunnel client (ADR-0033);
+    # Tunnel mode binds the remote listener to loopback for the local tunnel client (ADR-0041);
     # which address each mode needs is expose.py's start-time check, not the schema's.
     assert EntranceSection(remote_bind="127.0.0.1:8711").remote_bind == "127.0.0.1:8711"
 
@@ -119,7 +119,7 @@ def test_entrance_rp_id_accepts_a_tailnet_name() -> None:
 
 
 def test_entrance_exposure_has_no_public_mode() -> None:
-    # ADR-0033: the schema itself refuses the one exposure codingrules 8.15 forbids.
+    # ADR-0041: the schema itself refuses the one exposure codingrules 8.15 forbids.
     assert {mode.value for mode in EntranceExposure} == {"loopback", "vpn", "lan", "tunnel"}
     with pytest.raises(ValidationError):
         EntranceSection.model_validate({"expose": "public"})

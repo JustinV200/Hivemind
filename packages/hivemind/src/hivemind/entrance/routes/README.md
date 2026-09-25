@@ -1,6 +1,6 @@
 # hivemind.entrance.routes
 
-One module per resource of the Landing Board (the Hive Entrance's committed contract, ADR-0032),
+One module per resource of the Landing Board (the Hive Entrance's committed contract, ADR-0040),
 each declaring its rows as `RouteSpec`s: method, path, the listeners that serve it, who may call it
 (`Access`) and what it changes (`RouteEffect`). `registry.RESOURCE_ROUTES` lists every resource;
 `hivemind.entrance.app.route_table` builds both listeners' applications and the OpenAPI document

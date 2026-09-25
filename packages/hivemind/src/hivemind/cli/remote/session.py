@@ -1,6 +1,6 @@
 """Log this laptop in to a remote Hive as its enrolled device, and turn refusals into one line.
 
-``hive run --remote`` and ``hive inbox --remote`` act as the laptop's enrolled device (ADR-0033):
+``hive run --remote`` and ``hive inbox --remote`` act as the laptop's enrolled device (ADR-0041):
 ``remote_session`` reads the profile, opens its device key from the laptop's secret store,
 connects to the profile's Entrance (TLS verified against the system's store or the profile's own
 CA, presenting the device's client certificate when it holds one, which a listener under mutual

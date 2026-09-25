@@ -1,6 +1,6 @@
 """Tests for hivemind.queen.forage.grants.grant_message: every grant carries the raises in force.
 
-Roadmap step 10.6 (Waggle 1.8): a Guard Bee raise of a Capping tier's audit rate lives on the
+Roadmap step 10.6 (Waggle 1.10): a Guard Bee raise of a Capping tier's audit rate lives on the
 Queen's trail, which a Virtual Cell's in-Cell Warden never sees, so every `GrantIssued` she sends
 carries the raises in force at that moment, the highest per tier and none that has lapsed.
 

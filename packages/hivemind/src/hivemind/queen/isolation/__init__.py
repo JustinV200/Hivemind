@@ -1,6 +1,6 @@
 """Isolate a Cell, the Queen's action alone, and lift it again, the human's (roadmap step 10.6a).
 
-ADR-0035, "Only the Queen isolates a Cell": a Guard Bee requests, a Warden escalates, the human
+ADR-0043, "Only the Queen isolates a Cell": a Guard Bee requests, a Warden escalates, the human
 orders; the Queen carries every isolation out through one code path (`path.isolate_cell`), checked
 at the Guard's `isolation` enforcement point (`authority`). An isolation revokes the Cell's Warden
 grants and writes a BLOCK Cell Wax note (`access`), checkpoints and pauses every bee on it with a
@@ -25,7 +25,7 @@ Key invariants:
     - Nothing but the human's door lifts an isolation.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - docs/guard/isolation.md for the operator's view.
     - .claude/codingrules.md Appendix C, "Cell isolation" row.
 

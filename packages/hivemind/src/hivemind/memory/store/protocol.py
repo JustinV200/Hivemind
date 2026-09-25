@@ -19,7 +19,7 @@ one write, one lookup by id, one by task, one by a time range -- lookup only, no
 persistence: `put_wax` inserts a fresh proposal, `update_wax_state` overwrites an already-
 transitioned row (`hivemind.memory.cell_wax.writes` is the only caller of either, and it always
 validates the edge with `hivemind.memory.cell_wax.state.assert_transition` first), `get_wax` and
-`list_wax` are the two reads. The three `*_taint*` methods (roadmap step 10.6d, ADR-0035) make the
+`list_wax` are the two reads. The three `*_taint*` methods (roadmap step 10.6d, ADR-0043) make the
 memory tables a `hivemind.memory.taint.TaintLedger`: `find_taintable` lists what a `TaintScope`
 covers that is not already TAINTED, `read_taintable` shows one item as the taint judge sees it, and
 `write_taint` replaces one item's label and records its `memory.tainted` or `memory.taint_cleared`

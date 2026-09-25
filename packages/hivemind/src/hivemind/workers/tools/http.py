@@ -2,7 +2,7 @@
 
 `waggle.messages.capping.ActionKind` has no network shape yet (roadmap step 3.16's own note: "no
 network shape yet"), so `http_request` proposes an `ACTION_SEQUENCE` with one step describing the
-call on the `NETWORK_EGRESS` tier. Roadmap step 10.3 (ADR-0031) makes the tool work: the
+call on the `NETWORK_EGRESS` tier. Roadmap step 10.3 (ADR-0039) makes the tool work: the
 destination's `net:<host>` is checked through the Guard's `Enforcer` at the `tool_invocation` point
 before any proposal is built (a Worker without it is refused with the reason on the trail as
 `guard.denied`, not a silent string), and `hivemind.supervision.capping.checks.deterministic.
@@ -10,7 +10,7 @@ SchemaCheck` passes a well-formed network step on its own tier (whose ALLOWLIST 
 same `net:<host>` again), whose apply is only the authorisation (`hivemind.supervision.capping.
 apply`): once the gate reaches `VERIFIED`, `_send` makes the one request.
 
-Roadmap step 10.3a (ADR-0033, "bees never touch the Hive's own state") hardens the destination.
+Roadmap step 10.3a (ADR-0041, "bees never touch the Hive's own state") hardens the destination.
 A capability string can spell a loopback host many ways the grammar never sees through (`127.1`,
 `2130706433`, a DNS name answering 127.0.0.1), so once the name itself is held, the tool resolves
 it (`WorkerContext.resolver`) and asks the Guard's floors about every address it got back: any

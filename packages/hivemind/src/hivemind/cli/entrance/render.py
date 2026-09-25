@@ -3,7 +3,7 @@
 Everything a device says about itself (its name, platform and User-Agent) reached the Hive over an
 unauthenticated route from a device nobody trusts yet, and the Hive's own text can quote a model's
 words; on a terminal, a control character, an escape sequence or a bidirectional override in such a
-string could rewrite what the operator sees at the one moment it matters, the approval (ADR-0033:
+string could rewrite what the operator sees at the one moment it matters, the approval (ADR-0041:
 "every approval surface ... escapes every string the device supplied"). ``hivemind.cli.landing.
 shown`` is that escape, applied here to every such string before it is printed. ``device_lines`` is
 the approval view (the key's fingerprint, the passkey backup flags, the self-description),
@@ -21,7 +21,7 @@ Key invariants:
     - Nothing here prints a key, a token or a password; a fingerprint is the most a key shows.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Every approval
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Every approval
       surface shows the key fingerprint and the backup flags and escapes every string the device
       supplied."
 """

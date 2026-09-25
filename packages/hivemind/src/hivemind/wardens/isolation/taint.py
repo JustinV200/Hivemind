@@ -1,6 +1,6 @@
 """Taint this Cell's own memory on the Queen's order: the isolation setter inside a Virtual Cell.
 
-ADR-0035, "Taint is one label": isolation (roadmap step 10.6a) is one of its three setters. The
+ADR-0043, "Taint is one label": isolation (roadmap step 10.6a) is one of its three setters. The
 Queen runs it on the Hive's own tables when she isolates a Cell (`hivemind.queen.isolation.
 taint`), but a Virtual Cell's Warden keeps its memory store inside the Cell (ADR-0027), where her
 label cannot reach: the Handoffs its bees checkpointed, their episode records, its own. So she
@@ -26,7 +26,7 @@ Key invariants:
     - An order naming another Cell labels nothing: a Warden taints its own store only.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.queen.isolation.taint for the Queen's half, and the order she sends.
     - docs/guard/isolation.md, "The isolation path".
 """

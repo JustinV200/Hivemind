@@ -1,6 +1,6 @@
 """Tests for the Hive Stand's exception: only the human isolates it, and the Queen falls back.
 
-Roadmap step 10.6a (ADR-0035). A dire pattern on the Hive Stand's own lease makes the Queen's rule
+Roadmap step 10.6a (ADR-0043). A dire pattern on the Hive Stand's own lease makes the Queen's rule
 reach for isolation, and the `isolation` point refuses her there (`guard.denied`, rule
 `guard.scope.hive_stand`): nothing is isolated. Instead her decision quarantines the implicated
 bee's task through the 10.6c order, holds that goal's new placements off the Hive Stand (a

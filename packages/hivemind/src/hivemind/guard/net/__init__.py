@@ -4,7 +4,7 @@ A bee's network capability names a host (`net:api.example.com`), but a connectio
 address, and one host can be spelled many ways that all reach the Hive Stand itself (`localhost`,
 `127.1`, `2130706433`, `[::ffff:127.0.0.1]`, or a DNS name answering 127.0.0.1). This package holds
 what the Guard's floors and the HTTP tool both need to close that gap (roadmap step 10.3a,
-ADR-0031, ADR-0033): pure predicates over hosts and addresses (`addresses`: loopback, unspecified,
+ADR-0039, ADR-0041): pure predicates over hosts and addresses (`addresses`: loopback, unspecified,
 link-local, a cloud metadata endpoint, one of the Hive Stand's own addresses, each judged on the
 plain form of an IPv4-mapped address), and the one seam that turns a name into its addresses
 (`resolve`), with an honest fake for tests (`fake`). A tool resolves first, asks the Guard about
@@ -22,7 +22,7 @@ Key invariants:
     - An address is always judged in its plain form (`plain_address`), never as spelled.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Bees never touch
       the Hive's own state".
     - hivemind.entrance.push.destinations for the webhook guard that first used this approach.
 

@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.push.dispatch.dispatcher for the caller.
-    - docs/adr/0034-landing-board-versioning-and-push.md for delivery and withdrawal.
+    - docs/adr/0042-landing-board-versioning-and-push.md for delivery and withdrawal.
 """
 
 from __future__ import annotations

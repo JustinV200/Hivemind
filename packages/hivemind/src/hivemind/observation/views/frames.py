@@ -1,7 +1,7 @@
 """Define the frames the Hive's live views send: trail, telemetry, Forage, tasks, episodes, Cells.
 
 Clients never poll (codingrules 8.11): each Observation Hive view subscribes to one WebSocket
-stream, and each stream sends JSON text frames of one model, tagged by ``type`` (ADR-0032), so a
+stream, and each stream sends JSON text frames of one model, tagged by ``type`` (ADR-0040), so a
 client parses a stream from the published contract alone. A frame carries the same read model the
 matching route answers with: a trail event, a task, an episode record, a Cell. Two frames carry
 more than one: a Forage delta is the ``forage.*`` event that moved the ledger, the grant it named

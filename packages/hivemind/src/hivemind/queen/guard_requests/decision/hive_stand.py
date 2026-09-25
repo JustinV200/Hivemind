@@ -1,6 +1,6 @@
 """Fall back on the Hive Stand, where only the human isolates: quarantine, hold placements, alarm.
 
-ADR-0035: the Hive Stand's own lease (the machine the Hive runs on) is isolated only by the human.
+ADR-0043: the Hive Stand's own lease (the machine the Hive runs on) is isolated only by the human.
 When the Queen decides to isolate it, the `isolation` enforcement point refuses her (a
 `guard.denied` row, rule `guard.scope.hive_stand`), and her decision falls back to the three things
 she may do there (roadmap step 10.6a): quarantine every implicated bee through the 10.6c order;

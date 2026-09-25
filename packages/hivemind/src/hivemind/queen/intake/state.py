@@ -1,9 +1,9 @@
 """Define GoalRequestState and the one transition table a goal request moves through.
 
-A goal request is durable before it is acknowledged (docs/adr/0032): the Hive Entrance commits it
+A goal request is durable before it is acknowledged (docs/adr/0040): the Hive Entrance commits it
 RECEIVED and answers `202`, and from then on only the Queen moves it. She plans a RECEIVED request
 (PLANNING, then PLANNED with its goal id, or REFUSED with a reason), or, when the request must be
-echoed back first (a spoken goal, or one held for a human's step-up, ADR-0033), holds it in
+echoed back first (a spoken goal, or one held for a human's step-up, ADR-0041), holds it in
 AWAITING_CONFIRMATION until the human confirms it (back to RECEIVED) or declines it (REFUSED).
 A request whose device is revoked before it was planned is REFUSED from whichever unplanned state
 it is in (RECEIVED, AWAITING_CONFIRMATION or PLANNING), so a revoked device's work never starts.
@@ -25,7 +25,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md Appendix C for the "Goal request" row this table implements.
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the states.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the states.
     - hivemind.queen.intake.writes for the one mover.
 """
 

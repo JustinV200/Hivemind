@@ -1,6 +1,6 @@
 """Define GuardRequestStore: the persistence seam for the Queen's durable Guard requests.
 
-A Guard request (ADR-0035) is only useful if it survives the Queen: `GuardRequestDoor` is "durable
+A Guard request (ADR-0043) is only useful if it survives the Queen: `GuardRequestDoor` is "durable
 before it returns", so the request a Guard Bee filed just before a restart is decided after it.
 This protocol is that table's whole surface, shaped like the chat log's rather than the goal
 requests' state machine: `file` writes a fresh row (idempotently by report id: the Guard Bee's

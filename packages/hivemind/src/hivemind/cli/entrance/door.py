@@ -2,7 +2,7 @@
 
 The Hive Entrance (the Hive's one HTTP door) is OPEN or REDUCED (loopback only, every remote session
 ended), and its remote listener exists only in the exposure mode ``[entrance] expose`` asks for and
-this host can honour (ADR-0033). ``reduce`` narrows the door, which is always safe; ``open``
+this host can honour (ADR-0041). ``reduce`` narrows the door, which is always safe; ``open``
 reopens it on loopback after a step-up the console gives with the password it holds. ``status``
 reads the mode, the listeners, the devices by status and the requests held for a person, beside
 the exposure plan the manifest yields on this host. ``expose`` prints that plan, or the rule the

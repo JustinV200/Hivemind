@@ -2,7 +2,7 @@
 
 Under mutual TLS (``lan`` and ``tunnel`` always, ``vpn`` when the operator turns it on) the remote
 listener admits only a device holding a client certificate from the Hive's own authority
-(ADR-0033), and the device receives it when it is approved: signed from the certificate signing
+(ADR-0041), and the device receives it when it is approved: signed from the certificate signing
 request a program sent with its key (at redemption, or registered offline by the operator), or,
 for a browser, which cannot make a request, sealed with a fresh key into a PKCS#12 bundle the
 operator imports on the device. ``DeviceCertifier`` does the issuing for the enrolment flows: it
@@ -30,7 +30,7 @@ Key invariants:
       received or is being signed.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "receives its
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "receives its
       client certificate at approval".
     - hivemind.entrance.expose.tls.issue for the certificates themselves.
 """

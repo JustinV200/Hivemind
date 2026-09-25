@@ -1,7 +1,7 @@
 """Hold the Entrance's read side: views joined from several stores, and the paged trail read.
 
 Reads never change state, so the Hive Entrance reads the Hive's stores and the Queen's live tables
-directly (ADR-0032), never through her door. Most read routes are one store call and a shaping
+directly (ADR-0040), never through her door. Most read routes are one store call and a shaping
 function; what needs more lives here, shared by the read routes and the live views: ``census``
 joins each Cell's and Warden's standing from the Queen's links and pulse, the Virtual Cell
 lifecycle, the trail, the Brood Chamber, the telemetry board and the Forage ledger; ``trail``

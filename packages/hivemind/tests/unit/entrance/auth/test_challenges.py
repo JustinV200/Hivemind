@@ -20,7 +20,7 @@ from hivemind.entrance.auth import NONCE_BYTES, ChallengeBook, b64url_decode
 from hivemind.entrance.errors import ChallengeRejectedError
 from waggle.clock import FakeClock
 
-_TTL = timedelta(seconds=60)  # ADR-0033's login challenge lifetime.
+_TTL = timedelta(seconds=60)  # ADR-0041's login challenge lifetime.
 _SUBJECT = "a" * 64  # An invite's code hash.
 _KEY = "session-binding-key"  # Stands for a browser's session-binding public key.
 

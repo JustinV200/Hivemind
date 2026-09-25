@@ -1,7 +1,7 @@
 """Render outside text into a prompt under its scan verdict: fenced, labelled harder, or withheld.
 
 The untrusted-content scanner (`hivemind.guard.scanner`, roadmap step 10.6b) decides; this module
-applies the decision wherever outside text is put in front of a model (ADR-0035: "memory.assemble
+applies the decision wherever outside text is put in front of a model (ADR-0043: "memory.assemble
 applies the [guard] untrusted_content policy: label harder or drop"). `UntrustedText` is one piece
 of outside text travelling with its verdict and the label its fence carries; `render_untrusted`
 turns it into prompt text: PASS is fenced and labelled as data, LABEL is fenced under a harder

@@ -2,7 +2,7 @@
 
 Every remote mode speaks TLS on a DNS name, with the operator's certificate (``tailscale cert``,
 or their own domain's), and under mutual TLS the remote listener is the outer gate of two
-(ADR-0033): a handshake completes only with a client certificate that chains to the Hive's own
+(ADR-0041): a handshake completes only with a client certificate that chains to the Hive's own
 authority and is not on its revocation list; login is the inner gate. ``server_context`` builds
 that context from the plan's ``ListenerTls``. With mutual TLS it requires a certificate, checks
 the leaf against the list (``VERIFY_CRL_CHECK_LEAF``, strict X.509 rules on top), speaks TLS 1.3

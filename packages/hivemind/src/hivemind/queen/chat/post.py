@@ -1,6 +1,6 @@
 """Define the functions that write the chat: the human's messages in, the Queen's lines out.
 
-Docs/adr/0032: the chat is one log both directions append to. `post_message` is the human's half
+Docs/adr/0040: the chat is one log both directions append to. `post_message` is the human's half
 (`Queen.post_human_message`'s body): a MESSAGE line from a device, committed with its
 `queen.human_message_received` event, which the Queen's tick then drains into her inbox. The rest
 are the Queen's half, each appended as Monarch and each followed by the matching `HumanChannel`
@@ -212,7 +212,7 @@ async def post_alarm(deps: QueenDeps, alarm: Alarm) -> ChatEntry:
 async def escalate_alarm(deps: QueenDeps, human_inbox: HumanInbox, alarm: Alarm) -> ChatEntry:
     """Put an Alarm raised outside the bee tree in front of the human: inbox, trail, chat.
 
-    The Hive Entrance's own trouble (its remote listener failing, ADR-0033) has no Warden above
+    The Hive Entrance's own trouble (its remote listener failing, ADR-0041) has no Warden above
     it, so it lands at the chain's last hop directly, exactly as an escalated Alarm does.
 
     Args:

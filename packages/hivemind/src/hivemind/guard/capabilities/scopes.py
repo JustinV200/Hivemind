@@ -29,7 +29,7 @@ Key invariants:
       itself; a held glob scope always covers an identical needed one.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for each kind's rule.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for each kind's rule.
     - hivemind.guard.capabilities.families for the family table these rules are keyed on.
     - hivemind.guard.capabilities.hosts for the HOST kind (`net`).
 """

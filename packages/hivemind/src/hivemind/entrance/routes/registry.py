@@ -1,7 +1,7 @@
 """Register every resource's routes: adding a resource to the Landing Board is one line here.
 
 The Hive Entrance builds both of its applications, and the Landing Board's OpenAPI document, from
-one route table (ADR-0032). ``RESOURCE_ROUTES`` is the HTTP half of it: each resource module (one
+one route table (ADR-0040). ``RESOURCE_ROUTES`` is the HTTP half of it: each resource module (one
 per resource under ``/v1/``) declares its own rows, and joins the Landing Board by being named once
 below. The WebSocket half is ``hivemind.entrance.streams.VIEWS``; ``hivemind.entrance.app`` joins
 the two into the ``RouteTable``.

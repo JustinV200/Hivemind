@@ -1,6 +1,6 @@
 """Step a session up: re-run the device's factors, and keep it stepped up for a short window.
 
-A step-up at the Hive Entrance (the Hive's one HTTP door) needs a person (ADR-0033): a fresh passkey
+A step-up at the Hive Entrance (the Hive's one HTTP door) needs a person (ADR-0041): a fresh passkey
 assertion with user verification, or, on an interactive Ed25519 device (the console, a program the
 operator approved as interactive), a fresh device proof plus the password typed at it. It marks the
 session stepped up for ``step_up_window_minutes``, clears the travel lock's flag (and remembers
@@ -23,7 +23,7 @@ Key invariants:
     - A step-up challenge is bound to one session and spent once.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
     - hivemind.entrance.auth.step_up.rules for when a step-up is required.
 """

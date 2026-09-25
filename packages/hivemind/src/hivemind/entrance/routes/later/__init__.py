@@ -1,6 +1,6 @@
 """Hold the resources the contract names before the phases that fill them: tools, honey, swarm.
 
-ADR-0032: a Landing Board resource whose subsystem is not built yet answers ``501`` with the
+ADR-0040: a Landing Board resource whose subsystem is not built yet answers ``501`` with the
 roadmap phase that fills it, so the contract names every resource from the start. One module per
 resource (``tools``, phase 9; ``honey``, phase 7; ``swarm``, phase 11), sharing the row shape
 ``unbuilt`` builds; each is replaced by its real reads when its phase lands.

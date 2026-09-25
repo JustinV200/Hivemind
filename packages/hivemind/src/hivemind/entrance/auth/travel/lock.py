@@ -2,7 +2,7 @@
 
 With ``travel_lock`` on (off by default; ``expose = "vpn"`` on Tailscale only), a device that logs
 in on the remote listener from a network it has not used before must step up before anything else,
-and every other device is notified (ADR-0033). ``TravelLock.network`` asks the
+and every other device is notified (ADR-0041). ``TravelLock.network`` asks the
 ``PeerEndpointSource`` where the peer really connects from; ``check`` compares that with the
 networks the device has been cleared on (``EntranceStore.logins``): a known network only moves its
 last sighting, while a new one (or one the source cannot place, since unknown is never trusted) is
@@ -24,7 +24,7 @@ Key invariants:
     - The event is on the trail before the notice is sent, and neither carries a credential.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
     - hivemind.entrance.auth.travel.tailscale for the real endpoint source.
 """
 
@@ -149,7 +149,7 @@ def open_travel_lock(
     """
     if not section.travel_lock:
         return None
-    # ADR-0033: only the Tailscale overlay shows real endpoints, so any other mode refuses.
+    # ADR-0041: only the Tailscale overlay shows real endpoints, so any other mode refuses.
     if section.expose is not EntranceExposure.VPN:
         raise TravelLockUnavailableError(f"expose is {section.expose.value!r}, not 'vpn'")
     return TravelLock(deps, source if source is not None else tailscale_source(section))

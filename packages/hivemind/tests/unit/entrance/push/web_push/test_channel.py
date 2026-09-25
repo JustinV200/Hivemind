@@ -115,7 +115,7 @@ async def test_deliver_connects_to_the_checked_address_keeping_the_name() -> Non
 
 
 async def test_every_kind_and_ref_length_gives_one_ciphertext_length() -> None:
-    # ADR-0034: the push service must not learn the kind from the length.
+    # ADR-0042: the push service must not learn the kind from the length.
     agent = UserAgent()
     recorder = Recorder()
     subscription = web_push_subscription(SteppingClock(), agent)

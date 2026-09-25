@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.guard.policy.points for the module under test.
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the point list.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the point list.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from hivemind.guard.policy.points import EnforcementPoint
 
 
 def test_every_point_the_adr_names_is_declared() -> None:
-    # ADR-0031's list, in its own order; step 10.3 wires each one to its call site.
+    # ADR-0039's list, in its own order; step 10.3 wires each one to its call site.
     assert [point.value for point in EnforcementPoint] == [
         "placement",
         "lease_creation",

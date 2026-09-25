@@ -1,7 +1,7 @@
 """Check the two factors of a login or a step-up: the device's key proof, then the password.
 
 Login at the Hive Entrance (the Hive's one HTTP door) is the device key plus the operator's
-password, the key proof first (ADR-0033). ``DeviceProof`` is what a device presents over the
+password, the key proof first (ADR-0041). ``DeviceProof`` is what a device presents over the
 challenge it was issued: an Ed25519 signature over ``login_string(hive_id, device_id, challenge)``
 for a program or the console, or a WebAuthn assertion (user verification required, origin and
 relying party checked, sign count moving forward) for a browser, which also names the WebCrypto
@@ -21,7 +21,7 @@ Key invariants:
     - Nothing here logs, stores or raises a signature, an assertion or a password.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
       key plus the password, the key proof first".
     - hivemind.entrance.auth.canonical for ``login_string``.
 """

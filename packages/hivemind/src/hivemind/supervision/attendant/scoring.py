@@ -10,7 +10,7 @@ The scoring formula, computed once per item by `score_item` and reused by `Atten
     score *= principal_weights.get(item.principal, 1.0)                # one multiplier, last
 
 A kind the table refuses (`WeightTable.refused_kinds`: a Warden refuses a Guard request, which
-is the Queen's alone to decide, ADR-0035) is never scored: `score_item` raises on one and
+is the Queen's alone to decide, ADR-0043) is never scored: `score_item` raises on one and
 `Attendant.order` drops it before ranking, so a refused item can never be acted on.
 
 Every additive term is optional and, when present, only ever adds (codingrules section 8.8:

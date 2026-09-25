@@ -66,7 +66,7 @@ class EntranceSettings:
         web_root: The Observation Hive's build directory, served when it exists.
         tunnel_env: The tunnel child's environment (``tunnel_environment``); None when no tunnel.
         poll_interval_s: How often the stream hub polls the trail once caught up.
-        hello_deadline_s: How long a socket may take to authenticate its first frame; ADR-0033's
+        hello_deadline_s: How long a socket may take to authenticate its first frame; ADR-0041's
             five seconds, shorter only in a test that waits it out.
         stream_backlog: How far a live view may fall behind before it is closed as too slow.
     """

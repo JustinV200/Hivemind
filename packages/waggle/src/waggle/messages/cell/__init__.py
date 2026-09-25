@@ -7,7 +7,7 @@ heartbeat, its needs report); ``leases`` the tenancy lifecycle (a Cell asked for
 teardown asked for, a lease released); ``wax`` the Cell Wax notes, Queen-written cautions about one
 Cell, proposed, written and cleared; ``snapshot`` (PROTOCOL_MINOR 5) the snapshot relay a Virtual
 Cell's own Warden uses to ask the Queen, the one side that can reach the host backend, to snapshot
-or roll back its Cell; ``taint`` (PROTOCOL_MINOR 8) the Queen's order to an isolated Cell's Warden
+or roll back its Cell; ``taint`` (PROTOCOL_MINOR 10) the Queen's order to an isolated Cell's Warden
 to taint the memory store it keeps inside the Cell. This package is the family's face: a caller
 imports any of its messages, enums or value models from here without knowing which module defines
 them. The bounds each module names stay in that module, because the spec makes the number

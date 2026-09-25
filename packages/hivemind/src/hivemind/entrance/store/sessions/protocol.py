@@ -1,7 +1,7 @@
 """Define SessionTable: where sessions and the request nonces they have seen are kept.
 
 A session at the Hive Entrance (the Hive's one HTTP door) is a row keyed by its token's SHA-256
-(ADR-0033); every signed request spends a nonce, and a nonce seen once is refused for twice the
+(ADR-0041); every signed request spends a nonce, and a nonce seen once is refused for twice the
 clock-skew window, persisted so that a restart does not reopen a replay window. ``SessionTable``
 is that seam (codingrules 8.1), implemented by ``SqliteSessionTable`` (the Entrance tables, next to
 the devices), ``MemorySessionTable`` (tests, demos, and the Hive Stand console's volatile sessions)
@@ -22,7 +22,7 @@ Key invariants:
     - A token hash names at most one session.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for sessions.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for sessions.
     - packages/hivemind/tests/contracts/test_entrance_store_contract.py for the shared contract.
 """
 

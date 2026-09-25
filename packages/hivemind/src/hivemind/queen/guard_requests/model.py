@@ -1,6 +1,6 @@
 """Define GuardRequest: one Guard Bee request as the Queen's own table holds it, and her decision.
 
-A Guard request (ADR-0035) is a `hivemind.guard.GuardReport` whose recommended action asks the
+A Guard request (ADR-0043) is a `hivemind.guard.GuardReport` whose recommended action asks the
 Queen to act on one Cell or one bee. It reaches her through her door
 (`hivemind.queen.guard_requests.door`), which writes one `GuardRequest` row before it returns, so a
 request filed just before a restart is still decided after it. The row carries the report exactly
@@ -26,7 +26,7 @@ Key invariants:
       once.
 
 See Also:
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md.
     - hivemind.guard.report for GuardReport, the contract this row carries unchanged.
 """
 

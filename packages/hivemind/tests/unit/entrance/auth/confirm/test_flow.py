@@ -1,6 +1,6 @@
 """Tests for hivemind.entrance.auth.confirm.flow: held until a person confirms, once.
 
-The ADR-0033 path runs end to end first: a program's goal over its daily cap needs step-up, the
+The ADR-0041 path runs end to end first: a program's goal over its daily cap needs step-up, the
 program cannot step up, the goal is held, and the console, logged in and stepped up, confirms it
 and gets the held action back exactly once. Every refusal follows.
 

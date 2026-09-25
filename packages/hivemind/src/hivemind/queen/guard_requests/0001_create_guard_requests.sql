@@ -1,4 +1,4 @@
--- Roadmap step 10.6a (docs/adr/0035, "Only the Queen isolates a Cell"): the Queen's own Guard
+-- Roadmap step 10.6a (docs/adr/0043, "Only the Queen isolates a Cell"): the Queen's own Guard
 -- request table. One row per Guard report the Guard Bee filed through her door, written before the
 -- door returns, so a request filed just before a restart is still decided after it. `body` is the
 -- row's full GuardRequest.model_dump_json(), the source of truth every read decodes; the other

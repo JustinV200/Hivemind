@@ -1,6 +1,6 @@
 """Read the committed Landing Board document: its operations, its streams and their schemas.
 
-A third-party program knows the Landing Board (the Hive Entrance's versioned API, ADR-0034) only
+A third-party program knows the Landing Board (the Hive Entrance's versioned API, ADR-0042) only
 through ``docs/entrance/openapi.json``. ``LandingBoard`` is that program's whole view of it: it
 finds an operation by method and path template, fills the template's parameters (each checked
 against its declared schema first), and validates a body against the schema the document declares

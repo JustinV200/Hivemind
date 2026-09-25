@@ -2,7 +2,7 @@
 
 The push channel tells an enrolled device that **something is waiting** for the human (a
 question, an Alarm that reached the human, a reply from the Queen, a finished goal, an Entrance
-security event) without the device polling, and **never what** (ADR-0034). A push carries a
+security event) without the device polling, and **never what** (ADR-0042). A push carries a
 `PushNotice`: an event id (a ULID minted once, reused by every retry and every channel), a kind, the
 id of the item it points at (`ref`) and a time. The device fetches the item itself, over its
 authenticated session, when the human looks.

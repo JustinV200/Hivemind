@@ -2,7 +2,7 @@
 
 A capability is one thing a bee (or a principal such as an enrolled device) is allowed to do: a
 tool it may call, a path it may write, a host it may reach, a model slot it may bind, a Landing
-Board route it may use (ADR-0031). `Capability` is that one grant as a frozen value: a
+Board route it may use (ADR-0039). `Capability` is that one grant as a frozen value: a
 `CapabilityFamily` plus a scope string whose grammar the family's `ScopeKind` fixes. It validates
 its own grammar whenever it is built, from `parse` or directly, so an invalid capability can never
 exist in memory, and it reads back exactly as written: `str(Capability.parse(s)) == s` for every
@@ -24,7 +24,7 @@ Key invariants:
       frozenset.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the grammar.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the grammar.
     - hivemind.guard.capabilities.scopes for scope validation and matching per kind.
     - hivemind.guard.capabilities.capability_set for CapabilitySet, the set a bee holds.
 """

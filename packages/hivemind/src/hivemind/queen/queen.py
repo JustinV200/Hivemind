@@ -16,13 +16,13 @@ says is ready. The work each action does lives in `hivemind.queen.ticks`, `hivem
 dispatcher`, `hivemind.queen.questions` and `hivemind.queen.goal_submission` (`submit_goal`,
 roadmap step 5.0b: threads `deps.scratch_root` into the plan so a declared leaving inside it is
 refused while planning), this module's own delegates, split out only so this file and its `Queen`
-class stay within codingrules 5.1's size limits. Roadmap step 10.5 (ADR-0032) makes her the human
+class stay within codingrules 5.1's size limits. Roadmap step 10.5 (ADR-0040) makes her the human
 end of the Hive Entrance: her tick also awaits `QueenDeps.wake` beside her Warden links, drains the
 human's waiting chat messages into the same Attendant (`hivemind.queen.ticks.chat`), runs every
 awake episode through `hivemind.queen.ticks.awake` (a `REPLY` decision's words go to the chat), and
 plans durable goal requests (`hivemind.queen.ticks.intake`); her human-facing methods
 (`request_goal`, `post_human_message`, ...) are the `hivemind.queen.chat.ChatDoor` mixin.
-Roadmap step 10.6a (ADR-0035): she is the Guard Bee's `GuardRequestDoor` (`GuardDoor`) and the
+Roadmap step 10.6a (ADR-0043): she is the Guard Bee's `GuardRequestDoor` (`GuardDoor`) and the
 human's isolate and lift levers (`hivemind.queen.isolation.IsolationDoor`).
 
 Fits into the Hive:
@@ -361,7 +361,7 @@ async def _run_tick(queen: Queen) -> None:
     """Wait for an envelope, the wake signal or a quiet interval, act, then the fixed sweeps."""
     wake, deps = queen._deps.wake, queen._deps
     # stop() ends this wait early, and so does the wake signal a goal request, a human message or
-    # a finished plan sets (ADR-0032: she awaits it beside her Warden links). A heartbeat interval
+    # a finished plan sets (ADR-0040: she awaits it beside her Warden links). A heartbeat interval
     # with nothing at all ends it too: with every Warden silent, only that timer still runs the
     # liveness sweep below, and one sleep per wait is no busy loop.
     if not await queen._links.wait(
@@ -423,7 +423,7 @@ async def _record_recovered_tick_error(queen: Queen, error: Exception) -> None:
 async def _handle_item(queen: Queen, item: InboxItem) -> None:
     """Decide and act on one ordered InboxItem, waking a model only for NEEDS_JUDGEMENT."""
     if item.kind is InboxKind.GUARD_REQUEST:
-        # Roadmap step 10.6a: a Guard request has its own rule, episode and fallback (ADR-0035).
+        # Roadmap step 10.6a: a Guard request has its own rule, episode and fallback (ADR-0043).
         await decide_guard_item(queen._isolation_site(), item)
         return
     # A Heartbeat or a ForageRequest is handled directly (hivemind.queen.ticks.liveness.
@@ -466,7 +466,7 @@ async def _act(
     """Carry out one decided QueenAction; a payload-type mismatch (a stale wire kind) is a no-op."""
     payload, warden_id = item.payload, WardenId(item.principal)
     if action is QueenAction.REPLY:
-        # Words for the human (ADR-0032), whatever woke the episode; the item itself is still
+        # Words for the human (ADR-0040), whatever woke the episode; the item itself is still
         # handled below, so an Alarm answered with a REPLY still reaches its own handling.
         await ticks.chat.reply(queen._deps, item, message)
     if isinstance(payload, TaskResult):

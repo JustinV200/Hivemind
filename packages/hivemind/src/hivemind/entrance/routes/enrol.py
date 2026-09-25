@@ -1,7 +1,7 @@
 """Serve the enrol resource: redeem an invite with a device's own key (unauthenticated).
 
 A device joins the Hive by redeeming the single-use invite the operator minted on loopback
-(ADR-0033). These routes need no session, on either listener: a program first reads the Hive's id
+(ADR-0041). These routes need no session, on either listener: a program first reads the Hive's id
 (its enrolment and login signatures name the Hive, and the invite code does not carry it; the id
 is not a secret), then sends its Ed25519 public key and a signature over ``enrol_string``, and
 may send a certificate signing request for its mutual-TLS client certificate; a browser first asks

@@ -1,6 +1,6 @@
 """Provide HiveEntrance: the running Hive Entrance, from start-up checks to a clean stop.
 
-``HiveEntrance.run`` is the Entrance's whole life inside ``hive serve`` (ADR-0032), in one task
+``HiveEntrance.run`` is the Entrance's whole life inside ``hive serve`` (ADR-0040), in one task
 group beside the Queen's. Before anything listens it settles what a restart may have left: every
 session is re-judged against its device's standing, every push subscription of a device no longer
 APPROVED is deleted before the first delivery, lapsed devices and held requests are expired, a
@@ -25,8 +25,8 @@ Key invariants:
     - Nothing listens before the start-up checks have run.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the process shape.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the process shape.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the checks.
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ class HiveEntrance:
         store = enrolment.records.store
         # Codingrules Appendix C: sessions are re-validated against device state on start.
         ended = await services.listeners[Listener.LOOPBACK].auth.sessions.revalidate()
-        # ADR-0034: a subscription whose device is not APPROVED goes before the first delivery.
+        # ADR-0042: a subscription whose device is not APPROVED goes before the first delivery.
         approved = [device.id for device in await store.list_devices(DeviceStatus.APPROVED)]
         await services.push.dispatcher.revalidate(approved)
         await expire_due(enrolment)

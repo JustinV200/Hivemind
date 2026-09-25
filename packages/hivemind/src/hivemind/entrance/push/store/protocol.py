@@ -1,6 +1,6 @@
 """Define SubscriptionStore: where push subscriptions and the per-ref delivery log persist.
 
-Push subscriptions are per device and persisted (codingrules Appendix C, ADR-0034), and a
+Push subscriptions are per device and persisted (codingrules Appendix C, ADR-0042), and a
 withdrawal must reach exactly the subscriptions that received the original notice, which outlives
 the process that sent it. So the store holds two things: the subscriptions themselves, and a
 delivery log mapping each notice ``ref`` to the subscriptions it reached. Deleting a subscription
@@ -20,7 +20,7 @@ Key invariants:
       longer stored is skipped, and deleting a subscription deletes its rows.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for subscriptions and withdrawal.
+    - docs/adr/0042-landing-board-versioning-and-push.md for subscriptions and withdrawal.
     - packages/hivemind/tests/contracts/test_push_subscription_store_contract.py for the contract.
 """
 

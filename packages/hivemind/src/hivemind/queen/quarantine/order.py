@@ -1,6 +1,6 @@
 """Order a quarantine: send `Intervene(QUARANTINE)` to the Warden of the bee's task.
 
-The Queen (the Hive's orchestrator) never carries a quarantine out; ADR-0035's one code path lives
+The Queen (the Hive's orchestrator) never carries a quarantine out; ADR-0043's one code path lives
 in the Warden (the supervisor of the bee's Cell), `hivemind.wardens.quarantine`. What she does is
 order it (roadmap step 10.6c): on a Guard request, by rule for the dire patterns or by awake
 decision otherwise, or by her own escalation policy (`QueenAction.QUARANTINE_BEE`, the row a

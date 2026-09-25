@@ -1,6 +1,6 @@
 """Provide the Entrance Reducer: drop the Entrance to loopback only; reopen it only from loopback.
 
-The Hive Entrance (the Hive's one HTTP door) can be narrowed at once (ADR-0033). ``EntranceMode`` is
+The Hive Entrance (the Hive's one HTTP door) can be narrowed at once (ADR-0041). ``EntranceMode`` is
 its state machine (codingrules Appendix C, "Entrance mode"): ``OPEN`` and ``REDUCED``, one table
 with both edges, each recorded as its ``guard.*`` event in the same step as the persisted change,
 so a restart resumes the mode it left. ``EntranceReducer.reduce`` persists REDUCED, ends every
@@ -28,9 +28,9 @@ Key invariants:
     - Only a stepped-up session on the loopback listener reopens; nothing reopens by itself.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "The Entrance
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "The Entrance
       Reducer".
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the two listeners.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the two listeners.
     - .claude/codingrules.md Appendix C, "Entrance mode".
 """
 
@@ -227,7 +227,7 @@ class EntranceReducer:
         return changed
 
     async def reopen(self, session: AuthenticatedSession) -> bool:
-        """Reopen a reduced Entrance: loopback only, with step-up (ADR-0033).
+        """Reopen a reduced Entrance: loopback only, with step-up (ADR-0041).
 
         Args:
             session: The authenticated session asking.

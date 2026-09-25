@@ -57,24 +57,24 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.8"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.10"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 8  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 10  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
 # Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 3 for
 # TaskAssign.leaves, a new optional field (roadmap step 5.0b, "the plan declares what stays"); 4
 # for ActionKind.COPY and its copy_sha256/copy_size fields (roadmap step 5.0e, the `keep` tool: a
 # diff cannot carry a binary, so a proposal may instead name a COPY by digest); 5 for the Virtual
 # Cell snapshot relay (cell.snapshot_request/_reply, cell.rollback_request/_reply) and
-# InterventionAction.RELEASE_LEASE (roadmap steps 5.10 and 5.13); 6 for TaskAssign.capabilities and
-# TaskAssign.network_scopes, two new optional fields (roadmap step 10.3, ADR-0031: a goal's
-# capability set and a task's network needs reach the Warden that attenuates its Worker's set); 7
+# InterventionAction.RELEASE_LEASE (roadmap steps 5.10 and 5.13); 8 for TaskAssign.capabilities and
+# TaskAssign.network_scopes, two new optional fields (roadmap step 10.3, ADR-0039: a goal's
+# capability set and a task's network needs reach the Warden that attenuates its Worker's set); 9
 # for AlarmKind.SECURITY, InterventionAction.QUARANTINE and Intervene.suspect_episode_id (roadmap
-# steps 10.6 and 10.6c, ADR-0035: a security Alarm reaches the human, and a quarantine names the
-# episode from which the bee's memory is suspect); 8 for GrantIssued.audit_raises, a new optional
+# steps 10.6 and 10.6c, ADR-0043: a security Alarm reaches the human, and a quarantine names the
+# episode from which the bee's memory is suspect); 10 for GrantIssued.audit_raises, a new optional
 # field (roadmap step 10.6: a Guard Bee raise of a Capping tier's audit rate reaches every Warden,
 # a Virtual Cell's in-Cell one included, on the grant it holds), and cell.taint_order (roadmap step
-# 10.6a, ADR-0035: the Queen orders an isolated Cell's Warden to taint the memory store it keeps
+# 10.6a, ADR-0043: the Queen orders an isolated Cell's Warden to taint the memory store it keeps
 # inside the Cell, which her own label cannot reach).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying

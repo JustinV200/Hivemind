@@ -4,7 +4,7 @@ The Queen's Guard requests live in one table, `guard_requests`, in the Hive's si
 (ADR-0006), created by this subsystem's own migration series (`queen_guard_requests`, the numbered
 `.sql` file beside this module, the same placement `hivemind.queen.intake` uses). Every write runs
 one transaction on the store's own `ConnectionThread`, so the door's `file` has committed before it
-returns (ADR-0035: "durable before it returns") and a decision's stamp and its hold land together.
+returns (ADR-0043: "durable before it returns") and a decision's stamp and its hold land together.
 No write records a trail event (`protocol`'s module docstring says why), so unlike the goal-request
 table this one needs no `pheromone_events` table on its connection.
 

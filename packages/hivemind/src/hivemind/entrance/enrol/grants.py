@@ -2,14 +2,14 @@
 
 An approved device's ``CapabilitySet`` is both its route ceiling (which Landing Board routes it may
 call) and its goals' ceiling (what work those goals may do), so what an approval grants is the
-most security-relevant choice in enrolment (ADR-0031, ADR-0033). Two rules bound it. The operator,
+most security-relevant choice in enrolment (ADR-0039, ADR-0041). Two rules bound it. The operator,
 approving on loopback, may grant anything inside the Guard policy's ``device`` role ``allow``
 list (the device ceiling) and nothing beyond it; naming nothing grants the role's ``proposed``
 list, which leaves out stewardship and Night Veil. A steward device (``[entrance]
 steward_devices``, holding ``entrance:steward``), approving remotely after full step-up, may grant
 at most its own set intersected with that ceiling, and never ``entrance:steward`` itself, so
 stewardship can only ever be granted at the Hive Stand; nor may it grant more spend per day, or a
-longer life, than its own approval has (a grant never exceeds its grantor, ADR-0031). All are
+longer life, than its own approval has (a grant never exceeds its grantor, ADR-0039). All are
 pure functions (codingrules 8.3); the approval flow and the steward route call them.
 
 Fits into the Hive:
@@ -26,9 +26,9 @@ Key invariants:
       always refused the same way.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the grammar and
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the grammar and
       "a goal carries a ceiling".
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the steward rule.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the steward rule.
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ def approval_grant(policy: GuardPolicy, requested: Sequence[str] | None) -> Capa
 def steward_grant(
     steward: EnrolledDevice, requested: CapabilitySet, ceiling: CapabilitySet
 ) -> CapabilitySet:
-    """Return ``requested`` if a steward device may grant it, else refuse (ADR-0033's rule).
+    """Return ``requested`` if a steward device may grant it, else refuse (ADR-0041's rule).
 
     Args:
         steward: The device approving remotely; it must be APPROVED and hold
@@ -133,7 +133,7 @@ def steward_grant(
 def steward_terms(
     steward: EnrolledDevice, spend_cap_usd_per_day: float, expires_at: datetime | None
 ) -> None:
-    """Refuse the approval's other terms when they exceed the steward's own (ADR-0031, ADR-0033).
+    """Refuse the approval's other terms when they exceed the steward's own (ADR-0039, ADR-0041).
 
     ``steward_grant`` bounds what the pending device may do; this bounds how much it may spend a
     day and how long it lasts, so a steward can never mint a device that outspends or outlives

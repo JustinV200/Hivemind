@@ -1,6 +1,6 @@
 """Register push subscriptions, push each notice to its audience, and withdraw it everywhere.
 
-``PushDispatcher`` is the push channel's one entry point (ADR-0034). ``register`` admits a device's
+``PushDispatcher`` is the push channel's one entry point (ADR-0042). ``register`` admits a device's
 webhook URL or Web Push subscription through the registration gate and stores it (a repeat
 registration of the same endpoint is the same subscription). ``push`` sends a notice to every live
 socket and every stored subscription of the devices in its ``Audience`` (built by
@@ -26,7 +26,7 @@ Key invariants:
     - No device holds more than ``MAX_SUBSCRIPTIONS_PER_DEVICE`` subscriptions.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the decisions.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the decisions.
     - hivemind.entrance.push.audience for who hears what.
 """
 

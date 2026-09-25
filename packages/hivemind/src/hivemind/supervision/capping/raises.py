@@ -7,7 +7,7 @@ reaches every Capping gate that samples at it by one of two roads. A Warden whos
 the Queen's own trail (the Hive Stand's) reads it back there, `raised_audit_rate`. Every other
 Warden, a Virtual Cell's in-Cell one above all, records to a trail of its own that never sees the
 Queen's, so the Queen reads the raises in force when she issues a grant (`live_audit_raises`) and
-the grant carries them on the wire (`GrantIssued.audit_raises`, Waggle 1.8); the Warden keeps them
+the grant carries them on the wire (`GrantIssued.audit_raises`, Waggle 1.10); the Warden keeps them
 in its `CarriedAuditRaises`, which every gate it builds consults. Either way a proposal is sampled
 at the higher of the tier table's rate and the highest raise in force. A raise only ever raises:
 the model refuses one that does not, and every reader takes the maximum.

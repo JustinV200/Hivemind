@@ -2,7 +2,7 @@
 
 Web Push reaches a device that has no socket open: its browser, or its phone's push distributor,
 holds a subscription at a push service the Hive does not control and must not trust with content
-(ADR-0034). This package is that channel, built on ``cryptography`` and ``httpx`` alone, with no
+(ADR-0042). This package is that channel, built on ``cryptography`` and ``httpx`` alone, with no
 Web Push library: ``ece`` encrypts each payload to the user agent's key (RFC 8291 ``aes128gcm``)
 and decrypts one as a user agent would; ``vapid`` holds the Hive's VAPID key and signs the RFC 8292
 header; ``topic`` derives the keyed ``Topic`` that lets a withdrawal replace an undelivered
@@ -20,7 +20,7 @@ Key invariants:
     - No key, auth secret, endpoint or payload is ever logged or raised in a message.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the decisions.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the decisions.
     - RFC 8030, RFC 8188, RFC 8291 and RFC 8292.
 
 Public API:

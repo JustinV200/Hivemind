@@ -1,7 +1,7 @@
 """Decide whether the loopback listener may answer a request: a loopback Host, and no proxy.
 
 The loopback listener carries every route that admits a device or widens its reach (approve,
-deny, unlock, capability widening, reopening; ADR-0033), and it is safe only because nothing but
+deny, unlock, capability widening, reopening; ADR-0041), and it is safe only because nothing but
 the Hive Stand itself can reach it. Two things could break that without anyone binding a routable
 address. A proxy on the Hive Stand (``tailscale serve``, a reverse proxy, a tunnel client, a
 debugging proxy) could relay remote requests to it; the ones in common use announce themselves
@@ -25,7 +25,7 @@ Key invariants:
       sends them and each is a way to confuse a parser.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "It answers only
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "It answers only
       requests whose Host is a loopback name or address".
     - .claude/codingrules.md section 8.15 ("the loopback listener refuses a non-loopback Host and
       any proxy-forwarding header").

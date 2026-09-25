@@ -9,10 +9,10 @@ field per recognised variable; nothing outside this function ever calls ``enviro
 one place a provider's secret is read: never from the manifest file itself (codingrules section 13
 forbids an `api_key` field entirely), always from an environment variable, held in a
 ``pydantic.SecretStr`` whose `repr` never shows the value; the Entrance's Web Push VAPID key
-(``HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY``, ADR-0034) is read the same way, by ``read_env``, beside
+(``HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY``, ADR-0042) is read the same way, by ``read_env``, beside
 its contact (``HIVEMIND_ENTRANCE_VAPID_SUBJECT``), and so is every
 ``HIVEMIND_ENTRANCE_TUNNEL_<NAME>`` variable, the tokens the Entrance hands its tunnel client
-(ADR-0033), collected under ``<NAME>``. ``read_in_cell_env`` is the same rule
+(ADR-0041), collected under ``<NAME>``. ``read_in_cell_env`` is the same rule
 for a different composition root (roadmap step 5.5): the in-Cell Warden entry point
 (``hivemind.cli.in_cell``) has no Hive Manifest to load inside its Virtual Cell image, so every
 value it needs -- the Queen's Waggle URL, this Cell's own id and signing key, the Queen's verify
@@ -80,7 +80,7 @@ _TRUE_BOOL_LITERALS = frozenset({"1", "true", "yes"})
 # The two [hive] env values; kept as a tuple so the validator's error message can list them.
 _ENV_LITERALS = ("dev", "prod")
 # Every variable with this prefix goes to the Entrance's tunnel child, renamed without it
-# (ADR-0033): HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN reaches cloudflared as TUNNEL_TOKEN.
+# (ADR-0041): HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN reaches cloudflared as TUNNEL_TOKEN.
 TUNNEL_VARIABLE_PREFIX = "HIVEMIND_ENTRANCE_TUNNEL_"
 
 __all__ = [
@@ -134,7 +134,7 @@ class EnvOverrides(BaseModel):
     entrance_tunnel_environ: Mapping[str, SecretStr] = Field(
         default_factory=dict,
         description="Every HIVEMIND_ENTRANCE_TUNNEL_<NAME> variable, keyed by <NAME>: the "
-        "environment the Entrance adds to its tunnel child's (ADR-0033), under the name the "
+        "environment the Entrance adds to its tunnel child's (ADR-0041), under the name the "
         "tunnel client itself reads, since no shell expands variables in its argv. Secrets, so "
         "SecretStr; handed to the child only, never to a manifest field.",
     )

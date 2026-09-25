@@ -1,6 +1,6 @@
 """Tests for the Warden's resume gate: nothing resumes from a Handoff its own store labels tainted.
 
-Roadmap step 10.6a (ADR-0035). Once an isolation's order has tainted a Handoff in the Cell's own
+Roadmap step 10.6a (ADR-0043). Once an isolation's order has tainted a Handoff in the Cell's own
 store, the Queen's resume from it (a fresh grant, then a `TaskAssign` resuming from the Handoff,
 as after the human's lift) is refused before anything spawns: a `guard.denied` row at the
 `isolation` point, the grant withdrawn, and the Queen told the task is held. A Handoff that was

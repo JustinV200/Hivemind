@@ -1,14 +1,14 @@
 """Check an isolation at the Guard's `isolation` enforcement point, or refuse it with a reason.
 
-ADR-0031 gives every state-changing action a named enforcement point; isolating a Cell (roadmap
-step 10.6a, ADR-0035) is checked at `EnforcementPoint.ISOLATION` through the Queen's `Enforcer`,
+ADR-0039 gives every state-changing action a named enforcement point; isolating a Cell (roadmap
+step 10.6a, ADR-0043) is checked at `EnforcementPoint.ISOLATION` through the Queen's `Enforcer`,
 with the principal that ordered it: the Queen (holding her `queen` role set) or the human (the
 operator's set). What an isolation needs is authority over the Cell itself: the capability that
 Cell asks of anything placed on it (`cell:hive_stand`, `cell:virtual`, `cell:real:<cell>`, the
 same answer placement's own rule gives, `hivemind.queen.placement.rules.placement_needs`). One
 refusal the held set cannot express is reached here and recorded the same way (`Enforcer.refuse`,
 a `guard.denied` row with rule `guard.scope.hive_stand`): the Queen isolating the Hive Stand's own
-lease, which ADR-0035 leaves to the human alone.
+lease, which ADR-0043 leaves to the human alone.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -22,7 +22,7 @@ Key invariants:
     - Every refusal here is a `guard.denied` row before the caller sees it.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the points.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the points.
     - hivemind.guard.policy.catalogue, where `cell.isolated` is authorised at this point.
     - tests/unit/guard/policy/test_catalogue.py, whose call-site registry names this function.
 """
@@ -80,7 +80,7 @@ async def authorize_isolation(
         orderer does not hold the Cell's own capability.
     """
     request = _request(deps, link, order.ordered_by)
-    # ADR-0035: "the Hive Stand's own lease is isolated only by the human". Her set holds
+    # ADR-0043: "the Hive Stand's own lease is isolated only by the human". Her set holds
     # cell:hive_stand (she places work there), so the set cannot say this; the point does.
     if order.ordered_by is Isolator.QUEEN and is_hive_stand(link.cell):
         why = f"the Hive Stand's own lease ({link.cell.id}) is isolated only by the human"

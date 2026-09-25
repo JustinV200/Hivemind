@@ -68,7 +68,7 @@ Public API:
     - AuditRateRaise, raised_audit_rate, live_audit_raises, CarriedAuditRaises,
       AUDIT_RATE_RAISED_KIND, MAX_RAISES_READ, MAX_CARRIED_PER_TIER: a Guard Bee raise of a
       tier's sampled-audit rate, read back from the trail by a gate on it, carried on a grant to
-      every other Warden (roadmap step 10.6, Waggle 1.8) (raises).
+      every other Warden (roadmap step 10.6, Waggle 1.10) (raises).
     - CappingError, UnknownProposalError, InvalidProposalTransitionError, DiffApplyError,
       JudgeUnavailableError, JudgeAnswerError: this package's error tree (errors).
 """

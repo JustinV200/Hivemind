@@ -1,6 +1,6 @@
 """Tests for the Queen's GuardRequestDoor and the inbox items her tick drains from its table.
 
-Roadmap step 10.6a (ADR-0035): the Guard Bee files a request through the door; the door refuses a
+Roadmap step 10.6a (ADR-0043): the Guard Bee files a request through the door; the door refuses a
 report that asks for nothing, writes the request durably, wakes the Queen and decides nothing.
 Each undecided request becomes one GUARD_REQUEST item under the Guard principal, aged from when
 it was filed, with nothing a report names able to lift its score.

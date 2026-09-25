@@ -1,6 +1,6 @@
 """Tests for a Guard request on the running Queen's tick: decided there, and after a restart too.
 
-Roadmap step 10.6a (ADR-0035). The running Queen is the Guard Bee's door: filing wakes her, and
+Roadmap step 10.6a (ADR-0043). The running Queen is the Guard Bee's door: filing wakes her, and
 her next tick drains the request as a GUARD_REQUEST item and decides it. The request is durable
 before the filing returns (her SQLite table on the Hive's file), so one filed just before a restart
 is still pending in a fresh Queen over a fresh connection, and the first tick she runs (the Hive

@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.guard.policy.floors.hive_state for the module under test.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
 """
 
 from __future__ import annotations

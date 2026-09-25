@@ -2,7 +2,7 @@
 
 Roadmap step 10.6a gives the human two levers the Queen's own decision never pulls: isolate a
 Cell on the human's order (the only way the Hive Stand's own lease is ever isolated), and lift an
-isolation or the Queen's placement holds on a Cell (ADR-0035). Both are Landing Board routes
+isolation or the Queen's placement holds on a Cell (ADR-0043). Both are Landing Board routes
 (`POST /v1/cells/{cell_id}/isolate` and `/lift`) that need `entrance:steward` and an interactive
 device inside its step-up window, so these commands act as the Hive Stand's console over the
 running `hive serve`'s loopback listener, exactly as `hive entrance open` does: the console logs

@@ -1,6 +1,6 @@
-"""Let a quarantined task out only by the one way ADR-0035 allows: a judge-cleared checkpoint.
+"""Let a quarantined task out only by the one way ADR-0043 allows: a judge-cleared checkpoint.
 
-"The only way out is a respawn from a Handoff the judge has cleared" (ADR-0035, roadmap step
+"The only way out is a respawn from a Handoff the judge has cleared" (ADR-0043, roadmap step
 10.6c). While a task is quarantined its Warden (the supervisor of its Cell) holds a
 `QuarantineRecord` for it, and `admit_respawn` stands in front of every `TaskAssign` for that task
 before anything spawns: it is admitted only when it resumes from the record's own checkpoint (the

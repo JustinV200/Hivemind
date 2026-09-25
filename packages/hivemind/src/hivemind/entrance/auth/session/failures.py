@@ -1,7 +1,7 @@
 """Record a refused login, request or step-up on the trail, and hand back the one generic refusal.
 
 Every way authentication fails at the Hive Entrance (the Hive's one HTTP door) reads the same to the
-client, one ``AuthenticationFailedError`` (ADR-0033: a failure never says which factor failed), and
+client, one ``AuthenticationFailedError`` (ADR-0041: a failure never says which factor failed), and
 different to the Guard Bee, which watches the Pheromone Trail (the Hive's audit log) for failure
 bursts: each refusal worth watching is a ``guard.entrance_login_failed`` event naming the reason
 category (a bad device proof, a wrong password, a device that may not log in, a bad request
@@ -21,7 +21,7 @@ Key invariants:
     - The subject is the device only when its record exists; otherwise the Hive itself.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Login is the device
       key plus the password, the key proof first".
     - hivemind.pheromone.events.families for ``guard.entrance_login_failed``.
 """

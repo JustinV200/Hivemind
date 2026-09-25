@@ -34,7 +34,7 @@ one (roadmap step 5.7, `docs/adr/0028-placement-policy-real-versus-virtual.md`).
   rule that eliminated a candidate, on both sides, when neither has one. A backend the dispatcher
   holds back (`VirtualBackendCandidate.held_back`: its provisions keep failing, so it rests a
   while) is passed over like one with no headroom left, under the reason the dispatcher gave.
-- The goal ceiling (roadmap step 10.3, ADR-0031) runs ahead of every rule above: with
+- The goal ceiling (roadmap step 10.3, ADR-0039) runs ahead of every rule above: with
   `ForageView.goal_capabilities` set, a candidate the goal does not allow is excluded with a reason
   naming what it lacked (`rules.placement_needs`, `virtual_placement_needs`, `goal_lacks`): the
   Hive Stand needs `cell:hive_stand`, any other Real Cell `cell:real:<cell id>`, a Virtual Cell

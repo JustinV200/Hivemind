@@ -6,7 +6,7 @@ the original a phone has not yet received. A topic derived from the ref alone (t
 its plain hash) would be a stable identifier any push service could correlate across Hives and
 match against a guessed id, so it is the first 32 characters (RFC 8030's limit, from the
 URL-safe base64 alphabet) of base64url(HMAC-SHA-256(topic key, ref)) under a 32-byte key only this
-Hive holds, minted into the secret store as ``entrance.push_topic`` on first use (ADR-0034).
+Hive holds, minted into the secret store as ``entrance.push_topic`` on first use (ADR-0042).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.push.web_push``.
@@ -21,7 +21,7 @@ Key invariants:
 
 See Also:
     - RFC 8030 section 5.4 for the header.
-    - docs/adr/0034-landing-board-versioning-and-push.md for why the topic is keyed.
+    - docs/adr/0042-landing-board-versioning-and-push.md for why the topic is keyed.
 """
 
 from __future__ import annotations

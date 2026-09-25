@@ -1,6 +1,6 @@
 """Tests for the Guard Bee showing a CRITICAL report to the human through the Queen's door.
 
-ADR-0035: a report at CRITICAL confidence reaches the human whatever it recommends. The Guard Bee
+ADR-0043: a report at CRITICAL confidence reaches the human whatever it recommends. The Guard Bee
 shows one that asks for nothing (a raised audit rate, an Entrance reduce order, an observation)
 through `GuardRequestDoor.report_to_human`, after carrying out what it recommends, and records
 that it did on the alert. A CRITICAL request is filed and never shown here, since the Queen shows

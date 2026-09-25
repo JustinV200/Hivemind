@@ -1,6 +1,6 @@
 """Name the Hive Stand as this Cell reaches it: its host, and the addresses that host resolves to.
 
-The Hive-state floor refuses a bee `net` to the Hive Stand itself (ADR-0033), and inside a Virtual
+The Hive-state floor refuses a bee `net` to the Hive Stand itself (ADR-0041), and inside a Virtual
 Cell the Hive Stand is whatever the Cell's Queen URL names: a host-gateway alias
 (`host.docker.internal`), a gateway address (QEMU's `10.0.2.2`), or, for a Night Veil Cell, the
 Hive Stand's onion service. `hive_stand_addresses` resolves that host once, when the Cell starts,

@@ -1,6 +1,6 @@
 """Wrap each pending Guard request as the one InboxItem shape the Queen's Attendant scores.
 
-ADR-0035: a Guard request enters the Queen's inbox as `InboxKind.GUARD_REQUEST`, which
+ADR-0043: a Guard request enters the Queen's inbox as `InboxKind.GUARD_REQUEST`, which
 `WeightTable.queen_default()` scores at a fixed weight above every Alarm and every human message,
 the Guard principal's multiplier on top, with no task link and no latency term, so only age orders
 two of them. `guard_items` is the drain her tick runs beside the human's chat

@@ -3,7 +3,7 @@
 The Observation Hive's Attendant views show, for the Queen and for every Warden, the task graph
 that principal is concerned with (roadmap 12.7), redrawn from deltas. Every task change is a
 ``task.*`` trail event recorded with it, so the view follows those through the stream hub
-(ADR-0032) and sends each changed task, as ``GET /v1/tasks/{id}`` answers it (no words), in a
+(ADR-0040) and sends each changed task, as ``GET /v1/tasks/{id}`` answers it (no words), in a
 ``TaskGraphFrame`` naming the principal. The Queen (``principal=queen``, the default) is
 concerned with every task; a Warden with the tasks placed on it, and it also hears a task it was
 shown leave it (unassigned, finished or cancelled), so its view never keeps a task it no longer

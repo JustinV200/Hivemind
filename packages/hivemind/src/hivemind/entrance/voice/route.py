@@ -1,6 +1,6 @@
 """Serve ``POST /v1/chat/audio``: a clip, as a raw body with its media type, heard at the door.
 
-An enrolled device speaks to the Hive with one request (ADR-0032: audio arrives as a raw body with
+An enrolled device speaks to the Hive with one request (ADR-0040: audio arrives as a raw body with
 its media type, so no multipart parser is added): the recording as the body, labelled by its
 ``Content-Type`` (WAV, Ogg or WebM Opus, MP3, M4A), and a query naming the intent (``goal``,
 ``chat`` or ``answer:<question id>``), the clip's length when it is compressed (a WAV's header is
@@ -8,7 +8,7 @@ read instead) and an optional language hint. The body is read whole, within the 
 allowance, before the request's signature is checked, since the signature covers its SHA-256.
 The route is mounted only while ``[entrance.voice]`` is on (``Switch.VOICE``); off, it is a 404 on
 both listeners because it was never mounted, exactly as a loopback-only route is on the remote
-listener (ADR-0034: the contract still describes it, with ``x-hive-switch``). It needs
+listener (ADR-0042: the contract still describes it, with ``x-hive-switch``). It needs
 ``entrance:submit`` and, since it answers with the transcript, ``honey:clearance:c2``; an answer
 also needs ``entrance:answer``, checked by the door. Every refusal is the ``ErrorBody`` of its
 status: 413 (too long or too large), 415 (a format the Hive does not take), 422, 429 (the device's
@@ -23,7 +23,7 @@ Key invariants:
     - The transcript goes back to this request's device alone.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md, the audio intents.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md, the audio intents.
     - hivemind.entrance.voice.door for what hearing does.
 """
 

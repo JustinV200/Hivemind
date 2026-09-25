@@ -1,6 +1,6 @@
 """Test hivemind.entrance.routes.goals: a goal is durable before its 202, and spends are guarded.
 
-ADR-0032 and ADR-0033 over real listeners: ``POST /v1/goals`` answers ``202`` only once the goal
+ADR-0040 and ADR-0041 over real listeners: ``POST /v1/goals`` answers ``202`` only once the goal
 request is committed in the Queen's own table; a budget above ``step_up_spend`` needs a step-up; a
 program (which no person types at) that would pass its daily cap has its goal held as a pending
 confirmation, and a person's confirmation submits it exactly once, under the id minted when it was

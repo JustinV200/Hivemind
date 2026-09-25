@@ -2,7 +2,7 @@
 
 A `GuardPolicy` holds each policy role's default set with `{scratch}` entries still unfilled,
 because only a lease knows its scratch root. `role_set` fills them and returns the role's set;
-`warden_set` is a Warden's whole set (ADR-0031): its role default, narrowed to its Cell's access
+`warden_set` is a Warden's whole set (ADR-0039): its role default, narrowed to its Cell's access
 level (`hivemind.guard.access.cap_to_access`) and stripped of every entry the hive-wide deny list
 covers; `worker_role_name` names the policy role a wire `WorkerRole` starts from, and
 `proposed_set` is what a device approval grants by default. Everything here is pure: the scratch
@@ -21,7 +21,7 @@ Key invariants:
       Cell's access level does not permit.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Two roots, and sets
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Two roots, and sets
       only narrow below them".
     - hivemind.workers.capabilities for worker_capabilities, which narrows a role default to one
       Worker's slice of its Warden's set.

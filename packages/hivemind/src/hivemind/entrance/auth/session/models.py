@@ -1,6 +1,6 @@
 """Define the session records: a session, how a request arrived, and a session once authenticated.
 
-A session is what a login at the Hive Entrance (the Hive's one HTTP door) opens (ADR-0033): a
+A session is what a login at the Hive Entrance (the Hive's one HTTP door) opens (ADR-0041): a
 random 256-bit bearer token the Entrance keeps only as its SHA-256, bound to a **binding key**
 (the device's own Ed25519 key for a program, or a browser's non-extractable WebCrypto P-256 key
 registered with its login challenge), tied to the listener it was opened on, with an absolute
@@ -10,7 +10,7 @@ expiry and an idle timeout, and possibly stepped up for a short window. ``Sessio
 device, the device's parsed ``CapabilitySet`` and whether it is stepped up right now.
 ``NonceClaim`` is one signed request's claim on its nonce. The Hive
 Stand console's sessions are ``volatile``: kept in memory only, never written to the Entrance
-tables (ADR-0033).
+tables (ADR-0041).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.auth.session``. Built
@@ -26,7 +26,7 @@ Key invariants:
       again.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Sessions are bound
       to a key, and every request is signed".
     - hivemind.entrance.auth.session.book for the book that opens and ends sessions.
 """
@@ -71,7 +71,7 @@ __all__ = [
 
 
 class Listener(Enum):
-    """Which of the Entrance's two listeners a request arrived on (ADR-0032)."""
+    """Which of the Entrance's two listeners a request arrived on (ADR-0040)."""
 
     LOOPBACK = "loopback"  # The Hive Stand's own listener; always on; approval lives here.
     REMOTE = "remote"  # The exposed listener; exists only while exposed and not reduced.

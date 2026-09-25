@@ -122,7 +122,7 @@ def test_every_object_a_client_reads_is_open_and_only_requests_are_closed() -> N
     schemas = document["components"]["schemas"]
     read = _read_schemas(document)
 
-    # ADR-0034: a later /v1 may add a response field, so nothing read may promise there is none.
+    # ADR-0042: a later /v1 may add a response field, so nothing read may promise there is none.
     assert all(schemas[name].get("additionalProperties") is not False for name in read)
     closed = {
         name for name, schema in schemas.items() if schema.get("additionalProperties") is False

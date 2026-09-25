@@ -1,6 +1,6 @@
 """Ask the Queen for a goal as a durable goal request, and wait until she has planned it.
 
-Roadmap step 10.3c (ADR-0031): only a structured goal request initiates Night Veil work, so a
+Roadmap step 10.3c (ADR-0039): only a structured goal request initiates Night Veil work, so a
 tier named on the local CLI (`hive run --comb-shield night_veil`) is recorded exactly the way the
 Hive Entrance records a device's request: a `GoalRequest` (origin HUMAN, the tier asked for, no
 device and so no device ceiling) committed through `Queen.request_goal`, which the Queen plans on
@@ -21,7 +21,7 @@ Key invariants:
     - The wait never outlives the run's own deadline, planning time included.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the goal request.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the goal request.
     - hivemind.queen.intake for GoalRequest and its states.
 """
 

@@ -1,7 +1,7 @@
 """Compose `hive serve`: the Hive `hive run` builds, plus the Hive Entrance, in one process.
 
 `hive serve` runs the Queen (the central orchestrator), her Warden and the Hive Entrance (the Hive's
-one HTTP door) in one event loop (ADR-0032). `build_served_hive` builds the Hive exactly as
+one HTTP door) in one event loop (ADR-0040). `build_served_hive` builds the Hive exactly as
 `build_hive` does (its Queen's `HumanChannel` is a relay, bound to the Entrance's push channel once
 that exists); `serve_hive` then, holding the Hive's serve lock for its whole life (one serve per
 Hive, never beside an offline `hive entrance` step: `hivemind.cli.entrance.serving`), in the
@@ -37,7 +37,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.runtime for what is built here.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for exposure.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for exposure.
 """
 
 from __future__ import annotations

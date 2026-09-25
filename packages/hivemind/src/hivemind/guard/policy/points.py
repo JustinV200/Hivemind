@@ -1,6 +1,6 @@
 """Define EnforcementPoint: every place in the Hive where an action is authorised before it runs.
 
-ADR-0031 gives every state-changing action a named enforcement point: the one place its
+ADR-0039 gives every state-changing action a named enforcement point: the one place its
 capability is checked, through `hivemind.guard.enforcer.Enforcer`, so "who may do this, and why
 not" always has an answer and a trail row. This module only declares the points; roadmap step
 10.3 wires each call site to its point and adds the test that classifies every trail event kind as
@@ -20,7 +20,7 @@ Key invariants:
     - Adding a state-changing action means adding (or reusing) a point here in the same change.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Every state-changing
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Every state-changing
       action has a named enforcement point".
     - .claude/roadmap.md step 10.3 for the wiring and the enumeration test.
 """

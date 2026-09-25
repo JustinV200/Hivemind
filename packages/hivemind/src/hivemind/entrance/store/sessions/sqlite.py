@@ -5,7 +5,7 @@ in the Hive's own database file, through the connection every Entrance table sha
 (``SqliteLink``). Sessions are rows of plain columns rather than a JSON body because every
 authenticated request touches one (``last_seen_at``) and spends a nonce, and a column update needs
 no decode. Nonces are persisted, so a restart of ``hive serve`` does not reopen a replay window
-(ADR-0033); each claim first deletes every nonce past its expiry, in the same transaction, so the
+(ADR-0041); each claim first deletes every nonce past its expiry, in the same transaction, so the
 table never holds more than two skew windows of them. The Hive Stand console's sessions are never
 written here: ``put`` refuses a volatile session outright.
 
@@ -98,7 +98,7 @@ class SqliteSessionTable:
     async def put(self, session: Session) -> None:
         """Record a new, open, durable session; see SessionTable.put."""
         check_new_session(session)
-        # ADR-0033: the console "keeps its sessions in memory only"; a durable table refuses one.
+        # ADR-0041: the console "keeps its sessions in memory only"; a durable table refuses one.
         if session.volatile:
             raise InvariantViolationError("A volatile (console) session is never persisted.")
         # Blocking, sub-millisecond: one local statement or transaction on the link's thread.

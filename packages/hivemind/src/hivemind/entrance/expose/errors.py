@@ -1,6 +1,6 @@
 """Define ExposeError and every way the Entrance's exposure layer refuses something on purpose.
 
-Exposure (ADR-0033) is where the Hive Entrance meets other machines: the mode check that decides
+Exposure (ADR-0041) is where the Hive Entrance meets other machines: the mode check that decides
 whether the remote listener may run at all, the Hive's own certificate authority that signs every
 device's client certificate for mutual TLS, and the tunnel client the Entrance supervises. Each
 refuses a few things by design: a half-configured remote mode, a certificate authority whose stored
@@ -22,7 +22,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.errors for the Entrance's root and its other refusals.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for what is refused.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for what is refused.
 """
 
 from __future__ import annotations

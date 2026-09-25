@@ -1,6 +1,6 @@
 """Tests for the only way out of quarantine: a respawn from the checkpoint a judge has cleared.
 
-ADR-0035: "The only way out is a respawn from a Handoff the judge has cleared." After a
+ADR-0043: "The only way out is a respawn from a Handoff the judge has cleared." After a
 quarantine, the Queen's resume (a fresh grant and a `TaskAssign` resuming from the checkpoint)
 is refused while the checkpoint is still tainted, as `read_handoff` refuses it: nothing spawns,
 the refusal is a `guard.denied` row at the `quarantine` point, and the Queen is told again that

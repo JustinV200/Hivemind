@@ -36,7 +36,7 @@ TABLE_HEADER = "| Kind | Class | Shape | Replies to | Direction | Summary |"
 COLUMN_COUNT = 6  # The header's columns; a row with any other count is a broken table.
 EXPECTED_ROWS = 71  # The catalogue's size; a new kind bumps this with the spec (66 in protocol
 # 1.0, 70 from PROTOCOL_MINOR 5's own four cell.snapshot_*/cell.rollback_* additions, 71 from
-# PROTOCOL_MINOR 8's cell.taint_order).
+# PROTOCOL_MINOR 10's cell.taint_order).
 
 _KIND_CELL = re.compile(r"^`([a-z][a-z_]*\.[a-z][a-z_]*)`$")  # `<family>.<snake_name>`
 _CLASS_CELL = re.compile(r"^`([A-Z][A-Za-z]*)`$")  # `PascalCase`, the class name.

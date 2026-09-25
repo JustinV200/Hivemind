@@ -81,7 +81,7 @@ there); `irreversible` also floors `JUDGE`, so no tempo ever drops it (codingrul
 `scratch_write` and `network_egress` stay audit-sampled only, as defence in depth, until a later
 phase turns their own `judge` on too.
 
-Roadmap step 10.3 (ADR-0031): the ALLOWLIST rung now requires `cell:outside_scratch:<path>` as
+Roadmap step 10.3 (ADR-0039): the ALLOWLIST rung now requires `cell:outside_scratch:<path>` as
 well as `fs:write:<path>` for a write outside scratch, and a third composed check,
 `NetworkAllowlistCheck`, requires `net:<host>` for a network step -- one `"<METHOD> <url>"` step in
 an `ACTION_SEQUENCE`, the HTTP tool's shape, which `SchemaCheck` now passes on the

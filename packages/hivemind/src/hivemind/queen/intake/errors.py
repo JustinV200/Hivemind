@@ -1,7 +1,7 @@
 """Define the ways a goal request can be refused by its own bookkeeping, on purpose.
 
 A goal request (`hivemind.queen.intake.model.GoalRequest`) is the Queen's durable record of a
-goal a human asked for through the Hive Entrance (docs/adr/0032). Three things can go wrong with
+goal a human asked for through the Hive Entrance (docs/adr/0040). Three things can go wrong with
 one on purpose, and each has its own class so the Entrance can answer with the right status: the
 id names no row (`GoalRequestNotFoundError`, a 404), a row with that id already exists
 (`GoalRequestExistsError`, a 409), or a caller asks for an edge the request's state machine does

@@ -1,6 +1,6 @@
 """Withdraw what a revoked device asked for: refuse its unplanned requests, stop its goals.
 
-Revoking a device at the Hive Entrance (roadmap 10.5d, ADR-0033) ends its sessions at once, but
+Revoking a device at the Hive Entrance (roadmap 10.5d, ADR-0041) ends its sessions at once, but
 the work it asked for lives in the Queen's own tables, so the Entrance asks her to withdraw it
 rather than writing them itself. `refuse_unplanned` refuses every goal request the device
 submitted that has not been planned yet (RECEIVED, AWAITING_CONFIRMATION or PLANNING), so a
@@ -29,7 +29,7 @@ Key invariants:
     - Nothing here waits on a Warden's answer: the order is sent, and the chamber records it.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for revocation.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for revocation.
     - hivemind.entrance.runtime.seams for QueenGoalLedger, the Entrance's caller.
 """
 

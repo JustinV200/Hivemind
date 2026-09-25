@@ -3,7 +3,7 @@
 Absconding (tear every Cell and lease down), Sting Cut (disconnect a Cell at once) and Supersedure
 (move the Hive Stand) are break-glass actions: besides a step-up, each needs the typed confirmation
 phrase of codingrules 15 in the request, on every path the API included, and only from a device a
-person types at (ADR-0033). The phrase is not a secret; it is proof of intent, the one thing a
+person types at (ADR-0041). The phrase is not a secret; it is proof of intent, the one thing a
 misclick, a replayed request or an over-eager program cannot supply. So it is a constant per
 action, compared after Unicode NFKC normalisation, case folding and whitespace collapsing (a phone
 capitalises the first letter; a person may double a space).
@@ -20,7 +20,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 15 for Absconding's re-auth and typed confirmation.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Step-up needs a
       human".
 """
 
@@ -71,7 +71,7 @@ def check_break_glass(
     """
     if action not in BREAK_GLASS_ACTIONS:
         return
-    # ADR-0033: only from an interactive device, after step-up, with the typed phrase.
+    # ADR-0041: only from an interactive device, after step-up, with the typed phrase.
     if not session.interactive:
         raise BreakGlassRefusedError(
             f"{action.value} is break-glass: only a device a person types at may ask for it."

@@ -1,6 +1,6 @@
 """Tests for hivemind.wardens.ticks.assign.handle_grant keeping the audit raises a grant carried.
 
-Roadmap step 10.6 (Waggle 1.8): a Warden whose trail never sees the Queen's (a Virtual Cell's
+Roadmap step 10.6 (Waggle 1.10): a Warden whose trail never sees the Queen's (a Virtual Cell's
 in-Cell one) learns of a Guard Bee raise of a Capping tier's audit rate from the grants the Queen
 issues it. Every grant it records hands its raises to the Warden's one `CarriedAuditRaises`, which
 every gate it builds reads; a grant from an older Queen, with none, changes nothing.

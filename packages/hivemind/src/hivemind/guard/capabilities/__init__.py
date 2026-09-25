@@ -2,7 +2,7 @@
 
 A capability is one thing a principal (the operator, the Queen, a Warden, a Worker, a Swarm
 device or an enrolled client device) is allowed to do, written `family` or `family:scope`
-(ADR-0031). This package holds the grammar in five modules: `families` (every
+(ADR-0039). This package holds the grammar in five modules: `families` (every
 `CapabilityFamily`, its `ScopeKind` and the longest-first parse order), `scopes` (what each kind
 accepts and how a held scope covers a needed one), `hosts` (the `net` family's own host grammar),
 `capability` (`Capability`, one grant) and `capability_set` (`CapabilitySet`, everything one
@@ -22,7 +22,7 @@ Key invariants:
       rather than returning anything its own set does not allow.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md for the decision.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the decision.
     - hivemind.guard.access and hivemind.guard.policy for the two consumers inside guard.
 
 Public API:

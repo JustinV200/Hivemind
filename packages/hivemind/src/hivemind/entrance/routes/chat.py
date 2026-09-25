@@ -1,6 +1,6 @@
 """Serve the chat resource: read the conversation with the Queen, and write to her.
 
-The chat is the human end of the Queen's inbox (ADR-0032): ``GET /v1/chat`` reads it a page at a
+The chat is the human end of the Queen's inbox (ADR-0040): ``GET /v1/chat`` reads it a page at a
 time by the log's own position (``after`` to read on from a cursor, ``before`` to scroll back,
 neither for the newest page), and ``POST /v1/chat`` appends the human's message and wakes the
 Queen, who reads it on her next tick as a ``HumanMessage`` her Attendant scores. Every line is

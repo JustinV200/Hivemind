@@ -1,7 +1,7 @@
 """Answer every refusal with its status and a small JSON body; never with a traceback or an input.
 
 A Landing Board route raises what the flow below it raised; this module turns it into the answer a
-client can act on (ADR-0033, ADR-0034). The status comes from the error's category
+client can act on (ADR-0041, ADR-0042). The status comes from the error's category
 (``hivemind.common.errors``): not found is 404, a conflict 409, a permission refusal 403, a failed
 authentication 401, a rate limit 429, a missed deadline 504, a configuration gap 503; an Entrance
 refusal no category names declares its own ``http_status`` (a voice clip too long is 413, of a

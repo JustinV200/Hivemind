@@ -1,6 +1,6 @@
 """Define the chat's half of the Queen's tick: human messages into her inbox, her REPLY out.
 
-Docs/adr/0032, "The chat is the human end of the Queen's inbox": a message the human posted
+Docs/adr/0040, "The chat is the human end of the Queen's inbox": a message the human posted
 (`Queen.post_human_message`) waits in the chat log until her next tick, which her wake signal
 starts at once. `human_items` drains every waiting message into an `InboxItem` of kind
 `HUMAN_MESSAGE` from the `human` principal, the wire `HumanMessage` as its payload, so her
@@ -23,7 +23,7 @@ Key invariants:
     - No log line or trail event here carries the message's words.
 
 See Also:
-    - docs/adr/0032-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
+    - docs/adr/0040-hive-entrance-http-websocket-api-and-human-inbox.md for the chat.
     - hivemind.queen.ticks.awake for the episode a human message triggers.
     - hivemind.queen.chat.post for the lines this module appends.
 """

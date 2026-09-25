@@ -1,7 +1,7 @@
 """Stand in for the network a Hive's push deliveries cross, so none of them leaves the process.
 
 A push delivery leaves the Hive Stand (the machine the Queen, the orchestrator, runs on) for a
-program's webhook receiver or a browser vendor's Web Push service (ADR-0034). An end-to-end test
+program's webhook receiver or a browser vendor's Web Push service (ADR-0042). An end-to-end test
 needs both ends without the internet: ``PushNetwork`` is one recording ``httpx.MockTransport`` that
 plays every receiver, and one static table that plays DNS for their names, handed to ``hive
 serve``'s composition through its own seams (``build_served_hive``'s ``push_transport`` and

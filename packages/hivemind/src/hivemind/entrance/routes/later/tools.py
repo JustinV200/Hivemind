@@ -1,7 +1,7 @@
 """Name the tools resource in the contract before the Comb Registry lands (phase 9): a 501.
 
 The tools a bee may use are promoted into the Comb Registry through the Quarantine Comb (roadmap
-phase 9). Until then ``GET /v1/tools`` answers ``501`` naming that phase (ADR-0032), so the
+phase 9). Until then ``GET /v1/tools`` answers ``501`` naming that phase (ADR-0040), so the
 contract lists the resource now and a client learns when it arrives.
 
 Fits into the Hive:

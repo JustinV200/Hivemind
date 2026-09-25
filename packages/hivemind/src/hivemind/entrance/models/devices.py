@@ -1,6 +1,6 @@
 """Define the devices resource's bodies: a device as the Landing Board shows it, and its changes.
 
-Every client of the Hive Entrance is an enrolled device (ADR-0033). ``DeviceView`` is what a device
+Every client of the Hive Entrance is an enrolled device (ADR-0041). ``DeviceView`` is what a device
 may see of one: its name, standing, key kind and fingerprint, what it may do and spend, and the
 self-description it sent at redemption, which every surface escapes because the device wrote it,
 and its mutual-TLS client certificate by serial, fingerprint and expiry; it never carries the public

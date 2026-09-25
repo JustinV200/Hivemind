@@ -27,7 +27,7 @@ Key invariants:
       devices, statuses and invites by id or hash only (codingrules sections 12 and 13).
     - ``PasskeyRejectedError`` and ``KeyUnwrapError`` never say which check failed beyond what the
       verifying library reports about the ceremony itself: a wrong password and a tampered blob
-      read the same (ADR-0033: a failure never says which factor failed).
+      read the same (ADR-0041: a failure never says which factor failed).
     - ``EnrolmentRefusedError``, ``ChallengeRejectedError`` and ``AuthenticationFailedError``
       carry one fixed message each, so a device that is refused learns nothing about why (an
       unknown, used or expired code, a bad proof, a wrong password, a replayed nonce all read the
@@ -37,7 +37,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 10 for the error rules this module follows.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for what is refused.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for what is refused.
 """
 
 from __future__ import annotations
@@ -282,7 +282,7 @@ class InvalidDeviceEntryError(EntranceError, ConflictError):
     """Raise when a new device record would enter the state machine anywhere but its entry.
 
     A device enters as INVITED (an invite minted on loopback); only the Hive Stand's own
-    loopback-bound console is recorded straight as APPROVED (ADR-0033). Anything else would skip
+    loopback-bound console is recorded straight as APPROVED (ADR-0041). Anything else would skip
     enrolment altogether.
     """
 
@@ -433,7 +433,7 @@ class InvalidApprovalError(EntranceError, ConflictError):
 
 
 class StewardGrantError(EntranceError, PermissionDeniedError):
-    """Raise when a steward device asks to grant more than it may (ADR-0033's steward rule)."""
+    """Raise when a steward device asks to grant more than it may (ADR-0041's steward rule)."""
 
     code: ClassVar[str] = "hivemind.entrance.steward_grant_refused"
 
@@ -456,7 +456,7 @@ class ConsoleProtectedError(EntranceError, PermissionDeniedError):
     """Raise when an operation would revoke or expire the Hive Stand's own console.
 
     The console can be locked and unlocked like any other device, but losing it means resetting
-    the operator password with ``hive entrance operator password --reset`` (ADR-0033), so nothing
+    the operator password with ``hive entrance operator password --reset`` (ADR-0041), so nothing
     else may take it away.
     """
 
@@ -486,7 +486,7 @@ class AuthenticationFailedError(EntranceError, PermissionDeniedError):
 
     An unknown device, a device that is not approved, a bad device proof, a wrong password, an
     unknown, ended or idle session, a bad signature, a stale timestamp, a replayed nonce and the
-    wrong listener all raise this with one fixed message (ADR-0033: a failure never says which
+    wrong listener all raise this with one fixed message (ADR-0041: a failure never says which
     factor failed); the reason category goes to the Pheromone Trail instead.
     """
 
@@ -500,7 +500,7 @@ class AuthenticationFailedError(EntranceError, PermissionDeniedError):
 class StepUpUnavailableError(EntranceError, PermissionDeniedError):
     """Raise when a device no person types at asks to step up.
 
-    A non-interactive device (a program key) cannot step up (ADR-0033): what it asks for that
+    A non-interactive device (a program key) cannot step up (ADR-0041): what it asks for that
     needs step-up waits as a pending confirmation until a person confirms it from an interactive
     device.
     """
@@ -524,7 +524,7 @@ class BreakGlassRefusedError(EntranceError, PermissionDeniedError):
     """Raise when a break-glass action lacks its phrase, its step-up or an interactive device.
 
     Absconding, Sting Cut and Supersedure need the typed confirmation phrase of codingrules 15 on
-    every path, the API included, and only from a device a person types at (ADR-0033).
+    every path, the API included, and only from a device a person types at (ADR-0041).
     """
 
     code: ClassVar[str] = "hivemind.entrance.break_glass_refused"
@@ -606,7 +606,7 @@ class TravelLockUnavailableError(EntranceError, ConfigurationError):
     """Raise when ``travel_lock`` is on but the Entrance cannot see real endpoints.
 
     The travel lock works only with ``expose = "vpn"`` on Tailscale, whose local API reports
-    each peer's current endpoint (ADR-0033); anywhere else it refuses to start rather than run
+    each peer's current endpoint (ADR-0041); anywhere else it refuses to start rather than run
     blind.
     """
 
@@ -668,7 +668,7 @@ class EntranceModeConflictError(EntranceError, ConflictError):
 class ReopenRefusedError(EntranceError, PermissionDeniedError):
     """Raise when anything but a stepped-up loopback session asks to reopen a reduced Entrance.
 
-    Reopening is a loopback-only decision that needs step-up (ADR-0033).
+    Reopening is a loopback-only decision that needs step-up (ADR-0041).
     """
 
     code: ClassVar[str] = "hivemind.entrance.reopen_refused"

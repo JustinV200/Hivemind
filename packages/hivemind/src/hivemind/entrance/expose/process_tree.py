@@ -1,6 +1,6 @@
 """Define kill_process_tree: end a process and every process it started, on any platform.
 
-The tunnel client the Entrance supervises in `tunnel` mode (ADR-0033) may start helpers of its
+The tunnel client the Entrance supervises in `tunnel` mode (ADR-0041) may start helpers of its
 own (a relay, a DNS helper). On POSIX the supervisor starts the child in its own session and
 signals the whole process group, so a helper dies with it; Windows has no process-group signal,
 and ending the child alone (TerminateProcess) left its helpers running with the door still open.

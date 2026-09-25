@@ -1,6 +1,6 @@
 """Tests for the one isolation path: what isolating a Cell does, in order, and what it refuses.
 
-Roadmap step 10.6a (ADR-0035). The Queen isolating a Virtual Cell writes the BLOCK wax, revokes
+Roadmap step 10.6a (ADR-0043). The Queen isolating a Virtual Cell writes the BLOCK wax, revokes
 the Warden's grants (telling the Warden), sends every placed task Clustering's checkpoint-and-pause
 pair, moves the task to PAUSED, cuts the Cell's egress on the fake backend, records `cell.isolated`
 citing the report and its evidence, taints the Cell's memory from the first cited event (a

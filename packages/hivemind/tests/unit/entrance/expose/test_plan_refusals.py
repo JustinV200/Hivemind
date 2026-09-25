@@ -12,7 +12,7 @@ Key invariants:
 
 See Also:
     - hivemind.entrance.expose.plan for the module under test.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the rules.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the rules.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def _with_tls(tls: TlsFacts) -> ExposureFacts:
     return host_facts(tls=tls)
 
 
-_CGNAT_WAN = {"eth0": ("100.70.1.2",), "tailscale0": (TAILSCALE_V4,)}  # ADR-0033's trap.
+_CGNAT_WAN = {"eth0": ("100.70.1.2",), "tailscale0": (TAILSCALE_V4,)}  # ADR-0041's trap.
 _ONLY_KEY = TlsFacts(
     cert_path=None,
     key_path=KEY_PATH,

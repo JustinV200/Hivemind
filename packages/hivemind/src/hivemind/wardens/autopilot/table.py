@@ -99,7 +99,7 @@ __all__ = ["SubBeeView", "decide"]
 # task is already gone by the time an Alarm or a FAILED TaskResult reaches here), so both collapse
 # onto WardenAction.RETRY; TAKEOVER has no Warden-level meaning (codingrules section 8.8: "Wardens
 # have the same levers minus takeover with the Queen's slot"), so it escalates to the level that
-# does hold that lever; QUARANTINE is the Warden's own lever over its own sub-bee (ADR-0035: "a
+# does hold that lever; QUARANTINE is the Warden's own lever over its own sub-bee (ADR-0043: "a
 # Warden may apply it to its own sub-bee by its own policy row"). ISOLATE is the Queen's alone
 # (roadmap step 10.6a): a Warden's policy refuses to load such a row (`load_warden_policy`), and
 # were one to reach this table anyway it escalates to the level that holds the lever.

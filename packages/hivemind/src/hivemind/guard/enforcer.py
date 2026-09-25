@@ -1,6 +1,6 @@
 """Check one action at an enforcement point and record a refusal: the Guard's one effectful adapter.
 
-Every enforcement point (ADR-0031; wired by roadmap step 10.3) asks one `Enforcer` whether a
+Every enforcement point (ADR-0039; wired by roadmap step 10.3) asks one `Enforcer` whether a
 principal may take its action. The decision itself is `hivemind.guard.policy.evaluate`, a pure
 function; this class is the thin effectful edge around it (codingrules 8.3): on a denial it
 records a `guard.denied` event on the Pheromone Trail before returning, so "why was this
@@ -30,7 +30,7 @@ Key invariants:
       silently returned as if it had been.
 
 See Also:
-    - docs/adr/0031-capability-model-attenuation-and-enforcement-points.md, "Every
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Every
       state-changing action has a named enforcement point".
     - hivemind.guard.policy.evaluate for the decision this adapter wraps.
     - hivemind.pheromone.events.families for the `guard` kind vocabulary.

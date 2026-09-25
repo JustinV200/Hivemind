@@ -7,7 +7,7 @@ run, the Warden (the supervisor of one Cell) keeps one record per quarantined ta
 `memory.tainted` row names as its cause. The record is the Warden's half of the task's `PAUSED`
 state (the Brood Chamber, the Queen's task store, holds the other half): while it stands, no
 assignment for the task spawns unless it resumes from that checkpoint once a judge has cleared it
-(`hivemind.wardens.quarantine.gate`), the only way out ADR-0035 allows.
+(`hivemind.wardens.quarantine.gate`), the only way out ADR-0043 allows.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's

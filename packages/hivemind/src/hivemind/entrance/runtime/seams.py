@@ -1,6 +1,6 @@
 """Implement enrolment's two remaining seams: cutting a device off, and its open goals.
 
-Enrolment leaves two collaborators to the Entrance's composition (ADR-0033). ``DeviceOffboarder``:
+Enrolment leaves two collaborators to the Entrance's composition (ADR-0041). ``DeviceOffboarder``:
 a device that leaves APPROVED (locked, revoked, expired) loses, in the same step, every session
 (``SessionBook.offboard``), every push subscription and live push socket
 (``PushDispatcher.forget_device``) and every WebSocket it holds (the socket registry);

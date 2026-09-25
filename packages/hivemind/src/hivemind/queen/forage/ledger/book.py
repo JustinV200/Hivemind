@@ -191,7 +191,7 @@ class ForageLedger:
     def capacities(self) -> Mapping[CellId, ForageCapacity]:
         """Return every Cell's latest reported capacity, keyed by Cell: a read-only snapshot.
 
-        The Hive Entrance's Forage view reads the whole book this way (ADR-0032: reads go to the
+        The Hive Entrance's Forage view reads the whole book this way (ADR-0040: reads go to the
         stores directly); a snapshot, so a report landing meanwhile never changes it under a reader.
         """
         return types.MappingProxyType(dict(self._capacities))

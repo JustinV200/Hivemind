@@ -1,6 +1,6 @@
 """Build the Queen's human end for tests: goal requests, a recording HumanChannel, scripted replies.
 
-Roadmap step 10.5 (ADR-0032) gives the Queen a human end: durable goal requests
+Roadmap step 10.5 (ADR-0040) gives the Queen a human end: durable goal requests
 (`hivemind.queen.intake`), the chat log and its `HumanChannel` seam (`hivemind.queen.chat`).
 `make_goal_request` builds a fresh RECEIVED `GoalRequest` over the test's own clock;
 `RecordingHumanChannel` implements `HumanChannel` honestly and keeps every call it receives, in

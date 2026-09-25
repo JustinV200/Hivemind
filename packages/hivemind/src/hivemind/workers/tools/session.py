@@ -11,7 +11,7 @@ the Worker's `Enforcer`, so a refused read is a `guard.denied` row with its reas
 10.3a puts the Guard's floors in front of the other two: a command's `exec` and a write's
 `fs:write` are held-checked by the Capping gate, so each tool first asks the floors alone
 (`floor_refusal_text`), and a command that runs the Hive's own entry point, or a write that lands
-on the Hive's own state, is refused as `guard.denied` before it is ever proposed (ADR-0033).
+on the Hive's own state, is refused as `guard.denied` before it is ever proposed (ADR-0041).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by

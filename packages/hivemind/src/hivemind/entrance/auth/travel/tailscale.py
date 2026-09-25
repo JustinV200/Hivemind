@@ -1,6 +1,6 @@
 """Provide TailscaleEndpointSource: ask tailscaled where each overlay peer really connects from.
 
-The travel lock works only with ``expose = "vpn"`` on Tailscale (ADR-0033), because tailscaled
+The travel lock works only with ``expose = "vpn"`` on Tailscale (ADR-0041), because tailscaled
 knows what the overlay hides: a peer's current endpoint. Its local API answers ``GET
 /localapi/v0/status`` over a Unix socket (``/var/run/tailscale/tailscaled.sock`` on Linux) with
 every peer, its Tailscale addresses (``TailscaleIPs``), the endpoint it is using right now
@@ -23,7 +23,7 @@ Key invariants:
       peer) answers None, which the travel lock treats as a new network; nothing raises.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "travel lock".
     - hivemind.entrance.auth.travel.source for the protocol.
 """
 

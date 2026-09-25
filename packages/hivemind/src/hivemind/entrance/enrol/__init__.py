@@ -2,7 +2,7 @@
 
 Every client of the Hive Entrance (the Hive's one HTTP door) is a device enrolled with its own key
 and approved at the Hive Stand (the machine the Queen, the orchestrator, runs on) (codingrules 8.15,
-ADR-0033). This package is that whole lifecycle. The data half: ``state`` (the ``DeviceStatus``
+ADR-0041). This package is that whole lifecycle. The data half: ``state`` (the ``DeviceStatus``
 machine, one table, each edge carrying its ``guard.entrance_*`` trail kind), ``models`` (the
 records) and ``console`` (the operator bootstrap that records the Hive Stand's own loopback-bound
 console). The behaviour half (roadmap 10.5d): ``invite`` mints a single-use code shown as text and
@@ -31,7 +31,7 @@ Key invariants:
     - No invite code, private key, signature or password is stored, logged, raised or recorded.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the decision.
     - .claude/codingrules.md Appendix C, "Enrolled device", for the state machine row.
 
 Public API:

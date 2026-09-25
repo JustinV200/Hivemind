@@ -1,6 +1,6 @@
 """Define SecurityNotifier: the seam that tells every other device a security event happened.
 
-Codingrules 8.15 and ADR-0034: every Entrance security event (a device asking to join, an
+Codingrules 8.15 and ADR-0042: every Entrance security event (a device asking to join, an
 approval, a lock, a revocation) is pushed to every other approved device, as a notice that says
 only that something happened, never what, because pushes transit third-party services. Enrolment
 decides *when* that happens; roadmap step 10.5b's push channels decide *how*. This module is the
@@ -25,7 +25,7 @@ Key invariants:
       delivery.
 
 See Also:
-    - docs/adr/0034-landing-board-versioning-and-push.md for the notice a push carries.
+    - docs/adr/0042-landing-board-versioning-and-push.md for the notice a push carries.
     - hivemind.entrance.enrol.record for where notices are sent.
 """
 

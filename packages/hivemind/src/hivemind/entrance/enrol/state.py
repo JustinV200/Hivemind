@@ -2,7 +2,7 @@
 
 An enrolled device is a client of the Hive Entrance (a browser, a phone, the CLI, a program, the
 Hive Stand's own console; the Hive Stand is the machine the Queen, the orchestrator, runs on) that
-holds its own key (ADR-0033). The Hive Entrance is the Hive's one HTTP door. This module is its
+holds its own key (ADR-0041). The Hive Entrance is the Hive's one HTTP door. This module is its
 state machine in the shape codingrules section 9 requires: one ``Enum`` and one table, each edge
 commented with who takes it and carrying the Pheromone Trail (audit log) event kind it is recorded
 as, tested edge by edge (codingrules Appendix C, the "Enrolled device" row). A device is created
@@ -24,14 +24,14 @@ Key invariants:
       LOCKED to APPROVED, which is ``guard.entrance_unlocked``.
     - ``ENTRY_TRAIL_KINDS`` names the kind of each of the two entries: ``guard.entrance_invited``
       for a minted invite, ``guard.entrance_approved`` for the console's bootstrap.
-    - Approval, denial, unlock and revocation are loopback-only decisions (Appendix C, ADR-0033);
+    - Approval, denial, unlock and revocation are loopback-only decisions (Appendix C, ADR-0041);
       the routes enforce that, and the table records it in the edge comments.
     - The trail kinds are referenced as strings: the ``guard`` event family that declares them is
       ``hivemind.pheromone``'s, and this module never imports it.
 
 See Also:
     - .claude/codingrules.md section 9 and Appendix C for the shape and the row this implements.
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for every edge.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for every edge.
     - hivemind.entrance.store.protocol for the one place status changes are applied.
 """
 

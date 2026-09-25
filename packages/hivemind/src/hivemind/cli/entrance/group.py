@@ -1,6 +1,6 @@
 """Assemble ``hive entrance``: every command that administers the Hive Entrance from the Hive Stand.
 
-The Hive Entrance is the Hive's one HTTP door (ADR-0032), and on the Hive Stand (the machine the
+The Hive Entrance is the Hive's one HTTP door (ADR-0040), and on the Hive Stand (the machine the
 Queen, the orchestrator, runs on) ``hive entrance`` is how the operator keeps it: the password
 (``operator``), who may come in (``invite``, ``register``, ``pending``, ``approve``, ``deny``,
 ``devices``, ``revoke``, ``steward``, ``unlock``) and how wide the door is (``reduce``, ``open``,

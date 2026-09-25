@@ -1,7 +1,7 @@
 """Hold the session tables: SessionTable, its SQLite and in-memory forms, and the console's split.
 
 A login at the Hive Entrance (the Hive's one HTTP door) opens a session kept by its token's SHA-256,
-and every signed request spends a nonce that is refused again for twice the skew window (ADR-0033).
+and every signed request spends a nonce that is refused again for twice the skew window (ADR-0041).
 ``protocol`` defines ``SessionTable``; ``sqlite`` keeps both in the Entrance
 tables (``entrance_sessions``, ``entrance_nonces``, migration 0002); ``memory`` keeps them in
 dicts, for tests and for the Hive Stand console, whose sessions are volatile by design; ``split``
@@ -17,7 +17,7 @@ Key invariants:
     - A console session is never written to the Entrance tables.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md for sessions.
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for sessions.
     - packages/hivemind/tests/contracts/test_entrance_store_contract.py for the shared contract.
 
 Public API:

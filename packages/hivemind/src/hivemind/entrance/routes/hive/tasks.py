@@ -1,7 +1,7 @@
 """Serve the tasks resource: a page of tasks by goal and status, one task, and its brief.
 
 Every task the Queen decomposed a goal into lives in the Brood Chamber, which the Entrance reads
-directly (ADR-0032). ``GET /v1/tasks`` pages the task list oldest first by ``(created_at, id)``,
+directly (ADR-0040). ``GET /v1/tasks`` pages the task list oldest first by ``(created_at, id)``,
 optionally one goal's or one status's, with a keyset cursor (``after``, the last task of the
 previous page, which ``next_after`` hands back), so a page never shifts as tasks are added.
 ``GET /v1/tasks/{task_id}`` is one task with how it ended. Both answer ``TaskView``, which holds no

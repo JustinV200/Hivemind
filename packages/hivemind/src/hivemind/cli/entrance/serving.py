@@ -26,7 +26,7 @@ Key invariants:
       record whose writer has gone is never trusted without the lock saying someone serves.
 
 See Also:
-    - docs/adr/0033-landing-board-enrolment-two-factor-login-and-exposure.md: "--reset works only
+    - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md: "--reset works only
       while hive serve is stopped", and the console as a device on loopback.
 """
 

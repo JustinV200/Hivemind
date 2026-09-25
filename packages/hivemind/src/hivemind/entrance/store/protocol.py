@@ -343,7 +343,7 @@ def check_new_device(device: EnrolledDevice, event: GuardEvent) -> None:
         InvariantViolationError: ``event`` is not the entry's ``ENTRY_TRAIL_KINDS`` event about
             this device.
     """
-    # The two entries ADR-0033 allows: a remote device through an invite, and the console,
+    # The two entries ADR-0041 allows: a remote device through an invite, and the console,
     # recorded approved by the operator bootstrap on the Hive Stand itself.
     is_invited = device.status is DeviceStatus.INVITED and not device.loopback_bound
     is_console = device.status is DeviceStatus.APPROVED and device.loopback_bound

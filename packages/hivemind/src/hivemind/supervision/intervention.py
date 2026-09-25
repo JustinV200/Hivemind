@@ -2,7 +2,7 @@
 
 `Supervisor.intervene` (codingrules section 8.8) is how the Queen delegates and rebinds rather than
 executing: compact a bee's context in place, checkpoint it, hand it off to a fresh bee, rebind it
-to another model slot, take it over, cancel it, or (roadmap step 10.6c, ADR-0035) quarantine it.
+to another model slot, take it over, cancel it, or (roadmap step 10.6c, ADR-0043) quarantine it.
 Each lever is its own frozen pydantic model carrying a `reason`, discriminated by a `kind` literal
 exactly like `waggle.messages.forage`'s own discriminated unions, so a caller can `match` (or, per
 this repository's own hygiene script, an `isinstance` chain) on the concrete type rather than on a
@@ -11,7 +11,7 @@ the wire message carrying the same levers as one `InterventionAction` enum plus 
 and `to_intervene` builds the whole wire message, which a `Quarantine` needs: it names its bee,
 its task and the episode from which the bee's memory is suspect. Decoding an action the union has
 no lever for (`RELEASE_LEASE`, which a Warden carries out itself, or anything newer) raises
-`UnknownInterventionError`: ADR-0035's "decoding an intervention the Hive does not know is an
+`UnknownInterventionError`: ADR-0043's "decoding an intervention the Hive does not know is an
 error, never a silent cancel".
 
 Fits into the Hive:
@@ -32,7 +32,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.8 for the Queen's and a Warden's intervention levers.
-    - docs/adr/0035-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Quarantine is
+    - docs/adr/0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md, "Quarantine is
       one intervention".
     - waggle.messages.supervision for Intervene and InterventionAction, the wire forms this module
       converts to and from.
@@ -134,7 +134,7 @@ class Cancel(BaseModel):
 class Quarantine(BaseModel):
     """Quarantine one bee: checkpoint it, stop and kill it, taint its memory, hold its task.
 
-    Roadmap step 10.6c (ADR-0035). Carried out by the bee's own Warden, through the one code path
+    Roadmap step 10.6c (ADR-0043). Carried out by the bee's own Warden, through the one code path
     in `hivemind.wardens.quarantine`, never relayed to the bee itself. The only way out is a
     respawn from the Handoff that path wrote, once a judge has cleared it.
     """
@@ -267,7 +267,7 @@ def from_wire(wire: Intervene) -> Intervention:
         return _quarantine_from_wire(wire)
     lever = _PLAIN_LEVERS.get(wire.action)
     # No variant for this action: refused outright, since any lever chosen in its place would
-    # carry out an order nobody gave (ADR-0035).
+    # carry out an order nobody gave (ADR-0043).
     if lever is None:
         raise UnknownInterventionError(wire.action.value)
     return lever(reason=wire.reason)
