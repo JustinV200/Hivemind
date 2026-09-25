@@ -285,7 +285,8 @@ goal's set, or None for the operator's own local path) and builds her requests.
   `task.assign`.
 - `placement`: `placement.decide` excludes any candidate the goal's set does not allow; when that
   alone leaves none, `dispatcher.ready` records `queen.decided` with the full reason and one
-  `guard.denied` per missing capability, and the task stays PENDING.
+  `guard.denied` per missing capability, then cancels the task with that reason: a goal's set is
+  fixed for its whole life, so no later pass could place it.
 - `comb_shield_egress`: `dispatcher.acquire` refuses to provision or resume a Virtual Cell at a
   tier the goal lacks `cell:comb_shield:<tier>` for, before anything is provisioned.
 - `grant_issue`: `dispatcher.grants.authorize_grant` removes each binding whose `llm:<slot>` the
