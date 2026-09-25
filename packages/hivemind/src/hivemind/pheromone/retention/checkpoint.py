@@ -209,7 +209,7 @@ class Checkpointer:
         fresh = [event for event in held if not earlier.counted(event)]
         counts = merge_counts((c.count() for c in earlier.counts), tier_counts(fresh))
         newest = max((event.at for event in fresh), default=earlier.counted_through)
-        edge = {event.id for event in fresh if event.at == newest}
+        edge: set[str] = {event.id for event in fresh if event.at == newest}
         if newest == earlier.counted_through:
             edge |= earlier.counted_at  # The earlier edge still stands beside this one's.
         return CellCheckpoint(
