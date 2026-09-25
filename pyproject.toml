@@ -207,8 +207,8 @@ exclude = [
 # WHY: "docker" (the Docker Engine SDK for Python, roadmap step 5.4) ships no inline types and no
 # official stub package as of this writing; it is also an *optional* dependency (the
 # `hivemind[docker]` extra, packages/hivemind/pyproject.toml) imported by exactly one module,
-# `hivemind.hive.backends.docker.sdk_client`, lazily inside `__init__` so the rest of the workspace
-# imports fine without it (that module's own docstring). A typings/docker/*.pyi stub would have to
+# `hivemind.hive.backends.docker.sdk_client.client`, lazily inside `SdkDockerClient.__init__` so the
+# rest of the workspace imports fine without it (that module's own docstring). A typings/docker/*.pyi stub would have to
 # cover the SDK's own dynamic, resource-manager-heavy surface (client.containers, client.networks,
 # client.volumes, docker.errors.*) for one module's worth of calls; ignore_missing_imports here is
 # the narrowly-scoped override the comment above documents, confined to that one module by the
@@ -439,14 +439,14 @@ unmatched_ignore_imports_alerting = "warn"
 [[tool.importlinter.contracts]]
 # codingrules section 8.6's vendor-SDK confinement pattern, applied to a vendor *infrastructure*
 # SDK instead of an LLM one (roadmap step 5.4): the Docker Engine SDK for Python is imported only
-# inside hivemind.hive.backends.docker.sdk_client (and, lazily, only inside its __init__, never at
-# module scope -- that module's own docstring), so the rest of the workspace, "hivemind[docker]"
-# extra installed or not, never needs it to import cleanly.
+# inside hivemind.hive.backends.docker.sdk_client.client (and, lazily, only inside
+# SdkDockerClient.__init__, never at module scope -- that module's own docstring), so the rest of
+# the workspace, "hivemind[docker]" extra installed or not, never needs it to import cleanly.
 name = "vendor Docker SDK only inside hive/backends/docker/sdk_client"
 type = "forbidden"
 source_modules = ["hivemind", "waggle", "pollen"]
 forbidden_modules = ["docker"]
-ignore_imports = ["hivemind.hive.backends.docker.sdk_client -> docker"]
+ignore_imports = ["hivemind.hive.backends.docker.sdk_client.client -> docker"]
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "subprocess... importable only from `hivemind.cell.*`...

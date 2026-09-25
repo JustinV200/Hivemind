@@ -9,7 +9,7 @@ another object (as a teardown in another process would), and removed, while anot
 snapshot image stays. No Warden boots here: the container is created and committed, never started.
 
 Fits into the Hive:
-    Layer 0 (test infrastructure, not shipped). Exercises hive/backends/docker/sdk_client.py and
+    Layer 0 (test infrastructure, not shipped). Exercises hive/backends/docker/sdk_client/ and
     hive/snapshot/docker.py against a real daemon.
 
 Key invariants:

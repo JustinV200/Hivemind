@@ -39,7 +39,7 @@ Public API:
     - DockerClientPort, DockerNetworkPort, DockerClientError, ContainerSpec, ContainerInfo,
       NetworkSpec, VolumeSpec (`client.py`): the narrow Docker seam, its network slice and its
       value types.
-    - SdkDockerClient (`sdk_client.py`): the real DockerClientPort, over the `docker` SDK.
+    - SdkDockerClient (`sdk_client/`): the real DockerClientPort, over the `docker` SDK.
     - FakeDockerClient (`fake.py`): the in-memory DockerClientPort for tests and demos.
     - NetworkPlan, plan_network, network_name, host_gateway_extra_hosts (`network.py`): what each
       NetworkPolicy means at the Docker level; ControlNetwork, control_network: the per-Hive
