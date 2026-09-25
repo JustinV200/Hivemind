@@ -128,16 +128,7 @@ async def build_inventory(
     if goal_id is not None:
         # A Cell's own BLOCK note, when it has one, is the mention its placement reason names.
         blocked = {**await _held_for(deps, goal_id), **blocked}
-    # One bee per task holding a grant in force on a Cell (module docstring), counted once.
-    in_use = _bees_in_use(deps.ledger.live_grants())
-    # A Night Veil Cell holds only the task it was provisioned for (module docstring).
-    real = tuple(
-        [
-            await _real_candidate(link, footprint, in_use[link.cell.id])
-            for link in wardens
-            if link.cell.comb_shield is not CombShieldLevel.NIGHT_VEIL
-        ]
-    )
+    real = await _real_candidates(deps, wardens, footprint)
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
     else:
@@ -244,6 +235,22 @@ def dormant_candidate_from_lifecycle(cell: LifecycleDormantCell) -> DormantCandi
         warden_id=cell.warden_id,
         image=cell.image,
         comb_shield=cell.comb_shield,
+    )
+
+
+async def _real_candidates(
+    deps: QueenDeps, wardens: Sequence[WardenLink], footprint: RoleFootprint
+) -> tuple[RealCandidate, ...]:
+    """Return one RealCandidate per attached Warden's Cell, no Night Veil Cell among them."""
+    # One bee per task holding a grant in force on a Cell (module docstring), counted once.
+    in_use = _bees_in_use(deps.ledger.live_grants())
+    # A Night Veil Cell holds only the task it was provisioned for (module docstring).
+    return tuple(
+        [
+            await _real_candidate(link, footprint, in_use[link.cell.id])
+            for link in wardens
+            if link.cell.comb_shield is not CombShieldLevel.NIGHT_VEIL
+        ]
     )
 
 
