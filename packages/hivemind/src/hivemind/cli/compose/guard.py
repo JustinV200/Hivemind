@@ -17,7 +17,8 @@ after it (it rides on her deps), so it is handed a `GuardDoorRelay` the composit
 her the moment she exists, before anything ticks; `close_guard_bee` cancels an awake episode still
 in flight once she has stopped. Its model calls go through her own call gate, a Fanner lane with
 no grant: they take the Royal Reserve's seats, are recorded as `llm.call` on the judge slot with
-no grant id, and never draw on a Worker's grant.
+no grant id, and never draw on a Worker's grant. Roadmap step 10.6b: `build_content_scanner` is the
+one untrusted-content scanner the Queen and the Hive Stand's Warden share.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -27,7 +28,8 @@ Fits into the Hive:
     `hivemind.pheromone`, `hivemind.hive` (CellLifecycle, LifecycleEgress), `hivemind.queen.
     guard_requests` (GuardDeps), `hivemind.queen` (QueenDeps), `hivemind.supervision.capping`
     (TierTable), `hivemind.workers.roles.guard_bee` (build_guard_bee), `hivemind.cli.stores`
-    (open_guard_requests), `psutil` (this machine's interface addresses; the standard library
+    (open_guard_requests), `hivemind.common.secrets` (FileSecretStore, the scanner's key),
+    `hivemind.guard.scanner`, `psutil` (this machine's interface addresses; the standard library
     cannot list them portably), waggle and the standard library only.
 
 Key invariants:
@@ -54,6 +56,7 @@ import psutil
 
 from hivemind.cell import CellIdentity
 from hivemind.cli.stores import open_guard_requests
+from hivemind.common.secrets import FileSecretStore
 from hivemind.guard import (
     Enforcer,
     GuardPolicy,
@@ -63,6 +66,7 @@ from hivemind.guard import (
 )
 from hivemind.guard.net import IPAddress, ip_literal
 from hivemind.guard.policy import HiveState
+from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.hive import LifecycleEgress
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.manifest import HiveManifest
@@ -78,6 +82,7 @@ _IP_FAMILIES = frozenset({socket.AF_INET, socket.AF_INET6})
 
 __all__ = [
     "GuardDoorRelay",
+    "build_content_scanner",
     "build_enforcer",
     "build_guard_deps",
     "close_guard_bee",
@@ -250,3 +255,26 @@ def interface_addresses() -> tuple[IPAddress, ...]:
         if entry.family in _IP_FAMILIES and (literal := ip_literal(entry.address)) is not None
     }
     return tuple(sorted(found, key=lambda address: (address.version, int(address))))
+
+
+def build_content_scanner(manifest: HiveManifest) -> ContentScanner:
+    """Build the Hive's untrusted-content scanner: the shipped patterns, `[guard]`'s thresholds.
+
+    Roadmap step 10.6b: the Queen (chat messages) and the Hive Stand's Warden (its sub-bees' tool
+    results) share this one scanner, so every flag on this node is hashed under one key. The key
+    lives in the secret store at the manifest's resolved `[hive] secrets_dir`, beside the Hive's
+    signing key, and is minted on the first flag, so building the scanner touches no disk.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
+
+    Returns:
+        A ContentScanner over `load_scan_patterns()` and `[guard.untrusted_content]`.
+
+    Raises:
+        hivemind.guard.GuardPolicyError: The shipped pattern file is unreadable or invalid.
+    """
+    store = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
+    return ContentScanner(
+        load_scan_patterns(), manifest.guard.untrusted_content, ContentHasher(store)
+    )

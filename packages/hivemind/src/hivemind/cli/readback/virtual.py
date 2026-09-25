@@ -39,7 +39,8 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script (`hivemind.cli.app`, via `hivemind.cli.readback.cells`). Calls into
     `hivemind.cell` (CellIdentity, SnapshotId, SnapshotUnsupportedError), `hivemind.cli.compose.
-    deps` (build_hive_stand_source, build_ledger), `hivemind.cli.compose.virtual_cells`
+    deps` (build_hive_stand_source, build_ledger, open_default_stores), `hivemind.cli.compose.
+    night_veil` (attach_side_channels), `hivemind.cli.compose.virtual_cells`
     (build_virtual_cells), `hivemind.cli.readback.virtual_offline`, `hivemind.cli.stores`,
     `hivemind.queen.cluster` (ClusterOrder, OrderKind, new_order_id) and waggle only.
 
@@ -71,8 +72,9 @@ import typer
 
 from hivemind.cell import CellIdentity, SnapshotId, SnapshotUnsupportedError
 from hivemind.cell.leavings import InMemoryLeavingsStore, LeavingsStore
-from hivemind.cli.compose.deps import build_hive_stand_source, build_ledger
-from hivemind.cli.compose.virtual_cells import build_virtual_cells
+from hivemind.cli.compose.deps import build_hive_stand_source, build_ledger, open_default_stores
+from hivemind.cli.compose.night_veil import attach_side_channels
+from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.readback.virtual_abscond import AbscondDeps, AbscondSummary, run_abscond
 from hivemind.cli.readback.virtual_offline import (
     LeaseOrphan,
@@ -202,6 +204,7 @@ async def _destroy(
             f"[virtual_cells] backend is not configured; nothing to destroy for {cell_id!r}."
         )
         return  # A clean no-op: there is no backend this id could ever be found on.
+    await _attach_side_channels(manifest, virtual_cells, ledger)
     identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
     backend, labels = await _resolve_backend(virtual_cells.registry, manifest, cell_id)
     # The real Leavings ledger (roadmap step 5.0a): a destroyed Virtual Cell's own ledgered paths
@@ -389,6 +392,8 @@ async def _abscond(
     """Build `virtual_cells` (or None) and run the whole abscond pass through it."""
     clock = SystemClock()
     virtual_cells = build_virtual_cells(manifest, trail, clock)
+    if virtual_cells is not None:
+        await _attach_side_channels(manifest, virtual_cells, ledger)
     deps = AbscondDeps(
         manifest=manifest,
         trail=trail,
@@ -399,6 +404,20 @@ async def _abscond(
         leavings=leavings,
     )
     return await run_abscond(deps)
+
+
+async def _attach_side_channels(
+    manifest: HiveManifest, virtual_cells: VirtualCellsParts, ledger: ForageLedger
+) -> None:
+    """Let this process's Night Veil purge clear the Hive's other stores too (codingrules 12).
+
+    A Night Veil Cell this command ends leaves rows in the Queen's memory tables, the Brood
+    Chamber, the Forage ledger and the backend's images, whichever process ends it; this opens
+    the Hive's own stores so the purge reaches them (`attach_side_channels`).
+    """
+    # Off this loop: each store opens under its own asyncio.run (hivemind.cli.stores).
+    stores = await asyncio.to_thread(open_default_stores, manifest)
+    attach_side_channels(virtual_cells.night_veil, virtual_cells.registry, stores, ledger)
 
 
 def _print_abscond_summary(summary: AbscondSummary) -> None:

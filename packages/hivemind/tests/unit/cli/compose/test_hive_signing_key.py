@@ -13,7 +13,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.cli.compose.hive for `_hive_signer`, the function under test.
+    - hivemind.cli.compose.hive for `_virtual_side`, the function under test.
     - hivemind.common.secrets.signers for load_or_mint_hive_signer.
 """
 

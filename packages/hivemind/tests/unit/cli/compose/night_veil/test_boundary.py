@@ -1,15 +1,15 @@
-"""Tests for hivemind.cli.compose.night_veil: the Night Veil pieces built from a manifest (10.3a).
+"""Tests for hivemind.cli.compose.night_veil.boundary: Night Veil built from a manifest (10.3a).
 
 Fits into the Hive:
-    Mirrors src/hivemind/cli/compose/night_veil.py (codingrules section 3). Every manifest here
-    is `builders.cli.fake_manifest`'s, with a `[security.tiers.NIGHT_VEIL]` table appended when a
-    test configures the tier.
+    Mirrors src/hivemind/cli/compose/night_veil/boundary.py (codingrules section 3). Every
+    manifest here is `builders.cli.fake_manifest`'s, with a `[security.tiers.NIGHT_VEIL]` table
+    appended when a test configures the tier.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.cli.compose.night_veil for the module under test.
+    - hivemind.cli.compose.night_veil.boundary for the module under test.
 """
 
 from __future__ import annotations

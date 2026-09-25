@@ -1,4 +1,4 @@
-"""Tests for hivemind.cli.compose.hive.build_content_scanner: one scanner, keyed on disk.
+"""Tests for hivemind.cli.compose.guard.build_content_scanner: one scanner, keyed on disk.
 
 Roadmap step 10.6b: the Queen and the Hive Stand's Warden share one untrusted-content scanner,
 built from the shipped patterns and the manifest's `[guard.untrusted_content]` thresholds. Its HMAC
@@ -7,13 +7,13 @@ every process on this node hashes a flagged text the same way and building the s
 disk.
 
 Fits into the Hive:
-    Mirrors src/hivemind/cli/compose/hive.py (codingrules section 3), split out by feature.
+    Mirrors src/hivemind/cli/compose/guard.py (codingrules section 3), split out by feature.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.cli.compose.hive for build_content_scanner.
+    - hivemind.cli.compose.guard for build_content_scanner.
     - hivemind.guard.scanner.hasher for the key's name and size.
 """
 
@@ -24,7 +24,7 @@ from pathlib import Path
 from builders.cli import fake_manifest
 
 from hivemind.cell import CellIdentity
-from hivemind.cli.compose.hive import build_content_scanner
+from hivemind.cli.compose.guard import build_content_scanner
 from hivemind.common.secrets import FileSecretStore
 from hivemind.guard.capabilities import CapabilitySet
 from hivemind.guard.scanner import (

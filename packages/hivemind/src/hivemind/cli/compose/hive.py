@@ -29,7 +29,7 @@ Key invariants:
       (`hivemind.llm.registry.ProviderRegistry.provider`'s own rule), and its own `asyncio.run`
       calls only probe this host's own capacity (`hivemind.cell.local.HiveStandSource.cells`, to
       seed the Queen<->Warden link's Cell) and, with a Virtual side, read or mint the Hive's
-      signing key in the local secret store (`_hive_signer`).
+      signing key in the local secret store (`_virtual_side`).
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
       their `run()` tasks, closes the Queen<->Warden link and then every model provider's
       connections, in that order, whether its `async with` block exits cleanly or raises.
@@ -81,9 +81,9 @@ from hivemind.cli.compose.deps import (
     build_warden_deps,
     open_default_stores,
 )
-from hivemind.cli.compose.guard import close_guard_bee, with_guard
+from hivemind.cli.compose.guard import build_content_scanner, close_guard_bee, with_guard
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
-from hivemind.cli.compose.night_veil import veil_trail
+from hivemind.cli.compose.night_veil import attach_side_channels, veil_trail
 from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map
@@ -92,7 +92,6 @@ from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.streams import TelemetryBoard
 from hivemind.forage import ForageCapacity, ForageMap
 from hivemind.guard import Enforcer, GuardRequestDoor
-from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
@@ -101,12 +100,10 @@ from hivemind.queen.deps import DispatchBook, GrantWaits, LiveCapacity
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
-from waggle.signing import Ed25519Signer
 
 __all__ = [
     "GoalReport",
     "Hive",
-    "build_content_scanner",
     "build_hive",
     "run_goal",
     "run_hive",
@@ -213,7 +210,7 @@ def build_hive(
     The one place a HiveManifest is converted into deps (codingrules section 13): every subsystem
     below `cli` takes only the slice `hivemind.cli.compose.deps`'s builders carve from it. Never
     awaits a model or opens a network connection: every provider is built lazily, and the
-    `asyncio.run` calls (`_build_links`, `_hive_signer`) only probe this host and read secrets.
+    `asyncio.run` calls (`_build_links`, `_virtual_side`) only probe this host and read secrets.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
@@ -236,10 +233,7 @@ def build_hive(
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
     source = build_hive_stand_source(manifest, hive_stores.trail, clock, hive_stores.leavings)
     links = _build_links(manifest, source, clock)
-    # Roadmap step 5.6: None when `[virtual_cells] backend` is unset (virtual_cells' docstring).
-    virtual_cells = build_virtual_cells(
-        manifest, hive_stores.trail, clock, environ, hive_signer=_hive_signer(manifest)
-    )
+    virtual_cells = _virtual_side(manifest, hive_stores, ledger, clock, environ)  # Roadmap 5.6.
     parts = HiveParts(
         manifest=manifest,
         registry=registry,
@@ -294,46 +288,36 @@ def _hive_stand_capacity(source: HiveStandSource) -> LiveCapacity:
     return read
 
 
-def _hive_signer(manifest: HiveManifest) -> Ed25519Signer | None:
-    """Load (or, on the Hive's first run, mint) its signing key when a Virtual side is set.
+def _virtual_side(
+    manifest: HiveManifest,
+    stores: HiveStores,
+    ledger: ForageLedger,
+    clock: Clock,
+    environ: Mapping[str, str],
+) -> VirtualCellsParts | None:
+    """Build the Virtual side, signed with the Hive's own key, its Night Veil purge fully wired.
 
-    Phase 5 open item 5: the Queen signs every Virtual Cell frame with this key, so it must be the
-    same key after a restart; it lives in the secret store at the manifest's resolved `[hive]
-    secrets_dir` (a test's manifest lives under its own `tmp_path`, so its key does too). `None`
-    when `[virtual_cells] backend` is unset: `build_virtual_cells` then builds nothing, and a Hive
-    with no Virtual side never writes a key it does not use.
+    Roadmap step 5.6: None when `[virtual_cells] backend` is unset (`build_virtual_cells`'s own
+    docstring), and a Hive with no Virtual side never writes a key it does not use. Phase 5 open
+    item 5: the Queen signs every Virtual Cell frame with the Hive's key, so it must be the same
+    key after a restart; it lives in the secret store at the manifest's resolved `[hive]
+    secrets_dir` (a test's manifest lives under its own `tmp_path`, so its key does too), minted
+    on the Hive's first run. Codingrules 12: the boundary's purge clears the Queen's memory
+    tables, the Brood Chamber, the Forage ledger and the snapshot images of a Night Veil Cell too
+    (`attach_side_channels`).
 
     SAFETY: a fresh event loop for this one setup call, the same seam `_build_links` uses: the
     secret store is async, `build_hive` is a sync composition root, and the call is one small
     file read (or one write, the first time), never a network request.
     """
-    if manifest.virtual_cells.backend is None:
-        return None
-    store = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
-    return asyncio.run(load_or_mint_hive_signer(store))
-
-
-def build_content_scanner(manifest: HiveManifest) -> ContentScanner:
-    """Build the Hive's untrusted-content scanner: the shipped patterns, `[guard]`'s thresholds.
-
-    Roadmap step 10.6b: the Queen (chat messages) and the Hive Stand's Warden (its sub-bees' tool
-    results) share this one scanner, so every flag on this node is hashed under one key. The key
-    lives in the secret store at the manifest's resolved `[hive] secrets_dir`, beside the Hive's
-    signing key, and is minted on the first flag, so building the scanner touches no disk.
-
-    Args:
-        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
-
-    Returns:
-        A ContentScanner over `load_scan_patterns()` and `[guard.untrusted_content]`.
-
-    Raises:
-        hivemind.guard.GuardPolicyError: The shipped pattern file is unreadable or invalid.
-    """
-    store = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
-    return ContentScanner(
-        load_scan_patterns(), manifest.guard.untrusted_content, ContentHasher(store)
-    )
+    signer = None
+    if manifest.virtual_cells.backend is not None:
+        secrets = FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
+        signer = asyncio.run(load_or_mint_hive_signer(secrets))
+    parts = build_virtual_cells(manifest, stores.trail, clock, environ, hive_signer=signer)
+    if parts is not None:
+        attach_side_channels(parts.night_veil, parts.registry, stores, ledger)
+    return parts
 
 
 @dataclass(frozen=True, slots=True)

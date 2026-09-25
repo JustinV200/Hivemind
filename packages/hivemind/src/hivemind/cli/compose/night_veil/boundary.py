@@ -1,4 +1,4 @@
-"""Build what the Queen and the backends need to honour Night Veil, from a loaded manifest.
+"""Build the Night Veil tier's placement policy, link and retention boundary from a manifest.
 
 Roadmap step 10.3a closes a phase 5 gap: the production composition root never turned
 `[security.tiers.NIGHT_VEIL]` into `PlacementPolicy.night_veil`, so every Night Veil task failed
@@ -17,11 +17,12 @@ wraps the Hive's durable trail in the `VeiledTrail` every Queen-side writer reco
 when a Virtual side exists (only a Virtual Cell can be Night Veil); `build_night_veil` builds the
 rest of the boundary around that same trail (or around a plain one, for an offline `hive cells`
 command): the purge, whose durable half deletes with its own connection to the Hive's file, opened
-at the first purge, and whose side channels are `SideChannels()`, every one a registered seam today.
+at the first purge, and whose side channels are attached once the stores exist
+(`hivemind.cli.compose.night_veil.side_channels`).
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
-    `hivemind.cli.compose.deps` (the placement policy and both locality sets) and
+    Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.night_veil`. Called
+    by `hivemind.cli.compose.deps` (the placement policy and both locality sets) and
     `hivemind.cli.compose.virtual_cell_backends` (the link), and by `hivemind.cli.compose.hive` and
     `hivemind.cli.compose.virtual_cells` (the boundary). Calls into `hivemind.cell`,
     `hivemind.cli.stores` (provider_configs), `hivemind.hive` (NetworkPolicy, NightVeilLink,
