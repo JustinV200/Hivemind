@@ -98,6 +98,13 @@ class BackendCapabilities(BaseModel):
         "link alone, and restore it (roadmap step 10.6a); a backend declaring it implements "
         "EgressCutter. False, the default, for every backend that cannot.",
     )
+    can_night_veil: bool = Field(
+        default=False,
+        description="Whether this backend can hold a NIGHT_VEIL Cell and meet its teardown rule "
+        "(codingrules section 12: nothing of the Cell outlives it on the host); placement never "
+        "chooses one that cannot, and it refuses such a spec itself. False, the default: a "
+        "backend declares it only once its teardown is shown to meet the rule.",
+    )
 
 
 @dataclass(frozen=True, slots=True)

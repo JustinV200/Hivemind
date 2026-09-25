@@ -90,7 +90,7 @@ def _backend(deps: QueenDeps) -> VirtualBackendCandidate:
         capacity=make_capacity(),
         hive_id=deps.identity.hive_id,
     )
-    capabilities = BackendCapabilities(can_snapshot=False, can_pause=True)
+    capabilities = BackendCapabilities(can_snapshot=False, can_pause=True, can_night_veil=True)
     return VirtualBackendCandidate(name="fake", capabilities=capabilities, specs=(spec,))
 
 

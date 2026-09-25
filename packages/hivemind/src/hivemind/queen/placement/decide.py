@@ -320,8 +320,9 @@ def _place_night_veil(
     unceiled = dataclasses.replace(forage, goal_capabilities=None)
     eliminated: list[str] = []
     for backend in _order_backends(inventory.virtual_backends, policy):
-        if not rules.virtual_has_headroom(backend.capabilities.headroom):
-            eliminated.append(f"Backend {backend.name}: no headroom")
+        refusal = _night_veil_refusal(backend)
+        if refusal is not None:
+            eliminated.append(refusal)
             continue
         base = _best_spec(needs, unceiled, backend.specs, eliminated, backend.name)
         if base is None:
@@ -353,6 +354,20 @@ def _place_night_veil(
         eliminated.append("No Virtual backend is registered")
     named = "; ".join(eliminated) if eliminated else "no candidates in inventory"
     raise PlacementError(f"NIGHT_VEIL requires a Virtual Cell but none fit: {named}.")
+
+
+def _night_veil_refusal(backend: VirtualBackendCandidate) -> str | None:
+    """Return why `backend` cannot take a fresh Night Veil Cell now, or None when it can.
+
+    Only a backend declaring `can_night_veil` ever holds one (a QEMU backend does not: its
+    teardown cannot yet meet codingrules section 12, so it is refused fail-closed), and only
+    with headroom left.
+    """
+    if not backend.capabilities.can_night_veil:
+        return f"Backend {backend.name}: cannot hold a Night Veil Cell"
+    if not rules.virtual_has_headroom(backend.capabilities.headroom):
+        return f"Backend {backend.name}: no headroom"
+    return None
 
 
 def _check_night_veil_rules(needs: TaskNeeds, forage: ForageView, policy: PlacementPolicy) -> None:

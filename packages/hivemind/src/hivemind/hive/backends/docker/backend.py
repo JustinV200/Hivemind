@@ -183,7 +183,11 @@ class DockerCellBackend:
 
     @property
     def capabilities(self) -> BackendCapabilities:
-        """Docker can snapshot (5.10), pause, and cut egress once it has a control network."""
+        """Docker can snapshot (5.10), pause, hold Night Veil, and cut egress on a control network.
+
+        Night Veil: its image runs the kill-switch (5.3a), its container logs nowhere, and its
+        container, network, volume and snapshot images are removed at its teardown.
+        """
         headroom = (
             None if self._max_cells is None else max(0, self._max_cells - len(self._active_ids))
         )
@@ -192,6 +196,7 @@ class DockerCellBackend:
             can_pause=True,
             headroom=headroom,
             can_cut_egress=self._control is not None,
+            can_night_veil=True,
         )
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:

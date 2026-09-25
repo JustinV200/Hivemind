@@ -8,7 +8,11 @@ providers under `backends/cloud/`.
 
 - `CellBackend` (`base.py`): `provision`, `destroy`, `list_cells`, `pause`, `resume`, plus `name`
   and `capabilities` so a caller branches on what a backend can do, never on which one it is.
-- `BackendCapabilities` (`base.py`): `can_snapshot`, `can_pause`, `headroom`.
+  `can_night_veil` says whether a backend can hold a NIGHT_VEIL Cell and meet its teardown rule
+  (codingrules section 12): Docker (and the fake) declare it; QEMU does not, and refuses such a
+  spec itself, fail-closed (`hivemind.hive` README, "Night Veil: what a Cell itself keeps").
+- `BackendCapabilities` (`base.py`): `can_snapshot`, `can_pause`, `headroom`, `can_cut_egress`,
+  `can_night_veil`.
 - `VirtualCellRecord` (`base.py`): what `list_cells` returns -- id, status, image, labels,
   created_at, enough for the Undertaker's orphan sweep to reconcile without asking twice.
 - `FakeCellBackend` (`fake.py`): the in-memory reference implementation; deterministic via an
@@ -87,7 +91,7 @@ summary:
 | `NONE` | `-netdev user,...,restrict=on` plus one `guestfwd` rule forwarding a fixed guest address to the real Queen endpoint. `restrict=on` blocks the guest from reaching the host at all, including QEMU's own `10.0.2.2` host alias; `guestfwd` is the one documented exception QEMU still services under `restrict=on`, so the control link survives. | Verified against real QEMU: this dev host has none (ADR-0026), so the `guestfwd=...-cmd:...` relay (which shells out to the host's own Python to bridge the connection) has been reviewed by reading, not run. |
 | `EGRESS_ONLY` | `-netdev user,id=net0`, no `restrict` -- full outbound reach via SLIRP's own NAT, no inbound (no Virtual Cell backend ever publishes a port). A Queen endpoint on loopback is rewritten to QEMU's `10.0.2.2` host alias so it is actually reachable from inside the guest. | Nothing beyond "no inbound"; outbound is unrestricted by design. |
 | `ALLOWLIST` | The same unrestricted user network as `EGRESS_ONLY`, plus the allowlist stamped into `cell.json`'s labels for audit. | Enforcement: QEMU's own SLIRP stack has no hostname-based outbound allowlist. `TODO(5.7a)` marks exactly what the in-Cell firewall (Night Veil's kill-switch work) still has to close, mirroring Docker's own `ALLOWLIST_LABEL`. |
-| `VPN_TOR` | The same unrestricted user network as `EGRESS_ONLY`; `provision()` refuses a VPN_TOR spec outright unless `spec.image == "night-veil-ubuntu"`. | Enforcement: QEMU's own SLIRP stack cannot restrict outbound reach to "only the VPN endpoint and Tor's bootstrap" any more than Docker's network API can. The `night-veil-ubuntu` image's own in-guest nftables kill-switch (5.3a) is the real boundary -- and, unlike Docker, a QEMU guest's own init runs with full kernel privilege inside the VM, so there is no host-side `cap_add` gap to close here. |
+| `VPN_TOR` | Never reached today: VPN_TOR is Night Veil's policy, and this backend refuses every Night Veil spec (`can_night_veil` is False). Were it lifted: the same unrestricted user network as `EGRESS_ONLY`, and `provision()` refuses a VPN_TOR spec outright unless `spec.image == "night-veil-ubuntu"`. | Enforcement: QEMU's own SLIRP stack cannot restrict outbound reach to "only the VPN endpoint and Tor's bootstrap" any more than Docker's network API can. The `night-veil-ubuntu` image's own in-guest nftables kill-switch (5.3a) is the real boundary -- and, unlike Docker, a QEMU guest's own init runs with full kernel privilege inside the VM, so there is no host-side `cap_add` gap to close here. |
 
 QEMU cannot cut a running Cell's egress yet (`can_cut_egress` is undeclared): `restrict=on` is fixed
 when a `-netdev` is created, and QMP's `set_link`/`netdev_del` take the VM's one NIC down, the

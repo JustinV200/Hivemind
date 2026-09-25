@@ -94,8 +94,11 @@ def _backend(
     headroom: int | None = None,
     image: str = "base-ubuntu",
     capacity: ForageCapacity | None = None,
+    can_night_veil: bool = True,
 ) -> VirtualBackendCandidate:
-    capabilities = BackendCapabilities(can_snapshot=False, can_pause=True, headroom=headroom)
+    capabilities = BackendCapabilities(
+        can_snapshot=False, can_pause=True, headroom=headroom, can_night_veil=can_night_veil
+    )
     return VirtualBackendCandidate(
         name=name, capabilities=capabilities, specs=(_spec(image=image, capacity=capacity),)
     )
@@ -222,6 +225,20 @@ def test_night_veil_always_provisions_fresh_never_dormant_even_with_a_matching_i
     assert placement.spec.network_allowlist == ()
     # Roadmap step 5.7a: stamped on the spec's own labels for a backend's label-only orphan sweep.
     assert placement.spec.labels["hivemind.comb_shield"] == "NIGHT_VEIL"
+
+
+def test_night_veil_never_lands_on_a_backend_that_cannot_hold_it() -> None:
+    # A QEMU backend declares can_night_veil=False (fail-closed): passed over, even listed first.
+    cannot = _backend(name="qemu", image="night-veil-ubuntu", can_night_veil=False)
+    can = _backend(name="docker", image="night-veil-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=_night_veil_constraints())
+
+    placement = decide(needs, Inventory(virtual_backends=(cannot, can)), _forage(), policy)
+
+    assert isinstance(placement, ProvisionVirtual) and placement.backend == "docker"
+    with pytest.raises(PlacementError, match="qemu: cannot hold a Night Veil Cell"):
+        decide(needs, Inventory(virtual_backends=(cannot,)), _forage(), policy)
 
 
 def test_night_veil_with_no_backend_raises_placement_error() -> None:

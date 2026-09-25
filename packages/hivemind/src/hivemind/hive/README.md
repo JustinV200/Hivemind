@@ -79,21 +79,25 @@ backend's destroy has to take everything the Cell wrote with it:
 
 - The in-Cell Warden's trail is a `MemoryPheromoneTrail` (`hivemind.cli.in_cell.main`), never a
   file: it dies with the Warden's process, whatever the backend.
-- Docker: `destroy` removes the container, its scratch volume and its network. The container's
-  own stdout and stderr (the in-Cell Warden's log lines: ids and kinds only) follow the daemon's
-  log driver, which the backend does not set: `json-file` and `local` delete them with the
-  container, but a daemon configured for `journald`, `syslog` or a remote driver keeps them on the
-  host. A Night Veil container should be created with the `none` log driver; not built yet.
-  A Capping snapshot (`hivemind.hive.snapshot.docker`, a `docker commit`) is an image outside the
-  container: `teardown` deletes the Cell's snapshot ledger rows but not the committed images
-  (labelled `hivemind.snapshot_of=<cell_id>`), so a Night Veil Cell that was snapshotted leaves
-  its root filesystem behind in the daemon. Removing them needs an image listing by label on
-  `DockerClientPort`; not built yet, and it is the same leak for every Docker Cell.
-- QEMU: everything a VM wrote lives under its `vm_dir`: `overlay.qcow2` (its whole disk, every
-  `savevm` snapshot included), `seed.iso` with `user-data` and `meta-data` (its bootstrap, the
-  hidden-service address and its private signing key among them), `serial.log` (its console),
-  `qmp.sock` and `cell.json`; `destroy` removes that directory. For Night Veil that is not yet
-  enough, and a QEMU Night Veil Cell needs four things not built yet: the removal is
+- Docker: `destroy` removes the container, its scratch volume and its network. A Night Veil
+  container is created with the `none` log driver (`ContainerSpec.log_driver`), so its stdout
+  and stderr reach no daemon log at all, whatever driver the daemon defaults to (`journald`,
+  `syslog` or a remote one would keep them on the host). A Capping snapshot
+  (`hivemind.hive.snapshot.docker`, a `docker commit`) is an image outside the container,
+  labelled `hivemind.snapshot_of=<cell_id>`: a Night Veil teardown removes every one of the
+  Cell's (`DockerSnapshotImages`, a side channel of the purge, found by that label through
+  `DockerClientPort.list_images`, from any process). Any other Cell's committed images still
+  outlive it (`teardown` deletes only their ledger rows), a leak outside the Night Veil boundary.
+  The container's writable layer and scratch volume are deleted, not wiped: their blocks stay on
+  the host disk until reused.
+- QEMU: the backend refuses a Night Veil Cell, fail-closed (`capabilities.can_night_veil` is
+  False, so placement never chooses it for the tier, and `provision` refuses such a spec before
+  anything exists); no roadmap step promises Night Veil on QEMU. Everything a VM writes lives
+  under its `vm_dir`: `overlay.qcow2` (its whole disk, every `savevm` snapshot included),
+  `seed.iso` with `user-data` and `meta-data` (its bootstrap, the hidden-service address and its
+  private signing key among them), `serial.log` (its console), `qmp.sock` and `cell.json`;
+  `destroy` removes that directory. For Night Veil that is not enough, and lifting the refusal
+  needs four things not built yet: the removal is
   `shutil.rmtree(..., ignore_errors=True)`, so a failed delete is silent, and it must be verified
   and fail loudly instead; a deleted overlay's blocks stay on the host disk, so the Cell's
   `vm_dir` belongs on a RAM-backed filesystem (or its overlay encrypted under a key held only in

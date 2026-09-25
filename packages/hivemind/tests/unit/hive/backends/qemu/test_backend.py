@@ -101,60 +101,29 @@ async def test_provision_stamps_hive_id_label() -> None:
     assert runner.start_vm_calls[0].labels["hive_id"] == spec.hive_id
 
 
-async def test_provision_refuses_vpn_tor_on_any_image_but_night_veil_ubuntu() -> None:
-    backend, runner, gate = _make_backend(FakeClock())
-    # image defaults away from "night-veil-ubuntu" (_make_spec): the in-guest kill-switch that
-    # image lacks is VPN_TOR's only real enforcement, so this must be refused before anything is
-    # created, whatever else the spec asks for.
-    spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
+async def test_provision_refuses_every_night_veil_spec_before_anything_exists() -> None:
+    # Fail-closed (the backend's own docstring): its teardown cannot yet meet codingrules 12, so
+    # no Night Veil Cell is ever created here, on the tier's own image or any other, link or not.
+    for link in (_LINK, None):
+        backend, runner, gate = _make_backend(FakeClock(), night_veil=link)
+        for image in ("night-veil-ubuntu", "base-ubuntu"):
+            spec = _make_spec(
+                image=image,
+                network_policy=NetworkPolicy.VPN_TOR,
+                comb_shield=CombShieldLevel.NIGHT_VEIL,
+            )
 
-    with pytest.raises(CellProvisionError, match="VPN_TOR"):
-        await backend.provision(spec)
+            with pytest.raises(CellProvisionError, match="cannot hold a NIGHT_VEIL Cell"):
+                await backend.provision(spec)
 
-    assert runner.start_vm_calls == []
-    assert gate.expect_calls == []
-
-
-def _night_veil_spec() -> VirtualCellSpec:
-    """A Night Veil Cell on the one image whose kill-switch can hold it."""
-    return _make_spec(
-        image="night-veil-ubuntu",
-        network_policy=NetworkPolicy.VPN_TOR,
-        comb_shield=CombShieldLevel.NIGHT_VEIL,
-    )
+        assert runner.create_overlay_disk_calls == [] and runner.start_vm_calls == []
+        assert gate.expect_calls == []
 
 
-async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
-    backend, runner, _ = _make_backend(FakeClock(), night_veil=_LINK)
+async def test_capabilities_declare_it_cannot_hold_night_veil() -> None:
+    backend, _runner, _gate = _make_backend(FakeClock())
 
-    cell = await backend.provision(_night_veil_spec())
-
-    assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
-    # QEMU's own SLIRP network gives unrestricted outbound reach (module docstring: the in-guest
-    # kill-switch is the real boundary, not QEMU's own network layer).
-    assert runner.start_vm_calls[0].netdev_arg == "user,id=net0"
-
-
-async def test_a_night_veil_guest_boots_dialling_the_hidden_service_through_tor() -> None:
-    # Roadmap step 10.3a: no QEMU-level rewrite may swap the onion URL for a clearnet address.
-    backend, runner, _ = _make_backend(FakeClock(), night_veil=_LINK)
-
-    cell = await backend.provision(_night_veil_spec())
-
-    user_data = runner.seed_user_data[cell.id]
-    assert f"HIVEMIND_QUEEN_WAGGLE_URL={_LINK.waggle_url}" in user_data
-    assert f"HIVEMIND_SOCKS_PROXY_URL={_LINK.socks_proxy_url}" in user_data
-    assert "localhost:8710" not in user_data
-
-
-async def test_provision_refuses_a_night_veil_cell_when_no_link_is_configured() -> None:
-    backend, runner, gate = _make_backend(FakeClock())
-
-    with pytest.raises(CellProvisionError, match="hidden service"):
-        await backend.provision(_night_veil_spec())
-
-    assert runner.create_overlay_disk_calls == []
-    assert gate.expect_calls == []
+    assert not backend.capabilities.can_night_veil  # So placement never chooses it for the tier.
 
 
 async def test_provision_cleans_up_on_start_vm_failure() -> None:

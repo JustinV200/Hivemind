@@ -28,6 +28,14 @@ Key invariants:
     - provision() either returns a Cell of kind VIRTUAL or raises CellProvisionError; any resource
       already created (overlay disk, seed image, VM process) is removed before the error is
       raised, and the ReadinessGate registration is forgotten too (codingrules Appendix A.1).
+    - A NIGHT_VEIL spec is refused, fail-closed, and `capabilities.can_night_veil` says so, so
+      placement never chooses this backend for the tier. Codingrules section 12 lets nothing of a
+      Night Veil Cell outlive it on the host, and a VM leaves its overlay qcow2 (with every
+      internal snapshot) and its serial console log in its VM directory, removed by an unverified
+      delete and never shredded; no roadmap step promises Night Veil on QEMU (5.3a builds the
+      tier's image for Docker only). A later step lifts this by meeting the rule: a verified
+      delete of the VM directory, the overlay on a RAM disk or encrypted with a key shredded at
+      teardown, no serial log on disk, and volatile journald inside the guest.
     - destroy() is idempotent even after this backend's own process restarted with no in-memory
       state: `hivemind.hive.backends.qemu.runner.vm_dir_for` recomputes every VM's own directory
       from `cell_id` alone, never a table this instance might not still hold.
@@ -54,7 +62,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from hivemind.cell import AccessLevel, Cell, CellKind
+from hivemind.cell import AccessLevel, Cell, CellKind, CombShieldLevel
 from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
 from hivemind.hive.backends.bootstrap import (
     CellBootstrap,
@@ -167,14 +175,30 @@ class QemuCellBackend:
 
     @property
     def capabilities(self) -> BackendCapabilities:
-        """QEMU can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count."""
+        """QEMU can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count.
+
+        It cannot hold Night Veil (module docstring): nothing yet proves its teardown leaves
+        nothing of the Cell on the host.
+        """
         max_cells = self._config.max_cells
         headroom = None if max_cells is None else max(0, max_cells - len(self._active_ids))
-        return BackendCapabilities(can_snapshot=True, can_pause=True, headroom=headroom)
+        return BackendCapabilities(
+            can_snapshot=True, can_pause=True, headroom=headroom, can_night_veil=False
+        )
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         """See `CellBackend.provision`."""
         self._check_headroom(spec)
+        if spec.comb_shield is CombShieldLevel.NIGHT_VEIL and not self.capabilities.can_night_veil:
+            # Fail closed (module docstring): placement never chooses this backend for the tier,
+            # and a spec that reaches it anyway is refused before anything exists on the host.
+            raise CellProvisionError(
+                self.name,
+                spec.image,
+                "this backend cannot hold a NIGHT_VEIL Cell: its teardown does not yet meet "
+                "codingrules section 12 (a verified delete of the VM directory, an overlay on RAM "
+                "or crypto-shredded, no serial log on disk)",
+            )
         if spec.network_policy is NetworkPolicy.VPN_TOR and spec.image != _NIGHT_VEIL_IMAGE:
             # The in-image nftables kill-switch is VPN_TOR's only real enforcement (mirrors
             # DockerCellBackend's own refusal, hive.backends.docker.backend); a spec that does not

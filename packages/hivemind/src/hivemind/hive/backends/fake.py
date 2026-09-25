@@ -106,9 +106,10 @@ _FAKE_CORES = 2  # A modest default host: enough for provision()'s own defaults,
 _FAKE_MEMORY_BYTES = 2 * 1024**3
 _FAKE_DISK_BYTES = 10 * 1024**3
 _FAKE_MAX_SUB_BEES = 4
-# What a fake declares when a test names nothing: a Cell pauses and (step 10.6a) cuts its egress.
+# What a fake declares when a test names nothing: a Cell pauses, (step 10.6a) cuts its egress
+# and, like the Docker backend it stands in for, holds Night Veil (nothing of it is on a host).
 _DEFAULT_CAPABILITIES = BackendCapabilities(
-    can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True
+    can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True, can_night_veil=True
 )
 
 __all__ = ["FakeCellBackend", "FakeReadinessGate", "ReadinessGateExpect"]
