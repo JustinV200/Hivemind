@@ -3,8 +3,8 @@
 Split into a package (codingrules 5.2) once the fifth table (`memory_bee_bread`, roadmap step 4.2)
 pushed the combined SQL past codingrules 5.1's file-size limit: `records` holds the original four
 tables' SQL and transactions (pins, notes, handoffs, episodes); `bee_bread` holds the fifth's;
-`store` holds `SqliteMemoryStore` itself, `create` and `apply_memory_migrations`, delegating to
-both siblings.
+`taint` and `night_veil` hold the taint label's and the Night Veil purge's mixins; `store` holds
+`SqliteMemoryStore` itself, `create` and `apply_memory_migrations`, delegating to its siblings.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Used by

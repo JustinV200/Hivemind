@@ -3,7 +3,8 @@
 Every mutation runs one transaction on the store's `ConnectionThread` (the SQL lives in the sibling
 modules `hivemind.memory.store.sqlite.records`, the original four tables, and
 `hivemind.memory.store.sqlite.bee_bread`, the fifth; `hivemind.memory.store.sqlite.taint`, the taint
-label's mixin, roadmap step 10.6d) that writes the row and calls
+label's mixin, roadmap step 10.6d; `hivemind.memory.store.sqlite.night_veil`, the Night Veil
+purge's, codingrules section 12) that writes the row and calls
 `hivemind.pheromone.insert_event` for the accompanying event on the same connection, so the state
 change and its trail event commit together (codingrules section 12), exactly the pattern
 `hivemind.brood_chamber.store.sqlite.SqliteTaskStore` follows for tasks. This module owns the class
@@ -60,6 +61,7 @@ from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from hivemind.memory.store.sqlite import bee_bread, records
 from hivemind.memory.store.sqlite import wax as wax_sql
+from hivemind.memory.store.sqlite.night_veil import _SqliteNightVeilStore
 from hivemind.memory.store.sqlite.taint import _SqliteTaintStore
 from hivemind.pheromone import MemoryEvent
 from waggle.clock import Clock
@@ -101,7 +103,7 @@ def apply_memory_migrations(connection: sqlite3.Connection, clock: Clock) -> tup
     return apply_migrations(connection, SUBSYSTEM, migrations, clock)
 
 
-class SqliteMemoryStore(_SqliteTaintStore):
+class SqliteMemoryStore(_SqliteTaintStore, _SqliteNightVeilStore):
     """The durable MemoryStore: six SQLite tables, one connection, one lock per instance."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:

@@ -19,6 +19,8 @@ Key invariants:
       MemoryTaskStore`'s own shape.
     - `add_note` evicts `note.author`'s oldest note past `MAX_NOTES_PER_AUTHOR`, the same duty
       `hivemind.memory.store.sqlite.SqliteMemoryStore` documents for its own third DELETE.
+    - `purge_night_veil` (`hivemind.memory.store.night_veil`) is the one removal beyond those and
+      the retention window, and only the Night Veil teardown purge calls it.
     - Every method holds `self._lock` for its whole body, so two coroutines can never interleave a
       read with a write, or two writes with each other.
     - The taint label (roadmap 10.6d, `_TaintMemoryStore`) is checked against its transition table
@@ -51,6 +53,7 @@ from hivemind.memory.errors import (
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR, Note
 from hivemind.memory.pins import Pin
+from hivemind.memory.store.night_veil import _NightVeilMemoryStore
 from hivemind.memory.store.review import review_text
 from hivemind.memory.taint import (
     TaintableItem,
@@ -239,12 +242,12 @@ class _TaintMemoryStore:
             self._bee_bread[target.item_id] = entry.model_copy(update={"tainted": marker})
 
 
-class InMemoryMemoryStore(_WaxMemoryStore, _TaintMemoryStore):
+class InMemoryMemoryStore(_WaxMemoryStore, _TaintMemoryStore, _NightVeilMemoryStore):
     """An in-process MemoryStore: 6 dicts (pins/notes/handoffs/episodes/bee_bread/wax), 1 lock.
 
-    Composed with `_WaxMemoryStore` and `_TaintMemoryStore` (Cell Wax's and the taint label's own
-    quarters, split out purely for codingrules 5.1's class-length limit); `InMemoryMemoryStore`
-    itself is the whole class every caller names.
+    Composed with `_WaxMemoryStore`, `_TaintMemoryStore` and `_NightVeilMemoryStore` (Cell Wax's,
+    the taint label's and the Night Veil purge's own quarters, split out purely for codingrules
+    5.1's class-length limit); `InMemoryMemoryStore` itself is the whole class every caller names.
     """
 
     def __init__(self, trail: PheromoneTrail) -> None:

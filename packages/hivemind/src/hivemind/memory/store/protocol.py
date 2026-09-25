@@ -7,8 +7,10 @@ memory v0 lives. This module fixes the one seam both implementations
 SqliteMemoryStore`) must honour: every write takes the `MemoryEvent` to record alongside it and
 commits both together, in the same transaction, exactly the way `hivemind.brood_chamber.store.
 sqlite.SqliteTaskStore` does for tasks (codingrules section 12). `remove_pin`, `remove_note`
-(roadmap step 4.2, for `hivemind.memory.demote.demote`) and `purge_episodes_before` are this
-protocol's deletion paths named here; `SqliteMemoryStore` documents a fourth (evicting a note past
+(roadmap step 4.2, for `hivemind.memory.demote.demote`), `purge_episodes_before` and
+`purge_night_veil` (the Night Veil teardown's, codingrules section 12: rows about a Night Veil
+Cell or its tasks never outlive it) are this protocol's deletion paths named here;
+`SqliteMemoryStore` documents one more (evicting a note past
 `hivemind.memory.notes.MAX_NOTES_PER_AUTHOR`) as an internal duty of `add_note` rather than a
 separate method, since nothing above the store ever needs to trigger it directly. The four
 `*_bee_bread_*` methods (roadmap step 4.2) are Bee Bread's (the warm memory tier's) own persistence:
@@ -416,12 +418,41 @@ class _TaintStore(Protocol):
         ...
 
 
+class _NightVeilStore(Protocol):
+    """The Night Veil purge (codingrules section 12): the memory tables' one exception."""
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Remove every memory row naming one of `ids`, with its taint label.
+
+        An episode record, Handoff, Bee Bread entry, note or Cell Wax row names an id as its key
+        (principal, task, author, Cell) or anywhere in its stored body. The one deletion path
+        beyond the retention and eviction rules above, and only the Night Veil teardown purge
+        calls it (`hivemind.memory.store.night_veil`): the rows about a Night Veil Cell or its
+        tasks must not outlive the Cell. Pins are never touched. No event is recorded; the purge's
+        own `cell.purged` counts what went.
+
+        Args:
+            ids: The Night Veil Cell's id and every id that belongs to it (its tasks, Wardens,
+                grants, ...); an empty set removes nothing.
+
+        Returns:
+            How many rows were removed, across every table.
+        """
+        ...
+
+
 class MemoryStore(
-    _PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, _WaxStore, _TaintStore, Protocol
+    _PinsAndNotesStore,
+    _HandoffsAndEpisodesStore,
+    _BeeBreadStore,
+    _WaxStore,
+    _TaintStore,
+    _NightVeilStore,
+    Protocol,
 ):
     """Persist pins, notes, Handoffs, episodes, Bee Bread entries and Cell Wax, atomic with events.
 
-    Composed from the five private Protocols above, split only to keep each one under codingrules
+    Composed from the six private Protocols above, split only to keep each one under codingrules
     5.1's class-length limit; `MemoryStore` itself is the whole contract every caller and
     implementation (`InMemoryMemoryStore`, `SqliteMemoryStore`) actually names. Implementations
     must be safe to call concurrently. It is also a `hivemind.memory.taint.TaintLedger`.
