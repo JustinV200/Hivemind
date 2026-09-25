@@ -104,6 +104,7 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
             reason="Attach refused or failed before the sub-bee started; nothing is left running.",
             task_id=assignment.task_id,
         )
+        return
     except BindingRefusedError as refused:
         # The Guard refused the first binding (already guard.denied): free the slot, tell the Queen.
         warden._sub_bee_slots.release()

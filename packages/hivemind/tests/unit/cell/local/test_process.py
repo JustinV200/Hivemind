@@ -175,10 +175,12 @@ def _is_process_alive(pid: int) -> bool:
             check=False,
         )
         return str(pid) in result.stdout
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+    else:
+        # An explicit branch, so mypy checks each platform's half on its own platform only.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
         return True
-    return True

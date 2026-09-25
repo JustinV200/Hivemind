@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import socket
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -137,14 +138,18 @@ def test_tailscale_source_refuses_where_it_cannot_see_endpoints(tmp_path: Path) 
 
 
 async def test_tailscale_source_builds_over_a_real_unix_socket(tmp_path: Path) -> None:
-    path = tmp_path / "tailscaled.sock"
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listening:
-        listening.bind(str(path))
+    if sys.platform == "win32":
+        # tailscaled listens on a named pipe there, and Python has no AF_UNIX on Windows.
+        pytest.skip("tailscaled serves a named pipe on Windows, never a Unix socket")
+    else:
+        path = tmp_path / "tailscaled.sock"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listening:
+            listening.bind(str(path))
 
-        source = tailscale_source(EntranceSection(expose="vpn", travel_lock=True), path)
+            source = tailscale_source(EntranceSection(expose="vpn", travel_lock=True), path)
 
-        assert isinstance(source, TailscaleEndpointSource)
-        await source.aclose()
+            assert isinstance(source, TailscaleEndpointSource)
+            await source.aclose()
 
 
 async def test_the_real_client_targets_the_local_api_over_the_socket(tmp_path: Path) -> None:

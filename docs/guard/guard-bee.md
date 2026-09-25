@@ -254,9 +254,9 @@ proposal. A Virtual Cell's Warden records to its own local segment, so the Queen
 to it: every `GrantIssued` she sends a Warden holds `audit_raises` (Waggle 1.10), the highest live
 raise per tier, by tier name, with its expiry. The Warden keeps the highest live one per tier from
 every grant it receives, and a raise applies there from its next grant. A tier the Warden does not
-know is ignored. A Warden inside a Virtual Cell has no model-backed judge of its own yet, so a
-sample it draws is recorded as inconclusive (`capping.audited` with `judge_error`): the raise
-decides how much is sampled there, and nothing is judged until an in-Cell judge exists.
+know is ignored. A Warden inside a Virtual Cell has the model-backed judge its Cell's slot table
+binds, so a sample it draws is judged there, on a lane of the Cell's own Fanner. A table that
+binds no judge records the sample as inconclusive (`capping.audited` with `judge_error`).
 
 ## Settings
 

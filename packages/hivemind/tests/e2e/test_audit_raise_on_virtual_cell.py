@@ -7,9 +7,10 @@ Queen's trail (recorded as a Warden records them); the composed Hive's own Guard
 tier's audit rate to 1.0 there. A goal then lands on a Virtual Cell: the grant the Queen issues for
 it carries the raise (Waggle 1.10's `GrantIssued.audit_raises`), and the in-Cell Warden's gate
 samples every one of its Drone's writes, where the shipped tier table alone samples 2 in 100. The
-Cell's `capping.audited` rows reach the Queen's trail in its shipped segment. An in-Cell Warden has
-no model-backed judge wired yet, so each sample is recorded inconclusive (`judge_error`) rather
-than judged, and never crashes the Drone (the run found that it did).
+Cell's `capping.audited` rows reach the Queen's trail in its shipped segment. The in-Cell Warden's
+gate has the model-backed judge its slot table binds (phase 6), so each sample is judged inside
+the Cell, never recorded inconclusive (`judge_error`), and never crashes the Drone (the run found
+that it did).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -109,4 +110,6 @@ def test_a_raise_reaches_a_virtual_cells_own_gate_on_its_grant(
     # Every write the in-Cell Drone proposed was sampled inside the Cell, and shipped back.
     assert proposed and {e.payload["tier"] for e in proposed} == {_TIER}
     assert {e.subject_id for e in audited} == {e.subject_id for e in proposed}
-    assert all(e.payload["judge_error"] is True for e in audited)  # No in-Cell judge wired yet.
+    # Judged in the Cell by its own judge: a verdict on every sample, none left inconclusive.
+    assert all(e.payload["outcome"] is not None for e in audited)
+    assert not any("judge_error" in e.payload for e in audited)

@@ -174,13 +174,15 @@ def _try_lock(handle: IO[str]) -> bool:
         except OSError:
             return False
         return True
-    import fcntl
+    else:
+        # An explicit branch, so mypy checks each platform's half on its own platform only.
+        import fcntl
 
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return False
-    return True
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
 
 
 def _unlock(handle: IO[str]) -> None:
@@ -190,10 +192,10 @@ def _unlock(handle: IO[str]) -> None:
 
         handle.seek(_WINDOWS_LOCK_OFFSET)
         msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        return
-    import fcntl
+    else:
+        import fcntl
 
-    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _name_holder(handle: IO[str], holder: str) -> None:

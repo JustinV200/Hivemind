@@ -38,6 +38,10 @@ merge. What changed for whoever resumes:
   - `manifest/schema/{security,guard}.py` are now `manifest/schema/security/{tiers,guard}.py`.
   - The task drafts moved out of `brood_chamber/task/model.py` into `brood_chamber/task/draft.py`.
   - `build_provider_registry` moved from `cli/compose/deps.py` to `cli/stores.py`.
+- **Closed by the merge.** An in-Cell Warden now has phase 6's model-backed judge
+  (`cli/in_cell/deps.py`, `_with_judge`), so a Virtual Cell's audit samples are judged, not
+  recorded inconclusive. `tests/e2e/test_audit_raise_on_virtual_cell.py` asserts it. The Guard
+  Bee item below about this is done.
 
 ## Start here
 

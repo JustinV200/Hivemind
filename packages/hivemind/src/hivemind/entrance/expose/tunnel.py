@@ -267,14 +267,16 @@ class TunnelSupervisor:
                 stderr=asyncio.subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
-        return await asyncio.create_subprocess_exec(
-            *self._argv,
-            env=self._env,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        else:
+            # An explicit branch, so mypy checks each platform's half on its own platform only.
+            return await asyncio.create_subprocess_exec(
+                *self._argv,
+                env=self._env,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
 
     async def _end(self, process: asyncio.subprocess.Process) -> None:
         """End the child: SIGTERM, up to STOP_GRACE_S to exit, then SIGKILL."""

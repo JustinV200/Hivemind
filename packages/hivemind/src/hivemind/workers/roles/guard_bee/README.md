@@ -116,8 +116,9 @@ raise takes effect there at once. A Virtual Cell's Warden records to its own loc
 sees the central trail, so the Queen carries the raises to it: every `GrantIssued` holds
 `audit_raises` (Waggle 1.10), the highest live raise per tier (`live_audit_raises`), by tier name,
 with its expiry. The Warden keeps the highest live one per tier (`CarriedAuditRaises`), ignoring a
-tier it does not know, so a raise applies there from its next grant. An in-Cell Warden has no
-model-backed judge yet, so each sample it draws is recorded as inconclusive (`judge_error`).
+tier it does not know, so a raise applies there from its next grant. An in-Cell Warden's gate has
+the model-backed judge its slot table binds (`hivemind.cli.in_cell.deps`), so each sample it draws
+is judged inside the Cell; a table that binds no judge leaves it inconclusive (`judge_error`).
 
 ## Awake episodes
 
