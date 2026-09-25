@@ -42,6 +42,7 @@ from hivemind.brood_chamber.errors import (
 )
 from hivemind.brood_chamber.questions import Question, QuestionStatus
 from hivemind.brood_chamber.store.protocol import TaskFilter, check_task_event
+from hivemind.brood_chamber.store.scrub import due_for_scrub, scrub_question, scrub_task
 from hivemind.brood_chamber.task.model import Task
 from hivemind.common.errors import ConflictError, InvariantViolationError
 from hivemind.pheromone import PheromoneTrail, TaskEvent
@@ -162,6 +163,19 @@ class MemoryTaskStore:
         ]
         matches.sort(key=lambda question: (question.asked_at, question.id))
         return tuple(matches)
+
+    async def scrub_night_veil(self, task_ids: frozenset[str]) -> int:
+        """Reduce finished Night Veil tasks and their questions; see TaskStore.scrub_night_veil."""
+        async with self._lock:
+            due = [task for task in self._tasks.values() if due_for_scrub(task, task_ids)]
+            # Every question a chosen task asked goes with it, answered or not.
+            chosen = {task.id for task in due}
+            asked = [q for q in self._questions.values() if q.task_id in chosen]
+            for task in due:
+                self._tasks[task.id] = scrub_task(task)
+            for question in asked:
+                self._questions[question.id] = scrub_question(question)
+            return len(due) + len(asked)
 
 
 def _after_cursor(matches: list[Task], every: dict[TaskId, Task], after: TaskId) -> list[Task]:

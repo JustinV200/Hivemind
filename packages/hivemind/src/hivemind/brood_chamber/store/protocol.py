@@ -275,3 +275,22 @@ class TaskStore(Protocol):
             reads pending questions by passing `status=QuestionStatus.ASKED`.
         """
         ...
+
+    async def scrub_night_veil(self, task_ids: frozenset[str]) -> int:
+        """Reduce every finished Night Veil task, and every question it asked, to its skeleton.
+
+        The Night Veil teardown's rewrite (codingrules section 12,
+        `hivemind.brood_chamber.store.scrub`): each task `scrub.due_for_scrub` chooses is
+        replaced by `scrub.scrub_task`'s copy and each of its questions by `scrub.scrub_question`'s,
+        all in one atomic write. The store's one write that records no event: the purge's own
+        `cell.purged` counts the rows, and the task's own transitions already reached the trail
+        as their skeleton.
+
+        Args:
+            task_ids: The ids the Night Veil Cell's segment filed under it, its tasks among them;
+                a task that asked for NIGHT_VEIL is chosen whether or not it is named here.
+
+        Returns:
+            How many rows changed, tasks and questions together; 0 once every one is reduced.
+        """
+        ...
