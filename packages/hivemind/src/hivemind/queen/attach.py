@@ -56,6 +56,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import JsonValue
+
 from hivemind.cell import CombShieldLevel
 from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
 from hivemind.pheromone import WardenEvent, segments_of
@@ -131,8 +133,15 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
 
 
 async def _record_spawned(queen: Queen, link: WardenLink) -> None:
-    """Record the declared `warden.spawned` event for a Warden just admitted to the Queen's tree."""
+    """Record the declared `warden.spawned` event for a Warden just admitted to the Queen's tree.
+
+    Names the Cell and, when the link proved one, the node the Warden signs as: the Queen's own
+    record of which node speaks for which Cell, the one the Guard Bee attributes events by.
+    """
     deps = queen._deps
+    payload: dict[str, JsonValue] = {"cell_id": link.cell.id}
+    if link.node_id is not None:
+        payload["node_id"] = link.node_id
     event = WardenEvent(
         id=new_event_id(deps.clock),
         hive_id=deps.identity.hive_id,
@@ -141,6 +150,6 @@ async def _record_spawned(queen: Queen, link: WardenLink) -> None:
         actor=deps.identity.actor,
         kind="warden.spawned",
         subject_id=link.warden_id,
-        payload={"cell_id": link.cell.id},
+        payload=payload,
     )
     await deps.trail.record(event)

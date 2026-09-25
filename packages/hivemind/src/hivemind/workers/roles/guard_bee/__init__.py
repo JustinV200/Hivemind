@@ -8,10 +8,12 @@ raises a Capping tier's sampled-audit rate, and it orders the Entrance Reducer t
 anything aimed at one Cell or one bee it files as a request through the Queen's door, and she
 decides (ADR-0035). Rules that ask for judgement get one awake episode on the judge slot, beside
 the Queen's tick. The package splits by responsibility (codingrules 5.2): `rules` (the rule data and
-its loader), `facts` (what an event becomes, and the joins between events), `watch` (reading the
-trail: rebuilt on start, followed per node), `evaluate` (the pure decision), `judge` and `lane`
-(the awake episode and the lane it runs in), `requests` (the request floor, coalescing and cap),
-`respond` (report, act, record), `sink` (the C2 seam) and `bee` (the round, and `build_guard_bee`).
+its loader), `facts` (what an event becomes, the joins between events, and who may have recorded
+it), `watch` (reading the trail and every living Night Veil Cell's segment: rebuilt on start,
+followed per node, only attributed facts counted), `evaluate` (the pure decision), `judge` and
+`lane` (the awake episode and the lane it runs in), `requests` (the request floor, coalescing and
+cap), `respond` (report, act, record), `sink` (the C2 seam) and `bee` (the round, and
+`build_guard_bee`).
 This face only re-exports (codingrules 5.4).
 
 Fits into the Hive:
@@ -32,10 +34,12 @@ Public API (roadmap 10.6):
     - GuardBee, GuardBeeInputs, GuardBeeParts, build_guard_bee, GUARD_BEE_ROLE, JUDGE_NEED: the
       Guard Bee and how a composition root builds it (bee).
     - GuardRules, GuardRule, Matcher, RuleShape, GroupKey, Measure, load_guard_rules,
-      NARROWING_ACTIONS, RULES_FILENAME: the rules as data (rules).
-    - TrailFact, EpisodeIndex, fact_from_event, INDEX_KINDS: what it reads and joins (facts).
-    - TrailWatch, read_pages, ALERT_KIND, INDEX_HORIZON_S, LATE_LAG_S: how it reads the trail
-      (watch).
+      NARROWING_ACTIONS, RULES_FILENAME, SUBJECT_FORGED_KIND, DERIVED_KINDS: the rules as data,
+      and the one kind the Guard Bee derives rather than reads (rules).
+    - TrailFact, EpisodeIndex, Attribution, fact_from_event, INDEX_KINDS, BINDING_KINDS,
+      OWNED_KINDS: what it reads, joins and attributes (facts).
+    - TrailWatch, TrailReader, read_pages, ALERT_KIND, INDEX_HORIZON_S, OWNERSHIP_HORIZON_S,
+      LATE_LAG_S: how it reads the trail and the Night Veil segments (watch).
     - Finding, Mark, Sighting, Targets, evaluate, targets_of, allowed_actions, HIVE_KEY: the
       decision, and how far a rule's findings are reported (evaluate).
     - GuardJudge, ModelGuardJudge, JudgeCase, JudgeReply, Verdict, render_case: the awake episode
@@ -67,7 +71,10 @@ from hivemind.workers.roles.guard_bee.evaluate import (
     targets_of,
 )
 from hivemind.workers.roles.guard_bee.facts import (
+    BINDING_KINDS,
     INDEX_KINDS,
+    OWNED_KINDS,
+    Attribution,
     EpisodeIndex,
     TrailFact,
     fact_from_event,
@@ -91,8 +98,10 @@ from hivemind.workers.roles.guard_bee.respond import (
     build_report,
 )
 from hivemind.workers.roles.guard_bee.rules import (
+    DERIVED_KINDS,
     NARROWING_ACTIONS,
     RULES_FILENAME,
+    SUBJECT_FORGED_KIND,
     GroupKey,
     GuardRule,
     GuardRules,
@@ -111,13 +120,17 @@ from hivemind.workers.roles.guard_bee.watch import (
     ALERT_KIND,
     INDEX_HORIZON_S,
     LATE_LAG_S,
+    OWNERSHIP_HORIZON_S,
+    TrailReader,
     TrailWatch,
     read_pages,
 )
 
 __all__ = [
     "ALERT_KIND",
+    "BINDING_KINDS",
     "DEFAULT_LANE_CAPACITY",
+    "DERIVED_KINDS",
     "GUARD_BEE_ROLE",
     "HIVE_KEY",
     "HIVE_SCOPE",
@@ -126,8 +139,12 @@ __all__ = [
     "JUDGE_NEED",
     "LATE_LAG_S",
     "NARROWING_ACTIONS",
+    "OWNED_KINDS",
+    "OWNERSHIP_HORIZON_S",
     "REDUCE_ORDERED_KIND",
     "RULES_FILENAME",
+    "SUBJECT_FORGED_KIND",
+    "Attribution",
     "AuditRaise",
     "Disposition",
     "EpisodeIndex",
@@ -159,6 +176,7 @@ __all__ = [
     "Sighting",
     "Targets",
     "TrailFact",
+    "TrailReader",
     "TrailWatch",
     "Verdict",
     "allowed_actions",

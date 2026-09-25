@@ -196,6 +196,9 @@ async def test_listener_attaches_a_warden_link_once_ready_and_heartbeat_arrive()
     await asyncio.wait_for(_until(lambda: cell.warden_id in _attached_ids(scenario.queen)), WAIT_S)
 
     assert scenario.gate.node_id_for(cell.cell_id) == cell.node_id
+    # The Queen records the node the handshake proved, for the Guard Bee (roadmap step 10.6).
+    [spawned] = await scenario.trail.query(TrailQuery(kind="warden.spawned"))
+    assert spawned.payload == {"cell_id": cell.cell_id, "node_id": cell.node_id}
 
     await transport.close()
     await asyncio.wait_for(

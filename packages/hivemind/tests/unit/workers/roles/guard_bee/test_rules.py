@@ -24,6 +24,7 @@ from hivemind.guard import GuardAction, GuardConfidence
 from hivemind.manifest.schema.guard import GuardBeeRuleOverride
 from hivemind.workers.roles.guard_bee import (
     NARROWING_ACTIONS,
+    SUBJECT_FORGED_KIND,
     GroupKey,
     GuardRulesError,
     Matcher,
@@ -44,6 +45,7 @@ _FAMILIES = {
     "signature or replay failures": "guard.entrance_login_failed",
     "a Cell's forged frames": "guard.envelope_refused",
     "refused segment merges": "guard.segment_refused",
+    "records forged about another Cell": SUBJECT_FORGED_KIND,
     "lockouts": "guard.entrance_locked",
     "invite-route abuse": "guard.entrance_redeem_failed",
     "travel-lock triggers": "guard.entrance_travel_lock",
@@ -66,7 +68,7 @@ def test_the_shipped_rules_load_and_count_every_family_the_roadmap_names() -> No
 
     counted = {matcher.kind for rule in rules.enabled for matcher in rule.matchers}
 
-    assert len(rules.rules) == 19
+    assert len(rules.rules) == 20
     assert {family: kind in counted for family, kind in _FAMILIES.items()} == dict.fromkeys(
         _FAMILIES, True
     )

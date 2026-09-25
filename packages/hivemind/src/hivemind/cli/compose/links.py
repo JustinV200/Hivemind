@@ -81,8 +81,9 @@ def build_hive_links(hive_id: HiveId, node_id: NodeId, cell: Cell, clock: Clock)
     queen_transport, warden_transport = MemoryTransport.pair(Codec(), Codec())
     queen_hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
     warden_hop = Hop(sender=warden_id, recipient=hive_id, node_id=node_id)
+    # The Hive Stand's Warden runs in this process, so it speaks as this process's own node.
     queen_link = WardenLink(
-        warden_id=warden_id, cell=cell, transport=queen_transport, hop=queen_hop
+        warden_id=warden_id, cell=cell, transport=queen_transport, hop=queen_hop, node_id=node_id
     )
     return HiveLinks(
         warden_id=warden_id,

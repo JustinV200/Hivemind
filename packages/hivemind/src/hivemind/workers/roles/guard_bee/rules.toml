@@ -21,7 +21,15 @@
 # Matchers. Each entry of counts, of and first is a trail kind and, optionally, `where`: payload
 # fields that must hold one of the listed values. `capability_family` is a guard.denied
 # capability's family, the part before its first colon. Rules count ids and kinds, never content:
-# the trail carries none.
+# the trail carries none. One kind is the Guard Bee's own, derived rather than read:
+# `guard_bee.subject_forged`, below.
+#
+# Attribution. A Virtual Cell's Warden ships its own trail segment, so every rule counts only what
+# the Guard Bee can attribute: an event the Hive Stand recorded, or one a Cell's node recorded about
+# what that Cell owns (its own id, its Warden, the bees it spawned, the tasks the Queen placed on
+# it, their grants, its proposals), as the Queen's own records say (`warden.spawned` names the node
+# a Warden's link proved, `queen.assigned` where a task was placed). An event a Cell's node recorded
+# about what another Cell owns is never counted as what it says.
 #
 # Verdicts. `confidence` and `action` are the rule's own. raise_audit_rate and reduce_entrance
 # narrow the whole Hive and are carried out at once, by rule, never with judgement.
@@ -202,6 +210,19 @@ action = "raise_audit_rate"
 # ──────────────────────────────────────────────────────────────────────────────
 # Node integrity (what the trail records today)
 # ──────────────────────────────────────────────────────────────────────────────
+
+# An event a Cell's node recorded about a bee, task, grant, proposal or Cell another Cell owns
+# (guard_bee.subject_forged, derived by the Guard Bee from what it reads, key the recording node's
+# Cell): a Cell writing records in another Cell's name, framing it. Only the framer is named; the
+# framed Cell's own records still count as its own. A shipped dire pattern.
+[rules.subject_forgery]
+title = "records a Cell's node made about what another Cell owns"
+counts = [{ kind = "guard_bee.subject_forged" }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
 
 # A frame that failed its signature on a Virtual Cell's own proved link (guard.envelope_refused,
 # recorded by the Cell gate, which closes the link): a tampered link, or a Cell signing as a node

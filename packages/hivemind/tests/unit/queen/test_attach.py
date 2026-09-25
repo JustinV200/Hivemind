@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 
 import pytest
 from builders.queen import make_queen_deps, with_guard_policy
@@ -27,7 +28,8 @@ from hivemind.pheromone import TrailQuery
 from hivemind.queen import WardenSpawnRefusedError
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.queen import Queen
-from waggle.ids import WardenId
+from waggle.clock import FakeClock
+from waggle.ids import WardenId, new_node_id
 
 
 async def test_attach_warden_records_warden_spawned_for_the_admitted_warden() -> None:
@@ -40,6 +42,17 @@ async def test_attach_warden_records_warden_spawned_for_the_admitted_warden() ->
     assert spawned.subject_id == link.warden_id
     assert spawned.payload == {"cell_id": link.cell.id}
     assert await deps.trail.query(TrailQuery(kind="guard.denied")) == ()
+
+
+async def test_attach_warden_names_the_node_its_link_proved() -> None:
+    # Roadmap step 10.6: the Queen's own record of which node speaks for which Cell.
+    deps, link, _end = make_queen_deps()
+    proved = dataclasses.replace(link, node_id=new_node_id(FakeClock()))
+
+    await Queen(deps).attach_warden(proved)
+
+    [spawned] = await deps.trail.query(TrailQuery(kind="warden.spawned"))
+    assert spawned.payload == {"cell_id": link.cell.id, "node_id": proved.node_id}
 
 
 async def test_attach_warden_refused_warden_spawn_attaches_nothing() -> None:

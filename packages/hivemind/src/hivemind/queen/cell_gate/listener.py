@@ -347,7 +347,11 @@ class CellListener:
             transport, lambda envelope: self._dispatch(transport, hop, refusals, envelope)
         )
         link = WardenLink(
-            warden_id=binding.warden_id, cell=_cell_from_binding(binding), transport=fanout, hop=hop
+            warden_id=binding.warden_id,
+            cell=_cell_from_binding(binding),
+            transport=fanout,
+            hop=hop,
+            node_id=binding.node_id,  # Proved by the handshake: the node that speaks for the Cell.
         )
         try:
             await self._queen.attach_warden(link)

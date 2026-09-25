@@ -117,7 +117,7 @@ from hivemind.supervision import EscalationPolicy
 from hivemind.workers.roles.guard_bee import GuardBee
 from waggle.clock import Clock
 from waggle.envelope import Hop
-from waggle.ids import CellId, GrantId, TaskId, WardenId
+from waggle.ids import CellId, GrantId, NodeId, TaskId, WardenId
 from waggle.messages.supervision import Heartbeat
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
@@ -215,6 +215,10 @@ class WardenLink:
         live_capacity: Reads `cell`'s capacity as it stands right now, for a Cell whose capacity
             is refreshed live (the Hive Stand); None (the default) for one whose capacity is fixed
             for its life (a Virtual Cell's spec), whose grants are sized from `cell` itself.
+        node_id: The node the Warden's frames are signed as, proved by the link (a Virtual
+            Cell's handshake, the Hive Stand's own process); `warden.spawned` records it, so the
+            Guard Bee knows which node speaks for which Cell (roadmap step 10.6). None when the
+            link proves none (a test's in-memory pair).
     """
 
     warden_id: WardenId
@@ -222,6 +226,7 @@ class WardenLink:
     transport: Transport
     hop: Hop
     live_capacity: LiveCapacity | None = None
+    node_id: NodeId | None = None
 
 
 class VirtualCellProvider(Protocol):

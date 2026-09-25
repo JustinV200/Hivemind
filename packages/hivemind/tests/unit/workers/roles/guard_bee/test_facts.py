@@ -100,7 +100,7 @@ async def test_an_entrance_event_keeps_its_device_and_address() -> None:
 
 async def test_a_rejection_joins_through_its_proposal_to_the_bee_of_that_moment() -> None:
     seed = _seeder()
-    index = EpisodeIndex()
+    index = EpisodeIndex(seed.identity.node_id)
     first = await seed_episode(seed)
     proposal = await seed.proposed(first.task, first.cell, "OUTSIDE_SCRATCH_WRITE")
     rejected = await seed.capping(proposal, "capping.rejected", failing_check="ALLOWLIST")
@@ -119,7 +119,7 @@ async def test_a_rejection_joins_through_its_proposal_to_the_bee_of_that_moment(
 
 async def test_a_bees_own_fact_joins_to_its_task_cell_and_grant() -> None:
     seed = _seeder()
-    index = EpisodeIndex()
+    index = EpisodeIndex(seed.identity.node_id)
     episode = await seed_episode(seed)
     for event in await seed.trail.query(_EVERYTHING):
         index.learn(fact_from_event(event, _WATCHED))
@@ -136,7 +136,7 @@ async def test_a_bees_own_fact_joins_to_its_task_cell_and_grant() -> None:
 
 async def test_a_fact_never_has_an_id_of_its_own_replaced_by_a_join() -> None:
     seed = _seeder()
-    index = EpisodeIndex()
+    index = EpisodeIndex(seed.identity.node_id)
     episode = await seed_episode(seed)
     for event in await seed.trail.query(_EVERYTHING):
         index.learn(fact_from_event(event, _WATCHED))
@@ -149,7 +149,7 @@ async def test_a_fact_never_has_an_id_of_its_own_replaced_by_a_join() -> None:
 
 async def test_pruning_forgets_joins_learnt_before_the_horizon() -> None:
     seed = _seeder()
-    index = EpisodeIndex()
+    index = EpisodeIndex(seed.identity.node_id)
     episode = await seed_episode(seed)
     for event in await seed.trail.query(_EVERYTHING):
         index.learn(fact_from_event(event, _WATCHED))

@@ -17,10 +17,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from builders.cells import make_identity
 from builders.guard_bee.rig import GuardBeeRig
-from builders.guard_bee.seeds import seed_episode
+from builders.guard_bee.seeds import TrailSeeder, bind_cell, cell_episode, seed_episode
 
-from waggle.ids import new_cell_id
+from waggle.ids import new_cell_id, new_node_id
 
 __all__ = ["SHIPPED_RULE_SEEDERS", "Seeder"]
 
@@ -116,6 +117,24 @@ async def _refused_once(rig: GuardBeeRig, fire: bool, kind: str, reason: str) ->
         rig.clock.advance(_HOUR_AND_A_SECOND)
 
 
+def _node_seeder(rig: GuardBeeRig) -> tuple[str, TrailSeeder]:
+    """A fresh Virtual Cell node recording onto the rig's trail, as its shipped segment does."""
+    node = new_node_id(rig.clock)
+    identity = make_identity(rig.clock, hive_id=rig.identity.hive_id, node_id=node)
+    return node, TrailSeeder(rig.trail, rig.clock, identity)
+
+
+async def _subject_forgery(rig: GuardBeeRig, fire: bool) -> None:
+    victim_node, victim_seed = _node_seeder(rig)
+    victim = await cell_episode(rig.seed, victim_seed, await bind_cell(rig.seed, victim_node))
+    framer_node, framer_seed = _node_seeder(rig)
+    await bind_cell(rig.seed, framer_node)
+    await framer_seed.denied(victim.bee)  # The framer's node names the victim's bee.
+    # Just under: the one forged record has left its hour's window.
+    if not fire:
+        rig.clock.advance(_HOUR_AND_A_SECOND)
+
+
 async def _envelope_forgery(rig: GuardBeeRig, fire: bool) -> None:
     await _refused_once(rig, fire, "guard.envelope_refused", "invalid")
 
@@ -176,6 +195,7 @@ SHIPPED_RULE_SEEDERS: dict[str, Seeder] = {
     "capping_rejection_rate": _capping_rejection_rate,
     "capping_rollback_rate": _capping_rollback_rate,
     "audit_failure_rate": _audit_failure_rate,
+    "subject_forgery": _subject_forgery,
     "envelope_forgery": _envelope_forgery,
     "segment_forgery": _segment_forgery,
     "segment_unmergeable": _segment_unmergeable,

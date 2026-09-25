@@ -33,9 +33,8 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from builders.guard_bee import lure_script, quick_rounds
+from builders.guard_bee import LuredCells, quick_rounds
 from builders.virtual_cells import (
-    ContainerSpawningFakeCellBackend,
     VirtualCellsTuning,
     single_haiku_plan,
     virtual_cells_manifest,
@@ -46,14 +45,11 @@ from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import Hive, build_hive, run_hive
 from hivemind.guard import GuardReportId
-from hivemind.hive import BackendCapabilities
-from hivemind.hive.backends.bootstrap import QueenEndpoint
-from hivemind.hive.backends.fake import ReadinessGateExpect
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.queen.guard_requests import report_alarm_id
 from hivemind.supervision import AlarmKind, AlarmSeverity
-from waggle.clock import Clock, SystemClock
+from waggle.clock import SystemClock
 from waggle.ids import CellId, TaskId
 
 pytestmark = pytest.mark.e2e
@@ -73,23 +69,9 @@ _VIRTUAL_ONLY = (
 )
 
 
-class _LuredCells(ContainerSpawningFakeCellBackend):
-    """The container-spawning fake backend, every container's Drone scripted with the lure."""
-
-    def __init__(
-        self,
-        clock: Clock,
-        capabilities: BackendCapabilities | None = None,
-        *,
-        endpoint: QueenEndpoint | None = None,
-        gate: ReadinessGateExpect | None = None,
-    ) -> None:
-        super().__init__(clock, capabilities, endpoint=endpoint, gate=gate, script=lure_script)
-
-
 def _hive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Hive:
     """Compose the Hive with a Virtual side whose containers run the lured Drone."""
-    monkeypatch.setattr("hivemind.cli.compose.virtual_cell_backends.FakeCellBackend", _LuredCells)
+    monkeypatch.setattr("hivemind.cli.compose.virtual_cell_backends.FakeCellBackend", LuredCells)
     manifest_path = virtual_cells_manifest(tmp_path, tuning=VirtualCellsTuning(prefer="real"))
     script = HaikuScript(default_worker_turn, plan=single_haiku_plan("haiku_1.txt"))
     return build_hive(
@@ -113,7 +95,7 @@ async def _isolated(hive: Hive) -> bool:
 async def _scenario(hive: Hive) -> TaskId:
     """Run the lured goal on a Virtual Cell until the Queen has isolated it; the task's id."""
     backend = hive.virtual_cells.registry.get("fake") if hive.virtual_cells else None
-    assert isinstance(backend, _LuredCells)
+    assert isinstance(backend, LuredCells)
     try:
         async with run_hive(hive):
             goal_id = await hive.queen.submit_goal(
@@ -127,7 +109,7 @@ async def _scenario(hive: Hive) -> TaskId:
     return task.id
 
 
-async def _assert_isolated_on_request(hive: Hive, backend: _LuredCells, task_id: TaskId) -> None:
+async def _assert_isolated_on_request(hive: Hive, backend: LuredCells, task_id: TaskId) -> None:
     """The one request, decided by rule, carried out on the one isolation path."""
     stand = hive.manifest.hive.node_id
     [flag] = await _events(hive, "guard.injection_suspected")

@@ -38,7 +38,7 @@ from hivemind.llm import (
     Usage,
 )
 from hivemind.manifest.schema.guard import GuardSection
-from hivemind.pheromone import MemoryPheromoneTrail, PheromoneEvent, TrailQuery
+from hivemind.pheromone import MemoryPheromoneTrail, PheromoneEvent, PheromoneTrail, TrailQuery
 from hivemind.supervision.capping import TierTable, load_tiers
 from hivemind.workers.roles.guard_bee import (
     GuardBee,
@@ -98,7 +98,7 @@ class GuardBeeRig:
     """A Guard Bee over fakes, and everything a test inspects or drives around it."""
 
     bee: GuardBee
-    trail: MemoryPheromoneTrail
+    trail: PheromoneTrail  # In memory; a Night Veil test's is the boundary's VeiledTrail over it.
     clock: FakeClock
     identity: CellIdentity
     door: RecordingDoor
@@ -129,7 +129,7 @@ class RigOptions:
     tiers: TierTable | None = None
     policy: GuardPolicy | None = None
     clock: FakeClock | None = None
-    trail: MemoryPheromoneTrail | None = None
+    trail: PheromoneTrail | None = None
     identity: CellIdentity | None = None
 
 

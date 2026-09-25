@@ -7,6 +7,12 @@ the Enforcer's `guard.denied`, the scanner's `guard.injection_suspected`, the Ca
 index learns from: a worker spawned for a task, the task assigned to a Cell, a grant issued for
 it. Every id is minted by the seeder's clock, so a run is deterministic.
 
+A Virtual Cell's own records come from its own node (roadmap step 10.6's attribution):
+`bind_cell` records what the Queen records as its Warden attaches (`warden.spawned`, naming the
+Cell and the node its link proved), and `cell_episode` places a task on it and grants it on the
+Queen's side, then spawns its bee on the Cell's own node, the way a real Virtual Cell's episode
+reaches the Queen's trail.
+
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used through `builders.guard_bee`.
 
@@ -31,6 +37,7 @@ from hivemind.pheromone import (
     PheromoneEvent,
     PheromoneTrail,
     QueenEvent,
+    WardenEvent,
     WorkerEvent,
 )
 from waggle.clock import Clock
@@ -42,10 +49,11 @@ from waggle.ids import (
     new_grant_id,
     new_message_id,
     new_task_id,
+    new_warden_id,
     new_worker_id,
 )
 
-__all__ = ["Episode", "TrailSeeder", "seed_episode"]
+__all__ = ["Episode", "TrailSeeder", "bind_cell", "cell_episode", "seed_episode", "spawn"]
 
 _LEASE = "lease_01HZZZZZZZZZZZZZZZZZZZZZZZ"  # The lease every outside-scratch touch names.
 _CELL_NODE = "node_01HZZZZZZZZZZZZZZZZZZZZZZZ"  # The node every Cell gate refusal's link proved.
@@ -166,3 +174,27 @@ async def seed_episode(seed: TrailSeeder, task: str | None = None) -> Episode:
     await seed.record(QueenEvent, "queen.assigned", episode.task, {"cell_id": episode.cell})
     await seed.record(ForageEvent, "forage.granted", episode.grant, {"task_id": episode.task})
     return episode
+
+
+async def bind_cell(stand: TrailSeeder, node: str, cell: str | None = None) -> str:
+    """Record, as the Queen, a Warden attaching for a Cell whose link proved `node`; the Cell."""
+    cell_id = cell if cell is not None else new_cell_id(stand.clock)
+    payload = {"cell_id": cell_id, "node_id": node}
+    await stand.record(WardenEvent, "warden.spawned", new_warden_id(stand.clock), payload)
+    return cell_id
+
+
+async def spawn(seed: TrailSeeder, task: str) -> str:
+    """Record, as `seed`'s node, a Warden spawning a bee for `task`; the bee's id."""
+    bee = new_worker_id(seed.clock)
+    await seed.record(WorkerEvent, "worker.spawned", bee, {"task_id": task, "role": "DRONE"})
+    return bee
+
+
+async def cell_episode(stand: TrailSeeder, cell_seed: TrailSeeder, cell: str) -> Episode:
+    """A fresh task the Queen places on `cell` and grants, its bee spawned on the Cell's node."""
+    task, grant = new_task_id(stand.clock), new_grant_id(stand.clock)
+    await stand.record(QueenEvent, "queen.assigned", task, {"cell_id": cell})
+    await stand.record(ForageEvent, "forage.granted", grant, {"task_id": task})
+    bee = await spawn(cell_seed, task)
+    return Episode(bee=bee, task=task, cell=cell, grant=grant)

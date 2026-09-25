@@ -25,7 +25,8 @@ Key invariants:
     - A rule that narrows the whole Hive (raise_audit_rate, reduce_entrance) never needs
       judgement: narrowing is always safe to do by rule alone (codingrules 8.15, ADR-0035).
     - A raise_audit_rate rule groups by tier, because a raise names exactly one Capping tier.
-    - Every matcher's kind is a declared trail kind; loading fails, naming the rule, otherwise.
+    - Every matcher's kind is a declared trail kind, or the one kind the Guard Bee derives
+      (`SUBJECT_FORGED_KIND`); loading fails, naming the rule, otherwise.
 
 See Also:
     - docs/guard/guard-bee.md for every shipped rule, what it counts and what it recommends.
@@ -54,11 +55,18 @@ MAX_TITLE_CHARS = 100  # A rule's title is a noun phrase for a human, never pros
 MAX_WHERE_VALUES = 16  # Accepted values per matched field: enum names, never a list of hosts.
 # The actions that narrow the whole Hive: the Guard Bee takes them alone, by rule (ADR-0035).
 NARROWING_ACTIONS = frozenset({GuardAction.RAISE_AUDIT_RATE, GuardAction.REDUCE_ENTRANCE})
+# The one kind the Guard Bee derives rather than reads (roadmap step 10.6): an event a Cell's node
+# recorded about what another Cell owns, as evidence against the recording node's Cell. Its family
+# is no trail family, so it can never be mistaken for, or collide with, a recorded kind.
+SUBJECT_FORGED_KIND = "guard_bee.subject_forged"
+DERIVED_KINDS = frozenset({SUBJECT_FORGED_KIND})
 
 __all__ = [
+    "DERIVED_KINDS",
     "MAX_TITLE_CHARS",
     "NARROWING_ACTIONS",
     "RULES_FILENAME",
+    "SUBJECT_FORGED_KIND",
     "GroupKey",
     "GuardRule",
     "GuardRules",
@@ -280,9 +288,9 @@ def _build_rule(key: str, table: object, override: GuardBeeRuleOverride | None) 
 
 
 def _require_declared_kind(key: str, kind: str) -> None:
-    """Refuse a matcher kind the trail does not declare: it would silently never match."""
+    """Refuse a matcher kind the trail does not declare, nor the Guard Bee derives."""
     try:
-        declared = kind in event_class_for(kind).KINDS
+        declared = kind in DERIVED_KINDS or kind in event_class_for(kind).KINDS
     except UnknownEventFamilyError:
         declared = False
     if not declared:

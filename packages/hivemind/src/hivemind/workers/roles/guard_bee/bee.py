@@ -93,7 +93,10 @@ class GuardBeeInputs:
     """What the composition root hands `build_guard_bee` (codingrules 5.1's argument group).
 
     Attributes:
-        trail: The Queen's own trail: the central trail every node's segment merges into.
+        trail: The Queen's own trail: the central trail every node's segment merges into. With
+            a Virtual side, the Night Veil boundary's `VeiledTrail`: the watch also reads every
+            living Night Veil Cell's segment through it, and an alert about such a Cell is kept
+            in that segment and dies with it.
         clock: The Hive's clock.
         identity: The Hive, the Queen's node and the actor ("system") its events carry.
         door: The Queen's door for a Guard request (`GuardRequestDoor`), her own implementation.
