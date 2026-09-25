@@ -175,6 +175,9 @@ class Warden(TickLoop):
         # Roadmap step 10.6c: every task a quarantine holds, until a judge-cleared respawn lifts it
         # (hivemind.wardens.quarantine.gate); this Warden's half of the task's PAUSED state.
         self._quarantined: dict[TaskId, QuarantineRecord] = {}
+        # A relayed snapshot freezes this Warden with its Cell: announced first, so the Queen
+        # never reads the Hive's own freeze as this Warden gone silent (ticks.heartbeat).
+        ticks.heartbeat.bind_freeze_announcer(self)
 
     @property
     def state(self) -> WardenState:

@@ -37,7 +37,17 @@ ticks.context.intervention_for`, and sends an `Intervene(COMPACT)`/`Intervene(HA
 over that Warden's own link when its context has crossed the threshold -- mirroring `hivemind.
 queen.queen.Queen._send_intervene`'s own wire-and-send shape rather than reaching back into
 `queen.py` for it (that module is at its own size cap), so the Queen orders context interventions
-without an awake episode, exactly like a routine Heartbeat itself.
+without an awake episode, exactly like a routine Heartbeat itself. A Warden whose Cell the Hive
+itself holds paused is never judged at all: an Overwintered Cell (ADR-0029) is `docker pause`d
+or its VM stopped, so its Warden cannot beat, and a real Docker run (2026-09-25) showed a Cell
+that heartbeated just before its pause drawing `CELL_UNREACHABLE` about 40 s into it, before the
+link's own keepalive dropped the paused Cell at about 47 s. `check_liveness` reads the
+held Cells from the lifecycle's own dormant list (`QueenDeps.dormant_cell_source`, or the static
+`dormant_cells`), marks each such Warden `held` and skips it, and when the hold ends (the Cell
+resumed) counts its misses from that moment, never from its last pre-pause beat. A snapshot's
+freeze is announced by the Warden itself instead, as a longer declared interval
+(`hivemind.wardens.ticks.heartbeat.announce_freeze`); a Cell that falls silent for any other
+reason is judged exactly as before.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -67,6 +77,8 @@ Key invariants:
       never start another; it only moves `last_heartbeat_at` forward.
     - `last_heartbeat_at` never moves backwards: an older Heartbeat heard after a newer one adds
       nothing.
+    - A held Warden (its Cell Overwintered) is never marked offline and raises no Alarm while the
+      hold lasts; once it ends, its misses count from the end of the hold, not from before it.
     - `check_liveness`'s own expiry sweep runs every call, regardless of whether any Warden's own
       liveness changed this tick: a grant's `expires_at` is a wall-clock deadline independent of
       the Warden-by-Warden loop above it.
@@ -100,7 +112,7 @@ from hivemind.queen.ticks import wax as wax_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
 from hivemind.supervision.attendant import InboxItem
 from waggle.envelope import wrap
-from waggle.ids import WardenId, new_alarm_id
+from waggle.ids import CellId, WardenId, new_alarm_id
 from waggle.messages.forage import ForageRequest as WireForageRequest
 from waggle.messages.supervision import AlarmContext, Heartbeat, Intervene
 
@@ -122,6 +134,8 @@ class WardenLiveness:
     missed_heartbeats: int
     is_offline: bool
     interval_s: float | None = None  # What its newest Heartbeat declared; None before the first.
+    held: bool = False  # Its Cell is paused by the Hive itself: its silence is never judged.
+    hold_ended_at: datetime | None = None  # When its latest hold ended; misses count from here.
 
 
 # What a Warden with no liveness row yet looks like to `record_heartbeat` (attach adds one first).
@@ -164,7 +178,9 @@ def record_heartbeat(
             current, last_heartbeat_at=newest, interval_s=interval_s
         )
         return
-    liveness[warden_id] = WardenLiveness(
+    # A replace, not a fresh row: a hold on its Cell outlives any one Heartbeat.
+    liveness[warden_id] = dataclasses.replace(
+        current,
         last_heartbeat_at=newest,
         missed_heartbeats=_missed_since(_judged_interval_s(deps, interval_s), now, newest),
         is_offline=False,
@@ -311,11 +327,14 @@ async def check_liveness(
             (`hivemind.queen.inbox.links.LinkReaders.heard`); None judges by `liveness` alone.
     """
     now = deps.clock.now()
+    held = await _held_cells(deps)
     for link in wardens:
         # A Heartbeat heard while the tick was busy is still the Warden's own proof of life.
         pulse = heard.get(link.warden_id) if heard is not None else None
         if pulse is not None:
             record_heartbeat(deps, liveness, link.warden_id, pulse)
+        if _hold(liveness, link.warden_id, link.cell.id in held, now):
+            continue  # Paused by the Hive itself: its silence is her own doing, never an Alarm.
         if _crossed_miss_limit(deps, liveness, link.warden_id, now):
             # The transition only: one Alarm per Warden per outage, not one per later check;
             # it reaches the human in the chat too (roadmap step 10.5, ADR-0032).
@@ -329,6 +348,37 @@ async def check_liveness(
     await forage_grants.sweep_expired(deps.ledger, deps)
 
 
+async def _held_cells(deps: QueenDeps) -> frozenset[CellId]:
+    """Return every Cell the Hive itself holds paused: its Overwintered ones (ADR-0029)."""
+    # The same live-feed-over-static rule the dispatcher's inventory follows for this list.
+    source = deps.dormant_cell_source
+    dormant = await source() if source is not None else deps.dormant_cells
+    return frozenset(candidate.cell_id for candidate in dormant)
+
+
+def _hold(
+    liveness: MutableMapping[WardenId, WardenLiveness],
+    warden_id: WardenId,
+    is_held: bool,
+    now: datetime,
+) -> bool:
+    """Record whether `warden_id`'s Cell is held now; True while it is (so it is not judged)."""
+    current = liveness.get(warden_id)
+    if current is None:
+        return is_held  # No row yet: nothing to judge, and nothing to record either.
+    if is_held:
+        if not current.held or current.missed_heartbeats:
+            # Nothing it misses while held counts: not now, and not once the hold ends either.
+            liveness[warden_id] = dataclasses.replace(current, held=True, missed_heartbeats=0)
+        return True
+    if current.held:
+        # Resumed on purpose just now: a full window from here, not from its last pre-pause beat.
+        liveness[warden_id] = dataclasses.replace(
+            current, held=False, hold_ended_at=now, missed_heartbeats=0
+        )
+    return False
+
+
 def _crossed_miss_limit(
     deps: QueenDeps,
     liveness: MutableMapping[WardenId, WardenLiveness],
@@ -340,7 +390,9 @@ def _crossed_miss_limit(
     if current is None or current.last_heartbeat_at is None:
         return False  # No Heartbeat received yet; nothing to judge staleness against.
     interval_s = _judged_interval_s(deps, current.interval_s)
-    missed = _missed_since(interval_s, now, current.last_heartbeat_at)
+    # Misses count from its newest Heartbeat, or from the end of a hold if that came later.
+    since = max(current.last_heartbeat_at, current.hold_ended_at or current.last_heartbeat_at)
+    missed = _missed_since(interval_s, now, since)
     offline = missed >= deps.heartbeat_miss_limit
     if missed == current.missed_heartbeats and offline == current.is_offline:
         return False  # Nothing changed since the last check.

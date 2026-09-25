@@ -6,6 +6,10 @@ Fits into the Hive:
 Key invariants:
     - None: this module holds tests only.
 
+A snapshot freezes the whole Cell, its Warden included, so the relay announces the freeze before
+each request (a Heartbeat declaring its own timeout as the Warden's interval): the Queen then never
+reads the Hive's own freeze as the Warden gone silent.
+
 See Also:
     - hivemind.wardens.snapshot_relay for the module under test.
     - packages/hivemind/tests/unit/wardens/ticks/test_control.py for the end-to-end round trip
@@ -15,12 +19,15 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 
 import pytest
 from builders.cells import make_cell
+from builders.wardens import make_warden_deps
 
 from hivemind.cell import CellKind, SnapshotId, SnapshotUnsupportedError
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
+from hivemind.wardens.warden import Warden
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop
@@ -150,3 +157,36 @@ async def test_snapshot_and_rollback_replies_are_matched_fifo_per_kind() -> None
     assert await asyncio.wait_for(first, timeout=5.0) == SnapshotId("snap_first")
     assert await asyncio.wait_for(second, timeout=5.0) == SnapshotId("snap_second")
     assert request_two.cell_id == cell.id
+
+
+async def test_a_request_is_announced_as_a_freeze_of_up_to_the_relays_timeout() -> None:
+    clock = FakeClock()
+    relay, queen_end = _build_relay(clock, timeout_s=30.0)
+    announced: list[float] = []
+
+    async def announce(bound_s: float) -> None:
+        announced.append(bound_s)
+
+    relay.announce_freezes(announce)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    task = asyncio.ensure_future(relay.rollback(cell, SnapshotId("snap_1")))
+    request = _rollback_request(await anext(queen_end.receive()))
+    relay.handle_reply(CellRollbackReply(cell_id=request.cell_id, ok=True, error=None))
+
+    await asyncio.wait_for(task, timeout=5.0)
+    assert announced == [30.0]
+
+
+async def test_a_wardens_snapshot_is_preceded_by_a_heartbeat_declaring_the_freeze() -> None:
+    clock = FakeClock()
+    deps, queen, warden_id = make_warden_deps(clock)  # A 5 s cadence: a 15 s window at the Queen.
+    relay = RelaySnapshotter(new_cell_id(clock), deps.queen_link, deps.hop, clock, timeout_s=30.0)
+    Warden(warden_id, dataclasses.replace(deps, snapshotter=relay))  # Binds its announcer.
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+
+    task = asyncio.ensure_future(relay.snapshot(cell))
+    await queen.pump_until(lambda: bool(queen.heartbeats), limit=1)  # The very first envelope.
+    relay.handle_reply(CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_1", error=None))
+
+    assert await asyncio.wait_for(task, timeout=5.0) == SnapshotId("snap_1")
+    assert queen.heartbeats[0].interval_s == 30.0  # So its window at the Queen is 90 s, not 15 s.

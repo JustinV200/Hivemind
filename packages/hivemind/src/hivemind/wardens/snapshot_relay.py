@@ -23,7 +23,13 @@ kind. This is FIFO-per-kind, not per-request-id matching (documented simplificat
 carries an id of its own beyond `cell_id`, and `hivemind.supervision.attendant.InboxItem` does not
 carry an envelope's `correlation_id`; ordering within one connection, which `Transport`'s own
 contract guarantees, is what makes FIFO correct for the ordinary case of one relay request in
-flight per kind at a time).
+flight per kind at a time). A snapshot or rollback freezes the whole Cell while the Queen's backend
+works (`docker commit` pauses the container; a QMP `savevm` stops the VM), this Warden included,
+so its Heartbeats stop for as long as that takes -- 27 s for a 1 GiB change on the development
+host, more than half a Virtual Cell's 45 s window. Before each request the relay therefore calls
+the announcer its Warden bound (`announce_freezes`), which sends one Heartbeat declaring the
+relay's own timeout as its interval, and the Queen judges the frozen Warden by that longer window
+rather than raising a false `CELL_UNREACHABLE` for silence the Hive caused itself.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built by
@@ -41,6 +47,8 @@ Key invariants:
     - `handle_reply` is a no-op, not an error, when no matching future is pending (a reply for a
       request this instance's own timeout already gave up on): the Waggle spec's own "unmatched
       reply is dropped at debug level" rule (spec section 3).
+    - With an announcer bound, every request is preceded on the link by the announcement of the
+      freeze it may cause, never followed by it.
 
 See Also:
     - docs/adr/0018-capping-gate-postconditions-and-risk-tiers.md for the Snapshotter contract and
@@ -57,6 +65,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from hivemind.cell import Cell, SnapshotId, SnapshotUnsupportedError
@@ -79,6 +88,8 @@ from waggle.transport.base import Transport
 # `rollback()`'s without either call site needing its own isinstance narrowing.
 _Reply = CellSnapshotReply | CellRollbackReply
 _R = TypeVar("_R", CellSnapshotReply, CellRollbackReply)
+# Told, before each request, the longest the Cell may stay frozen for it (this relay's timeout).
+FreezeAnnouncer = Callable[[float], Awaitable[None]]
 
 DEFAULT_TIMEOUT_S = 30.0  # Generous for a `docker commit`/QMP savevm plus one Waggle round trip.
 # Why RelaySnapshotter asks for a snapshot: read by the Queen only as a human-readable purpose
@@ -88,7 +99,7 @@ _SNAPSHOT_PURPOSE = (
     "hivemind.supervision.capping: pre-proposal snapshot before an irreversible tier"
 )
 
-__all__ = ["DEFAULT_TIMEOUT_S", "RelaySnapshotter"]
+__all__ = ["DEFAULT_TIMEOUT_S", "FreezeAnnouncer", "RelaySnapshotter"]
 
 log = get_logger(__name__)
 
@@ -97,7 +108,8 @@ class RelaySnapshotter:
     """The Snapshotter a Virtual Cell's own Warden hands its CappingGate; relayed to the Queen.
 
     Owns its own small mutable state in place (codingrules section 8.5, documented): two FIFO
-    queues of pending replies, one per kind, drained by `handle_reply`.
+    queues of pending replies, one per kind, drained by `handle_reply`, and the announcer its
+    Warden binds once (`announce_freezes`), None until then.
     """
 
     def __init__(
@@ -128,6 +140,18 @@ class RelaySnapshotter:
         self._timeout_s = timeout_s
         self._pending_snapshot: deque[asyncio.Future[CellSnapshotReply]] = deque()
         self._pending_rollback: deque[asyncio.Future[CellRollbackReply]] = deque()
+        self._announce: FreezeAnnouncer | None = None
+
+    def announce_freezes(self, announce: FreezeAnnouncer) -> None:
+        """Have every later request announce the freeze it may cause, before it is sent.
+
+        Bound by the Warden once it exists (`hivemind.wardens.ticks.heartbeat.
+        bind_freeze_announcer`), since this relay is built before it, into its `WardenDeps`.
+
+        Args:
+            announce: Awaited with this relay's own timeout before each request goes out.
+        """
+        self._announce = announce
 
     async def snapshot(self, cell: Cell) -> SnapshotId:
         """Ask the Queen to snapshot `cell` (always this instance's own Cell); see Snapshotter."""
@@ -174,6 +198,9 @@ class RelaySnapshotter:
         future: asyncio.Future[_R] = asyncio.get_running_loop().create_future()
         queue.append(future)
         try:
+            if self._announce is not None:
+                # Ahead of the request on the same ordered link: the Cell may freeze right after.
+                await self._announce(self._timeout_s)
             await self._queen_link.send(wrap(request, self._hop, clock=self._clock))
             async with asyncio.timeout(self._timeout_s):
                 return await future

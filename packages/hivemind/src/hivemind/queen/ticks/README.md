@@ -15,7 +15,11 @@ class stay within codingrules 5.1's size limits.
   declared (`Heartbeat.interval_s`: 15 s for a Virtual Cell's in-Cell Warden, whatever a Swarm
   device keeps), never less than the manifest's `heartbeat_interval_s`; a recorded Heartbeat is
   then handed to
-  `QueenDeps.on_heartbeat` when one is set (the Hive Entrance's telemetry board). `.renew_grants_on_heartbeat` extends every live grant a
+  `QueenDeps.on_heartbeat` when one is set (the Hive Entrance's telemetry board). A Warden whose
+  Cell the Hive itself holds paused -- Overwintered, read from the lifecycle's own dormant list
+  (`QueenDeps.dormant_cell_source`, or the static `dormant_cells`) -- is never judged while the
+  hold lasts, and gets a whole window from the moment it resumes; a snapshot's shorter freeze is
+  announced by the Warden itself, as a longer declared interval. `.renew_grants_on_heartbeat` extends every live grant a
   Heartbeat's own Warden holds; `.check_liveness`'s own sweep also calls
   `hivemind.queen.forage.grants.sweep_expired` every tick, unconditionally, so a grant whose lease
   lapses returns to the pool the same tick it expires. `.handle_infrastructure_item` is the one

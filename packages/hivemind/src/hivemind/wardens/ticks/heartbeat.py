@@ -28,7 +28,11 @@ intervention_kind_for` -- the pure rule shared with `hivemind.queen.ticks.contex
 -- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any sub-bee past its own
 threshold, mirroring the Queen's own watch over this Warden ("Wardens do the same to sub-bees").
 `compact_view` (roadmap step 4.6) now builds a size-capped `CompactView` through `hivemind.memory.
-thresholds.capped_compact_view` rather than the raw telemetry fields.
+thresholds.capped_compact_view` rather than the raw telemetry fields. `announce_freeze` sends this
+same Heartbeat early, declaring a longer interval, right before a relayed snapshot freezes the
+whole Cell (`hivemind.wardens.snapshot_relay`): the Queen judges each Warden by the interval it
+declared, so the freeze the Hive itself caused is never read as this Warden going silent.
+`bind_freeze_announcer` hands it to the Warden's own relay, which exists before the Warden does.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -38,6 +42,7 @@ Fits into the Hive:
     (WardenEvent, for `send_heartbeat`'s own `warden.offline` -- this dispatch's own fix 4),
     `hivemind.supervision` (Alarm, record_alarm_event -- a prior dispatch's own
     alarm-reaches-the-trail fix), `hivemind.supervision.attendant` (InboxItem),
+    `hivemind.wardens.snapshot_relay` (RelaySnapshotter, for `bind_freeze_announcer`),
     `hivemind.wardens.ticks.alarms` (retire_sub_bee, resume_from_handoff) and
     `hivemind.workers.state` (WorkerState) and waggle only.
 
@@ -53,7 +58,8 @@ Key invariants:
       Alarm is now visible on the trail from its very first hop).
     - `send_heartbeat` never raises `TransportClosedError`: the one wire send it makes is wrapped,
       so a heartbeat racing `Warden.stop()`'s own teardown can never crash this Warden's tick loop
-      (this dispatch's own fix 4).
+      (this dispatch's own fix 4); `announce_freeze` shares that same send.
+    - An announced interval is never shorter than this Warden's own `heartbeat_interval_s`.
     - A sub-bee row never outlives the Heartbeat that says it has ended: `record_heartbeat`
       retires it in the same call that mirrors the state, and starts its successor there too
       when this Warden's own Handoff order stopped it, so the task is never left with no bee.
@@ -68,6 +74,7 @@ See Also:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
 
 from hivemind.cell import CellIdentity, HoneyClearance
@@ -91,6 +98,7 @@ from hivemind.memory.thresholds import (
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
+from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.ticks.alarms import resume_from_handoff, retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from hivemind.workers.state import WorkerState
@@ -129,6 +137,8 @@ _WAX_CAP_PER_CELL = 20
 _COMPACT_AT = 0.5
 
 __all__ = [
+    "announce_freeze",
+    "bind_freeze_announcer",
     "check_sub_bee_context",
     "compact_view",
     "hot_state_sources",
@@ -149,6 +159,34 @@ async def send_heartbeat(warden: Warden) -> None:
     closed transport. That is recoverable, recorded as `warden.offline` (the connection to the
     Queen is, in fact, gone), never an exception out of this Warden's own tick loop or `stop()`.
     """
+    await _send_own_heartbeat(warden, warden._deps.heartbeat_interval_s)
+    # Roadmap step 4.6: "Wardens do the same to sub-bees" -- on this same cadence, since a
+    # sub-bee's own last_telemetry is only ever fresh right after send_heartbeat's own aggregation
+    # pass read it into the Heartbeat just sent above.
+    await check_sub_bee_context(warden)
+
+
+async def announce_freeze(warden: Warden, bound_s: float) -> None:
+    """Send this Warden's Heartbeat now, declaring `bound_s` as its interval (module docstring).
+
+    Args:
+        warden: The Warden about to be frozen with its Cell.
+        bound_s: The longest its relay waits for the freeze to end (its own timeout).
+    """
+    # Never shorter than its own cadence: the announcement may only ever widen its window.
+    await _send_own_heartbeat(warden, max(bound_s, warden._deps.heartbeat_interval_s))
+
+
+def bind_freeze_announcer(warden: Warden) -> None:
+    """Have `warden`'s snapshot relay, if it has one, announce each freeze through it."""
+    snapshotter = warden._deps.snapshotter
+    # Only a relayed snapshot freezes this Warden: a Real Cell's own snapshotter never pauses it.
+    if isinstance(snapshotter, RelaySnapshotter):
+        snapshotter.announce_freezes(partial(announce_freeze, warden))
+
+
+async def _send_own_heartbeat(warden: Warden, interval_s: float) -> None:
+    """Build and send this Warden's own Heartbeat declaring `interval_s` (see send_heartbeat)."""
     own_telemetry = ContextTelemetry(
         tokens_used=0,
         context_window=warden._deps.bound.context_window,
@@ -174,7 +212,7 @@ async def send_heartbeat(warden: Warden) -> None:
         children=children,
         grant_id=None,  # v0: this Warden holds no one standing grant of its own to renew here.
         grant_spend=None,
-        interval_s=warden._deps.heartbeat_interval_s,
+        interval_s=interval_s,
     )
     try:
         envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock)
@@ -184,10 +222,6 @@ async def send_heartbeat(warden: Warden) -> None:
         # Queen being gone, not raised, so a heartbeat racing Warden.stop()'s own teardown can
         # never crash this Warden's tick loop or propagate out of stop() itself.
         await _record_link_lost(warden)
-    # Roadmap step 4.6: "Wardens do the same to sub-bees" -- on this same cadence, since a
-    # sub-bee's own last_telemetry is only ever fresh right after send_heartbeat's own aggregation
-    # pass read it into the Heartbeat just sent above.
-    await check_sub_bee_context(warden)
 
 
 async def check_sub_bee_context(warden: Warden) -> None:

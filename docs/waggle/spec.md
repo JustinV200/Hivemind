@@ -769,7 +769,9 @@ renew the Warden's grant.
 - `grant_spend` (`float | None`): total spend charged to that grant so far. At least 0; requires
   `grant_id`.
 - `interval_s` (`float`): the sender's configured heartbeat interval, so the receiver's watchdog
-  can size its timeout. Greater than 0.
+  can size its timeout; on the Heartbeat a sender sends just before it is frozen on purpose (a
+  relayed Cell snapshot pauses the whole Cell), the longest that freeze may last instead. Greater
+  than 0.
 
 #### AlarmRaised
 

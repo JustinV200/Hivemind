@@ -7,8 +7,10 @@ was followed by one manifest window of silence. This module runs a whole Hive --
 Hive Stand's own Warden, `CellListener`, and a real in-Cell Warden over
 `builders.virtual_cells.ContainerSpawningFakeCellBackend` -- with Overwintering on, so the Cell (its
 pause a no-op on the fake backend) and its Warden outlive their one task. It waits for that
-Warden's first Heartbeat, then for the Queen to go on judging it for ten of the manifest's windows
-past it (well short of the Cell's own 45 s window), and checks no Alarm was raised about it.
+Warden's first Heartbeat and for the Cell to be Overwintered, when the Queen holds it and judges
+nothing; resumes it, as a reuse would, so she judges it again; then waits for her to go on judging
+it for ten of the manifest's windows past the resume (well short of the Cell's own 45 s window),
+and checks no Alarm was raised about it.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -42,10 +44,11 @@ from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import Hive, build_hive, run_hive
 from hivemind.cli.in_cell.config import DEFAULT_HEARTBEAT_INTERVAL_S
 from hivemind.manifest import load_manifest
+from hivemind.queen import WardenLiveness
 from hivemind.queen.chat import MAX_CHAT_PAGE, ChatKind, ChatQuery
 from hivemind.supervision import AlarmKind
 from waggle.clock import SystemClock
-from waggle.ids import TaskId, WardenId
+from waggle.ids import CellId, TaskId, WardenId
 
 pytestmark = pytest.mark.e2e
 
@@ -101,14 +104,22 @@ async def _run_past_the_first_beat(hive: Hive) -> None:
             )
             first_beat = _last_beat(hive, cell_warden)
             assert first_beat is not None
+            # Overwintered after its task, the Cell is held: she judges nothing while it sleeps.
+            await wait_until(lambda: _row(hive, cell_warden).held, timeout_s=_GOAL_TIMEOUT_S)
+            # Resumed, as a reuse would, it is judged again, by its own cadence, from the resume.
+            await hive.virtual_cells.lifecycle.resume(_cell_of(hive, cell_warden))
+            await wait_until(lambda: not _row(hive, cell_warden).held, timeout_s=_GOAL_TIMEOUT_S)
+            resumed_at = _row(hive, cell_warden).hold_ended_at
+            assert resumed_at is not None
             # She goes on judging it tick after tick: until she stands on a Stand Heartbeat sent
-            # ten of the manifest's windows after the Cell's one and only beat so far.
+            # ten of the manifest's windows after the resume, with the Cell silent all along.
             stand = hive.warden_link.warden_id
-            past = first_beat + _WINDOWS_PAST * window
+            past = resumed_at + _WINDOWS_PAST * window
             await wait_until(lambda: _beat_since(hive, stand, past), timeout_s=_GOAL_TIMEOUT_S)
-            row = hive.queen.liveness[cell_warden]
+            row = _row(hive, cell_warden)
         assert row.last_heartbeat_at == first_beat  # Silent all along, by the manifest's clock.
         assert row.interval_s == DEFAULT_HEARTBEAT_INTERVAL_S
+        assert not row.held
         assert not row.is_offline
         assert await _unreachable(hive, cell_warden) == []
     finally:
@@ -120,6 +131,17 @@ def _virtual_cell_warden(hive: Hive) -> WardenId:
     stand = hive.warden_link.warden_id
     [cell_warden] = [link.warden_id for link in hive.queen.wardens if link.warden_id != stand]
     return cell_warden
+
+
+def _cell_of(hive: Hive, warden_id: WardenId) -> CellId:
+    """Return the Cell `warden_id` runs on."""
+    [cell_id] = [link.cell.id for link in hive.queen.wardens if link.warden_id == warden_id]
+    return cell_id
+
+
+def _row(hive: Hive, warden_id: WardenId) -> WardenLiveness:
+    """The Queen's own liveness row for `warden_id`; the test fails if there is none."""
+    return hive.queen.liveness[warden_id]
 
 
 def _last_beat(hive: Hive, warden_id: WardenId) -> datetime | None:

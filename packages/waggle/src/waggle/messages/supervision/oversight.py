@@ -156,7 +156,8 @@ class Heartbeat(WaggleMessage):
     interval_s: float = Field(
         gt=MIN_INTERVAL_S,
         description="The sender's configured heartbeat interval, so the receiver's watchdog can "
-        "size its timeout.",
+        "size its timeout; on the Heartbeat a sender sends just before it is frozen on purpose "
+        "(a relayed Cell snapshot), the longest that freeze may last instead.",
     )
 
     @field_validator("children")

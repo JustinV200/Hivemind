@@ -43,6 +43,11 @@ Warden never provisions Cells itself.
   `warden.py`'s own `_settle_after_tick`/`_act` call, split out here to stay within codingrules
   5.1's file-size limit.
 - `WardenDeps` (`deps.py`): every collaborator one Warden is built with.
+- `RelaySnapshotter` (`snapshot_relay.py`, roadmap step 5.10): a Virtual Cell Warden's
+  `Snapshotter`, relayed to the Queen, who alone can reach the backend. A snapshot freezes the
+  whole Cell, this Warden included, so each request is announced first: one Heartbeat declaring
+  the relay's own timeout as the Warden's interval (`ticks.heartbeat.announce_freeze`, bound when
+  the Warden is built), and the Queen judges the frozen Warden by that longer window.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.
 - `cell_request`, `forage_request`, `tool_request`, `propose_wax` (`requests.py`): the requests a
